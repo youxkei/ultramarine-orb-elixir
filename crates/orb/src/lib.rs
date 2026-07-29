@@ -15,7 +15,6 @@ mod overlay;
 mod pe;
 mod profile;
 mod retry_ui;
-mod screenshot;
 mod snapshot;
 mod sync;
 mod text;
@@ -104,11 +103,6 @@ struct Runtime {
     /// Frames left to report the margin every frame, set by a restore so that what
     /// a restore does to the streaming is visible rather than averaged away.
     margin_trace: u32,
-    /// Where to write a picture of the chapter that just started, taken at the
-    /// top of a frame because the back buffer is only whole between them.
-    pending_shot: Option<std::path::PathBuf>,
-    /// The chapter a picture was last taken for.
-    shot_chapter: (i32, u32),
     /// The stream the music was last seen playing through. The game replaces it
     /// when it changes track, which would leave a snapshot pointing at freed
     /// memory, so it is worth knowing exactly when that happens.
@@ -315,8 +309,6 @@ fn attach() {
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
-            pending_shot: None,
-            shot_chapter: (-1, 0),
             stream: (0, None),
             stressed: 0,
             stressing: (-1, 0),
@@ -609,11 +601,6 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .is_some_and(|previous| previous.replay && previous.playing && !previous.demo);
     let repeats = if fast_forward { runtime.config.replay_speed } else { 1 };
 
-    // Between the game's frames, which is when the back buffer holds one.
-    if let Some(path) = runtime.pending_shot.take() {
-        unsafe { screenshot::capture(runtime.game.d3d_device(), &path) };
-    }
-
     let mut result = CHAIN_BREAK;
     let mut state = runtime.previous.unwrap_or(unsafe { runtime.game.read_state() });
     // Timed around orb's own work only: the game's update runs in between, and
@@ -675,9 +662,6 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             unsafe { load_manual(runtime) };
         }
         tune(runtime, &state);
-    }
-    if runtime.config.chapter_tuning {
-        note_chapter_picture(runtime, &state);
     }
     unsafe { stress(runtime, &state) };
     // Polling DirectSound every frame is diagnostic work, so it only happens when
@@ -769,26 +753,6 @@ unsafe fn load_manual(runtime: &mut Runtime) {
     if runtime.config.self_check {
         report_self_check("load", unsafe { snapshot.check() });
     }
-}
-
-/// Asks for a picture of a chapter's first frame, so the boundaries a tuning pass
-/// found can be judged by looking at them rather than by watching the run.
-fn note_chapter_picture(runtime: &mut Runtime, state: &State) {
-    let chapter = (state.stage, runtime.chapters.number());
-    if chapter == runtime.shot_chapter || chapter.1 == 0 {
-        return;
-    }
-    runtime.shot_chapter = chapter;
-    let directory = runtime.config.base_dir.join("chapters");
-    if std::fs::create_dir_all(&directory).is_err() {
-        return;
-    }
-    runtime.pending_shot = Some(directory.join(format!(
-        "s{}_ch{:02}_f{:05}.bmp",
-        chapter.0 + 1,
-        chapter.1,
-        state.script_frames.max(0),
-    )));
 }
 
 /// Watches the streaming margin, which is what a listener hears as the music

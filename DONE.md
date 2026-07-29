@@ -26,7 +26,6 @@ settled by measurement rather than by looking at the screen, the measurement is 
 - **Replay writing suppressed.** Only the write; the game's scene-change teardown, which
   goes through the same function with null arguments, still runs. Stubbing the whole
   function crashed the game later.
-- **Screenshots per chapter**, so boundaries can be judged by looking at images.
 - **Replay-driven automation.** `during_replay` with `replay_speed` lets a replay of a full
   run do the playing, for tuning and for the stress mode.
 - **Append-only log**, with a `quiet`/`normal`/`verbose` level, and a crash line naming the

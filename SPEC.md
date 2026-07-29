@@ -208,9 +208,7 @@ frame numbers someone has to pick. With `chapter_tuning: true`:
 - `tuning_write_key` writes `chapters.rs` beside the launcher.
 
 Paste that over `crates/orb/src/game/th06/chapters.rs` and rebuild. Stages not tuned in a
-session keep whatever is compiled in, so they can be done one at a time. A picture of each
-chapter's first frame is written too, so boundaries can be judged by looking rather than by
-remembering a run. With `during_replay: true` and `replay_speed` above 1, a replay of a full
+session keep whatever is compiled in, so they can be done one at a time. With `during_replay: true` and `replay_speed` above 1, a replay of a full
 run can do the playing.
 
 ## Checking the snapshot engine

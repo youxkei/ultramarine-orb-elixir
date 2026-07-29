@@ -53,10 +53,6 @@ pub const D3DPT_TRIANGLESTRIP: u32 = 5;
 pub const D3DPOOL_MANAGED: u32 = 1;
 pub const D3DFMT_A8R8G8B8: u32 = 21;
 pub const D3DSBT_ALL: u32 = 1;
-pub const D3DLOCK_READONLY: u32 = 0x10;
-pub const D3DBACKBUFFER_TYPE_MONO: u32 = 0;
-pub const D3DFMT_X8R8G8B8: u32 = 22;
-pub const D3DFMT_R5G6B5: u32 = 23;
 pub const D3DCLEAR_TARGET: u32 = 0x1;
 pub const D3DCLEAR_ZBUFFER: u32 = 0x2;
 
@@ -89,10 +85,7 @@ pub struct Device {
 #[repr(C)]
 pub struct DeviceVtable {
     _iunknown: [usize; 3],
-    _slot_3_to_15: [usize; 13],
-    pub get_back_buffer:
-        unsafe extern "system" fn(*mut Device, u32, u32, *mut *mut Surface) -> Hresult,
-    _slot_17_to_19: [usize; 3],
+    _slot_3_to_19: [usize; 17],
     pub create_texture: unsafe extern "system" fn(
         *mut Device,
         u32,
@@ -137,35 +130,6 @@ pub struct DeviceVtable {
 }
 
 #[repr(C)]
-pub struct SurfaceDesc {
-    pub format: u32,
-    pub kind: u32,
-    pub usage: u32,
-    pub pool: u32,
-    pub size: u32,
-    pub multi_sample_type: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[repr(C)]
-pub struct Surface {
-    pub vtable: *const SurfaceVtable,
-}
-
-#[repr(C)]
-pub struct SurfaceVtable {
-    _query_interface: usize,
-    _add_ref: usize,
-    pub release: unsafe extern "system" fn(*mut Surface) -> u32,
-    _slot_3_to_7: [usize; 5],
-    pub get_desc: unsafe extern "system" fn(*mut Surface, *mut SurfaceDesc) -> Hresult,
-    pub lock_rect:
-        unsafe extern "system" fn(*mut Surface, *mut LockedRect, *const c_void, u32) -> Hresult,
-    pub unlock_rect: unsafe extern "system" fn(*mut Surface) -> Hresult,
-}
-
-#[repr(C)]
 pub struct Texture {
     pub vtable: *const TextureVtable,
 }
@@ -191,7 +155,6 @@ const fn slot(index: usize) -> usize {
 }
 
 const _: () = {
-    assert!(offset_of!(DeviceVtable, get_back_buffer) == slot(16));
     assert!(offset_of!(DeviceVtable, create_texture) == slot(20));
     assert!(offset_of!(DeviceVtable, begin_scene) == slot(34));
     assert!(offset_of!(DeviceVtable, end_scene) == slot(35));
@@ -207,10 +170,6 @@ const _: () = {
     assert!(offset_of!(DeviceVtable, set_texture_stage_state) == slot(63));
     assert!(offset_of!(DeviceVtable, draw_primitive_up) == slot(72));
     assert!(offset_of!(DeviceVtable, set_vertex_shader) == slot(76));
-    assert!(offset_of!(SurfaceVtable, release) == slot(2));
-    assert!(offset_of!(SurfaceVtable, get_desc) == slot(8));
-    assert!(offset_of!(SurfaceVtable, lock_rect) == slot(9));
-    assert!(offset_of!(SurfaceVtable, unlock_rect) == slot(10));
     assert!(offset_of!(TextureVtable, release) == slot(2));
     assert!(offset_of!(TextureVtable, lock_rect) == slot(16));
     assert!(offset_of!(TextureVtable, unlock_rect) == slot(17));

@@ -6,10 +6,22 @@
 in it. Boss chapters work without a table, so what is missing is the boundaries between a
 stage's waves.
 
-Everything needed is built. `chapter_tuning: true` with `during_replay: true` and
+Most of what is needed is built. `chapter_tuning: true` with `during_replay: true` and
 `replay_speed: 8` lets a replay of a full run do the playing: boundaries are proposed at the
-quiet moments, the tuning keys correct them, `tuning_write_key` writes the file, and a
-picture of each chapter's first frame is left to judge them by.
+quiet moments, the tuning keys correct them, and `tuning_write_key` writes the file.
+
+What is missing is a way to look at a boundary. Judging one needs the frame it falls on, and at
+eight updates to a drawn frame nothing drawn is within eight updates of it.
+
+Moving between chapters during replay playback gives that: stop at a boundary and watch it,
+step to the next, step back. Both directions are made of pieces that exist.
+
+- **Forward** is the ending skip's mechanism: run updates without drawing until the chapter
+  number goes up.
+- **Back** is a restore followed by the same thing. A restore rewinds the replay with
+  everything else, so restoring the stage's start and running forward to the boundary before
+  the current one lands exactly there. A stage is a few thousand updates and an update is tens
+  of microseconds, so it costs a visible pause and nothing more.
 
 This is the original point of the project and the last substantial piece of it.
 
