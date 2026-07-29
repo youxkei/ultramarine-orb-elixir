@@ -121,8 +121,8 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl Config {
-    /// Loads `orb.yaml` from the directory holding `module_path`, which is the
-    /// launcher exe or `orb.dll` depending on the caller.
+    /// Loads `orb.yaml` from the directory holding `module_path`: the launcher's own exe,
+    /// or the game's when the injected DLL is asking.
     pub fn load_beside(module_path: &Path) -> Result<Self, Error> {
         let base_dir = module_path.parent().unwrap_or(Path::new(".")).to_owned();
         Self::load(&base_dir.join(FILE_NAME))

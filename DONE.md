@@ -39,7 +39,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
 
 ## The frame loop
 
-Settled by measurement, after several wrong turns recorded in SPEC.md.
+Settled by measurement.
 
 - **Exactly 60fps, locked to the game's monitor.** `frame: 600 frames, 16666us apart, gaps
   in refreshes 2x600` — every frame of 600 exactly two refreshes apart on a 120Hz display.

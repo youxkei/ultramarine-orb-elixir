@@ -25,16 +25,37 @@ step to the next, step back. Both directions are made of pieces that exist.
 
 This is the original point of the project and the last substantial piece of it.
 
+## Support Touhou games other than 紅魔郷
+
+The chapter, snapshot, retry and frame-loop code is written against `Game` and `State` and
+knows nothing about which game it is in. What has to be supplied per game is a `Game`
+implementation: a table of addresses and a handful of accessors. One DLL carries them all and
+picks by the exe it finds itself inside, since none of the work is per-game code — see
+[SPEC.md](SPEC.md) for why that is not split the way vpatch's is.
+
+The th06-specific things that live outside `game/th06/` and would each become a table:
+
+| | |
+| --- | --- |
+| `launcher/main.rs` | `GAME_EXE` and `GAME_EXE_MD5`, and the error text naming 1.02h |
+| `orb/lib.rs` | `static GAME: Th06`, chosen rather than fixed |
+| `orb/lib.rs` | the `vpatch_th06.dll` name in the "vpatch loaded" line |
+| `orb/game/th06/chapters.rs` | `MIDSTAGE` is seven stages because 紅魔郷 has seven |
+
+Two things to settle before the second game rather than after: whether `State` says everything
+a chapter needs for a game whose scoring or resources work differently, and whether the
+midstage table's shape — script frame numbers per stage — holds where stages are not one
+script on one clock.
+
 ## Skip the ending but keep the staff roll
 
-`skip_ending` currently runs out everything `isInEnding` covers. Whether the staff roll is
-inside that or a scene of its own is not known, and guessing at it is how the last few
-mistakes happened.
+`skip_ending` runs out everything `isInEnding` covers. Whether the staff roll is inside that or
+a scene of its own is not known.
 
-One real ending settles it. The log now writes `ending skipped, N frames run, scene 10 -> M`
-when it finishes, so clearing stage 6 once — or playing a replay of a clear — says whether
-the scene after the ending is the staff roll (leave it alone) or something later (the roll is
-inside scene 10 and needs distinguishing another way).
+One real ending settles it. The log writes `ending skipped, N frames run, scene 10 -> M` when
+the skip finishes, so clearing stage 6 once — or playing a replay of a clear — says whether the
+scene after the ending is the staff roll, in which case it is already left alone, or something
+later, in which case the roll is inside scene 10 and needs distinguishing another way.
 
 ## Resume a chapter after quitting
 
@@ -76,9 +97,9 @@ Either way the game's own file must come out unchanged, which is the part to ver
 
 ## Confirm `self_check`
 
-Never run on a real session. It should report zero saved regions failing to restore, and no
-untracked region changing outside the process heap. It pauses the game for as long as
-fingerprinting every private page takes, which is why it was deferred.
+It should report zero saved regions failing to restore, and no untracked region changing outside
+the process heap. It pauses the game for as long as fingerprinting every private page takes,
+which is why running it is a deliberate session rather than something left on.
 
 ## Decide the joystick default
 
@@ -107,9 +128,8 @@ Measured against the built DLL, so this is what it would actually take:
 
 The mechanics are a few hundred lines. The costs are that TLS hazard, and that a manually
 mapped image is in no module list — so `GetModuleFileNameW` returns nothing for it and the
-crash handler can no longer say which module an address is in. Nearly everything that has
-gone wrong in this project was found by reading `module+offset` out of the log, so that is
-not a small thing to give up.
+crash handler can no longer say which module an address is in. `module+offset` out of the log is
+how a fault in orb's own code gets located at all, so that is not a small thing to give up.
 
 Resolving imports from the injector rather than from a stub inside the target also assumes
 system DLLs share a base across processes. They usually do within a boot session. Usually.

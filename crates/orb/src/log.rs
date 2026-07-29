@@ -1,4 +1,4 @@
-//! Append-only log beside `orb.dll`.
+//! Append-only log beside the game exe, which is where the launcher and `orb.yaml` are too.
 //!
 //! Every run appends rather than starting the file over: a run worth looking at
 //! is often over by the time anyone looks, and the next launch would otherwise

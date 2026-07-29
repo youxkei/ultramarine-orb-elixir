@@ -914,4 +914,3 @@ unsafe fn write_status(runtime: &mut Runtime) {
     }
     unsafe { window::write_beside(&lines) };
 }
-

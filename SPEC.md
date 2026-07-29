@@ -143,8 +143,9 @@ frames those ends fall in.
 
 ## The ending
 
-The ending is run out inside the frame it starts on, so no frame of it is drawn, rather than
-jumped over — the ending is also where the game sets the clear flag and enters the score.
+With `skip_ending`, the ending is run out inside the frame it starts on, so no frame of it is
+drawn, rather than jumped over — the ending is also where the game sets the clear flag and
+enters the score.
 Bounded at two minutes of game time, stopped by the scene changing, and never entered during a
 demo or a replay.
 
@@ -176,6 +177,10 @@ them unloaded.
 inside — the game's, which is where the launcher is installed too — and not relative to the
 DLL.
 
+Three keys are about this rather than about behaviour: `game_dir` says where the game is when
+it is not beside the launcher and `orb_dll` names a DLL to load instead of the carried
+one.
+
 One DLL covers every game it is taught, and is not split per game the way vpatch's is. vpatch
 patches per-game code; orb's per-game part is a `Game` implementation, which is a table of
 addresses and a handful of accessors. Splitting would copy the snapshot, chapter, retry and
@@ -183,16 +188,22 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 
 ## Configuration
 
-`orb.yaml`, read from the game's directory by both halves, so each has to know every key. A
+`orb.yaml` is read by both halves, so each has to know every key: the launcher takes it from
+its own directory or from `--config`, and orb from the directory of the game exe it is inside.
+Installed as the README describes, those are the same place. A
 flat list of `key: value`; an unknown key is an error rather than being ignored. What each key
 does is in the comments of the file.
 
-Two worth naming here:
+Some worth naming here:
 
 - `joystick: false` — skips the game's joystick read; see *Input*.
 - `log_level: quiet | normal | verbose` — `quiet` is startup and faults; `normal` adds a line
   a second on the frames and the sound and a line per scene; `verbose` adds a line per frame
   that did not come out on the cadence, saying where that frame's time went.
+- `skip_ending`, `block_replay_save`, `borderless`, `own_frame_loop`, `always_draw` — each
+  turns off one of the behaviours described above, leaving the game to do it its own way.
+- `chapters`, `track_memory`, `frame_hooks` — the parts orb is built out of, so a fault can be
+  narrowed by taking them away. With all three off orb is loaded and does nothing of its own.
 
 `orb.log` is appended to rather than started over, because a run worth looking at is usually
 over before anyone looks. A crash adds a line naming the faulting module and offset.
@@ -208,8 +219,8 @@ frame numbers someone has to pick. With `chapter_tuning: true`:
 - `tuning_write_key` writes `chapters.rs` beside the launcher.
 
 Paste that over `crates/orb/src/game/th06/chapters.rs` and rebuild. Stages not tuned in a
-session keep whatever is compiled in, so they can be done one at a time. With `during_replay: true` and `replay_speed` above 1, a replay of a full
-run can do the playing.
+session keep whatever is compiled in, so they can be done one at a time. With
+`during_replay: true` and `replay_speed` above 1, a replay of a full run can do the playing.
 
 ## Checking the snapshot engine
 
@@ -233,16 +244,21 @@ game's entry point and the memory hooks see the first allocation.
 | --- | --- |
 | `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
 | `crates/orb-config` | `orb.yaml`, shared by both halves |
+| `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |
 | `orb/snapshot.rs` | save and restore of `.data`, those regions, and the music |
+| `orb/threads.rs` | finding and suspending the game's other threads, leaving the audio one alone |
 | `orb/audio.rs` | the sound buffer and file position, which live outside the game's memory |
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the borderless window, the letterbox, the status line |
+| `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
 | `orb/overlay.rs`, `text.rs`, `d3d8.rs` | drawing over the game's frame |
+| `orb/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
+| `orb/crash.rs` | the handler that names the module and offset a fault happened at |
 | `orb/game/mod.rs` | `Game` and `State`: everything above is written against these |
 | `orb/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
 
