@@ -1,0 +1,13 @@
+[build]
+target = "i686-pc-windows-gnu"
+
+# Artifact dependencies, so the launcher can depend on `orb` as a cdylib and be handed the
+# path of the built DLL to carry inside itself. Cargo then orders the two builds and
+# rebuilds the launcher when the DLL changes, neither of which it will do for a sibling
+# crate reached any other way.
+[unstable]
+bindeps = true
+
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"
+ar = "i686-w64-mingw32-ar"

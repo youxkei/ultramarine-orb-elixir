@@ -1,0 +1,7 @@
+# Nightly for one feature: artifact dependencies (`-Z bindeps`), which is how the
+# launcher gets orb.dll to carry inside itself. Cargo builds the cdylib first and hands
+# over its path, so the two halves cannot fall out of step and there is one file to
+# install rather than two.
+[toolchain]
+channel = "nightly"
+targets = ["i686-pc-windows-gnu"]

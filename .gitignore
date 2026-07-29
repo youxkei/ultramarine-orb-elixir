@@ -1,0 +1,11 @@
+/target
+
+# Whatever anyone wraps the build and copy in. What to build and where to put it is in the
+# README; a script doing it is one person's workflow, and the last one carried that person's
+# machine in it.
+/scripts
+
+# vpatch's own redistributable, kept beside the tree for reference rather than
+# vendored: orb does the same jobs itself now, and its readme is the reference
+# worth having, not the binaries. Drop this line to vendor it.
+/vpatch_rev4

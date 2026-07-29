@@ -1,0 +1,31 @@
+[package]
+name = "orb-launcher"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "orb-launcher"
+path = "src/main.rs"
+
+[dependencies]
+orb-config.workspace = true
+md-5 = "0.10"
+
+# Not linked against: depended on for its built cdylib, whose path arrives as
+# `CARGO_CDYLIB_FILE_ORB` so the launcher can carry the DLL inside itself.
+[dependencies.orb]
+path = "../orb"
+artifact = "cdylib"
+target = "i686-pc-windows-gnu"
+
+[dependencies.windows-sys]
+workspace = true
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+]

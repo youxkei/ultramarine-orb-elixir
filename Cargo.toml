@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/launcher", "crates/orb", "crates/orb-config"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+orb-config = { path = "crates/orb-config" }
+windows-sys = "0.59"
+
+[profile.release]
+# Unwinding out of a hook would cross back into the game's frames, which the
+# game's MSVC6 code cannot handle. Abort instead; the panic hook logs first.
+panic = "abort"
+lto = true
+codegen-units = 1
