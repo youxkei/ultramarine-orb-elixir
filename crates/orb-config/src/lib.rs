@@ -17,10 +17,6 @@ pub struct Config {
     /// Directory holding `orb.yaml`; every relative path below resolves here.
     pub base_dir: PathBuf,
     pub game_dir: PathBuf,
-    /// `None` unless asked for. orb does vpatch's job itself now — borderless,
-    /// pacing, the input-lag fix, drawing while unfocused — and the two would
-    /// fight over the window and the frame timing.
-    pub vpatch_dll: Option<PathBuf>,
     /// An `orb.dll` to load instead of the one the launcher carries inside itself. Blank
     /// for the carried one, which is what makes the launcher the only file to install.
     pub orb_dll: Option<PathBuf>,
@@ -156,7 +152,6 @@ impl Config {
         };
         let config = Self {
             game_dir: path_of("game_dir")?.unwrap_or_else(|| base_dir.clone()),
-            vpatch_dll: path_of("vpatch_dll")?,
             orb_dll: path_of("orb_dll")?,
             chapters: doc.bool("chapters")?.unwrap_or(true),
             track_memory: doc.bool("track_memory")?.unwrap_or(true),
@@ -208,7 +203,6 @@ mod tests {
         assert_eq!(config.game_dir, PathBuf::from("/opt/orb"));
         // The launcher carries orb.dll; a path here is an override, not the normal case.
         assert_eq!(config.orb_dll, None);
-        assert_eq!(config.vpatch_dll, None);
         assert_eq!(config.save_state_key, keys::C);
         assert_eq!(config.load_state_key, keys::V);
         assert_eq!(config.tuning_add_key, keys::A);
@@ -231,24 +225,14 @@ mod tests {
 
     #[test]
     fn relative_paths_resolve_against_the_config_directory() {
-        let config = parse("game_dir: game\nvpatch_dll: vpatch/vpatch_th06.dll\n");
+        let config = parse("game_dir: game\n");
         assert_eq!(config.game_dir, PathBuf::from("/opt/orb/game"));
-        assert_eq!(config.vpatch_dll, Some(PathBuf::from("/opt/orb/vpatch/vpatch_th06.dll")));
     }
 
     #[test]
     fn absolute_paths_are_kept_as_written() {
         let config = parse("game_dir: /srv/th06\n");
         assert_eq!(config.game_dir, PathBuf::from("/srv/th06"));
-    }
-
-    #[test]
-    fn vpatch_is_only_loaded_when_asked_for() {
-        assert_eq!(parse("").vpatch_dll, None);
-        assert_eq!(
-            parse("vpatch_dll: vpatch_th06.dll\n").vpatch_dll,
-            Some(PathBuf::from("/opt/orb/vpatch_th06.dll")),
-        );
     }
 
     #[test]

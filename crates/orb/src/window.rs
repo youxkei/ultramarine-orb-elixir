@@ -38,7 +38,7 @@ const BLACK: COLORREF = 0x0000_0000;
 const BORDERLESS_STYLE: u32 = WS_POPUP | WS_VISIBLE;
 
 /// The window class the game registers and creates. Matching it means orb leaves
-/// alone any other window the game or vpatch makes.
+/// alone any other window the game makes.
 const GAME_WINDOW_CLASS: &CStr = c"BASE";
 /// How tall the lines written beside the game are, in pixels of the monitor rather than
 /// of the game — this text is not scaled with the game's output.

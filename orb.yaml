@@ -4,11 +4,6 @@
 # Directory holding 東方紅魔郷.exe. Blank: this file's directory.
 game_dir:
 
-# vpatch, if you want it. Blank — the default — starts the game without it: orb
-# does the same jobs itself (borderless, frame pacing, the input-lag fix, drawing
-# while unfocused) and the two would fight over the window and the frame timing.
-vpatch_dll:
-
 # An orb.dll to load instead of the one orb-launcher.exe carries inside itself.
 # Blank for the carried one, which is the normal case — there is no orb.dll to
 # install. Only useful for trying a different build against the same config.
@@ -20,8 +15,7 @@ load_state_key: v
 
 # Borderless, filling the monitor with the game's aspect ratio kept and the rest
 # of the screen black. The game's own fullscreen setting is overruled, so what
-# custom.exe says about it does not matter. Leave vpatch's [Window] section
-# disabled, or the two will fight over where the window goes.
+# custom.exe says about it does not matter.
 borderless: true
 
 # Never show the ending or the staff roll. They are run out inside the frame they

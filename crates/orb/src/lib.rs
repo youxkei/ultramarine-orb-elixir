@@ -180,7 +180,6 @@ fn attach() {
         return log!("no .data section in the exe; orb is doing nothing this run");
     };
     log!(".data {:#010x}..{:#010x} ({} bytes)", data.start, data.end, data.len());
-    log!("vpatch loaded: {}", is_loaded("vpatch_th06.dll"));
     frame::configure();
 
     let config = match log::host_exe().map(|path| Config::load_beside(&path)) {
@@ -916,7 +915,3 @@ unsafe fn write_status(runtime: &mut Runtime) {
     unsafe { window::write_beside(&lines) };
 }
 
-fn is_loaded(module: &str) -> bool {
-    let name: Vec<u16> = module.encode_utf16().chain([0]).collect();
-    !unsafe { GetModuleHandleW(name.as_ptr()) }.is_null()
-}

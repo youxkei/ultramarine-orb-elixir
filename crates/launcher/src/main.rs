@@ -1,5 +1,7 @@
-//! Starts 東方紅魔郷 with `vpatch_th06.dll` and `orb.dll` loaded before the
-//! game's entry point runs.
+//! Starts 東方紅魔郷 with `orb.dll` loaded before the game's entry point runs.
+//!
+//! The DLL is carried inside this exe and written out to be loaded, so installing orb is one
+//! file.
 
 mod inject;
 
@@ -48,9 +50,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let process = inject::spawn_suspended(&game_exe, &config.game_dir)?;
-    if let Some(vpatch_dll) = &config.vpatch_dll {
-        load_library(&process, vpatch_dll)?;
-    }
     load_library(&process, &orb_dll)?;
     process.resume()?;
 

@@ -10,8 +10,8 @@ Returning to a chapter restores a snapshot of the game's memory taken at the cha
 start, rather than asking the game to jump somewhere. Nothing has to understand what a
 boss's script was in the middle of.
 
-orb also does what vpatch did — borderless fullscreen, its own frame pacing, and a frame of
-input lag removed by updating before drawing — so vpatch is not loaded unless asked for.
+orb does its own borderless fullscreen, its own frame pacing, and removes a frame of input lag
+by updating before drawing, so nothing else has to be loaded alongside it.
 
 Only 1.02h is supported (`md5 fa3d64768b1bfc50703dedc2db92f7fa`). The launcher checks the
 exe before starting it, because every address orb uses was read off that exact build.

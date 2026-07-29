@@ -1,9 +1,9 @@
 //! Trampoline hooks over the game's code.
 //!
 //! Only functions whose first instructions are position-independent can be
-//! hooked this way, so the expected bytes are passed in and checked: vpatch
-//! also patches this exe, and a silent mismatch would mean relocating an
-//! instruction that cannot be relocated.
+//! hooked this way, so the expected bytes are passed in and checked. A silent
+//! mismatch would mean relocating an instruction that cannot be relocated, and
+//! anything else patching the same exe would cause one.
 
 use std::ffi::c_void;
 use std::fmt;
