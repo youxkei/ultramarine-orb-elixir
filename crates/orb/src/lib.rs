@@ -78,23 +78,39 @@ const ENDING_SKIP_LIMIT: u32 = 60 * 120;
 /// never reach a boss, which is where the paths worth exercising are.
 const STRESS_PER_CHAPTER: u32 = 4;
 
-/// The wash over the play field the moment a boundary is reached, how long it stays at
-/// full before it starts to go, and how many drawn frames it lasts altogether. Only in a
-/// judging pass: a boundary is a frame among thousands, and what says one has been reached
-/// should not be a number to read.
-///
 /// Green rather than white, because the game itself flashes white — a bomb, a boss going
 /// down — and a mark that means something orb decided should not look like something the
 /// game did. Nothing in 紅魔郷 fills the play field with green.
-///
-/// It holds before it fades because a wash that starts fading at once reads as dim
-/// however bright its first frame is, and one frame in twenty is all that frame gets.
-/// Gone inside a third of a second either way: the frame underneath is the thing being
-/// judged.
 const FLASH_COLOR: u32 = 0x0040_ff40;
-const FLASH_ALPHA: u32 = 0xc0;
-const FLASH_HOLD: u32 = 5;
-const FLASH_FRAMES: u32 = 16;
+
+/// The wash over the play field the moment a boundary is reached: how far it goes, how long
+/// it stays at full before it starts to go, and how many drawn frames it lasts altogether.
+///
+/// It holds before it fades because a wash that starts fading at once reads as dim however
+/// bright its first frame is.
+#[derive(Clone, Copy)]
+struct Flash {
+    alpha: u32,
+    hold: u32,
+    frames: u32,
+}
+
+/// A judging pass, where the wash is the instrument the pass is run with: a boundary is a
+/// frame among a stage's thousands, and what says one has been reached should not be a
+/// number to read. Nobody is playing, so it can take the field for the sixth of a second it
+/// has — one frame in twenty is all the frame underneath gets — and still be gone before the
+/// next boundary.
+const FLASH_JUDGING: Flash = Flash { alpha: 0xc0, hold: 5, frames: 16 };
+
+/// A run somebody is playing, where the same wash would be in the way rather than useful: a
+/// chapter begins every few seconds through a fight, and the frame one lands on is a frame
+/// being dodged on. So it says a chapter began — which is where dying now sends you back
+/// to — through bullets that stay readable, and is gone inside a quarter of a second.
+///
+/// Dimmer and shorter than a judging pass's, but not by as much as it was: 0x40 held two
+/// frames of ten went unnoticed in play, where attention is on the player and not on the
+/// field. Somebody watching a pass is looking straight at the frame the wash is on.
+const FLASH_PLAYING: Flash = Flash { alpha: 0x70, hold: 3, frames: 14 };
 
 /// This process's command line, which for the game is what the launcher wrote: the game's own
 /// path and orb's options after it.
@@ -172,8 +188,9 @@ struct Runtime {
     /// Frames left to report the margin every frame, set by a restore so that what
     /// a restore does to the streaming is visible rather than averaged away.
     margin_trace: u32,
-    /// Drawn frames left of the boundary flash, and the boundary it was started for.
-    flash: u32,
+    /// The flash now running — its numbers and the drawn frames of it left — and the
+    /// boundary it was started for.
+    flash: Option<(Flash, u32)>,
     flashed: Option<(i32, u32)>,
     /// The stream the music was last seen playing through. The game replaces it
     /// when it changes track, which would leave a snapshot pointing at freed
@@ -404,7 +421,7 @@ fn attach() {
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
-            flash: 0,
+            flash: None,
             flashed: None,
             stream: (0, None),
             stressed: 0,
@@ -1076,22 +1093,55 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
 /// The boundary rather than the chapter number, because numbering starts again at every
 /// stage: moving between stages lands on chapter 1 of the next one, which is a boundary
 /// reached and would otherwise pass unmarked. Set here rather than where a step ends, so
-/// that a boundary the game runs past under `chapter_hold_key` is marked as well as one
-/// a step stops on.
+/// that a boundary the game runs past while it is being held under `space` is marked as
+/// well as one a step stops on.
 fn boundary_reached(runtime: &mut Runtime, state: &State) {
-    if !runtime.config.chapter_stepping {
-        return;
-    }
     let boundary = (state.stage, runtime.chapters.started_at());
     if runtime.flashed == Some(boundary) {
         return;
     }
     runtime.flashed = Some(boundary);
+    let watching = if runtime.config.chapter_stepping {
+        Watching::Judge
+    } else if state.in_game {
+        Watching::Player
+    } else {
+        Watching::Nobody
+    };
+    if let Some(flash) = flash_for(watching, runtime.config.boundary_flash, runtime.chapters.cause())
+    {
+        runtime.flash = Some((flash, flash.frames));
+    }
+}
+
+/// Who is waiting to see a boundary land, which is what decides the wash it gets.
+#[derive(Clone, Copy, PartialEq)]
+enum Watching {
+    /// A judging pass, where the wash is what the pass is run with.
+    Judge,
+    /// A run somebody is playing, where a boundary says where dying will send them.
+    Player,
+    /// A collecting pass, or a replay being tracked for anything else: sixty-four updates to
+    /// a drawn frame and nobody at the keyboard.
+    Nobody,
+}
+
+/// Which wash a boundary gets, and whether it gets one at all.
+fn flash_for(watching: Watching, wanted: bool, cause: Cause) -> Option<Flash> {
     // Not the stage's own start. A stage beginning is already unmistakable — the title, the
     // music, the field empty — and a wash over the first frame of one says nothing that was
     // not already obvious.
-    if runtime.chapters.cause() != Cause::StageStart {
-        runtime.flash = FLASH_FRAMES;
+    if cause == Cause::StageStart {
+        return None;
+    }
+    match watching {
+        // Whichever way the setting is left: it is about a run somebody is playing, and a
+        // pass with no wash is a pass with nothing to judge a boundary by.
+        Watching::Judge => Some(FLASH_JUDGING),
+        Watching::Player => wanted.then_some(FLASH_PLAYING),
+        // A collecting pass crosses a boundary every few drawn frames, so a wash there is a
+        // green field for twenty minutes and a mark to nobody.
+        Watching::Nobody => None,
     }
 }
 
@@ -1304,23 +1354,21 @@ unsafe fn draw_overlay() {
 
     // Over the play field and no further. The rest of the game's output — the panel beside
     // it, the border around it — is not repainted every frame, so a wash drawn there is
-    // not drawn over again and the white stays on the screen for good.
+    // not drawn over again and stays on the screen for good.
     //
-    // Counted down in drawn frames rather than in the game's, because the frame a
-    // boundary falls on is held: the game's clock stops there and the flash would stop
-    // with it.
-    if runtime.flash > 0 {
+    // Counted down in drawn frames rather than in the game's, because a step holds the game
+    // on the frame a boundary falls on: its clock stops there and the flash would stop with
+    // it.
+    if let Some((flash, left)) = runtime.flash.take() {
         let area = runtime.game.play_area();
-        let fading = FLASH_FRAMES - FLASH_HOLD;
-        let alpha = if runtime.flash > fading {
-            FLASH_ALPHA
-        } else {
-            FLASH_ALPHA * runtime.flash / fading
-        };
+        let fading = flash.frames - flash.hold;
+        let alpha = if left > fading { flash.alpha } else { flash.alpha * left / fading };
         if let Some(frame) = unsafe { overlay.frame() } {
             frame.fill(area.left, area.top, area.width, area.height, alpha << 24 | FLASH_COLOR);
         }
-        runtime.flash -= 1;
+        if left > 1 {
+            runtime.flash = Some((flash, left - 1));
+        }
     }
 }
 
@@ -1386,4 +1434,53 @@ unsafe fn write_status(runtime: &mut Runtime) {
         lines.push("HOLD".to_owned());
     }
     unsafe { window::write_beside(&lines) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cause, FLASH_JUDGING, FLASH_PLAYING, Watching, flash_for};
+
+    #[test]
+    fn a_stage_start_is_never_washed() {
+        for watching in [Watching::Judge, Watching::Player, Watching::Nobody] {
+            assert!(flash_for(watching, true, Cause::StageStart).is_none());
+        }
+    }
+
+    #[test]
+    fn a_run_is_washed_unless_the_setting_says_not_to() {
+        let flash = flash_for(Watching::Player, true, Cause::BossSpell);
+        assert_eq!(flash.map(|flash| flash.alpha), Some(FLASH_PLAYING.alpha));
+        assert!(flash_for(Watching::Player, false, Cause::BossSpell).is_none());
+    }
+
+    /// The wash is the instrument a judging pass is run with, so the setting — which is
+    /// about a run being played — does not reach it.
+    #[test]
+    fn a_judging_pass_is_washed_whatever_the_setting_says() {
+        for wanted in [false, true] {
+            let flash = flash_for(Watching::Judge, wanted, Cause::Boundary(1886));
+            assert_eq!(flash.map(|flash| flash.alpha), Some(FLASH_JUDGING.alpha));
+        }
+    }
+
+    /// A collecting pass runs a replay with nobody at the keyboard, and crosses a boundary
+    /// every few drawn frames.
+    #[test]
+    fn a_pass_nobody_is_watching_is_not_washed() {
+        assert!(flash_for(Watching::Nobody, true, Cause::Boundary(1886)).is_none());
+    }
+
+    /// Brighter and longer for the pass nobody is playing, since there nothing is being
+    /// dodged on the frame underneath it.
+    #[test]
+    fn a_judging_pass_is_washed_harder_than_a_run() {
+        assert!(FLASH_JUDGING.alpha > FLASH_PLAYING.alpha);
+        assert!(FLASH_JUDGING.frames > FLASH_PLAYING.frames);
+        // Both fade rather than cutting out, which is what the hold being short of the
+        // whole is: `frames - hold` is the divisor the fade is worked out over.
+        for flash in [FLASH_JUDGING, FLASH_PLAYING] {
+            assert!(flash.hold < flash.frames);
+        }
+    }
 }

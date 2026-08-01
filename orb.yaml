@@ -41,3 +41,9 @@ joystick: true
 # Refuse to write replay files. A run that has been rewound is not a run anyone
 # could have played, so recording it would produce a replay that desynchronises.
 block_replay_save: true
+
+# Wash the play field green the moment a chapter begins, which is where dying now
+# sends you back to. Dim and gone inside a sixth of a second; false for a screen
+# with nothing of orb's on it at all. A --judge pass flashes either way, brighter
+# and longer, since there the wash is what the pass is run with.
+boundary_flash: true

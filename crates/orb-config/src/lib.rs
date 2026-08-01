@@ -87,6 +87,10 @@ pub struct Config {
     /// rather than letting it carry on into the next stage.
     pub chapter_stepping: bool,
     pub block_replay_save: bool,
+    /// Wash the play field the moment a chapter begins, so that where dying sends you back
+    /// to is something seen rather than a number to read. A judging pass flashes whichever
+    /// way this is set: there the wash is what the pass is run with.
+    pub boundary_flash: bool,
     /// Run the ending out without ever drawing it.
     pub skip_ending: bool,
     /// Borderless, scaled to the monitor with the game's aspect ratio kept and
@@ -201,6 +205,7 @@ impl Config {
             replay_speed: 1,
             chapter_stepping: false,
             block_replay_save: doc.bool("block_replay_save")?.unwrap_or(true),
+            boundary_flash: doc.bool("boundary_flash")?.unwrap_or(true),
             skip_ending: doc.bool("skip_ending")?.unwrap_or(true),
             borderless: doc.bool("borderless")?.unwrap_or(true),
             joystick: doc.bool("joystick")?.unwrap_or(true),
@@ -229,6 +234,7 @@ mod tests {
         assert_eq!(config.orb_dll, None);
         assert!(!config.chapter_stepping);
         assert!(config.block_replay_save);
+        assert!(config.boundary_flash);
         assert!(config.skip_ending);
         assert!(config.borderless);
         assert!(config.chapters);
