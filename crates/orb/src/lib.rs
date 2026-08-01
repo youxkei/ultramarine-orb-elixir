@@ -15,6 +15,7 @@ mod overlay;
 mod pe;
 mod profile;
 mod retry_ui;
+mod score;
 mod snapshot;
 mod sync;
 mod text;
@@ -324,6 +325,17 @@ fn attach() {
         match unsafe { threads::install(exe) } {
             Ok(()) => log!("thread hook installed"),
             Err(error) => return log!("thread hook: {error}; orb is doing nothing this run"),
+        }
+    }
+
+    // Only where chapters are: `--no-chapters` leaves orb loaded with nothing of its own
+    // happening, and a run nothing can rewind belongs in the game's own ranking. Loud rather
+    // than fatal if the import is not there, since what it costs is scores in the game's file
+    // and not a run that cannot be played.
+    if config.chapters && config.own_score_file {
+        match unsafe { score::install(exe) } {
+            Ok(()) => log!("score: score.dat is forked to orb_score.dat"),
+            Err(error) => log!("score: {error}; the game will write its own score.dat"),
         }
     }
 

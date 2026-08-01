@@ -42,6 +42,13 @@ joystick: true
 # could have played, so recording it would produce a replay that desynchronises.
 block_replay_save: true
 
+# Keep scores in orb_score.dat beside the game and leave its own score.dat
+# alone, since a run that has been rewound is not a run anyone played. It starts
+# as a copy of score.dat, so nothing it has unlocked is locked again, and the
+# game's ranking screen then shows chapter-mode runs. false ranks them in the
+# game's own file.
+own_score_file: true
+
 # Wash the play field green the moment a chapter begins, which is where dying now
 # sends you back to. Dim and gone inside a sixth of a second; false for a screen
 # with nothing of orb's on it at all. A --judge pass flashes either way, brighter

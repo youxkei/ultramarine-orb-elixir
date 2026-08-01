@@ -87,6 +87,10 @@ pub struct Config {
     /// rather than letting it carry on into the next stage.
     pub chapter_stepping: bool,
     pub block_replay_save: bool,
+    /// Keep the scores of runs orb could rewind in `orb_score.dat` and leave the game's
+    /// `score.dat` alone. Off ranks them in the game's own file, which is where a run nobody
+    /// could have played does not belong.
+    pub own_score_file: bool,
     /// Wash the play field the moment a chapter begins, so that where dying sends you back
     /// to is something seen rather than a number to read. A judging pass flashes whichever
     /// way this is set: there the wash is what the pass is run with.
@@ -205,6 +209,7 @@ impl Config {
             replay_speed: 1,
             chapter_stepping: false,
             block_replay_save: doc.bool("block_replay_save")?.unwrap_or(true),
+            own_score_file: doc.bool("own_score_file")?.unwrap_or(true),
             boundary_flash: doc.bool("boundary_flash")?.unwrap_or(true),
             skip_ending: doc.bool("skip_ending")?.unwrap_or(true),
             borderless: doc.bool("borderless")?.unwrap_or(true),
@@ -234,6 +239,7 @@ mod tests {
         assert_eq!(config.orb_dll, None);
         assert!(!config.chapter_stepping);
         assert!(config.block_replay_save);
+        assert!(config.own_score_file);
         assert!(config.boundary_flash);
         assert!(config.skip_ending);
         assert!(config.borderless);
