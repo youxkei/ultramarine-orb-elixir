@@ -16,11 +16,12 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{COLORREF, HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    ANTIALIASED_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
-    DEFAULT_PITCH, DeleteObject, ETO_OPAQUE, ExtTextOutW, FW_NORMAL, GetDC, GetMonitorInfoW,
-    GetTextExtentPoint32W, HBRUSH, HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
-    MonitorFromPoint, OPAQUE, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkColor, SetBkMode,
-    SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT,
+    ANTIALIASED_QUALITY, BLACKNESS, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap,
+    CreateCompatibleDC, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC,
+    DeleteObject, ExtTextOutW, FW_NORMAL, GetDC, GetMonitorInfoW, GetTextExtentPoint32W, HBRUSH,
+    HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextAlign,
+    SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClientRect, HMENU, WNDCLASSA, WS_POPUP, WS_VISIBLE,
@@ -235,13 +236,17 @@ fn report_letterbox_failure(result: Hresult) {
 /// game on a 16:9 screen is bars down the sides, which is why the lines are stacked
 /// rather than run together.
 ///
-/// Only when the text changes, and with an opaque background, so each line covers what
-/// was there before.
+/// Only when the text changes. What it then paints goes back to black first, all of it,
+/// which is what keeps a shorter stack or a smaller font from leaving part of the line before
+/// it on the screen.
 ///
 /// # Safety
 /// Must run on the thread that owns the window, and outside a scene.
 pub unsafe fn write_beside(lines: &[String]) {
     static SHOWN: MainThread<Vec<String>> = MainThread::new(Vec::new());
+    /// The rows the last call painted, so this one can clear them whether or not it writes
+    /// anything there itself.
+    static PAINTED: MainThread<Option<RECT>> = MainThread::new(None);
     let window = GAME_WINDOW.load(Ordering::Relaxed) as HWND;
     let letterbox = unsafe { letterbox() };
     let Some(letterbox) = letterbox else { return };
@@ -281,45 +286,143 @@ pub unsafe fn write_beside(lines: &[String]) {
     // own edge, so the room is on opposite sides of the same x.
     let room = if align == TA_LEFT { strip.right - x } else { x - strip.left };
 
+    // How far up the black goes. The strip under the game runs the full width of the window,
+    // so a stack taller than that strip would be painted over the game's own output; beside
+    // the game the whole height is orb's.
+    let limit = if beside >= below { client.top } else { letterbox.bottom };
+
     let shown = unsafe { SHOWN.get() };
     if shown == lines {
         return;
     }
-    shown.clear();
-    shown.extend_from_slice(lines);
 
     let dc = unsafe { GetDC(window) };
     if dc.is_null() {
         return;
     }
+    let (font, height) = unsafe { fitting_font(dc, lines, room) };
+    let block = RECT {
+        left: strip.left,
+        top: (bottom - height * lines.len() as i32).max(limit),
+        right: strip.right,
+        bottom,
+    };
+    let painted = unsafe { PAINTED.get() };
+    let bar = Bar {
+        // What the last call painted goes with it, since a stack of fewer lines or a smaller
+        // font does not reach the rows the one before it wrote in.
+        area: painted.map_or(block, |last| union(last, block)),
+        x,
+        bottom,
+        height,
+        align,
+    };
+    let drawn = unsafe { paint(dc, &bar, font, lines) };
     unsafe {
-        let (font, height) = unsafe { fitting_font(dc, lines, room) };
-        let previous = SelectObject(dc, font as HGDIOBJ);
-        SetTextColor(dc, 0x00ff_ffff);
-        SetBkColor(dc, 0x0000_0000);
-        SetBkMode(dc, OPAQUE as i32);
-        SetTextAlign(dc, align);
-        // Bottom line last, so the stack grows upwards from the corner.
+        DeleteObject(font as HGDIOBJ);
+        ReleaseDC(window, dc);
+    }
+    // Only once it is on the screen: a draw that failed has left the bar holding whatever it
+    // held, and the next call should be the one that puts it right rather than deciding
+    // there is nothing to do.
+    if drawn {
+        *painted = Some(block);
+        shown.clear();
+        shown.extend_from_slice(lines);
+    }
+}
+
+/// Where a stack of lines goes: the rows to repaint, and where in them the text starts.
+struct Bar {
+    /// Everything to clear and put on the screen, in client coordinates.
+    area: RECT,
+    /// The x the text is aligned from, in client coordinates.
+    x: i32,
+    /// The bottom of the lowest line.
+    bottom: i32,
+    /// One line's height.
+    height: i32,
+    align: u32,
+}
+
+/// Clears the bar to black, writes the lines into it, and puts the result on the screen in
+/// one go.
+///
+/// Through a bitmap of its own rather than straight onto the window, because the clear and
+/// the text are two operations: done on the window, a refresh landing between them shows a
+/// bar with nothing in it, and at 120Hz that is a flicker somebody sees. One `BitBlt` cannot
+/// be caught half done.
+///
+/// # Safety
+/// `dc` must be the window's device context and `font` a live font, both the caller's to
+/// release.
+unsafe fn paint(dc: HDC, bar: &Bar, font: HFONT, lines: &[String]) -> bool {
+    let width = bar.area.right - bar.area.left;
+    let height = bar.area.bottom - bar.area.top;
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+    unsafe {
+        let memory = CreateCompatibleDC(dc);
+        if memory.is_null() {
+            return false;
+        }
+        let bitmap = CreateCompatibleBitmap(dc, width, height);
+        if bitmap.is_null() {
+            DeleteDC(memory);
+            return false;
+        }
+        let previous_bitmap = SelectObject(memory, bitmap as HGDIOBJ);
+        // Asked for by name rather than through a brush of ours: it is the same black the
+        // window class paints the letterbox with, and there is nothing to keep or delete.
+        PatBlt(memory, 0, 0, width, height, BLACKNESS);
+
+        let previous_font = SelectObject(memory, font as HGDIOBJ);
+        SetTextColor(memory, 0x00ff_ffff);
+        SetBkMode(memory, TRANSPARENT as i32);
+        SetTextAlign(memory, bar.align);
+        // Bottom line last, so the stack grows upwards from the corner. A line that would
+        // start above the area — a stack taller than the black there is — runs off the top of
+        // the bitmap and is clipped there, rather than being drawn over the game.
         for (index, line) in lines.iter().rev().enumerate() {
-            let top = bottom - height * (index as i32 + 1);
-            // Cleared across the whole bar, so a line shorter than the one it replaces
-            // leaves nothing of it behind.
-            let strip = RECT { top, bottom: top + height, ..strip };
+            let top = bar.bottom - bar.height * (index as i32 + 1) - bar.area.top;
             let wide: Vec<u16> = line.encode_utf16().collect();
             ExtTextOutW(
-                dc,
-                x,
+                memory,
+                bar.x - bar.area.left,
                 top,
-                ETO_OPAQUE,
-                &strip,
+                0,
+                std::ptr::null(),
                 wide.as_ptr(),
                 wide.len() as u32,
                 std::ptr::null(),
             );
         }
-        SelectObject(dc, previous);
-        DeleteObject(font as HGDIOBJ);
-        ReleaseDC(window, dc);
+        let blitted = BitBlt(
+            dc,
+            bar.area.left,
+            bar.area.top,
+            width,
+            height,
+            memory,
+            0,
+            0,
+            SRCCOPY,
+        ) != 0;
+        SelectObject(memory, previous_font);
+        SelectObject(memory, previous_bitmap);
+        DeleteObject(bitmap as HGDIOBJ);
+        DeleteDC(memory);
+        blitted
+    }
+}
+
+fn union(a: RECT, b: RECT) -> RECT {
+    RECT {
+        left: a.left.min(b.left),
+        top: a.top.min(b.top),
+        right: a.right.max(b.right),
+        bottom: a.bottom.max(b.bottom),
     }
 }
 
