@@ -69,10 +69,16 @@ const CHAIN_EXIT_ERROR: i32 = -1;
 /// A stop on the ending skip, in case an ending ever waits for something that
 /// running the update alone will not deliver.
 ///
-/// Two minutes of game time — longer than any of the endings, and short enough that a
-/// frame spent on the limit is a hitch rather than the several seconds a hundred
-/// thousand updates took when the ending flag was wrongly set.
-const ENDING_SKIP_LIMIT: u32 = 60 * 120;
+/// Above a whole ending, because the point is that no frame of one is drawn and this is a
+/// limit per frame: the loop stops here, the frame it is in goes on to draw whatever the
+/// ending is showing by then, and the next frame picks the skip up again. At 7200 — two
+/// minutes of game time, which was taken for longer than any ending — stage 6's ending hit
+/// it five times and put five frames of itself on the screen.
+///
+/// Fifteen minutes, against the 36,932 updates that ending took, staff roll included. An
+/// update of it costs 13µs — 484ms for all 36,932 — so an ending that never ends is a
+/// pause under a second rather than a game that never comes back.
+const ENDING_SKIP_LIMIT: u32 = 60 * 60 * 15;
 
 /// How many times the stress mode restores the same chapter before letting the
 /// run carry on. Without a limit it would rewind the first chapter for ever and
@@ -786,6 +792,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     if runtime.config.skip_ending && state.in_ending && !state.demo && !state.replay {
         let scene = state.scene;
         let mut frames = 0;
+        // The track, because the staff roll is inside this scene along with the ending and the
+        // scene changing is therefore not what says where the roll begins. A change of track
+        // might be, and this is the one place the question can be answered: the frames are
+        // running here and nowhere else.
+        let mut track = runtime.game.music_identity();
         // Stops at the scene change as well as at the flag, so that whatever follows the
         // ending is reached and then left alone.
         while state.in_ending
@@ -797,6 +808,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
             state = unsafe { runtime.game.read_state() };
             frames += 1;
+            // A second apart rather than every update: identifying a track is a chase through
+            // DirectSound's objects with a `VirtualQuery` at each step, and where in ten
+            // minutes the track changes is not a question that needs finer than a second.
+            if frames % STATE_LOG_INTERVAL == 0 {
+                let playing = runtime.game.music_identity();
+                if playing != track {
+                    log!("ending: track {track:?} -> {playing:?} after {frames} update(s)");
+                    track = playing;
+                }
+            }
         }
         log!("ending skipped, {frames} frames run, scene {scene} -> {}", state.scene);
     }
