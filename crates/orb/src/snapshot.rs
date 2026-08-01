@@ -6,9 +6,11 @@
 //! it — including the allocator's bookkeeping, so pointers stay valid — comes
 //! back unchanged.
 //!
-//! Deliberately not covered: Direct3D and DirectSound objects. The game loads a
-//! stage's resources on entry and creates none while playing, so restoring the
-//! pointers in `.data` leaves them pointing at objects that are still alive.
+//! Deliberately not covered: Direct3D and DirectSound objects. Those cannot be copied,
+//! so the memory holding handles to them is left as the restore finds it — see
+//! `Game::live_handles`. A handle put back from a snapshot names something that may since
+//! have been released, and the game releasing it a second time faults inside itself: which
+//! is what a step back across the frame a boss's graphics are loaded on used to do.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -67,15 +69,18 @@ pub struct Snapshot {
     music: Option<(audio::Music, audio::Saved)>,
     /// The game's audio thread, left running while the game is held still.
     audio_thread: Option<u32>,
-    /// Which track was playing, and where the sound system's state lives. A
-    /// restore compares the first and, if the track has changed, treats the second
-    /// as memory to leave alone.
+    /// Which track was playing. A restore that finds another one playing refuses,
+    /// because what this snapshot holds of the sound has gone with it.
     identity: Option<u32>,
-    audio_state: Vec<Region>,
     /// Memory a restore leaves at its current value. Used to let the music play
     /// on: rewinding a stream whose sound buffer is not being rewound with it is
     /// what makes it loop on a few hundred milliseconds forever.
     preserve: Vec<Region>,
+    /// Memory a restore leaves alone whatever else it does: handles to things outside the
+    /// game's own memory, which cannot be copied into a snapshot and so must not be put
+    /// back from one. Unlike `preserve` this holds even when the sound has been taken down —
+    /// it is not about the sound.
+    live: Vec<Region>,
 }
 
 struct Saved {
@@ -140,17 +145,22 @@ impl Snapshot {
     /// # Safety
     /// Must run on the game's main thread. `regions` must describe currently
     /// mapped memory; ranges that have gone away since are skipped.
-    pub unsafe fn capture(regions: &[Region], audio: Audio, with_inventory: bool) -> Self {
+    pub unsafe fn capture(
+        regions: &[Region],
+        audio: Audio,
+        live: &[Range<usize>],
+        with_inventory: bool,
+    ) -> Self {
         let mut snapshot = Self {
             saved: Vec::new(),
             untracked: Vec::new(),
             music: None,
             audio_thread: None,
             identity: None,
-            audio_state: Vec::new(),
             preserve: Vec::new(),
+            live: Vec::new(),
         };
-        unsafe { snapshot.update(regions, audio, with_inventory) };
+        unsafe { snapshot.update(regions, audio, live, with_inventory) };
         snapshot
     }
 
@@ -160,8 +170,15 @@ impl Snapshot {
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    pub unsafe fn update(&mut self, regions: &[Region], audio: Audio, with_inventory: bool) {
+    pub unsafe fn update(
+        &mut self,
+        regions: &[Region],
+        audio: Audio,
+        live: &[Range<usize>],
+        with_inventory: bool,
+    ) {
         self.audio_thread = audio.thread;
+        self.live = live.iter().map(|r| Region { base: r.start, len: r.len() }).collect();
         let audio_state: Vec<Region> = audio
             .state
             .iter()
@@ -169,9 +186,8 @@ impl Snapshot {
             .collect();
         let (music, preserve) = match audio.policy {
             Music::Rewind(stream) => (stream, Vec::new()),
-            Music::KeepPlaying => (None, audio_state.clone()),
+            Music::KeepPlaying => (None, audio_state),
         };
-        self.audio_state = audio_state;
         self.identity = audio.identity;
         self.preserve = preserve;
         if !self.preserve.is_empty() {
@@ -247,31 +263,55 @@ impl Snapshot {
         self.saved.len()
     }
 
+    /// Whether the music this snapshot holds is the one playing, and so can be put
+    /// back byte for byte.
+    ///
+    /// Once the game has changed track it has freed the stream and released its
+    /// sound buffer, and no amount of memory copying brings a released COM object
+    /// back. Neither is the memory restorable around the stream that replaced it:
+    /// that one was allocated after the snapshot, so writing the snapshot back
+    /// rolls its own object out from under the streaming thread, which is not
+    /// suspended — measured as an access violation inside `DSOUND.dll` writing a
+    /// buffer it no longer owned. Skipping the live ranges only moves it, since the
+    /// heap's bookkeeping still rolls back to before that stream was allocated and
+    /// the next track change frees a block the allocator has been told is free.
+    ///
+    /// So the sound is not restored in that case: it is torn down through the game
+    /// first and started again after, which is what [`Snapshot::restore`] does.
+    fn music_still_playing(&self, game: &dyn crate::game::Game) -> bool {
+        let Some((music, saved)) = &self.music else { return true };
+        let Some(live) = game.music() else { return false };
+        music.still_current(saved, &live, game.music_identity())
+    }
+
     /// # Safety
     /// Must run on the game's main thread, from a point where the game is
     /// between frames: mid-frame the game holds live pointers on the stack that
     /// the restored `.data` knows nothing about.
-    pub unsafe fn restore(&self, identity: Option<u32>) {
-        // The game frees the stream when it changes tracks, so a snapshot taken
-        // under a different track refers to memory that is gone. Its bookkeeping
-        // is left alone too: rewinding a stream that no longer exists is what
-        // makes the music break up.
-        let stale = match &self.music {
-            Some((music, saved)) => !music.still_current(saved, identity),
-            None => false,
-        };
-        if stale {
-            log!("restore: the track has changed since this chapter; leaving the music alone");
+    pub unsafe fn restore(&self, game: &dyn crate::game::Game) {
+        let same_track = self.music_still_playing(game);
+        // Before the copy, while the game's memory is still its own: its allocator
+        // has to see the stream being freed, and the streaming thread has to be
+        // gone before its object is written over.
+        if !same_track {
+            log!("restore: the track has changed since this snapshot; taking the music down");
+            unsafe { game.stop_music() };
         }
         // Nothing between the suspend and the resume may allocate: a suspended
         // thread can hold the allocator's lock, and would never give it back.
         let mut failed = Vec::with_capacity(self.saved.len());
         // Sorted here rather than while writing: the write loop runs with threads
         // suspended and must not allocate or do anything it can avoid.
-        let mut holes = if stale { self.audio_state.clone() } else { self.preserve.clone() };
+        //
+        // Nothing is held back when the sound has been taken down: there is no
+        // longer anything live in those ranges to protect.
+        let mut holes = if same_track { self.preserve.clone() } else { Vec::new() };
+        holes.extend_from_slice(&self.live);
         holes.sort_unstable_by_key(|hole| hole.base);
-        let covered: usize = holes.iter().map(|hole| hole.len).sum();
-        log!("restore: skipping {} audio range(s), {covered} bytes", holes.len());
+        if !holes.is_empty() {
+            let covered: usize = holes.iter().map(|hole| hole.len).sum();
+            log!("restore: skipping {} range(s), {covered} bytes", holes.len());
+        }
         {
             let _suspended = suspend(self.audio_thread);
             for entry in &self.saved {
@@ -282,10 +322,12 @@ impl Snapshot {
         }
         // After the memory copy, so the streaming bookkeeping this has to agree
         // with is already back in place.
-        if let Some((music, saved)) = &self.music {
-            if !stale {
-                unsafe { music.restore(saved) };
+        match &self.music {
+            Some((music, saved)) if same_track => unsafe { music.restore(saved) },
+            _ if !same_track => {
+                unsafe { game.restart_stage_music() };
             }
+            _ => {}
         }
         for region in failed {
             log!("restore: cannot write {:#010x}+{:#x}", region.base, region.len);
@@ -333,29 +375,8 @@ impl Snapshot {
 /// writing a value it had already moved past.
 unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
     let region = entry.region;
-    let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
-    let queried = unsafe {
-        VirtualQuery(region.base as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
-    };
-    // Freed since the snapshot: the game will reach it again through a restored
-    // pointer, so it has to exist at the same address.
-    if queried == 0 || info.State != MEM_COMMIT {
-        let recommitted = unsafe {
-            VirtualAlloc(region.base as *const c_void, region.len, MEM_COMMIT, PAGE_READWRITE)
-        };
-        if recommitted.is_null() {
-            let reserved = unsafe {
-                VirtualAlloc(
-                    region.base as *const c_void,
-                    region.len,
-                    MEM_COMMIT | MEM_RESERVE,
-                    PAGE_READWRITE,
-                )
-            };
-            if reserved.is_null() {
-                return false;
-            }
-        }
+    if !unsafe { commit(region) } {
+        return false;
     }
 
     let mut previous: PAGE_PROTECTION_FLAGS = 0;
@@ -380,6 +401,53 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
         unsafe {
             VirtualProtect(region.base as *const c_void, region.len, previous, &mut previous);
         }
+    }
+    true
+}
+
+/// Puts back any page of `region` that has gone since the snapshot, so that the copy
+/// has somewhere to write. The game will reach every one of them again through a
+/// restored pointer, so they have to exist at the same addresses.
+///
+/// Walked run by run rather than tested at the region's first page. `VirtualQuery`
+/// describes only the run of pages that begins where it is asked, so a region whose
+/// head is still committed answers "committed" while a hole further in has been handed
+/// back to the OS — which the game freeing a few megabytes does. That hole was a fault
+/// inside the copy's own `memcpy`, and `VirtualProtect` over the whole region had
+/// quietly failed for the same reason.
+unsafe fn commit(region: Region) -> bool {
+    let mut at = region.base;
+    while at < region.end() {
+        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        let queried = unsafe {
+            VirtualQuery(at as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+        };
+        if queried == 0 {
+            return false;
+        }
+        let run = (info.BaseAddress as usize + info.RegionSize).min(region.end());
+        if run <= at {
+            return false;
+        }
+        if info.State != MEM_COMMIT {
+            let len = run - at;
+            let committed =
+                unsafe { VirtualAlloc(at as *const c_void, len, MEM_COMMIT, PAGE_READWRITE) };
+            if committed.is_null() {
+                let reserved = unsafe {
+                    VirtualAlloc(
+                        at as *const c_void,
+                        len,
+                        MEM_COMMIT | MEM_RESERVE,
+                        PAGE_READWRITE,
+                    )
+                };
+                if reserved.is_null() {
+                    return false;
+                }
+            }
+        }
+        at = run;
     }
     true
 }

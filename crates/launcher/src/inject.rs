@@ -31,9 +31,13 @@ pub struct Process {
     id: u32,
 }
 
-pub fn spawn_suspended(exe: &Path, working_dir: &Path) -> io::Result<Process> {
+pub fn spawn_suspended(exe: &Path, working_dir: &Path, options: &[String]) -> io::Result<Process> {
     let application = wide(exe);
-    let mut command_line = wide(format!("\"{}\"", exe.display()));
+    // The options ride on the game's command line, which is where the injected DLL reads them
+    // back from. The game never looks at it — `lpCmdLine` appears once in the whole of its
+    // `WinMain`, as the parameter it ignores — so this carries orb's own arguments into the
+    // process without a file or an environment variable in between.
+    let mut command_line = wide(format!("\"{}\" {}", exe.display(), options.join(" ")));
     let working_dir = wide(working_dir);
     let mut startup: STARTUPINFOW = unsafe { zeroed() };
     startup.cb = size_of::<STARTUPINFOW>() as u32;

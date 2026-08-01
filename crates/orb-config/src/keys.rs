@@ -11,6 +11,11 @@ pub const V: VirtualKey = VirtualKey(0x56);
 pub const SHIFT: VirtualKey = VirtualKey(0x10);
 pub const CTRL: VirtualKey = VirtualKey(0x11);
 pub const ALT: VirtualKey = VirtualKey(0x12);
+pub const SPACE: VirtualKey = VirtualKey(0x20);
+pub const LEFT: VirtualKey = VirtualKey(0x25);
+pub const UP: VirtualKey = VirtualKey(0x26);
+pub const RIGHT: VirtualKey = VirtualKey(0x27);
+pub const DOWN: VirtualKey = VirtualKey(0x28);
 
 const NAMED: &[(&str, u8)] = &[
     ("shift", 0x10),

@@ -32,6 +32,10 @@ pub struct Hooks {
     pub draw: Patch,
     /// Writes a replay file. `None` if the game has nothing to suppress.
     pub save_replay: Option<Patch>,
+    /// Finishes off the record of inputs a run is being recorded into. `None` if the
+    /// game does not also run it while playing a replay back, where the record it
+    /// would write into is the replay's own.
+    pub stop_recording: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
     /// is the only moment `force_windowed` can still take effect.
     pub create_window: Option<Patch>,
@@ -89,18 +93,49 @@ pub trait Game {
     /// The music stream, if one is playing and its objects look intact.
     fn music(&self) -> Option<Music>;
 
-    /// Identifies the track playing, changing when the game switches tracks. Used
-    /// to tell a stage's own music from a boss's.
+    /// Identifies the track playing, changing when the game switches tracks. Used to tell a
+    /// stage's own music from a boss's, which is what tells a midboss from the boss a stage
+    /// ends with: a stage's data names two songs and the game plays the second for that
+    /// fight alone.
     fn music_identity(&self) -> Option<u32>;
 
     /// The thread that keeps the music's buffer topped up, which is left running
     /// while the game is held still: its pauses are the ones that are heard.
     fn audio_thread(&self) -> Option<u32>;
 
+    /// Stops the music through the game's own code, so that the stream, its sound
+    /// buffer and its streaming thread all go away the way the game expects.
+    ///
+    /// For a restore that cannot put the sound back: what the snapshot holds of it
+    /// went with the track, and the stream playing now was allocated after the
+    /// snapshot. Called while the game's memory is still its own, because that is
+    /// the only moment freeing that stream is bookkeeping the allocator agrees with.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with nothing suspended.
+    unsafe fn stop_music(&self);
+
+    /// Starts the stage's own track again after such a restore, and returns whether
+    /// there was one to name. The restored state names a stream that no longer
+    /// exists, so that has to be cleared before the game is asked for anything.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, after the memory has been restored.
+    unsafe fn restart_stage_music(&self) -> bool;
+
     /// The memory holding the state of the sound system. A restore that leaves
     /// these alone leaves the music playing, instead of rewinding a stream whose
     /// sound buffer is not being rewound with it.
     fn audio_state(&self) -> Vec<Range<usize>>;
+
+    /// Where the game keeps handles to things that are not its own memory — Direct3D's
+    /// objects — which a snapshot cannot copy and a restore therefore must not rewind. Put
+    /// back, a handle names something released long ago, and the next release of it is a
+    /// use-after-free inside the game.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the game past initialisation.
+    unsafe fn live_handles(&self) -> Vec<Range<usize>>;
 
     fn play_area(&self) -> Rect;
 
@@ -169,6 +204,30 @@ pub trait Game {
     /// Must run on the game's main thread, with the frame drawn.
     unsafe fn present(&self);
 
+    /// Starts the replay being watched at another of its stages, the way the game's own
+    /// replay menu does: it tears this stage down, builds that one, and the replay's
+    /// record of that stage puts the run's state back — the seed, the lives, the power,
+    /// the score so far. Nothing of orb's is involved, which is what makes this the way
+    /// to move between stages rather than restoring a snapshot of one.
+    ///
+    /// False where the replay has no such stage, so that nothing is asked for that
+    /// would drop the game back to its menu.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn jump_to_stage(&self, stage: i32) -> bool;
+
+    /// Whether the replay held in memory is one being played back, whose record of
+    /// inputs nothing may write into.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn replaying(&self) -> bool;
+
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    unsafe fn reproduction(&self) -> Reproduction;
+
     /// Midstage chapter boundaries per stage, as script frame numbers.
     fn midstage_table(&self) -> &'static [&'static [i32]];
 
@@ -177,6 +236,62 @@ pub trait Game {
             .ok()
             .and_then(|stage| self.midstage_table().get(stage).copied())
             .unwrap_or(&[])
+    }
+}
+
+/// What says whether a stage is playing out the same way it did the last time it was
+/// played: the clock the replay feeds its inputs on and the buttons it fed, where the
+/// player is, and how many numbers the game has drawn from its generator.
+///
+/// Two passes over one stage of one replay have to agree on all of it, frame for frame.
+/// That is the premise chapters rest on — a boundary is a frame number, and a step back
+/// replays the stage to reach it — so when they disagree, the first frame they disagree
+/// on and which of these numbers it was are the whole of the diagnosis.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Reproduction {
+    /// `ReplayManager::frameId`, which the replay walks its record of inputs by. Its
+    /// own count, not the stage's: a frame the game does not update does not advance it.
+    pub replay_frame: i32,
+    /// The buttons the update acted on, after the replay has put its own in.
+    pub input: u16,
+    pub player: (f32, f32),
+    /// The top and the height of the box the player is held inside, which is also what
+    /// the player's place at a stage's start is measured from. Nothing on the way into a
+    /// stage puts it back where the stage was reached from another one.
+    pub player_area: (f32, f32),
+    /// How many numbers have come out of the generator since the stage seeded it.
+    pub randoms: u32,
+    /// Items in the air, which nothing about a stage's start puts back to none.
+    pub items: u32,
+    /// The score as shown, which is what an extra life is measured against.
+    pub score: u32,
+    /// How many extra lives the score has already paid for, so that the next one is
+    /// not paid for twice.
+    pub extra_lives: i8,
+    /// What the game makes of how the run is going, which enemies read.
+    pub rank: i32,
+    pub sub_rank: i32,
+}
+
+impl fmt::Display for Reproduction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "replay_frame={} input={:#06x} player={:.2},{:.2} area={:.2}+{:.2} randoms={} \
+             items={} score={} extras={} rank={} subrank={}",
+            self.replay_frame,
+            self.input,
+            self.player.0,
+            self.player.1,
+            self.player_area.0,
+            self.player_area.1,
+            self.randoms,
+            self.items,
+            self.score,
+            self.extra_lives,
+            self.rank,
+            self.sub_rank,
+        )
     }
 }
 
@@ -189,6 +304,11 @@ pub struct State {
     pub scene: i32,
     /// The gameplay scene, whoever is driving it.
     pub playing: bool,
+    /// That scene, or the step between two of its stages. Everything a run's
+    /// snapshots reach through is still alive here, which is what says whether they
+    /// are worth keeping: a stage transition leaves the gameplay scene for a moment
+    /// and is not the run ending.
+    pub in_run: bool,
     /// A run orb should act on: not a menu, and not the attract demo or a replay,
     /// which look like play but have no player to offer a retry to.
     pub in_game: bool,
@@ -201,6 +321,10 @@ pub struct State {
     /// Dying or respawning: no place to start a chapter from, and no place to
     /// return to either.
     pub unsettled: bool,
+    /// A bomb is going off, which clears the screen and makes the player
+    /// invulnerable for a couple of seconds. Also no place to start a chapter: the
+    /// danger has been taken away and comes straight back.
+    pub bombing: bool,
     pub in_dialogue: bool,
     pub stage: i32,
     pub difficulty: i32,
@@ -256,6 +380,7 @@ impl fmt::Display for State {
         }
         for (flag, name) in [
             (self.unsettled, "unsettled"),
+            (self.bombing, "bombing"),
             (self.in_dialogue, "dialogue"),
             (self.paused, "paused"),
             (self.practice, "practice"),

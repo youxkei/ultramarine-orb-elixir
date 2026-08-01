@@ -285,20 +285,23 @@ fn composition() -> Option<(i64, i64)> {
 /// the blanks that makes the frames look even. A grid in clock time is exact to the
 /// microsecond and still lands the frames wherever it likes across the refreshes, which
 /// is visibly worse than being a refresh late now and then.
-pub fn wait_for_slot(speed: u32, window: HWND) {
+pub fn wait_for_slot(window: HWND) {
     if SETTLE_AGE.fetch_add(1, Ordering::Relaxed) >= RESYNC_FRAMES {
         SETTLE_AGE.store(0, Ordering::Relaxed);
         settle(window);
     }
 
-    let speed = speed.max(1);
     let blanks = i64::from(BLANKS_PER_FRAME.load(Ordering::Relaxed));
     let in_front = !window.is_null() && unsafe { GetForegroundWindow() } == window;
-    // A replay being run faster than it was recorded has no display cadence to keep. A
-    // window that is not in front does, but counting refreshes against it comes out
-    // wrong, and the clock will do until that is understood rather than guessed at.
-    if speed > 1 || blanks == 0 || !in_front {
-        return wait_by_clock(speed, blanks);
+    // A window that is not in front has a cadence to keep, but counting refreshes
+    // against it comes out wrong, and the clock will do until that is understood
+    // rather than guessed at.
+    //
+    // A replay being run fast keeps the cadence like anything else: `replay_speed` is
+    // updates per drawn frame, so the frames still come one per turn and only carry
+    // more of the game with them.
+    if blanks == 0 || !in_front {
+        return wait_by_clock(blanks);
     }
 
     // One flush, as an anchor on a real blank, and the clock for the rest of the way.
@@ -317,7 +320,7 @@ pub fn wait_for_slot(speed: u32, window: HWND) {
     if unsafe { DwmFlush() } < 0 {
         // The compositor has gone — turned off, or a session change. The clock will do
         // until `settle` notices.
-        return wait_by_clock(speed, blanks);
+        return wait_by_clock(blanks);
     }
     let blank = now();
 
@@ -342,12 +345,10 @@ pub fn wait_for_slot(speed: u32, window: HWND) {
     sleep_until(blank + cadence - ticks(PREPARE_US.load(Ordering::Relaxed)));
 }
 
-/// The fallback for a display that cannot be divided into 60, and for replays being
-/// run fast.
-fn wait_by_clock(speed: u32, blanks: i64) {
+/// The fallback for a display that cannot be divided into 60.
+fn wait_by_clock(blanks: i64) {
     let period = PERIOD.load(Ordering::Relaxed).max(1);
     let cadence = if blanks > 0 { period * blanks } else { frame_ticks() };
-    let cadence = (cadence / i64::from(speed)).max(1);
 
     let current = now();
     let mut target = NEXT_PRESENT.load(Ordering::Relaxed);

@@ -30,17 +30,17 @@ use orb_config::Config;
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
+use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use chapter::Chapters;
+use chapter::{Chapters, Judgement};
 use game::th06::Th06;
 use game::{Game, State};
 use input::Keyboard;
-use log::{log, summary};
+use log::{detail, log, summary};
 use overlay::Overlay;
 use retry_ui::{Choice, RetryMenu};
-use snapshot::Snapshot;
 use sync::MainThread;
 
 /// How often the state line goes to the log while a run is in progress.
@@ -78,6 +78,77 @@ const ENDING_SKIP_LIMIT: u32 = 60 * 120;
 /// never reach a boss, which is where the paths worth exercising are.
 const STRESS_PER_CHAPTER: u32 = 4;
 
+/// The wash over the play field the moment a boundary is reached, how long it stays at
+/// full before it starts to go, and how many drawn frames it lasts altogether. Only in a
+/// judging pass: a boundary is a frame among thousands, and what says one has been reached
+/// should not be a number to read.
+///
+/// Green rather than white, because the game itself flashes white — a bomb, a boss going
+/// down — and a mark that means something orb decided should not look like something the
+/// game did. Nothing in 紅魔郷 fills the play field with green.
+///
+/// It holds before it fades because a wash that starts fading at once reads as dim
+/// however bright its first frame is, and one frame in twenty is all that frame gets.
+/// Gone inside a third of a second either way: the frame underneath is the thing being
+/// judged.
+const FLASH_COLOR: u32 = 0x0040_ff40;
+const FLASH_ALPHA: u32 = 0xc0;
+const FLASH_HOLD: u32 = 5;
+const FLASH_FRAMES: u32 = 16;
+
+/// This process's command line, which for the game is what the launcher wrote: the game's own
+/// path and orb's options after it.
+fn command_line() -> String {
+    let mut wide = unsafe { GetCommandLineW() };
+    if wide.is_null() {
+        return String::new();
+    }
+    let mut characters = Vec::new();
+    // Walked rather than measured first, since the only length there is to have is the
+    // terminator's position.
+    unsafe {
+        while *wide != 0 {
+            characters.push(*wide);
+            wide = wide.add(1);
+        }
+    }
+    String::from_utf16_lossy(&characters)
+}
+
+/// The keys pressed while a midstage table is being built, and the two that save and restore
+/// by hand for exercising the snapshot engine.
+///
+/// Fixed rather than settings: whoever is building a table is the only person who presses any
+/// of them, and a setting nobody changes is one more thing that can be wrong. The arrow keys
+/// and the modifiers because stepping wants a hand that does not have to think; `a`, `s` and
+/// `d` because they are under the other one.
+mod keys {
+    use orb_config::VirtualKey;
+    use orb_config::keys::*;
+
+    /// Puts a boundary at the frame the game is on, and writes both files.
+    pub const ADD: VirtualKey = A;
+    pub const WRITE: VirtualKey = D;
+    /// Steps to the boundary either side of this frame, and holds or lets go.
+    pub const NEXT: VirtualKey = RIGHT;
+    pub const PREVIOUS: VirtualKey = LEFT;
+    pub const HOLD: VirtualKey = SPACE;
+    /// Judges the boundary the game is standing on, one step per press.
+    pub const KEEP: VirtualKey = UP;
+    pub const DROP: VirtualKey = DOWN;
+    /// Held with a stepping key: across stages, or between the boundaries judged out.
+    pub const ACROSS: VirtualKey = SHIFT;
+    pub const DROPPED: VirtualKey = CTRL;
+}
+
+/// A stop on a chapter step, for a target the run never reaches — a replay that
+/// has ended, or a stage that has no further boundary.
+///
+/// Ten minutes of game time, which is longer than any stage: a step back replays a
+/// stage from its start, so the limit has to be above a whole one, and an update is
+/// tens of microseconds.
+const STEP_LIMIT_FRAMES: u32 = 60 * 60 * 10;
+
 struct Runtime {
     game: &'static dyn Game,
     config: Config,
@@ -85,8 +156,6 @@ struct Runtime {
     frames: u32,
     previous: Option<State>,
     keyboard: Keyboard,
-    /// F5/F9 slot, for checking the engine by hand.
-    manual: Option<Snapshot>,
     /// Created on the first frame that has a Direct3D device; `None` for good
     /// once it has failed, so a broken overlay does not retry every frame.
     overlay: Option<Overlay>,
@@ -103,6 +172,9 @@ struct Runtime {
     /// Frames left to report the margin every frame, set by a restore so that what
     /// a restore does to the streaming is visible rather than averaged away.
     margin_trace: u32,
+    /// Drawn frames left of the boundary flash, and the boundary it was started for.
+    flash: u32,
+    flashed: Option<(i32, u32)>,
     /// The stream the music was last seen playing through. The game replaces it
     /// when it changes track, which would leave a snapshot pointing at freed
     /// memory, so it is worth knowing exactly when that happens.
@@ -112,6 +184,14 @@ struct Runtime {
     stressing: (i32, u32),
     /// `Some` while the game is frozen on the retry menu.
     retry: Option<RetryMenu>,
+    /// Whether the game is being held on a chapter boundary stepped to during a
+    /// replay. Its update does not run while it is; the drawing carries on, which
+    /// is what makes the frame the boundary falls on something to look at.
+    held: bool,
+    /// Whether the end of this stage has already held the run once. Once is enough:
+    /// the hold says the stage is over and going on loses the way back into it, and
+    /// after that the choice has been made.
+    walled: bool,
 }
 
 /// The one game orb knows how to run inside.
@@ -129,6 +209,7 @@ static IN_HOOK: AtomicBool = AtomicBool::new(false);
 static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
 static RUN_DRAW_CHAIN: AtomicUsize = AtomicUsize::new(0);
 static SAVE_REPLAY: AtomicUsize = AtomicUsize::new(0);
+static STOP_RECORDING: AtomicUsize = AtomicUsize::new(0);
 static CREATE_GAME_WINDOW: AtomicUsize = AtomicUsize::new(0);
 static INIT_D3D_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static RENDER: AtomicUsize = AtomicUsize::new(0);
@@ -182,11 +263,21 @@ fn attach() {
     log!(".data {:#010x}..{:#010x} ({} bytes)", data.start, data.end, data.len());
     frame::configure();
 
-    let config = match log::host_exe().map(|path| Config::load_beside(&path)) {
+    let mut config = match log::host_exe().map(|path| Config::load_beside(&path)) {
         Some(Ok(config)) => config,
         Some(Err(error)) => return log!("config: {error}; orb is doing nothing this run"),
         None => return log!("cannot locate the game exe; orb is doing nothing this run"),
     };
+    // The rest comes off this process's own command line, which the launcher wrote when it
+    // created the game: what belongs to building the midstage table or to looking into a fault
+    // changes from one launch to the next, so it is said at the launch rather than kept in a
+    // file. The launcher has read them once already and refused to start on anything it could
+    // not; this is the same reading, and a second complaint if the game was started some other
+    // way.
+    let command_line = command_line();
+    if let Err(error) = config.take_arguments(orb_config::args::options_in(&command_line)) {
+        return log!("arguments: {error}; orb is doing nothing this run");
+    }
     log!(
         "config: game_dir={} log_level={} self_check={} chapter_tuning={} \
          block_replay_save={} skip_ending={} borderless={} during_replay={} \
@@ -267,6 +358,12 @@ fn attach() {
         }
         _ => {}
     }
+    // Not behind a setting: it takes nothing away from a run being recorded, and
+    // without it moving between a replay's stages quietly damages the replay in
+    // memory.
+    if let Some(patch) = patches.stop_recording {
+        hooks.push(("replay record end", patch, stop_recording as usize, &STOP_RECORDING));
+    }
     if config.borderless {
         match unsafe { window::install(exe, GAME.content_size()) } {
             Ok(()) => log!("borderless: window hooks installed"),
@@ -290,7 +387,7 @@ fn attach() {
         }
     }
 
-    let tuning = config.chapter_tuning.then(|| config.base_dir.join("chapters.rs"));
+    let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
     unsafe {
         *RUNTIME.get() = Some(Runtime {
@@ -300,7 +397,6 @@ fn attach() {
             frames: 0,
             previous: None,
             keyboard: Keyboard::new(),
-            manual: None,
             overlay: None,
             overlay_ready: false,
             shown: (0, 0),
@@ -308,10 +404,14 @@ fn attach() {
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
+            flash: 0,
+            flashed: None,
             stream: (0, None),
             stressed: 0,
             stressing: (-1, 0),
             retry: None,
+            held: false,
+            walled: false,
         });
     }
 }
@@ -389,13 +489,6 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
         return RENDER_KEEP_RUNNING;
     }
 
-    // A replay can be run faster than it was recorded, with every frame still
-    // drawn, which is what makes a pass over a full run quick without skipping any
-    // of it.
-    let replaying = runtime
-        .previous
-        .is_some_and(|previous| previous.replay && previous.playing && !previous.demo);
-    let speed = if replaying { runtime.config.replay_speed } else { 1 };
     let chain = game.chain();
     let (update, draw) =
         (RUN_CALC_CHAIN_TARGET.load(Ordering::Relaxed), RUN_DRAW_CHAIN_TARGET.load(Ordering::Relaxed));
@@ -422,7 +515,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     let cleared = frame::now();
     // The frame's turn. What follows runs in one go, so the input the update reads is
     // as recent as the frame it appears in.
-    frame::wait_for_slot(speed, window);
+    frame::wait_for_slot(window);
     let waited = frame::now();
     let updated = update(chain);
     let ran = frame::now();
@@ -556,6 +649,27 @@ extern "C" fn save_replay(path: *const u8, name: *const u8) {
     original(path, name)
 }
 
+/// Replaces `th06::ReplayManager::StopRecording`, which finishes an input record off
+/// with a blank entry and a frame number no run reaches. Right for a recording, and
+/// wrong for a replay: the game runs it from `GameManager::DeletedCallback` at every
+/// stage teardown, and during playback the record it writes into is the replay's own,
+/// at wherever playback has reached.
+///
+/// So leaving a stage part way — which is what moving between a replay's stages
+/// does — leaves that stage terminated at the frame it was left on. Play it again and
+/// the player takes no input from there: it stands still and is hit. Measured at
+/// 297414375ms in `orb.log`, jumping out of stage 1 around script frame 250 and
+/// straight back, three lives gone by frame 1027.
+extern "C" fn stop_recording() {
+    if unsafe { GAME.replaying() } {
+        detail!("replay: the record is being watched, not written; its terminator dropped");
+        return;
+    }
+    let original: extern "C" fn() =
+        unsafe { std::mem::transmute(STOP_RECORDING.load(Ordering::Relaxed)) };
+    original()
+}
+
 unsafe fn call_original(trampoline: &AtomicUsize, chain: *mut c_void) -> i32 {
     let original: extern "fastcall" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(trampoline.load(Ordering::Relaxed)) };
@@ -571,12 +685,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     runtime.keyboard.poll(unsafe { runtime.game.window() });
 
     if let Some(menu) = &mut runtime.retry {
-        // The game's own frame setup is part of the chain being held back, so the
-        // viewport it would have set has to be set here instead.
-        let device = unsafe { runtime.game.d3d_device() };
-        if !device.is_null() {
-            unsafe { runtime.game.set_play_viewport(device) };
-        }
+        unsafe { hold_frame(runtime.game) };
         if let Some(choice) = menu.update(&runtime.keyboard) {
             let restored = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },
@@ -598,10 +707,21 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     let fast_forward = runtime
         .previous
         .is_some_and(|previous| previous.replay && previous.playing && !previous.demo);
-    let repeats = if fast_forward { runtime.config.replay_speed } else { 1 };
+    let mut repeats = if fast_forward { runtime.config.replay_speed } else { 1 };
 
     let mut result = CHAIN_BREAK;
     let mut state = runtime.previous.unwrap_or(unsafe { runtime.game.read_state() });
+    // Stepping between chapter boundaries, and the hold that lets the frame one
+    // falls on be looked at. Before the frame's own updates, and instead of them.
+    if let Step::Held { reached, ran } = unsafe { step(runtime, chain, &state) } {
+        state = reached;
+        result = ran;
+        // The game's own frame setup is part of the chain being held back, so the
+        // viewport it would have set has to be set here instead.
+        unsafe { hold_frame(runtime.game) };
+        repeats = 0;
+    }
+
     // Timed around orb's own work only: the game's update runs in between, and
     // counting it made orb look like it was costing milliseconds a frame.
     let mut started = profile::now();
@@ -620,6 +740,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 )
             };
         }
+        unsafe { reproduced(runtime, &state) };
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
             break;
         }
@@ -651,16 +772,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         log!("ending skipped, {frames} frames run, scene {scene} -> {}", state.scene);
     }
 
-    // Only mid-run: between scenes the objects a snapshot reaches through are
-    // half torn down.
-    if state.in_game && runtime.config.chapters {
-        if runtime.keyboard.pressed(runtime.config.save_state_key.0) {
-            unsafe { save_manual(runtime) };
-        }
-        if runtime.keyboard.pressed(runtime.config.load_state_key.0) {
-            unsafe { load_manual(runtime) };
-        }
+    // Over a replay as well as over a run someone is playing, because a replay is
+    // what plays a whole run for a tuning pass.
+    if runtime.config.chapters && runtime.chapters.tracking(&state) {
         tune(runtime, &state);
+        boundary_reached(runtime, &state);
     }
     unsafe { stress(runtime, &state) };
     // Polling DirectSound every frame is diagnostic work, so it only happens when
@@ -711,46 +827,334 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     result
 }
 
-/// Each step logs before it starts: the log timestamps are the only way to see
-/// which step is slow, and a step that never returns is otherwise invisible.
-unsafe fn save_manual(runtime: &mut Runtime) {
-    log!("save: collecting regions");
-    memtrack::log_tracked();
-    let regions = unsafe { memtrack::regions(runtime.data.clone()) };
-    let bytes: usize = regions.iter().map(|region| region.len).sum();
-    log!("save: {} regions, {bytes} bytes; capturing", regions.len());
-
-    let audio = snapshot::Audio {
-        policy: snapshot::Music::Rewind(runtime.game.music()),
-        identity: runtime.game.music_identity(),
-        state: runtime.game.audio_state(),
-        thread: runtime.game.audio_thread(),
-    };
-    let snapshot = unsafe { Snapshot::capture(&regions, audio, runtime.config.self_check) };
-    log!(
-        "save: captured {} regions, {} bytes, music: {}",
-        snapshot.regions(),
-        snapshot.bytes(),
-        snapshot.has_music(),
-    );
-
-    if runtime.config.self_check {
-        log!("save: self_check restoring");
-        unsafe { snapshot.restore(runtime.game.music_identity()) };
-        log!("save: self_check comparing");
-        report_self_check("save", unsafe { snapshot.check() });
-    }
-    runtime.manual = Some(snapshot);
-    log!("save: done");
+/// Where a step left the game, when one happened.
+enum Step {
+    /// Not stepping: the frame runs as it would have.
+    Carry,
+    /// Held on a boundary. The game's update does not run this frame, and the draw
+    /// puts up the frame it stopped on again.
+    Held { reached: State, ran: i32 },
 }
 
-unsafe fn load_manual(runtime: &mut Runtime) {
-    let Some(snapshot) = &runtime.manual else { return log!("load: nothing saved") };
-    log!("load: restoring {} regions", snapshot.regions());
-    unsafe { snapshot.restore(runtime.game.music_identity()) };
-    log!("load: restored");
-    if runtime.config.self_check {
-        report_self_check("load", unsafe { snapshot.check() });
+/// Stepping between chapter boundaries while a replay plays back.
+///
+/// What a midstage boundary has to be judged on is the frame it falls on, and at
+/// eight updates to a drawn frame nothing drawn is within eight updates of one. A
+/// step runs the updates with nothing drawn and holds the game on the frame it
+/// arrives at, so that frame is the one on screen.
+///
+/// Only over a replay: a replay is what plays a whole run for a tuning pass, and
+/// holding a run someone is playing is what the retry menu is for.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step {
+    // The run rather than the gameplay scene: a stage's end leaves that scene while the
+    // game builds the next stage, and stopping there is the point.
+    let watching = runtime.config.chapters
+        && runtime.config.chapter_stepping
+        && runtime.config.during_replay
+        && state.replay
+        && state.in_run
+        && !state.demo
+        && !state.paused;
+    if !watching {
+        runtime.held = false;
+        runtime.walled = false;
+        return Step::Carry;
+    }
+    let next = runtime.keyboard.pressed(keys::NEXT.0);
+    let previous = runtime.keyboard.pressed(keys::PREVIOUS.0);
+    let hold = runtime.keyboard.pressed(keys::HOLD.0);
+    // Held rather than pressed: they say what the stepping keys mean, like a shift.
+    let across = runtime.keyboard.held(keys::ACROSS.0);
+    let dropped = runtime.keyboard.held(keys::DROPPED.0);
+    if next || previous {
+        detail!(
+            "step: {} pressed, across {}, dropped {}",
+            if next { "next" } else { "back" },
+            if across { "held" } else { "not held" },
+            if dropped { "held" } else { "not held" },
+        );
+    }
+
+    // The end of the stage: the game leaving the gameplay scene to build the next one,
+    // which is well after the boss went down. Held there and kept held — carrying on is
+    // what loses the stage, so neither the hold key nor a step forward moves — while a
+    // step back still goes where it always goes. Nothing has been torn down yet: the
+    // hold is what stops the update that would do it.
+    let ended = !state.playing;
+    if ended {
+        runtime.held = true;
+        if !runtime.walled {
+            runtime.walled = true;
+            log!(
+                "step: stage {} has ended; the across key with next or back leaves it",
+                state.stage + 1,
+            );
+        }
+    } else {
+        runtime.walled = false;
+    }
+
+    // Moving between stages, which nothing else does.
+    if across && (next || previous) {
+        if let Some(step) = unsafe { leave(runtime, state, next) } {
+            return step;
+        }
+        return if runtime.held {
+            Step::Held { reached: *state, ran: CHAIN_BREAK }
+        } else {
+            Step::Carry
+        };
+    }
+
+    // A toggle rather than a resume, and not only on boundaries: stopping wherever
+    // something looks like a gap is what puts `tuning_add_key` on an exact frame.
+    if hold && !ended {
+        runtime.held = !runtime.held;
+        log!(
+            "step: {} at chapter {} (script {})",
+            if runtime.held { "held" } else { "playing on" },
+            runtime.chapters.number(),
+            state.script_frames,
+        );
+        if !runtime.held {
+            return Step::Carry;
+        }
+    }
+    // A boundary judged out of the table, which begins no chapter and so is nowhere in
+    // the chapter starts the ordinary stepping moves between. Aimed at by the script
+    // clock, the only thing that names it.
+    if dropped && (next || previous) && !ended {
+        let script = if next {
+            runtime.chapters.next_dropped(state)
+        } else {
+            runtime.chapters.previous_dropped(state)
+        };
+        let Some(script) = script else {
+            log!(
+                "step: no boundary judged out {} script {}",
+                if next { "after" } else { "before" },
+                state.script_frames,
+            );
+            return if runtime.held {
+                Step::Held { reached: *state, ran: CHAIN_BREAK }
+            } else {
+                Step::Carry
+            };
+        };
+        // Back the same way as any other back: the stage's start comes back and the
+        // replay comes back with it, and the run forward from there lands on the frame.
+        if previous && !unsafe { runtime.chapters.rewind_stage(runtime.game) } {
+            log!("step: cannot go back — no stage start kept");
+            return Step::Carry;
+        }
+        return unsafe { run_to(runtime, chain, Aim { script: Some(script), ..Aim::none() }) };
+    }
+    if next && !ended {
+        let from = runtime.chapters.number();
+        let at = runtime.chapters.next_start(state);
+        return unsafe { run_to(runtime, chain, Aim { at, from: Some(from), ..Aim::none() }) };
+    }
+    // Back is a restore and then the same thing again: a restore rewinds the replay
+    // along with everything else, so the stage's start and a run forward from it land
+    // exactly on the boundary asked for.
+    if previous {
+        // Read before the restore, which is what takes the stage's clock back.
+        let behind = runtime.chapters.previous_start(state);
+        if !unsafe { runtime.chapters.rewind_stage(runtime.game) } {
+            log!("step: cannot go back — no stage start kept");
+        } else if let Some(frame) = behind {
+            let aim = Aim { at: Some(frame), ..Aim::none() };
+            return unsafe { run_to(runtime, chain, aim) };
+        } else {
+            // The stage's own start is what lies before its first boundary, and the
+            // restore has already arrived there.
+            let reached = unsafe { runtime.game.read_state() };
+            runtime.held = true;
+            log!("step: held at the stage's start (script {})", reached.script_frames);
+            return Step::Held { reached, ran: CHAIN_BREAK };
+        }
+    }
+    if runtime.held { Step::Held { reached: *state, ran: CHAIN_BREAK } } else { Step::Carry }
+}
+
+/// Asks the game to start the replay at the stage either side of this one, and reports
+/// the frame to run when it will. `None` when there is no such stage, which leaves
+/// whatever was going on alone.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn leave(runtime: &mut Runtime, state: &State, forward: bool) -> Option<Step> {
+    let stage = if forward { state.stage + 1 } else { state.stage - 1 };
+    if !unsafe { runtime.game.jump_to_stage(stage) } {
+        log!("step: the replay has no stage {}", stage + 1);
+        return None;
+    }
+    // The game has to run for it to build that stage, so nothing is held.
+    runtime.held = false;
+    runtime.walled = false;
+    Some(Step::Carry)
+}
+
+/// What ends a step: whichever of these comes first.
+struct Aim {
+    /// A chapter this stage has begun once already, by the stage frame it began at.
+    /// Set going either way, so that a boundary judged out of the table — which no
+    /// longer begins a chapter, and so no longer moves the number — is still a place
+    /// both keys stop at.
+    at: Option<u32>,
+    /// The chapter the step began in, for a boundary nothing has recorded yet: a stage
+    /// the first time through has none of them, and a boss's are never in a table.
+    /// `None` going back, which has to run past every boundary between the stage's
+    /// start and the one asked for.
+    from: Option<u32>,
+    /// A frame of the enemy timeline, for a boundary of the table that begins no chapter:
+    /// one judged out is in no chapter start, and the clock it is written in is the only
+    /// thing that names it.
+    script: Option<i32>,
+}
+
+impl Aim {
+    /// Nothing asked for, to be filled in with the one thing that is.
+    fn none() -> Self {
+        Self { at: None, from: None, script: None }
+    }
+
+    fn reached(&self, state: &State, number: u32) -> bool {
+        self.at.is_some_and(|frame| state.stage_frames >= frame)
+            || self.script.is_some_and(|frame| state.script_frames >= frame)
+            || self.from.is_some_and(|from| number != from)
+    }
+}
+
+/// Runs updates until the aim is reached, then holds the game there. The ending
+/// skip's mechanism aimed at a boundary rather than at the end of a scene: drawing
+/// happens once per frame, so however many updates this runs, not one of them is
+/// seen.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
+    let mut reached = unsafe { runtime.game.read_state() };
+    let mut ran = CHAIN_BREAK;
+    let mut frames = 0;
+    while !aim.reached(&reached, runtime.chapters.number())
+        && reached.playing
+        && !reached.paused
+        && frames < STEP_LIMIT_FRAMES
+        && ran != CHAIN_EXIT_SUCCESS
+        && ran != CHAIN_EXIT_ERROR
+    {
+        ran = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+        reached = unsafe { runtime.game.read_state() };
+        unsafe {
+            runtime.chapters.observe(
+                runtime.game,
+                &reached,
+                &runtime.data,
+                runtime.config.self_check,
+            )
+        };
+        unsafe { reproduced(runtime, &reached) };
+        frames += 1;
+    }
+    runtime.held = true;
+    log!(
+        "step: held in stage {} chapter {} at frame {} (script {}), {frames} update(s) run",
+        reached.stage + 1,
+        runtime.chapters.number(),
+        reached.stage_frames,
+        reached.script_frames,
+    );
+    Step::Held { reached, ran }
+}
+
+/// Starts the flash when the game comes to rest on a boundary it was not on before.
+///
+/// The boundary rather than the chapter number, because numbering starts again at every
+/// stage: moving between stages lands on chapter 1 of the next one, which is a boundary
+/// reached and would otherwise pass unmarked. Set here rather than where a step ends, so
+/// that a boundary the game runs past under `chapter_hold_key` is marked as well as one
+/// a step stops on.
+fn boundary_reached(runtime: &mut Runtime, state: &State) {
+    if !runtime.config.chapter_stepping {
+        return;
+    }
+    let boundary = (state.stage, runtime.chapters.started_at());
+    if runtime.flashed != Some(boundary) {
+        runtime.flashed = Some(boundary);
+        runtime.flash = FLASH_FRAMES;
+    }
+}
+
+/// A line per update of a replay's stage, so that two passes over one stage can be held
+/// against each other frame for frame. What a desynchronised replay looks like is the
+/// player being hit where the recording was not, and the first frame these numbers
+/// differ on says which of the replay's clock, its inputs, the player and the game's
+/// generator went first.
+///
+/// Only while stepping, since that is the pass with somebody watching: a collecting pass
+/// over a whole run would write a line per update of it.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn reproduced(runtime: &Runtime, state: &State) {
+    // Nothing while the game is not moving: a menu holds one frame for as long as it is
+    // open, and a line per drawn frame of it would be the same line hundreds of times —
+    // which is not only noise but pushes everything after it out of step with the pass
+    // being compared against.
+    if !runtime.config.chapter_stepping
+        || !state.replay
+        || state.demo
+        || !state.in_run
+        || state.paused
+        || !log::wanted(log::VERBOSE)
+    {
+        return;
+    }
+    let game = runtime.game;
+    let reproduction = unsafe { game.reproduction() };
+    // The update that runs while the game is building a stage, where the replay's own
+    // clock does not exist yet and the player and the play field read as zeroes. There is
+    // nothing there to hold against another pass.
+    if reproduction.replay_frame < 0 {
+        return;
+    }
+    detail!(
+        "sync: stage={} frame={} script={} {} lives={} bombs={} power={} deaths={} \
+         enemies={} bullets={} lasers={} attack={} spell={}{}{}",
+        state.stage + 1,
+        state.stage_frames,
+        state.script_frames,
+        reproduction,
+        state.lives,
+        state.bombs,
+        state.power,
+        state.deaths,
+        state.enemy_count,
+        state.bullet_count,
+        state.laser_count,
+        // What a chapter of a fight is derived from, next to the two things that stop one
+        // being started: whether a bomb moves either of these is the question of whether a
+        // bomb has to stop one at all.
+        state.boss_attack_frames.map_or(-1, |frames| frames),
+        state.spellcard.map_or(-1, |spell| spell as i32),
+        if state.bombing { " bombing" } else { "" },
+        if state.unsettled { " unsettled" } else { "" },
+    );
+}
+
+/// The device setup the game does inside its own update, for a frame where that
+/// update is being held back.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn hold_frame(game: &dyn Game) {
+    let device = unsafe { game.d3d_device() };
+    if !device.is_null() {
+        unsafe { game.set_play_viewport(device) };
     }
 }
 
@@ -791,7 +1195,9 @@ unsafe fn watch_music(runtime: &mut Runtime, state: &State) {
 /// exercised as many times as a long session would without anyone playing one.
 unsafe fn stress(runtime: &mut Runtime, state: &State) {
     let interval = runtime.config.stress_restore_frames;
-    if interval == 0 || !state.playing || state.unsettled || state.paused {
+    // Not while the game is held on a boundary: a restore on a timer would take it
+    // off the frame someone is looking at.
+    if interval == 0 || !state.playing || state.unsettled || state.paused || runtime.held {
         return;
     }
     // Each chapter gets a few goes and is then left alone, so the run walks on
@@ -814,35 +1220,46 @@ unsafe fn stress(runtime: &mut Runtime, state: &State) {
 
 /// Hand corrections to the midstage table while playing. The table is written out
 /// by itself at the end of every stage; these are for a boundary the detector puts
-/// in the wrong place.
+/// in the wrong place, or misses.
 fn tune(runtime: &mut Runtime, state: &State) {
-    let config = &runtime.config;
-    let add = runtime.keyboard.pressed(config.tuning_add_key.0);
-    let remove = runtime.keyboard.pressed(config.tuning_remove_key.0);
-    let write = runtime.keyboard.pressed(config.tuning_write_key.0);
-    let Some(tuning) = runtime.chapters.tuning() else { return };
+    let add = runtime.keyboard.pressed(keys::ADD.0);
+    let write = runtime.keyboard.pressed(keys::WRITE.0);
+    let keep = runtime.keyboard.pressed(keys::KEEP.0);
+    let drop = runtime.keyboard.pressed(keys::DROP.0);
 
+    // These go through `Chapters`, which is what knows whether the frame the game is
+    // standing on has a boundary of the table's: a boss's boundaries are the game's own
+    // and there is nothing about them to write down.
+    //
+    // The hold goes with them because judging is only allowed while the game is standing
+    // on the boundary. Adding is not: a gap the detector missed is caught by pressing at
+    // the moment the stage passes through it, which is with the game running.
+    let held = runtime.held;
     if add {
-        tuning.add(state);
+        unsafe {
+            runtime.chapters.add_boundary(
+                runtime.game,
+                state,
+                &runtime.data,
+                runtime.config.self_check,
+            )
+        };
     }
-    if remove {
-        tuning.remove_last(state);
+    if keep {
+        runtime.chapters.judge(state, held, Judgement::Better);
     }
-    if write {
-        tuning.write(&GAME);
+    if drop {
+        runtime.chapters.judge(state, held, Judgement::Worse);
     }
-}
 
-fn report_self_check(what: &str, check: snapshot::SelfCheck) {
-    log!(
-        "{what} self_check: {} saved region(s) did not restore, {} untracked region(s) changed, \
-         {} change(s) in the process heap",
-        check.unrestored.len(),
-        check.changed_untracked.len(),
-        check.changed_in_process_heap,
-    );
-    for region in check.unrestored.iter().chain(&check.changed_untracked).take(32) {
-        log!("{what}:   {:#010x}+{:#x}", region.base, region.len);
+    // Written out as soon as anything is decided, not only at the end of the stage:
+    // a session that is closed in the middle of one — which is how looking at a few
+    // boundaries and stopping goes — would otherwise lose everything it decided.
+    // Two files of a few hundred bytes, and only on a keypress.
+    if add || keep || drop || write {
+        if let Some(tuning) = runtime.chapters.tuning() {
+            tuning.write(&GAME);
+        }
     }
 }
 
@@ -879,6 +1296,26 @@ unsafe fn draw_overlay() {
         return;
     }
 
+    // Over the play field and no further. The rest of the game's output — the panel beside
+    // it, the border around it — is not repainted every frame, so a wash drawn there is
+    // not drawn over again and the white stays on the screen for good.
+    //
+    // Counted down in drawn frames rather than in the game's, because the frame a
+    // boundary falls on is held: the game's clock stops there and the flash would stop
+    // with it.
+    if runtime.flash > 0 {
+        let area = runtime.game.play_area();
+        let fading = FLASH_FRAMES - FLASH_HOLD;
+        let alpha = if runtime.flash > fading {
+            FLASH_ALPHA
+        } else {
+            FLASH_ALPHA * runtime.flash / fading
+        };
+        if let Some(frame) = unsafe { overlay.frame() } {
+            frame.fill(area.left, area.top, area.width, area.height, alpha << 24 | FLASH_COLOR);
+        }
+        runtime.flash -= 1;
+    }
 }
 
 /// The line of numbers written below the game, in the black beside it.
@@ -908,9 +1345,39 @@ unsafe fn write_status(runtime: &mut Runtime) {
         format!("INPUT LAG {}.{}ms", lag / 1000, lag % 1000 / 100),
         format!("{}.{}fps", 1_000_000 / interval.max(1), 10_000_000 / interval.max(1) % 10),
     ];
+    // Which of the three kinds of boundary the chapter now running began at. The game's
+    // own — a stage starting, a boss or midboss arriving, an attack changing, a midboss
+    // going down — are found as the run goes, are in no table and are nobody's to judge,
+    // so they are named by what they are. The table's are named by the frame they are
+    // written down as and what has been decided about them, and `HAND` marks the ones a
+    // person put there: those are the numbers nothing would find again.
+    //
+    // The frame rather than the one on screen, because a chapter is judged from anywhere
+    // inside it: which number the keys are about to change should not have to be worked
+    // out.
+    // The boundary a key would change comes first, and the chapter's own after it: the two
+    // are the same thing wherever a step has stopped, and where they are not, what a key
+    // is about to do outranks what is being played.
+    let judged = runtime
+        .chapters
+        .judged(&state, runtime.held)
+        .or_else(|| runtime.chapters.chapter_boundary());
+    lines.push(match judged {
+        Some(judged) => format!(
+            "{} {} {}",
+            if judged.by_hand { "HAND" } else { "AUTO" },
+            judged.frame,
+            judged.verdict.label(),
+        ),
+        None => runtime.chapters.cause().label().to_owned(),
+    });
+    // The script frame it would be written down as, and how many the stage's table has.
     if let Some(tuning) = runtime.chapters.tuning() {
         lines.push(format!("SCRIPT {}", state.script_frames));
-        lines.push(format!("MARKS {}", tuning.count(state.stage)));
+        lines.push(format!("TABLE {}", tuning.count(state.stage)));
+    }
+    if runtime.held {
+        lines.push("HOLD".to_owned());
     }
     unsafe { window::write_beside(&lines) };
 }

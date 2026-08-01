@@ -1,55 +1,27 @@
-# Read by orb-launcher.exe from its own directory, and by the injected orb.dll from
-# the game's — the same place, installed as the README describes.
+# Read by both orb-launcher.exe and orb.dll, from their own directory.
 # Relative paths resolve against this file's directory; blank means "unset".
+#
+# What is here is what somebody playing sets and leaves set. Building the midstage
+# chapter table and looking into a fault are arguments to orb-launcher instead —
+# `orb-launcher --help` — because those are different every time they are run.
 
 # Directory holding 東方紅魔郷.exe. Blank: this file's directory.
 game_dir:
 
 # An orb.dll to load instead of the one orb-launcher.exe carries inside itself.
-# Blank for the carried one, which is the normal case — there is no orb.dll to
-# install. Only useful for trying a different build against the same config.
+# Blank for the carried one, which is always the same build as the launcher.
 orb_dll:
-
-# Save and restore the game state by hand, for exercising the snapshot engine.
-save_state_key: c
-load_state_key: v
 
 # Borderless, filling the monitor with the game's aspect ratio kept and the rest
 # of the screen black. The game's own fullscreen setting is overruled, so what
-# custom.exe says about it does not matter.
+# custom.exe says about it does not matter. Leave vpatch's [Window] section
+# disabled, or the two will fight over where the window goes.
 borderless: true
 
 # Never show the ending or the staff roll. They are run out inside the frame they
 # start on rather than jumped over, so everything they do on the way — the clear
 # flag, the score entry — still happens. Set to false to watch them.
 skip_ending: true
-
-# Build the midstage chapter table instead of using the compiled-in one:
-# boundaries are detected as you play, and the keys below correct them.
-#   tuning_add_key     mark this moment as a boundary
-#   tuning_remove_key  drop the most recent boundary
-#   tuning_write_key   write chapters.rs beside the launcher, to paste into the source
-chapter_tuning: false
-tuning_add_key: a
-tuning_remove_key: s
-tuning_write_key: d
-
-# Track chapters while a replay plays back. A replay of a full run can then do
-# the playing: with chapter_tuning on it builds the midstage table by itself, and
-# with stress_restore_frames set it exercises the snapshot and the music over and
-# over. Use one or the other — a restore rewinds the replay too.
-during_replay: false
-
-# Restore the current chapter every this many frames (0 to never). For finding
-# faults that only show up after hundreds of restores, without playing that long.
-# Each chapter is restored a few times and then left alone, so a replay walks on
-# through the midstage, the midboss and every attack of every boss.
-stress_restore_frames: 0
-
-# Updates per drawn frame while a replay plays back, so a pass over a full run
-# takes minutes instead of half an hour. Every update is still watched, so nothing
-# is missed by going quickly.
-replay_speed: 1
 
 # orb runs the frame itself: the update before the draw, so nothing on screen is
 # an update behind the input that shaped it, and the present paced to the display.
@@ -62,36 +34,10 @@ own_frame_loop: true
 # otherwise act on whatever is being typed somewhere else.
 always_draw: true
 
+# The game asks for a joystick every frame; off does not answer, and the asking
+# measured nine milliseconds a frame on the machine this was written on.
+joystick: true
+
 # Refuse to write replay files. A run that has been rewound is not a run anyone
 # could have played, so recording it would produce a replay that desynchronises.
 block_replay_save: true
-
-# Switches for narrowing down a fault: with all three off, orb is loaded but
-# nothing of its own happens. Each can be turned off on its own.
-#   chapters      chapter boundaries, snapshots, the retry menu
-#   track_memory  the heap hooks a snapshot needs to cover more than .data
-#   frame_hooks   the per-frame hooks themselves
-chapters: true
-track_memory: true
-frame_hooks: true
-
-# Let the game read a joystick. Worth turning off if there is none to read: the
-# game asks for one every frame whether or not it answers, and where it does not,
-# that measured nine milliseconds a frame — more than half the budget at 120Hz,
-# spent inside the game's own retries. Nothing else about the game changes.
-joystick: true
-
-# How much goes into orb.log, which sits beside the game exe and is appended to rather
-# than started over, so a run worth looking at is still there afterwards.
-#   quiet    startup, and anything that went wrong
-#   normal   the above, plus a line a second on the frames and the sound, and a line
-#            per scene the game moves to
-#   verbose  the above, plus every frame the display did not get on the cadence and
-#            where that frame's time went
-log_level: normal
-
-# Verify the snapshot engine: every save is restored and compared immediately,
-# and every restore reports memory that changed without being covered. This
-# fingerprints every private page in the process, so it pauses the game for as
-# long as that takes — a diagnostic mode, not something to play with.
-self_check: false

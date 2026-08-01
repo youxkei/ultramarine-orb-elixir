@@ -158,10 +158,20 @@ impl Music {
         })
     }
 
-    /// Whether `saved` still describes the stream that is playing. A track change
-    /// has freed everything it refers to.
-    pub fn still_current(&self, saved: &Saved, identity: Option<u32>) -> bool {
-        saved.identity.is_some() && saved.identity == identity
+    /// Whether `saved` still describes the stream that is playing: the same track,
+    /// through the same objects.
+    ///
+    /// The track alone is not enough. A track can be taken down and started again —
+    /// which is what a restore under another track has to do — and the one that comes
+    /// back is the same wave file through a *new* stream and a *new* sound buffer.
+    /// Going by the track there called `Stop` and `Lock` on a buffer DirectSound had
+    /// freed, and the game stopped answering: the main thread inside a released
+    /// object's lock while the new stream's thread held the real one.
+    pub fn still_current(&self, saved: &Saved, live: &Music, identity: Option<u32>) -> bool {
+        saved.identity.is_some()
+            && saved.identity == identity
+            && self.stream == live.stream
+            && std::ptr::eq(self.buffer, live.buffer)
     }
 
     /// # Safety

@@ -18,9 +18,9 @@ use windows_sys::Win32::Foundation::{COLORREF, HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET,
     DEFAULT_PITCH, DeleteObject, ETO_OPAQUE, ExtTextOutW, FW_NORMAL, GetDC, GetMonitorInfoW,
-    HBRUSH, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, OPAQUE,
-    OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextAlign,
-    SetTextColor, TA_LEFT, TA_RIGHT,
+    GetTextExtentPoint32W, HBRUSH, HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
+    MonitorFromPoint, OPAQUE, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject, SetBkColor, SetBkMode,
+    SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClientRect, HMENU, WNDCLASSA, WS_POPUP, WS_VISIBLE,
@@ -41,8 +41,13 @@ const BORDERLESS_STYLE: u32 = WS_POPUP | WS_VISIBLE;
 /// alone any other window the game makes.
 const GAME_WINDOW_CLASS: &CStr = c"BASE";
 /// How tall the lines written beside the game are, in pixels of the monitor rather than
-/// of the game — this text is not scaled with the game's output.
+/// of the game — this text is not scaled with the game's output. Reduced where the widest
+/// line does not fit the black it is written in.
 const BAR_TEXT_HEIGHT: i32 = 30;
+/// How small that may get. A line clipped at the bar's edge cannot be read at all, so
+/// fitting it wins over size — down to here, below which nothing is readable either and
+/// clipping the odd long line is the better trade.
+const BAR_TEXT_MIN: i32 = 11;
 /// How far the text keeps from the edges of the window.
 const BAR_MARGIN: i32 = 8;
 
@@ -267,10 +272,14 @@ pub unsafe fn write_beside(lines: &[String]) {
             TA_RIGHT,
         )
     };
-    if beside.max(below) < BAR_TEXT_HEIGHT {
+    if beside.max(below) < BAR_TEXT_MIN {
         report_no_bar(client, letterbox);
         return;
     }
+    // What there is to write in, from where the text starts to the far edge of the bar. The
+    // side bar runs away from the game and the strip under it runs back towards the game's
+    // own edge, so the room is on opposite sides of the same x.
+    let room = if align == TA_LEFT { strip.right - x } else { x - strip.left };
 
     let shown = unsafe { SHOWN.get() };
     if shown == lines {
@@ -284,22 +293,7 @@ pub unsafe fn write_beside(lines: &[String]) {
         return;
     }
     unsafe {
-        let font = CreateFontW(
-            BAR_TEXT_HEIGHT,
-            0,
-            0,
-            0,
-            FW_NORMAL as i32,
-            0,
-            0,
-            0,
-            u32::from(DEFAULT_CHARSET),
-            u32::from(OUT_DEFAULT_PRECIS),
-            u32::from(CLIP_DEFAULT_PRECIS),
-            u32::from(ANTIALIASED_QUALITY),
-            u32::from(DEFAULT_PITCH),
-            std::ptr::null(),
-        );
+        let (font, height) = unsafe { fitting_font(dc, lines, room) };
         let previous = SelectObject(dc, font as HGDIOBJ);
         SetTextColor(dc, 0x00ff_ffff);
         SetBkColor(dc, 0x0000_0000);
@@ -307,10 +301,10 @@ pub unsafe fn write_beside(lines: &[String]) {
         SetTextAlign(dc, align);
         // Bottom line last, so the stack grows upwards from the corner.
         for (index, line) in lines.iter().rev().enumerate() {
-            let top = bottom - BAR_TEXT_HEIGHT * (index as i32 + 1);
+            let top = bottom - height * (index as i32 + 1);
             // Cleared across the whole bar, so a line shorter than the one it replaces
             // leaves nothing of it behind.
-            let strip = RECT { top, bottom: top + BAR_TEXT_HEIGHT, ..strip };
+            let strip = RECT { top, bottom: top + height, ..strip };
             let wide: Vec<u16> = line.encode_utf16().collect();
             ExtTextOutW(
                 dc,
@@ -327,6 +321,70 @@ pub unsafe fn write_beside(lines: &[String]) {
         DeleteObject(font as HGDIOBJ);
         ReleaseDC(window, dc);
     }
+}
+
+/// A font for these lines that fits them in `room` pixels, and the height it came out at.
+///
+/// Measured rather than guessed, because how wide a line comes out is the font's business:
+/// what is written here runs from three characters to twenty, and the widest — a chapter
+/// named for the part of a stage it belongs to — is the one that decides. Clipped at the
+/// bar's edge it cannot be read at all, which is worse than small.
+///
+/// One measurement and at most one more font: character widths go with the em height
+/// closely enough that scaling by the ratio lands inside a pixel or two, and the caller only
+/// gets here when the lines have changed.
+///
+/// # Safety
+/// `dc` must be a live device context, and the font returned is the caller's to delete.
+unsafe fn fitting_font(dc: HDC, lines: &[String], room: i32) -> (HFONT, i32) {
+    let font = |height| unsafe {
+        CreateFontW(
+            height,
+            0,
+            0,
+            0,
+            FW_NORMAL as i32,
+            0,
+            0,
+            0,
+            u32::from(DEFAULT_CHARSET),
+            u32::from(OUT_DEFAULT_PRECIS),
+            u32::from(CLIP_DEFAULT_PRECIS),
+            u32::from(ANTIALIASED_QUALITY),
+            u32::from(DEFAULT_PITCH),
+            std::ptr::null(),
+        )
+    };
+    let widest = |dc| {
+        lines
+            .iter()
+            .map(|line| {
+                let wide: Vec<u16> = line.encode_utf16().collect();
+                let mut size = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+                let measured = unsafe {
+                    GetTextExtentPoint32W(dc, wide.as_ptr(), wide.len() as i32, &mut size)
+                };
+                if measured == 0 { 0 } else { size.cx }
+            })
+            .max()
+            .unwrap_or(0)
+    };
+
+    let full = font(BAR_TEXT_HEIGHT);
+    let previous = unsafe { SelectObject(dc, full as HGDIOBJ) };
+    let width = widest(dc);
+    unsafe { SelectObject(dc, previous) };
+    if width <= room || width <= 0 || room <= 0 {
+        return (full, BAR_TEXT_HEIGHT);
+    }
+
+    let height = (BAR_TEXT_HEIGHT * room / width).max(BAR_TEXT_MIN);
+    unsafe { DeleteObject(full as HGDIOBJ) };
+    static SAID: AtomicIsize = AtomicIsize::new(0);
+    if SAID.swap(height as isize, Ordering::Relaxed) != height as isize {
+        log!("borderless: {width}px of text in {room}px of black, writing at {height}px");
+    }
+    (font(height), height)
 }
 
 /// Said once: with the game filling the window there is nowhere beside it to write, and

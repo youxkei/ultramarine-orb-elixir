@@ -15,11 +15,9 @@ use orb_config::Config;
 const GAME_EXE: &str = "東方紅魔郷.exe";
 const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
 
-const USAGE: &str = "\
-usage: orb-launcher [--config <path>]
-
-  --config <path>  orb.yaml to use (default: beside orb-launcher.exe)
-";
+/// The launcher's own argument, on top of everything `orb_config::args` takes and hands on
+/// to the game.
+const CONFIG_USAGE: &str = "  --config=PATH        orb.yaml to use (default: beside orb-launcher.exe)";
 
 fn main() -> ExitCode {
     match run() {
@@ -32,11 +30,26 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let Some(config_path) = config_path()? else {
-        print!("{USAGE}");
-        return Ok(());
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let (config_path, options) = split_config_path(&arguments)?;
+    let config_path = match config_path {
+        Some(path) => path,
+        None => {
+            let exe = std::env::current_exe()?;
+            let dir = exe.parent().ok_or("cannot locate orb-launcher.exe directory")?;
+            dir.join(orb_config::FILE_NAME)
+        }
     };
-    let config = Config::load(&config_path)?;
+    let mut config = Config::load(&config_path)?;
+    // Read here as well as in the DLL, so that anything unreadable is said before a game
+    // starts rather than into a log inside one.
+    let asked = config
+        .take_arguments(options.iter().map(String::as_str))
+        .map_err(|error| format!("{error}\n\n{}\n{CONFIG_USAGE}", orb_config::args::USAGE))?;
+    if asked.help {
+        println!("{}\n{CONFIG_USAGE}", orb_config::args::USAGE);
+        return Ok(());
+    }
 
     let game_exe = config.game_dir.join(GAME_EXE);
     verify_game_exe(&game_exe)?;
@@ -49,7 +62,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         None => unpack_orb()?,
     };
 
-    let process = inject::spawn_suspended(&game_exe, &config.game_dir)?;
+    // Handed on to the game, whose command line is where the DLL reads them back from: the
+    // game itself never looks at it. Nothing is written down and the two sides cannot
+    // disagree about which pass this is.
+    let process = inject::spawn_suspended(&game_exe, &config.game_dir, &options)?;
     load_library(&process, &orb_dll)?;
     process.resume()?;
 
@@ -94,28 +110,21 @@ fn checksum(bytes: &[u8]) -> String {
     Md5::digest(bytes).iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn config_path() -> Result<Option<PathBuf>, Box<dyn Error>> {
-    let mut args = std::env::args_os().skip(1);
+/// Takes `--config` out of the arguments, since which file to read is the launcher's own
+/// business and nothing the DLL needs to be told.
+fn split_config_path(arguments: &[String]) -> Result<(Option<PathBuf>, Vec<String>), Box<dyn Error>> {
     let mut path = None;
-    while let Some(arg) = args.next() {
-        match arg.to_str() {
-            Some("--config") => {
-                path = Some(PathBuf::from(
-                    args.next().ok_or("--config needs a path")?,
-                ));
+    let mut rest = Vec::new();
+    for argument in arguments {
+        match argument.split_once('=') {
+            Some(("--config", value)) if value.is_empty() => {
+                return Err("--config needs a path, as --config=orb.yaml".into());
             }
-            Some("--help" | "-h") => return Ok(None),
-            _ => return Err(format!("unexpected argument {arg:?}\n\n{USAGE}").into()),
+            Some(("--config", value)) => path = Some(PathBuf::from(value)),
+            _ => rest.push(argument.clone()),
         }
     }
-    match path {
-        Some(path) => Ok(Some(path)),
-        None => {
-            let exe = std::env::current_exe()?;
-            let dir = exe.parent().ok_or("cannot locate orb-launcher.exe directory")?;
-            Ok(Some(dir.join(orb_config::FILE_NAME)))
-        }
-    }
+    Ok((path, rest))
 }
 
 /// `orb` reads the game's state through absolute addresses, so a different

@@ -15,9 +15,22 @@ build and cross-checked against the
 
 ## Chapters and retries
 
-A chapter begins at a stage's start, when a boss appears, and at each boss attack.
-Midstage boundaries come from a compiled-in table of script frame numbers, because a
-stage's waves run on a clock and are reproducible. Boss boundaries are detected as the game
+A chapter begins at a stage's start, at each attack of a fight — the boss's timer being reset,
+which a spellcard beginning does too — and when a midboss is beaten, since that hands the stage
+back and the waves after it want a chapter of their own. Not when a spellcard ends: either the
+fight is moving on, which the timer says on the same frame, or the boss has just been beaten.
+Not when the stage's own boss is beaten either: the stage is over, and a chapter whose first act
+is that the fight is already won has nothing to retry.
+
+Dialogue and a pause hold a boundary back, since neither is the run getting anywhere; a bomb and
+a death do not, though a chapter beginning under either is a poor place to restart from. A
+boundary the fight really has is worth more than one that is always comfortable, and the way out
+of a bad start is the chapter before it. What the fight did while a boundary was held back is
+taken as soon as one is allowed, so nothing is lost to the seconds a bomb or a death lasts.
+
+The log names what began each chapter, so one that turns up where none belongs says which signal
+produced it. Midstage boundaries come from a compiled-in table of script frame numbers, because
+a stage's waves run on a clock and are reproducible. Boss boundaries are detected as the game
 runs, so a difficulty with an extra attack gets an extra chapter with no table.
 
 A retry restores a whole memory snapshot rather than asking the game to jump anywhere.
@@ -36,12 +49,47 @@ and creates nothing within a chapter, so restoring the pointers in `.data` leave
 naming the same live objects. Since those addresses differ per launch, a snapshot is only
 valid inside the process that took it, and chapter progress cannot be written to disk.
 
-Restoring suspends the game's other threads, writes each region back, and resumes. The audio
-thread is left running; the music is handled separately, rewound for the midstage and the
-midboss and left playing through a boss-fight restore.
+Restoring suspends the game's other threads, puts back any page of a saved region that has
+gone since — the game freeing a few megabytes hands part of a segment back to the OS, and the
+copy has to have somewhere to write — writes each region back, and resumes. The audio thread
+is left running; the music is handled separately, rewound for the midstage and the midboss and
+left playing through a boss-fight restore.
 
-Two generations are kept: the current chapter and the stage's start, matching the two
-choices the retry menu offers.
+**A track change is handled by the game, not by the copy.** Restoring a snapshot taken under
+another track — the stage's start, once a boss has brought its own music — cannot put that
+track back: the game freed its stream and released its sound buffer, and no memory copy brings a
+released COM object back. Neither is the memory restorable around the stream that replaced it,
+since that one was allocated after the snapshot: writing the snapshot back rolls its object out
+from under the streaming thread, which is not suspended, and that was measured as an access
+violation inside `DSOUND.dll` writing a buffer it no longer owned. Skipping the live ranges only
+moves the problem, because the heap's bookkeeping still rolls back to before that stream existed
+and the next track change then frees a block the allocator has been told is free.
+
+So the game is asked to do it:
+
+- `SoundPlayer::StopBGM` (0x430f80) before the copy, while the game's memory is still its own —
+  it stops the buffer, quits and joins the streaming thread, and deletes the stream, which is
+  the one free its allocator agrees with;
+- the copy, with nothing held back;
+- `backgroundMusic` and `backgroundMusicThreadHandle` cleared, because the restored state names
+  the stream that was playing when the snapshot was taken and that one is long gone;
+- `Supervisor::PlayAudio` (0x424b5d) with `g_Stage.stdData->songPaths[0]`, the stage's own
+  track, read out of the memory that was just restored.
+
+The track therefore starts again from its beginning rather than from where it was, which is what
+a midstage restore does to the music anyway.
+
+Two generations are kept: the current chapter and the stage's start, matching the two choices
+the retry menu offers. Of this stage only — a snapshot of an earlier one would name Direct3D
+textures the game released when it loaded this stage, and reloading them is not enough to make
+it whole: an `AnmVm` holds its script as a raw pointer into the file's buffer, so a file
+loaded again at another address leaves every live one of them pointing at nothing. Measured as
+a jump to 0x00000000 on the frame after such a restore.
+
+It is kept across a stage transition, which is not the run ending however much it looks like
+one from outside: the game leaves the gameplay scene for `GAMEMANAGER_REINIT` while it tears
+the last stage's managers down and builds the next one's. Only leaving the run for good takes
+it.
 
 ## The frame loop
 
@@ -68,7 +116,9 @@ is on, taken from `MonitorFromWindow` and `EnumDisplaySettingsW`: two at 120Hz, 
 The compositor's `qpcRefreshPeriod` follows one monitor of the desktop, which on a mixed-rate
 desktop need not be this one, so it is used only when it agrees with that rate. A rate that
 is not a whole multiple of 60 has no fixed cadence to keep — 144Hz is 2.4 refreshes a frame —
-and neither has a replay being run fast; both are paced by the clock instead.
+and is paced by the clock instead. A replay being run fast keeps the cadence like anything
+else: `--speed` is updates per drawn frame, so the frames come one per turn and only
+carry more of the game with them.
 
 `DWM_TIMING_INFO.cRefresh` counts compositions of the window rather than refreshes of the
 display, and is not used.
@@ -127,8 +177,18 @@ that way would need a render target and a full-screen quad.
 
 `CH`, `RETRY`, `INPUT LAG` and the frame rate are drawn with GDI onto the window, in the black
 beside the game, stacked in whichever letterbox bar is wider and lined up with the game's
-edge. On a 16:9 monitor a 4:3 game leaves that black down the sides. Shown whatever the game
-is doing, including demos and menus, and redrawn only when the text changes.
+edge. What kind of boundary the chapter began at is under them, `SCRIPT` and `TABLE` join while
+a table is being built, and `HOLD` while the game's update is held. On a 16:9 monitor a 4:3 game
+leaves that black down the sides. Shown whatever the game is doing, including demos and menus, and
+redrawn only when the text changes.
+
+**The size fits the widest line into the black there is.** What goes here runs from three
+characters to twenty — a chapter named for the part of a stage it belongs to is the long one — and
+a line clipped at the bar's edge cannot be read at all, which is worse than small. The line is
+measured at the full size and the height scaled by what it overran by, once per change of text,
+which lands inside a pixel or two because character widths go with the em height. Nothing shrinks
+below the point where the text stops being readable anyway; past that, clipping the odd long line
+is the better trade.
 
 The game's back buffer is the wrong place for it twice over: all 640x480 of it is shown inside
 the letterbox, so anything there is over the game; and the game does not clear it between
@@ -188,22 +248,34 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 
 ## Configuration
 
-`orb.yaml` is read by both halves, so each has to know every key: the launcher takes it from
-its own directory or from `--config`, and orb from the directory of the game exe it is inside.
-Installed as the README describes, those are the same place. A
-flat list of `key: value`; an unknown key is an error rather than being ignored. What each key
-does is in the comments of the file.
+**Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
+set: `borderless`, `skip_ending`, `joystick`, `block_replay_save`, `own_frame_loop`,
+`always_draw`, and where the game and an override `orb.dll` are. A flat list of `key: value`; an
+unknown key is an error rather than being ignored, and a key that used to be there says what asks
+for the same thing now.
 
-Some worth naming here:
+Everything to do with building the midstage table or looking into a fault is an argument to
+`orb-launcher` instead — `--help` lists them — because a file is the wrong place for something
+that is different every time it is run. The two passes over a replay are one word each:
 
-- `joystick: false` — skips the game's joystick read; see *Input*.
-- `log_level: quiet | normal | verbose` — `quiet` is startup and faults; `normal` adds a line
-  a second on the frames and the sound and a line per scene; `verbose` adds a line per frame
-  that did not come out on the cadence, saying where that frame's time went.
-- `skip_ending`, `block_replay_save`, `borderless`, `own_frame_loop`, `always_draw` — each
-  turns off one of the behaviours described above, leaving the game to do it its own way.
-- `chapters`, `track_memory`, `frame_hooks` — the parts orb is built out of, so a fault can be
-  narrowed by taking them away. With all three off orb is loaded and does nothing of its own.
+| | |
+| --- | --- |
+| `--collect` | propose boundaries over the whole replay, at 64 updates a frame, with nothing stopping and nobody at the keyboard |
+| `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
+
+and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--self-check`,
+`--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks` for taking orb apart until a
+fault stops happening. `--config=PATH` is the launcher's own.
+
+The launcher reads them, refuses to start on anything it cannot, and hands them on the game's
+own command line — which the game never looks at, `lpCmdLine` appearing once in the whole of its
+`WinMain` as the parameter it ignores. orb reads them back off that inside the game, so the two
+sides cannot disagree and nothing has to be written down between them.
+
+**The keys are fixed in the code**: `a` adds a boundary, `d` writes the files, the arrow keys
+step and judge, `space` holds, `shift` and `ctrl` change what stepping means. Whoever is
+building a table is the only person who presses any of them, and a setting nobody changes is one
+more thing that can be wrong.
 
 `orb.log` is appended to rather than started over, because a run worth looking at is usually
 over before anyone looks. A crash adds a line naming the faulting module and offset.
@@ -211,27 +283,241 @@ over before anyone looks. A crash adds a line naming the faulting module and off
 ## Building the midstage table
 
 Boss boundaries need no table; a stage's waves are a script on a clock, so those boundaries are
-frame numbers someone has to pick. With `chapter_tuning: true`:
+frame numbers someone has to pick. Under `--tune`, boundaries are proposed as the
+stage is played, a second into each gap between waves: nothing left to shoot at, no boss fight
+to interrupt, and two seconds at least into the chapter now running. One per gap, on the frame
+the gap becomes one, so a long lull does not fill up with them.
 
-- boundaries are proposed as you play, at the quiet moments between waves;
-- `tuning_add_key` marks the current moment, for a gap the detector misses;
-- `tuning_remove_key` drops the most recent mark;
-- `tuning_write_key` writes `chapters.rs` beside the launcher.
+Bullets in the air are not part of the test. The game was not written around chapters, so a
+frame with none of them is rare — asking for one found three places in a stage where a retry
+unit wants a dozen — and a snapshot restores whatever is in the air exactly, so a boundary does
+not need the screen to be clear. What it needs is a gap in the script, and enemies are what say
+that.
 
-Paste that over `crates/orb/src/game/th06/chapters.rs` and rebuild. Stages not tuned in a
-session keep whatever is compiled in, so they can be done one at a time. With
-`during_replay: true` and `replay_speed` above 1, a replay of a full run can do the playing.
+**One table for every difficulty**, because the clock it is written in does not move with the
+play. The enemy timeline runs through the midstage and through a midboss fight, and stands
+still only while the stage's own boss is fought: on stage 1 the chapters at script 2009, 2666
+and 3180 track the stage's own clock exactly across the midboss, while every chapter of the
+boss fight reads 5282. So a frame number always names the same point of the script, however
+fast the midboss was killed and whatever a difficulty adds to it.
+
+What differs is what is on screen at that point: a midboss still alive because this run was
+slow, the leftovers of a spellcard a harder difficulty adds. A boundary worth keeping
+therefore sits in a gap the script leaves rather than one a fast clear happened to open, and
+the `tuning: gap of N frames` line is what tells them apart — a few hundred frames is the
+script's, a few dozen is that run's. It is also why the difficulty to tune on is the hardest:
+a gap on Lunatic is a gap on every difficulty below it, and the reverse does not hold.
+
+What the pass has proposed is the list chapters are then counted from, exactly as the
+compiled-in table is, so a stage played twice divides the same way both times. A boundary is
+proposed only on ground the pass has not covered yet: replaying part of a stage neither writes
+one down twice nor brings back one that was removed by hand.
+
+**Two files, and what is decided is kept.** `chapters.rs` is the table as Rust, to paste over
+`crates/orb/src/game/th06/chapters.rs`; `tuning.txt` beside it is the same boundaries with what
+has been decided about each — `keep`, `adjust` or `drop`, and whether a person put it there —
+and is read back when orb starts. So a stage is not one sitting's work: it can be looked at,
+judged in part, left, and picked up where it was. Both are written whole as soon as anything is
+decided, as well as at every stage's end and on `tuning_write_key` — looking at a few boundaries
+and then closing the game is how a sitting ends, and nothing about it should have to be
+remembered. So edit `tuning.txt` only while nothing is running.
+
+Entering a stage keeps everything already known about it and forgets only how far the detector
+had got, which is about the pass rather than about the stage. A stage neither visited nor read
+back keeps whatever is compiled in, so stages can still be done one at a time: tune a stage,
+paste the table in, rebuild, and go on to the next.
+
+`--replay` puts a replay in charge of the playing, and the two passes over one are a word each,
+each of which is `--tune --replay` and one more decision:
+
+- **`--collect`**, which nobody watches: the replay runs to the end of the run, nothing stops,
+  and every boundary is proposed and written to `chapters.rs` beside the launcher as each stage
+  ends. The frames still come at the display's cadence and each carries 64 updates, so twenty
+  minutes of run go by in twenty seconds — with one frame in 64 drawn, which is nothing to judge
+  by eye.
+- **`--judge`**, which somebody does: one update a frame, and stepping between the boundaries.
+  What says whether one is in the right place is the frames around it in motion, since a still
+  frame shows no bullets on screen and that is the exact thing the detector already tested.
+  Stepping is instant whatever the speed, so above 1 buys nothing here.
+
+The keys, read while a run is being tracked, which under `--replay` includes a replay. They are
+fixed in the code rather than settings, since whoever is building a table is the only person who
+presses them. The three stepping keys are a replay's alone — holding a run someone is playing
+still is what the retry menu is for:
+
+| | |
+| --- | --- |
+| `right` | runs updates with nothing drawn until the chapter changes, and holds the game there — the ending skip's mechanism, aimed at a boundary instead of the end of a scene |
+| `left` | restores the stage's start, which rewinds the replay along with everything else, and runs forward to the chapter before this frame. A stage is a few thousand updates and an update is tens of microseconds, so it costs a visible pause |
+| `space` | holds the game where it is, or lets it carry on. Anywhere, not only on a boundary |
+| `shift`, held | held with next or back to move between stages, which the game does by starting the replay at one |
+| `ctrl`, held | held with next or back to move between the boundaries judged out of the table, which the stepping otherwise passes over. The way one is reached, and so the way a `Rejected` is taken back |
+| `up`, `down` | judge the boundary the chapter being looked at began at, one step per press: `Rejected` → `Adjust` → `Keep` and back. Neither end wraps, so pressing on past `Keep` cannot throw a boundary away |
+| `a` | puts a boundary at the frame the game is on, for a gap the detector misses, and begins its chapter there. Judged like any other afterwards, so it can be taken out again |
+| `d` | writes both files, which each stage's end does anyway |
+
+**Neither key leaves the stage, and neither does playing on.** What lies outside a stage is
+the game's to load rather than a snapshot's to put back, so a step stops at the stage's own
+start going back, and the replay is held at the stage's end however it got there. That end is
+the game leaving the gameplay scene to build the next stage — not the boss going down, which
+is well before the stage is done with itself.
+
+Moving between stages is asked of the game instead, with `chapter_across_key` held: it starts
+the replay at another of its stages, the way its own menu does. `GameManager::RegisterChain`
+raises `currentStage` by one and `ReplayManager::RegisterChain` reads that stage's record —
+the seed, the rank, the lives, the bombs, the power, the score so far — so writing the stage
+before the one meant and `GAMEMANAGER_REINIT` into `curState` is the whole of it. The
+supervisor cuts this stage's chain and registers the next, and nothing of orb's has to be kept
+whole. A stage the replay does not cover is refused rather than asked for, since the game's
+own answer to that is to drop to its main menu.
+
+The run's score goes back to nothing on the way, along with the count of extra lives it has
+already paid for, because those are the one thing the game leaves to whichever path it took in.
+`GameManager::RegisterChain` clears them only when it is starting a run rather than
+reinitialising, and a stage move reinitialises; the replay then puts the score back from the
+record of the stage before the one being started, which the first stage does not have. Left
+alone, stage 1 begins with the score the run was left on, crosses the first extra life's
+10,000,000 part way through, and gains a life the recording never had — and with it the rank the
+extra life carries, which the enemies read. The count of extra lives goes back to none rather
+than to what the score says, since the stage's own loop only ever raises it: from none it can
+reach what the restored score has paid for, and from a later stage's count it cannot come down.
+
+One thing has to be held back for that to be repeatable. Tearing a stage down ends the run's
+recording — `GameManager::DeletedCallback` calls `ReplayManager::StopRecording`, which closes
+the record of inputs off with a blank entry and a frame number no run reaches — and the game
+does it whether the run was recorded or is a replay being watched. Played back, the record it
+writes into is the replay's own, at the entry playback has reached, so leaving a stage part way
+terminates that stage where it was left: play it again and the player takes no input from that
+frame on, standing still until it is hit. So while a replay is being played back that function
+does nothing, which costs a recording nothing — the game's own replay writing calls it only for
+a run it recorded.
+
+**Every chapter boundary, not only the midstage ones.** A boss's attacks are chapters too, and a
+step that skipped them would put a fight out of reach. They are in no table — they are found as
+the fight runs — and the script clock the table is written in stands still during a fight, so
+what the stepping moves between is the stage frame each chapter of this stage has begun at.
+
+**A boundary the fight has is taken wherever it falls.** Dying and bombing are both seconds
+long and a fight ends or moves on under them, so neither holds a boundary back: a chapter that
+begins mid-death kills whoever restores it and one that begins mid-bomb hands them a cleared
+screen, and both are better than a boundary that is not where the attack began. The way out of a
+start like that is the chapter before it. What is held back is dialogue and a pause, where the
+run is not getting anywhere at all — and held rather than dropped, so what the fight did under
+one is taken on the first frame that can carry a chapter, which for the dialogue a boss arrives
+with is the frame the fight starts on.
+
+**A fight underway outranks the table.** The enemy timeline runs on through a midboss, so a fight
+that drags reaches the frames the waves after it are divided at, and a chapter beginning half way
+through a fight is a retry point for neither the fight nor the waves. The entry is spent where it
+falls rather than held back: the fight's own end is the boundary those waves want, and an entry
+held over it would fire a frame later as that boundary's double. The same frame in a run that
+killed the midboss quickly is past the fight and is a boundary — that is the clock's doing, and
+the table cannot say which run it is in.
+
+Both keys are relative to the frame the game is on rather than to the chapter it is in, and
+strictly so: a boundary a frame or two behind is what back reaches, and forward from there moves
+on rather than staying put. Neither stops at a boundary judged out of the table: it begins no
+chapter, so stopping there would be stopping at nothing. It is judged out and not gone, though,
+so `chapter_dropped_key` with either key goes between exactly those — in the frames of the script
+clock, since nothing has a stage frame for a boundary no chapter ever began at — and that is how
+a `Rejected` is reached and taken back.
+
+**Which of the three kinds of boundary is on the status line**, since what can be done with one
+depends on which it is:
+
+| | |
+| --- | --- |
+| `STAGE`, `STAGE_AFTER_MIDBOSS`, `MIDBOSS_NONSPELL`, `MIDBOSS_SPELL`, `BOSS_NONSPELL`, `BOSS_SPELL` | the game's own, settled as the run goes. In no table, and nothing to judge |
+| `AUTO 1886 KEEP` | the table's, as the detector proposed it, with what has been decided about it |
+| `HAND 1886 KEEP` | the table's, put there by hand — the number nothing would find again |
+
+Named that finely because which fight it is and whether the attack has a name is what says where
+in a stage the game is standing. A boss arriving is its first attack starting, so there is nothing
+else to call that; and what follows a midboss is the stage carrying on, so it is named for that
+rather than for the defeat behind it. `HOLD` says only that the game's update is being held, which is a different
+question and is on its own line.
+
+**Which fight it is comes from the music**, because that is where the game says it: a stage's data
+names two songs, its own and its boss's, and the second is played for the fight the stage ends
+with and for nothing else. The answer is watched for as long as the fight lasts and only ever
+raised — it starts at the fight a stage runs on through, and the first frame the stage's own track
+is gone it becomes the other for good. Both ends need that: the track changes when the fight
+begins, which is not always the frame the boss arrives on, and by the frame the boss is beaten the
+sound may be being taken down again. The defeat is where the answer matters most, a midboss going
+down being a boundary and the stage's own boss going down being the stage ending.
+
+**The judging keys work only with the game held on a boundary.** A frame is a sixtieth of a
+second, so a key pressed while the game runs lands on whichever frame it reached, which is no way
+to aim at one; and a chapter judged from anywhere inside it is a boundary edited from where it
+cannot be seen. So what a key acts on is always the frame on screen, and the status line is
+always naming it.
+
+A boundary is `Keep` from the moment it is proposed. `Adjust` keeps it and writes it out marked
+— `1886 /* adjust */` — for a gap that is real where the frame is not quite right. `Rejected`
+keeps it out of the table while remembering it, because a decision outranks the detector: the
+same stage played again would otherwise propose it back, and taking a rejection back means
+finding it again.
+
+One put there by hand is written out marked as well — `/* by hand */` — since that is the
+number nothing would propose again if it were lost, and refusing one takes it out altogether
+rather than remembering it as refused. There is nothing for a refusal to hold back there, and
+`a` is the way back.
+
+**The shortest a chapter may be does not apply to one put there by hand.** That floor is there to
+stop a boss's opening flurry of script transitions carving out chapters a fraction of a second
+long, and a hand is not that: stage 5's 2363 was added 54 frames after the boundary at 2309, and
+being dropped on every pass but the one it was added on would lose what somebody wrote down while
+leaving it in the table to look at.
+
+**A boundary and the start of a chapter are one thing**, and adding one by hand begins its
+chapter on its own frame. Crossing a boundary is otherwise noticed on the update where the script
+clock has reached it, and for a frame the game is already standing on that is the update after —
+so the chapter would begin one frame past the number written down, while the same table read on a
+later pass began it on the number itself. That frame is what the status line shows, what the
+flash goes off on and what a step lands on: three places for one thing to be, and the one on
+screen the wrong one.
+
+Beginning it there also keeps the detector from offering one of its own a frame or two later.
+Both are reading the same lull — a hand goes down when the screen empties, the detector a second
+into it — so a boundary added just before the detector would have spoken leaves two a frame
+apart, and the shortest a chapter may be is the rule that already says no to that.
+
+The frame a boundary falls on is one frame — a sixtieth of a second under `--judge`, and
+one of the ones that go undrawn above it — so a step holds the game on it. What is held back is
+the game's update; the drawing carries on, so that frame stays on screen and the status line's
+`SCRIPT` is the number that would be written down.
+
+**Reaching one washes the play field green**, held for a moment and then gone inside a third of
+a second. A boundary is one frame among a stage's thousands, and what says one has been reached
+should not be a number to read. Green because the game flashes white itself — a bomb, a boss
+going down — and a mark that means something orb decided should not look like something the game
+did; nothing in 紅魔郷 fills the play field with green. It holds before it fades because a wash
+that starts fading at once reads as dim however bright its first frame is, and one frame in
+twenty is all that frame gets. The play field and no further, because that is the part the game
+repaints every frame:
+the panel beside it and the border around it are not, so a wash drawn there would never be drawn
+over and the white would stay. It marks a boundary the game runs past under `chapter_hold_key`
+as well as one a step stops on, and it is only in a judging pass — nobody is watching a
+collecting one. The fade is counted in frames drawn rather than in the game's, because the
+game's clock is stopped on the frame being looked at and the flash would stop with it.
+
+Every gap long enough to have been a candidate goes to the log at `verbose`, taken or not, with
+its length and how far into the chapter it fell. What `ENEMY_GAP_FRAMES` should be is a question
+about this game's waves, and that line is how a pass answers it.
 
 ## Checking the snapshot engine
 
-`save_state_key` and `load_state_key` save and restore by hand at any point.
+`--self-check` restores every snapshot immediately after taking it and compares the result, and
+reports memory that changed since a snapshot without being covered by it. The one moment a
+restore can be held against what it should have produced is the instant it was taken from, which
+is why it happens there. It fingerprints every private page in the process, so it pauses the game
+for as long as that takes.
 
-`self_check: true` additionally restores every snapshot immediately after taking it and
-compares the result, and reports memory that changed since a snapshot without being covered by
-it. It fingerprints every private page in the process, so it pauses the game for as long as
-that takes.
+Nothing saves and restores by hand any more. What the two keys that did are for is what chapter
+retries, `left` between boundaries and `--stress` do already, and with the game's own bookkeeping
+around them rather than without it.
 
-`stress_restore_frames` restores the current chapter every N frames, a few times per chapter
+`--stress=N` restores the current chapter every N frames, a few times per chapter
 and then moving on, so a replay walks through the midstage, the midboss and every boss attack
 restoring as it goes.
 
@@ -243,7 +529,7 @@ game's entry point and the memory hooks see the first allocation.
 | | |
 | --- | --- |
 | `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
-| `crates/orb-config` | `orb.yaml`, shared by both halves |
+| `crates/orb-config` | `orb.yaml` and the command line, shared by both halves |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |
@@ -268,6 +554,8 @@ and offsets.
 ## Not supported
 
 - Chapter progress across launches.
+- Returning the music to where it was across a track change: the track starts again from its
+  beginning instead. See *Chapters and retries*.
 - Scores and rankings are recorded as the game sees them; replay files are not written at all,
   because a rewound run does not play back.
 - Sound effects cut off on a restore rather than rewinding. Only the music is restored.

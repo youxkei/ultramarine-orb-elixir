@@ -23,7 +23,6 @@ use windows_sys::Win32::System::Memory::{
 use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 
 use crate::hook;
-use crate::log::log;
 use crate::profile;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -262,12 +261,3 @@ fn push_merged(out: &mut Vec<Region>, region: Region) {
     out.push(region);
 }
 
-pub fn log_tracked() {
-    let Ok(tracked) = TRACKED.lock() else { return };
-    log!(
-        "memtrack: {} heap(s) {:?}, {} direct reservation(s)",
-        tracked.heaps.len(),
-        tracked.heaps.iter().map(|heap| format!("{heap:#010x}")).collect::<Vec<_>>(),
-        tracked.reservations.len(),
-    );
-}

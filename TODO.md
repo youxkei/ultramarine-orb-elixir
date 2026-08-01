@@ -1,29 +1,29 @@
 # To do
 
-## The midstage chapter table
+## Going back more than one chapter
 
-`crates/orb/src/game/th06/chapters.rs` is still empty — `MIDSTAGE: [&[i32]; 7]` with nothing
-in it. Boss chapters work without a table, so what is missing is the boundaries between a
-stage's waves.
+The retry menu offers this chapter and the stage's start, because those are the two snapshots
+kept. Nothing about a boundary asks it to be a good place to restart from — a chapter can begin
+on the frame the player was hit, and restoring that one kills whoever uses it — so the way out
+of a bad one has to be the chapter before it, and in a run someone is playing there is no way
+back to it. Stepping has one, but only a replay can step.
 
-Most of what is needed is built. `chapter_tuning: true` with `during_replay: true` and
-`replay_speed: 8` lets a replay of a full run do the playing: boundaries are proposed at the
-quiet moments, the tuning keys correct them, and `tuning_write_key` writes the file.
+What it costs is known: a chapter's snapshot is five or six regions of about four megabytes, so
+a whole stage's worth is forty to fifty. The shape is a stack of them per stage, dropped from
+the chapter restored onwards, and a menu that lists what is there rather than two fixed choices.
 
-What is missing is a way to look at a boundary. Judging one needs the frame it falls on, and at
-eight updates to a drawn frame nothing drawn is within eight updates of it.
+## What a restore across a graphics load looks like
 
-Moving between chapters during replay playback gives that: stop at a boundary and watch it,
-step to the next, step back. Both directions are made of pieces that exist.
+The crash it used to cause is gone — see [DONE.md](DONE.md) — because the memory holding
+Direct3D's texture handles is left as a restore finds it. What is left is cosmetic and has not
+been looked at: for the frames between such a restore and the game loading those graphics again,
+the sprite tables the snapshot put back describe one set of graphics while the slots hold
+another, so something may be drawn from the wrong texture. Stepping back into stage 6's midstage
+from its boss fight is where to look.
 
-- **Forward** is the ending skip's mechanism: run updates without drawing until the chapter
-  number goes up.
-- **Back** is a restore followed by the same thing. A restore rewinds the replay with
-  everything else, so restoring the stage's start and running forward to the boundary before
-  the current one lands exactly there. A stage is a few thousand updates and an update is tens
-  of microseconds, so it costs a visible pause and nothing more.
-
-This is the original point of the project and the last substantial piece of it.
+Left out of that on purpose: `AnmManager`'s surfaces and its vertex buffer. The game releases
+those when it loses the device, which a stage does not run into, and a range left out of a
+restore is a range the snapshot no longer describes.
 
 ## Support Touhou games other than 紅魔郷
 

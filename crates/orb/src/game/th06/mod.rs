@@ -14,7 +14,8 @@ use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::{Music, SoundBuffer};
 use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Viewport};
-use crate::game::{Game, Hooks, Patch, Rect, State};
+use crate::game::{Game, Hooks, Patch, Rect, Reproduction, State};
+use crate::log::log;
 
 use crate::mem;
 
@@ -37,6 +38,28 @@ const RUN_CHAIN_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x14];
 const SAVE_REPLAY: usize = 0x0042ab30;
 /// `push ebp; mov ebp,esp; sub esp,0xa8` — position-independent, 9 bytes.
 const SAVE_REPLAY_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x81, 0xec, 0xa8, 0x00, 0x00, 0x00];
+
+/// `th06::Chain::Cut`, `__thiscall` with the element on the stack. Unlinks a job and,
+/// through its deleted callback, lets whatever registered it take itself down — which is
+/// how the game removes one, so it is how orb removes one. Identified by its two searches,
+/// the first from `this` and the second from `this + 0x20`: the calc chain's root and the
+/// draw chain's, which also fixes `Chain`'s layout.
+const CHAIN_CUT: usize = 0x0041cde0;
+/// `th06::ScreenEffect::ShakeScreen`, matched against a job's callback rather than called.
+/// Its `isTimeStopped` branch writes 32.0, 16.0, 384.0 and 448.0 to 0x69d6dc onwards — the
+/// arcade region — which is what says this is the right function.
+const SHAKE_SCREEN: usize = 0x0042ffc0;
+
+/// `th06::ReplayManager::StopRecording`, `__cdecl`. Writes the last two entries of an
+/// input record: a blank one at the frame the run stopped, and a terminator at frame
+/// 9999999. `GameManager::DeletedCallback` calls it — the `call 0x42aab0` at 0x41c24c,
+/// after cutting the player and the stage — so it runs at every stage teardown, and
+/// during playback `replayInputs` points into the replay that was loaded.
+const STOP_RECORDING: usize = 0x0042aab0;
+/// `push ebp; mov ebp,esp; push ecx; mov eax,[g_ReplayManager]` — 9 bytes, and the
+/// absolute load reading 0x6d3f18 is both position-independent and what identifies the
+/// function.
+const STOP_RECORDING_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x51, 0xa1, 0x18, 0x3f, 0x6d, 0x00];
 
 /// `th06::GameWindow::CreateGameWindow`, `__cdecl`. `WinMain` calls it after
 /// reading the config and before creating the device, so it is the last moment
@@ -61,6 +84,20 @@ const RENDER_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x64];
 const PRESENT: usize = 0x00420b50;
 /// `th06::SoundPlayer::PlaySounds`, `__thiscall`.
 const PLAY_SOUNDS: usize = 0x00431270;
+
+/// `th06::SoundPlayer::StopBGM`, `__thiscall`. The whole teardown of a track: stops
+/// the buffer, posts `WM_QUIT` to the streaming thread and joins it, closes its
+/// handles, deletes the stream — which releases the sound buffer — and clears the
+/// pointer. Called rather than any of that being done by hand, because the game's own
+/// free is the one its allocator agrees with. Its prologue reads `backgroundMusic` at
+/// +0x62c, which is what identifies it.
+const STOP_BGM: usize = 0x00430f80;
+/// `th06::Supervisor::PlayAudio`, `__thiscall`, taking the path the stage names its
+/// track by. It swaps the extension for `.wav` and `.pos` itself, loads them, and
+/// plays looping or not depending on whether the `.pos` was there — and takes the
+/// MIDI branch instead when the game is configured for MIDI, which is why this is
+/// the call to make rather than the three below it.
+const PLAY_AUDIO: usize = 0x00424b5d;
 
 /// `th06::Controller::GetInput`, `__stdcall`, no arguments, returns the buttons
 /// held this frame. `Supervisor::OnUpdate` calls it once a frame, so it is the one
@@ -87,6 +124,25 @@ const G_BULLET_MANAGER: usize = 0x005a5ff8;
 const G_PLAYER: usize = 0x006ca628;
 const G_GUI: usize = 0x0069bc30;
 const G_SOUND_PLAYER: usize = 0x006d3f50;
+/// `ReplayManager *g_ReplayManager` — a pointer to it, not the thing. `RegisterChain`
+/// tests this address against zero and then writes what `new` gave it, and a struct
+/// here would run over `g_SoundPlayer` at 0x6d3f50.
+const G_REPLAY_MANAGER: usize = 0x006d3f18;
+/// `AnmManager *g_AnmManager` — a pointer to it, allocated once at startup.
+const G_ANM_MANAGER: usize = 0x006d4588;
+/// `u16 g_CurFrameInput`, assigned from `Controller::GetInput` at the top of
+/// `Supervisor::OnUpdate` and then, for a replay, overwritten with the record's buttons
+/// in place of the ones on the keyboard.
+const G_CUR_FRAME_INPUT: usize = 0x0069d904;
+/// `ItemManager g_ItemManager`, whose `Item items[513]` of 0x144 bytes each are followed
+/// by `nextIndex` and then `itemCount` — 513 * 0x144 = 0x28944, and the struct is
+/// 0x2894c. Nothing on the way into a stage puts it back: the bullet manager is built
+/// fresh per stage and this is not part of it.
+const G_ITEM_MANAGER: usize = 0x0069e268;
+const ITEM_COUNT: usize = 0x28948;
+/// `Rng g_Rng`: `u16 seed`, then `u32 generationCount` at +0x4.
+const G_RNG: usize = 0x0069d8f8;
+const RNG_GENERATION_COUNT: usize = 0x4;
 // The game's own frame-rate counter is left alone: orb's numbers go in the black beside
 // the game, not over it, so the two do not collide. Worth recording where its switch is,
 // in case that changes: the counter is drawn unless `g_Supervisor.isInEnding` is set —
@@ -94,26 +150,58 @@ const G_SOUND_PLAYER: usize = 0x006d3f50;
 // hide the counter tells the game it is in the ending for good.
 
 mod game_manager {
+    /// The score as the player sees it, which chases `score` rather than being it.
+    pub const GUI_SCORE: usize = 0x0;
+    pub const SCORE: usize = 0x4;
+    pub const NEXT_SCORE_INCREMENT: usize = 0x8;
     pub const DIFFICULTY: usize = 0x10;
     pub const IS_IN_REPLAY: usize = 0x1c;
     pub const DEATHS: usize = 0x20;
     pub const CURRENT_POWER: usize = 0x1810;
     pub const LIVES_REMAINING: usize = 0x181a;
     pub const BOMBS_REMAINING: usize = 0x181b;
+    pub const EXTRA_LIVES: usize = 0x181c;
     pub const IS_IN_GAME_MENU: usize = 0x181f;
     pub const IS_IN_RETRY_MENU: usize = 0x1820;
     pub const IS_IN_PRACTICE_MODE: usize = 0x1823;
     pub const DEMO_MODE: usize = 0x1824;
     pub const RANDOM_SEED: usize = 0x1a2c;
     pub const GAME_FRAMES: usize = 0x1a30;
+    /// Counts from one, not from zero: the game holds the menu's choice here — 0 for
+    /// a full run, the 0-based stage for practice — and raises it as each stage
+    /// starts, so while a stage is running the value is its 1-based number. Measured
+    /// on stage 4 practice (`stage=3 frames=0` entering the scene, `stage=4` from
+    /// frame 1 on) and on a 1→6 replay (0, then 1 through 6). `read_state` subtracts
+    /// one, which also makes the frames before the first stage read as no stage at
+    /// all rather than as stage 1.
     pub const CURRENT_STAGE: usize = 0x1a34;
     pub const ARCADE_REGION_TOP_LEFT: usize = 0x1a3c;
     pub const ARCADE_REGION_SIZE: usize = 0x1a44;
+    /// `playerMovementAreaTopLeftPos` and `playerMovementAreaSize`, the two
+    /// `D3DXVECTOR2` after the arcade region's pair.
+    pub const PLAYER_AREA_TOP_LEFT: usize = 0x1a4c;
+    pub const PLAYER_AREA_SIZE: usize = 0x1a54;
+    /// The last four fields of the 0x1a80-byte struct — `counat`, then rank, its two
+    /// bounds and the fraction between steps. `isInMenu` at 0x1821, which
+    /// `GameManager::DeletedCallback` clears with the `andb $0x0,0x1821(%eax)` at
+    /// 0x41c254, is what fixes the layout these are counted from.
+    pub const RANK: usize = 0x1a70;
+    pub const SUB_RANK: usize = 0x1a7c;
 }
 
 mod stage {
     /// `skyFog.color`, the colour the background clears to.
     pub const SKY_FOG_COLOR: usize = 0x48;
+    /// `RawStageHeader *stdData`, the head of the stage's own `.std` file.
+    pub const STD_DATA: usize = 0x4;
+}
+
+/// `th06::RawStageHeader`: two `i16`, three `i32`, `char stageName[128]`, then the
+/// names and the paths of the tracks the stage carries.
+mod stage_header {
+    /// `char songPaths[4][128]`, the stage's own track first and the boss's second.
+    /// Inline arrays, so the address of an entry is the string itself.
+    pub const SONG_PATHS: usize = 0x290;
 }
 
 mod supervisor {
@@ -159,7 +247,17 @@ mod bullet_manager {
 }
 
 mod player {
+    /// `D3DXVECTOR3 positionCenter`, which `unk_44c` — the field after it, named for its
+    /// offset — puts at 0x440.
+    pub const POSITION_CENTER: usize = 0x440;
     pub const PLAYER_STATE: usize = 0x9e0;
+    /// `bombInfo.isInUse`. `PlayerBombInfo` is 0x231c bytes and sits three pointers
+    /// from the end of the 0x98f0-byte `Player`, and `isInUse` is its first field.
+    /// Four places in the exe read this address as a flag — `ItemManager::OnUpdate`,
+    /// `Player::ScoreGraze`, `Player::UpdateFireBulletsTimer` and one ECL
+    /// instruction — which is what a bomb suppresses, so the arithmetic is not the
+    /// only thing saying it is the right address.
+    pub const BOMB_IN_USE: usize = 0x75c8;
 }
 
 mod gui {
@@ -169,10 +267,50 @@ mod gui {
     pub const IMPL_CURRENT_MSG_IDX: usize = 0x253c;
 }
 
+/// `th06::ChainElem`, 0x20 bytes: the priority and the heap flag, then the three
+/// callbacks, then the links. `Chain::Cut` walking `+0x14` is what says which link is
+/// which.
+/// `th06::AnmManager`, whose `IDirect3DTexture8 *textures[264]` is the one array of
+/// Direct3D's own objects that the game replaces while a stage runs: an ECL instruction
+/// loads a boss's graphics part way through, and loading releases what the slot held.
+///
+/// The offset is out of the crash it caused — `AnmManager::ReleaseTexture` reads
+/// `0x1c110(%eax,%edx,4)` and calls the third entry of its vtable — and the count out of the
+/// struct, where `imageDataArray` follows at 0x1c530, which is 264 pointers later.
+mod anm_manager {
+    pub const TEXTURES: usize = 0x1c110;
+    pub const TEXTURE_COUNT: usize = 264;
+}
+
+mod chain_elem {
+    pub const CALLBACK: usize = 0x4;
+    pub const NEXT: usize = 0x14;
+}
+
+mod replay_manager {
+    /// `ReplayData *replayData`, the file as it was read.
+    pub const REPLAY_DATA: usize = 0x4;
+    /// `i32 isDemo`, set when the manager is playing a replay back rather than
+    /// recording one. The game's own name for it: the attract demo and a replay the
+    /// player chose are the same thing to it.
+    pub const IS_DEMO: usize = 0x8;
+}
+
+/// `th06::ReplayData`, whose `StageReplayData *stageReplayData[7]` is its last field:
+/// seven pointers at the end of 0x50 bytes puts them at 0x34. A null one is a stage the
+/// replay does not cover.
+mod replay_data {
+    pub const STAGE_DATA: usize = 0x34;
+    pub const STAGES: i32 = 7;
+}
+
 mod sound_player {
     /// `CStreamingSound *backgroundMusic`.
     pub const BACKGROUND_MUSIC: usize = 0x62c;
     pub const BACKGROUND_MUSIC_THREAD_ID: usize = 0x614;
+    /// `HANDLE backgroundMusicThreadHandle`. What `StopBGM` tests before it goes near
+    /// the thread and its handles, so clearing it is what makes that call a no-op.
+    pub const BACKGROUND_MUSIC_THREAD_HANDLE: usize = 0x618;
     pub const SIZE: usize = 0x638;
 }
 
@@ -199,11 +337,21 @@ mod wave_file {
 
 /// `th06::SupervisorState`.
 const STATE_GAMEMANAGER: i32 = 2;
+/// The state between two stages of a run, where the game tears the last stage's
+/// managers down and builds the next one's. Not the run ending, which is what makes it
+/// worth telling apart.
+const STATE_GAMEMANAGER_REINIT: i32 = 3;
 const STATE_ENDING: i32 = 10;
 
 /// `th06::PlayerState`.
 const PLAYER_SPAWNING: i8 = 1;
 const PLAYER_DEAD: i8 = 2;
+
+/// `th06::Difficulty`, whose last value the Extra stage runs at.
+const DIFFICULTY_EXTRA: i32 = 4;
+/// What the game counts as already paid for there, so that the four scores an extra life
+/// costs in a run are not paid again in a stage that is not one.
+const EXTRA_LIVES_IN_EXTRA: i8 = 4;
 
 impl Game for Th06 {
     fn hooks(&self) -> Hooks {
@@ -211,6 +359,10 @@ impl Game for Th06 {
             update: Patch { target: RUN_CALC_CHAIN, prologue: RUN_CHAIN_PROLOGUE },
             draw: Patch { target: RUN_DRAW_CHAIN, prologue: RUN_CHAIN_PROLOGUE },
             save_replay: Some(Patch { target: SAVE_REPLAY, prologue: SAVE_REPLAY_PROLOGUE }),
+            stop_recording: Some(Patch {
+                target: STOP_RECORDING,
+                prologue: STOP_RECORDING_PROLOGUE,
+            }),
             create_window: Some(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
@@ -241,6 +393,7 @@ impl Game for Th06 {
             State {
                 scene,
                 playing: scene == STATE_GAMEMANAGER,
+                in_run: scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT,
                 in_game: scene == STATE_GAMEMANAGER && !demo && !replay,
                 in_ending: scene == STATE_ENDING
                     || mem::read::<i32>(G_SUPERVISOR + supervisor::IS_IN_ENDING) != 0,
@@ -253,8 +406,9 @@ impl Game for Th06 {
                     || mem::read::<u8>(G_GAME_MANAGER + game_manager::IS_IN_RETRY_MENU) != 0,
                 // Being invulnerable after a bomb or a respawn does not count.
                 unsettled: player_state == PLAYER_DEAD || player_state == PLAYER_SPAWNING,
+                bombing: mem::read::<u32>(G_PLAYER + player::BOMB_IN_USE) != 0,
                 in_dialogue: dialogue_msg_idx() >= 0,
-                stage: mem::read(G_GAME_MANAGER + game_manager::CURRENT_STAGE),
+                stage: mem::read::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE) - 1,
                 difficulty: mem::read(G_GAME_MANAGER + game_manager::DIFFICULTY),
                 stage_frames: mem::read(G_GAME_MANAGER + game_manager::GAME_FRAMES),
                 script_frames: mem::read(G_ENEMY_MANAGER + enemy_manager::TIMELINE_TIME_CURRENT),
@@ -332,6 +486,30 @@ impl Game for Th06 {
         (id != 0).then_some(id)
     }
 
+    unsafe fn stop_music(&self) {
+        let stop: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(STOP_BGM) };
+        unsafe { stop(G_SOUND_PLAYER) };
+        log!("music: stopped through the game");
+    }
+
+    unsafe fn restart_stage_music(&self) -> bool {
+        // Cleared before the game is asked for anything, because the first thing
+        // `LoadWav` does is stop whatever is playing — and what the restored state
+        // says is playing was deleted long ago, sound buffer and all.
+        unsafe {
+            mem::write::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC, 0);
+            mem::write::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC_THREAD_HANDLE, 0);
+        }
+        let Some((path, name)) = self.stage_song() else { return false };
+        log!("music: restarting {name}");
+        // `__thiscall` with an argument, which unlike the one-argument case is not
+        // `fastcall`: the argument goes on the stack and the callee takes it off.
+        let play: unsafe extern "thiscall" fn(usize, usize) -> i32 =
+            unsafe { std::mem::transmute(PLAY_AUDIO) };
+        unsafe { play(G_SUPERVISOR, path) };
+        true
+    }
+
     fn audio_state(&self) -> Vec<Range<usize>> {
         let mut ranges = vec![G_SOUND_PLAYER..G_SOUND_PLAYER + sound_player::SIZE];
         if let Some(streaming) = self.streaming_sound() {
@@ -341,6 +519,19 @@ impl Game for Th06 {
             ranges.push(wave_file..wave_file + wave_file::SIZE);
         }
         ranges
+    }
+
+    unsafe fn live_handles(&self) -> Vec<Range<usize>> {
+        // The surfaces and the vertex buffer beside it are left out: the game releases those
+        // when it loses the device, which is not something a stage runs into, and a range
+        // left out of a restore is a range the snapshot no longer describes.
+        mem::read_committed::<usize>(G_ANM_MANAGER)
+            .filter(|manager| *manager != 0)
+            .map(|manager| {
+                let textures = manager + anm_manager::TEXTURES;
+                vec![textures..textures + anm_manager::TEXTURE_COUNT * size_of::<usize>()]
+            })
+            .unwrap_or_default()
     }
 
     /// From `GAME_REGION_*`, inside the game's 640x480 output.
@@ -451,6 +642,90 @@ impl Game for Th06 {
         unsafe { present(G_GAME_WINDOW) };
     }
 
+    unsafe fn jump_to_stage(&self, stage: i32) -> bool {
+        if !(0..replay_data::STAGES).contains(&stage) {
+            return false;
+        }
+        // Asked of the replay first. `GameManager::RegisterChain` reads the stage's
+        // record to put the run back, and a stage the replay does not cover fails that
+        // load — which drops the game to its main menu rather than saying so.
+        let entry = replay_data::STAGE_DATA + stage as usize * size_of::<usize>();
+        let recorded = mem::read_committed::<usize>(G_REPLAY_MANAGER)
+            .filter(|manager| *manager != 0)
+            .and_then(|manager| mem::read_committed::<usize>(manager + replay_manager::REPLAY_DATA))
+            .filter(|data| *data != 0)
+            .and_then(|data| mem::read_committed::<usize>(data + entry));
+        if recorded.unwrap_or(0) == 0 {
+            return false;
+        }
+        // The run's score goes back to nothing first, which is the one thing a stage
+        // move has to do that a stage transition does not. `GameManager::RegisterChain`
+        // zeroes the score only when it is *not* reinitialising, and reinitialising is
+        // the path a stage move takes; `ReplayManager::AddedCallbackDemo` then puts the
+        // score back from the stage before the one being started, which the first stage
+        // does not have. So stage 1 would otherwise begin with the score the run was
+        // left on — 7417420 in the log at 303310937ms — and cross the first extra life's
+        // 10000000 part way through it: a life the recording never got, and with it the
+        // `IncreaseSubrank(200)` that took rank from 21 to 23. Rank is what the enemies
+        // read, so from there the stage was a different one, and the recorded inputs
+        // walked the player into it.
+        //
+        // `extraLives` goes with it, and to nothing rather than to what the score says:
+        // the count only ever rises, so the stage's own `while` loop can raise it from
+        // zero to what the restored score has paid for, and cannot lower it from what a
+        // later stage had reached.
+        let difficulty = unsafe { mem::read::<i32>(G_GAME_MANAGER + game_manager::DIFFICULTY) };
+        let extras = if difficulty < DIFFICULTY_EXTRA { 0 } else { EXTRA_LIVES_IN_EXTRA };
+        unsafe { self.cut_screen_shake() };
+        // What the replay menu writes, and nothing more: the stage counted as the menu
+        // counts it — `GameManager::RegisterChain` raises the number by one, so it is
+        // handed the stage before the one meant — and the state that makes the
+        // supervisor cut this stage's chain and register the next.
+        unsafe {
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::GUI_SCORE, 0);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::SCORE, 0);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::NEXT_SCORE_INCREMENT, 0);
+            mem::write::<i8>(G_GAME_MANAGER + game_manager::EXTRA_LIVES, extras);
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE, stage);
+            mem::write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, STATE_GAMEMANAGER_REINIT);
+        }
+        log!("stage {}: asked the game to start the replay there", stage + 1);
+        true
+    }
+
+    unsafe fn reproduction(&self) -> Reproduction {
+        unsafe {
+            Reproduction {
+                replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
+                    .filter(|manager| *manager != 0)
+                    .and_then(|manager| mem::read_committed::<i32>(manager))
+                    .unwrap_or(-1),
+                input: mem::read(G_CUR_FRAME_INPUT),
+                player: (
+                    mem::read(G_PLAYER + player::POSITION_CENTER),
+                    mem::read(G_PLAYER + player::POSITION_CENTER + size_of::<f32>()),
+                ),
+                player_area: (
+                    mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT + size_of::<f32>()),
+                    mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE + size_of::<f32>()),
+                ),
+                randoms: mem::read(G_RNG + RNG_GENERATION_COUNT),
+                items: mem::read(G_ITEM_MANAGER + ITEM_COUNT),
+                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
+                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
+                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
+                sub_rank: mem::read(G_GAME_MANAGER + game_manager::SUB_RANK),
+            }
+        }
+    }
+
+    unsafe fn replaying(&self) -> bool {
+        mem::read_committed::<usize>(G_REPLAY_MANAGER)
+            .filter(|manager| *manager != 0)
+            .and_then(|manager| mem::read_committed::<i32>(manager + replay_manager::IS_DEMO))
+            .is_some_and(|demo| demo != 0)
+    }
+
     fn midstage_table(&self) -> &'static [&'static [i32]] {
         &chapters::MIDSTAGE
     }
@@ -466,6 +741,51 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
+    /// Takes down any screen shake still running, and puts the play field's rectangle back
+    /// where the shake would have put it when it finished.
+    ///
+    /// Screen effects outlive the stage that started them, which is deliberate — a fade
+    /// between two stages belongs to neither, and `GameManager::DeletedCallback` leaves
+    /// them alone where it cuts everything else. A shake is not only drawing, though: it
+    /// writes the arcade region from two numbers out of the generator every frame, and
+    /// `Player::AddedCallback` measures where the player starts from that region —
+    /// `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down. So a bomb
+    /// within a shake's 80 frames of a stage move gave the next stage a player 3.13
+    /// pixels high, at `192.00,380.87` where the stage starts one at `192.00,384.00`, and
+    /// four numbers a frame going out of a stream the replay has to match. Measured at
+    /// 312597765ms in the log: stage 2 left at its frame 642 with `bombs=2`.
+    ///
+    /// The region is written here rather than left to the shake, because the shake only
+    /// restores it on the frame it removes itself on and it is being removed early.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn cut_screen_shake(&self) {
+        let cut: unsafe extern "thiscall" fn(usize, usize) =
+            unsafe { std::mem::transmute(CHAIN_CUT) };
+        let mut elem = unsafe { mem::read::<usize>(G_CHAIN + chain_elem::NEXT) };
+        while elem != 0 {
+            // Read before the cut: the element is freed by it.
+            let next = unsafe { mem::read::<usize>(elem + chain_elem::NEXT) };
+            if unsafe { mem::read::<usize>(elem + chain_elem::CALLBACK) } == SHAKE_SCREEN {
+                unsafe { cut(G_CHAIN, elem) };
+                let area = self.play_area();
+                unsafe {
+                    mem::write::<[f32; 2]>(
+                        G_GAME_MANAGER + game_manager::ARCADE_REGION_TOP_LEFT,
+                        [area.left, area.top],
+                    );
+                    mem::write::<[f32; 2]>(
+                        G_GAME_MANAGER + game_manager::ARCADE_REGION_SIZE,
+                        [area.width, area.height],
+                    );
+                }
+                log!("stage move: a screen shake was still running, and is taken down");
+            }
+            elem = next;
+        }
+    }
+
     fn clears_background(&self) -> bool {
         let opts = unsafe { mem::read::<u32>(G_SUPERVISOR + CFG_OPTS) };
         opts >> GCOS_CLEAR_BACKBUFFER_ON_REFRESH & 1 != 0
@@ -475,9 +795,20 @@ impl Th06 {
     /// The live `CStreamingSound`, checked before being believed: the allocator
     /// does not scrub freed blocks, so a stale pointer reads back as its old self.
     fn streaming_sound(&self) -> Option<usize> {
+        // Asked of the memory map rather than read outright, which is the only read in
+        // this path that assumed the address was there. It costs one `VirtualQuery` and
+        // makes every `Game` method that leads here answerable with no game around it —
+        // which is what lets the rules about where chapters begin be tested at all, since
+        // deciding whether a boss was a midboss asks what music is playing.
         let streaming =
-            unsafe { mem::read::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC) };
+            mem::read_committed::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC)?;
         mem::vtable_in_image(streaming).then_some(streaming)
+    }
+
+    /// `g_Stage.stdData->songPaths[0]`, an inline array so the address is the string.
+    fn stage_song(&self) -> Option<(usize, String)> {
+        let std_data = mem::read_committed::<usize>(G_STAGE + stage::STD_DATA)?;
+        path_at(std_data + stage_header::SONG_PATHS)
     }
 
     fn wave_file(&self) -> Option<usize> {
@@ -485,6 +816,28 @@ impl Th06 {
         let wave_file = mem::read_committed::<usize>(streaming + streaming_sound::WAVE_FILE)?;
         mem::read_committed::<u32>(wave_file + wave_file::SIZE).map(|_| wave_file)
     }
+}
+
+/// A path out of the game's own memory, and what it says, checked before either is
+/// used. These are handed back to the game as path arguments — `PlayAudio` looks for
+/// the last `.` in one without checking that there is one, and `LoadAnm` opens what it
+/// is given — so a wrong offset is a line in the log rather than a crash inside the
+/// game.
+fn path_at(address: usize) -> Option<(usize, String)> {
+    /// Longer than any path the game carries; `songPaths` entries are this size.
+    const LIMIT: usize = 128;
+
+    let bytes = mem::read_committed::<[u8; LIMIT]>(address)?;
+    let end = bytes.iter().position(|byte| *byte == 0)?;
+    let name = std::str::from_utf8(&bytes[..end]).ok()?;
+    let usable = !name.is_empty()
+        && name.contains('.')
+        && name.bytes().all(|byte| byte.is_ascii_graphic() || byte == b' ');
+    if !usable {
+        log!("{address:#010x} does not hold a path");
+        return None;
+    }
+    Some((address, name.to_owned()))
 }
 
 unsafe fn laser_count() -> i32 {

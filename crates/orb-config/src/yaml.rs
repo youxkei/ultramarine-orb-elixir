@@ -81,14 +81,6 @@ impl Document {
         }
     }
 
-    pub fn u32(&self, key: &str) -> Result<Option<u32>, Error> {
-        let Some(entry) = self.non_empty_entry(key) else { return Ok(None) };
-        entry
-            .value
-            .parse()
-            .map(Some)
-            .map_err(|_| err(entry.line, format!("`{key}`: expected a number, got `{}`", entry.value)))
-    }
 
     fn entry(&self, key: &str) -> Option<&Entry> {
         self.taken.borrow_mut().push(key.to_owned());
