@@ -34,7 +34,7 @@ use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use chapter::{Chapters, Judgement};
+use chapter::{Cause, Chapters, Judgement};
 use game::th06::Th06;
 use game::{Game, State};
 use input::Keyboard;
@@ -1083,8 +1083,14 @@ fn boundary_reached(runtime: &mut Runtime, state: &State) {
         return;
     }
     let boundary = (state.stage, runtime.chapters.started_at());
-    if runtime.flashed != Some(boundary) {
-        runtime.flashed = Some(boundary);
+    if runtime.flashed == Some(boundary) {
+        return;
+    }
+    runtime.flashed = Some(boundary);
+    // Not the stage's own start. A stage beginning is already unmistakable — the title, the
+    // music, the field empty — and a wash over the first frame of one says nothing that was
+    // not already obvious.
+    if runtime.chapters.cause() != Cause::StageStart {
         runtime.flash = FLASH_FRAMES;
     }
 }

@@ -488,7 +488,8 @@ the game's update; the drawing carries on, so that frame stays on screen and the
 `SCRIPT` is the number that would be written down.
 
 **Reaching one washes the play field green**, held for a moment and then gone inside a third of
-a second. A boundary is one frame among a stage's thousands, and what says one has been reached
+a second. Not a stage's own start: that is already unmistakable from the title, the music and an
+empty field, and a wash over its first frame says nothing that was not obvious. A boundary is one frame among a stage's thousands, and what says one has been reached
 should not be a number to read. Green because the game flashes white itself — a bomb, a boss
 going down — and a mark that means something orb decided should not look like something the game
 did; nothing in 紅魔郷 fills the play field with green. It holds before it fades because a wash

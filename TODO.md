@@ -1,5 +1,18 @@
 # To do
 
+## The boundary flash while playing
+
+Reaching a boundary washes the play field green, and only in a judging pass — the flash was
+built to say "a step landed" to whoever is watching one. It is worth as much to whoever is
+playing: dying inside a chapter sends you back to its start, and knowing where that start was
+is the same question. The stage's own start stays unmarked either way.
+
+What has to be decided is what it does to a run rather than to a pass. A wash every few seconds
+through a boss fight is a wash nobody sees any more, and one over a frame somebody is dodging on
+is in the way — so it may want to be dimmer, shorter, or at the field's edge rather than over
+it. `FLASH_COLOR`, `FLASH_ALPHA`, `FLASH_HOLD` and `FLASH_FRAMES` in `lib.rs` are the four
+numbers, and `boundary_reached` is where the judging pass is asked for.
+
 ## Going back more than one chapter
 
 The retry menu offers this chapter and the stage's start, because those are the two snapshots
