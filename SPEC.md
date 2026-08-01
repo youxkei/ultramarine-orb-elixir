@@ -135,9 +135,9 @@ is on, taken from `MonitorFromWindow` and `EnumDisplaySettingsW`: two at 120Hz, 
 The compositor's `qpcRefreshPeriod` follows one monitor of the desktop, which on a mixed-rate
 desktop need not be this one, so it is used only when it agrees with that rate. A rate that
 is not a whole multiple of 60 has no fixed cadence to keep — 144Hz is 2.4 refreshes a frame —
-and is paced by the clock instead. A replay being run fast keeps the cadence like anything
-else: `--speed` is updates per drawn frame, so the frames come one per turn and only
-carry more of the game with them.
+and is paced by the clock instead. A replay being run fast, or a run being cleared fast, keeps
+the cadence like anything else: `--speed` is updates per drawn frame, so the frames come one per
+turn and only carry more of the game with them.
 
 `DWM_TIMING_INFO.cRefresh` counts compositions of the window rather than refreshes of the
 display, and is not used.
@@ -250,14 +250,40 @@ frames those ends fall in.
 
 With `skip_ending`, the ending is run out inside the frame it starts on, so no frame of it is
 drawn, rather than jumped over — the ending is also where the game sets the clear flag and
-enters the score. Stopped by the scene changing, and never entered during a demo or a replay.
+enters the score. Never entered during a demo or a replay.
 
-**Stage 6's ending is 36,932 updates**, the staff roll included: it is all one scene, and the
-scene after it is 7, the result screen. So the limit on the loop is above a whole ending —
-fifteen minutes of game time — because it is a limit per frame rather than on the skip: the
-frame the loop stops in goes on to draw whatever the ending is showing by then, which at two
-minutes put five frames of it on the screen. An update of an ending costs 13µs, so the whole
-skip is under half a second and an ending that never ended would be a pause of about one.
+**The staff roll is kept**, which the scene cannot say: an ending and its roll are all one
+scene, so what the skip stops on is the script the ending is reading. 紅魔郷 runs an ending
+from a `.end` file of one-character instructions, one file per part of it, and the last
+instruction of every one of the six — `end00`, `end01`, `end10`, `end11`, and the
+`end00b`/`end10b` a clear on Easy or with a continue gets — is `@Fdata/staff00.end`, the roll.
+`F`, at 0x40fc06 in the interpreter at 0x40f7c0, reads that file over the one running and
+carries straight on into it, so nothing else marks the handover: the scene stays 10 and
+`isInEnding` stays set across both. The skip stops on the update the file changes on and the
+roll plays from there a frame at a time, with the track it starts for itself — the ending plays
+`bgm/th06_16`, `staff00.end` starts `bgm/th06_17` three instructions after the handover and in
+the same update as it, so the track changing is a second signal for the same boundary.
+
+The script is read out of the `Ending` object, which is on the heap and in no global: it is
+reached by walking the calc chain for the job whose callback is `Ending::OnUpdate` at 0x4109c0
+and taking that element's argument at +0x1c, the same field `RunCalcChain` passes to the
+callback. The file it loaded is at `Ending + 0x1114`. `Ending::LoadEndingFile` at 0x4106d0 reads
+the new file before it frees the one it replaces, so the address is always a different one
+after a handover — which is what makes comparing addresses enough. With no script to compare,
+the skip runs the scene out the way it did before there was one to read.
+
+**A stage 6 ending is 29,040 updates** on its own and 36,932 with the roll, after which the scene
+is 7, the result screen. So the limit on the loop is above a whole ending — fifteen minutes of
+game time — because it is a limit per frame rather than on the skip: the frame the loop stops in
+goes on to draw whatever the ending is showing by then, which at two minutes put five frames of
+it on the screen. An update of an ending cost 13µs when the whole 36,932 were timed, which puts
+29,040 of them under 400ms; what the frame the skip runs in actually took is not measured, only
+that it was five refreshes or more.
+
+**Reaching one at all** takes clearing the game: `GameManager`'s end-of-run branch at 0x418f4e
+sends a replay to state 8 and practice to the result screen, and only a run somebody played gets
+state 10. So `--clear` — see *Configuration* — is how the ending is looked at without half an
+hour of playing well first.
 
 `g_Supervisor.isInEnding` is at `G_SUPERVISOR + 0x19c` = 0x6c6eb4. The same flag gates the
 game's own frame-rate counter (`cmpl $0x0, 0x6c6eb4` at 0x4240bb, jumping over the
@@ -308,6 +334,16 @@ text in one place, the log.
 With `--no-chapters` the fork is not installed: nothing can rewind that run, and its score
 belongs in the game's own file.
 
+**With `--clear` nothing is written**, whichever way `own_score_file` and `--no-chapters` are
+set — there the hook is in the path for the refusing rather than for the forking, and the file
+that must not be written is the game's own. A cheated clear is not a score: orb's file is where
+runs that cannot be compared with the game's are kept, and a clear nobody could have played at
+the top of *that* ranking is the same mistake one file further on. The open for writing is
+refused rather than the write being sent elsewhere, which the game takes cleanly:
+`WriteDataToFile` checks its `fopen`, returns -1, and its one caller — the `call` at 0x42bc1a —
+drops that and frees the buffer either way. Reads go through, so the ranking screen and what the
+file has unlocked are what they were.
+
 ## A latent crash in the game
 
 `ResultScreen` passes `g_CharacterList[charUsed * 2]` as a *format string* to
@@ -348,9 +384,10 @@ set: `borderless`, `skip_ending`, `joystick`, `block_replay_save`, `own_score_fi
 are. A flat list of `key: value`, and an unknown key is an error rather than being passed
 over — a setting that is quietly not read is a setting somebody thinks is on.
 
-Everything to do with building the midstage table or looking into a fault is an argument to
-`orb-launcher` instead — `--help` lists them — because a file is the wrong place for something
-that is different every time it is run. The two passes over a replay are one word each:
+Everything to do with building the midstage table, reaching an ending, or looking into a fault
+is an argument to `orb-launcher` instead — `--help` lists them — because a file is the wrong
+place for something that is different every time it is run. The two passes over a replay are one
+word each:
 
 | | |
 | --- | --- |
@@ -360,6 +397,21 @@ that is different every time it is run. The two passes over a replay are one wor
 and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--self-check`,
 `--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks` for taking orb apart until a
 fault stops happening. `--config=PATH` is the launcher's own.
+
+**`--clear`** is the one that is about neither: nothing can hit the player and the run goes at
+`--speed`'s 64 updates a drawn frame, so half an hour of playing well is a minute of holding the
+shot key. It is there because the ending is reached by clearing the game and by nothing else —
+see *The ending* — and a boundary inside one cannot be looked at twice at half an hour a look.
+What it writes, before each update, is the player's state — to the one the game's own bombs
+write — and the frames of invulnerability left under it. Both, because the state on its own does
+not last: `Player::OnUpdate` is chain priority 7 and the bullets are checked at 11, so a state
+whose frames have run out is a state put back to normal before the hit test in the same update,
+and the player dies with it written. Only from the states the player can be hit in or is already
+invulnerable in, so a spawn or a death still plays out as itself.
+It leaves no record: no score file is written at all — see *The score file* — because such a run
+has no score to keep in either ranking, and no replay is written whichever way
+`block_replay_save` is set, because a replay holds the inputs and nothing about the player having
+been unhittable, so playing one back is a run that dies where this one did not.
 
 The launcher reads them, refuses to start on anything it cannot, and hands them on the game's
 own command line — which the game never looks at, `lpCmdLine` appearing once in the whole of its
@@ -633,7 +685,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
-| `orb/score.rs` | the fork of the game's score file |
+| `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
+| `orb/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the borderless window, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |

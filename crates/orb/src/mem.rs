@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 
 use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_IMAGE, MEMORY_BASIC_INFORMATION, VirtualQuery,
+    MEM_COMMIT, MEM_IMAGE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS, VirtualQuery,
 };
 
 pub unsafe fn read<T: Copy>(address: usize) -> T {
@@ -32,16 +32,61 @@ pub fn vtable_in_image(address: usize) -> bool {
     queried != 0 && info.State == MEM_COMMIT && info.Type == MEM_IMAGE
 }
 
-/// Reads only if the whole value sits in committed memory, for chasing pointers
-/// out of the game's structures that may not be valid yet or any more.
+/// Reads only where the whole value can be read at all, for chasing pointers out of the game's
+/// structures that may not be valid yet or any more.
+///
+/// Committed is not enough on its own, and each of the three that are missing from it is a
+/// process that dies rather than a read that misses:
+///
+/// - **Alignment.** Every one of these addresses is a field of a structure the game built, so an
+///   address that is not aligned for what is being read is not one of them. Reading it anyway is
+///   undefined behaviour, which a build with the checks on turns into a non-unwinding panic: one
+///   test run in twenty aborted with `STATUS_STACK_BUFFER_OVERRUN` after every test in it had
+///   passed, and the run that kept its output said `read_volatile requires that the pointer
+///   argument is aligned`, out of the chase after a track's identity.
+/// - **`PAGE_NOACCESS`**, which faults.
+/// - **`PAGE_GUARD`**, which is every thread's stack guard. Reading one raises
+///   `STATUS_GUARD_PAGE_VIOLATION` — fatal to a process not expecting it — and where that is
+///   caught the page comes back without its guard, so the thread owning that stack stops growing
+///   it and dies of an overflow later and somewhere else.
 pub fn read_committed<T: Copy>(address: usize) -> Option<T> {
+    if !address.is_multiple_of(align_of::<T>()) {
+        return None;
+    }
     let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
     let queried = unsafe {
         VirtualQuery(address as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
     };
     let end = info.BaseAddress as usize + info.RegionSize;
-    if queried == 0 || info.State != MEM_COMMIT || address + size_of::<T>() > end {
+    if queried == 0
+        || info.State != MEM_COMMIT
+        || info.Protect & (PAGE_NOACCESS | PAGE_GUARD) != 0
+        || address + size_of::<T>() > end
+    {
         return None;
     }
     Some(unsafe { read(address) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_committed;
+
+    /// Memory this process owns, so the answer is about the rule and not about what happens to
+    /// be mapped: aligned and committed is read, one byte along is not.
+    #[test]
+    fn an_unaligned_address_is_not_read() {
+        let value: u64 = 0x0123_4567_89ab_cdef;
+        let address = &raw const value as usize;
+        assert_eq!(read_committed::<u64>(address), Some(value));
+        assert_eq!(read_committed::<u64>(address + 1), None);
+    }
+
+    /// The bottom of the address space is never mapped, and asking about it is how every pointer
+    /// out of a structure the game has not built yet comes back.
+    #[test]
+    fn an_address_that_is_not_mapped_is_not_read() {
+        assert_eq!(read_committed::<u32>(0), None);
+        assert_eq!(read_committed::<u32>(0x1000), None);
+    }
 }

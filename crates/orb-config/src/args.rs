@@ -26,7 +26,16 @@ Building the midstage chapter table, over a replay of a run:
                        somebody watches
   --tune               propose and decide without either of those, for a run being played
   --replay             track chapters while a replay plays back
-  --speed=N            updates per drawn frame while a replay plays back
+  --speed=N            updates per drawn frame while a replay plays back, or while a
+                       run is being cleared
+
+Getting to an ending, which only clearing the game reaches:
+  --clear              nothing can hit the player and the run goes at 64 updates a
+                       drawn frame, so half an hour of playing well is a minute of
+                       holding the shot key. It leaves no record: no score file is
+                       written, in the game's ranking or in orb's, and no replay
+                       either. Add --no-chapters to spend none of it on snapshots of
+                       a run nobody could have played
 
 Looking into a fault:
   --log=LEVEL          quiet, normal or verbose
@@ -103,6 +112,17 @@ impl Config {
                 }
                 "--tune" => self.chapter_tuning = true,
                 "--replay" => self.during_replay = true,
+                // The same shape as a pass: what it is for in one word, and a speed it
+                // names rather than decides.
+                "--clear" => {
+                    self.fast_clear = true;
+                    // Whatever the file says, since this is the other record such a run could
+                    // leave behind and it would be a broken one: a replay holds the inputs and
+                    // nothing about the player having been unhittable, so playing it back is a
+                    // run that dies where this one did not.
+                    self.block_replay_save = true;
+                    pass_speed = Some(CLEAR_SPEED);
+                }
                 "--self-check" => self.self_check = true,
                 "--no-chapters" => self.chapters = false,
                 "--no-memory" => self.track_memory = false,
@@ -119,7 +139,7 @@ impl Config {
             }
         }
         if let Some(speed) = speed.or(pass_speed) {
-            self.replay_speed = speed;
+            self.speed = speed;
         }
         Ok(asked)
     }
@@ -129,6 +149,12 @@ impl Config {
 /// What `--collect` runs at: twenty minutes of a run in twenty seconds, and one frame in
 /// sixty-four drawn, which is nothing to watch and everything to a pass nobody is watching.
 const COLLECT_SPEED: u32 = 64;
+
+/// What `--clear` runs at. The same number for a different reason: a run is being played, so
+/// the frames still have to be watchable enough to aim at a boss, and one update a frame is
+/// half an hour of them. Whoever is holding the shot key is not dodging anything — nothing can
+/// hit them — so what is left to see is the run going by.
+const CLEAR_SPEED: u32 = 64;
 
 fn number(name: &str, value: Option<&str>) -> Result<u32, Error> {
     let value = value.ok_or_else(|| bad(format!("`{name}` needs a number, as {name}=64")))?;
@@ -162,27 +188,58 @@ mod tests {
         let collect = with(r"C:\game\th06.exe --collect");
         assert!(collect.chapter_tuning && collect.during_replay);
         assert!(!collect.chapter_stepping);
-        assert_eq!(collect.replay_speed, 64);
+        assert_eq!(collect.speed, 64);
 
         let judge = with("--judge");
         assert!(judge.chapter_tuning && judge.during_replay && judge.chapter_stepping);
-        assert_eq!(judge.replay_speed, 1);
+        assert_eq!(judge.speed, 1);
     }
 
     /// A speed given by hand wins over the one the pass chose, whichever order they come in:
     /// the pass names a default, not a decision.
     #[test]
     fn a_speed_given_by_hand_wins() {
-        assert_eq!(with("--collect --speed=8").replay_speed, 8);
-        assert_eq!(with("--speed=8 --collect").replay_speed, 8);
+        assert_eq!(with("--collect --speed=8").speed, 8);
+        assert_eq!(with("--speed=8 --collect").speed, 8);
+    }
+
+    /// A clear is one word for the same reason a pass is, and the speed that comes with it is a
+    /// default in the same way: named, not decided.
+    #[test]
+    fn a_clear_is_one_word() {
+        let clear = with("--clear");
+        assert!(clear.fast_clear);
+        assert_eq!(clear.speed, 64);
+        assert_eq!(with("--clear --speed=1").speed, 1);
+    }
+
+    /// It leaves no record of a run nobody could have played, whichever way the file has that
+    /// set: a replay of one plays back as a run that dies where this one did not.
+    #[test]
+    fn a_clear_writes_no_replay() {
+        let mut config = Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap();
+        config.block_replay_save = false;
+        config.take_arguments(super::options_in("--clear")).unwrap();
+        assert!(config.block_replay_save);
+    }
+
+    /// Nothing else about the run changes. What a clear is for is reaching an ending, and
+    /// whether the chapters of a run nobody could have played are worth snapshotting is a
+    /// separate question with `--no-chapters` for an answer.
+    #[test]
+    fn a_clear_changes_nothing_but_the_player_the_speed_and_what_is_written() {
+        let clear = with("--clear");
+        assert!(clear.chapters && clear.skip_ending);
+        assert!(!clear.chapter_tuning && !clear.during_replay && !clear.self_check);
     }
 
     #[test]
     fn nothing_given_leaves_the_file_alone() {
         let plain = with(r"C:\game\th06.exe");
         assert!(!plain.chapter_tuning && !plain.during_replay && !plain.chapter_stepping);
+        assert!(!plain.fast_clear);
         assert_eq!(plain.log_level, LogLevel::Normal);
-        assert_eq!(plain.replay_speed, 1);
+        assert_eq!(plain.speed, 1);
     }
 
     #[test]

@@ -216,6 +216,9 @@ struct Runtime {
     /// the hold says the stage is over and going on loses the way back into it, and
     /// after that the choice has been made.
     walled: bool,
+    /// Whether the ending skip has reached the staff roll, which is where it stops and
+    /// leaves the game to play the roll a frame at a time.
+    rolling: bool,
 }
 
 /// The one game orb knows how to run inside.
@@ -305,7 +308,8 @@ fn attach() {
     log!(
         "config: game_dir={} log_level={} self_check={} chapter_tuning={} \
          block_replay_save={} skip_ending={} borderless={} during_replay={} \
-         stress_restore_frames={} chapters={} track_memory={} frame_hooks={}",
+         fast_clear={} speed={} stress_restore_frames={} chapters={} track_memory={} \
+         frame_hooks={}",
         config.game_dir.display(),
         config.log_level,
         config.self_check,
@@ -314,6 +318,8 @@ fn attach() {
         config.skip_ending,
         config.borderless,
         config.during_replay,
+        config.fast_clear,
+        config.speed,
         config.stress_restore_frames,
         config.chapters,
         config.track_memory,
@@ -338,8 +344,16 @@ fn attach() {
     // happening, and a run nothing can rewind belongs in the game's own ranking. Loud rather
     // than fatal if the import is not there, since what it costs is scores in the game's file
     // and not a run that cannot be played.
-    if config.chapters && config.own_score_file {
+    //
+    // A clear run installs it whichever way those are set, because there the fork is not what it
+    // is for: the file that must not be written is the game's own, and refusing the write means
+    // being in the path of it.
+    if config.fast_clear || (config.chapters && config.own_score_file) {
+        if config.fast_clear {
+            score::refuse_writes();
+        }
         match unsafe { score::install(exe) } {
+            Ok(()) if config.fast_clear => log!("score: no file is written this run"),
             Ok(()) => log!("score: score.dat is forked to orb_score.dat"),
             Err(error) => log!("score: {error}; the game will write its own score.dat"),
         }
@@ -447,6 +461,7 @@ fn attach() {
             retry: None,
             held: false,
             walled: false,
+            rolling: false,
         });
     }
 }
@@ -739,10 +754,15 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // A replay can be run faster than it was recorded, which is what makes a pass
     // over a full run to collect chapter boundaries take minutes. Every update is
     // still observed, so nothing is missed by going quickly.
-    let fast_forward = runtime
-        .previous
-        .is_some_and(|previous| previous.replay && previous.playing && !previous.demo);
-    let mut repeats = if fast_forward { runtime.config.replay_speed } else { 1 };
+    //
+    // A run being cleared to reach an ending goes the same way. It is somebody at the
+    // keyboard rather than a replay, but they are not dodging anything — nothing can hit
+    // them — so the frames are there to see the run go by and not to play on.
+    let fast_forward = runtime.previous.is_some_and(|previous| {
+        previous.replay && previous.playing && !previous.demo
+            || runtime.config.fast_clear && previous.in_game
+    });
+    let mut repeats = if fast_forward { runtime.config.speed } else { 1 };
 
     let mut result = CHAIN_BREAK;
     let mut state = runtime.previous.unwrap_or(unsafe { runtime.game.read_state() });
@@ -761,6 +781,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // counting it made orb look like it was costing milliseconds a frame.
     let mut started = profile::now();
     for _ in 0..repeats {
+        // Before the update, because what reads it is the hit test inside the update. Not
+        // during a replay or the attract demo, where the run is a record of one somebody
+        // played and the player not dying would be a different run from the one recorded.
+        if runtime.config.fast_clear && state.in_game {
+            unsafe { runtime.game.make_invulnerable() };
+        }
         unsafe { profile::record(profile::Phase::Update, started) };
         result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         started = profile::now();
@@ -781,26 +807,37 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
     }
 
-    // Runs the ending out inside the frame it starts on, which is what keeps it
-    // off the screen entirely: drawing happens once per frame, and by the next one
-    // the game has already moved to the scene after the ending. Jumping the scene
-    // instead would be simpler, but the ending is also where the game sets the
-    // clear flag and enters the score, and those have to happen.
+    // Runs the ending out inside the frame it starts on, which is what keeps it off the screen
+    // entirely: drawing happens once per frame, and by the next one the game is on the frame
+    // the skip stopped at. Jumping the scene instead would be simpler, but the ending is also
+    // where the game sets the clear flag and enters the score, and those have to happen.
+    //
+    // Stops where the ending hands over to its staff roll rather than at the scene change,
+    // which is what keeps the roll: the roll is the last of an ending's scripts and the scene
+    // is the same across all of them, so stopping at the scene ran the roll out too.
+    //
     // Never during a demo or a replay. Only a run someone played reaches an ending worth
     // skipping, and a demo that looked like one is what turned this into a hundred
     // thousand updates a frame.
-    if runtime.config.skip_ending && state.in_ending && !state.demo && !state.replay {
+    if runtime.config.skip_ending
+        && state.in_ending
+        && !state.demo
+        && !state.replay
+        // Not once the roll is what is running: the ending's flag stays set through it and the
+        // scene stays 10, so this would start again on the next frame and run out the one part
+        // of an ending that was worth keeping.
+        && !runtime.rolling
+    {
         let scene = state.scene;
+        let script = state.ending_script;
+        let track = runtime.game.music_identity();
         let mut frames = 0;
-        // The track, because the staff roll is inside this scene along with the ending and the
-        // scene changing is therefore not what says where the roll begins. A change of track
-        // might be, and this is the one place the question can be answered: the frames are
-        // running here and nowhere else.
-        let mut track = runtime.game.music_identity();
+        let mut rolling = false;
         // Stops at the scene change as well as at the flag, so that whatever follows the
         // ending is reached and then left alone.
         while state.in_ending
             && state.scene == scene
+            && !rolling
             && frames < ENDING_SKIP_LIMIT
             && result != CHAIN_EXIT_SUCCESS
             && result != CHAIN_EXIT_ERROR
@@ -808,18 +845,26 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
             state = unsafe { runtime.game.read_state() };
             frames += 1;
-            // A second apart rather than every update: identifying a track is a chase through
-            // DirectSound's objects with a `VirtualQuery` at each step, and where in ten
-            // minutes the track changes is not a question that needs finer than a second.
-            if frames % STATE_LOG_INTERVAL == 0 {
-                let playing = runtime.game.music_identity();
-                if playing != track {
-                    log!("ending: track {track:?} -> {playing:?} after {frames} update(s)");
-                    track = playing;
-                }
-            }
+            rolling = moved_on(script, state.ending_script);
         }
-        log!("ending skipped, {frames} frames run, scene {scene} -> {}", state.scene);
+        runtime.rolling = rolling;
+        if rolling {
+            // The track with it, because the roll's script starts one of its own — the ending
+            // plays `bgm/th06_16` and the roll `bgm/th06_17` — so both changing on the same
+            // update is a second thing saying this is where one ends and the other begins.
+            log!(
+                "ending run out in {frames} update(s), where its staff roll begins, \
+                 track {track:?} -> {:?}",
+                runtime.game.music_identity(),
+            );
+        } else {
+            log!("ending skipped, {frames} frames run, scene {scene} -> {}", state.scene);
+        }
+    }
+    // The roll is inside the ending as far as the game is concerned, so what says there is no
+    // longer one to keep out of the way of is the ending's flag going out.
+    if !state.in_ending {
+        runtime.rolling = false;
     }
 
     // Over a replay as well as over a run someone is playing, because a replay is
@@ -875,6 +920,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
     }
     result
+}
+
+/// Whether an ending has gone from one of its scripts to the next, which is where the ending
+/// itself ends and its staff roll begins.
+///
+/// Both sides have to be known for a change to say that. With no script to compare — a game
+/// whose ending orb cannot find, or an ending already torn down — the answer is no, and the
+/// skip runs the scene out the way it did before there was a script to read.
+fn moved_on(from: Option<usize>, to: Option<usize>) -> bool {
+    matches!((from, to), (Some(from), Some(to)) if from != to)
 }
 
 /// Where a step left the game, when one happened.
@@ -1499,7 +1554,25 @@ unsafe fn write_status(runtime: &mut Runtime) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cause, FLASH_JUDGING, FLASH_PLAYING, Watching, flash_for};
+    use super::{Cause, FLASH_JUDGING, FLASH_PLAYING, Watching, flash_for, moved_on};
+
+    /// The address is the file the script was read from, so the same address is the same part
+    /// of the ending still running and any other address is the next part of it.
+    #[test]
+    fn an_ending_moves_on_when_its_script_does() {
+        assert!(!moved_on(Some(0x1234), Some(0x1234)));
+        assert!(moved_on(Some(0x1234), Some(0x5678)));
+    }
+
+    /// A script on one side only says nothing about the other: an ending that has just been
+    /// torn down has no script, and reading one is a walk of the game's job chain that can
+    /// come back with nothing.
+    #[test]
+    fn a_script_that_is_not_there_is_not_an_ending_moving_on() {
+        assert!(!moved_on(None, Some(0x1234)));
+        assert!(!moved_on(Some(0x1234), None));
+        assert!(!moved_on(None, None));
+    }
 
     #[test]
     fn a_stage_start_is_never_washed() {

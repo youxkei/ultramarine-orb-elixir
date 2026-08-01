@@ -1033,6 +1033,7 @@ mod tests {
             in_run: true,
             in_game: true,
             in_ending: false,
+            ending_script: None,
             demo: false,
             replay: false,
             practice: false,

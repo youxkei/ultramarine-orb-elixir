@@ -24,7 +24,9 @@ use std::borrow::Cow;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use windows_sys::Win32::Foundation::{GetLastError, HANDLE, TRUE};
+use windows_sys::Win32::Foundation::{
+    GENERIC_WRITE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+};
 use windows_sys::Win32::Storage::FileSystem::CopyFileA;
 
 use crate::hook;
@@ -43,6 +45,18 @@ const LIMIT: usize = 1024;
 static CREATE_FILE_A: AtomicUsize = AtomicUsize::new(0);
 /// Whether the copy that starts orb's file off has been tried, whatever came of it.
 static SEEDED: AtomicBool = AtomicBool::new(false);
+/// Whether the file may be written at all.
+static WRITTEN: AtomicBool = AtomicBool::new(true);
+
+/// Keeps the run being played out of the file altogether, rather than out of the game's.
+///
+/// For a run cleared with nothing able to hit the player: that is not a score, and orb's file
+/// exists to keep runs that are not comparable apart from each other — a clear nobody could have
+/// played at the top of it would be the same mistake one frame further on. Reads are left alone,
+/// so the session still shows the ranking it had.
+pub fn refuse_writes() {
+    WRITTEN.store(false, Ordering::Relaxed);
+}
 
 /// # Safety
 /// Must run before the game's entry point, or the game's first open of its score file is
@@ -73,11 +87,26 @@ unsafe extern "system" fn create_file_a(
     let Some(ours) = unsafe { given(name) }.and_then(forked) else {
         return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
+    // The open is refused rather than the write being sent somewhere else, because the game asks
+    // for the file once, checks the open, and drops what its write returned — see `SPEC.md` for
+    // the two calls that is. So a refusal is a file that stays as it was, and a game that carries
+    // on as if it had saved.
+    if refused(access) {
+        log!("score: {} not written, this run had nothing able to hit the player", text(&ours));
+        return INVALID_HANDLE_VALUE;
+    }
     if !SEEDED.swap(true, Ordering::Relaxed) {
         unsafe { seed(name, &ours) };
     }
     log!("score: {} opened in place of the game's own", text(&ours));
     unsafe { original(ours.as_ptr(), access, share, security, disposition, flags, template) }
+}
+
+/// Whether an open of the score file is one to refuse. Only a write: a read is where the ranking
+/// screen and what the file has unlocked come from, and a session showing none of those would
+/// look like the file had been lost rather than left alone.
+fn refused(access: u32) -> bool {
+    !WRITTEN.load(Ordering::Relaxed) && access & GENERIC_WRITE != 0
 }
 
 /// The path to open instead, and `None` for every path that is not the game's score file.
@@ -152,7 +181,19 @@ fn text(path: &[u8]) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{forked, text};
+    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
+
+    use super::{forked, refused, refuse_writes, text};
+
+    /// Nothing is refused until a run says so, and then it is the write and only the write.
+    #[test]
+    fn a_run_whose_score_is_not_one_writes_nothing_and_still_reads() {
+        assert!(!refused(GENERIC_WRITE));
+        refuse_writes();
+        assert!(refused(GENERIC_WRITE));
+        assert!(!refused(GENERIC_READ));
+    }
+
 
     #[test]
     fn the_game_score_file_is_forked_where_the_game_asked_for_it() {

@@ -297,7 +297,7 @@ pub fn wait_for_slot(window: HWND) {
     // against it comes out wrong, and the clock will do until that is understood
     // rather than guessed at.
     //
-    // A replay being run fast keeps the cadence like anything else: `replay_speed` is
+    // A replay being run fast keeps the cadence like anything else: `speed` is
     // updates per drawn frame, so the frames still come one per turn and only carry
     // more of the game with them.
     if blanks == 0 || !in_front {

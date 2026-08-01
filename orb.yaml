@@ -18,9 +18,10 @@ orb_dll:
 # disabled, or the two will fight over where the window goes.
 borderless: true
 
-# Never show the ending or the staff roll. They are run out inside the frame they
-# start on rather than jumped over, so everything they do on the way — the clear
-# flag, the score entry — still happens. Set to false to watch them.
+# Never show the ending. It is run out inside the frame it starts on rather than
+# jumped over, so everything it does on the way — the clear flag, the score entry —
+# still happens. The staff roll after it is kept and plays as it always did. Set to
+# false to watch the ending too.
 skip_ending: true
 
 # orb runs the frame itself: the update before the draw, so nothing on screen is

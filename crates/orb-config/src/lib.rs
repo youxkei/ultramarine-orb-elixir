@@ -47,9 +47,16 @@ pub struct Config {
     /// Restore the current chapter every this many frames, 0 to never. Exercises
     /// the snapshot and the music over and over without anyone playing.
     pub stress_restore_frames: u32,
-    /// Updates to run per drawn frame while a replay plays, so a pass over a full
-    /// run takes minutes rather than half an hour.
-    pub replay_speed: u32,
+    /// Updates to run per drawn frame while a replay plays or a run is being cleared
+    /// with `fast_clear`, so a pass or a clear over a full run takes a minute rather
+    /// than half an hour.
+    pub speed: u32,
+    /// Nothing can hit the player, and a run someone is playing runs at `speed`.
+    ///
+    /// For reaching the ending, which nothing else can reach: the game enters one only
+    /// after a run somebody played cleared it, so watching what happens there means
+    /// clearing it, and a clear is half an hour of playing well.
+    pub fast_clear: bool,
     /// Which kind of tuning pass this is. Off is the one that only collects: the
     /// replay runs to the end of the run and nothing stops it. On is the one somebody
     /// is watching: the game is held on each boundary, and a stage's end holds the run
@@ -64,7 +71,7 @@ pub struct Config {
     /// to is something seen rather than a number to read. A judging pass flashes whichever
     /// way this is set: there the wash is what the pass is run with.
     pub boundary_flash: bool,
-    /// Run the ending out without ever drawing it.
+    /// Run the ending out without ever drawing it, stopping at its staff roll.
     pub skip_ending: bool,
     /// Borderless, scaled to the monitor with the game's aspect ratio kept and
     /// the rest of the screen black.
@@ -165,7 +172,8 @@ impl Config {
             chapter_tuning: false,
             during_replay: false,
             stress_restore_frames: 0,
-            replay_speed: 1,
+            speed: 1,
+            fast_clear: false,
             chapter_stepping: false,
             block_replay_save: doc.bool("block_replay_save")?.unwrap_or(true),
             own_score_file: doc.bool("own_score_file")?.unwrap_or(true),
@@ -211,7 +219,7 @@ mod tests {
         assert!(!config.chapter_tuning);
         assert!(!config.during_replay);
         assert_eq!(config.stress_restore_frames, 0);
-        assert_eq!(config.replay_speed, 1);
+        assert_eq!(config.speed, 1);
     }
 
     #[test]

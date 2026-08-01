@@ -49,6 +49,11 @@ const CHAIN_CUT: usize = 0x0041cde0;
 /// Its `isTimeStopped` branch writes 32.0, 16.0, 384.0 and 448.0 to 0x69d6dc onwards — the
 /// arcade region — which is what says this is the right function.
 const SHAKE_SCREEN: usize = 0x0042ffc0;
+/// `th06::Ending::OnUpdate`, matched against a job's callback rather than called: the
+/// ending's own object is nowhere in a global, and the job it registers carries a pointer to
+/// it. `Ending::RegisterChain` at 0x4107b0 is what identifies it — it hands this address to
+/// `Chain::CreateElem` and writes the object it allocated into the element that comes back.
+const ENDING_ON_UPDATE: usize = 0x004109c0;
 
 /// `th06::ReplayManager::StopRecording`, `__cdecl`. Writes the last two entries of an
 /// input record: a blank one at the frame the run stopped, and a terminator at frame
@@ -251,6 +256,12 @@ mod player {
     /// offset — puts at 0x440.
     pub const POSITION_CENTER: usize = 0x440;
     pub const PLAYER_STATE: usize = 0x9e0;
+    /// `invulnerabilityTimer.current`, the frames of invulnerability left. `Player::OnUpdate`
+    /// ticks it down while the state is invulnerable and puts the state back to normal the
+    /// moment it reaches nothing, so the state alone does not last: the timer under it is what
+    /// makes it last. The respawn sets it to 240 at 0x428f81, over the `Timer` at +0x75b4 whose
+    /// `current` this is.
+    pub const INVULNERABLE_FRAMES: usize = 0x75bc;
     /// `bombInfo.isInUse`. `PlayerBombInfo` is 0x231c bytes and sits three pointers
     /// from the end of the 0x98f0-byte `Player`, and `isInUse` is its first field.
     /// Four places in the exe read this address as a flag — `ItemManager::OnUpdate`,
@@ -285,6 +296,16 @@ mod anm_manager {
 mod chain_elem {
     pub const CALLBACK: usize = 0x4;
     pub const NEXT: usize = 0x14;
+    /// What the callbacks are called on, written by whoever registered the job.
+    pub const ARG: usize = 0x1c;
+}
+
+/// `th06::Ending`, 0x1170 bytes on the heap, reached through the job it registers.
+mod ending {
+    /// The `.end` script as it was read. `Ending::LoadEndingFile` at 0x4106d0 reads the new
+    /// file before freeing the one it replaces, so the address is a different one every time
+    /// a script hands over to another.
+    pub const SCRIPT: usize = 0x1114;
 }
 
 mod replay_manager {
@@ -344,8 +365,30 @@ const STATE_GAMEMANAGER_REINIT: i32 = 3;
 const STATE_ENDING: i32 = 10;
 
 /// `th06::PlayerState`.
+const PLAYER_NORMAL: i8 = 0;
 const PLAYER_SPAWNING: i8 = 1;
 const PLAYER_DEAD: i8 = 2;
+/// The state a bomb and the end of a respawn put the player in — written by all four bombs
+/// (0x405577, 0x4065a2, 0x406ac7, 0x407174) and at 0x428f38 once the respawn has faded in.
+///
+/// Written rather than the hit test being patched out, because the game already has a state
+/// for this and everything around it agrees on what it means: `Player::Kill` at 0x427770 is
+/// reached from both collision tests only where the state is 0, while firing (0x4299e4) and
+/// collecting (0x426fe5) take 0 and this alike. Patching the test would leave a state nothing
+/// else in the game expects.
+const PLAYER_INVULNERABLE: i8 = 3;
+/// What the game gives a respawn, and what orb writes under the state above every update.
+///
+/// It has to be written and not only the state: `Player::OnUpdate` runs at chain priority 7 and
+/// the bullets are checked at 11, so frames left at nothing — where the last respawn left
+/// them — is a state put back to normal *before* the hit test, in the same update it was written
+/// for. Measured with the state alone: `died in chapter 1` 235ms after `stage 1 chapter 1 (stage
+/// start)`, and again after each of the two retries.
+///
+/// 240 rather than something that could not run out, because the frames left are also the blink:
+/// 0x42905d draws the player dark where `current & 7` is under 2, and a value refreshed to 240
+/// every update is seen as 239 there, which is not.
+const PLAYER_INVULNERABLE_FRAMES: i32 = 0xf0;
 
 /// `th06::Difficulty`, whose last value the Extra stage runs at.
 const DIFFICULTY_EXTRA: i32 = 4;
@@ -389,14 +432,18 @@ impl Game for Th06 {
             let boss = mem::read::<usize>(G_ENEMY_MANAGER + enemy_manager::BOSSES);
             let spellcard_active =
                 mem::read::<i32>(G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE) != 0;
+            let in_ending = scene == STATE_ENDING
+                || mem::read::<i32>(G_SUPERVISOR + supervisor::IS_IN_ENDING) != 0;
 
             State {
                 scene,
                 playing: scene == STATE_GAMEMANAGER,
                 in_run: scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT,
                 in_game: scene == STATE_GAMEMANAGER && !demo && !replay,
-                in_ending: scene == STATE_ENDING
-                    || mem::read::<i32>(G_SUPERVISOR + supervisor::IS_IN_ENDING) != 0,
+                in_ending,
+                // Asked for only while an ending is running: it is a walk of the job chain,
+                // and there is no ending to find one in on any other frame.
+                ending_script: in_ending.then(ending_script).flatten(),
                 demo,
                 replay,
                 practice: mem::read::<u8>(G_GAME_MANAGER + game_manager::IS_IN_PRACTICE_MODE) != 0,
@@ -719,6 +766,29 @@ impl Game for Th06 {
         }
     }
 
+    /// The state and the frames left under it, both, and only from the two states the player can
+    /// be hit in or is already invulnerable in.
+    ///
+    /// Spawning and dying are left alone: nothing can hit the player in either, and writing over
+    /// a spawn would skip what sets the player's colour and scale on the way in — 0x428ee1
+    /// onwards, and the 0xffffffff at 0x428f56 — so a player nobody can see is worse than one
+    /// nothing can hit. An invulnerable player is written over rather than left, because leaving
+    /// them means the frames run out and the one update they run out in is an update the hit test
+    /// sees a player it can kill.
+    unsafe fn make_invulnerable(&self) {
+        let state = G_PLAYER + player::PLAYER_STATE;
+        let current: i8 = unsafe { mem::read(state) };
+        if current == PLAYER_NORMAL || current == PLAYER_INVULNERABLE {
+            unsafe {
+                mem::write::<i8>(state, PLAYER_INVULNERABLE);
+                mem::write::<i32>(
+                    G_PLAYER + player::INVULNERABLE_FRAMES,
+                    PLAYER_INVULNERABLE_FRAMES,
+                );
+            }
+        }
+    }
+
     unsafe fn replaying(&self) -> bool {
         mem::read_committed::<usize>(G_REPLAY_MANAGER)
             .filter(|manager| *manager != 0)
@@ -840,6 +910,44 @@ fn path_at(address: usize) -> Option<(usize, String)> {
     Some((address, name.to_owned()))
 }
 
+/// The `.end` script the ending is reading, out of the ending's own object.
+///
+/// 紅魔郷's six endings all finish on `@Fdata/staff00.end`, the staff roll: the script
+/// interpreter's `F` instruction, at 0x40fc06, reads that file over the one running and
+/// carries straight on into it. Which file is loaded is therefore what tells the ending from
+/// the roll, and nothing else does — the scene stays 10 across the two and `isInEnding` stays
+/// set through both.
+fn ending_script() -> Option<usize> {
+    let ending = chain_argument(ENDING_ON_UPDATE)?;
+    mem::read_committed::<usize>(ending + ending::SCRIPT).filter(|script| *script != 0)
+}
+
+/// What a chain job's callbacks are called on, found by the callback it was registered for.
+/// How the ending's object is reached at all: `Ending::RegisterChain` allocates it, hands it
+/// to the element it registers, and puts it nowhere else.
+///
+/// Every step is asked of the memory map rather than read outright, at a `VirtualQuery` each.
+/// The walk is short, it only runs on the frames of an ending, and it is what makes this
+/// answerable with no game around it.
+fn chain_argument(callback: usize) -> Option<usize> {
+    /// Longer than any chain the game builds: it has seventeen jobs to register in all, one
+    /// per priority from 0 to 0x10. A chain left in a state where the links do not end is then
+    /// a missing answer rather than a walk that does not either.
+    const LINKS: usize = 64;
+
+    let mut elem = mem::read_committed::<usize>(G_CHAIN + chain_elem::NEXT)?;
+    for _ in 0..LINKS {
+        if elem == 0 {
+            return None;
+        }
+        if mem::read_committed::<usize>(elem + chain_elem::CALLBACK)? == callback {
+            return mem::read_committed::<usize>(elem + chain_elem::ARG).filter(|arg| *arg != 0);
+        }
+        elem = mem::read_committed::<usize>(elem + chain_elem::NEXT)?;
+    }
+    None
+}
+
 unsafe fn laser_count() -> i32 {
     let lasers = G_BULLET_MANAGER + bullet_manager::LASERS;
     (0..bullet_manager::LASER_COUNT)
@@ -859,5 +967,20 @@ unsafe fn dialogue_msg_idx() -> i32 {
             return -1;
         }
         mem::read(implementation + gui::IMPL_CURRENT_MSG_IDX)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ending_script;
+
+    /// With no game around it — which is not the same as with nothing there. This binary's own
+    /// image is 10.5MB from 0x400000, so the game's globals are addresses inside it, and what the
+    /// walk reads at them is whatever this binary keeps there. `None` is then the walk finding no
+    /// job registered for the ending's callback among those bytes, and the reads getting that far
+    /// without faulting is what `mem::read_committed` is for.
+    #[test]
+    fn there_is_no_ending_script_without_a_game() {
+        assert_eq!(ending_script(), None);
     }
 }

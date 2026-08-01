@@ -62,27 +62,25 @@ a chapter needs for a game whose scoring or resources work differently, and whet
 midstage table's shape — script frame numbers per stage — holds where stages are not one
 script on one clock.
 
-## Skip the ending but keep the staff roll
+## What a clear left open
 
-The roll is inside scene 10 with the ending, so `skip_ending` runs it out too — a clear settled
-that, and the numbers are in [DONE.md](DONE.md): 36,932 updates in scene 10, then scene 7, the
-result screen, which is where the score is entered.
+The skip stopping at the staff roll and `--clear` reaching one are both measured — see
+[DONE.md](DONE.md). Three numbers that clear did not settle:
 
-So keeping the roll needs something other than the scene changing to say where the ending ends.
-**The track is the candidate**: the roll has its own music, and `Game::music_identity()` already
-identifies one by its length and loop points — it is what tells a midboss from the boss a stage
-ends with. The skip now writes `ending: track A -> B after N update(s)` when it changes, sampled
-a second apart, so the next clear says whether the change is there and at which update. If it
-is, the skip stops on it and the roll plays from there.
-
-Failing that: a flag or a counter that moves at the boundary, an `AnmManager` script or a `.std`
-only the roll uses, and last the frame number it starts at — which would be a table entry per
-ending and per character, and a table of frame numbers for something nobody watches twice is
-worth less than the roll.
-
-Also outstanding from that clear: the skip is one frame's worth of updates again, the limit
-being fifteen minutes of game time rather than two, and nobody has watched an ending since.
-Five frames of it were drawn before.
+- **What the skip's frame costs.** All the log will say is `gaps in refreshes 5+x1`: one frame of
+  the 600 took five refreshes or more, which is where the buckets stop, and the average interval
+  and `0 shown late` did not move. 29,040 updates at the 13µs an ending update cost before would
+  be 377ms, and reading the script adds a walk of the job chain with a `VirtualQuery` at each step
+  to every one of them. `--log=verbose` logs every frame that missed the cadence with where its
+  time went, so a clear under it would say.
+- **Why the roll ran 7,286 frames** where `staff00.end`'s waits add up to 7,830. The one wait in
+  it that input can cut short is `@w1200` with a second argument of 4, and whether a key was
+  pressed over those two minutes is not written down. A clear that keeps its hands off the
+  keyboard through the roll would settle it.
+- **The updates per ending.** 29,040 for the one that clear reached, against script waits of
+  23,340 for Reimu A, 26,940 for Reimu B, 32,940 for Marisa A and 34,140 for Marisa B — none of
+  which it is, and the log does not say which character it was either. Worth one line per ending
+  as they get seen, since what the skip has to run out is what those come to.
 
 ## Resume a chapter after quitting
 

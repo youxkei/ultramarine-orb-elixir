@@ -13,6 +13,17 @@ settled by measurement rather than by looking at the screen, the measurement is 
   `GameManager.currentStage` counts from one while a stage is running, not from zero: stage 4
   practice reads 4 from its first frame, and a 1→6 replay reads 1 through 6. `read_state`
   subtracts one, so everything above it counts stages from zero as it always assumed.
+- **A pointer chase that cannot fault.** Every read through a pointer out of the game's
+  structures asks the memory map first, and committed is not enough on its own: an address that is
+  not aligned for what is being read is undefined behaviour, which in a build with the checks on
+  is a non-unwinding abort. Found in the test binary, which is where those reads have no game to
+  land in — it prefers 0x400000 and its image is 10.5MB, so `g_Chain`, `g_SoundPlayer` and
+  `g_Player` are addresses inside its own image and the walk reads whatever it keeps there. It
+  aborted with `STATUS_STACK_BUFFER_OVERRUN`, every test in the run having passed, and the run
+  that kept its output said `read_volatile requires that the pointer argument is aligned` out of
+  the chase after a track's identity. One run in twenty rather than every run because the binary
+  is `DYNAMICBASE`: where those addresses fall, and what is at them, moves per run. **0 of 200
+  runs** with alignment, `PAGE_NOACCESS` and `PAGE_GUARD` all refused, against 3 of 60 before.
 - **Snapshot and restore.** `.data`, the game CRT's heaps and reservations, and the music.
   Restore a chapter mid-stage, play on, restore it again: the run continues without breaking.
   Direct3D's own objects are not in it and are left alone by a restore, which is what the
@@ -74,14 +85,54 @@ settled by measurement rather than by looking at the screen, the measurement is 
     identical from its first frame to the 742nd, where the replay was stopped by hand.
 - **Borderless fullscreen.** Rewriting the game's own `CreateWindowExA` arguments, so there
   is no frame to remove and nothing flashes first. Aspect ratio kept, the rest black.
-- **Ending skipped**, and never during a demo or a replay. Stage 6's ending is **36,932
-  updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times and then
-  `932 frames run, scene 10 -> 7`, 484ms of wall clock for all of it, so 13µs an update. The
-  scene after it is 7, the result screen, which opened the score file 47ms later and was gone
-  16.6 seconds after that: **the staff roll is inside scene 10** and goes with the ending.
-  What that measurement also showed is that the limit was under a whole ending, so five frames
-  of it were drawn; it is fifteen minutes of game time now, and one frame doing the whole skip
-  is what still needs a clear to confirm.
+- **Ending skipped and its staff roll kept**, and never during a demo or a replay. A stage 6
+  clear ran the ending out in **29,040 updates inside the frame it began on** and stopped where
+  the ending hands its script over to the roll:
+  `ending run out in 29040 update(s), where its staff roll begins, track Some(1727006158) ->
+  Some(3570673472)` — the script and the track changing on the same update, which is the two
+  signals agreeing on the boundary. Nothing of the ending reached the screen. The roll then played
+  on its own, **7,286 drawn frames over 122.0 seconds**, 16.74ms each with `0 shown late` and the
+  audio never behind, and the scene after it was 7, the result screen.
+  - It squares with the earlier clear that measured the ending and the roll together at **36,932
+    updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times and then
+    `932 frames run, scene 10 -> 7`, 484ms of wall clock, 13µs an update, with the scene after it
+    opening the score file 47ms later. 36,932 − 29,040 = 7,892, against the 7,830 frames of waits
+    in `staff00.end`.
+  - Two things that measurement leaves open: the roll ran 544 frames short of those 7,830, and
+    the only wait in it that input can cut short is one `@w1200` whose second argument is 4, which
+    nobody was watching the keyboard for; and the frame the skip runs in is only known to have
+    taken 5 or more refreshes, which is where that log line's buckets stop.
+- **What an ending is made of**, read out of `紅魔郷ED.DAT`: 33 entries, unpacked the way the
+  game does — a table whose every number is two bits of length and then that many bytes, and
+  LZSS over an 8kB window with 13-bit offsets, 4-bit lengths and the window written from 1. An
+  entry runs to the next one and the archive keeps the sum of those bytes, so the table having
+  been read right is checked rather than assumed. An ending is a `.end` script of one-character
+  instructions, one file per part of it: `end00`, `end01`, `end10` and `end11` for Reimu and
+  Marisa with each shot, `end00b` and `end10b` for a clear on Easy or with a continue, and
+  `staff00.end` for the staff roll. **All six end on `@Fdata/staff00.end`**, so the roll is the
+  ending's last script and nothing else marks where it begins; `@mbgm/th06_16.mid` is the one
+  track an ending plays, and `staff00.end` starts `bgm/th06_17` for the roll. The waits in each
+  add up to 23,340 frames for Reimu A, 26,940 for Reimu B, 32,940 for Marisa A, 34,140 for
+  Marisa B, 6,540 for either bad ending, and 7,830 — a little over two minutes — for the roll.
+  Those are the waits alone: neither 36,932 nor the 29,040 an ending on its own came to is any of
+  them plus the roll's 7,830, so something else in an ending takes frames as well, and which
+  ending either clear was is not written down.
+- **A clear on demand.** `--clear` cleared stages 1 to 6 in **50.7 seconds** of wall clock — the
+  log's stage starts 5.3, 6.1, 7.7, 9.2 and 9.3 seconds apart — with `deaths=0` from the first
+  stage to the ending and not one `died in chapter` line, on nothing but the shot key being held.
+  It is what the ending above was reached with.
+  - The player's state alone was not enough and the log said so: with the frames of invulnerability
+    left where the last respawn had put them, `died in chapter 1` came 235ms after
+    `stage 1 chapter 1 (stage start)`, and again after each of the two retries. `Player::OnUpdate`
+    runs at chain priority 7 and the bullets are checked at 11, so the state expired before the
+    hit test in the update it was written for. Writing the frames left with it fixed that.
+  - **No score file was written.** The result screen's read went through —
+    `score: orb_score.dat opened in place of the game's own`, 47ms into scene 7 — and the write
+    was refused: `score: orb_score.dat not written, this run had nothing able to hit the player`.
+    The game carried on past it, scene 7 to 1 to 4, which is `WriteDataToFile` checking its open
+    and its caller dropping the answer. `score.dat` came out with the md5 and timestamp it went in
+    with, `004c8eda5a29a4ff985529838c21efe5` and `2026-07-29_22:44:45`, and `orb_score.dat` with
+    `eca4048d984295dc91ca4f55050a779a` and `2026-08-01_21:18:05`.
 - **Scores kept out of the game's file.** With `own_score_file`, every open of `score.dat`
   becomes an open of `orb_score.dat` at the exe's `CreateFileA` import. Over a session that
   cleared stage 6: `score.dat` came out with the md5 it went in with,

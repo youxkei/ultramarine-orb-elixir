@@ -217,6 +217,17 @@ pub trait Game {
     /// Must run on the game's main thread, between frames.
     unsafe fn jump_to_stage(&self, stage: i32) -> bool;
 
+    /// Puts the player where nothing can hit them for the update about to run, using
+    /// whatever the game itself does for the seconds after a bomb or a respawn.
+    ///
+    /// For one update, because that state is the game's own and the game takes it back:
+    /// a clear that reaches an ending is the only way to see one, and half an hour of
+    /// playing well is not how a boundary in the ending gets looked at.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    unsafe fn make_invulnerable(&self);
+
     /// Whether the replay held in memory is one being played back, whose record of
     /// inputs nothing may write into.
     ///
@@ -313,6 +324,15 @@ pub struct State {
     /// which look like play but have no player to offer a retry to.
     pub in_game: bool,
     pub in_ending: bool,
+    /// Which script the ending is running, as the address of the file it was read from.
+    /// `None` when no ending is running.
+    ///
+    /// An ending is one script per part of itself and moves on by reading the next file over
+    /// the one it is running, so this changing is the one thing that marks a part of an ending
+    /// ending: the scene does not change with it and no flag says which part is running. What
+    /// the ending skip stops on, so that the part it hands over to — the staff roll — is
+    /// played instead of run out with the rest.
+    pub ending_script: Option<usize>,
     pub demo: bool,
     pub replay: bool,
     pub practice: bool,
