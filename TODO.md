@@ -1,17 +1,19 @@
 # To do
 
-## The boundary flash while playing
+## Judge the flash a run gets
 
-Reaching a boundary washes the play field green, and only in a judging pass — the flash was
-built to say "a step landed" to whoever is watching one. It is worth as much to whoever is
-playing: dying inside a chapter sends you back to its start, and knowing where that start was
-is the same question. The stage's own start stays unmarked either way.
+A chapter beginning now washes the play field in a run somebody is playing, and not only in a
+judging pass. Dimmer and shorter in a run: `FLASH_PLAYING` in `lib.rs`, against
+`FLASH_JUDGING`'s alpha 0xc0 held five frames of sixteen.
 
-What has to be decided is what it does to a run rather than to a pass. A wash every few seconds
-through a boss fight is a wash nobody sees any more, and one over a frame somebody is dodging on
-is in the way — so it may want to be dimmer, shorter, or at the field's edge rather than over
-it. `FLASH_COLOR`, `FLASH_ALPHA`, `FLASH_HOLD` and `FLASH_FRAMES` in `lib.rs` are the four
-numbers, and `boundary_reached` is where the judging pass is asked for.
+What is known: **alpha 0x40 held two frames of ten went unnoticed while playing.** Which is the
+difference between the two cases — somebody judging a boundary is looking at the frame the wash
+is on, and somebody playing is watching the player. It is 0x70 held three of fourteen now, and
+that has not been looked at yet.
+
+If it goes the other way and a wash bright enough to notice is a wash in the way, the answer is
+a different shape rather than another number: the field's edge rather than over it, which says a
+chapter began without taking any of the field away.
 
 ## Going back more than one chapter
 
@@ -62,13 +64,25 @@ script on one clock.
 
 ## Skip the ending but keep the staff roll
 
-`skip_ending` runs out everything `isInEnding` covers. Whether the staff roll is inside that or
-a scene of its own is not known.
+The roll is inside scene 10 with the ending, so `skip_ending` runs it out too — a clear settled
+that, and the numbers are in [DONE.md](DONE.md): 36,932 updates in scene 10, then scene 7, the
+result screen, which is where the score is entered.
 
-One real ending settles it. The log writes `ending skipped, N frames run, scene 10 -> M` when
-the skip finishes, so clearing stage 6 once — or playing a replay of a clear — says whether the
-scene after the ending is the staff roll, in which case it is already left alone, or something
-later, in which case the roll is inside scene 10 and needs distinguishing another way.
+So keeping the roll needs something other than the scene changing to say where the ending ends.
+**The track is the candidate**: the roll has its own music, and `Game::music_identity()` already
+identifies one by its length and loop points — it is what tells a midboss from the boss a stage
+ends with. The skip now writes `ending: track A -> B after N update(s)` when it changes, sampled
+a second apart, so the next clear says whether the change is there and at which update. If it
+is, the skip stops on it and the roll plays from there.
+
+Failing that: a flag or a counter that moves at the boundary, an `AnmManager` script or a `.std`
+only the roll uses, and last the frame number it starts at — which would be a table entry per
+ending and per character, and a table of frame numbers for something nobody watches twice is
+worth less than the roll.
+
+Also outstanding from that clear: the skip is one frame's worth of updates again, the limit
+being fifteen minutes of game time rather than two, and nobody has watched an ending since.
+Five frames of it were drawn before.
 
 ## Resume a chapter after quitting
 
@@ -92,21 +106,18 @@ weaker: anything the script did on the way that is not in the list above will no
 happened. Whether that matters depends on how much of a midstage's state is script-derived,
 which is worth finding out before committing to it.
 
-## Keep orb's scores out of the game's
+## What a chapter-mode score is
 
-A run with chapter retries is not a run anyone played, so its score does not belong in the
-game's ranking — `block_replay_save` already refuses to write replays for the same reason, but
-scores go straight into `score.dat` as the game sees them.
+The scores of runs orb could rewind are kept apart from the game's now — see
+[DONE.md](DONE.md) — but that only keeps them from being compared with runs somebody played. It
+does not make them comparable with each other: a miss costs a rewind rather than a life, so the
+number rewards grinding a chapter until it goes perfectly, which is a different game from the
+one the ranking was built for.
 
-Two ways, and the choice is about what the numbers are for:
-
-- **Refuse the write** while chapters are on, the way replays are refused. Simple, and loses
-  any record of a chapter-mode run.
-- **Write orb's own file** and leave the game's alone, so chapter-mode runs are ranked against
-  each other. Needs the score save and load hooked rather than just blocked, and a decision
-  about what a chapter-mode score even means when a miss costs a rewind instead of a life.
-
-Either way the game's own file must come out unchanged, which is the part to verify.
+Nothing here is broken, so there is nothing that has to be done. What would make the file worth
+reading is the retries beside the score, since a clear with none of them and a clear with sixty
+are not the same clear, and `RETRY` is already counted. That means orb's own format rather than
+the game's, and with it the game's ranking screen no longer being where these are read.
 
 ## Confirm `self_check`
 
@@ -149,6 +160,12 @@ system DLLs share a base across processes. They usually do within a boot session
 
 ## Smaller things
 
+- The chapter names on the status line and in the retry menu, and the bar being cleared to
+  black before each draw, have not been seen on the real screen. What to look at: a stack that
+  loses a line — `HOLD` going away — leaving nothing of it behind, the name reading right in
+  the retry menu, `MIDSTAGE` picking its count up after a midboss rather than starting again,
+  and a `--judge` pass still showing `CH 05` with why the chapter changed under it, which is
+  what that pass is read for.
 - The retry menu is still drawn in the game's back buffer with the D3D overlay, which is
   correct there (it belongs over the game), but it shares the accumulation problem if it ever
   draws where the game does not repaint.

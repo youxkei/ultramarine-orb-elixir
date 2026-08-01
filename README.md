@@ -35,7 +35,8 @@ Then copy two files into the directory holding `東方紅魔郷.exe`:
 | `orb.yaml` | only if there is not one there already, since it is where local settings live |
 
 Start the game with `orb-launcher.exe`. Everything orb has to say goes to `orb.log` beside
-it.
+it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
+is left as it was.
 
 `orb.yaml` holds what you set once — the window, the ending, the joystick. Building the
 midstage chapter table for a game orb does not have one for, and looking into a fault, are

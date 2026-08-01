@@ -33,6 +33,25 @@ produced it. Midstage boundaries come from a compiled-in table of script frame n
 a stage's waves run on a clock and are reproducible. Boss boundaries are detected as the game
 runs, so a difficulty with an extra attack gets an extra chapter with no table.
 
+**A chapter beginning washes the play field green**, so that where dying will send you back to
+is something seen rather than a number to read off the status line. Dim enough to read the
+bullets through and gone inside a sixth of a second, because a chapter begins every few seconds
+through a fight and the frame one lands on is a frame being dodged on. Not a stage's own start:
+that is already unmistakable from the title, the music and an empty field, and a wash over its
+first frame says nothing that was not obvious. Green because the game flashes white itself — a
+bomb, a boss going down — and a mark that means something orb decided should not look like
+something the game did; nothing in 紅魔郷 fills the play field with green. It holds a moment
+before it fades, since a wash that starts fading at once reads as dim however bright its first
+frame is. The play field and no further, because that is the part the game repaints every frame:
+the panel beside it and the border around it are not, so a wash drawn there would never be drawn
+over and would stay for good. The fade is counted in frames drawn rather than in the game's,
+which is stopped wherever a step is holding the game still.
+
+`boundary_flash: false` leaves the screen with nothing of orb's over the game. Only a run
+somebody is playing is marked, and a judging pass — see *Building the midstage table* — never a
+replay running for anything else: a collecting pass crosses a boundary every few drawn frames,
+and a green field for twenty minutes is a mark to nobody.
+
 A retry restores a whole memory snapshot rather than asking the game to jump anywhere.
 Nothing has to know what a boss script was in the middle of.
 
@@ -175,12 +194,38 @@ that way would need a render target and a full-screen quad.
 
 ## The status line
 
-`CH`, `RETRY`, `INPUT LAG` and the frame rate are drawn with GDI onto the window, in the black
-beside the game, stacked in whichever letterbox bar is wider and lined up with the game's
-edge. What kind of boundary the chapter began at is under them, `SCRIPT` and `TABLE` join while
-a table is being built, and `HOLD` while the game's update is held. On a 16:9 monitor a 4:3 game
-leaves that black down the sides. Shown whatever the game is doing, including demos and menus, and
-redrawn only when the text changes.
+The chapter, `RETRY`, `INPUT LAG` and the frame rate are drawn with GDI onto the window, in the
+black beside the game, stacked in whichever letterbox bar is wider and lined up with the game's
+edge. `SCRIPT` and `TABLE` join them while a table is being built, and `HOLD` while the game's
+update is held. On a 16:9 monitor a 4:3 game leaves that black down the sides. Shown whatever
+the game is doing, including demos and menus, and redrawn only when the text changes.
+
+**In a run the chapter is named for the part of the stage it is in, and numbered inside it**:
+`MIDSTAGE 3`, `MIDBOSS SPELL 1`, `BOSS NONSPELL 2`. A count of the chapters gone by says
+nothing about where the game is standing, while the second spellcard of a fight is how a fight
+is talked about and how a chapter worth grinding is named to somebody else. *Midstage* rather
+than "stage" because "STAGE 3" beside a stage number reads as the third stage. The waves are
+one run of chapters through the whole stage — its start, each midstage boundary, and the waves
+handed back when a midboss goes down — since a midboss interrupts them rather than starting a
+new set: the chapter after the midboss of stage 4 is `MIDSTAGE 3`, not `MIDSTAGE 1` again.
+Where there is no chapter, in a menu, that line is not there at all.
+
+The count comes out of the frames this stage's chapters began at rather than a counter per
+kind, because a retry puts the mark back and the run then reaches the same chapters again. A
+counter would name the same chapter one further along every time it was played.
+
+**A pass building the table shows `CH 05` and why the chapter changed instead** — see *Building
+the midstage table*. That is a different question from what the chapter is, and the one worth
+having while what is being decided is whether the boundary belongs in the table: the name would
+say the same thing about a boundary to keep and a boundary to throw away.
+
+**Each draw clears what it is going to write in, and everything the last draw wrote in, to
+black first.** A stack with fewer lines than the one before it, or a smaller font, does not
+reach every row that already had text in it. Clearing and writing are two operations, so both
+go into a bitmap of their own and reach the window as one `BitBlt`: done straight on the
+window, a refresh landing between them shows a bar with nothing in it, and at 120Hz that is a
+flicker. A stack taller than the black there is runs off the edge of that bitmap and is
+clipped there, rather than being drawn over the game.
 
 **The size fits the widest line into the black there is.** What goes here runs from three
 characters to twenty — a chapter named for the part of a stage it belongs to is the long one — and
@@ -205,14 +250,63 @@ frames those ends fall in.
 
 With `skip_ending`, the ending is run out inside the frame it starts on, so no frame of it is
 drawn, rather than jumped over — the ending is also where the game sets the clear flag and
-enters the score.
-Bounded at two minutes of game time, stopped by the scene changing, and never entered during a
-demo or a replay.
+enters the score. Stopped by the scene changing, and never entered during a demo or a replay.
+
+**Stage 6's ending is 36,932 updates**, the staff roll included: it is all one scene, and the
+scene after it is 7, the result screen. So the limit on the loop is above a whole ending —
+fifteen minutes of game time — because it is a limit per frame rather than on the skip: the
+frame the loop stops in goes on to draw whatever the ending is showing by then, which at two
+minutes put five frames of it on the screen. An update of an ending costs 13µs, so the whole
+skip is under half a second and an ending that never ended would be a pause of about one.
 
 `g_Supervisor.isInEnding` is at `G_SUPERVISOR + 0x19c` = 0x6c6eb4. The same flag gates the
 game's own frame-rate counter (`cmpl $0x0, 0x6c6eb4` at 0x4240bb, jumping over the
 `AsciiManager::AddString` at 0x4240e9), so it must not be written to hide that counter. The
 counter is left alone; orb's numbers are outside the game's output.
+
+## The score file
+
+A run with chapter retries is not a run anyone played, so its score does not belong in the
+game's ranking — the same reason replay files are not written. Refusing the write would lose
+the record altogether, so with `own_score_file` the file is forked: every open of `score.dat`
+becomes an open of `orb_score.dat`, chapter-mode runs are ranked against each other in the
+game's own format and on its own screen, and `score.dat` comes out of a session unchanged
+because it is never opened.
+
+orb's file starts as a copy of the game's, so that what a `score.dat` has already unlocked —
+practice on a stage that has been reached, the Extra stage — is not locked again by playing
+through orb. Only where there is nothing there yet, which `CopyFileA` with `bFailIfExists`
+decides for itself; after that the two are separate records and the game's is never read
+again.
+
+**At the exe's import of `CreateFileA`**, not at the game's own score code, because that
+import is where both of the game's own paths to the file end up. `score.dat` is one string, at
+0x46af94, pushed at four places: three reads through the helper at 0x42b0d9, which decrypts
+what it read (from 0x41bcdc, 0x42f47f and 0x43a5c0), and one write through
+`FileSystem::WriteDataToFile` at 0x41e460, which encrypts before it writes (from 0x42bc15).
+Both of those open with the CRT's `fopen` at 0x45ca0b — `"rb"` and `"wb"` — and the CRT is
+statically linked, so the open reaches the OS at the exe's own import, IAT slot 0x46a150. That
+slot is called from exactly two places: the CRT's open at 0x4677fa, and a file class at
+0x43ceea that the score file never goes through.
+
+So nothing here is per-game: no address, no offset, and nothing about the format or the
+encryption. It is the seam `memtrack` hooks for the heap calls, and d3d8's and dsound's own
+opens go through their own imports and are not in the path.
+
+**Only the open is redirected, which is enough here and would not be everywhere.** That other
+file class truncates a `"w"` by calling `DeleteFileA` on the name before creating it — at
+0x43cea9, its only call site in the exe — so a game whose score write went that way would have
+its own file deleted while orb's was written. 紅魔郷's does not go that way.
+
+The whole file name is compared, ignoring case, and the directory the game named is kept. So
+`orb_score.dat` is not itself taken for the game's file and forked again, and a relative name
+resolves where the game's own open would have resolved it. The paths are handled as the bytes
+the game gave: a directory name in the game's code page is not necessarily UTF-8, and the
+copy goes through `CopyFileA` rather than `std::fs` for that reason. They are converted to
+text in one place, the log.
+
+With `--no-chapters` the fork is not installed: nothing can rewind that run, and its score
+belongs in the game's own file.
 
 ## A latent crash in the game
 
@@ -249,10 +343,10 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 ## Configuration
 
 **Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
-set: `borderless`, `skip_ending`, `joystick`, `block_replay_save`, `own_frame_loop`,
-`always_draw`, and where the game and an override `orb.dll` are. A flat list of `key: value`; an
-unknown key is an error rather than being ignored, and a key that used to be there says what asks
-for the same thing now.
+set: `borderless`, `skip_ending`, `joystick`, `block_replay_save`, `own_score_file`,
+`boundary_flash`, `own_frame_loop`, `always_draw`, and where the game and an override `orb.dll`
+are. A flat list of `key: value`, and an unknown key is an error rather than being passed
+over — a setting that is quietly not read is a setting somebody thinks is on.
 
 Everything to do with building the midstage table or looking into a fault is an argument to
 `orb-launcher` instead — `--help` lists them — because a file is the wrong place for something
@@ -422,8 +516,10 @@ so `chapter_dropped_key` with either key goes between exactly those — in the f
 clock, since nothing has a stage frame for a boundary no chapter ever began at — and that is how
 a `Rejected` is reached and taken back.
 
-**Which of the three kinds of boundary is on the status line**, since what can be done with one
-depends on which it is:
+**Why the chapter changed is on the status line, not what the chapter is.** A pass is deciding
+whether a boundary belongs in the table, and what answers that is which signal produced it —
+which is also what says where to look when one turns up where none belongs. So the line under
+`CH 05` is one of:
 
 | | |
 | --- | --- |
@@ -431,11 +527,15 @@ depends on which it is:
 | `AUTO 1886 KEEP` | the table's, as the detector proposed it, with what has been decided about it |
 | `HAND 1886 KEEP` | the table's, put there by hand — the number nothing would find again |
 
-Named that finely because which fight it is and whether the attack has a name is what says where
-in a stage the game is standing. A boss arriving is its first attack starting, so there is nothing
-else to call that; and what follows a midboss is the stage carrying on, so it is named for that
-rather than for the defeat behind it. `HOLD` says only that the game's update is being held, which is a different
-question and is on its own line.
+Told apart that finely because which fight it is and whether the attack has a name is what says
+where in a stage the game is standing. A boss arriving is its first attack starting, so there is
+nothing else to call that; and what follows a midboss is the stage carrying on, so it is named
+for that rather than for the defeat behind it. `HOLD` says only that the game's update is being
+held, which is a different question and is on its own line.
+
+A run shows the chapter's name in place of both lines — see *The status line* — because there
+nothing is being judged and where dying will send the player is the whole of what the line is
+for.
 
 **Which fight it is comes from the music**, because that is where the game says it: a stage's data
 names two songs, its own and its boss's, and the second is played for the fight the stage ends
@@ -487,20 +587,13 @@ one of the ones that go undrawn above it — so a step holds the game on it. Wha
 the game's update; the drawing carries on, so that frame stays on screen and the status line's
 `SCRIPT` is the number that would be written down.
 
-**Reaching one washes the play field green**, held for a moment and then gone inside a third of
-a second. Not a stage's own start: that is already unmistakable from the title, the music and an
-empty field, and a wash over its first frame says nothing that was not obvious. A boundary is one frame among a stage's thousands, and what says one has been reached
-should not be a number to read. Green because the game flashes white itself — a bomb, a boss
-going down — and a mark that means something orb decided should not look like something the game
-did; nothing in 紅魔郷 fills the play field with green. It holds before it fades because a wash
-that starts fading at once reads as dim however bright its first frame is, and one frame in
-twenty is all that frame gets. The play field and no further, because that is the part the game
-repaints every frame:
-the panel beside it and the border around it are not, so a wash drawn there would never be drawn
-over and the white would stay. It marks a boundary the game runs past under `chapter_hold_key`
-as well as one a step stops on, and it is only in a judging pass — nobody is watching a
-collecting one. The fade is counted in frames drawn rather than in the game's, because the
-game's clock is stopped on the frame being looked at and the flash would stop with it.
+**A judging pass washes brighter and longer than a run does**, and whichever way
+`boundary_flash` is left: the setting is about a run somebody is playing, and a pass with no
+wash has nothing to say a boundary has been reached by. A boundary is one frame among a stage's
+thousands, and nothing is being dodged on the frame underneath, so it can take the field for the
+sixth of a second it has — one frame in twenty is all that frame gets — and still be gone before
+the next boundary. It marks one the game runs past under `space` as well as one a step stops on.
+The wash itself is described under *Chapters and retries*.
 
 Every gap long enough to have been a candidate goes to the log at `verbose`, taken or not, with
 its length and how far into the chapter it fell. What `ENEMY_GAP_FRAMES` should be is a question
@@ -540,6 +633,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
+| `orb/score.rs` | the fork of the game's score file |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the borderless window, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
@@ -557,6 +651,6 @@ and offsets.
 - Chapter progress across launches.
 - Returning the music to where it was across a track change: the track starts again from its
   beginning instead. See *Chapters and retries*.
-- Scores and rankings are recorded as the game sees them; replay files are not written at all,
-  because a rewound run does not play back.
+- Replay files are not written at all, because a rewound run does not play back. A
+  chapter-mode run's score is kept, but in orb's own file — see *The score file*.
 - Sound effects cut off on a restore rather than rewinding. Only the music is restored.

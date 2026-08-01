@@ -74,8 +74,24 @@ settled by measurement rather than by looking at the screen, the measurement is 
     identical from its first frame to the 742nd, where the replay was stopped by hand.
 - **Borderless fullscreen.** Rewriting the game's own `CreateWindowExA` arguments, so there
   is no frame to remove and nothing flashes first. Aspect ratio kept, the rest black.
-- **Ending skipped.** Run out inside the frame it starts on, so no frame of it is drawn,
-  and never during a demo or a replay.
+- **Ending skipped**, and never during a demo or a replay. Stage 6's ending is **36,932
+  updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times and then
+  `932 frames run, scene 10 -> 7`, 484ms of wall clock for all of it, so 13µs an update. The
+  scene after it is 7, the result screen, which opened the score file 47ms later and was gone
+  16.6 seconds after that: **the staff roll is inside scene 10** and goes with the ending.
+  What that measurement also showed is that the limit was under a whole ending, so five frames
+  of it were drawn; it is fifteen minutes of game time now, and one frame doing the whole skip
+  is what still needs a clear to confirm.
+- **Scores kept out of the game's file.** With `own_score_file`, every open of `score.dat`
+  becomes an open of `orb_score.dat` at the exe's `CreateFileA` import. Over a session that
+  cleared stage 6: `score.dat` came out with the md5 it went in with,
+  `004c8eda5a29a4ff985529838c21efe5`, and the timestamp it went in with, while
+  `orb_score.dat` changed to `eca4048d984295dc91ca4f55050a779a`. The log has
+  `score: orb_score.dat opened in place of the game's own` at every open, including one 47ms
+  into the result screen, which is the score being entered going that way. It started as a
+  copy of `score.dat`, so nothing it had unlocked was locked again, and the next launch of the
+  session said `not copied from the game's, GetLastError 80` — the file being there already,
+  which is the copy happening once and only once.
 - **Replay writing suppressed.** Only the write; the game's scene-change teardown, which
   goes through the same function with null arguments, still runs. Stubbing the whole
   function crashed the game later.
@@ -114,9 +130,9 @@ Settled by measurement.
 
 ## The status line
 
-Drawn with GDI onto the window, in the black beside the game: `CH`, `RETRY`, `INPUT LAG`
-and the frame rate, stacked in whichever letterbox bar is wider and lined up with the
-game's edge. Shown whatever the game is doing, including demos and menus.
+Drawn with GDI onto the window, in the black beside the game: the chapter, `RETRY`,
+`INPUT LAG` and the frame rate, stacked in whichever letterbox bar is wider and lined up
+with the game's edge. Shown whatever the game is doing, including demos and menus.
 
 Not in the game's back buffer, for two reasons that were both measured: all of it is shown
 inside the letterbox, and the game does not clear it between frames — text there
