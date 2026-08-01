@@ -1360,7 +1360,14 @@ unsafe fn draw_overlay() {
 
     if let Some(menu) = &mut runtime.retry {
         let area = runtime.game.play_area();
-        unsafe { menu.draw(overlay, area, runtime.chapters.number(), runtime.chapters.retries()) };
+        // The chapter by name, which is what the menu is offering to put the player back at —
+        // and by number in a pass building the table, where every number on screen is one to
+        // hold against the log.
+        let chapter = match runtime.chapters.name().filter(|_| !runtime.config.chapter_tuning) {
+            Some(name) => name.to_string(),
+            None => format!("CHAPTER {}", runtime.chapters.number()),
+        };
+        unsafe { menu.draw(overlay, area, &chapter, runtime.chapters.retries()) };
         return;
     }
 
@@ -1406,37 +1413,58 @@ unsafe fn write_status(runtime: &mut Runtime) {
     // A line each, because the black is usually bars down the sides of a widescreen
     // monitor rather than a strip under the game, and a strip that narrow takes one
     // short line at a time.
-    let mut lines = vec![
-        format!("CH {:02}  RETRY {}", runtime.chapters.number(), runtime.chapters.retries()),
-        format!("INPUT LAG {}.{}ms", lag / 1000, lag % 1000 / 100),
-        format!("{}.{}fps", 1_000_000 / interval.max(1), 10_000_000 / interval.max(1) % 10),
-    ];
-    // Which of the three kinds of boundary the chapter now running began at. The game's
-    // own — a stage starting, a boss or midboss arriving, an attack changing, a midboss
-    // going down — are found as the run goes, are in no table and are nobody's to judge,
-    // so they are named by what they are. The table's are named by the frame they are
-    // written down as and what has been decided about them, and `HAND` marks the ones a
-    // person put there: those are the numbers nothing would find again.
     //
-    // The frame rather than the one on screen, because a chapter is judged from anywhere
-    // inside it: which number the keys are about to change should not have to be worked
-    // out.
+    // Two different questions, and which is being asked depends on what the session is for.
+    //
+    // A run wants the chapter by name — which part of the stage it is, rather than a count of
+    // the chapters gone by — since that is what says where dying will send the player and
+    // whether the flash that just went off was expected.
+    //
+    // A pass building the table wants why the chapter changed *here*: the signal that produced
+    // the boundary, and for the table's own the frame it is written down as and what has been
+    // decided about it. Which is a name to nobody, and is what says whether the boundary
+    // belongs in the table at all.
+    let tuning = runtime.config.chapter_tuning;
+    let mut lines = Vec::new();
+    if tuning {
+        lines.push(format!(
+            "CH {:02}  RETRY {}",
+            runtime.chapters.number(),
+            runtime.chapters.retries(),
+        ));
+    } else {
+        if let Some(name) = runtime.chapters.name() {
+            lines.push(name.to_string());
+        }
+        lines.push(format!("RETRY {}", runtime.chapters.retries()));
+    }
+    lines.push(format!("INPUT LAG {}.{}ms", lag / 1000, lag % 1000 / 100));
+    lines.push(format!(
+        "{}.{}fps",
+        1_000_000 / interval.max(1),
+        10_000_000 / interval.max(1) % 10,
+    ));
+    // `HAND` marks the boundaries a person put there, those being the numbers nothing would
+    // find again.
+    //
     // The boundary a key would change comes first, and the chapter's own after it: the two
     // are the same thing wherever a step has stopped, and where they are not, what a key
     // is about to do outranks what is being played.
-    let judged = runtime
-        .chapters
-        .judged(&state, runtime.held)
-        .or_else(|| runtime.chapters.chapter_boundary());
-    lines.push(match judged {
-        Some(judged) => format!(
-            "{} {} {}",
-            if judged.by_hand { "HAND" } else { "AUTO" },
-            judged.frame,
-            judged.verdict.label(),
-        ),
-        None => runtime.chapters.cause().label().to_owned(),
-    });
+    if tuning {
+        let judged = runtime
+            .chapters
+            .judged(&state, runtime.held)
+            .or_else(|| runtime.chapters.chapter_boundary());
+        lines.push(match judged {
+            Some(judged) => format!(
+                "{} {} {}",
+                if judged.by_hand { "HAND" } else { "AUTO" },
+                judged.frame,
+                judged.verdict.label(),
+            ),
+            None => runtime.chapters.cause().label().to_owned(),
+        });
+    }
     // The script frame it would be written down as, and how many the stage's table has.
     if let Some(tuning) = runtime.chapters.tuning() {
         lines.push(format!("SCRIPT {}", state.script_frames));

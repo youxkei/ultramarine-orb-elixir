@@ -177,9 +177,10 @@ impl fmt::Display for Cause {
 }
 
 impl Cause {
-    /// For the status line, which is the ASCII strip in the black beside the game. The
-    /// table's own boundaries are named there by their frame and their verdict instead, so
-    /// this is only ever asked of the game's.
+    /// For the status line of a pass building the table, where what is wanted is not what the
+    /// chapter is but why the chapter changed at all: which signal produced the boundary, and
+    /// so whether it is one to keep. The table's own boundaries are named there by their frame
+    /// and their verdict instead, so this is only ever asked of the game's.
     pub fn label(self) -> &'static str {
         match self {
             Self::StageStart => "STAGE",
@@ -190,6 +191,64 @@ impl Cause {
             Self::BossSpell => "BOSS_SPELL",
             Self::Boundary(_) => "TABLE",
         }
+    }
+}
+
+/// The part of a stage a chapter belongs to, which is what it is named after.
+///
+/// *Midstage* for the waves, which is what they are called everywhere else here and in the
+/// table the boundaries between them come from. Not "stage", which beside a number reads as
+/// the stage's own.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    /// The waves: the stage's own start, each midstage boundary of the table, and the waves
+    /// handed back when a midboss goes down. One run of chapters, because they are all the
+    /// same part of the stage — a midboss interrupts the waves rather than starting a new
+    /// set of them.
+    Midstage,
+    MidbossNonspell,
+    MidbossSpell,
+    BossNonspell,
+    BossSpell,
+}
+
+impl Kind {
+    fn of(cause: Cause) -> Self {
+        match cause {
+            Cause::StageStart | Cause::StageAfterMidboss | Cause::Boundary(_) => Self::Midstage,
+            Cause::MidbossNonspell => Self::MidbossNonspell,
+            Cause::MidbossSpell => Self::MidbossSpell,
+            Cause::BossNonspell => Self::BossNonspell,
+            Cause::BossSpell => Self::BossSpell,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Midstage => "MIDSTAGE",
+            Self::MidbossNonspell => "MIDBOSS NONSPELL",
+            Self::MidbossSpell => "MIDBOSS SPELL",
+            Self::BossNonspell => "BOSS NONSPELL",
+            Self::BossSpell => "BOSS SPELL",
+        }
+    }
+}
+
+/// What a chapter is called on screen: which part of the stage it belongs to, and which one
+/// of those it is.
+///
+/// Counted per kind and from the stage's start, because a count of every chapter gone by says
+/// nothing about where the game is standing, while `BOSS SPELL 2` is the fight's second
+/// spellcard — which is how a fight is talked about, and how a chapter worth grinding is
+/// named to somebody else.
+pub struct Name {
+    kind: Kind,
+    index: usize,
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.kind.label(), self.index)
     }
 }
 
@@ -267,6 +326,30 @@ impl Chapters {
     /// table's — and for those the status line goes on to say whether a person put it there.
     pub fn cause(&self) -> Cause {
         self.mark.cause
+    }
+
+    /// What to call the chapter now running, for a run somebody is playing. `None` where there
+    /// is no chapter: a menu, or the frames of a stage before its own start has been marked.
+    ///
+    /// A pass building the table shows [`Cause::label`] instead, which answers a different
+    /// question — why the chapter changed here — and is the one worth having while what is
+    /// being decided is whether the boundary belongs in the table at all.
+    pub fn name(&self) -> Option<Name> {
+        if self.mark.number == 0 {
+            return None;
+        }
+        let kind = Kind::of(self.mark.cause);
+        // Counted out of the chapter starts this stage has recorded rather than kept in a
+        // counter of its own, because a restore and a step back put the mark back and then
+        // play the same chapters again: a counter would make the second time through the
+        // same chapter a different one, while these are the frames they began at and the
+        // same frame is the same chapter.
+        let index = self
+            .starts
+            .iter()
+            .filter(|(at, cause)| *at <= self.mark.started_at && Kind::of(*cause) == kind)
+            .count();
+        Some(Name { kind, index })
     }
 
     pub fn retries(&self) -> u32 {
@@ -1062,6 +1145,108 @@ mod tests {
             begun.push(state.script_frames);
         }
         begun
+    }
+
+    /// A frame of a fight, with the boss's timer and whichever attack it is on.
+    fn fight(frame: u32, timer: i32, spellcard: Option<u32>) -> State {
+        State {
+            boss_present: true,
+            boss_attack_frames: Some(timer),
+            spellcard,
+            ..empty(frame)
+        }
+    }
+
+    /// A frame with enemies on it, for waiting out the floor on a chapter's length without
+    /// the gap detector offering a boundary in the quiet.
+    fn enemies(frame: u32) -> State {
+        State { enemy_count: 3, ..empty(frame) }
+    }
+
+    /// One frame through the detection, with the bookkeeping a chapter beginning does and
+    /// without the snapshot: what the frame hook does, as far as the name is concerned.
+    fn step(chapters: &mut Chapters, state: &State) {
+        let Due::Yes(cause) = watch(chapters, state) else { return };
+        chapters.mark = Mark {
+            number: chapters.mark.number + 1,
+            started_at: state.stage_frames,
+            midstage_upto: chapters.mark.midstage_upto,
+            cause,
+        };
+        if let Err(at) = chapters.starts.binary_search_by_key(&state.stage_frames, |(at, _)| *at) {
+            chapters.starts.insert(at, (state.stage_frames, cause));
+        }
+    }
+
+    fn named(chapters: &Chapters) -> String {
+        chapters.name().expect("a stage is running").to_string()
+    }
+
+    /// What the status line and the retry menu call each chapter, in the order a stage
+    /// reaches them: numbered inside the part of the stage it belongs to rather than counted
+    /// straight through, and the waves picking their own count up again after the midboss.
+    #[test]
+    fn a_chapter_is_named_for_the_part_of_the_stage_it_is_in() {
+        let mut chapters = tuning_chapters();
+        begin_stage(&mut chapters, &empty(0));
+        assert_eq!(named(&chapters), "MIDSTAGE 1");
+
+        // A gap in the waves, which the detector offers at 259.
+        for frame in 0..300 {
+            step(&mut chapters, &waves(frame));
+        }
+        assert_eq!(named(&chapters), "MIDSTAGE 2");
+
+        // A midboss, whose first attack starts with it. There is no game here to play a
+        // stage's track, so which fight it is comes from `stage_music` being the same
+        // nothing that `music_identity` reports.
+        step(&mut chapters, &fight(320, 0, None));
+        assert_eq!(named(&chapters), "MIDBOSS NONSPELL 1");
+
+        for frame in 321..380 {
+            step(&mut chapters, &fight(frame, frame as i32 - 320, None));
+        }
+        step(&mut chapters, &fight(380, 0, Some(1)));
+        assert_eq!(named(&chapters), "MIDBOSS SPELL 1");
+
+        for frame in 381..441 {
+            step(&mut chapters, &fight(frame, frame as i32 - 380, Some(1)));
+        }
+        // Beaten, which hands the stage back.
+        step(&mut chapters, &enemies(441));
+        assert_eq!(named(&chapters), "MIDSTAGE 3");
+
+        // The stage's own boss brings the second of the two songs the stage names, which is
+        // what tells it from a midboss.
+        chapters.stage_music = Some(0x51a7);
+        for frame in 442..511 {
+            step(&mut chapters, &enemies(frame));
+        }
+        step(&mut chapters, &fight(511, 0, None));
+        assert_eq!(named(&chapters), "BOSS NONSPELL 1");
+    }
+
+    /// A chapter reached twice is the same chapter. The count comes out of the frames this
+    /// stage's chapters began at, not out of a counter per kind: a retry puts the mark back
+    /// and the run then reaches the same chapters again, which a counter would name one
+    /// further along every time.
+    #[test]
+    fn a_chapter_reached_again_keeps_its_name() {
+        let mut chapters = tuning_chapters();
+        begin_stage(&mut chapters, &empty(0));
+        for frame in 0..300 {
+            step(&mut chapters, &waves(frame));
+        }
+        let boundary = chapters.mark;
+        step(&mut chapters, &fight(320, 0, None));
+        assert_eq!(named(&chapters), "MIDBOSS NONSPELL 1");
+
+        // What a retry does to orb's own bookkeeping: the mark goes back with the memory.
+        chapters.mark = boundary;
+        chapters.seen = Seen::of(&waves(299));
+        assert_eq!(named(&chapters), "MIDSTAGE 2");
+        step(&mut chapters, &fight(320, 0, None));
+        assert_eq!(named(&chapters), "MIDBOSS NONSPELL 1");
     }
 
     /// One put there by hand begins its chapter however close behind the last one it is. The

@@ -71,9 +71,9 @@ impl RetryMenu {
 
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
-    pub unsafe fn draw(&mut self, overlay: &Overlay, area: Rect, chapter: u32, retries: u32) {
+    pub unsafe fn draw(&mut self, overlay: &Overlay, area: Rect, chapter: &str, retries: u32) {
         unsafe {
-            self.chapter.set(overlay, &format!("CHAPTER {chapter}"));
+            self.chapter.set(overlay, chapter);
             self.retry.set(overlay, &format!("RETRY {retries}"));
             self.cursor.set(overlay, "▶");
             for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
