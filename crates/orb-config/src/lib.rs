@@ -19,37 +19,6 @@ pub use keys::VirtualKey;
 
 pub const FILE_NAME: &str = "orb.yaml";
 
-/// Keys this file used to hold, and what asks for the same thing now. A file written when
-/// they were keys still parses everywhere else, so the one that moved is worth naming rather
-/// than left to read as a typo.
-const MOVED_TO_ARGUMENTS: &[(&str, &str)] = &[
-    // The keys pressed while a table is being built are fixed in `orb`: whoever is building
-    // one is the only person who ever presses them, and a setting nobody changes is a setting
-    // to be rid of.
-    ("save_state_key", "not a setting: the keys are fixed in the code"),
-    ("load_state_key", "not a setting: the keys are fixed in the code"),
-    ("tuning_add_key", "not a setting: the keys are fixed in the code"),
-    ("tuning_remove_key", "not a setting: the keys are fixed in the code"),
-    ("tuning_write_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_next_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_prev_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_hold_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_keep_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_drop_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_across_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_dropped_key", "not a setting: the keys are fixed in the code"),
-    ("chapter_tuning", "--tune, or --collect and --judge for the two passes"),
-    ("chapter_stepping", "--collect for the pass nobody watches, --judge for the other"),
-    ("during_replay", "--replay"),
-    ("replay_speed", "--speed=N"),
-    ("stress_restore_frames", "--stress=N"),
-    ("self_check", "--self-check"),
-    ("chapters", "--no-chapters"),
-    ("track_memory", "--no-memory"),
-    ("frame_hooks", "--no-hooks"),
-    ("log_level", "--log=quiet, --log=normal or --log=verbose"),
-];
-
 pub struct Config {
     /// Directory holding `orb.yaml`; every relative path below resolves here.
     pub base_dir: PathBuf,
@@ -184,16 +153,6 @@ impl Config {
         let path_of = |key| -> Result<Option<PathBuf>, yaml::Error> {
             Ok(doc.string(key)?.filter(|value| !value.is_empty()).map(|value| base_dir.join(value)))
         };
-        // Said properly rather than left to read as a typo: these were keys here once, and a
-        // file kept from then is the likeliest way to meet one.
-        for (key, option) in MOVED_TO_ARGUMENTS {
-            if doc.string(key)?.is_some() {
-                return Err(yaml::Error {
-                    line: None,
-                    message: format!("`{key}` is a command-line option now: {option}"),
-                });
-            }
-        }
         let config = Self {
             game_dir: path_of("game_dir")?.unwrap_or_else(|| base_dir.clone()),
             orb_dll: path_of("orb_dll")?,
@@ -267,18 +226,15 @@ mod tests {
         assert_eq!(config.game_dir, PathBuf::from("/srv/th06"));
     }
 
+    /// Anything this file does not know is an error rather than something passed over, since a
+    /// setting that is quietly not read is a setting somebody thinks is on.
     #[test]
-    /// A key that moved to the command line says so, because a file written when it was a
-    /// key here is the likeliest way to meet one and `unknown key` would read as a typo.
-    fn a_key_that_moved_says_where_it_went() {
-        for (key, option) in super::MOVED_TO_ARGUMENTS {
-            let text = format!("{key}: something\n");
-            let error = match Config::parse(Path::new("orb.yaml"), &text) {
-                Err(error) => error,
-                Ok(_) => panic!("{key} was read from the file"),
-            };
-            assert!(error.message.contains(option), "{key}: {error}");
-        }
+    fn a_key_that_is_not_a_key_says_so() {
+        let error = match Config::parse(Path::new("orb.yaml"), "chapter_tuning: true\n") {
+            Err(error) => error,
+            Ok(_) => panic!("chapter_tuning was read from the file"),
+        };
+        assert!(error.message.contains("chapter_tuning"), "{error}");
     }
 
     #[test]
