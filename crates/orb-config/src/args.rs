@@ -47,7 +47,7 @@ Looking into a fault:
 
 The keys pressed while a table is being built are fixed in the code, since whoever is
 building one is the only person who presses them. Everything else — the window, the
-ending, the joystick — is in orb.yaml, which is what somebody playing sets.\
+ending, the score file — is in orb.yaml, which is what somebody playing sets.\
 ";
 
 #[derive(Debug)]

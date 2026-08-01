@@ -139,6 +139,12 @@ const G_ANM_MANAGER: usize = 0x006d4588;
 /// `Supervisor::OnUpdate` and then, for a replay, overwritten with the record's buttons
 /// in place of the ones on the keyboard.
 const G_CUR_FRAME_INPUT: usize = 0x0069d904;
+/// `JOYCAPSA g_JoyCaps`, the 0x194 bytes `joyGetDevCapsA` fills. `GetControllerInput` reads
+/// `wXmin`/`wXmax` (+0x24, +0x28) and `wYmin`/`wYmax` (+0x2c, +0x30) out of it every frame to
+/// place the centre of each axis and a dead zone of a quarter of its travel. This address
+/// appears once in the whole exe — the one `joyGetDevCapsA` call, at startup, and only where
+/// a joystick answered `joyGetPosEx` first — so nothing the game does fills it later.
+const G_JOY_CAPS: usize = 0x0069d760;
 /// `ItemManager g_ItemManager`, whose `Item items[513]` of 0x144 bytes each are followed
 /// by `nextIndex` and then `itemCount` — 513 * 0x144 = 0x28944, and the struct is
 /// 0x2894c. Nothing on the way into a stage puts it back: the bullet manager is built
@@ -584,6 +590,10 @@ impl Game for Th06 {
     /// From `GAME_REGION_*`, inside the game's 640x480 output.
     fn play_area(&self) -> Rect {
         Rect { left: 32.0, top: 16.0, width: 384.0, height: 448.0 }
+    }
+
+    fn joystick_calibration(&self) -> Option<usize> {
+        Some(G_JOY_CAPS)
     }
 
     fn content_size(&self) -> (u32, u32) {

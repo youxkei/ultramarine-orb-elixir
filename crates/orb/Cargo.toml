@@ -15,8 +15,10 @@ orb-config.workspace = true
 workspace = true
 features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Dwm",
     "Win32_Media",
+    "Win32_Media_Multimedia",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",

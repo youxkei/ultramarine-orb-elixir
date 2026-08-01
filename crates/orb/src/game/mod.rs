@@ -183,6 +183,15 @@ pub trait Game {
     /// Must run on the game's main thread, with the window in front.
     unsafe fn acquire_input(&self) -> bool;
 
+    /// Where the game keeps the `JOYCAPSA` it measures a joystick's axes against, if it
+    /// keeps one at all.
+    ///
+    /// Needed because a game may read those caps once and never again — 紅魔郷 reads them
+    /// at startup, and only if a joystick answered then — while an axis it never calibrated
+    /// against is one whose centre reads as far over. `None` for a game that asks the
+    /// device every time, which has no such window to be wrong in.
+    fn joystick_calibration(&self) -> Option<usize>;
+
     /// The device setup the game does before its update: the full-output viewport,
     /// and the background clear its options may ask for.
     ///

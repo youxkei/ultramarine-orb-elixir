@@ -171,11 +171,38 @@ a moment when re-acquiring cannot succeed.
 **Re-acquired on the way back.** orb calls `Acquire` itself — `g_Supervisor.keyboard` at
 `G_SUPERVISOR + 0x10` (0x6c6d28), vtable slot 7 — and holds the keys back until it succeeds.
 
-**The joystick is optional.** `Controller::GetControllerInput` (0x41cfc0, `__cdecl`) is a tail
-call inside `GetInput` that adds a joystick's buttons to the keyboard's. It costs 9.3ms a
-frame where the device does not answer, against about a microsecond for the keyboard, because
-the game asks every frame and retries `Acquire` when it fails. `joystick: false` hooks it to
-return the keyboard's buttons unchanged, which is what it does when there is no joystick.
+**The joystick is read on a thread of orb's own.** `Controller::GetControllerInput` (0x41cfc0,
+`__cdecl`) is a tail call inside `GetInput` that adds a joystick's buttons to the keyboard's.
+Where it gets them is `joyGetPosEx(0, JOY_RETURNALL)`, winmm's, through the exe's import
+table. The DirectInput branch beside it is only entered where the game's `EnumDevices` found
+an attached game controller at startup — where none was, `g_Supervisor.controller` (0x6c6d2c)
+stays null and every frame goes to winmm.
+
+Where nothing answers, that call takes 8.7ms and spends nearly all of it on the CPU — see
+[DONE.md](DONE.md) — which is half a 16.67ms frame, and being work rather than waiting there
+is nowhere cheap in the frame to put it. Where a joystick does answer it costs under a
+microsecond, so what it charges for is the looking and not the reading. orb
+redirects the exe's import of it and answers the game out of the last sample a thread of its
+own took: every 4ms while a joystick answers, once a second while none does, and never sooner
+than the read itself took, so no device can hold a core of its own. What a sample means —
+which button is shot, where an axis becomes a direction, the auto-repeat behind holding one —
+is left to the game's function, all of it downstream of the call orb replaced.
+
+Where a controller was enumerated the frame's read is that other branch's `Poll` and
+`GetDeviceState`, which orb leaves alone, and the sample answers only the startup check that
+asks whether a pad exists at all.
+
+**The calibration goes with the sample.** `GetControllerInput` places the centre of each axis
+at `(wXmin + wXmax) / 2`, with a dead zone of a quarter of the travel, out of the `JOYCAPSA`
+at 0x69d760 — which the game fills once, in its startup check, and only where a joystick
+answered there. A pad plugged in later is measured against zeros, and its centred axes read as
+held over. So orb writes the answering device's caps there, with every sample it hands over
+rather than once when the device appeared: the caps are in `.data`, and restoring a chapter
+from before the pad arrived puts the zeros back.
+
+There is no setting for any of this. There was one — the read cost most of a frame and turning
+it off was the only way out — and now that the frame pays a copy there is nothing left for it
+to be off for. `GetControllerInput` is still hooked at `verbose`, to time what it now costs.
 
 ## Borderless fullscreen
 
@@ -379,7 +406,7 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 ## Configuration
 
 **Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
-set: `borderless`, `skip_ending`, `joystick`, `block_replay_save`, `own_score_file`,
+set: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`,
 `boundary_flash`, `own_frame_loop`, `always_draw`, and where the game and an override `orb.dll`
 are. A flat list of `key: value`, and an unknown key is an error rather than being passed
 over — a setting that is quietly not read is a setting somebody thinks is on.

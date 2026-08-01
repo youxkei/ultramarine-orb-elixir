@@ -123,15 +123,29 @@ It should report zero saved regions failing to restore, and no untracked region 
 the process heap. It pauses the game for as long as fingerprinting every private page takes,
 which is why running it is a deliberate session rather than something left on.
 
-## Decide the joystick default
+## Play a stage with a pad
 
-`joystick` defaults to `true`, so the 9.3ms-a-frame read is on unless someone turns it off.
-That is the right default for anyone who uses a joystick and the wrong one here.
+The read is orb's thread's now and the frame pays a copy, and a pad that turned up mid-run drove
+the menus — see [DONE.md](DONE.md). What no run has been through is a stage: shot and bomb under
+a pattern, the four directions at the speed they are used at, and the auto-repeat behind holding
+one, none of which a menu asks for. Worth doing once by somebody who plays with a pad.
 
-Worth knowing what the device actually is before changing it: `g_Supervisor.controller` is at
-0x6c6d2c, and `GetDeviceInfo` would name it. If it turns out to be something that is not a
-joystick at all — a sensor, a wheel, a VR device the game grabbed because it enumerated
-first — then defaulting to off is defensible.
+**One loose end from the run that settled the calibration.** The handover said so once a
+second rather than once, which is a write into the game's memory every time it says it. The
+caps were being read beside every position then, so the likeliest reading is that
+`joyGetDevCapsA` does not fill all 404 bytes the same way twice — the tail is `szOEMVxD`, 260
+bytes of it. They are taken once per appearance now, which should leave one line, and the line
+says the offset it differed from so that a repeat says what is putting the game's copy back. A
+retried chapter is the one thing that legitimately does, since the caps are in `.data`.
+Unwatched since the change; it needs a pad asleep at launch and woken afterwards, which is the
+only way into the winmm branch with a device on it.
+
+The other branch is measured but not through the game. A pad attached *before* the game starts
+is one `EnumDevices` finds, and then the frame's read is DirectInput's rather than winmm's:
+about a microsecond a probe measured, and orb neither replaces nor times it. Its up-to-400
+`Acquire` retries on `DIERR_INPUTLOST` have never been seen to happen — a device that goes to
+sleep mid-stage is how they would be, which is worth watching for on a machine whose pad is
+wireless, since 400 of them land on one frame.
 
 ## Map the DLL by hand, if a temp file is itself the objection
 

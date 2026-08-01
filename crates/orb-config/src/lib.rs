@@ -78,9 +78,10 @@ pub struct Config {
     pub borderless: bool,
     /// How much goes into `orb.log`.
     pub log_level: LogLevel,
-    /// Let the game read a joystick. Off drops that read, which on a machine where
-    /// the device does not answer is most of a frame's budget.
-    pub joystick: bool,
+    // There is no `joystick` here on purpose. It existed to turn off a read that cost most of
+    // a frame; that read is on a thread of orb's own now and costs the frame nothing, so
+    // there is nothing left to turn off. A file still carrying the key is rejected by name,
+    // which says what to delete better than quietly ignoring it would.
 }
 
 /// How much detail the log carries.
@@ -180,7 +181,6 @@ impl Config {
             boundary_flash: doc.bool("boundary_flash")?.unwrap_or(true),
             skip_ending: doc.bool("skip_ending")?.unwrap_or(true),
             borderless: doc.bool("borderless")?.unwrap_or(true),
-            joystick: doc.bool("joystick")?.unwrap_or(true),
             log_level: LogLevel::Normal,
             base_dir,
         };

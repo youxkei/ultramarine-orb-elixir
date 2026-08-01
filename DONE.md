@@ -169,9 +169,45 @@ Settled by measurement.
   as late as it will fit rather than at the top of its turn. `INPUT LAG` on screen is the
   measured time from the keyboard read to that frame reaching the screen, across the two
   frames those ends fall in.
-- **The joystick read was the whole problem.** 9.3ms a frame of the 16.67ms budget, against
-  ~1µs for the keyboard. `joystick: false` took the frame from a spread of one to four
-  refreshes to an exact two.
+- **The joystick read was the whole problem, and what it cost was winmm looking for a device
+  that is not there.** `joyGetPosEx(0, JOY_RETURNALL)` took 8.7ms to answer `JOYERR_PARMS`
+  (min 7.8ms, max 10.8ms over 100 calls), and 100 back to back took 917ms of wall clock
+  against 906ms of CPU — 703ms kernel, 203ms user — so it is work rather than waiting and no
+  part of a 16.67ms frame was a cheap part to do it in. `joystick=8562us/frame worst=13227us`
+  in the log for the frames it ran on, against ~1µs for the keyboard. DirectInput enumerated
+  no attached game controller, which is why the game was in that branch at all.
+- **The same call costs nothing where a joystick answers**, so the setting that turned the
+  joystick off was never the answer to it, and it is gone. With an Xbox One pad attached
+  `joyGetPosEx` returns in under a
+  microsecond, and the branch the game takes when `EnumDevices` found a controller at startup
+  — DirectInput — reads in about a microsecond a frame: `GetDeviceState` 1µs average and 9µs
+  worst over 100 reads, `Poll` returning `DI_NOEFFECT` in under a microsecond, and one 2.1ms
+  `Acquire` on the first read. Both branches timed outside the game, by a program that asks the
+  way the game asks — `joyGetPosEx` with `JOY_RETURNALL`, and `EnumDevices` for
+  `DI8DEVCLASS_GAMECTRL` with `DIEDFL_ATTACHEDONLY` then `Poll`, `Acquire`, `GetDeviceState`
+  behind a foreground exclusive acquire — around `QueryPerformanceCounter`, with
+  `GetThreadTimes` across the hundred calls for the split between work and waiting.
+- **The read is on a thread of orb's own, and the frame pays a copy.** With nothing plugged
+  in: `input=1us/frame worst=4us calls=600` and `joystick=0us/frame worst=1us
+  calls=600` over 600 frames with the window in front, the frame itself
+  `16763us worst=23817us`. The thread's own reads were 32ms for the first one in the process
+  — winmm's joystick support coming up — then 8.7ms once a second while nothing answered. A
+  pad turned up mid-run and was picked up within the second: `mid=045e pid=02ff "Microsoft PC
+  ジョイスティック ド", 16 buttons, 5 axes`, after which the reads cost microseconds on the
+  4ms cadence, agreeing with the probe.
+- **A pad connected mid-run works, where it used to leave two directions held.** Seen on
+  screen both ways. The fault was never orb's: `GetControllerInput` places the centre of each
+  axis at `(wXmin + wXmax) / 2` with a dead zone of a quarter of the travel, read out of the
+  `JOYCAPSA` at 0x69d760 — an address that appears exactly once in the whole exe, in the
+  `joyGetDevCapsA` call the startup check makes, and that check only reads it where a joystick
+  answered `joyGetPosEx` first. So a pad that was not there at startup was measured against
+  zeros, where a centred axis of 32767 is far over a threshold of 0.
+  orb hands the calibration over with the sample, and the run that checked it started with the
+  pad asleep (`there is no joystick 0, read in 33785us`), had it wake mid-run
+  (`mid=045e pid=02ff ... 16 buttons, 5 axes, X 0..65535, read in 2494us`), took the
+  calibration on the next frame (`the game's axis calibration was not this device's`), and was
+  then driven through the menus with the pad, nothing drifting. Reads settled at 2µs on the 4ms
+  cadence, the frame at `input=2us/frame worst=180us calls=600`.
 - **`timeBeginPeriod(1)` restored.** The game asked for it inside the loop that was
   replaced; without it `Sleep` fell back to the 15.6ms system tick and the clock path
   stuttered in 33ms steps.

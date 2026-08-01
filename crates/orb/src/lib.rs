@@ -8,6 +8,7 @@ mod d3d8;
 mod game;
 mod hook;
 mod input;
+mod joystick;
 mod log;
 mod mem;
 mod memtrack;
@@ -254,8 +255,6 @@ static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
 /// Whether the keyboard has been out of reach since it was last read, and so needs
 /// getting back before the next read.
 static INPUT_LOST: AtomicBool = AtomicBool::new(false);
-/// Whether the game may read a joystick.
-static JOYSTICK: AtomicBool = AtomicBool::new(true);
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_void) -> BOOL {
@@ -385,13 +384,16 @@ fn attach() {
         }
         _ => {}
     }
-    JOYSTICK.store(config.joystick, Ordering::Relaxed);
+    // Loud rather than fatal: what it costs is the frame paying for the read again, which is
+    // what every run before this did.
+    match unsafe { joystick::install(exe, GAME.joystick_calibration()) } {
+        Ok(()) => log!("joystick: read on a thread of orb's, out of the game's frame"),
+        Err(error) => log!("joystick: {error}; the read stays in the game's frame"),
+    }
     match patches.joystick {
-        // Hooked to skip the read, or just to time it when the log is being read
-        // closely enough to want the split.
-        Some(patch)
-            if !config.joystick || config.log_level >= orb_config::LogLevel::Verbose =>
-        {
+        // Only to time it, when the log is being read closely enough to want the split out
+        // of `input`.
+        Some(patch) if config.log_level >= orb_config::LogLevel::Verbose => {
             hooks.push((
                 "joystick",
                 patch,
@@ -666,19 +668,11 @@ extern "system" fn get_input() -> u16 {
     buttons
 }
 
-/// The joystick half of the input read, which is a tail call inside the keyboard half
-/// and so cannot be told apart from outside it — nor skipped from outside it, which is
-/// the other reason this is hooked.
-///
-/// Skipping it is worth having because it is not cheap: measured here at nine
-/// milliseconds a frame, more than half the budget at 120Hz, spent inside the game's
-/// own retries at getting hold of a device that will not answer.
+/// The joystick half of the input read, which is a tail call inside the keyboard half and so
+/// cannot be told apart from outside it. Hooked to time it, and for nothing else: what made
+/// it worth nine milliseconds a frame is answered from a sample of orb's own now — see
+/// [`joystick`] — and this is how the perf line says so.
 extern "C" fn get_controller_input(buttons: u32) -> u16 {
-    if !JOYSTICK.load(Ordering::Relaxed) {
-        // The keyboard's buttons, with nothing added: what the function does when there
-        // is no joystick to read.
-        return buttons as u16;
-    }
     let original: extern "C" fn(u32) -> u16 =
         unsafe { std::mem::transmute(GET_CONTROLLER_INPUT.load(Ordering::Relaxed)) };
     let started = profile::now();

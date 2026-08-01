@@ -38,7 +38,7 @@ Start the game with `orb-launcher.exe`. Everything orb has to say goes to `orb.l
 it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
 is left as it was.
 
-`orb.yaml` holds what you set once — the window, the ending, the joystick. What is different
+`orb.yaml` holds what you set once — the window, the ending, the score file. What is different
 every time it is run is an argument instead, and `orb-launcher --help` lists them: `--collect`
 and `--judge` are the two passes over a replay that build a midstage chapter table for a game
 orb does not have one for, `--clear` reaches an ending in a minute rather than half an hour by

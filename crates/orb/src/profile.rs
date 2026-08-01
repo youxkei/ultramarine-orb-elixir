@@ -63,6 +63,12 @@ pub fn now() -> i64 {
     counter
 }
 
+/// Microseconds since a `now()`. For what is measured off the game's thread, and so has
+/// no place in a table of what a frame spent.
+pub fn since(started: i64) -> i64 {
+    microseconds(now() - started, frequency())
+}
+
 /// # Safety
 /// Must run on the game's main thread.
 pub unsafe fn record(phase: Phase, since: i64) {

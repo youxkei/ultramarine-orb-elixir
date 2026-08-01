@@ -35,10 +35,6 @@ own_frame_loop: true
 # otherwise act on whatever is being typed somewhere else.
 always_draw: true
 
-# The game asks for a joystick every frame; off does not answer, and the asking
-# measured nine milliseconds a frame on the machine this was written on.
-joystick: true
-
 # Refuse to write replay files. A run that has been rewound is not a run anyone
 # could have played, so recording it would produce a replay that desynchronises.
 block_replay_save: true
