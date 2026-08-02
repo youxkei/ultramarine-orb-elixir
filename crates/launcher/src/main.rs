@@ -25,20 +25,20 @@ const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
 #[derive(Parser, Debug)]
 // Capped at the width the prose below is written to be read at, so that a wide terminal gets
 // paragraphs rather than one line per option running off the side of it.
-#[command(name = "orb-launcher", max_term_width = 100, after_help = orb_config::args::AFTER_HELP)]
+#[command(name = "orb", max_term_width = 100, after_help = orb_config::args::AFTER_HELP)]
 struct Launch {
     #[command(flatten)]
     options: Options,
 
-    /// where 東方紅魔郷.exe is, if it is not beside orb-launcher.exe
+    /// where 東方紅魔郷.exe is, if it is not beside orb.exe
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     game_dir: Option<PathBuf>,
 
-    /// an orb.dll to load instead of the one orb-launcher.exe carries inside itself
+    /// an orb.dll to load instead of the one orb.exe carries inside itself
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     orb_dll: Option<PathBuf>,
 
-    /// the orb.yaml to read, instead of the one beside orb-launcher.exe
+    /// the orb.yaml to read, instead of the one beside orb.exe
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     config: Option<PathBuf>,
 }
@@ -51,7 +51,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("orb-launcher: {error}");
+            eprintln!("orb: {error}");
             ExitCode::FAILURE
         }
     }
@@ -87,15 +87,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Handed on to the game, whose command line is where the DLL reads them back from: the
     // game itself never looks at it. Nothing is written down and the two sides cannot
     // disagree about which pass this is.
-    let process = inject::spawn_suspended(&game_exe, &config.game_dir, &options)?;
+    let mut process = inject::spawn_suspended(&game_exe, &config.game_dir, &options)?;
     load_library(&process, &orb_dll)?;
     process.resume()?;
 
-    println!(
-        "orb-launcher: started {} (pid {})",
-        game_exe.display(),
-        process.id()
-    );
+    println!("orb: started {} (pid {})", game_exe.display(), process.id());
     Ok(())
 }
 

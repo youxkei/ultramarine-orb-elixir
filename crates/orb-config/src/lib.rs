@@ -282,7 +282,7 @@ mod tests {
             dir.display()
         );
 
-        let config = Config::load_beside(&dir.join("orb-launcher.exe")).unwrap();
+        let config = Config::load_beside(&dir.join("orb.exe")).unwrap();
         assert_eq!(config.game_dir, dir);
         assert!(config.borderless);
         assert!(config.skip_ending);

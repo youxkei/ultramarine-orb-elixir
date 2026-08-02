@@ -42,9 +42,9 @@ Then copy one file into the directory holding `東方紅魔郷.exe`:
 
 | | |
 | --- | --- |
-| `target/i686-pc-windows-gnu/release/orb-launcher.exe` | the whole of orb: it carries `orb.dll` inside itself and unpacks it to `%TEMP%\orb` when it runs |
+| `target/i686-pc-windows-gnu/release/orb.exe` | the whole of orb: it carries `orb.dll` inside itself and unpacks it to `%TEMP%\orb` when it runs |
 
-Start the game with `orb-launcher.exe`. Everything orb has to say goes to `orb.log` beside
+Start the game with `orb.exe`. Everything orb has to say goes to `orb.log` beside
 it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
 is left as it was. To keep the launcher somewhere else, `--game-dir=PATH` says where the game
 is.
@@ -54,7 +54,7 @@ run out without being shown, no replay written, and the scores in orb's own file
 `orb.yaml` in this repository there to change one of those — the file is a list of the defaults
 with what each is for, so a key left as it stands says the same thing as no key at all.
 
-What is different every time it is run is an argument instead, and `orb-launcher --help` lists
+What is different every time it is run is an argument instead, and `orb --help` lists
 them: `--collect` and `--judge` are the two passes over a replay that build a midstage chapter
 table for a game orb does not have one for, `--clear` reaches an ending in a minute rather than
 half an hour by letting nothing hit the player, and the rest are for looking into a fault.

@@ -150,7 +150,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
   playing, for building the table and for the stress mode.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
-- **One file to install.** `orb-launcher.exe` carries `orb.dll` inside itself and unpacks it
+- **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it
   to `%TEMP%\orb` before injecting. Cargo's artifact dependencies build the cdylib first and
   hand over its path, so the two halves are always the same build. The unpacked file is
   named for its own checksum, because a mapped image cannot be replaced while loaded and a

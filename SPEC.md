@@ -534,7 +534,7 @@ Not orb's bug, but a reason orb must never feed the game stray input.
 
 ## How it is installed
 
-`orb-launcher.exe` is the only file. It carries `orb.dll` inside itself — cargo's artifact
+`orb.exe` is the only file. It carries `orb.dll` inside itself — cargo's artifact
 dependencies (`-Z bindeps`, which is why the toolchain is nightly) build the cdylib first and
 hand over its path — and unpacks it to `%TEMP%\orb` before injecting, since `LoadLibrary`
 needs a path.
@@ -573,7 +573,7 @@ is one they meant, and answering it with the defaults would leave them watching 
 nothing read.
 
 Everything to do with building the midstage table, reaching an ending, or looking into a fault
-is an argument to `orb-launcher` instead — `--help` lists them — because a file is the wrong
+is an argument to `orb.exe` instead — `--help` lists them — because a file is the wrong
 place for something that is different every time it is run. The two passes over a replay are one
 word each:
 

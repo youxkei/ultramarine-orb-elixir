@@ -4,8 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+# `orb.exe`, since it is the whole of what gets installed and orb is what that is called. The
+# package keeps a name of its own because the crate named `orb` is the DLL this one carries.
 [[bin]]
-name = "orb-launcher"
+name = "orb"
 path = "src/main.rs"
 
 [dependencies]

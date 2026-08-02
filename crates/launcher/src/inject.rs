@@ -18,7 +18,7 @@ use windows_sys::Win32::System::Memory::{
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_SUSPENDED, CreateProcessW, CreateRemoteThread, GetExitCodeThread, PROCESS_INFORMATION,
-    ResumeThread, STARTUPINFOW, WaitForSingleObject,
+    ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
 };
 
 /// A DLL whose `DllMain` blocks would otherwise hang the launcher with a
@@ -29,6 +29,7 @@ pub struct Process {
     process: HANDLE,
     main_thread: HANDLE,
     id: u32,
+    resumed: bool,
 }
 
 pub fn spawn_suspended(exe: &Path, working_dir: &Path, options: &[String]) -> io::Result<Process> {
@@ -64,6 +65,7 @@ pub fn spawn_suspended(exe: &Path, working_dir: &Path, options: &[String]) -> io
         process: info.hProcess,
         main_thread: info.hThread,
         id: info.dwProcessId,
+        resumed: false,
     })
 }
 
@@ -92,10 +94,11 @@ impl Process {
         result
     }
 
-    pub fn resume(&self) -> io::Result<()> {
+    pub fn resume(&mut self) -> io::Result<()> {
         if unsafe { ResumeThread(self.main_thread) } == u32::MAX {
             return Err(io::Error::last_os_error());
         }
+        self.resumed = true;
         Ok(())
     }
 
@@ -139,8 +142,18 @@ impl Process {
 }
 
 impl Drop for Process {
+    /// A process that was never resumed is one nothing has happened in — the launcher gave up
+    /// between starting the game and letting it run — and nothing will happen in it either: it
+    /// is stopped before its entry point, so it draws no window, ends on nothing, and answers
+    /// `tasklist` as a game that is running for as long as the machine is up.
+    ///
+    /// Killed here rather than on the one path that fails today, so that every way of giving up
+    /// between the two, including any added later, leaves nothing behind.
     fn drop(&mut self) {
         unsafe {
+            if !self.resumed {
+                TerminateProcess(self.process, 1);
+            }
             CloseHandle(self.main_thread);
             CloseHandle(self.process);
         }

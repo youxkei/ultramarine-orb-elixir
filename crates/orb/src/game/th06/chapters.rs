@@ -5,7 +5,7 @@
 //! player is doing, and regardless of difficulty. Boss attacks are not listed:
 //! those boundaries are detected at runtime.
 //!
-//! Built with `orb-launcher --collect` and `--judge` over a Lunatic replay of a 1→6 run and
+//! Built with `orb --collect` and `--judge` over a Lunatic replay of a 1→6 run and
 //! an Extra replay, a stage at a time; see the README. Stages keep whatever is here until one
 //! is looked at again, and `tuning.txt` beside the launcher holds the thirty boundaries judged
 //! out of this as well, so a stage picked up again starts from what was decided rather than
