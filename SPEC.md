@@ -299,6 +299,12 @@ refresh late, which adds back to the 2.4 the display wants, so the rate reads co
 fifth of the frames are shown somewhere nobody asked for. Anchoring the aim instead took that from
 117 frames of every 600 to none.
 
+A grid moment the blank in hand has already passed is a frame that has been missed, and it is
+dropped: the grid starts again one frame from that blank. Left where it was, the aim comes out at
+one refresh and stays there until the difference is made up — and making it up means an update per
+refresh, so the frames that were missed are paid for by running the game fast, which brings none of
+them back.
+
 A rate that *does* divide is given the same count every frame instead of following that grid.
 A display sold as 120Hz is often 119.88, and chasing an exact sixtieth there would spend three
 refreshes on a frame every few minutes to make the difference up. Two every time is 59.94fps —
@@ -360,7 +366,8 @@ is aimed at — that is the whole of what decides where the handover lands, beca
 happens before it and only moves when the drawing starts. So it is the compositor's share, and
 not the budget, that has to stay inside one refresh: hand over earlier than the blank before the
 aimed one and the compositor takes it at that earlier blank. The budget may run to most of a game
-frame, since it only decides how early the drawing starts.
+frame, since it only decides how early the drawing starts — but only while it is a prediction of
+what the work takes, which is the same trap from the other side: see *The work estimate*.
 
 Getting that wrong is invisible at 120Hz, where half a game frame is exactly one refresh. At
 144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one refresh apiece — `gaps
@@ -387,6 +394,18 @@ while frames slipped a refresh apiece.
 **The work estimate.** How long the frame's work takes is measured and tracked near the worst
 of the recent frames rather than their average, because aiming at the average means missing
 the handover on every frame heavier than it.
+
+A frame that wanted more than the whole budget is left out of that. It is a scene being built
+rather than a heavy frame — `RunCalcChain` runs 252ms where a run ends and the next one is set up —
+and it says nothing about what the frame after it will take. Believed, it pinned the estimate to
+the ceiling, and the frames that followed, two milliseconds of work apiece, were then started
+12.5ms before a blank 8.3ms away: handed over that early they were composed for the blank *before*
+the one they were aimed at, `DwmFlush` returned there with them, so the anchor the next aim is
+counted from moved a refresh early and the frame after was handed over just as early again. One
+frame per refresh is one update per refresh, so the game and everything in it ran at double speed
+for the thirty frames the estimate took to decay back — after every stage load, and with nothing in
+the log saying so, since the buckets take `max(0)` of the overshoot and a frame a refresh early read
+as one that landed exactly where it asked to. Those are counted now.
 
 `timeBeginPeriod(1)` is asked for at startup and released on detach. Without it `Sleep` is
 only accurate to the system tick, some fifteen milliseconds.

@@ -362,6 +362,36 @@ Settled by measurement.
   | off the cadence, per 600 | 53, 57 | 33, 36 | 5, 7 | 2, 1 | 0, 0 | 0, 0 | 0, 0 |
 
   Monotone, and at 200µs the interval sags to 18348µs — 54 frames a second.
+- **A long frame no longer runs the game fast for a third of a second afterwards.** A 252ms
+  `RunCalcChain` — a run ending and the next scene being built — pinned the work estimate to its
+  ceiling, three quarters of a game frame. The frames that followed wanted two milliseconds and
+  were then started 12.5ms before a blank 8.3ms away: handed over that early they were composed
+  for the blank *before* the one they were aimed at, `DwmFlush` returned there with them, so the
+  anchor the next aim is counted from moved a refresh early and the frame after was handed over
+  just as early again. One frame per refresh is one update per refresh, so the game and everything
+  in it ran at double speed for the thirty frames the estimate took to decay back —
+  `gaps in refreshes 1x29 2x569` after one such frame and `1x88 2x547 5+x3` after three.
+
+  A frame that wanted more than the whole budget does not set it now, being a scene built rather
+  than a frame drawn. Watched over a played pointdevice run with chapter retries in it: 52,833
+  frames in 86 periods, twelve of them frames of five refreshes or more — six in the 220–270ms
+  class and one of 499ms.
+
+  | | |
+  | --- | --- |
+  | the estimate over the session | 3166–6418µs, against the 12,500µs ceiling it used to be pinned to |
+  | the period holding the 499ms frame and two more stalls | `gaps in refreshes 2x681 3x1 5+x3`, and `refreshes past the blank aimed at 0x682 3+x4` |
+  | one-refresh gaps in the whole session | two, of 12,262 and 12,366µs, which are under the bucket's 1.5-refresh boundary rather than doubled frames — both reached the flush 620 and 756µs before the blank they were aiming at |
+  | frames shown before the blank they were aimed at | none, over all 86 periods |
+  | the spread | 25,970 gaps within 250µs of the cadence and 20,412 within 750µs of it, with both ends of the band — beyond ±2ms — empty |
+
+  That last count is the other half of the fix, and it is why the fault could sit in a run for as
+  long as it did: `MISSED` counts refreshes *past* the aim and takes `max(0)`, so a frame a refresh
+  early read as one that landed exactly where it asked to. Every counter said the pacing was
+  perfect and only the frame rate on the status line disagreed. It says so now, and reading zero
+  over that session also answers the case that needs no load at all — a 10ms update followed by a
+  2ms one, where the estimate would sit a refresh above the lighter frame's work — which did not
+  happen in fifteen minutes of play.
 - **`cFramesLate` is not evidence and nothing is judged on it.** The compositor's own count of
   frames it could not show at the refresh they were aimed at read `0 shown late` through every
   run above, including the ones where 57 frames of 600 missed their blank. It is still

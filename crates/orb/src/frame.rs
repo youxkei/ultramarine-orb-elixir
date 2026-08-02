@@ -196,6 +196,15 @@ static MISSED: [AtomicUsize; 4] = [
 /// How far after the blank it was aimed at the last frame reached the screen, for the
 /// per-frame line.
 static OVERSHOOT_US: AtomicI64 = AtomicI64::new(0);
+/// Frames shown *before* the blank they were aimed at, which is the one thing the buckets above
+/// cannot say: they count refreshes past the aim and take `max(0)` of it, so a frame a refresh
+/// early reads as one that landed exactly where it asked to.
+///
+/// Not a cosmetic matter, and the reason it is counted at all. A frame per refresh is an update
+/// per refresh — bullets, enemies and the music's own clock with it — so the whole game runs at
+/// double speed while the log says nothing is wrong. It was noticed on the status line and
+/// nowhere else.
+static EARLY: AtomicUsize = AtomicUsize::new(0);
 /// Whether the last frame overshot by more than a whole turn, so the next one is still
 /// picking itself up.
 ///
@@ -753,6 +762,11 @@ fn measure_compose(period: i64, cadence: i64, aimed: i64, blank: i64) {
     }
     let refreshes = (overshoot.max(0) + period / 2) / period;
     MISSED[refreshes.clamp(0, MISSED.len() as i64 - 1) as usize].fetch_add(1, Ordering::Relaxed);
+    // Half a refresh either way is the boundary here as it is everywhere else, so the other side
+    // of it is a frame the compositor took at a blank before the one it was aimed at.
+    if overshoot < -period / 2 {
+        EARLY.fetch_add(1, Ordering::Relaxed);
+    }
 
     if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 {
         return;
@@ -828,13 +842,43 @@ fn compose_ceiling(period: i64) -> i64 {
 /// this pacing can cost.
 ///
 /// A whole game frame less a quarter, because the budget only decides how early the drawing
-/// starts and the drawing has the frame's own turn to happen in. Tying this to a refresh as
+/// starts and the drawing has the frame's own turn to happen in — which holds while the budget is
+/// a prediction of what the work takes and not otherwise, since the handover follows the drawing
+/// and a budget a refresh above the work puts it a refresh early. See `next_budget`, and what
+/// happened when a 252ms frame was allowed to set this. Tying this to a refresh as
 /// well was a mistake: at 144Hz it left the compositor's share and the whole budget the same
 /// 5208µs, so the drawing had no allowance, every frame reached the compositor late, and the
 /// input lag and the compositor's share read as the same number on screen — which is what
 /// gave it away, since the one is the other plus the drawing.
 fn budget_ceiling() -> i64 {
     micros(frame_ticks()) * 3 / 4
+}
+
+/// What to start the next frame's work against, from what this one's took.
+///
+/// Rises at once and falls slowly, so it sits near the worst of the recent frames rather than
+/// their average: aiming at the average means missing the handover on every frame heavier than
+/// it, and one frame handed over late is shown a whole refresh late — far more visible than the
+/// microseconds of lag that aiming high costs.
+///
+/// A frame that wanted more than the whole budget is left out of that, because it is a scene
+/// being built rather than a heavy frame. `RunCalcChain` takes 252ms where a run ends and the
+/// next scene is made, and nothing about that says what the frame after it will take. Believed,
+/// it pinned the budget to the ceiling — and the frames that followed, two milliseconds of work
+/// apiece, were then started 12.5ms before a blank 8.3ms away. Handed over that early they were
+/// composed for the blank *before* the one they were aimed at, and `DwmFlush` returned there with
+/// them, so the anchor everything is measured from moved a refresh early and the next frame
+/// handed over just as early again. One frame per refresh, which is one update per refresh, for
+/// the thirty frames the budget took to decay back: the game at double speed for a third of a
+/// second after every stage load, and every counter reading clean while it happened.
+fn next_budget(prepare: i64, took: i64, ceiling: i64) -> i64 {
+    if took > ceiling {
+        return prepare;
+    }
+    if took > prepare {
+        return took;
+    }
+    prepare - (prepare - took) / 64
 }
 
 /// How many refreshes to give the frame about to start.
@@ -865,17 +909,38 @@ fn refreshes_this_frame(period: i64, blank: i64) -> i64 {
         IDEAL_NEXT.store(blank + frame_ticks(), Ordering::Relaxed);
         return ((frame_ticks() + period / 2) / period).max(1);
     }
-    // The blank on the phase's grid nearest where the sixtieth-of-a-second grid has got to.
-    // Both are absolute, so neither carries an error forward: the answer is the same whatever
-    // the last frame did.
-    let ideal = IDEAL_NEXT.load(Ordering::Relaxed);
+    let (refreshes, next) = grid_aim(
+        period,
+        frame_ticks(),
+        phase,
+        IDEAL_NEXT.load(Ordering::Relaxed),
+        blank,
+    );
+    IDEAL_NEXT.store(next, Ordering::Relaxed);
+    refreshes
+}
+
+/// The blank on the phase's grid nearest where the sixtieth-of-a-second grid has got to, in
+/// refreshes from the blank in hand, and where the grid stands once this frame has had its turn.
+///
+/// Both grids are absolute, so neither carries an error forward: the answer is the same whatever
+/// the last frame did.
+///
+/// A grid moment the blank in hand has already passed is a frame that has been missed, and it is
+/// dropped rather than caught up. Left where it was, the count comes out at one refresh and stays
+/// there until the debt is spent — and one refresh a frame is one update per refresh, so the debt
+/// is spent running the game at double speed. Nothing is won by that: the frames that were missed
+/// are gone either way, and what the grid is for is where the *next* one goes.
+fn grid_aim(period: i64, frame: i64, phase: i64, ideal: i64, blank: i64) -> (i64, i64) {
+    let ideal = if ideal <= blank { blank + frame } else { ideal };
     let steps = ((ideal - phase) + period / 2) / period;
     let target = phase + steps * period;
-    IDEAL_NEXT.store(ideal + frame_ticks(), Ordering::Relaxed);
-
     // Counted from the blank in hand rather than from the phase, since that is where the wait
     // starts. At least one, because a target already behind us is one this frame cannot have.
-    (((target - blank) + period / 2) / period).max(1)
+    (
+        (((target - blank) + period / 2) / period).max(1),
+        ideal + frame,
+    )
 }
 
 /// The fallback for a display whose refresh rate is not known at all.
@@ -952,12 +1017,6 @@ fn account(marks: &Marks) {
 
     // What this frame took from reading the keyboard to being handed over, which is what
     // the next one has to leave room for.
-    //
-    // Rises at once and falls slowly, so it sits near the worst of the recent frames
-    // rather than their average. Aiming at the average means missing the handover on
-    // every frame heavier than it, and one frame handed over late is shown a whole
-    // refresh late — far more visible than the microseconds of lag that aiming high
-    // costs.
     let turn = budget_ceiling();
     // Left for the next frame's flush to close off, which is when this frame is on screen.
     INPUT_READ_AT.store(marks.waited, Ordering::Relaxed);
@@ -967,16 +1026,14 @@ fn account(marks: &Marks) {
     // the compositor late for a reason the compositor cannot be given more time to fix, and the
     // next frame's reckoning must not read the resulting miss as one it can.
     OVERRAN.store(took > prepare, Ordering::Relaxed);
-    let next = if took > prepare {
-        took
-    } else {
-        prepare - (prepare - took) / 64
-    };
     // The floor held under the ceiling rather than trusted to be: `clamp` panics when they
     // cross, and a pinned compose time larger than a refresh would cross them — inside the
     // frame loop, so the game would go down with it.
     let floor = compose_floor().min(turn);
-    PREPARE_US.store(next.clamp(floor, turn), Ordering::Relaxed);
+    PREPARE_US.store(
+        next_budget(prepare, took, turn).clamp(floor, turn),
+        Ordering::Relaxed,
+    );
 
     FRAMES.fetch_add(1, Ordering::Relaxed);
     if previous == 0 {
@@ -1217,8 +1274,12 @@ pub fn shown() -> String {
             )
         }
     };
+    let early = match EARLY.swap(0, Ordering::Relaxed) {
+        0 => String::new(),
+        early => format!("; {early} shown a refresh or more early, so the game ran fast for them"),
+    };
     format!(
-        "frame: refreshes past the blank aimed at{blanks}{after_load}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
+        "frame: refreshes past the blank aimed at{blanks}{after_load}{early}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
         COMPOSE_US.load(Ordering::Relaxed),
         if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 {
             " pinned"
@@ -1258,7 +1319,14 @@ fn sleep_until(deadline: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{same_rate, whole_multiple};
+    use super::{grid_aim, next_budget, same_rate, whole_multiple};
+
+    /// A 144Hz refresh and a sixtieth of a second, in microseconds standing in for the
+    /// performance counter's ticks. 2.4 refreshes to the frame, so the count has to vary.
+    const REFRESH: i64 = 6944;
+    const FRAME: i64 = 16_666;
+    /// Three quarters of a frame, which is `budget_ceiling`.
+    const CEILING: i64 = 12_500;
 
     /// The rates a display actually reports itself as, and which of them a frame loop should
     /// treat as a whole number of refreshes to the game's sixtieth.
@@ -1293,5 +1361,73 @@ mod tests {
         assert!(same_rate(60, 59));
         assert!(!same_rate(144, 120));
         assert!(!same_rate(60, 120));
+    }
+
+    /// What a display of 2.4 refreshes a frame gets: two refreshes and three in whatever order
+    /// keeps the average at 2.4, so the rate is exactly 60 over any length of time.
+    #[test]
+    fn a_fractional_rate_takes_two_refreshes_and_three() {
+        let (mut phase, mut ideal, mut blank) = (0, FRAME, 0);
+        let mut counts = Vec::new();
+        for _ in 0..10 {
+            let (refreshes, next) = grid_aim(REFRESH, FRAME, phase, ideal, blank);
+            counts.push(refreshes);
+            ideal = next;
+            // The frame lands where it was aimed, which is what moves the phase on.
+            blank += refreshes * REFRESH;
+            phase = blank;
+        }
+        assert!(
+            counts.iter().all(|refreshes| (2..=3).contains(refreshes)),
+            "{counts:?}"
+        );
+        assert_eq!(
+            counts.iter().sum::<i64>(),
+            24,
+            "2.4 refreshes a frame over ten frames: {counts:?}"
+        );
+    }
+
+    /// And what it gets after a stall in the game's own update has left the grid behind: the
+    /// frames that were missed are dropped. Given to the frames after it instead, the missed time
+    /// buys one refresh a frame — an update per refresh, which is the game at double speed.
+    #[test]
+    fn a_grid_left_behind_drops_the_frames_it_missed() {
+        let stalled = 50_000;
+        let (refreshes, next) = grid_aim(REFRESH, FRAME, 0, FRAME, stalled);
+        assert!(
+            refreshes >= 2,
+            "{refreshes} refresh(es) is the game run fast"
+        );
+        assert!(
+            next > stalled + FRAME,
+            "the grid starts again from the blank in hand"
+        );
+    }
+
+    /// The budget is what the next frame's work will be started against, and the 252ms
+    /// `RunCalcChain` that builds the next scene predicts nothing about it. Believed, it pins the
+    /// budget to the ceiling, from where the frames after it are handed over more than a refresh
+    /// before the blank they are aimed at and shown at the blank before it.
+    #[test]
+    fn a_frame_that_ran_past_the_whole_budget_does_not_set_it() {
+        assert_eq!(next_budget(3700, 254_800, CEILING), 3700);
+    }
+
+    /// A heavier frame is the thing the budget must not be caught out by, since a frame handed
+    /// over late is shown a whole refresh late, so it is believed at once.
+    #[test]
+    fn a_heavier_frame_raises_the_budget_at_once() {
+        assert_eq!(next_budget(3700, 5000, CEILING), 5000);
+    }
+
+    /// A lighter one only says the budget may be higher than it needs to be, which is lag rather
+    /// than a lost refresh, so it comes down slowly enough to stay near the worst of the frames
+    /// around it.
+    #[test]
+    fn a_lighter_frame_brings_the_budget_down_slowly() {
+        let next = next_budget(3700, 2900, CEILING);
+        assert!((2900..3700).contains(&next), "{next}");
+        assert!(3700 - next < (3700 - 2900) / 8, "{next} is most of the way");
     }
 }

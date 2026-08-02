@@ -19,8 +19,12 @@ writing, with a copy beside it, so whether the right file moved is one md5 each.
 *is* still offered a replay to save, and can still save one.
 
 **The score written on the way out of an ordinary pointdevice run.** `--clear` refuses every write,
-so what it proved is that `DeletedCallback` runs, not that it writes. One
-`score: pointdevice_score.dat opened` at the end of a run played without `--clear` settles it.
+so what it proved is that `DeletedCallback` runs, not that it writes. The
+`score: pointdevice_score.dat opened` line does not settle it either, which a played run has now
+shown: it goes in on every open of the file whatever the access was asked for, so the title menu
+reading `clrd` back out of it writes one too. A run abandoned from the retry menu after 12 retries
+logged that line and left both score files at the mtime they already had. What settles it is the
+file's own mtime, or its md5, after a run that reaches a game over or a clear.
 
 **Deciding on the pad.** Its cancel is measured; `mode: answered on the pad` has not been seen, and
 neither has the stick moving the cursor. Both go through the same reading, so what is left is
@@ -173,64 +177,6 @@ reading is the retries beside the score, since a clear with none of them and a c
 are not the same clear, and `RETRY` is already counted. That means orb's own format rather than
 the game's, and with it the game's ranking screen no longer being where these are read.
 
-## The game runs at double speed for a third of a second after every long frame
-
-Noticed as the frame rate on the status line reading far too high just after a stage began, and
-measured under `--log=quiet --pacing`. **The number on screen is the least of it**: it is a smoothed
-present-to-present interval — `INTERVAL_US`, an exponential average weighted a thirty-second — so a
-run of half-length gaps reads as nearly double the rate. What the half-length gaps *are* is the game
-being updated twice as often, one update per drawn frame, bullets and enemies with it.
-
-The counts, one reporting period each:
-
-```
-frame: 599 frames, ... gaps in refreshes 1x29 2x569
-frame: 638 frames, ... gaps in refreshes 1x88 2x547 5+x3
-```
-
-**One long frame gives 29 short ones and three give 88**, and this is arithmetic rather than
-coincidence.
-
-**The long frame is the game's own update.** From the pacing line for it:
-
-```
-frame: 32 refreshes, 266624us — ... update 252326us, sound 0us, draw 239us, present 229us
-```
-
-252ms in one `RunCalcChain`, beside the `run ended after 1 retries` line — a run ending and the next
-scene being built. orb's own parts of that frame are the 239µs of drawing and the 229µs of
-presenting.
-
-**The frames after it are aimed at one refresh, and say so.** Each begins `frame: 1 refreshes`, so
-`refreshes_this_frame` returned 1; `cadence` is then one period rather than two, the turn is
-`8333 − 3694 ≈ 4640µs`, and the measured sleeps are 4319, 4469, 4617, 4763µs. The numbers close.
-
-**Why it returns 1, and why for thirty frames.** `IDEAL_NEXT` is where the next present is wanted, an
-absolute moment advanced by one *frame* — 16.67ms — per frame. While the game stalls, wall time
-advances 252ms and `IDEAL_NEXT` does not, so afterwards the target is in the past on every frame and
-`.max(1)` gives one refresh. Each such frame then makes up only 8.33ms of the debt, so 252ms takes
-252 / 8.33 ≈ 30 frames — and three stalls take three times that. The grid is described as
-self-correcting because it is absolute and cannot push the frames after it; what it actually does
-with a debt is spend it running the game fast.
-
-Ruled out along the way: `wait_by_clock`, which was the first guess and is the only part of the
-pacing that deliberately emits a short gap — the same report says `0 frame(s) paced by the clock`.
-Worth noting but not the cause: those frames' anchors come back 7.8ms before the compositor's own
-blank (`anchor -7774us` and its neighbours, against an 8333µs refresh), which is what aiming a
-refresh early looks like from the other end rather than a second fault.
-
-**The shape of the fix.** After a stall beyond a frame or two, put `IDEAL_NEXT` at one frame from
-now instead of leaving it behind to be caught up: drop the frames that were missed rather than
-compress the ones after them. `wait_by_clock` already does exactly this — *"Nowhere near the plan —
-after a load, a snapshot, or a window that was not being drawn. Start again from here rather than
-racing to catch up"* — and `refreshes_this_frame`'s own
-`(blank - phase).abs() > frame_ticks() * 4` guard is meant to, but did not fire here; why it did not
-is the first thing to find out, since `PHASE` and `IDEAL_NEXT` are reset together by it.
-
-What a fix has to show: the `1x` bucket empty over a session with stage starts and runs ending in
-it, the `5+` bucket unchanged — the stall is the game's and is not orb's to remove — and no
-double-speed moment on the screen where the bullets are.
-
 ## What the fixed stutter costs
 
 Three to five frames of every six hundred used to come out three refreshes apart instead of two,
@@ -263,6 +209,14 @@ What is left:
   that overshoot sat right on the half-refresh boundary the two round opposite ways from. It errs
   toward giving the compositor longer, which is the safe direction, but it means the floor can end
   up a step above what it needs to be, and three steps of that is 150µs of lag.
+- **Whether the grid's own way of running the game fast is gone**, which only a display that is
+  not a whole multiple of 60 can reach — see [DONE.md](DONE.md) for the same fault in the work
+  estimate, which is the one that was found and measured. A grid moment left behind the blank in
+  hand made the aim come out at one refresh a frame until the difference had been made up, and
+  each of those frames is an update. It is dropped now and the arithmetic has a test, but no
+  144Hz session has been through a stall shorter than four game frames, which is the only way
+  in: beyond that the phase guard was already resetting the grid. What to watch is the same `1x`
+  bucket, in a session whose log says `144Hz monitor is not a multiple of 60Hz`.
 - **Which refresh rates have actually been run.** Three: 120Hz, 119.88Hz and 144Hz, all on the
   same machine and the same monitor at three settings — see [DONE.md](DONE.md). The third one
   earned its place by breaking both branches it touched, neither of which had been run before, so
