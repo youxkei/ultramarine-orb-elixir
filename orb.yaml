@@ -1,4 +1,7 @@
-# Read by both orb-launcher.exe and orb.dll, from their own directory.
+# Read by both orb-launcher.exe and orb.dll, from their own directory. Every value below is
+# the default, so this whole file is optional: without it orb runs exactly as it does with it
+# as it stands, and installing orb is the one exe.
+#
 # Relative paths resolve against this file's directory; blank means "unset". A switch is
 # written true or false, and a key nobody here reads is refused by name.
 #
@@ -24,12 +27,6 @@ borderless: true
 # still happens. The staff roll after it is kept and plays as it always did. Set to
 # false to watch the ending too.
 skip_ending: true
-
-# orb runs the frame itself: the update before the draw, so nothing on screen is
-# an update behind the input that shaped it, and the present paced to the display.
-# On a refresh rate that is a whole multiple of 60 the game is shown on a fixed
-# cadence (every second refresh at 120Hz), so no frame is doubled or dropped.
-own_frame_loop: true
 
 # Keep drawing while the window is not the one in use. The game stops reading the
 # keyboard then, because it reads it globally rather than per window and would

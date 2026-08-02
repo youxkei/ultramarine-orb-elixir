@@ -324,7 +324,7 @@ fn attach() {
         "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
          block_replay_save={} skip_ending={} borderless={} during_replay={} \
          fast_clear={} speed={} stress_restore_frames={} chapters={} track_memory={} \
-         frame_hooks={}",
+         frame_hooks={} own_frame_loop={}",
         config.game_dir.display(),
         config.log_level,
         config.pacing_log,
@@ -341,6 +341,7 @@ fn attach() {
         config.chapters,
         config.track_memory,
         config.frame_hooks,
+        config.own_frame_loop,
     );
     // Set after the line that says what it is, so the log always states the level it
     // is then written at.

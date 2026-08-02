@@ -559,13 +559,18 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 ## Configuration
 
 **Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
-set: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`,
-`boundary_flash`, `own_frame_loop`, `always_draw`, and where the game and an override `orb.dll`
-are. YAML read with serde: a key is `key: value`, a switch is `true` or `false`, and a key
-written with nothing after it is the same as leaving it out. `deny_unknown_fields`, so a key
-nobody reads is an error naming it and the keys there are rather than something passed over — a
-setting that is quietly not read is a setting somebody thinks is on, and a key that was one in
-an older build is worth being told to delete.
+set: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`, `boundary_flash`,
+`always_draw`, and where the game and an override `orb.dll` are. YAML read with serde: a key is
+`key: value`, a switch is `true` or `false`, and a key written with nothing after it is the same
+as leaving it out. `deny_unknown_fields`, so a key nobody reads is an error naming it and the
+keys there are rather than something passed over — a setting that is quietly not read is a
+setting somebody thinks is on.
+
+**No file is every default**, which is what leaves the launcher the one file to install: each
+key is one thing somebody changed, and changing nothing is what an installation does. A file
+that `--config=PATH` names and does not find is an error even so, since a path somebody typed
+is one they meant, and answering it with the defaults would leave them watching for a setting
+nothing read.
 
 Everything to do with building the midstage table, reaching an ending, or looking into a fault
 is an argument to `orb-launcher` instead — `--help` lists them — because a file is the wrong
@@ -578,8 +583,14 @@ word each:
 | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
 
 and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
-`--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks`
-for taking orb apart until a fault stops happening. `--config=PATH` is the launcher's own.
+`--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory`,
+`--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
+`--config=PATH` is the launcher's own.
+
+**`--no-frame-loop`** leaves the frame to the game: its own order, draw before update, and its
+own pacing, with the update and the draw still hooked so chapters carry on. The frame of input
+lag comes back with it and frames are doubled and dropped again, which is why it is asked for at
+a launch and not somewhere it could be left set.
 
 One clap definition for all of them, read by both halves: the launcher out of its own
 arguments, the DLL out of the command line the launcher wrote. A value goes onto its option,

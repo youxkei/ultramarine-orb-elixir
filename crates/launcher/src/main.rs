@@ -49,17 +49,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Read here as well as in the DLL, so that anything unreadable is said before a game
     // starts rather than into a log inside one.
     let launch = Launch::parse();
-    let config_path = match launch.config {
-        Some(path) => path,
-        None => {
-            let exe = std::env::current_exe()?;
-            let dir = exe
-                .parent()
-                .ok_or("cannot locate orb-launcher.exe directory")?;
-            dir.join(orb_config::FILE_NAME)
-        }
+    let mut config = match &launch.config {
+        Some(path) => Config::load(path)?,
+        None => Config::load_beside(&std::env::current_exe()?)?,
     };
-    let mut config = Config::load(&config_path)?;
     config.apply(&launch.options);
     let options = to_hand_on(std::env::args().skip(1));
 

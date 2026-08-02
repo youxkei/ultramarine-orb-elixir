@@ -6,9 +6,7 @@
 //! rather than the string that is written down.
 //!
 //! `deny_unknown_fields` is what makes a key nobody reads an error naming it, since a setting
-//! that is quietly passed over is a setting somebody thinks is on. It is also what rejects a
-//! file still carrying `joystick`, which was a key until the read it turned off moved to a
-//! thread of orb's own.
+//! that is quietly passed over is a setting somebody thinks is on.
 
 use serde::Deserialize;
 
@@ -18,7 +16,6 @@ pub(crate) struct File {
     /// Blank, which is `None` here, for the directory the file itself is in.
     pub game_dir: Option<String>,
     pub orb_dll: Option<String>,
-    pub own_frame_loop: bool,
     pub always_draw: bool,
     pub block_replay_save: bool,
     pub own_score_file: bool,
@@ -34,7 +31,6 @@ impl Default for File {
         Self {
             game_dir: None,
             orb_dll: None,
-            own_frame_loop: true,
             always_draw: true,
             block_replay_save: true,
             own_score_file: true,

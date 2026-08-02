@@ -108,6 +108,12 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     no_memory: bool,
 
+    /// leave the frame to the game: its own order, draw before update, and its own pacing,
+    /// with the update and the draw still hooked so chapters carry on. A frame of input lag
+    /// comes back with it, and frames are doubled and dropped as they were
+    #[arg(long, help_heading = FAULT)]
+    no_frame_loop: bool,
+
     /// do not hook the game's frame at all
     #[arg(long, help_heading = FAULT)]
     no_hooks: bool,
@@ -200,6 +206,9 @@ impl Config {
         }
         if options.no_memory {
             self.track_memory = false;
+        }
+        if options.no_frame_loop {
+            self.own_frame_loop = false;
         }
         if options.no_hooks {
             self.frame_hooks = false;
@@ -300,6 +309,15 @@ mod tests {
         assert!(quiet.pacing_log);
         assert_eq!(quiet.log_level, LogLevel::Quiet);
         assert!(!with("--log=verbose").pacing_log);
+    }
+
+    /// The frame is orb's unless somebody says otherwise at the launch, and the file cannot say
+    /// it: a game left running its own frame is a game with the input lag back.
+    #[test]
+    fn the_frame_is_left_to_the_game_only_when_asked_for_at_the_launch() {
+        assert!(with("").own_frame_loop);
+        assert!(!with("--no-frame-loop").own_frame_loop);
+        assert!(with("--no-frame-loop").frame_hooks);
     }
 
     /// The compositor's drawing time is swept, so it is given in the microseconds a sweep

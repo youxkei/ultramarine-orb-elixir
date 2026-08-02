@@ -38,22 +38,25 @@ That is also what installs the hooks. husky-rs points git at `.husky`, whose `pr
 `cargo fmt --check` and `cargo test` — `NO_HUSKY_HOOKS=1` keeps a build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
 
-Then copy two files into the directory holding `東方紅魔郷.exe`:
+Then copy one file into the directory holding `東方紅魔郷.exe`:
 
 | | |
 | --- | --- |
 | `target/i686-pc-windows-gnu/release/orb-launcher.exe` | the whole of orb: it carries `orb.dll` inside itself and unpacks it to `%TEMP%\orb` when it runs |
-| `orb.yaml` | only if there is not one there already, since it is where local settings live |
 
 Start the game with `orb-launcher.exe`. Everything orb has to say goes to `orb.log` beside
 it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
 is left as it was.
 
-`orb.yaml` holds what you set once — the window, the ending, the score file. What is different
-every time it is run is an argument instead, and `orb-launcher --help` lists them: `--collect`
-and `--judge` are the two passes over a replay that build a midstage chapter table for a game
-orb does not have one for, `--clear` reaches an ending in a minute rather than half an hour by
-letting nothing hit the player, and the rest are for looking into a fault.
+With no `orb.yaml` beside it, every setting is its default: borderless fullscreen, the ending
+run out without being shown, no replay written, and the scores in orb's own file. Copy the
+`orb.yaml` in this repository there to change one of those — the file is a list of the defaults
+with what each is for, so a key left as it stands says the same thing as no key at all.
+
+What is different every time it is run is an argument instead, and `orb-launcher --help` lists
+them: `--collect` and `--judge` are the two passes over a replay that build a midstage chapter
+table for a game orb does not have one for, `--clear` reaches an ending in a minute rather than
+half an hour by letting nothing hit the player, and the rest are for looking into a fault.
 
 ## Documentation
 

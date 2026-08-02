@@ -38,6 +38,10 @@ pub struct Config {
     pub frame_hooks: bool,
     /// Run the frame ourselves: update before draw, so nothing on screen is an
     /// update behind the input that shaped it, and paced to the display.
+    ///
+    /// Off through `--no-frame-loop` and nothing else. A run without it is a run with the
+    /// frame of input lag and the doubled frames back, which is a thing to do to a fault
+    /// and not a way to leave the game set up.
     pub own_frame_loop: bool,
     /// Keep drawing while the window is not the one in use.
     pub always_draw: bool,
@@ -159,44 +163,62 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl Config {
-    /// Loads `orb.yaml` from the directory holding `module_path`: the launcher's own exe,
-    /// or the game's when the injected DLL is asking.
+    /// Loads `orb.yaml` from the directory holding `module_path`: the launcher's own exe, or
+    /// the game's when the injected DLL is asking.
+    ///
+    /// No file there is every default, since every key is one thing somebody changed and
+    /// changing nothing is what most installations do. Installing orb is then the one exe.
     pub fn load_beside(module_path: &Path) -> Result<Self, Error> {
         let base_dir = module_path.parent().unwrap_or(Path::new(".")).to_owned();
-        Self::load(&base_dir.join(FILE_NAME))
+        let path = base_dir.join(FILE_NAME);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Self::parse(&path, &text),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Self::from_file(base_dir, file::File::default()))
+            }
+            Err(source) => Err(Error::Read { path, source }),
+        }
     }
 
+    /// Loads a named `orb.yaml`, which is what `--config` gives.
+    ///
+    /// Not there is an error here, unlike the file orb looks for itself: a path somebody typed
+    /// is a path they meant, and reading the defaults instead would leave them watching for a
+    /// setting that was never read.
     pub fn load(path: &Path) -> Result<Self, Error> {
         let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
             path: path.to_owned(),
             source,
         })?;
-        Self::parse(path, &text).map_err(|source| Error::Parse {
-            path: path.to_owned(),
-            source,
-        })
+        Self::parse(path, &text)
     }
 
-    fn parse(path: &Path, text: &str) -> Result<Self, serde_yaml_ng::Error> {
-        let base_dir = path.parent().unwrap_or(Path::new(".")).to_owned();
+    fn parse(path: &Path, text: &str) -> Result<Self, Error> {
         // Through `Option` rather than straight into `File`, because a file with nothing in it
-        // but the comments it is shipped with is an empty document — `null`, which is not a
-        // mapping — and every key having a default is the whole point of it being allowed.
-        let file: Option<file::File> = serde_yaml_ng::from_str(text)?;
-        let file = file.unwrap_or_default();
+        // but comments is an empty document — `null`, which is not a mapping — and every key
+        // having a default is the whole point of it being allowed.
+        let file: Option<file::File> =
+            serde_yaml_ng::from_str(text).map_err(|source| Error::Parse {
+                path: path.to_owned(),
+                source,
+            })?;
+        let base_dir = path.parent().unwrap_or(Path::new(".")).to_owned();
+        Ok(Self::from_file(base_dir, file.unwrap_or_default()))
+    }
 
+    fn from_file(base_dir: PathBuf, file: file::File) -> Self {
         let path_of = |value: Option<String>| {
             value
                 .filter(|value| !value.is_empty())
                 .map(|value| base_dir.join(value))
         };
-        Ok(Self {
+        Self {
             game_dir: path_of(file.game_dir).unwrap_or_else(|| base_dir.clone()),
             orb_dll: path_of(file.orb_dll),
             chapters: true,
             track_memory: true,
             frame_hooks: true,
-            own_frame_loop: file.own_frame_loop,
+            own_frame_loop: true,
             always_draw: file.always_draw,
             self_check: false,
             chapter_tuning: false,
@@ -214,7 +236,7 @@ impl Config {
             pacing_log: false,
             compose_us: 0,
             base_dir,
-        })
+        }
     }
 }
 
@@ -249,6 +271,44 @@ mod tests {
         assert!(!config.during_replay);
         assert_eq!(config.stress_restore_frames, 0);
         assert_eq!(config.speed, 1);
+    }
+
+    /// No file at all is every default, which is what leaves the launcher the one file to
+    /// install: it hands `load_beside` its own path, and the directory that is in is where the
+    /// game, the log and the scores are.
+    #[test]
+    fn no_file_beside_the_exe_is_every_default() {
+        let dir = std::env::temp_dir().join(format!("orb-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(
+            !dir.join(super::FILE_NAME).exists(),
+            "left over in {}",
+            dir.display()
+        );
+
+        let config = Config::load_beside(&dir.join("orb-launcher.exe")).unwrap();
+        assert_eq!(config.game_dir, dir);
+        assert!(config.borderless);
+        assert!(config.skip_ending);
+        assert!(config.always_draw);
+        assert!(config.block_replay_save);
+        assert!(config.own_score_file);
+        assert!(config.boundary_flash);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A file `--config` names and does not find is an error, where the one orb looks for
+    /// itself is not: reading the defaults instead would leave somebody watching for a setting
+    /// nothing ever read.
+    #[test]
+    fn a_named_file_that_is_not_there_says_so() {
+        let missing = std::env::temp_dir().join("orb-config-no-such-file.yaml");
+        let error = match Config::load(&missing) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("a file that is not there was read as the defaults"),
+        };
+        assert!(error.contains("orb-config-no-such-file.yaml"), "{error}");
     }
 
     #[test]
@@ -289,14 +349,18 @@ mod tests {
     }
 
     /// Anything this file does not know is an error rather than something passed over, since a
-    /// setting that is quietly not read is a setting somebody thinks is on.
+    /// setting that is quietly not read is a setting somebody thinks is on. What an option is
+    /// named is not a key here, however much it reads like one.
     #[test]
     fn a_key_that_is_not_a_key_says_so() {
-        let error = match Config::parse(Path::new("orb.yaml"), "chapter_tuning: true\n") {
-            Err(error) => error,
-            Ok(_) => panic!("chapter_tuning was read from the file"),
-        };
-        assert!(error.to_string().contains("chapter_tuning"), "{error}");
+        for key in ["chapter_tuning", "own_frame_loop"] {
+            let text = format!("{key}: true\n");
+            let error = match Config::parse(Path::new("orb.yaml"), &text) {
+                Err(error) => error.to_string(),
+                Ok(_) => panic!("{key} was read from the file"),
+            };
+            assert!(error.contains(key), "{key}: {error}");
+        }
     }
 
     /// The ways a file written by hand goes wrong: a switch that is not one, a key with
