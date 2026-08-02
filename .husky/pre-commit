@@ -1,0 +1,15 @@
+#!/bin/sh
+# Installed as the hook by husky-rs, whose build script points git's core.hooksPath at this
+# directory. It runs on `cargo test`, so the command below is also what installs it.
+#
+# NO_HUSKY_HOOKS=1 keeps a build from touching git's config; `git commit --no-verify` skips
+# this check for a commit that is not code.
+set -e
+
+# --check rather than a `cargo fmt` that fixes it in place, because what is committed is what
+# was staged, and a hook that edits the tree commits neither one nor the other.
+cargo fmt --check
+
+# The tests are Windows binaries, cross-compiled and run through WSL interop, so a run here is
+# a run on what ships rather than on a host build of the same source.
+cargo test

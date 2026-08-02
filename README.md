@@ -27,6 +27,17 @@ launcher.
 cargo build --release
 ```
 
+The tests are Windows binaries too, and `cargo test` runs them: on Windows directly, and under
+WSL through its interop, which runs an `.exe` the same way a shell there does.
+
+```sh
+cargo test
+```
+
+That is also what installs the hooks. husky-rs points git at `.husky`, whose `pre-commit` is
+`cargo fmt --check` and `cargo test` — `NO_HUSKY_HOOKS=1` keeps a build from touching git's
+config at all, and `git commit --no-verify` skips the check for a commit that is not code.
+
 Then copy two files into the directory holding `東方紅魔郷.exe`:
 
 | | |
