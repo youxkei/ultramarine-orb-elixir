@@ -268,11 +268,11 @@ impl Snapshot {
                 _ => break,
             }
         }
-        if let Some((music, saved)) = &saved_music {
-            if !music.agrees_with_memory(saved) {
-                log!("snapshot: the music stream would not hold still; not restoring it");
-                saved_music = None;
-            }
+        if let Some((music, saved)) = &saved_music
+            && !music.agrees_with_memory(saved)
+        {
+            log!("snapshot: the music stream would not hold still; not restoring it");
+            saved_music = None;
         }
 
         self.untracked = if with_inventory {
@@ -556,14 +556,12 @@ unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
             && crate::memtrack::is_readable(info.Protect)
             && !overlaps(&region, regions)
             && !overlaps(&region, &ours);
-        if interesting {
-            if let Some(hash) = unsafe { hash(region) } {
-                fingerprints.push(Fingerprint {
-                    region,
-                    hash,
-                    in_process_heap: overlaps(&region, &process_heap),
-                });
-            }
+        if interesting && let Some(hash) = unsafe { hash(region) } {
+            fingerprints.push(Fingerprint {
+                region,
+                hash,
+                in_process_heap: overlaps(&region, &process_heap),
+            });
         }
 
         if next <= address {

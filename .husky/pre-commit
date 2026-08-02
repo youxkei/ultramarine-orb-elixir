@@ -10,6 +10,13 @@ set -e
 # was staged, and a hook that edits the tree commits neither one nor the other.
 cargo fmt --check
 
+# Every warning, and every target so the tests are covered too. `-D warnings` rather than reading
+# the output, because a check that does not fail is not a check: warnings nobody has to answer for
+# accumulate until the real one is somewhere in the middle of them. Where a lint is wrong about
+# this code the answer is an allow with the reason beside it, which is an argument in the source
+# rather than a warning nobody reads.
+cargo clippy --all-targets -- -D warnings
+
 # The tests are Windows binaries, cross-compiled and run through WSL interop, so a run here is
 # a run on what ships rather than on a host build of the same source.
 cargo test

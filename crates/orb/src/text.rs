@@ -56,11 +56,11 @@ impl Font {
             unsafe { std::mem::zeroed() };
         description.lfHeight = -height;
         description.lfWeight = FW_NORMAL;
-        description.lfCharSet = SHIFTJIS_CHARSET as u8;
-        description.lfOutPrecision = OUT_TT_PRECIS as u8;
-        description.lfClipPrecision = CLIP_DEFAULT_PRECIS as u8;
-        description.lfQuality = ANTIALIASED_QUALITY as u8;
-        description.lfPitchAndFamily = DEFAULT_PITCH as u8;
+        description.lfCharSet = SHIFTJIS_CHARSET;
+        description.lfOutPrecision = OUT_TT_PRECIS;
+        description.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+        description.lfQuality = ANTIALIASED_QUALITY;
+        description.lfPitchAndFamily = DEFAULT_PITCH;
         for (slot, unit) in description
             .lfFaceName
             .iter_mut()

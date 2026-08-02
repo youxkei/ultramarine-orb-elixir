@@ -86,7 +86,7 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
             module,
             "KERNEL32.dll",
             "CreateFileA",
-            create_file_a as usize,
+            hook::address(create_file_a as _),
         )?
     };
     CREATE_FILE_A.store(previous, Ordering::Relaxed);

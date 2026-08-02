@@ -94,8 +94,14 @@ struct Sample {
 /// # Safety
 /// `module` must be the game exe, and nothing may be executing its import table.
 pub unsafe fn install(module: usize, calibration: Option<usize>) -> Result<(), hook::Error> {
-    let previous =
-        unsafe { hook::install_import(module, "WINMM.dll", "joyGetPosEx", answer as usize) }?;
+    let previous = unsafe {
+        hook::install_import(
+            module,
+            "WINMM.dll",
+            "joyGetPosEx",
+            hook::address(answer as _),
+        )
+    }?;
     ORIGINAL.store(previous, Ordering::Relaxed);
     CALIBRATION.store(calibration.unwrap_or(0), Ordering::Relaxed);
     Ok(())
@@ -105,14 +111,16 @@ pub unsafe fn install(module: usize, calibration: Option<usize>) -> Result<(), h
 /// check at startup, the caps read behind it, and the per-frame one.
 unsafe extern "system" fn answer(device: u32, into: *mut JOYINFOEX) -> u32 {
     start_polling();
-    if device == DEVICE && !into.is_null() && unsafe { describes_a_sample(&*into) } {
-        if let Some(sample) = latest() {
-            if let Some(caps) = &sample.caps {
-                unsafe { calibrate(caps) };
-            }
-            unsafe { *into = sample.info };
-            return sample.result;
+    if device == DEVICE
+        && !into.is_null()
+        && unsafe { describes_a_sample(&*into) }
+        && let Some(sample) = latest()
+    {
+        if let Some(caps) = &sample.caps {
+            unsafe { calibrate(caps) };
         }
+        unsafe { *into = sample.info };
+        return sample.result;
     }
     // Another joystick, a struct this does not describe, or the very first call — which
     // is the game's startup check, and arrives before the thread has anything. Those go

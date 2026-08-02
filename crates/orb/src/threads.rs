@@ -52,7 +52,7 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
             module,
             "KERNEL32.dll",
             "CreateThread",
-            create_thread as usize,
+            hook::address(create_thread as _),
         )
     }?;
     CREATE_THREAD.store(previous, Ordering::Relaxed);

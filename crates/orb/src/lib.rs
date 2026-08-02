@@ -1,5 +1,11 @@
 //! Chapter-based retry for 東方紅魔郷 1.02h, injected before the game starts.
 
+// The one thing the linker has to say about this crate, and it is not a fault: `DllMain` is
+// `extern "system"`, so mingw's linker looks for the decorated `_DllMain@12`, finds the
+// undecorated symbol Rust exported, and resolves the one to the other. That fixup is what makes
+// the DLL's entry point work, and there is no spelling of the export that avoids it.
+#![allow(linker_messages)]
+
 mod audio;
 mod chapter;
 mod crash;
@@ -424,19 +430,19 @@ fn attach() {
         hooks.push((
             "update",
             patches.update,
-            run_calc_chain as usize,
+            hook::address(run_calc_chain as _),
             &RUN_CALC_CHAIN,
         ));
         hooks.push((
             "draw",
             patches.draw,
-            run_draw_chain as usize,
+            hook::address(run_draw_chain as _),
             &RUN_DRAW_CHAIN,
         ));
     }
     match patches.render {
         Some(patch) if config.frame_hooks && config.own_frame_loop => {
-            hooks.push(("frame loop", patch, render as usize, &RENDER));
+            hooks.push(("frame loop", patch, hook::address(render as _), &RENDER));
         }
         _ => {}
     }
@@ -444,7 +450,7 @@ fn attach() {
         // Only worth hooking when orb keeps the game updating with the window in the
         // background; left alone otherwise, the game stops updating there by itself.
         Some(patch) if config.frame_hooks && config.own_frame_loop && config.always_draw => {
-            hooks.push(("input", patch, get_input as usize, &GET_INPUT));
+            hooks.push(("input", patch, hook::address(get_input as _), &GET_INPUT));
         }
         _ => {}
     }
@@ -461,7 +467,7 @@ fn attach() {
             hooks.push((
                 "joystick",
                 patch,
-                get_controller_input as usize,
+                hook::address(get_controller_input as _),
                 &GET_CONTROLLER_INPUT,
             ));
         }
@@ -469,7 +475,12 @@ fn attach() {
     }
     match patches.save_replay {
         Some(patch) if config.block_replay_save => {
-            hooks.push(("replay save", patch, save_replay as usize, &SAVE_REPLAY));
+            hooks.push((
+                "replay save",
+                patch,
+                hook::address(save_replay as _),
+                &SAVE_REPLAY,
+            ));
         }
         _ => {}
     }
@@ -480,7 +491,7 @@ fn attach() {
         hooks.push((
             "replay record end",
             patch,
-            stop_recording as usize,
+            hook::address(stop_recording as _),
             &STOP_RECORDING,
         ));
     }
@@ -497,7 +508,7 @@ fn attach() {
         hooks.push((
             "window creation",
             patch,
-            create_game_window as usize,
+            hook::address(create_game_window as _),
             &CREATE_GAME_WINDOW,
         ));
     }
@@ -505,7 +516,7 @@ fn attach() {
         hooks.push((
             "device init",
             patch,
-            init_d3d_device as usize,
+            hook::address(init_d3d_device as _),
             &INIT_D3D_DEVICE,
         ));
     }
@@ -1556,7 +1567,7 @@ unsafe fn reproduced(runtime: &Runtime, state: &State) {
         // What a chapter of a fight is derived from, next to the two things that stop one
         // being started: whether a bomb moves either of these is the question of whether a
         // bomb has to stop one at all.
-        state.boss_attack_frames.map_or(-1, |frames| frames),
+        state.boss_attack_frames.unwrap_or(-1),
         state.spellcard.map_or(-1, |spell| spell as i32),
         if state.bombing { " bombing" } else { "" },
         if state.unsettled { " unsettled" } else { "" },
@@ -1626,7 +1637,7 @@ unsafe fn stress(runtime: &mut Runtime, state: &State) {
         runtime.stressing = chapter;
         runtime.stressed = 0;
     }
-    if runtime.stressed >= STRESS_PER_CHAPTER || runtime.frames % interval != 0 {
+    if runtime.stressed >= STRESS_PER_CHAPTER || !runtime.frames.is_multiple_of(interval) {
         return;
     }
     runtime.stressed += 1;
@@ -1675,10 +1686,10 @@ fn tune(runtime: &mut Runtime, state: &State) {
     // a session that is closed in the middle of one — which is how looking at a few
     // boundaries and stopping goes — would otherwise lose everything it decided.
     // Two files of a few hundred bytes, and only on a keypress.
-    if add || keep || drop || write {
-        if let Some(tuning) = runtime.chapters.tuning() {
-            tuning.write(&GAME);
-        }
+    if (add || keep || drop || write)
+        && let Some(tuning) = runtime.chapters.tuning()
+    {
+        tuning.write(&GAME);
     }
 }
 
@@ -1793,7 +1804,7 @@ unsafe fn write_status(runtime: &mut Runtime) {
     // buys: a low number with an uneven rate is not an improvement.
     //
     // Held still between refreshes so the numbers can be read at all.
-    if runtime.frames % HUD_NUMBER_INTERVAL == 0 {
+    if runtime.frames.is_multiple_of(HUD_NUMBER_INTERVAL) {
         runtime.shown = frame::status();
     }
     let (lag, interval, compose) = runtime.shown;
@@ -1930,6 +1941,10 @@ mod tests {
 
     /// Brighter and longer for the pass nobody is playing, since there nothing is being
     /// dodged on the frame underneath it.
+    // Constants either side of every assertion here, which is the point of it: what is being
+    // pinned is the relationship between two of them, and a run cannot tell you whether that has
+    // been edited apart.
+    #[allow(clippy::assertions_on_constants)]
     #[test]
     fn a_judging_pass_is_washed_harder_than_a_run() {
         assert!(FLASH_JUDGING.alpha > FLASH_PLAYING.alpha);

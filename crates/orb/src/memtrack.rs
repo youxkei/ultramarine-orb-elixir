@@ -62,12 +62,24 @@ static VIRTUAL_FREE: AtomicUsize = AtomicUsize::new(0);
 pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
     unsafe {
         for (function, replacement, original) in [
-            ("HeapCreate", heap_create as usize, &HEAP_CREATE),
-            ("HeapAlloc", heap_alloc as usize, &HEAP_ALLOC),
-            ("HeapReAlloc", heap_realloc as usize, &HEAP_REALLOC),
-            ("HeapFree", heap_free as usize, &HEAP_FREE),
-            ("VirtualAlloc", virtual_alloc as usize, &VIRTUAL_ALLOC),
-            ("VirtualFree", virtual_free as usize, &VIRTUAL_FREE),
+            ("HeapCreate", hook::address(heap_create as _), &HEAP_CREATE),
+            ("HeapAlloc", hook::address(heap_alloc as _), &HEAP_ALLOC),
+            (
+                "HeapReAlloc",
+                hook::address(heap_realloc as _),
+                &HEAP_REALLOC,
+            ),
+            ("HeapFree", hook::address(heap_free as _), &HEAP_FREE),
+            (
+                "VirtualAlloc",
+                hook::address(virtual_alloc as _),
+                &VIRTUAL_ALLOC,
+            ),
+            (
+                "VirtualFree",
+                hook::address(virtual_free as _),
+                &VIRTUAL_FREE,
+            ),
         ] {
             let previous = hook::install_import(module, "KERNEL32.dll", function, replacement)?;
             original.store(previous, Ordering::Relaxed);

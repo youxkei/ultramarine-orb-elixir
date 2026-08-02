@@ -169,9 +169,14 @@ fn load_library_w() -> io::Result<unsafe extern "system" fn(*mut c_void) -> u32>
     }
     let address = unsafe { GetProcAddress(kernel32, c"LoadLibraryW".as_ptr().cast()) };
     match address {
-        Some(address) => {
-            Ok(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(address) })
-        }
+        // Both types spelled out: what `GetProcAddress` hands back, and what it is being taken
+        // for. A transmute with one end inferred is one whose other end can change under it.
+        Some(address) => Ok(unsafe {
+            std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                unsafe extern "system" fn(*mut c_void) -> u32,
+            >(address)
+        }),
         None => Err(io::Error::last_os_error()),
     }
 }

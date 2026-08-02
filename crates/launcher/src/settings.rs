@@ -702,7 +702,7 @@ fn push_text(bytes: &mut Vec<u8>, text: &str) {
 }
 
 fn align(bytes: &mut Vec<u8>) {
-    while bytes.len() % 4 != 0 {
+    while !bytes.len().is_multiple_of(4) {
         bytes.push(0);
     }
 }

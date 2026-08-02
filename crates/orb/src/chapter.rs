@@ -23,7 +23,13 @@ use crate::tuning::{Judged, Tuning, Verdict};
 pub enum Judgement {
     Better,
     Worse,
-    /// Straight out of the table, which is what `tuning_remove_key` asks for.
+    /// Straight out of the table.
+    ///
+    /// Nothing in play produces this: the key that did was taken away, and what is left is
+    /// `Chapters::judge` still knowing how to do it — `Tuning::reject` — and the tests that hold
+    /// it to that. Kept rather than deleted because taking a boundary out of the table is a thing
+    /// a judging pass has to be able to do, and the missing half is a key to bind, not this.
+    #[allow(dead_code)]
     Out,
 }
 
@@ -1102,7 +1108,11 @@ mod tests {
     /// script's are held equal, since all it asks of them is that both advance.
     fn waves(frame: u32) -> State {
         State {
-            enemy_count: if frame / 200 % 2 == 0 { 3 } else { 0 },
+            enemy_count: if (frame / 200).is_multiple_of(2) {
+                3
+            } else {
+                0
+            },
             ..empty(frame)
         }
     }

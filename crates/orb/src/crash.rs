@@ -5,8 +5,6 @@
 //! belongs to is the difference between knowing which call was wrong and
 //! guessing.
 
-use std::ffi::c_void;
-
 use windows_sys::Win32::Foundation::{EXCEPTION_ACCESS_VIOLATION, HMODULE};
 use windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS;
 use windows_sys::Win32::System::LibraryLoader::{
@@ -75,7 +73,7 @@ fn module_of(address: usize) -> Option<String> {
     if found == 0 || module.is_null() {
         return None;
     }
-    let path = crate::log::module_path(module as *mut c_void)?;
+    let path = crate::log::module_path(module)?;
     let name = path.file_name()?.to_string_lossy().into_owned();
     Some(format!("{name}+{:#x}", address - module as usize))
 }

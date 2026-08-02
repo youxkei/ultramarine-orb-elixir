@@ -40,7 +40,10 @@ cargo test
 ```
 
 That is also what installs the hooks. husky-rs points git at `.husky`, whose `pre-commit` is
-`cargo fmt --check` and `cargo test` — `NO_HUSKY_HOOKS=1` keeps a build from touching git's
+`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` — a lint that is
+wrong about this code is answered with an allow and the reason beside it, so the tree stays at zero
+warnings and the next one to appear is about the change that made it. `NO_HUSKY_HOOKS=1` keeps a
+build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
 
 Then copy one file into the directory holding `東方紅魔郷.exe`:

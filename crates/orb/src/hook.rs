@@ -48,6 +48,18 @@ impl fmt::Display for Error {
     }
 }
 
+/// The address of one of orb's own functions, which is what every hook here is given as a number.
+///
+/// Through a pointer rather than straight to an integer, and named rather than written out at each
+/// of the twenty-odd places that needs it. A function *item* is a type of its own with no address
+/// until it is coerced to a pointer, so `function as usize` asks the compiler for the address of a
+/// thing that does not have one yet and gets it by an implied coercion — which is what
+/// `function_casts_as_integer` is about. The call reads `address(replacement as _)`, the `as _`
+/// being the coercion this is about doing on purpose.
+pub fn address(function: *const ()) -> usize {
+    function as usize
+}
+
 /// Redirects `target` to `hook` and returns the address to call for the
 /// original behaviour.
 ///

@@ -661,7 +661,8 @@ impl Game for Th06 {
     }
 
     fn audio_state(&self) -> Vec<Range<usize>> {
-        let mut ranges = vec![G_SOUND_PLAYER..G_SOUND_PLAYER + sound_player::SIZE];
+        let mut ranges = Vec::new();
+        ranges.push(G_SOUND_PLAYER..G_SOUND_PLAYER + sound_player::SIZE);
         if let Some(streaming) = self.streaming_sound() {
             ranges.push(streaming..streaming + streaming_sound::SIZE);
         }
@@ -679,7 +680,12 @@ impl Game for Th06 {
             .filter(|manager| *manager != 0)
             .map(|manager| {
                 let textures = manager + anm_manager::TEXTURES;
-                vec![textures..textures + anm_manager::TEXTURE_COUNT * size_of::<usize>()]
+                // One range, said as one: the textures are contiguous, and everything else the
+                // manager holds is deliberately left out — see above.
+                std::iter::once(
+                    textures..textures + anm_manager::TEXTURE_COUNT * size_of::<usize>(),
+                )
+                .collect()
             })
             .unwrap_or_default()
     }
@@ -878,7 +884,7 @@ impl Game for Th06 {
             Reproduction {
                 replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
                     .filter(|manager| *manager != 0)
-                    .and_then(|manager| mem::read_committed::<i32>(manager))
+                    .and_then(mem::read_committed::<i32>)
                     .unwrap_or(-1),
                 input: mem::read(G_CUR_FRAME_INPUT),
                 player: (

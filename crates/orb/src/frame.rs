@@ -533,7 +533,7 @@ fn frames_late() -> Option<i64> {
     let mut info: DWM_TIMING_INFO = unsafe { std::mem::zeroed() };
     info.cbSize = size_of::<DWM_TIMING_INFO>() as u32;
     let asked = unsafe { DwmGetCompositionTimingInfo(std::ptr::null_mut(), &mut info) };
-    (asked >= 0).then(|| info.cFramesLate as i64)
+    (asked >= 0).then_some(info.cFramesLate as i64)
 }
 
 /// What the pacing is costing and what it is buying, for the screen: how long a frame
@@ -572,7 +572,7 @@ fn composition() -> Option<(i64, i64)> {
     info.cbSize = size_of::<DWM_TIMING_INFO>() as u32;
     let asked = unsafe { DwmGetCompositionTimingInfo(std::ptr::null_mut(), &mut info) };
     (asked >= 0 && info.qpcRefreshPeriod != 0)
-        .then(|| (info.qpcRefreshPeriod as i64, info.cRefresh as i64))
+        .then_some((info.qpcRefreshPeriod as i64, info.cRefresh as i64))
 }
 
 /// Waits until it is this frame's turn: the blank a whole frame's worth of refreshes

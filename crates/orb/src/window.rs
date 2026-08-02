@@ -131,12 +131,12 @@ pub unsafe fn install(
         for (function, replacement, original) in [
             (
                 "RegisterClassA",
-                register_class_a as usize,
+                hook::address(register_class_a as _),
                 &REGISTER_CLASS_A,
             ),
             (
                 "CreateWindowExA",
-                create_window_ex_a as usize,
+                hook::address(create_window_ex_a as _),
                 &CREATE_WINDOW_EX_A,
             ),
         ] {
@@ -158,7 +158,7 @@ pub unsafe fn hook_device(device: *mut Device) {
         return;
     }
     let slot = unsafe { (*device).vtable as usize + PRESENT_SLOT * size_of::<usize>() };
-    match unsafe { hook::replace_pointer(slot, present as usize) } {
+    match unsafe { hook::replace_pointer(slot, hook::address(present as _)) } {
         Ok(original) => {
             PRESENT.store(original, Ordering::Relaxed);
             // With the client as it is now: the device has just been created, and creating one is
@@ -685,10 +685,10 @@ unsafe fn letterbox() -> Option<RECT> {
     }
 
     let cached = unsafe { DESTINATION.get() };
-    if let Some((known_client, destination)) = cached {
-        if same(known_client, &client) {
-            return Some(*destination);
-        }
+    if let Some((known_client, destination)) = cached
+        && same(known_client, &client)
+    {
+        return Some(*destination);
     }
     let destination = fit(client, unsafe { *CONTENT.get() });
     *cached = Some((client, destination));
