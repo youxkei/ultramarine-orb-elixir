@@ -88,6 +88,22 @@ struct Sample {
     caps: Option<JOYCAPSA>,
 }
 
+impl Sample {
+    /// Whether what answered is a pad, which is not the same as something having answered.
+    ///
+    /// A device with no buttons and no axes has nothing to say, and joystick 0 is one of those on
+    /// this machine whenever the pad is in XInput's second slot: `mid=413d pid=2104`, answering
+    /// `joyGetPosEx` with every field zero. Measured; see [DONE.md](../../../DONE.md). Believing it
+    /// costs a line in the log claiming a pad answered, and the game's axis calibration written
+    /// from a device that has no axes.
+    fn is_a_pad(&self) -> bool {
+        self.result == JOYERR_NOERROR
+            && self
+                .caps
+                .is_some_and(|caps| caps.wNumButtons > 0 || caps.wNumAxes > 0)
+    }
+}
+
 /// Points the game's `joyGetPosEx` at orb, and takes the address of the caps it measures
 /// axes against so that a device arriving mid-run can be described to it.
 ///
@@ -116,8 +132,10 @@ unsafe extern "system" fn answer(device: u32, into: *mut JOYINFOEX) -> u32 {
         && unsafe { describes_a_sample(&*into) }
         && let Some(sample) = latest()
     {
-        if let Some(caps) = &sample.caps {
-            unsafe { calibrate(caps) };
+        // Only a device that is a pad writes the game's calibration: the axes of one that has
+        // none describe nothing, and this write lands in the game's own memory.
+        if let Some(caps) = sample.caps.filter(|_| sample.is_a_pad()) {
+            unsafe { calibrate(&caps) };
         }
         unsafe { *into = sample.info };
         return sample.result;
@@ -192,7 +210,7 @@ pub struct Reading {
 /// is not running either and a pad would do nothing at all on them; the sample this thread already
 /// takes every few milliseconds is there to be read.
 pub fn reading() -> Option<Reading> {
-    let sample = latest()?;
+    let sample = latest().filter(Sample::is_a_pad)?;
     Some(Reading {
         buttons: sample.info.dwButtons,
         y: sample.info.dwYpos,
@@ -286,6 +304,16 @@ fn read_caps() -> Option<JOYCAPSA> {
 /// What a sample says, with the device named where one answered.
 fn describe(sample: &Sample) -> String {
     match (sample.result, &sample.caps) {
+        // Named all the same, since which phantom it is is the thing to look up: 413d:2104 is
+        // what Windows leaves on joystick 0 while the pad it has is in XInput's second slot.
+        (JOYERR_NOERROR, Some(caps)) if !sample.is_a_pad() => {
+            let (mid, pid) = (caps.wMid, caps.wPid);
+            format!(
+                "joystick 0 is mid={mid:04x} pid={pid:04x} \"{}\" with no buttons and no axes, \
+                 which is no pad; orb's own menus will not be driven from it",
+                name(caps.szPname),
+            )
+        }
         (JOYERR_NOERROR, Some(caps)) => {
             // Copied out one at a time: `JOYCAPSA` is packed, so its fields cannot be
             // borrowed, which is what passing one to `format!` would do.
@@ -373,6 +401,37 @@ mod tests {
         unsafe { calibrate(&ours) };
         let travel = theirs.caps.wXmax;
         assert_eq!(travel, 65535);
+    }
+
+    /// A device answering with no buttons and no axes is not a pad, and what makes that worth
+    /// testing is that Windows leaves exactly one of those on joystick 0 while the pad it has
+    /// sits in XInput's second slot.
+    #[test]
+    fn a_device_with_nothing_on_it_is_not_a_pad() {
+        let mut caps: JOYCAPSA = unsafe { std::mem::zeroed() };
+        caps.wXmax = 65535;
+        let phantom = Sample {
+            result: JOYERR_NOERROR,
+            info: unsafe { std::mem::zeroed() },
+            caps: Some(caps),
+        };
+        assert!(!phantom.is_a_pad());
+
+        // A stick with axes and no buttons is still a pad, and so is a wheel with buttons and
+        // one axis: either can say something.
+        caps.wNumAxes = 2;
+        let stick = Sample {
+            caps: Some(caps),
+            ..phantom
+        };
+        assert!(stick.is_a_pad());
+
+        // And nothing at all answering is not one either, whatever it left in the caps.
+        let nothing = Sample {
+            result: JOYERR_UNPLUGGED,
+            ..stick
+        };
+        assert!(!nothing.is_a_pad());
     }
 
     /// A sample is taken with `JOY_RETURNALL` into the current `JOYINFOEX`, which is what

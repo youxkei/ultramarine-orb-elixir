@@ -4,7 +4,9 @@ Chapter-based retry for 東方紅魔郷 (Touhou 6) 1.02h, in the style of 東方
 Pointdevice mode: the stage is divided into chapters, and dying sends you back to the start
 of the chapter you were in rather than costing a life. Dying puts up a menu of three — the
 chapter again, the stage again, or the run given up — and the two that cannot be taken back ask
-before they act.
+before they act. The count of lives on the game's own panel is painted over with a brush
+stroke reading `DISABLE` while such a run is on, the way 紺珠伝 marks its 残機 row, since nothing in
+the run can lose one — the stars still show through where the ink is dry.
 
 Shortened to *orb* in prose and in everything it installs.
 

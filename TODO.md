@@ -22,6 +22,31 @@ orb's menus draws, against a play field 384 pixels across, and a line clipped at
 be read at all. Worth looking at once: the question, and the two answers under it with the cursor
 on いいえ.
 
+**The rest of what the pad now reaches.** The mode question answers on it — see
+[DONE.md](DONE.md) — which leaves three things that go through the same reading and have not been
+pushed. The retry menu: up and down on the stick and on the d-pad, shoot deciding, bomb or the menu
+button cancelling. The settings dialog, which is the launcher's own reading and not the game's — its
+line should say `a pad on XInput, pushed N time(s)` rather than `no pad answered`, and that is where
+XInput's buttons being put into the order the game's mapping names them gets tested. And a pad that
+winmm *does* have, which is the path that used to work and the one that must not have been broken by
+this.
+
+**A life gained under the brush over the lives.** The mark itself is on the screen — see
+[DONE.md](DONE.md) — and what it has not been through is the count changing under it: an extend at
+10,000,000 or a 1UP item, where the star should appear under the ink rather than nowhere. That is
+also the one moment the game would have repainted that row without being asked, so it is where orb
+asking every frame and the game doing it anyway could disagree.
+
+Two more of the same kind. A stage's first 250 frames, where the game is still laying the panel's
+tiles itself over everything including the strips orb paints. And a stage where the count reaches
+eight, which is as far right as the stars go — 624 — and so the only case that tests the stroke's
+right end covering them.
+
+What it costs is in the log already: every frame of a pointdevice run now opens an overlay frame
+of its own, where before a run only did that on the fourteen frames of a wash, and an overlay
+frame is a state block captured and applied. So the `draw` phase per period is the figure to
+read — against the same stage in normal mode, which draws no mark.
+
 **A run in normal mode**, which nothing has ever run: no chapter is observed, so no snapshot is
 taken and no wash goes off; dying costs a life and puts up no menu of orb's; the status line loses
 the chapter name and the `RETRY` line and keeps the lag, the compose time and the frame rate. The

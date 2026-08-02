@@ -36,6 +36,10 @@ pub struct Overlay {
     device: *mut Device,
     state_block: u32,
     font: Font,
+    /// A second size, for the one thing here that is not a line of status text: the word on the
+    /// mark over the lives, which is a word on a brush stroke and is read at a glance rather than
+    /// scanned.
+    mark_font: Font,
     /// Stands in for "no texture" so solid quads go through the same modulate
     /// path as text instead of needing their own texture stage setup.
     white: *mut Texture,
@@ -45,11 +49,17 @@ impl Overlay {
     /// # Safety
     /// `device` must be the game's live `IDirect3DDevice8`, and this must run on
     /// the thread that owns it.
-    pub unsafe fn new(device: *mut Device, font_path: &Path, font_height: i32) -> Option<Self> {
+    pub unsafe fn new(
+        device: *mut Device,
+        font_path: &Path,
+        font_height: i32,
+        mark_height: i32,
+    ) -> Option<Self> {
         if device.is_null() {
             return None;
         }
         let font = Font::load(font_path, font_height)?;
+        let mark_font = Font::load(font_path, mark_height)?;
 
         let mut state_block = 0;
         let created = unsafe {
@@ -78,12 +88,17 @@ impl Overlay {
             device,
             state_block,
             font,
+            mark_font,
             white,
         })
     }
 
     pub fn font(&self) -> &Font {
         &self.font
+    }
+
+    pub fn mark_font(&self) -> &Font {
+        &self.mark_font
     }
 
     /// # Safety
@@ -168,7 +183,55 @@ pub struct Frame<'a> {
 
 impl Frame<'_> {
     pub fn fill(&self, x: f32, y: f32, width: f32, height: f32, color: u32) {
-        unsafe { self.quad(self.overlay.white, x, y, width, height, color, 1.0, 1.0) };
+        unsafe {
+            self.quad(
+                self.overlay.white,
+                x,
+                y,
+                width,
+                height,
+                color,
+                [0.0, 0.0, 1.0, 1.0],
+            )
+        };
+    }
+
+    /// A piece of a texture over a rectangle, which is how the panel's own background is put
+    /// back: the game's sheet, the tile of it that is the background, and where that tile goes.
+    ///
+    /// # Safety
+    /// `texture` must be a live `IDirect3DTexture8` of the game's device.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn piece(
+        &self,
+        texture: *mut Texture,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        uv: [f32; 4],
+        color: u32,
+    ) {
+        unsafe { self.quad(texture, x, y, width, height, color, uv) };
+    }
+
+    /// A baked picture, drawn without the drop shadow a label gets: what this is for is a brush
+    /// stroke, and a shadow under one would be a second stroke.
+    pub fn picture(&self, picture: &Picture, x: f32, y: f32, color: u32) {
+        let Some(texture) = picture.texture else {
+            return;
+        };
+        unsafe {
+            self.quad(
+                texture,
+                x,
+                y,
+                picture.width(),
+                picture.height(),
+                color,
+                [0.0, 0.0, picture.u, picture.v],
+            )
+        };
     }
 
     /// Draws `label` with a one-pixel drop shadow, which is what makes text
@@ -185,8 +248,7 @@ impl Frame<'_> {
                     label.width(),
                     label.height(),
                     color,
-                    label.u,
-                    label.v,
+                    [0.0, 0.0, label.u, label.v],
                 )
             };
         }
@@ -201,12 +263,12 @@ impl Frame<'_> {
         width: f32,
         height: f32,
         color: u32,
-        u: f32,
-        v: f32,
+        uv: [f32; 4],
     ) {
         // Half-pixel shift so texel centres land on pixel centres.
         let (left, top) = (x - 0.5, y - 0.5);
         let (right, bottom) = (left + width, top + height);
+        let [u0, v0, u, v] = uv;
         let vertices = [
             Vertex {
                 x: left,
@@ -214,8 +276,8 @@ impl Frame<'_> {
                 z: 0.0,
                 rhw: 1.0,
                 color,
-                u: 0.0,
-                v: 0.0,
+                u: u0,
+                v: v0,
             },
             Vertex {
                 x: right,
@@ -224,7 +286,7 @@ impl Frame<'_> {
                 rhw: 1.0,
                 color,
                 u,
-                v: 0.0,
+                v: v0,
             },
             Vertex {
                 x: left,
@@ -232,7 +294,7 @@ impl Frame<'_> {
                 z: 0.0,
                 rhw: 1.0,
                 color,
-                u: 0.0,
+                u: u0,
                 v,
             },
             Vertex {
@@ -305,6 +367,14 @@ impl Label {
     /// # Safety
     /// Must run on the device's thread.
     pub unsafe fn set(&mut self, overlay: &Overlay, text: &str) {
+        unsafe { self.set_in(overlay, overlay.font(), text) };
+    }
+
+    /// The same, in a font of the overlay's other than its usual one.
+    ///
+    /// # Safety
+    /// Must run on the device's thread.
+    pub unsafe fn set_in(&mut self, overlay: &Overlay, font: &Font, text: &str) {
         if self.texture.is_some() && self.baked == text {
             return;
         }
@@ -312,7 +382,7 @@ impl Label {
         self.baked = text.to_owned();
         self.size = (0, 0);
 
-        let Some(mask) = overlay.font().render(text) else {
+        let Some(mask) = font.render(text) else {
             return;
         };
         let (width, height) = (
@@ -337,6 +407,68 @@ impl Label {
 }
 
 impl Drop for Label {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// A coverage map baked to a texture once, for something that did not come from a font: the
+/// brush stroke over the lives. What `Label` is to a line of text, without the caching, since
+/// what goes in here does not change.
+pub struct Picture {
+    texture: Option<*mut Texture>,
+    size: (u32, u32),
+    u: f32,
+    v: f32,
+}
+
+impl Picture {
+    pub const fn new() -> Self {
+        Self {
+            texture: None,
+            size: (0, 0),
+            u: 0.0,
+            v: 0.0,
+        }
+    }
+
+    pub fn baked(&self) -> bool {
+        self.texture.is_some()
+    }
+
+    pub fn width(&self) -> f32 {
+        self.size.0 as f32
+    }
+
+    pub fn height(&self) -> f32 {
+        self.size.1 as f32
+    }
+
+    /// # Safety
+    /// Must run on the device's thread.
+    pub unsafe fn bake(&mut self, overlay: &Overlay, mask: &Mask) {
+        self.release();
+        let (width, height) = (
+            mask.width.next_power_of_two(),
+            mask.height.next_power_of_two(),
+        );
+        let texture = unsafe { create_texture(overlay.device, width, height) };
+        let Some(texture) = texture else { return };
+        unsafe { upload(texture, mask, width, height) };
+        self.texture = Some(texture);
+        self.size = (mask.width, mask.height);
+        self.u = mask.width as f32 / width as f32;
+        self.v = mask.height as f32 / height as f32;
+    }
+
+    fn release(&mut self) {
+        if let Some(texture) = self.texture.take() {
+            unsafe { ((*(*texture).vtable).release)(texture) };
+        }
+    }
+}
+
+impl Drop for Picture {
     fn drop(&mut self) {
         self.release();
     }

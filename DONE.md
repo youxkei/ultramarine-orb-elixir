@@ -516,6 +516,33 @@ Settled by measurement.
 - **Input dropped while the window is behind, and the keyboard re-acquired on the way
   back**, so keys meant for something else do not reach the game and the game never reads
   an unacquired device.
+- **A brush stroke over the count of lives in a pointdevice run**, with `DISABLE` on it, seen on
+  the screen in stage 1. The stroke is `brush.rs`: a picture of a real one, baked to 144x30 of
+  coverage — a generated stroke was tried first, through several shapes, and none of them read as a
+  brush. The count is not painted out; the game is asked to repaint that row every frame — `Gui`'s
+  `flags.flag0` written back to 2, which is the game's own "this row changed" bit — so the stars are
+  drawn again under the ink and show through where it is dry, and nothing of orb's accumulates on a
+  panel that is otherwise repainted only for a stage's first 250 frames.
+
+  The two strips the stroke reaches past that row are painted with the game's own panel tile,
+  `front.anm`'s 32x32 at (0, 224) out of the texture in slot 13, laid on the grid the game lays it
+  on. The first attempt read `g_AnmManager + textures` without dereferencing the pointer first —
+  `live_handles` does dereference it — found no texture, fell back to a flat colour, and the two
+  strips were visible as exactly the patch the tile exists to avoid. That is what the line
+  `lives: the panel's own tile is what the strips are painted with` is in the log for, against
+  `lives: no panel tile; the strips are painted flat and will show as a patch`.
+- **A pad that only the game could see, now answering orb's own menus.** The mode question was
+  answered on the pad — `mode: answered on the pad` — with the pad in XInput's second slot, which is
+  the case that used to leave orb's menus dead while the game's own worked. Why: the game polls its
+  own DirectInput device where its enumeration found one and never asks winmm, and winmm did not
+  have the pad at all. Measured on this machine, and each of the three interfaces was asked: winmm
+  reports 16 devices, index 0 being `mid=413d pid=2104` with no buttons and no axes answering every
+  field zero, and 1 to 15 `JOYERR_UNPLUGGED` at 13µs each; DirectInput enumerates
+  `Controller (Xbox 360 Controller)`; XInput has it in slot 1 with slot 0 empty. So orb's menus now
+  read what the game reads — `Poll` and `GetDeviceState` on its controller, the buttons by the
+  numbers the mapping names and the Y axis against `cfg.padYAxis` in the ±1000 the game gave its
+  axes — and a device with no buttons and no axes is no longer taken for a pad: it drives no menu
+  and its caps are not written into the game's calibration.
 
 ## The status line
 

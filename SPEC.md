@@ -190,12 +190,66 @@ what somebody sets once.
 
 | | |
 | --- | --- |
-| 完全無欠モード | chapters, snapshots, the retry menu, the wash a chapter gets, the retry count on the status line, and `pointdevice_score.dat` |
+| 完全無欠モード | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, and `pointdevice_score.dat` |
 | レガシーモード | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
 
 On screen they are 紺珠伝's own two names, since that is where the mode comes from and those are
 the names somebody who wants it knows. In the code, the log and the file it writes they are
 pointdevice and normal — the English of the first, and what the second actually is.
+
+**The game's own count of lives is painted over with a brush stroke in a pointdevice run**, with
+`DISABLE` written on it. Dying there costs the chapter and not a life — the menu goes up, and the
+snapshot that puts the chapter back puts the count back with it — so the row is the one thing left
+on the screen still describing the game as it was. 紺珠伝 says it the same way across its own 残機
+row, which is where somebody who wants the mode will look for it. Drawn on the same three
+conditions the death itself is answered on: the mode, a run somebody is playing rather than a demo
+or a replay, and a chapter with a snapshot to go back to — that last being the frames at a stage's
+start before its own snapshot has been taken, where a death does still cost a life.
+
+**The stroke is a picture of one and not a generated one.** Generating one was tried first, and
+every version read as a smear rather than as a brush: a spine with a taper has the ends wrong, and
+noise along an edge does not carry ink the way a hair does. So the stroke is a real one, and what
+the tree carries is the picture of it: `crates/orb/brush.png`. `crates/orb/build.rs` bakes that into
+the 144x30 of coverage the drawing wants, one byte a pixel — how far each pixel of ink on paper is
+from the paper, cropped to the ink, averaged by area and put through two smoothstep passes.
+
+The picture is grey, and that is a size and not a taste: only one channel of it is ever read, so the
+colour one it was baked from gave the same 4320 bytes at three times the file. WebP was measured
+against it and is the wrong trade — lossless came out *larger* than the grey PNG, 884KB against
+460KB, and both of its modes want a decoder that cannot be sixty lines. What made the difference was
+never the format.
+
+In the build rather than in a script anybody runs, and that is the whole of why: a script means its
+output committed beside the picture it came from, which is two copies of one stroke with the
+editable one the wrong one. Only the inflate comes from a crate — walking a PNG's chunks and undoing
+its row filters is sixty lines that say what the picture is, against eight crates that would say it
+for every picture there has ever been. The picture's ink is 4:1 and the squash to 144x30 is what
+fits a stroke between the score's row and the bombs'.
+
+**The count is not painted out; the stroke goes over it.** Where the ink is dry, the stars show
+faintly through — which is what they are, disabled rather than gone, and one gained still shows.
+That needs the count drawn again underneath every frame, and the game is asked to do it: `Gui`'s
+`flags.flag0`, the two bits set by whatever changes the count and decremented by each draw, is
+written back to 2 before the game draws. So the game erases that row and draws its own stars again
+for orb, background and all.
+
+The two strips the stroke reaches past that row are orb's to paint, and painted first: a panel that
+is not repainted is one where a mark blended over what the last frame left hardens into its own
+edges within a second. They are painted with the game's own panel tile — `front.anm`'s 32x32 at (0,
+224), laid on the grid it lays it on, from the texture the game has loaded in slot 13 — rather than
+with a colour of orb's, because the panel is a noise and a flat rectangle inside it reads as a
+patch. What that also buys: what is left where orb stops drawing is the panel the game would have
+painted there itself.
+
+**Over the count and not over the `Player` beside it.** The count is where the stars are — from
+(496, 122) rightwards, 16 apart, and eight of them at the most, which is 496 to the right edge of
+the output — and it is a row the game will repaint on being asked. The label is drawn when the
+stage begins and never again, so a mark over that one would still be on the screen after the run it
+belonged to. What repaints what, and how seldom, is a fact about the game: `Gui::OnDraw` erases and
+redraws a row of the panel only while that row's two bits are set, and the background behind the
+whole panel only for the first 250 frames of a stage, that being where its own script reaches
+`ExitHide`. Nothing repaints any of it after that unless the game is told to clear the back buffer,
+which is the setting orb reads for `clears_back_buffer`.
 
 **Neither is an answer too.** `x` — the game's own bomb key, which its menus read as back — escape,
 or the pad's cancel, and the front end goes back to the title the way its own back button does:
@@ -206,9 +260,11 @@ fade that branch would set and the cursor is already on the item that was chosen
 
 **A menu of orb's has to read the pad itself.** Freezing the game stops its input read, so on those
 frames a pad drives nothing — which looks like the pad being broken, since it worked on the game's
-own menu one keypress earlier. So both of orb's menus take the pad from the sample orb's own thread
-keeps for the game, and hand it to the game to be read as *its* buttons, out of
-`g_Supervisor.cfg.controllerMapping` — the same copy `Controller::GetControllerInput` reads.
+own menu one keypress earlier. So both of orb's menus ask the game what the pad is doing, and the
+answer is read the way the game reads it: its own DirectInput controller where it has one, the
+winmm sample orb's thread keeps where it has not, and either way through
+`g_Supervisor.cfg.controllerMapping` — the same copy `Controller::GetControllerInput` reads. Which
+of the two matters more than it sounds; see *Input*.
 
 **Shoot decides; bomb and menu cancel.** Which is what the game's own menus do:
 `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
@@ -567,6 +623,33 @@ is left to the game's function, all of it downstream of the call orb replaced.
 Where a controller was enumerated the frame's read is that other branch's `Poll` and
 `GetDeviceState`, which orb leaves alone, and the sample answers only the startup check that
 asks whether a pad exists at all.
+
+**A menu of orb's reads whichever of the two the game reads**, and that is not a nicety: on this
+machine, with the pad in XInput's second slot, winmm has no pad at all. `joyGetNumDevs` says 16,
+index 0 answers `joyGetPosEx` with `JOYERR_NOERROR` and every field zero — `mid=413d pid=2104`,
+no buttons and no axes, which is what Windows leaves there while the slot the pad is in is not
+the first — and 1 to 15 are all `JOYERR_UNPLUGGED`. DirectInput has the pad, the game therefore
+has it, and orb's own menus had nothing. Those numbers are the measurement and they are in
+[DONE.md](DONE.md); what took them is a probe of the same shape as the one the joystick read's own
+figures came from, which lives outside the tree like that one.
+
+So a menu of orb's asks the game, and 紅魔郷 answers by trying its own controller first: `Poll`,
+then `GetDeviceState` into the `DIJOYSTATE2` the format it set fills, and the buttons and the Y
+axis read out of it exactly as `Controller::GetControllerInput` reads them — the buttons by the
+same numbers the mapping names, since `rgbButtons` is indexed by the very number a winmm mask is
+shifted by, and the axis against `cfg.padYAxis` in the ±1000 the game gave every axis. Only where
+there is no such device does the winmm sample answer.
+
+The acquire after a lost device is orb's own to do there. The game takes its controller
+`DISCL_EXCLUSIVE | DISCL_FOREGROUND`, so anything that took the foreground away leaves it
+unacquired — and the frames a menu of orb's is up are exactly the frames the game's own read,
+which is where that acquire lives, is frozen out of. Asked for once and the frame given up, the
+way the game asks.
+
+**A device with no buttons and no axes is not a pad.** What it is answered with goes to the game
+unchanged, since that is what the game would have read for itself, but it drives no menu of orb's
+and its caps are not written into the game's calibration — the axes of a device that has none
+describe nothing. The log names it rather than reporting a pad.
 
 **The calibration goes with the sample.** `GetControllerInput` places the centre of each axis
 at `(wXmin + wXmax) / 2`, with a dead zone of a quarter of the travel, out of the `JOYCAPSA`
@@ -1255,6 +1338,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
+| `orb/lives_ui.rs` | the brush stroke over the game's count of lives, for a run that cannot lose one |
+| `orb/build.rs`, `orb/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
 | `orb/mode_ui.rs` | the question put over the game's own menu: pointdevice or normal |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |

@@ -11,6 +11,13 @@ crate-type = ["cdylib"]
 [dependencies]
 orb-config.workspace = true
 
+# For `build.rs`, which bakes `brush.png` down to the coverage the mark over the lives is drawn
+# from. Only the inflate is taken from a crate: walking a PNG's chunks and undoing its row filters
+# is sixty lines that say what the picture is, where a decoder would be eight crates saying it for
+# every picture there has ever been.
+[build-dependencies]
+miniz_oxide = "0.8"
+
 [dependencies.windows-sys]
 workspace = true
 features = [

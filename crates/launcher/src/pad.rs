@@ -21,6 +21,7 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Media::Multimedia::{
     JOYCAPSA, JOYERR_NOERROR, JOYINFOEX, joyGetDevCapsA, joyGetPosEx,
 };
+use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
 /// `JOY_RETURNALL`, which is what the game asks for and so what this asks for. Not in
@@ -148,22 +149,93 @@ fn held(button: Option<u32>, buttons: u32) -> bool {
 /// never seen at all. Which is what a pad that answers sometimes looks like.
 const POLL: std::time::Duration = std::time::Duration::from_millis(8);
 
-/// The one device the game reads, so the one this reads.
+/// The one device the game reads through winmm, so the one this reads through winmm.
 const DEVICE: u32 = 0;
+
+/// XInput, read beside winmm because winmm does not always have the pad.
+///
+/// Measured on the machine this was written for: with the pad in XInput's second slot, winmm's
+/// joystick 0 is `mid=413d pid=2104` with no buttons and no axes answering every field zero, and
+/// nothing on indices 1 to 15 — while DirectInput and XInput both have the pad. The game reaches it
+/// through DirectInput, so the game answered a pad this dialog could not see at all.
+///
+/// Loaded by name rather than imported, because which of the three is present is a property of the
+/// machine and a load-time import of one that is not there is a launcher that does not start.
+const XINPUT_DLLS: [&str; 3] = ["xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"];
+/// How many users XInput has.
+const XINPUT_SLOTS: u32 = 4;
+
+/// XInput reports its buttons in its own order, and the game's configuration names them in
+/// DirectInput's — which is the order the game's own controller reports an XInput pad in, and the
+/// order winmm reports one in on the occasions it has it: A, B, X, Y, the two shoulders, Back,
+/// Start, and the two thumbs. So the mask is translated into that numbering rather than the
+/// mapping being second-guessed, and `shoot decides` stays true whatever the player mapped.
+const XINPUT_BUTTONS: [(u16, u32); 10] = [
+    (0x1000, 0), // A
+    (0x2000, 1), // B
+    (0x4000, 2), // X
+    (0x8000, 3), // Y
+    (0x0100, 4), // left shoulder
+    (0x0200, 5), // right shoulder
+    (0x0020, 6), // Back
+    (0x0010, 7), // Start
+    (0x0040, 8), // left thumb
+    (0x0080, 9), // right thumb
+];
+const XINPUT_DPAD_UP: u16 = 0x0001;
+const XINPUT_DPAD_DOWN: u16 = 0x0002;
+const XINPUT_DPAD_LEFT: u16 = 0x0004;
+const XINPUT_DPAD_RIGHT: u16 = 0x0008;
+/// `XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE`, XInput's own figure for its own sticks.
+const XINPUT_DEADZONE: i16 = 7849;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct XinputGamepad {
+    buttons: u16,
+    left_trigger: u8,
+    right_trigger: u8,
+    left_x: i16,
+    left_y: i16,
+    right_x: i16,
+    right_y: i16,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct XinputState {
+    packet: u32,
+    pad: XinputGamepad,
+}
+
+type XInputGetState = unsafe extern "system" fn(u32, *mut XinputState) -> u32;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 /// Whether a pad ever answered, and how many pushes were posted. For the line the launcher prints:
 /// without them, a pad that did nothing is indistinguishable from a pad that was never there, and
 /// the two want opposite things done about them.
 static SEEN: AtomicBool = AtomicBool::new(false);
+/// And which of the two had it, because that is the difference between a pad orb could not see
+/// and a pad it saw and did nothing with.
+static SEEN_WINMM: AtomicBool = AtomicBool::new(false);
+static SEEN_XINPUT: AtomicBool = AtomicBool::new(false);
 static PUSHES: AtomicUsize = AtomicUsize::new(0);
 
 /// What the watch came to, for the launcher to print.
 pub fn report() -> String {
+    let where_from = match (
+        SEEN_WINMM.load(Ordering::Relaxed),
+        SEEN_XINPUT.load(Ordering::Relaxed),
+    ) {
+        (true, true) => "winmm and XInput",
+        (true, false) => "winmm",
+        (false, true) => "XInput",
+        (false, false) => "nothing",
+    };
     match (SEEN.load(Ordering::Relaxed), PUSHES.load(Ordering::Relaxed)) {
-        (false, _) => "no pad answered".to_owned(),
-        (true, 0) => "a pad answered but was never pushed".to_owned(),
-        (true, pushes) => format!("a pad, pushed {pushes} time(s)"),
+        (false, _) => "no pad answered, on winmm or on XInput".to_owned(),
+        (true, 0) => format!("a pad answered on {where_from} but was never pushed"),
+        (true, pushes) => format!("a pad on {where_from}, pushed {pushes} time(s)"),
     }
 }
 
@@ -176,8 +248,22 @@ pub fn watch(dialog: HWND, mapping: Mapping) {
     std::thread::spawn(move || {
         let mut before = Pushed::default();
         let mut caps = None;
+        let xinput = load_xinput();
         while !STOP.load(Ordering::Relaxed) {
-            let answered = read(&mapping, &mut caps);
+            // Both, merged: a pad on either is a pad in somebody's hands, and one of the two
+            // having the device says nothing about the other having it.
+            let winmm = read(&mapping, &mut caps);
+            let pad = xinput.and_then(|get| unsafe { read_xinput(get, &mapping) });
+            let answered = match (winmm, pad) {
+                (Some(one), Some(other)) => Some(one.or(other)),
+                (one, other) => one.or(other),
+            };
+            if winmm.is_some() {
+                SEEN_WINMM.store(true, Ordering::Relaxed);
+            }
+            if pad.is_some() {
+                SEEN_XINPUT.store(true, Ordering::Relaxed);
+            }
             if answered.is_some() {
                 SEEN.store(true, Ordering::Relaxed);
             }
@@ -201,10 +287,20 @@ pub fn stop() {
 }
 
 /// Which of the pushes are being held now, so that what is acted on is the press.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 struct Pushed([bool; 6]);
 
 impl Pushed {
+    /// Two sources' worth of pushes as one. Which pad a push came from is not something the
+    /// dialog has any use for.
+    fn or(self, other: Self) -> Self {
+        let mut merged = self;
+        for (into, from) in merged.0.iter_mut().zip(other.0) {
+            *into |= from;
+        }
+        merged
+    }
+
     fn since(self, before: Self) -> Vec<Push> {
         self.0
             .iter()
@@ -256,6 +352,70 @@ fn read(mapping: &Mapping, caps: &mut Option<JOYCAPSA>) -> Option<Pushed> {
     ]))
 }
 
+/// XInput's `XInputGetState`, out of whichever of its libraries this machine has. `None` where it
+/// has none, which leaves winmm as the only source, the way it was.
+fn load_xinput() -> Option<XInputGetState> {
+    for name in XINPUT_DLLS {
+        let library = unsafe { LoadLibraryA(with_nul(name).as_ptr()) };
+        if library.is_null() {
+            continue;
+        }
+        // The library is left loaded for as long as the process runs, which is what a function
+        // pointer into it needs.
+        let symbol = unsafe { GetProcAddress(library, c"XInputGetState".as_ptr().cast()) };
+        if let Some(symbol) = symbol {
+            return Some(unsafe {
+                std::mem::transmute::<unsafe extern "system" fn() -> isize, XInputGetState>(symbol)
+            });
+        }
+    }
+    None
+}
+
+fn with_nul(name: &str) -> Vec<u8> {
+    name.bytes().chain([0]).collect()
+}
+
+/// The first XInput slot with a pad in it, as pushes. `None` where every slot is empty — which is
+/// every slot on a machine whose pad is not an XInput one, and there winmm is what has it.
+///
+/// The first rather than all four merged: two pads answering at once is two people, and a dialog
+/// driven from both is a dialog neither of them is driving.
+///
+/// # Safety
+/// `get` must be XInput's own `XInputGetState`.
+unsafe fn read_xinput(get: XInputGetState, mapping: &Mapping) -> Option<Pushed> {
+    for slot in 0..XINPUT_SLOTS {
+        let mut state = XinputState::default();
+        // Anything but `ERROR_SUCCESS` is a slot with nobody in it — 1167,
+        // `ERROR_DEVICE_NOT_CONNECTED`, for the three empty ones here.
+        if unsafe { get(slot, &mut state) } != 0 {
+            continue;
+        }
+        let pad = state.pad;
+        let buttons = xinput_buttons(pad.buttons);
+        let held = |bit: u16| pad.buttons & bit != 0;
+        // XInput's Y is measured upwards, which is the opposite of every other axis here.
+        return Some(Pushed([
+            held(XINPUT_DPAD_UP) || pad.left_y > XINPUT_DEADZONE,
+            held(XINPUT_DPAD_DOWN) || pad.left_y < -XINPUT_DEADZONE,
+            held(XINPUT_DPAD_LEFT) || pad.left_x < -XINPUT_DEADZONE,
+            held(XINPUT_DPAD_RIGHT) || pad.left_x > XINPUT_DEADZONE,
+            mapping.decides(buttons),
+            mapping.cancels(buttons),
+        ]));
+    }
+    None
+}
+
+/// XInput's button mask in the numbering the game's configuration names buttons by.
+fn xinput_buttons(mask: u16) -> u32 {
+    XINPUT_BUTTONS
+        .iter()
+        .filter(|(bit, _)| mask & bit != 0)
+        .fold(0, |buttons, (_, button)| buttons | 1 << button)
+}
+
 /// Which way a hat — a d-pad — is pushed, as `(up, down, left, right)`.
 ///
 /// Its own field rather than the axes, because that is where a d-pad reports: hundredths of a degree
@@ -294,7 +454,7 @@ fn axis(low: u32, high: u32, position: u32) -> (bool, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mapping, Push, Pushed, axis, hat};
+    use super::{Mapping, Push, Pushed, axis, hat, xinput_buttons};
 
     /// Up is up: the Y axis is measured downwards, so its low side is the stick pushed up, and the
     /// dialog moving the wrong way is what getting this backwards looks like.
@@ -345,6 +505,33 @@ mod tests {
         let held = Pushed([false, false, false, false, true, false]);
         assert_eq!(held.since(Pushed::default()), vec![Push::Decide]);
         assert_eq!(held.since(held), vec![]);
+    }
+
+    /// XInput's own button order is not the order the game's configuration names buttons in, and
+    /// the game's is DirectInput's: A first, then B, X, Y, the shoulders, Back, Start, the thumbs.
+    /// A mapping that says shoot is button 0 therefore has to be answered by A.
+    #[test]
+    fn xinput_buttons_come_out_in_the_order_the_game_names_them() {
+        assert_eq!(xinput_buttons(0x1000), 1 << 0, "A shoots");
+        assert_eq!(xinput_buttons(0x2000), 1 << 1, "B bombs");
+        assert_eq!(xinput_buttons(0x0010), 1 << 7, "Start is the eighth");
+        assert_eq!(
+            xinput_buttons(0x1000 | 0x0020),
+            1 << 0 | 1 << 6,
+            "A and Back"
+        );
+        // The d-pad is not a button here: it is read as a direction, the way a hat is.
+        assert_eq!(xinput_buttons(0x000f), 0);
+    }
+
+    /// A push seen on either source is a push: whichever pad is in somebody's hands is the one
+    /// driving the dialog, and the phantom winmm leaves behind pushes nothing.
+    #[test]
+    fn either_source_can_push_the_dialog() {
+        let winmm = Pushed([false, false, false, false, false, false]);
+        let xinput = Pushed([true, false, false, false, true, false]);
+        assert_eq!(winmm.or(xinput), xinput);
+        assert_eq!(xinput.or(winmm), xinput);
     }
 
     /// No file to read is the game's own defaults rather than a pad that does nothing.

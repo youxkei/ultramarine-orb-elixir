@@ -13,8 +13,8 @@ use std::ops::Range;
 use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::{Music, SoundBuffer};
-use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Viewport};
-use crate::game::{Game, Hooks, Menu, Pad, Patch, Rect, Reproduction, State};
+use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Texture, Viewport};
+use crate::game::{Game, Hooks, Menu, Pad, PanelTile, Patch, Rect, Reproduction, State};
 use crate::joystick::Reading;
 use crate::log::log;
 
@@ -140,6 +140,9 @@ const G_SOUND_PLAYER: usize = 0x006d3f50;
 const G_REPLAY_MANAGER: usize = 0x006d3f18;
 /// `AnmManager *g_AnmManager` — a pointer to it, allocated once at startup.
 const G_ANM_MANAGER: usize = 0x006d4588;
+/// `ANM_FILE_FRONT`, the slot `data/front.anm` — the panel, its border and their labels — is
+/// loaded into.
+const FRONT_TEXTURE: usize = 13;
 /// `MainMenu g_MainMenu`, the whole front end: the title menu, the difficulty and character
 /// selects, the options, the replay list. `MainMenu::RegisterChain` memsets it and sets its
 /// state afresh every time the front end is entered, so nothing in it is left over from the
@@ -232,6 +235,42 @@ mod stage_header {
     pub const SONG_PATHS: usize = 0x290;
 }
 
+/// `LPDIRECTINPUTDEVICE8A g_Supervisor.controller`, null where the game's own
+/// `EnumDevices(DI8DEVCLASS_GAMECTRL, DIEDFL_ATTACHEDONLY)` found nothing attached. Where it
+/// found something, `Supervisor::RegisterChain` gives it `c_dfDIJoystick2`, takes it
+/// `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, and sets every axis' range to ±1000 — so a state read
+/// off it is in those units and needs no calibration of orb's.
+const G_CONTROLLER: usize = 0x006c6d2c;
+
+/// The slots of `IDirectInputDevice8A`'s vtable that orb calls. Slot 7 is the one the keyboard's
+/// re-acquire uses, and the game's own `*0x1c(%eax)` for it is what settled the numbering.
+mod dinput_device {
+    pub const ACQUIRE: usize = 7;
+    pub const GET_DEVICE_STATE: usize = 9;
+    pub const POLL: usize = 25;
+}
+
+/// `lY` — the second of the six axes, and the one a menu is driven by.
+const AXIS_Y: usize = 1;
+
+/// `DIJOYSTATE2`, the format the game set on its controller. All of it, because its size is what
+/// `GetDeviceState` has to be told; the tail is the velocity, acceleration and force halves of
+/// every axis, which neither the game nor orb reads.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct JoyState {
+    axes: [i32; 6],
+    sliders: [i32; 2],
+    hats: [u32; 4],
+    buttons: [u8; 128],
+    velocity: [i32; 8],
+    acceleration: [i32; 8],
+    force: [i32; 8],
+}
+
+/// What the game passes as the size of its state, which is the whole of that struct.
+const _: () = assert!(size_of::<JoyState>() == 272);
+
 mod supervisor {
     pub const D3D_DEVICE: usize = 0x8;
     /// `LPDIRECTINPUTDEVICE8A keyboard`, null when the game falls back to
@@ -252,6 +291,11 @@ mod supervisor {
     pub const CFG_MENU_BUTTON: usize = 0x11a;
     pub const CFG_UP_BUTTON: usize = 0x11c;
     pub const CFG_DOWN_BUTTON: usize = 0x11e;
+    /// `cfg.padYAxis`, how far a stick has to go before the game counts it as pushed — in the
+    /// ±1000 it gave the controller's axes. Past the mapping, the version, and the eight bytes of
+    /// counts and switches: `windowed` at 0x132 is the seventh of those, which is what fixes the
+    /// two axis thresholds at 0x134 and 0x136.
+    pub const CFG_PAD_Y_AXIS: usize = 0x136;
     /// `wantedState`, the field before `curState`. Assigned from `curState` at the end of every
     /// `Supervisor::OnUpdate`, so the two differing is a scene change that has been asked for and
     /// not yet acted on.
@@ -307,6 +351,10 @@ mod player {
 }
 
 mod gui {
+    /// `GuiFlags`, five two-bit fields in one word and the first member of `Gui`. The lowest pair
+    /// is the count of lives' row: while it is not zero, `Gui::OnDraw` erases that row and draws
+    /// the stars again.
+    pub const FLAGS: usize = 0x0;
     pub const IMPL: usize = 0x4;
     pub const BOSS_PRESENT: usize = 0x20;
     /// Inside `GuiImpl`, at `msg.currentMsgIdx`.
@@ -700,6 +748,61 @@ impl Game for Th06 {
         }
     }
 
+    /// `front.anm`'s sprite 5 — 32x32 at (0, 224) of a 256x256 sheet — which `Gui::OnDraw` lays
+    /// from (416, 0) every 32 pixels over the whole panel and border. The sheet is the texture
+    /// `LoadAnm` put in slot 13, `ANM_FILE_FRONT`, of the manager's own array.
+    ///
+    /// It stops laying them 250 frames into a stage, where the vm's script reaches `ExitHide`, and
+    /// after that nothing repaints the panel — which is exactly why orb has to be able to paint it
+    /// itself, and why painting it with the game's own tile rather than a colour of orb's own
+    /// matters: what is left behind is then the panel and not a patch.
+    unsafe fn panel_tile(&self) -> Option<PanelTile> {
+        // A pointer to the manager, not the manager: the same chase `live_handles` makes, and
+        // adding the offset without it reads whatever lies past the pointer instead — which is a
+        // texture orb does not have, so the strips fell back to a flat colour and looked like the
+        // patch this exists to avoid.
+        let manager = mem::read_committed::<usize>(G_ANM_MANAGER).filter(|it| *it != 0)?;
+        let at = manager + anm_manager::TEXTURES + FRONT_TEXTURE * size_of::<usize>();
+        let texture = mem::read_committed::<usize>(at).filter(|texture| *texture != 0)?;
+        let sheet = 256.0;
+        Some(PanelTile {
+            texture: texture as *mut Texture,
+            uv: [0.0, 224.0 / sheet, 32.0 / sheet, 256.0 / sheet],
+            origin: (416.0, 0.0),
+            pitch: 32.0,
+        })
+    }
+
+    /// `Gui::OnDraw` erases the count's row and draws the stars again only while `Gui`'s own
+    /// `flags.flag0` is not zero, which is set to 2 by whatever changed the count — a death, an
+    /// extend, an item — and decremented by each draw. So two is what orb writes, every frame it
+    /// draws the mark: the game then repaints that row for orb, background and stars, and the two
+    /// bits cost nothing else.
+    ///
+    /// The rest of the flags are left alone: they are the other rows of the panel, two bits each,
+    /// in one word at `Gui + 0`.
+    unsafe fn repaint_lives_row(&self) {
+        let flags = unsafe { mem::read::<u32>(G_GUI + gui::FLAGS) };
+        unsafe { mem::write::<u32>(G_GUI + gui::FLAGS, flags & !0b11 | 0b10) };
+    }
+
+    /// `Gui::OnDraw` draws one 16x16 star per life from (496, 122) rightwards, 16 pixels
+    /// apart — the loop at 0x41a622, against the constants 496.0 at 0x46ac50, 122.0 at
+    /// 0x46ac44 and the 16.0 step at 0x46a2b4. Every sprite of the panel runs
+    /// `AnchorTopLeft` in `front.anm`, so those are corners and not middles.
+    ///
+    /// 144 wide, which is 496 to the right edge of the output: that is the bar the game
+    /// erases the row with before it redraws the stars, `front.anm`'s 144x16 sprite drawn at
+    /// the row's own position, so it is exactly the part of the panel the game paints itself.
+    fn lives_row(&self) -> Rect {
+        Rect {
+            left: 496.0,
+            top: 122.0,
+            width: 144.0,
+            height: 16.0,
+        }
+    }
+
     fn joystick_calibration(&self) -> Option<usize> {
         Some(G_JOY_CAPS)
     }
@@ -964,38 +1067,18 @@ impl Game for Th06 {
         }
     }
 
-    /// The game's own mapping, read where `Controller::GetControllerInput` reads it, and the axis
-    /// read the way that function reads it.
+    /// Both of the ways the game reads a pad, in the order it tries them.
     ///
-    /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do:
-    /// `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
-    /// `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of those two is back there.
-    ///
-    /// The menu button decided here for a while instead, because on the pad orb was first run with
-    /// it was button 0 — where a thumb rests — and the most obvious button on the pad closing a
-    /// question rather than answering it took three launches to find. That is the thing to look for
-    /// if a menu of orb's starts cancelling itself, and the launcher printing the mapping it read is
-    /// where to look: on the pad this is written against, shoot is button 0 and menu is button 1.
-    ///
-    /// An unmapped button is 0xffff in that mapping, which as an `i16` is negative and names no bit
-    /// — which is what the directions usually are, a stick being how a pad is pushed.
-    fn pad_menu(&self, reading: Reading) -> Pad {
-        let held = |at: usize| {
-            u32::try_from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) })
-                .ok()
-                .filter(|button| *button < u32::BITS)
-                .is_some_and(|button| reading.buttons & (1 << button) != 0)
-        };
-        // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
-        // hat rather than on the axes at all.
-        let (stick_up, stick_down) = axis(joy_caps::Y_MIN, joy_caps::Y_MAX, reading.y);
-        let (hat_up, hat_down) = hat(reading.pov);
-        Pad {
-            up: stick_up || hat_up || held(supervisor::CFG_UP_BUTTON),
-            down: stick_down || hat_down || held(supervisor::CFG_DOWN_BUTTON),
-            decide: held(supervisor::CFG_SHOOT_BUTTON),
-            cancel: held(supervisor::CFG_BOMB_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
-        }
+    /// `Controller::GetControllerInput` asks winmm for joystick 0 only where its own enumeration
+    /// found no game controller; where it found one it polls that through DirectInput and never
+    /// asks winmm at all. So a menu of orb's has to read the same device, or it answers to a pad
+    /// the game has not got — which is what a pad in XInput's second slot does here: DirectInput
+    /// has it, and winmm's joystick 0 is a phantom reporting no buttons and no axes. Measured; see
+    /// [DONE.md](../../../../DONE.md).
+    unsafe fn pad(&self) -> Pad {
+        unsafe { self.controller_pad() }
+            .or_else(|| crate::joystick::reading().map(|reading| self.winmm_pad(reading)))
+            .unwrap_or_default()
     }
 
     /// The state the front end's own back button uses, and the timer it counts from. Nothing else
@@ -1097,6 +1180,97 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
+    /// The game's own mapping, read where `Controller::GetControllerInput` reads it, and the axis
+    /// read the way that function reads it.
+    ///
+    /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do:
+    /// `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
+    /// `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of those two is back there.
+    ///
+    /// The menu button decided here for a while instead, because on the pad orb was first run with
+    /// it was button 0 — where a thumb rests — and the most obvious button on the pad closing a
+    /// question rather than answering it took three launches to find. That is the thing to look for
+    /// if a menu of orb's starts cancelling itself, and the launcher printing the mapping it read is
+    /// where to look: on the pad this is written against, shoot is button 0 and menu is button 1.
+    ///
+    /// An unmapped button is 0xffff in that mapping, which as an `i16` is negative and names no bit
+    /// — which is what the directions usually are, a stick being how a pad is pushed.
+    fn winmm_pad(&self, reading: Reading) -> Pad {
+        // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
+        // hat rather than on the axes at all.
+        let (stick_up, stick_down) = axis(joy_caps::Y_MIN, joy_caps::Y_MAX, reading.y);
+        let (hat_up, hat_down) = hat(reading.pov);
+        self.pad_from(reading.buttons, stick_up || hat_up, stick_down || hat_down)
+    }
+
+    /// The pad the game itself polls, where its own enumeration found one: `Poll` and then
+    /// `GetDeviceState` into the `DIJOYSTATE2` the format it set fills, which is what
+    /// `Controller::GetControllerInput` does on those frames. `None` where there is no such device
+    /// or the read did not come off, and then the winmm sample is what is left.
+    ///
+    /// The acquire after a lost device is orb's to do here, because the frames this runs on are
+    /// exactly the frames the game's own read is frozen out of: the device is taken
+    /// `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, so anything that took the foreground away — which is
+    /// how somebody arrives at a menu of orb's with the window behind — leaves it unacquired. Asked
+    /// for once and the frame given up, the way the game asks: it is a menu, and the next frame is
+    /// a sixtieth of a second away.
+    unsafe fn controller_pad(&self) -> Option<Pad> {
+        let device = mem::read_committed::<usize>(G_CONTROLLER).filter(|device| *device != 0)?;
+        let vtable = mem::read_committed::<usize>(device)?;
+        let slot = |index: usize| {
+            mem::read_committed::<usize>(vtable + index * size_of::<usize>()).filter(|it| *it != 0)
+        };
+        let poll: unsafe extern "system" fn(usize) -> i32 =
+            unsafe { std::mem::transmute(slot(dinput_device::POLL)?) };
+        if unsafe { poll(device) } < 0 {
+            let acquire: unsafe extern "system" fn(usize) -> i32 =
+                unsafe { std::mem::transmute(slot(dinput_device::ACQUIRE)?) };
+            unsafe { acquire(device) };
+            return None;
+        }
+        let read: unsafe extern "system" fn(usize, u32, *mut JoyState) -> i32 =
+            unsafe { std::mem::transmute(slot(dinput_device::GET_DEVICE_STATE)?) };
+        let mut state: JoyState = unsafe { std::mem::zeroed() };
+        if unsafe { read(device, size_of::<JoyState>() as u32, &mut state) } < 0 {
+            return None;
+        }
+        // Every button as one mask, in the numbering the mapping names them in: DirectInput gives a
+        // byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that array
+        // with the very same number `SetButtonFromControllerInputs` shifts a winmm mask by.
+        let buttons = state
+            .buttons
+            .iter()
+            .take(u32::BITS as usize)
+            .enumerate()
+            .filter(|(_, held)| **held & 0x80 != 0)
+            .fold(0, |mask, (button, _)| mask | 1 << button);
+        // The axes are the ±1000 the game gave every one of them, against the threshold it keeps
+        // beside that mapping — not the winmm caps, which describe another device entirely.
+        let threshold =
+            i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_Y_AXIS) });
+        let (hat_up, hat_down) = hat(state.hats[0]);
+        let y = state.axes[AXIS_Y];
+        Some(self.pad_from(buttons, y < -threshold || hat_up, y > threshold || hat_down))
+    }
+
+    /// What a frame's buttons and directions mean to a menu, whichever of the two devices they
+    /// were read from. Only the directions differ between them: a button is a button by the same
+    /// number either way.
+    fn pad_from(&self, buttons: u32, up: bool, down: bool) -> Pad {
+        let held = |at: usize| {
+            u32::try_from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) })
+                .ok()
+                .filter(|button| *button < u32::BITS)
+                .is_some_and(|button| buttons & (1 << button) != 0)
+        };
+        Pad {
+            up: up || held(supervisor::CFG_UP_BUTTON),
+            down: down || held(supervisor::CFG_DOWN_BUTTON),
+            decide: held(supervisor::CFG_SHOOT_BUTTON),
+            cancel: held(supervisor::CFG_BOMB_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
+        }
+    }
+
     /// Takes down any screen shake still running, and puts the play field's rectangle back
     /// where the shake would have put it when it finished.
     ///

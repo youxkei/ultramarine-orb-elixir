@@ -15,8 +15,7 @@ use std::ops::Range;
 use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::Music;
-use crate::d3d8::Device;
-use crate::joystick::Reading;
+use crate::d3d8::{Device, Texture};
 
 /// A function to hook and the bytes expected at it, so a mismatch is caught
 /// rather than relocating an instruction that cannot be relocated.
@@ -87,6 +86,21 @@ pub struct Pad {
     pub down: bool,
     pub decide: bool,
     pub cancel: bool,
+}
+
+/// The tile the game paints its status panel's background with: a texture it has already loaded,
+/// the piece of that texture which is one tile, and the grid the tiles are laid on.
+///
+/// Asked for rather than carried, so that orb ships no art and a modified sheet is honoured —
+/// and so that what is left on the screen where orb stops drawing is the panel the game would
+/// have painted there anyway.
+pub struct PanelTile {
+    pub texture: *mut Texture,
+    /// The piece of the sheet, as `[left, top, right, bottom]` in texture coordinates.
+    pub uv: [f32; 4],
+    /// Where the grid starts in the game's output, and how far apart its lines are.
+    pub origin: (f32, f32),
+    pub pitch: f32,
 }
 
 /// A rectangle in the game's own output resolution.
@@ -173,6 +187,36 @@ pub trait Game {
     unsafe fn live_handles(&self) -> Vec<Range<usize>>;
 
     fn play_area(&self) -> Rect;
+
+    /// How to put the status panel's own background back over a piece of it — for the parts of a
+    /// mark that fall outside a row the game repaints. `None` before the sheet is loaded, and for a
+    /// game whose panel is not a tiled one.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the game past initialisation.
+    unsafe fn panel_tile(&self) -> Option<PanelTile>;
+
+    /// Asks the game to repaint the row it shows the lives in, this frame — the background and the
+    /// count both.
+    ///
+    /// For a mark drawn over that row, and it does two things at once. A panel that is not
+    /// repainted is one where a mark blended over what the last frame left hardens into its own
+    /// edges; and the count showing faintly through where the ink of the mark is dry is only true
+    /// if the count is drawn again underneath it. Which is worth having: the lives are disabled,
+    /// not gone, and one gained still shows.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, before the game draws.
+    unsafe fn repaint_lives_row(&self);
+
+    /// Where the game shows how many lives are left, in its own 640x480 output: the part of
+    /// the status panel holding the count itself, which is what a mark saying the count
+    /// decides nothing goes over.
+    ///
+    /// The count and not the label beside it. This is a rectangle orb paints over every
+    /// frame, so it has to be one the game paints too: a count that changes is erased and
+    /// redrawn, and the label beside it is drawn when the stage begins and never again.
+    fn lives_row(&self) -> Rect;
 
     /// The size the game renders at, whose aspect ratio a borderless window has
     /// to preserve.
@@ -286,9 +330,17 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn menu(&self) -> Menu;
 
-    /// What a reading of the pad means to the game's own menus: which way it is being pushed, and
-    /// whether it is deciding or cancelling.
-    fn pad_menu(&self, reading: Reading) -> Pad;
+    /// What the pad is doing, in the terms a menu of orb's needs: which way it is being pushed,
+    /// and whether it is deciding or cancelling.
+    ///
+    /// Asked of the game rather than worked out from a reading, because *where* a pad is read is
+    /// the game's business too. A game may reach one some way orb's own sampling does not — and
+    /// then a menu of orb's driven from the sample answers to a pad the game has not got, which
+    /// looks exactly like orb's menus ignoring a pad that plainly works. Which is what it was.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn pad(&self) -> Pad;
 
     /// Puts the game's front end back on its way to the title menu, the way its own back button
     /// does, and says whether there was a front end to do it to.

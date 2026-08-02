@@ -15,6 +15,7 @@ mod game;
 mod hook;
 mod input;
 mod joystick;
+mod lives_ui;
 mod log;
 mod mem;
 mod memtrack;
@@ -43,10 +44,17 @@ use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
+/// One brush stroke, as coverage: what the mark over the lives is drawn from, baked out of
+/// `brush.png` by `build.rs` rather than kept here as four thousand numbers.
+mod brush {
+    include!(concat!(env!("OUT_DIR"), "/brush.rs"));
+}
+
 use chapter::{Cause, Chapters, Judgement};
 use game::th06::Th06;
 use game::{Game, Menu, Pad, State};
 use input::Keyboard;
+use lives_ui::LivesMark;
 use log::{detail, log, pacing, summary};
 use mode_ui::{Answer, Mode, ModeMenu};
 use overlay::Overlay;
@@ -61,6 +69,9 @@ const HUD_NUMBER_INTERVAL: u32 = 30;
 
 /// Em height in the game's 640x480 output.
 const FONT_HEIGHT: i32 = 15;
+/// And the size the one word on the mark over the lives is written at, which is bigger because it
+/// is a word on a brush stroke rather than a line to be scanned.
+const MARK_FONT_HEIGHT: i32 = 19;
 
 /// `CHAIN_CALLBACK_RESULT_BREAK`: what `RunCalcChain` returns when a job asks it
 /// to stop for this frame. Returning it instead of calling the original is how
@@ -225,6 +236,9 @@ struct Runtime {
     stressing: (i32, u32),
     /// `Some` while the game is frozen on the retry menu.
     retry: Option<RetryMenu>,
+    /// The mark over the game's own count of lives, in a run where dying costs a chapter
+    /// rather than one of them.
+    lives: LivesMark,
     /// Which of the two things a run is, and which of the two rankings is being looked at.
     mode: Mode,
     /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
@@ -553,6 +567,7 @@ fn attach() {
             stressed: 0,
             stressing: (-1, 0),
             retry: None,
+            lives: LivesMark::new(),
             mode,
             asks_mode,
             menu: Menu::Elsewhere,
@@ -573,13 +588,15 @@ impl Runtime {
 
 /// What the pad is doing, for a menu of orb's own.
 ///
-/// Read from the sample orb's own thread takes and handed to the game to be read as *its* buttons,
-/// because the frames these menus are up are frames the game's own input is not running on — so a
-/// pad does nothing on them unless orb does this. Nothing where no pad is answering.
-fn pad(game: &dyn Game) -> Pad {
-    joystick::reading()
-        .map(|reading| game.pad_menu(reading))
-        .unwrap_or_default()
+/// Asked of the game, and read as *its* buttons, because the frames these menus are up are frames
+/// the game's own input is not running on — so a pad does nothing on them unless orb does this.
+/// Which of a game's ways of reaching a pad it is read through is the game's business too: see
+/// `Game::pad`.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn pad(game: &dyn Game) -> Pad {
+    unsafe { game.pad() }
 }
 
 /// Takes the answer to the mode question: what a run does, and which of the two files the
@@ -649,6 +666,7 @@ extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
         note_reentry();
         return unsafe { call_original(&RUN_DRAW_CHAIN, chain) };
     }
+    unsafe { before_draw() };
     let result = unsafe { call_original(&RUN_DRAW_CHAIN, chain) };
     unsafe { after_draw() };
     IN_HOOK.store(false, Ordering::Relaxed);
@@ -893,7 +911,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
 
     if let Some(menu) = &mut runtime.retry {
         unsafe { hold_frame(runtime.game) };
-        let pad = pad(runtime.game);
+        let pad = unsafe { pad(runtime.game) };
         if let Some((choice, by)) = menu.update(&runtime.keyboard, pad) {
             log!("retry: {} on the {by}", choice.label());
             let acted = match choice {
@@ -917,7 +935,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // draws into wants the whole output — which `prepare_frame` has already given it — rather
     // than the play field's viewport.
     if let Some(asking) = &mut runtime.asking {
-        let pad = pad(runtime.game);
+        let pad = unsafe { pad(runtime.game) };
         if let Some((answer, by)) = asking.update(&runtime.keyboard, pad) {
             runtime.asking = None;
             match answer {
@@ -1719,6 +1737,33 @@ fn tune(runtime: &mut Runtime, state: &State) {
     }
 }
 
+/// What has to be asked of the game before it draws, rather than after: the row the mark over the
+/// lives goes on, repainted with its count, so that the stars show through where the ink is dry and
+/// nothing of orb's accumulates on a panel the game otherwise leaves alone.
+///
+/// # Safety
+/// Only ever called from the draw hook, before the game's own drawing, on its main thread.
+unsafe fn before_draw() {
+    let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
+        return;
+    };
+    if marking(runtime) {
+        unsafe { runtime.game.repaint_lives_row() };
+    }
+}
+
+/// Whether the lives are being marked as disabled this frame.
+///
+/// The same three things the death itself is answered by: the mode, a run somebody is playing —
+/// not a demo or a replay, which have no menu offered to them — and a chapter there is a snapshot
+/// to go back to. On the frames before the stage's own snapshot exists a death does cost a life,
+/// and a mark saying otherwise would be wrong about exactly the frames it matters.
+fn marking(runtime: &Runtime) -> bool {
+    runtime.chaptering()
+        && runtime.chapters.can_retry()
+        && runtime.previous.is_some_and(|state| state.in_game)
+}
+
 /// # Safety
 /// Only ever called from the draw hook, between the game's `BeginScene` and
 /// `EndScene`, on the game's main thread.
@@ -1746,6 +1791,7 @@ unsafe fn draw_overlay() {
                 device,
                 &runtime.config.game_dir.join("font.ttf"),
                 FONT_HEIGHT,
+                MARK_FONT_HEIGHT,
             )
         };
         log!(
@@ -1760,6 +1806,14 @@ unsafe fn draw_overlay() {
     let Some(overlay) = &runtime.overlay else {
         return;
     };
+
+    // The game's count of lives painted over, where dying costs the chapter and not one of them.
+    // Before the menus, because the mark belongs to the panel and a menu goes up over that.
+    if marking(runtime) {
+        let row = runtime.game.lives_row();
+        let panel = unsafe { runtime.game.panel_tile() };
+        unsafe { runtime.lives.draw(overlay, row, panel) };
+    }
 
     if let Some(menu) = &mut runtime.retry {
         let area = runtime.game.play_area();
