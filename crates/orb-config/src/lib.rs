@@ -78,6 +78,27 @@ pub struct Config {
     pub borderless: bool,
     /// How much goes into `orb.log`.
     pub log_level: LogLevel,
+    /// Write what every frame that missed the cadence spent its turn on, whatever
+    /// `log_level` says.
+    ///
+    /// Its own switch rather than a tier of the level, because a frame is late for
+    /// reasons that include what the log itself was writing at the time: `verbose` has
+    /// orb's joystick thread writing twice a second and the tuning pass writing per
+    /// boundary, and those writes serialise against the frame's own. Asking for the
+    /// pacing at `quiet` leaves nothing in the log but this, which is the only way to
+    /// watch the pacing without the watching being one of the causes.
+    pub pacing_log: bool,
+    /// How long the compositor is left to draw in, between a frame being handed over and
+    /// the blank it is to be shown at, in microseconds. 0 to find it while running.
+    ///
+    /// That window is not idle: it is where the desktop is composed and got onto the screen
+    /// for that blank, so a frame's turn holds two drawing times and both have to finish
+    /// before the blank. The compositor does not say how long it wants, and the count it
+    /// offers for judging it — `cFramesLate` — stays at zero through runs whose cadence is
+    /// visibly broken. So it is swept instead: pinned small enough that frames are known to
+    /// miss their blank, then walked up until they stop. Pinning also takes the adjustment
+    /// out of the way of anything else being measured.
+    pub compose_us: u32,
     // There is no `joystick` here on purpose. It existed to turn off a read that cost most of
     // a frame; that read is on a thread of orb's own now and costs the frame nothing, so
     // there is nothing left to turn off. A file still carrying the key is rejected by name,
@@ -182,6 +203,8 @@ impl Config {
             skip_ending: doc.bool("skip_ending")?.unwrap_or(true),
             borderless: doc.bool("borderless")?.unwrap_or(true),
             log_level: LogLevel::Normal,
+            pacing_log: false,
+            compose_us: 0,
             base_dir,
         };
         doc.reject_unknown_keys()?;

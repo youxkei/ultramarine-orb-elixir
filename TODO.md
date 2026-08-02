@@ -71,8 +71,9 @@ The skip stopping at the staff roll and `--clear` reaching one are both measured
   the 600 took five refreshes or more, which is where the buckets stop, and the average interval
   and `0 shown late` did not move. 29,040 updates at the 13µs an ending update cost before would
   be 377ms, and reading the script adds a walk of the job chain with a `VirtualQuery` at each step
-  to every one of them. `--log=verbose` logs every frame that missed the cadence with where its
-  time went, so a clear under it would say.
+  to every one of them. `--pacing` logs every frame that missed the cadence with where its time
+  went, and the `gap at worst` in that run's reports says what the skip's frame came to, so a
+  clear under it would say.
 - **Why the roll ran 7,286 frames** where `staff00.end`'s waits add up to 7,830. The one wait in
   it that input can cut short is `@w1200` with a second argument of 4, and whether a key was
   pressed over those two minutes is not written down. A clear that keeps its hands off the
@@ -116,6 +117,60 @@ Nothing here is broken, so there is nothing that has to be done. What would make
 reading is the retries beside the score, since a clear with none of them and a clear with sixty
 are not the same clear, and `RETRY` is already counted. That means orb's own format rather than
 the game's, and with it the game's ranking screen no longer being where these are read.
+
+## What the fixed stutter costs
+
+Three to five frames of every six hundred used to come out three refreshes apart instead of two,
+once every two or three seconds. The cause and the fix are in [DONE.md](DONE.md), and a replay
+played back through stages 0 to 3 under `--log=quiet --pacing` settled what was still open about
+them: 37,800 frames, three that missed their blank, 49 of 63 periods with nothing off the cadence
+at all, and the compositor's drawing time converging to 2550µs and staying.
+
+Two things that were open are answered by that run and are not questions any more. What the
+compositor wants does not depend on the load — the same 2450–2550µs came out of a title screen
+and out of a stage 3 boss fight with 524 bullets up — and the 3700–3850µs an earlier run showed
+was the shaving random-walking upward for want of a floor, not a heavier stage needing more.
+
+What is left:
+
+- **The lag.** `prepare` sits at 3200–4500µs against the 2100µs it used to, so the cadence costs
+  something like 1.5ms of input lag on every frame. Against the 16.7ms a frame that orb exists to
+  save it is under a tenth, and it buys a cadence that does not break, but nobody has been asked
+  whether that is the trade they want. `MISS_STEP_US`, `SHAVE_US` and `SHAVE_FRAMES` move it.
+- **Whether exempting the frame after a load leaves one stutter a session.** It should: the
+  floor lands a step above whatever missed and the shaving stops there, and with boss entry no
+  longer able to raise it, the 2450µs that already held for thirteen quiet periods should hold
+  for the run. That is a prediction from the run above, not something a run has shown — the same
+  replay under `--log=quiet --pacing` would show it, as `the compositor gets 2450us` unchanged
+  from the first climb to the end and one `1x1` in the whole log.
+- **Whether the miss the ratchet trips on is always a real one.** The frame that missed at 2400µs
+  did not show up as a broken gap in the same period's `gaps in refreshes`, which stayed `2x600`.
+  Either the two counters are a frame out of step at a period boundary — `measure_compose` runs at
+  the top of a frame and the gap is worked out at the bottom, with the report between them — or
+  that overshoot sat right on the half-refresh boundary the two round opposite ways from. It errs
+  toward giving the compositor longer, which is the safe direction, but it means the floor can end
+  up a step above what it needs to be, and three steps of that is 150µs of lag.
+- **Which refresh rates have actually been run.** Three: 120Hz, 119.88Hz and 144Hz, all on the
+  same machine and the same monitor at three settings — see [DONE.md](DONE.md). The third one
+  earned its place by breaking both branches it touched, neither of which had been run before, so
+  the list below is not a formality. The rates that would each exercise a different part of the
+  arithmetic:
+
+  | | |
+  | --- | --- |
+  | 60Hz | one refresh a frame, where the compositor's share and the drawing must both fit in 16.7ms rather than 6.9 |
+  | 75Hz, 100Hz | ratios of 1.25 and 1.67, so the count is one *or* two and the grid spends most frames on the shorter one |
+  | 240Hz | four refreshes a frame, a whole multiple again but with a 4.2ms refresh, so the share has less than a quarter of the room it has at 60 |
+  | under 60Hz | deliberately the clock, since one frame per blank would run the game slow and take the music with it |
+
+  The mechanism does not special-case any of them, which is the argument that they work, and no
+  measurement is the reason that is only an argument.
+- **A second display, and a mixed-rate desktop.** What the compositor wants is cleared and found
+  again when the mode or the monitor changes, so nothing carries over wrongly, but the case that
+  matters is the game on one monitor while the compositor times another: the fractional path is
+  refused there — `agrees` is false and the clock takes it — and that refusal has not been seen
+  happen. A whole multiple is *not* refused there, which is the older hazard the code comments
+  describe and which nothing has re-checked since.
 
 ## Confirm `self_check`
 
@@ -182,4 +237,5 @@ system DLLs share a base across processes. They usually do within a boot session
   correct there (it belongs over the game), but it shares the accumulation problem if it ever
   draws where the game does not repaint.
 - The status line's numbers refresh every 30 frames. Fine to read, but it means a spike
-  lasting less than half a second can be missed on screen; the log has every frame.
+  lasting less than half a second can be missed on screen; the log has every frame that missed
+  the cadence, up to six per report — it says how many more there were.

@@ -40,7 +40,7 @@ use chapter::{Cause, Chapters, Judgement};
 use game::th06::Th06;
 use game::{Game, State};
 use input::Keyboard;
-use log::{detail, log, summary};
+use log::{detail, log, pacing, summary};
 use overlay::Overlay;
 use retry_ui::{Choice, RetryMenu};
 use sync::MainThread;
@@ -186,7 +186,7 @@ struct Runtime {
     overlay_ready: bool,
     /// The lag and the frame interval as the status line last showed them, in
     /// microseconds. Held between refreshes so the numbers can be read.
-    shown: (i64, i64),
+    shown: (i64, i64, i64),
     chapters: Chapters,
     /// How far the play cursor has run past the next write, at its best and worst
     /// over a reporting interval. Judging the music by ear needs someone listening
@@ -305,12 +305,14 @@ fn attach() {
         return log!("arguments: {error}; orb is doing nothing this run");
     }
     log!(
-        "config: game_dir={} log_level={} self_check={} chapter_tuning={} \
+        "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
          block_replay_save={} skip_ending={} borderless={} during_replay={} \
          fast_clear={} speed={} stress_restore_frames={} chapters={} track_memory={} \
          frame_hooks={}",
         config.game_dir.display(),
         config.log_level,
+        config.pacing_log,
+        config.compose_us,
         config.self_check,
         config.chapter_tuning,
         config.block_replay_save,
@@ -327,6 +329,8 @@ fn attach() {
     // Set after the line that says what it is, so the log always states the level it
     // is then written at.
     log::set_level(config.log_level);
+    log::set_pacing(config.pacing_log);
+    frame::pin_compose(config.compose_us);
 
     if config.track_memory {
         match unsafe { memtrack::install(exe) } {
@@ -450,7 +454,7 @@ fn attach() {
             keyboard: Keyboard::new(),
             overlay: None,
             overlay_ready: false,
-            shown: (0, 0),
+            shown: (0, 0, 0),
             chapters: Chapters::new(&GAME, tuning, during_replay),
             margin_worst: 0,
             margin_best: u32::MAX,
@@ -894,6 +898,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             unsafe { runtime.game.clears_back_buffer() },
         );
     }
+    // `quiet` writes none of the above, and the compose time the pacing settles at is a property of
+    // what the game was doing while it settled — a stage being played and a menu are not the
+    // same load. Without this a pacing run's numbers cannot be attributed to anything, which
+    // is how a sweep came to be written up against a scene nobody had recorded.
+    //
+    // Once per report rather than per second, so there is one of these against each set of
+    // numbers and no more.
+    if log::pacing_wanted() && (scene_changed || runtime.frames % profile::INTERVAL == 0) {
+        pacing!("f{} {state}", runtime.frames);
+    }
 
     runtime.previous = Some(state);
     runtime.frames += 1;
@@ -903,7 +917,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     unsafe {
         profile::record(profile::Phase::Update, started);
         if profile::frame() {
-            summary!("{}", frame::report());
+            // Both lines through the held queue when the pacing is what is being watched:
+            // the buckets and the interval say as much about it as the worsts do, `quiet`
+            // has nothing else to write them, and this runs inside the frame's work — the
+            // one place a write costs the frame it is describing.
+            if log::pacing_wanted() {
+                pacing!("{}", frame::report());
+                pacing!("{}", frame::worst());
+                pacing!("{}", frame::shown());
+            } else {
+                summary!("{}", frame::report());
+            }
             summary!(
                 "audio: behind {}..{} bytes",
                 if runtime.margin_best == u32::MAX { 0 } else { runtime.margin_best },
@@ -1479,7 +1503,7 @@ unsafe fn write_status(runtime: &mut Runtime) {
     if runtime.frames % HUD_NUMBER_INTERVAL == 0 {
         runtime.shown = frame::status();
     }
-    let (lag, interval) = runtime.shown;
+    let (lag, interval, compose) = runtime.shown;
     // A line each, because the black is usually bars down the sides of a widescreen
     // monitor rather than a strip under the game, and a strip that narrow takes one
     // short line at a time.
@@ -1509,6 +1533,10 @@ unsafe fn write_status(runtime: &mut Runtime) {
         lines.push(format!("RETRY {}", runtime.chapters.retries()));
     }
     lines.push(format!("INPUT LAG {}.{}ms", lag / 1000, lag % 1000 / 100));
+    // Beside the lag rather than folded into it: this is the part of the lag orb chose, it is
+    // the part that moves while the game runs, and watching it settle is watching the pacing
+    // find how near the blank this display will take a frame.
+    lines.push(format!("COMPOSE {}.{}ms", compose / 1000, compose % 1000 / 100));
     lines.push(format!(
         "{}.{}fps",
         1_000_000 / interval.max(1),

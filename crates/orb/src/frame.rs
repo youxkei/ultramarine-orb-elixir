@@ -7,13 +7,22 @@
 //! The pacing is the compositor's. Each frame waits for as many vertical blanks as
 //! make one sixtieth of a second — two of them on a 120Hz display — so every frame is
 //! shown for exactly as long as the last. Waiting for a blank blocks without spending
-//! any CPU and needs no guess about how long a frame will take: the display says when,
-//! and it is never wrong.
+//! any CPU and needs no guess about how long a frame will take.
 //!
-//! A refresh rate that is not a whole multiple of 60 has no such cadence to keep — at
-//! 144Hz a frame is 2.4 refreshes — so those fall back to pacing by the clock.
+//! `DwmFlush` is what waits, and what it waits for is the compositor composing the next
+//! frame rather than the next blank as such — so it returns at the blank *the frame just
+//! handed over reached*. That is worth knowing twice over: it is why a frame handed over
+//! too near a blank costs the following one a refresh as well, and it is the only thing
+//! that will say whether a frame made its blank at all. The compositor's own answers to
+//! that question all read zero.
+//!
+//! A refresh rate that is not a whole multiple of 60 has no one cadence to keep — at 144Hz a
+//! frame is 2.4 refreshes — so each frame goes on whichever blank is nearest where a
+//! sixtieth-of-a-second grid has got to: two refreshes, three, two, three, two. The rate is 60
+//! over any length of time and every frame is still shown at a blank. Only a display whose
+//! refresh rate is not known at all is paced by the clock.
 
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Dwm::{
@@ -28,7 +37,7 @@ use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerf
 use windows_sys::Win32::System::Threading::Sleep;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use crate::log::{detail, log};
+use crate::log::{log, pacing};
 
 /// The rate the game's logic runs at, which is what its timers assume.
 const LOGIC_HZ: u32 = 60;
@@ -45,6 +54,37 @@ static FREQUENCY: AtomicI64 = AtomicI64::new(0);
 /// Blanks to wait for per game frame: 1 at 60Hz, 2 at 120Hz. Zero means the display
 /// does not divide into 60 and the clock is pacing instead.
 static BLANKS_PER_FRAME: AtomicU32 = AtomicU32::new(0);
+/// Whether the blanks can pace this display at all, which needs only their spacing to be
+/// known. A rate that does not divide into 60 is still paced by them — see `IDEAL_NEXT`.
+static BLANK_PACED: AtomicBool = AtomicBool::new(false);
+/// Where the sixtieth-of-a-second grid has got to, as a moment rather than a count of
+/// refreshes, because on most displays it does not land on refreshes.
+///
+/// A frame is shown at the blank nearest this, and the grid then advances by exactly one
+/// sixtieth regardless of which blank that was. At 120Hz the answer is two refreshes every
+/// time and nothing about the pacing changes. At 144Hz, where a frame is 2.4 refreshes, it
+/// comes out two, three, two, three, two — whatever keeps the average at 2.4 — so the rate
+/// is exactly 60 over any length of time and every frame is still shown at a blank.
+///
+/// Being a moment and not an accumulated count is what makes that self-correcting: the grid
+/// is absolute, so a frame put on the nearer blank does not push the ones after it.
+static IDEAL_NEXT: AtomicI64 = AtomicI64::new(0);
+/// How many refreshes the frame now in flight was given, which is what its gap should come
+/// out as. Zero when the clock paced it and there was no blank to aim at.
+static AIMED_REFRESHES: AtomicI64 = AtomicI64::new(0);
+/// A blank, kept as the phase every aim is measured from, and moved on only by frames that
+/// landed where they were aimed.
+///
+/// The aim used to be the last landing plus a count of refreshes, which cannot correct itself:
+/// a frame that lands a refresh late becomes the reference for the next aim, so the grid asks
+/// for one refresh fewer and the lateness is absorbed instead of undone. That settles into a
+/// fixed point — measured at 144Hz as an aim averaging 2.2 refreshes with a frame in five
+/// landing a refresh late, which added back to exactly the 2.4 the display wanted, so the rate
+/// looked right while a fifth of the frames were shown somewhere nobody had asked for.
+///
+/// Left alone by a late landing, so the frame after one aims at the blank the grid always meant
+/// and the pattern comes straight again.
+static PHASE: AtomicI64 = AtomicI64::new(0);
 /// One refresh in performance-counter ticks, used to say what the gaps between frames
 /// came out as.
 static PERIOD: AtomicI64 = AtomicI64::new(0);
@@ -63,18 +103,35 @@ static REPORTED: AtomicI64 = AtomicI64::new(-1);
 /// refresh late. So it is measured rather than chosen: what the work has been taking
 /// lately, plus enough to reach the compositor in time.
 static PREPARE_US: AtomicI64 = AtomicI64::new(4000);
-/// What handing the frame over needs on top of the work itself. The compositor wants
-/// the frame some way before the blank it will be shown at, and how far is not
-/// something it will say.
+/// How long the compositor is given to draw, over and above the frame's own drawing.
 ///
-/// Only the floor of it, and the least that has ever been enough. What is actually used
-/// is found by trying: a frame handed over too near the blank crosses it and is shown a
-/// refresh late, which shows up as a gap of the wrong size, and the room given is raised
-/// until that stops and then shaved back down. So the number below is a starting point
-/// and a hard floor, not a claim about what the compositor wants.
-const HANDOVER_FLOOR_US: i64 = 1200;
-/// The room being left at the moment, over and above the work itself.
-static HANDOVER_US: AtomicI64 = AtomicI64::new(HANDOVER_FLOOR_US);
+/// The window between `Present` and the blank is not idle: it is where the compositor
+/// composes the desktop and gets it onto the screen for that blank. So a frame's turn holds
+/// two drawing times, the game's and the compositor's, and both have to finish before the
+/// blank or the frame is shown at the one after.
+///
+/// The least it may be given, which only a pinned sweep goes near.
+const COMPOSE_FLOOR_US: i64 = 1000;
+/// What it starts at, and it starts high on purpose.
+///
+/// What the compositor needs is not a threshold with a value below it that always fails and
+/// above it that always works — it is a distribution, and more time only makes a miss rarer.
+/// Measured by climbing from 1000µs in 50µs steps over 36,000 frames: every value from 1250
+/// upward carried the frames that came after it, and each still missed now and then, so the
+/// climb took four and a half minutes and stuttered about twenty times on the way. There was
+/// no edge to arrive at.
+///
+/// So this is a margin past the knee rather than a measurement of any machine: a sweep found
+/// 2500µs and up missing nothing over 1200 frames apiece, while 1500µs missed 5 or 7 and
+/// 800µs missed 35. Somebody who would rather have the microseconds back can find their own
+/// floor with `--compose=N`.
+const COMPOSE_START_US: i64 = 2500;
+/// What it is being given at the moment.
+static COMPOSE_US: AtomicI64 = AtomicI64::new(COMPOSE_START_US);
+/// What a frame that missed its blank adds to it. Enough to be worth the trip, since a miss
+/// is one stutter and a hundred microseconds is not; small enough that a frame which missed
+/// for some reason of its own does not cost half a millisecond of lag for the rest of the run.
+const MISS_STEP_US: i64 = 100;
 /// How long a frame has been on screen lately, so the rate can be shown alongside the
 /// lag it costs.
 static INTERVAL_US: AtomicI64 = AtomicI64::new(0);
@@ -90,20 +147,148 @@ static INPUT_LAG_US: AtomicI64 = AtomicI64::new(0);
 static INPUT_READ_AT: AtomicI64 = AtomicI64::new(0);
 /// The compositor's own count of frames it could not show at the refresh they were
 /// aimed at, as it stood when the log last mentioned it.
+///
+/// Reported and not acted on. It read zero through every run whose cadence was broken, so
+/// what it means is not what its name suggests, and how long the compositor gets is driven
+/// by the flush's overshoot instead.
 static WAS_LATE: AtomicI64 = AtomicI64::new(-1);
-/// The same count, as the handover room last saw it. Kept apart from the log's copy so
-/// that reading the log does not change what the pacing does.
-static LATE_SEEN: AtomicI64 = AtomicI64::new(-1);
-/// How often that count is asked for. A second: often enough to notice a display that
-/// has started missing frames, seldom enough that the asking costs nothing.
-const LATE_INTERVAL: usize = 60;
-static LATE_AGE: AtomicUsize = AtomicUsize::new(0);
+
+/// The blank the last frame's turn was counted from, so the next frame can say whether it
+/// reached the flush while the blank that was its own was still ahead. Zero after a frame
+/// paced by the clock, whose anchor is not a blank at all.
+static LAST_BLANK: AtomicI64 = AtomicI64::new(0);
+/// When the flush was called and when it came back. The two apart are what say whether a
+/// late frame lost its refresh before it did anything or spent it on something.
+static FLUSH_CALLED: AtomicI64 = AtomicI64::new(0);
+static BLANK_AT: AtomicI64 = AtomicI64::new(0);
+/// How far past the blank that was its turn the frame reached the flush. Negative is in
+/// time, and says how much of the compose time was still there.
+static ARRIVAL_US: AtomicI64 = AtomicI64::new(0);
+/// When everything orb does after handing a frame over was done with. The near end of the
+/// span the next frame has to reach the flush inside, and the only part of a frame that
+/// nothing used to measure.
+static ACCOUNTED: AtomicI64 = AtomicI64::new(0);
+/// What asking the display what it is doing cost this frame, zero on the frames it was
+/// not asked. It happens before the flush, so it is spent out of the compose time.
+static SETTLE_US: AtomicI64 = AtomicI64::new(0);
+/// How far the anchor the flush returned at sits after the blank the compositor says was
+/// the last one. Near zero means the anchor is a blank; a whole refresh means it is not,
+/// and every arrival measured against it is out by that much.
+static ANCHOR_US: AtomicI64 = AtomicI64::new(0);
+
+/// Which blank the last frame reached, counted in refreshes from the one it was aimed at:
+/// 0 is the blank it was aimed at, 1 the refresh after. The last is everything further.
+///
+/// `DwmFlush` waits for the compositor to compose the next frame rather than for the next
+/// blank, so it returns at the blank *our own frame* reached — which makes this the answer
+/// to whether the frame made its blank, and the thing the compose time has to be driven by.
+///
+/// The compositor's own answer to the same question is not usable. `cFramesLate` stays at
+/// zero through a run whose cadence is visibly broken, and `qpcFrameDisplayed` with
+/// `cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed` all read
+/// zero while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved 1211 over a
+/// period — so the call works and that family is simply not populated for the desktop
+/// query, which is the only one it accepts.
+static MISSED: [AtomicUsize; 4] = [
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+];
+/// How far after the blank it was aimed at the last frame reached the screen, for the
+/// per-frame line.
+static OVERSHOOT_US: AtomicI64 = AtomicI64::new(0);
+/// Whether the last frame overshot by more than a whole turn, so the next one is still
+/// picking itself up.
+///
+/// A stage load takes a quarter of a second, and the frame after one misses its blank
+/// through no fault of the compositor — nothing about that says it wants longer. Measured:
+/// of the three climbs over a 37,800-frame replay, the one at 2400µs happened in a quiet
+/// period, and the two at 2450 and 2500 both happened in periods carrying a 225ms load,
+/// while 2450 sat through thirteen quiet periods without missing once.
+///
+/// Cleared by the first frame that makes its blank rather than after a fixed count, since
+/// what it is waiting for is the loop being back on its feet and that is the thing that
+/// says so.
+static RECOVERING: AtomicBool = AtomicBool::new(false);
+/// Misses laid at that door rather than at the compositor's, so the exemption is visible
+/// instead of being a silent reason the value stopped climbing.
+static AFTER_LOAD: AtomicUsize = AtomicUsize::new(0);
+/// Whether the last frame's drawing outgrew the budget it was started against.
+///
+/// Such a frame reaches the compositor late whatever the compositor was given, so the miss is
+/// the drawing's and giving the compositor longer answers nothing. Left unsaid it answers
+/// something worse: at 144Hz a heavy frame at startup climbed the compositor's share to the
+/// ceiling, and once there the budget — drawing and composing together — was the ceiling too,
+/// so the drawing had no allowance at all, every frame landed late, and every one of those
+/// asked for a climb that could not happen. 120 frames of every 600, for the rest of the run.
+static OVERRAN: AtomicBool = AtomicBool::new(false);
+/// Misses that were, counted apart for the same reason as the ones after a load.
+static OVERRUN_DRAWING: AtomicUsize = AtomicUsize::new(0);
+/// Frames the clock paced rather than the blanks, because there is no blank to have missed
+/// on those and a period of them would otherwise read as a period with nothing wrong.
+static CLOCK_FRAMES: AtomicUsize = AtomicUsize::new(0);
+/// The most the compositor has ever been seen to want more than, which it is never given
+/// less than again.
+///
+/// A value a frame has already missed its blank at is known not to be enough for this
+/// display, and going back to it buys a stutter that has been paid for once already. So the
+/// shaving only ever tries values never shown to be short, and a stutter costs at most one
+/// frame per value rather than one every couple of minutes for as long as the game runs.
+///
+/// This only ratchets upward, so a miss that was not really about the compositor — one the
+/// whole-turn guard let through — costs lag for the rest of the run. The clamp at half a
+/// turn is what bounds that.
+static PROVEN_SHORT_US: AtomicI64 = AtomicI64::new(0);
+/// A compose time given on the command line, which pins it: 0 to find it while running.
+static PINNED_COMPOSE_US: AtomicI64 = AtomicI64::new(0);
 
 static FRAMES: AtomicUsize = AtomicUsize::new(0);
 static LAST_PRESENT: AtomicI64 = AtomicI64::new(0);
 /// How many frames may explain themselves between reports.
 const LATE_LINES: usize = 6;
 static SPOKEN: AtomicUsize = AtomicUsize::new(0);
+/// Late frames the ration kept out of the log, so a bad patch says how bad rather than
+/// only that it happened.
+static UNSPOKEN: AtomicUsize = AtomicUsize::new(0);
+/// The worst of the period, for the things a rate does not describe: an average interval
+/// hides a single 25ms frame, and the `5+` bucket does not say how much more.
+///
+/// Arrivals beyond a whole turn are left out of the worst and counted on their own. A
+/// stage load takes a third of a second, and the frame after it arrives that late through
+/// no fault of the compose time — one of those in a period would be the whole of the
+/// worst and would say nothing about the frames either side of it.
+static WORST_ARRIVAL: AtomicI64 = AtomicI64::new(i64::MIN);
+static LATE_ARRIVALS: AtomicUsize = AtomicUsize::new(0);
+static OVERRUN_ARRIVALS: AtomicUsize = AtomicUsize::new(0);
+static WORST_SETTLE: AtomicI64 = AtomicI64::new(0);
+static WORST_GAP: AtomicI64 = AtomicI64::new(0);
+/// The shortest a frame was on screen over the period, which the refresh buckets cannot say.
+///
+/// They round: `2x600` means every gap fell between one and a half and two and a half
+/// refreshes, and at 120Hz that is a four-millisecond window reported as one number. A period
+/// of frames alternating 15ms and 18ms is judder anybody would see and reads as `2x600`, so
+/// the buckets alone were never going to settle whether the pacing is smooth.
+static BEST_GAP: AtomicI64 = AtomicI64::new(i64::MAX);
+/// How far off the cadence the gaps fell, in bands of half a millisecond either side, so the
+/// spread inside a bucket is visible rather than rounded away. The ends are everything
+/// further.
+static JITTER: [AtomicUsize; 9] = [
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+    AtomicUsize::new(0),
+];
+/// Half a millisecond, and four bands either side of the cadence before the ends.
+const JITTER_BAND_US: i64 = 500;
+/// What the log itself cost over the period, both threads that write one.
+static LOG_US: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
+static LOG_WRITES: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
 /// How many refreshes apart the frames came out, counted. Says which pattern the
 /// pacing is producing rather than only how often it was not the intended one, which
 /// is the difference between a frame shown twice and one shown early. The last bucket
@@ -147,6 +332,37 @@ fn frame_ticks() -> i64 {
     frequency() / i64::from(LOGIC_HZ)
 }
 
+/// Holds the compositor's drawing time at what the command line said, instead of letting it
+/// be found while running. 0 leaves it to be found.
+///
+/// For sweeping it: the compositor's own count of frames it could not show stays at zero
+/// through runs whose cadence is broken, so what it needs is established by pinning it too
+/// small until frames are known to miss and walking it up until they stop.
+/// The least the compositor may be given.
+///
+/// A pinned value is the whole of it, because pinning is for measuring one value and a floor
+/// that overrode it would make every reading below `COMPOSE_FLOOR_US` the same reading.
+///
+/// Otherwise it is what has been shown to be too little, which the frame's own drawing time
+/// is not allowed to be clamped under either.
+fn compose_floor() -> i64 {
+    let pinned = PINNED_COMPOSE_US.load(Ordering::Relaxed);
+    if pinned > 0 {
+        return pinned;
+    }
+    COMPOSE_FLOOR_US.max(PROVEN_SHORT_US.load(Ordering::Relaxed))
+}
+
+pub fn pin_compose(us: u32) {
+    if us == 0 {
+        return;
+    }
+    let us = i64::from(us);
+    PINNED_COMPOSE_US.store(us, Ordering::Relaxed);
+    COMPOSE_US.store(us, Ordering::Relaxed);
+    log!("frame: the compositor's drawing time is pinned at {us}us rather than found");
+}
+
 /// Sets the cadence up before there is a window to ask about, from the desktop's own
 /// refresh rate. `settle` replaces this with the game monitor's answer as soon as the
 /// window exists.
@@ -187,9 +403,21 @@ fn settle(window: HWND) {
     // a second — so it is checked rather than assumed.
     let composited = composition().map(|(period, _)| 1_000_000 / micros(period).max(1));
     let agrees = match (hz, composited) {
-        (Some(hz), Some(composited)) => composited == i64::from(hz),
+        (Some(hz), Some(composited)) => same_rate(composited, i64::from(hz)),
         _ => false,
     };
+    // A rate that does not divide into 60 can still be paced by its blanks, one frame to the
+    // nearest one — but only once the compositor has said it is timing this display, because
+    // there the count per frame is worked out from the refresh spacing and a spacing belonging
+    // to another monitor would put the frames anywhere.
+    //
+    // Only at or above 60Hz. Below it there is no blank to put a sixtieth of a second on — a
+    // 50Hz display would get one frame per blank and run the game at 50, seventeen percent slow
+    // with the music to match. The clock at least keeps the game's own speed there and leaves
+    // the unevenness to the display.
+    if blanks == 0 && agrees && hz.is_some_and(|hz| hz >= LOGIC_HZ) {
+        BLANK_PACED.store(true, Ordering::Relaxed);
+    }
 
     let signature = i64::from(hz.unwrap_or(0)) << 8 | i64::from(blanks) << 1 | i64::from(agrees);
     if REPORTED.swap(signature, Ordering::Relaxed) == signature {
@@ -197,8 +425,11 @@ fn settle(window: HWND) {
     }
     let reported = hz.map_or_else(|| "an unknown".to_string(), |hz| format!("{hz}Hz"));
     match (blanks, agrees) {
-        (0, _) => {
-            log!("frame: {reported} monitor is not a multiple of {LOGIC_HZ}Hz; pacing by the clock")
+        (0, true) => log!(
+            "frame: {reported} monitor is not a multiple of {LOGIC_HZ}Hz; one frame on whichever blank is nearest each sixtieth"
+        ),
+        (0, false) => {
+            log!("frame: {reported} monitor and the compositor will not say; pacing by the clock")
         }
         (blanks, true) => log!("frame: {reported} monitor, one frame every {blanks} blank(s)"),
         (_, false) => {
@@ -208,17 +439,67 @@ fn settle(window: HWND) {
     }
 }
 
-/// Settles on how many blanks make a game frame, from what the monitor reports.
+/// The multiple of 60 a reported rate really is, when it is one.
+///
+/// `dmDisplayFrequency` is whole Hz, so the NTSC-derived rates come back short: 119.88 reports
+/// as 119 and 59.94 as 59. Those are multiples of 60 in every sense that matters to a frame
+/// loop and not one in arithmetic, and taking them for fractional rates is worse than useless —
+/// the grid then chases an exact sixtieth against a rate 0.8% away from one and pays the
+/// difference in a one-refresh frame about once a second.
+///
+/// Two per cent, which reaches 119 from 120 and 59 from 60 while leaving 165 to be what it is:
+/// the nearest multiple to that is 180, eight per cent off.
+fn whole_multiple(hz: u32) -> Option<u32> {
+    let multiple = (hz + LOGIC_HZ / 2) / LOGIC_HZ;
+    let nominal = multiple * LOGIC_HZ;
+    (multiple >= 1 && nominal.abs_diff(hz) * 100 <= nominal * 2).then_some(multiple)
+}
+
+/// Whether two rates named by different means are the same display's.
+///
+/// Within two per cent, not equal. One comes from `dmDisplayFrequency` in whole Hz and the other
+/// from the compositor's refresh period in whole microseconds, so a 119.88Hz display is 119 by
+/// one and 120 by the other and they never were going to match. What this is for is catching the
+/// compositor timing an altogether different monitor — 144 against 120, which ran the game at 72
+/// frames a second — and that is not a rounding's worth apart.
+fn same_rate(a: i64, b: i64) -> bool {
+    (a - b).abs() * 100 <= a.max(b) * 2
+}
+
+/// Settles on how the blanks are spaced, and whether they are known well enough to pace by.
+///
+/// A rate that does not divide into 60 is paced by them too, on the nearest blank to each
+/// sixtieth — the count per frame is not a constant there, so it is worked out per frame
+/// rather than settled here. Only a display whose rate is not known at all falls back to the
+/// clock.
 fn adopt(hz: Option<u32>) {
     let (blanks, period) = match hz {
-        Some(hz) if hz >= LOGIC_HZ && hz % LOGIC_HZ == 0 => {
-            (hz / LOGIC_HZ, frequency() / i64::from(hz))
-        }
-        Some(hz) => (0, frequency() / i64::from(hz)),
+        // The nominal multiple's period rather than the reported rate's, because for a rate that
+        // reports short the nominal is the nearer of the two: a 119.88Hz refresh is 8341µs, which
+        // 120 puts at 8333 and 119 at 8403.
+        Some(hz) => match whole_multiple(hz) {
+            Some(multiple) => (multiple, frequency() / i64::from(multiple * LOGIC_HZ)),
+            None => (0, frequency() / i64::from(hz)),
+        },
         None => (0, frame_ticks()),
     };
-    BLANKS_PER_FRAME.store(blanks, Ordering::Relaxed);
-    PERIOD.store(period, Ordering::Relaxed);
+    // A whole multiple is paced by the blanks on that alone, as it always was. A rate that is
+    // not takes one more thing — see `settle`, which is the only caller that can ask the
+    // compositor whether it is timing this display at all.
+    BLANK_PACED.store(blanks > 0, Ordering::Relaxed);
+    // A compose time shown to be short is shown so of the display it was measured on. The window
+    // moving to another monitor, or the mode changing under it, makes it a claim about
+    // something else — and since it only ever ratchets upward, carrying it over would hold
+    // lag on the new display for a fault that belonged to the old one.
+    //
+    // Both swaps, and then the test: `||` would skip the second one and leave the period
+    // unstored on every change of the blanks.
+    let blanks_changed = BLANKS_PER_FRAME.swap(blanks, Ordering::Relaxed) != blanks;
+    let period_changed = PERIOD.swap(period, Ordering::Relaxed) != period;
+    if (blanks_changed || period_changed) && PINNED_COMPOSE_US.load(Ordering::Relaxed) == 0 {
+        PROVEN_SHORT_US.store(0, Ordering::Relaxed);
+        COMPOSE_US.store(COMPOSE_START_US, Ordering::Relaxed);
+    }
 }
 
 /// The refresh rate of the monitor the game's window is on, in whole Hz.
@@ -255,10 +536,32 @@ fn frames_late() -> Option<i64> {
 }
 
 /// What the pacing is costing and what it is buying, for the screen: how long a frame
-/// takes from reading the keyboard to being handed over, and how long a frame stays up.
-/// Both measured, both microseconds.
-pub fn status() -> (i64, i64) {
-    (INPUT_LAG_US.load(Ordering::Relaxed), INTERVAL_US.load(Ordering::Relaxed))
+/// takes from reading the keyboard to being handed over, how long a frame stays up, and
+/// and how long the compositor is being given to draw. All measured, all microseconds.
+///
+/// The compositor's time is worth a line of its own next to the lag rather than folded in. It is
+/// the part of the lag orb chose, it is the part that moves while the game is running, and
+/// it is the one that says whether the cadence is being held cheaply or expensively.
+pub fn status() -> (i64, i64, i64) {
+    (
+        INPUT_LAG_US.load(Ordering::Relaxed),
+        INTERVAL_US.load(Ordering::Relaxed),
+        COMPOSE_US.load(Ordering::Relaxed),
+    )
+}
+
+/// When the compositor says the last blank was. `None` when it will not say.
+///
+/// Only for checking the anchor the pacing keeps, which is when `DwmFlush` came back and
+/// is assumed to be a blank. A flush that returns a refresh late and a flush that returns
+/// on time against an anchor which was itself a refresh early produce the same gap, and
+/// the compositor's own timestamp is what tells them apart. Asked for only while
+/// `--pacing` is on, since nothing but that question needs it.
+fn vblank() -> Option<i64> {
+    let mut info: DWM_TIMING_INFO = unsafe { std::mem::zeroed() };
+    info.cbSize = size_of::<DWM_TIMING_INFO>() as u32;
+    let asked = unsafe { DwmGetCompositionTimingInfo(std::ptr::null_mut(), &mut info) };
+    (asked >= 0 && info.qpcVBlank != 0).then_some(info.qpcVBlank as i64)
 }
 
 /// What the compositor says about the blanks: how far apart they are in ticks, and
@@ -286,9 +589,18 @@ fn composition() -> Option<(i64, i64)> {
 /// microsecond and still lands the frames wherever it likes across the refreshes, which
 /// is visibly worse than being a refresh late now and then.
 pub fn wait_for_slot(window: HWND) {
+    // Measured rather than assumed cheap: `EnumDisplaySettingsW` and the compositor are
+    // both asked, and this runs before the flush — so whatever it takes comes out of the
+    // millisecond the frame has to reach that flush in.
     if SETTLE_AGE.fetch_add(1, Ordering::Relaxed) >= RESYNC_FRAMES {
         SETTLE_AGE.store(0, Ordering::Relaxed);
+        let asked = now();
         settle(window);
+        let cost = micros(now() - asked);
+        SETTLE_US.store(cost, Ordering::Relaxed);
+        WORST_SETTLE.fetch_max(cost, Ordering::Relaxed);
+    } else {
+        SETTLE_US.store(0, Ordering::Relaxed);
     }
 
     let blanks = i64::from(BLANKS_PER_FRAME.load(Ordering::Relaxed));
@@ -300,8 +612,42 @@ pub fn wait_for_slot(window: HWND) {
     // A replay being run fast keeps the cadence like anything else: `speed` is
     // updates per drawn frame, so the frames still come one per turn and only carry
     // more of the game with them.
-    if blanks == 0 || !in_front {
+    if !BLANK_PACED.load(Ordering::Relaxed) || !in_front {
+        LAST_BLANK.store(0, Ordering::Relaxed);
+        // So that a frame paced this way says so rather than reporting spans off the last
+        // blank there was, which is somewhere in the past and belongs to another frame.
+        FLUSH_CALLED.store(0, Ordering::Relaxed);
+        AIMED_REFRESHES.store(0, Ordering::Relaxed);
         return wait_by_clock(blanks);
+    }
+    let period = PERIOD.load(Ordering::Relaxed).max(1);
+    // What the frame already handed over was aimed at, which is the blank this flush is about
+    // to wait out. Not this frame's own count: on a display that is not a whole multiple they
+    // differ every other frame, and it is the one already in the compositor's hands that the
+    // arrival and the overshoot are about.
+    let borne = period * AIMED_REFRESHES.load(Ordering::Relaxed).max(1);
+
+    // How much of the compositor's drawing time was still ahead when the frame got here,
+    // which is the other way a refresh goes missing: that time is the compositor's, and a
+    // frame that has spent it before even asking has none left to be composed in.
+    //
+    // Kept apart from the overshoot the compose time is driven by, because they are
+    // different faults with different answers — this one is orb or the game's loop being
+    // slow between frames, and giving the compositor longer would not touch it.
+    let called = now();
+    let last = LAST_BLANK.load(Ordering::Relaxed);
+    let arrival = if last == 0 { 0 } else { micros(called - (last + borne)) };
+    ARRIVAL_US.store(arrival, Ordering::Relaxed);
+    FLUSH_CALLED.store(called, Ordering::Relaxed);
+    if last != 0 {
+        if arrival > 0 {
+            LATE_ARRIVALS.fetch_add(1, Ordering::Relaxed);
+        }
+        if arrival > micros(borne) {
+            OVERRUN_ARRIVALS.fetch_add(1, Ordering::Relaxed);
+        } else {
+            WORST_ARRIVAL.fetch_max(arrival, Ordering::Relaxed);
+        }
     }
 
     // One flush, as an anchor on a real blank, and the clock for the rest of the way.
@@ -320,9 +666,36 @@ pub fn wait_for_slot(window: HWND) {
     if unsafe { DwmFlush() } < 0 {
         // The compositor has gone — turned off, or a session change. The clock will do
         // until `settle` notices.
+        LAST_BLANK.store(0, Ordering::Relaxed);
+        FLUSH_CALLED.store(0, Ordering::Relaxed);
         return wait_by_clock(blanks);
     }
     let blank = now();
+    BLANK_AT.store(blank, Ordering::Relaxed);
+    LAST_BLANK.store(blank, Ordering::Relaxed);
+    // Which blank the frame just handed over reached, which is the blank this flush has
+    // this moment returned at, against the one it was aimed at. Everything the compose time is
+    // driven by comes from those two numbers and neither costs a call.
+    if last != 0 {
+        measure_compose(period, borne, last + borne, blank);
+    }
+    // This frame's own turn, worked out now that there is a blank to count it from. The order
+    // matters: the count is the blank the grid means minus the blank in hand, so it cannot be
+    // had before the flush returns.
+    let refreshes = refreshes_this_frame(period, blank);
+    let cadence = period * refreshes;
+    AIMED_REFRESHES.store(refreshes, Ordering::Relaxed);
+    // Whether the anchor is a blank at all, asked of the compositor rather than assumed
+    // from the flush having returned. After the flush, so the asking is spent out of the
+    // slack and not out of the compose time before it.
+    ANCHOR_US.store(
+        if crate::log::pacing_wanted() {
+            vblank().map_or(0, |vblank| micros(blank - vblank))
+        } else {
+            0
+        },
+        Ordering::Relaxed,
+    );
 
     // The flush has just waited out the composition that put the last frame on screen, so
     // this is the far end of that frame's input lag and the near end was its own keyboard
@@ -334,6 +707,13 @@ pub fn wait_for_slot(window: HWND) {
         INPUT_LAG_US.store(if lag == 0 { shown } else { (lag * 7 + shown) / 8 }, Ordering::Relaxed);
     }
 
+    // Everything the last frame worked out about itself goes to the log here, on the far
+    // side of the flush. What is left of the turn is slack — the work needs the last
+    // couple of milliseconds of it and nothing needs the rest — so a write that takes a
+    // millisecond takes it out of nothing. On the near side of the flush the same write
+    // costs a refresh.
+    crate::log::drain();
+
     // Then wait out almost all of the frame's turn, and do the work at the end of it.
     //
     // This is the whole of the input lag that is left to win. The work takes a fraction
@@ -341,12 +721,154 @@ pub fn wait_for_slot(window: HWND) {
     // leaves it — reads the keyboard a refresh and a half before the frame it appears
     // in. Doing it at the end reads the keyboard just before, which is as late as it can
     // be and still be that frame.
-    let cadence = PERIOD.load(Ordering::Relaxed).max(1) * blanks;
     sleep_until(blank + cadence - ticks(PREPARE_US.load(Ordering::Relaxed)));
 }
 
-/// The fallback for a display that cannot be divided into 60.
+/// Which blank the frame just gone reached, and what that says the compose time should be.
+///
+/// The frame reached the blank this flush returned at, so `blank` against the blank it was
+/// aimed at is the whole answer: nothing to average, and nothing to infer from a gap that
+/// goes wrong for half a dozen unrelated reasons. One frame decides it, because the two
+/// cases are a refresh apart while the aim is good to a few hundred microseconds.
+fn measure_compose(period: i64, cadence: i64, aimed: i64, blank: i64) {
+    let overshoot = blank - aimed;
+    OVERSHOOT_US.store(micros(overshoot), Ordering::Relaxed);
+    // A frame that landed where it was aimed is a blank worth measuring the next aim from, and
+    // one that did not is not. Keeping the phase off the late ones is what stops a run settling
+    // into a fifth of its frames arriving a refresh after the blank they asked for.
+    if overshoot.abs() < period / 4 {
+        PHASE.store(blank, Ordering::Relaxed);
+    }
+    let refreshes = (overshoot.max(0) + period / 2) / period;
+    MISSED[refreshes.clamp(0, MISSED.len() as i64 - 1) as usize].fetch_add(1, Ordering::Relaxed);
+
+    if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 {
+        return;
+    }
+    let compose = COMPOSE_US.load(Ordering::Relaxed);
+    // Beyond a whole turn is a stage load or an update that ran long, not a frame handed
+    // over too near its blank, and widening the compose time for one buys nothing. This is the
+    // guard the first attempt at driving this from our own gaps did not have, and
+    // without it a run ratchets to seven milliseconds of lag by the third stage.
+    if overshoot > cadence {
+        RECOVERING.store(true, Ordering::Relaxed);
+        return;
+    }
+    if refreshes > 0 {
+        // The frame after a load is the load's to answer for, not the compositor's.
+        if RECOVERING.load(Ordering::Relaxed) {
+            AFTER_LOAD.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        // Nor is a frame whose own drawing outgrew its budget. It would have been late whatever
+        // the compositor had been given, and climbing for it is how the climb ate the drawing's
+        // allowance and then could not stop.
+        if OVERRAN.load(Ordering::Relaxed) {
+            OVERRUN_DRAWING.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        PROVEN_SHORT_US.fetch_max(compose, Ordering::Relaxed);
+        // `fetch_max` rather than `store` because the one thing the climb must never do is go
+        // down, and saying so outright beats leaving it to whatever the ceiling works out as.
+        COMPOSE_US.fetch_max(
+            (compose + MISS_STEP_US).min(compose_ceiling(period)),
+            Ordering::Relaxed,
+        );
+        return;
+    }
+    RECOVERING.store(false, Ordering::Relaxed);
+    // And it never comes back down, which is the whole of why a run does not stutter.
+    //
+    // It used to: a clean stretch shaved it, on the reasoning that the least that works is
+    // worth having since every microsecond of it is input lag. But the only thing that can
+    // say a value is too little is a frame missing its blank at it, so every step downward is
+    // a wager, and every lost wager is a stutter in the middle of a run. Measured, shaving
+    // 100µs a second from 2000µs: the first frame missed at 2000, which set a floor of 2100
+    // that said nothing about 2100 being enough; the walk down took 2500 → 2400 → 2300 →
+    // 2200 → 2100 in four seconds without dwelling anywhere long enough to catch a value that
+    // only fails sometimes; and from there it climbed back 2100 → 2200 → 2300 → 2400 at a
+    // stutter a step, through the whole of stage 1.
+    //
+    // Climbing from below has none of that to do. It starts under anything a display has
+    // wanted and rises until the misses stop, which at fifty microseconds a frame is over
+    // before a title screen is up, and where it stops is the answer. Going down again could
+    // only re-ask a question already answered.
+}
+
+/// The most the compositor may be given: one refresh, less a quarter of it.
+///
+/// A frame is handed over `compose` before the blank it is aimed at — that is the whole of what
+/// decides where the handover lands, since the drawing happens before it and only moves when
+/// the drawing starts. So this and not the budget is what has to stay inside a refresh: hand
+/// over earlier than the blank before the aimed one and the compositor takes it at that earlier
+/// blank, which shows the frame a refresh early and brings the flush back there with it,
+/// carrying the whole reckoning a refresh with it.
+///
+/// At 120Hz a refresh is 8333µs and the old ceiling — half a game frame — was exactly that, so
+/// this was never visibly wrong there. At 144Hz a refresh is 6944 and half a game frame is
+/// 8333, and the moment the compositor's share passed a refresh the gaps collapsed to one
+/// apiece: `gaps in refreshes 1x418 2x179`, a hundred frames a second.
+fn compose_ceiling(period: i64) -> i64 {
+    micros(period) * 3 / 4
+}
+
+/// The most the drawing and the compositor may be given between them, which is the input lag
+/// this pacing can cost.
+///
+/// A whole game frame less a quarter, because the budget only decides how early the drawing
+/// starts and the drawing has the frame's own turn to happen in. Tying this to a refresh as
+/// well was a mistake: at 144Hz it left the compositor's share and the whole budget the same
+/// 5208µs, so the drawing had no allowance, every frame reached the compositor late, and the
+/// input lag and the compositor's share read as the same number on screen — which is what
+/// gave it away, since the one is the other plus the drawing.
+fn budget_ceiling() -> i64 {
+    micros(frame_ticks()) * 3 / 4
+}
+
+/// How many refreshes to give the frame about to start.
+///
+/// A rate that divides into 60 gets the same number every time and no grid to chase. That is
+/// deliberate: a display sold as 120Hz is often 119.88, and following an exact sixtieth there
+/// would mean a frame taking three refreshes every few minutes to make up the difference. Two
+/// every time is 59.94fps, a tenth of a percent slow on a clock nobody can see, against a
+/// hitch anybody can.
+///
+/// A rate that does not divide takes the blank nearest where the sixtieth-of-a-second grid has
+/// got to. At 144Hz, where a frame is 2.4 refreshes, that comes out two, three, two, three,
+/// two — and the average is 2.4 exactly, so the rate is 60 over any length of time and every
+/// frame is still shown at a blank. The grid is an absolute moment rather than a running total
+/// of refreshes spent, which is what makes it self-correcting: a frame put on the nearer blank
+/// does not push the ones after it.
+fn refreshes_this_frame(period: i64, blank: i64) -> i64 {
+    let blanks = i64::from(BLANKS_PER_FRAME.load(Ordering::Relaxed));
+    if blanks > 0 {
+        return blanks;
+    }
+    // Measured from the phase rather than from where the last frame landed, so that a frame
+    // which landed late does not become the thing the next aim is built on. The count is then
+    // whatever it takes to reach the blank the grid meant, counted from the blank in hand.
+    let phase = PHASE.load(Ordering::Relaxed);
+    if phase == 0 || (blank - phase).abs() > frame_ticks() * 4 {
+        PHASE.store(blank, Ordering::Relaxed);
+        IDEAL_NEXT.store(blank + frame_ticks(), Ordering::Relaxed);
+        return ((frame_ticks() + period / 2) / period).max(1);
+    }
+    // The blank on the phase's grid nearest where the sixtieth-of-a-second grid has got to.
+    // Both are absolute, so neither carries an error forward: the answer is the same whatever
+    // the last frame did.
+    let ideal = IDEAL_NEXT.load(Ordering::Relaxed);
+    let steps = ((ideal - phase) + period / 2) / period;
+    let target = phase + steps * period;
+    IDEAL_NEXT.store(ideal + frame_ticks(), Ordering::Relaxed);
+
+    // Counted from the blank in hand rather than from the phase, since that is where the wait
+    // starts. At least one, because a target already behind us is one this frame cannot have.
+    (((target - blank) + period / 2) / period).max(1)
+}
+
+/// The fallback for a display whose refresh rate is not known at all.
 fn wait_by_clock(blanks: i64) {
+    CLOCK_FRAMES.fetch_add(1, Ordering::Relaxed);
     let period = PERIOD.load(Ordering::Relaxed).max(1);
     let cadence = if blanks > 0 { period * blanks } else { frame_ticks() };
 
@@ -363,6 +885,10 @@ fn wait_by_clock(blanks: i64) {
         target += cadence;
     }
     NEXT_PRESENT.store(target + cadence, Ordering::Relaxed);
+    // Here too, and for the same reason: the target is a moment on the clock, so a write
+    // before the wait only shortens the wait. A frame paced this way still has a whole
+    // turn of slack, and lines held for a drain that never comes are lines lost.
+    crate::log::drain();
     sleep_until(target);
 }
 
@@ -388,9 +914,25 @@ pub struct Marks {
 
 /// Called once the frame has been handed over, to see what the display is getting.
 pub fn finished(marks: Marks) {
+    account(&marks);
+    // Last of all, and unconditionally, because this is the near end of the span the next
+    // frame has to reach the flush inside: everything after it belongs to the game's own
+    // loop rather than to orb.
+    ACCOUNTED.store(now(), Ordering::Relaxed);
+}
+
+fn account(marks: &Marks) {
     let previous = LAST_PRESENT.swap(marks.presented, Ordering::Relaxed);
+    let accounted = ACCOUNTED.load(Ordering::Relaxed);
+    let cost = crate::log::spent();
+    LOG_US[0].fetch_add(cost.us, Ordering::Relaxed);
+    LOG_WRITES[0].fetch_add(cost.writes, Ordering::Relaxed);
+    LOG_US[1].fetch_add(cost.other_us, Ordering::Relaxed);
+    LOG_WRITES[1].fetch_add(cost.other_writes, Ordering::Relaxed);
     let period = PERIOD.load(Ordering::Relaxed).max(1);
-    let blanks = BLANKS_PER_FRAME.load(Ordering::Relaxed);
+    // What the frame just handed over was aimed at, not what a display of this rate nominally
+    // gets: on one that is not a whole multiple those differ every other frame.
+    let aimed_refreshes = AIMED_REFRESHES.load(Ordering::Relaxed);
 
     // What this frame took from reading the keyboard to being handed over, which is what
     // the next one has to leave room for.
@@ -400,15 +942,21 @@ pub fn finished(marks: Marks) {
     // every frame heavier than it, and one frame handed over late is shown a whole
     // refresh late — far more visible than the microseconds of lag that aiming high
     // costs.
-    let turn = micros(period * i64::from(blanks.max(1)));
+    let turn = budget_ceiling();
     // Left for the next frame's flush to close off, which is when this frame is on screen.
     INPUT_READ_AT.store(marks.waited, Ordering::Relaxed);
-    let took = micros(marks.presented - marks.waited) + HANDOVER_US.load(Ordering::Relaxed);
+    let took = micros(marks.presented - marks.waited) + COMPOSE_US.load(Ordering::Relaxed);
     let prepare = PREPARE_US.load(Ordering::Relaxed);
+    // Whether this frame's drawing outgrew what it was started against. If it did, it reached
+    // the compositor late for a reason the compositor cannot be given more time to fix, and the
+    // next frame's reckoning must not read the resulting miss as one it can.
+    OVERRAN.store(took > prepare, Ordering::Relaxed);
     let next = if took > prepare { took } else { prepare - (prepare - took) / 64 };
-    // Never more than half the turn: past that, the lag is worse than the stutter it is
-    // avoiding, and the fault is elsewhere.
-    PREPARE_US.store(next.clamp(HANDOVER_FLOOR_US, turn / 2), Ordering::Relaxed);
+    // The floor held under the ceiling rather than trusted to be: `clamp` panics when they
+    // cross, and a pinned compose time larger than a refresh would cross them — inside the
+    // frame loop, so the game would go down with it.
+    let floor = compose_floor().min(turn);
+    PREPARE_US.store(next.clamp(floor, turn), Ordering::Relaxed);
 
     FRAMES.fetch_add(1, Ordering::Relaxed);
     if previous == 0 {
@@ -418,49 +966,88 @@ pub fn finished(marks: Marks) {
     let refreshes = (gap + period / 2) / period;
     let bucket = refreshes.clamp(0, GAPS.len() as i64 - 1) as usize;
     GAPS[bucket].fetch_add(1, Ordering::Relaxed);
+    WORST_GAP.fetch_max(micros(gap), Ordering::Relaxed);
+    BEST_GAP.fetch_min(micros(gap), Ordering::Relaxed);
+    // Against the cadence the frame was aimed at rather than against the average, so a period
+    // that is evenly wrong and one that is unevenly right do not come out the same.
+    //
+    // The clock's cadence where there are no blanks to count, not skipped: a display that is
+    // not a multiple of 60 is paced entirely by the spacing of these presents, so it is the
+    // one path where their spacing is the whole of what orb controls. Measuring it only where
+    // the blanks do the work left the other case with nothing to look at.
+    let off = micros(gap - if aimed_refreshes > 0 { period * aimed_refreshes } else { frame_ticks() });
+    let band = off.div_euclid(JITTER_BAND_US) + (JITTER.len() as i64) / 2;
+    JITTER[band.clamp(0, JITTER.len() as i64 - 1) as usize].fetch_add(1, Ordering::Relaxed);
 
     let interval = INTERVAL_US.load(Ordering::Relaxed);
     let smoothed = if interval == 0 { micros(gap) } else { (interval * 31 + micros(gap)) / 32 };
     INTERVAL_US.store(smoothed, Ordering::Relaxed);
 
-    // How near the blank a frame may be handed over, found by trying rather than assumed.
-    //
-    // Judged on the compositor's own count of frames it could not show when they were
-    // meant to be shown, which is the thing this room exists to prevent. The gaps between
-    // our presents are the wrong signal: they go wrong for reasons that have nothing to do
-    // with the handover — a stage loading, the process descheduled — and driving the room
-    // from them ratcheted the lag up to seven milliseconds while the compositor was
-    // reporting that not one frame had been late.
-    if blanks > 0 && LATE_AGE.fetch_add(1, Ordering::Relaxed) >= LATE_INTERVAL {
-        LATE_AGE.store(0, Ordering::Relaxed);
-        if let Some(total) = frames_late() {
-            let seen = LATE_SEEN.swap(total, Ordering::Relaxed);
-            let room = HANDOVER_US.load(Ordering::Relaxed);
-            // Up quickly, down slowly: a late frame is seen, and a millisecond of lag is
-            // not.
-            let next = if seen >= 0 && total > seen { room + 1000 } else { room - 250 };
-            HANDOVER_US.store(next.clamp(HANDOVER_FLOOR_US, turn / 2), Ordering::Relaxed);
-        }
-    }
+    // How long the compositor needs is not judged here. It was, from
+    // `DWM_TIMING_INFO.cFramesLate` — its own count of frames it could not show when they
+    // were meant to be shown — and that count stayed at zero through runs where three to
+    // five frames of every six hundred were a refresh late, so the value never moved off
+    // its floor. It is driven from the flush's own overshoot instead, in `measure_compose`,
+    // which is the same question asked of something that answers.
 
     // The breakdown, for the frames that did not come out on the cadence. Rationed,
     // because a bad patch would otherwise fill the log with the same line.
-    if blanks == 0 || refreshes == i64::from(blanks) {
+    if aimed_refreshes == 0 || refreshes == aimed_refreshes {
         return;
     }
     let spoken = SPOKEN.fetch_add(1, Ordering::Relaxed);
     if spoken >= LATE_LINES {
+        UNSPOKEN.fetch_add(1, Ordering::Relaxed);
         return;
     }
     let us = |from: i64, to: i64| micros(to - from);
-    detail!(
-        "frame: {refreshes} refreshes — clear {}us wait {}us update {}us sound {}us draw {}us present {}us",
+    let called = FLUSH_CALLED.load(Ordering::Relaxed);
+    // A frame is late for one of two reasons, and which is which is the first thing to
+    // know. Either it reached the flush after the blank that was its turn had gone — the
+    // refresh was lost before the frame did anything, and the spans up to `flush` say what
+    // spent it — or it arrived in time and something after that overran, which the spans
+    // from `sleep` on say.
+    let (how, waiting) = if called == 0 {
+        ("paced by the clock".to_string(), format!("wait {}us", us(marks.cleared, marks.waited)))
+    } else {
+        let arrival = ARRIVAL_US.load(Ordering::Relaxed);
+        let blank = BLANK_AT.load(Ordering::Relaxed);
+        (
+            if arrival > 0 {
+                format!("reached the flush {arrival}us after the blank it was aiming at")
+            } else {
+                format!("reached the flush {}us before the blank it was aiming at", -arrival)
+            },
+            format!(
+                "pace {}us of which settle {}us, flush {}us to an anchor {}us after the compositor's blank, sleep {}us (the frame before reached the screen {}us off its own blank)",
+                us(marks.cleared, called),
+                SETTLE_US.load(Ordering::Relaxed),
+                us(called, blank),
+                ANCHOR_US.load(Ordering::Relaxed),
+                us(blank, marks.waited),
+                OVERSHOOT_US.load(Ordering::Relaxed),
+            ),
+        )
+    };
+    // The whole gap, from the last frame being handed over to this one, in spans that add
+    // up to it. The first two are outside the marks and were what had to be guessed at:
+    // what orb did after handing the last frame over, and what the game's own loop did
+    // before calling this one back. Between them they are the millisecond a frame has to
+    // reach the flush in.
+    pacing!(
+        "frame: {refreshes} refreshes, {}us — {how}; after present {}us, loop {}us, clear {}us, {waiting}, update {}us, sound {}us, draw {}us, present {}us; log {}us in {} writes here, {}us in {} elsewhere",
+        micros(gap),
+        us(previous, accounted),
+        us(accounted, marks.started),
         us(marks.started, marks.cleared),
-        us(marks.cleared, marks.waited),
         us(marks.waited, marks.updated),
         us(marks.updated, marks.sounded),
         us(marks.sounded, marks.drawn),
         us(marks.drawn, marks.presented),
+        cost.us,
+        cost.writes,
+        cost.other_us,
+        cost.other_writes,
     );
 }
 
@@ -468,7 +1055,6 @@ pub fn finished(marks: Marks) {
 /// in one bucket; anything else means frames are reaching the display unevenly.
 pub fn report() -> String {
     let frames = FRAMES.swap(0, Ordering::Relaxed);
-    SPOKEN.store(0, Ordering::Relaxed);
     let mut gaps = String::new();
     for (refreshes, count) in GAPS.iter().enumerate() {
         let count = count.swap(0, Ordering::Relaxed);
@@ -488,16 +1074,113 @@ pub fn report() -> String {
         }
         None => 0,
     };
-    // The lag split into the two things it is made of, because they answer to different
-    // causes: the work grows with what the game is drawing and is nobody's fault, while
-    // the room is orb's own margin and should sit at its floor unless frames are actually
-    // being shown late.
-    let room = HANDOVER_US.load(Ordering::Relaxed);
+    // The lag split into the two drawing times it is made of, because they answer to
+    // different causes: the game's grows with what it is drawing and is nobody's fault,
+    // while the compositor's is a property of the display and should not move once found.
+    let compose = COMPOSE_US.load(Ordering::Relaxed);
     let prepare = PREPARE_US.load(Ordering::Relaxed);
     format!(
-        "frame: {frames} frames, {}us apart, {prepare}us before the blank ({}us work + {room}us room), {late} shown late, gaps in refreshes{gaps}",
+        "frame: {frames} frames, {}us apart, {prepare}us before the blank ({}us to draw + {compose}us for the compositor), {late} shown late, gaps in refreshes{gaps}",
         INTERVAL_US.load(Ordering::Relaxed),
-        (prepare - room).max(0),
+        (prepare - compose).max(0),
+    )
+}
+
+/// The worst of the period rather than the shape of it, for the things a rate cannot
+/// show: an average interval hides one frame in six hundred, which is exactly the kind
+/// that gets noticed while playing.
+///
+/// Written when `--pacing` is on, so this is also where the ration on the per-frame lines
+/// is given back — `report` is not written at all at `quiet`, which is the level the
+/// pacing is meant to be watched at.
+pub fn worst() -> String {
+    let arrival = WORST_ARRIVAL.swap(i64::MIN, Ordering::Relaxed);
+    let unspoken = UNSPOKEN.swap(0, Ordering::Relaxed);
+    SPOKEN.store(0, Ordering::Relaxed);
+    // The spread of the gaps, which is what the refresh buckets round away and what judder
+    // actually is: bands of half a millisecond off the cadence, counted from four bands below.
+    let mut spread = String::new();
+    for (band, count) in JITTER.iter().enumerate() {
+        let count = count.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            let low = (band as i64 - (JITTER.len() as i64) / 2) * JITTER_BAND_US;
+            let edge = if band == 0 {
+                format!("under {}", low + JITTER_BAND_US)
+            } else if band == JITTER.len() - 1 {
+                format!("over {low}")
+            } else {
+                format!("{low}")
+            };
+            spread.push_str(&format!(" {edge}us:{count}"));
+        }
+    }
+    let best = BEST_GAP.swap(i64::MAX, Ordering::Relaxed);
+    let mut line = format!(
+        "frame: on screen from {}us to {}us, off the cadence by{spread}; arrival at worst {}, {} past it, {} of those beyond a whole turn; settle at worst {}us",
+        if best == i64::MAX { 0 } else { best },
+        WORST_GAP.swap(0, Ordering::Relaxed),
+        if arrival == i64::MIN {
+            "unmeasured".to_string()
+        } else {
+            format!("{arrival:+}us against the blank")
+        },
+        LATE_ARRIVALS.swap(0, Ordering::Relaxed),
+        OVERRUN_ARRIVALS.swap(0, Ordering::Relaxed),
+        WORST_SETTLE.swap(0, Ordering::Relaxed),
+    );
+    // What the log itself cost. It is the one thing in here that is only there because
+    // something is being looked into, so a run whose late frames line up with its writes
+    // is being told about its own instrument and not about the pacing.
+    line += &format!(
+        "; log {}us in {} writes on the frame's thread, {}us in {} on orb's own",
+        LOG_US[0].swap(0, Ordering::Relaxed),
+        LOG_WRITES[0].swap(0, Ordering::Relaxed),
+        LOG_US[1].swap(0, Ordering::Relaxed),
+        LOG_WRITES[1].swap(0, Ordering::Relaxed),
+    );
+    if unspoken > 0 {
+        line += &format!("; {unspoken} late frame(s) not written, the ration was full");
+    }
+    line
+}
+
+/// Which blank the frames actually reached, and what the compositor's own counters did
+/// while they did — the two halves of the same question, which is what the compose time
+/// has to answer to.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub fn shown() -> String {
+    let mut blanks = String::new();
+    for (refreshes, count) in MISSED.iter().enumerate() {
+        let count = count.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            let more = if refreshes == MISSED.len() - 1 { "+" } else { "" };
+            blanks.push_str(&format!(" {refreshes}{more}x{count}"));
+        }
+    }
+    if blanks.is_empty() {
+        blanks.push_str(" none");
+    }
+    let clock = CLOCK_FRAMES.swap(0, Ordering::Relaxed);
+    let short = PROVEN_SHORT_US.load(Ordering::Relaxed);
+    let after_load = match (
+        AFTER_LOAD.swap(0, Ordering::Relaxed),
+        OVERRUN_DRAWING.swap(0, Ordering::Relaxed),
+    ) {
+        (0, 0) => String::new(),
+        (load, 0) => format!(", {load} of them the frame after a load"),
+        (0, drawing) => format!(", {drawing} of them a frame whose drawing overran"),
+        (load, drawing) => {
+            format!(", {load} after a load and {drawing} whose drawing overran, neither counted against the compositor")
+        }
+    };
+    format!(
+        "frame: refreshes past the blank aimed at{blanks}{after_load}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
+        COMPOSE_US.load(Ordering::Relaxed),
+        if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 { " pinned" } else { " found" },
+        compose_floor(),
+        if short > 0 { format!(" since a frame missed its blank at {short}us") } else { String::new() },
     )
 }
 
@@ -520,5 +1203,45 @@ fn sleep_until(deadline: i64) {
         } else {
             std::hint::spin_loop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{same_rate, whole_multiple};
+
+    /// The rates a display actually reports itself as, and which of them a frame loop should
+    /// treat as a whole number of refreshes to the game's sixtieth.
+    ///
+    /// The NTSC-derived ones are the point: `dmDisplayFrequency` is whole Hz, so 119.88Hz says
+    /// 119 and 59.94Hz says 59, and reading those as fractional rates is how a display that is
+    /// two refreshes a frame in every practical sense ends up chasing a sixtieth it cannot hold.
+    #[test]
+    fn a_rate_that_reports_short_is_still_a_multiple() {
+        assert_eq!(whole_multiple(60), Some(1));
+        assert_eq!(whole_multiple(59), Some(1), "59.94Hz");
+        assert_eq!(whole_multiple(120), Some(2));
+        assert_eq!(whole_multiple(119), Some(2), "119.88Hz");
+        assert_eq!(whole_multiple(239), Some(4), "239.76Hz");
+    }
+
+    /// And the ones that are genuinely not, which have to stay that way or the frames get put on
+    /// a cadence the display cannot show them at.
+    #[test]
+    fn a_rate_that_is_not_a_multiple_is_left_alone() {
+        for hz in [75, 100, 144, 143, 165] {
+            assert_eq!(whole_multiple(hz), None, "{hz}Hz");
+        }
+    }
+
+    /// Two ways of naming one display's rate round differently and must still agree; two
+    /// different displays must not. The second is what the check is for: 144 read against a
+    /// 120Hz display ran the game at 72 frames a second.
+    #[test]
+    fn rates_a_rounding_apart_are_the_same_display() {
+        assert!(same_rate(119, 120), "one rounds down, the other up");
+        assert!(same_rate(60, 59));
+        assert!(!same_rate(144, 120));
+        assert!(!same_rate(60, 120));
     }
 }

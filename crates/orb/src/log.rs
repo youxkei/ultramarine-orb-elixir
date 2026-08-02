@@ -10,7 +10,7 @@
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU32, Ordering};
 
 use orb_config::LogLevel;
 
@@ -21,7 +21,11 @@ use windows_sys::Win32::Storage::FileSystem::{
     WIN32_FILE_ATTRIBUTE_DATA, WriteFile,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows_sys::Win32::System::SystemInformation::GetTickCount;
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+
+use crate::sync::MainThread;
 
 /// Zero means "no log file", which is also how the process starts out.
 static FILE: AtomicIsize = AtomicIsize::new(0);
@@ -37,6 +41,48 @@ const QUIET: isize = 0;
 pub(crate) const NORMAL: isize = 1;
 pub(crate) const VERBOSE: isize = 2;
 
+/// Whether the frame loop writes what the pacing is doing. Off until the config says,
+/// unlike the level, because there is no startup fault it would be the evidence for.
+static PACING: AtomicBool = AtomicBool::new(false);
+
+/// What writing the log has cost since it was last asked, in performance-counter ticks,
+/// and how many writes that was. Index 0 is the thread the frame runs on and 1 is every
+/// other.
+///
+/// Kept because the log is the instrument: a `WriteFile` takes what it takes, and one
+/// that lands in the moments before a frame is handed over costs that frame a refresh.
+/// A run whose stutters line up with what was written cannot say so unless what the
+/// writing cost is written down too.
+///
+/// The two threads are kept apart because they are different findings. The appends
+/// serialise on one handle, so either can hold a frame up, but only what the frame's own
+/// thread writes is something the frame loop chose to do where it did.
+static SPENT: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
+static WRITES: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
+static FREQUENCY: AtomicI64 = AtomicI64::new(0);
+
+/// The thread the frame loop runs on, claimed by the first `drain`. Zero until then,
+/// which no thread's id is, so everything before it is written where it is asked for.
+///
+/// This is also what makes `defer` and `drain` safe from any thread without a lock:
+/// only the one thread whose id this is ever touches `HELD`.
+static FRAME_THREAD: AtomicU32 = AtomicU32::new(0);
+
+/// Lines held back until the frame loop reaches a moment where writing one costs
+/// nothing.
+///
+/// The moments between handing a frame over and the blank it is shown at are the ones a
+/// write must stay out of: the next frame has about a millisecond to reach `DwmFlush`,
+/// and one that arrives after the blank has gone waits out another refresh and is shown
+/// late. On the far side of that flush there are fourteen milliseconds of slack doing
+/// nothing, so that is where these go.
+///
+/// Only what the frame loop says about itself is held back. Startup and faults are
+/// written as they happen, because a run that ends in a crash must not lose them.
+static HELD: MainThread<Vec<String>> = MainThread::new(Vec::new());
+/// Where holding lines back stops being worth it, being far more than a frame makes.
+const HELD_MAX: usize = 64;
+
 pub fn set_level(level: LogLevel) {
     LEVEL.store(
         match level {
@@ -46,6 +92,14 @@ pub fn set_level(level: LogLevel) {
         },
         Ordering::Release,
     );
+}
+
+pub fn set_pacing(wanted: bool) {
+    PACING.store(wanted, Ordering::Release);
+}
+
+pub fn pacing_wanted() -> bool {
+    PACING.load(Ordering::Acquire)
 }
 
 pub fn wanted(level: isize) -> bool {
@@ -79,6 +133,24 @@ macro_rules! detail {
     };
 }
 pub(crate) use detail;
+
+/// What the frame loop says about the pacing, which `--pacing` turns on by itself and
+/// every level writes.
+///
+/// Not a tier of the level, because `verbose` also turns on the writers that are among
+/// the suspects: at `--log=quiet --pacing` the file holds the startup lines and these,
+/// and every write in the run is one this made.
+///
+/// Held back until the frame loop has slack for it, since writing it where it is worked
+/// out would cost the next frame a refresh — which is the very thing being counted.
+macro_rules! pacing {
+    ($($arg:tt)*) => {
+        if crate::log::pacing_wanted() {
+            crate::log::defer(&format!($($arg)*))
+        }
+    };
+}
+pub(crate) use pacing;
 
 pub fn open() {
     let Some(path) = host_exe() else { return };
@@ -129,11 +201,97 @@ pub fn line(message: &str) {
         return;
     }
     let file = file as HANDLE;
+    // From here rather than from around the `WriteFile` alone: the frame pays for the
+    // formatting as much as for the write, and what is wanted is what having written the
+    // line cost it.
+    let started = counter();
     let line = format!("[{:>8}ms] {message}\r\n", unsafe { GetTickCount() });
     let mut written = 0u32;
     unsafe {
         WriteFile(file, line.as_ptr(), line.len() as u32, &mut written, std::ptr::null_mut());
     }
+    let side = usize::from(unsafe { GetCurrentThreadId() } != FRAME_THREAD.load(Ordering::Relaxed));
+    SPENT[side].fetch_add(counter() - started, Ordering::Relaxed);
+    WRITES[side].fetch_add(1, Ordering::Relaxed);
+}
+
+/// What writing the log has cost, microseconds and writes, from the frame's own thread
+/// and from every other one.
+pub struct Cost {
+    pub us: i64,
+    pub writes: i64,
+    pub other_us: i64,
+    pub other_writes: i64,
+}
+
+/// What the log has cost since this was last asked. Resets, so whoever asks owns the
+/// interval — which is the frame loop, once a frame.
+pub fn spent() -> Cost {
+    let frequency = frequency();
+    let micros = |ticks: i64| if frequency == 0 { 0 } else { ticks * 1_000_000 / frequency };
+    Cost {
+        us: micros(SPENT[0].swap(0, Ordering::Relaxed)),
+        writes: WRITES[0].swap(0, Ordering::Relaxed),
+        other_us: micros(SPENT[1].swap(0, Ordering::Relaxed)),
+        other_writes: WRITES[1].swap(0, Ordering::Relaxed),
+    }
+}
+
+/// Holds a line back until the frame loop has slack to write it in.
+///
+/// Safe from any thread: only the frame's own thread has anything held for it, and every
+/// other writes where it stands. A line from elsewhere would be no better off waiting
+/// for a frame it is not part of.
+pub fn defer(message: &str) {
+    if unsafe { GetCurrentThreadId() } != FRAME_THREAD.load(Ordering::Relaxed) {
+        return line(message);
+    }
+    let held = unsafe { HELD.get() };
+    if held.len() >= HELD_MAX {
+        // A drain happens twice per frame's turn, so this many held means the frame loop
+        // has stopped running and no better moment is coming. Written where they stand
+        // rather than lost, which for a run that ended in a fault is the difference
+        // between having the last frames and not.
+        line("log: the frame loop has stopped draining; writing what is held where it stands");
+        for held in held.drain(..) {
+            line(&held);
+        }
+        return line(message);
+    }
+    held.push(message.to_string());
+}
+
+/// Writes what has been held back, and claims the calling thread as the frame's.
+///
+/// To be called from the frame loop at a point where a write costs nothing: after the
+/// wait for the blank, not before it.
+pub fn drain() {
+    let thread = unsafe { GetCurrentThreadId() };
+    if FRAME_THREAD.swap(thread, Ordering::Relaxed) != thread {
+        // The first drain, or the frame moved threads. Nothing is held for this one yet.
+        return;
+    }
+    let held = unsafe { HELD.get() };
+    for message in held.drain(..) {
+        line(&message);
+    }
+}
+
+fn counter() -> i64 {
+    let mut counter = 0;
+    unsafe { QueryPerformanceCounter(&mut counter) };
+    counter
+}
+
+fn frequency() -> i64 {
+    let cached = FREQUENCY.load(Ordering::Relaxed);
+    if cached != 0 {
+        return cached;
+    }
+    let mut frequency = 0;
+    unsafe { QueryPerformanceFrequency(&mut frequency) };
+    FREQUENCY.store(frequency, Ordering::Relaxed);
+    frequency
 }
 
 /// The path of the exe this is running inside — the game's, since that is the process orb

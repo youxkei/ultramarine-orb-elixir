@@ -9,8 +9,9 @@ use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerf
 use crate::log;
 use crate::sync::MainThread;
 
-/// How often the summary is written, in frames.
-const INTERVAL: u32 = 600;
+/// How often the summary is written, in frames. Shared, so that what else is written once
+/// a report lands beside the same set of numbers rather than drifting against them.
+pub const INTERVAL: u32 = 600;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Phase {

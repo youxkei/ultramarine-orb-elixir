@@ -161,10 +161,89 @@ settled by measurement rather than by looking at the screen, the measurement is 
 
 Settled by measurement.
 
-- **Exactly 60fps, locked to the game's monitor.** `frame: 600 frames, 16666us apart, gaps
-  in refreshes 2x600` — every frame of 600 exactly two refreshes apart on a 120Hz display.
-- **`0 shown late`.** The compositor's own count of frames it could not show at the refresh
-  they were aimed at, over the same window.
+- **Exactly 60fps, locked to the game's monitor, whether or not its rate divides into 60.**
+
+  | | |
+  | --- | --- |
+  | 120Hz | `600 frames, 16650us apart, gaps in refreshes 2x600` — every frame of 600 exactly two refreshes apart, seven periods in a row |
+  | 119.88Hz | `600 frames, 16652us apart, gaps in refreshes 2x600`, `aimed at 0x600` — 59.94fps, the display's own rate halved, with the compositor's share never once climbing off its 2500µs start |
+  | 144Hz | `600 frames, 16695us apart, gaps in refreshes 2x360 3x240` — 2.4 refreshes exactly, which is 60.00 frames a second, and `refreshes past the blank aimed at 0x600` in 15 of 20 periods |
+
+  Frames at 144Hz are unequal by a refresh — 13.9ms against 20.8 — which is 144 over 60 and not
+  something pacing can undo. What pacing settles is that every frame is shown at a blank, that the
+  pattern is the regular one, and that the rate is 60 over any length of time. All three hold.
+
+  It took the compositor's drawing time being driven by something that answers to hold the 120Hz
+  case. It did not hold before: three to five frames of every 600 came out three refreshes apart,
+  once every two or three seconds, for as long as there had been a frame loop.
+
+  And it took the aim being anchored to an absolute blank, not to the last landing, to hold the
+  144Hz one — see *The frame loop* in [SPEC.md](SPEC.md). Before that, 117 frames of every 600
+  landed a refresh after the blank they asked for while the rate still read 60, because the aim and
+  the lateness had settled into making each other up.
+
+  The compositor wanted 2500–2600µs on all three, which is what says the 144Hz trouble was never
+  its: the share was raised to 5208µs chasing it and the misses did not move.
+- **Neither of the two rounded rate numbers decides anything on its own**, which 119.88Hz is the
+  reason for. `dmDisplayFrequency` reported 119 and the compositor's period put the same display
+  at 120, and the two faults that came of it were both live: an equality test between them refused
+  the blanks and paced by the clock — `frame: 119Hz monitor and the compositor will not say` — and
+  `119 % 60 != 0` sent the frames to the fractional grid, where chasing an exact sixtieth against
+  a rate 0.8% off would have cost a one-refresh frame about once a second. A rate within two per
+  cent of a multiple of 60 is now that multiple, and agreement between the two numbers is within
+  two per cent rather than exact. Both boundaries have tests: 59, 119 and 239 are multiples; 75,
+  100, 143, 144 and 165 are not; 119 and 120 are one display and 144 and 120 are two.
+- **How near the blank a frame may be handed over is measured, and `DwmFlush`'s own return is
+  what measures it.** The flush waits for the compositor to compose the next frame rather than
+  for the next blank, so it returns at the blank *the frame just handed over reached* — which
+  makes the overshoot against the blank that frame was aimed at a per-frame answer to whether
+  it made it. The two cases separate cleanly: over one run every frame that made its blank
+  came back within ±900µs of it, and every frame that missed came back 5944µs or more late.
+  It is raised 500µs the moment a frame misses, shaved 100µs per clean second, and never
+  shaved back to a value a frame has already missed at, so each value costs a stutter at most
+  once. Watched doing exactly that over a replay played back through stages 0 to 3, bosses and
+  spellcards included, up to 524 bullets on screen — 63 periods, 37,800 frames. The steps were
+  slower then, 50µs per 600 frames from a start of 2500µs, so the values below are the ones that
+  walk took and not the ones a run takes now:
+
+  | | |
+  | --- | --- |
+  | periods of `gaps in refreshes 2x600`, nothing at all off the cadence | 49 of 63 |
+  | frames that missed their blank by a refresh, out of 37,800 | **3** |
+  | what those three bought | one climb each: the floor to 2450, then 2500, then 2550µs. Only the first was the compositor's: the other two fell in the periods where a boss appeared — stage 2's and stage 3's, the game stopping for 228986µs and 225368µs while it loads one, with `frames` and `script` parting company on the same line — and 2450µs had sat through thirteen quiet periods without missing once. The frame after a load is exempt now, and counted apart so the exemption is visible |
+  | the other off-cadence frames | 8, every one beyond a whole turn — stage loads, `gap at worst` 455495µs and 224081µs — which the guard keeps out of the climb |
+  | where it settled | 2550µs, held over the last 3000 frames |
+
+  So a missed blank is a one-frame event, paid for once, that cannot happen again at that value.
+  That floor is also what keeps the lag down. Without it the shaving walks back into values
+  already known short, pays the 500µs again and random-walks upward — 3700–3850µs over one run,
+  against 2550µs with it.
+- **What the compositor wants does not depend on what the game is drawing.** The same 2450–2550µs
+  came out of an idle title screen and out of a stage 3 boss fight, while the game's own drawing
+  time over those periods ranged 697–1687µs and `prepare` tracked it frame by frame. Which is
+  what keeping the two drawing times as separate numbers predicts: one is a property of the
+  display, the other of the frame.
+  Overshoots beyond a whole turn are left out of it: those are stage loads and updates that
+  ran long, and giving the compositor longer for one is what ratcheted an earlier attempt to 7ms of lag.
+  Established by pinning it with `--compose=N` and causing the fault rather than waiting
+  for it — two settled periods of 600 frames each at seven values, on an unattended launch left
+  at the title screen. Which scene that was is not in the log: those runs were at `--log=quiet`,
+  which writes no state lines, and `--pacing` did not write one of its own until afterwards. So
+  the load the sweep ran against is what an idle launch does and no more precise than that.
+
+  | left for the compositor | 200µs | 800µs | 1500µs | 2000µs | 2500µs | 3000µs | 5000µs |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | off the cadence, per 600 | 53, 57 | 33, 36 | 5, 7 | 2, 1 | 0, 0 | 0, 0 | 0, 0 |
+
+  Monotone, and at 200µs the interval sags to 18348µs — 54 frames a second.
+- **`cFramesLate` is not evidence and nothing is judged on it.** The compositor's own count of
+  frames it could not show at the refresh they were aimed at read `0 shown late` through every
+  run above, including the ones where 57 frames of 600 missed their blank. It is still
+  reported, as a number whose meaning is not what its name says. `qpcFrameDisplayed`,
+  `cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed` are worse: all
+  zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved 1211 over a
+  period — so the call works and that family is not populated for the desktop query, which is
+  the only one `DwmGetCompositionTimingInfo` accepts.
 - **A frame of input lag removed** by updating before drawing, and the frame's work started
   as late as it will fit rather than at the top of its turn. `INPUT LAG` on screen is the
   measured time from the keyboard read to that frame reaching the screen, across the two

@@ -39,6 +39,15 @@ Getting to an ending, which only clearing the game reaches:
 
 Looking into a fault:
   --log=LEVEL          quiet, normal or verbose
+  --pacing             write what every frame that missed the cadence spent its turn
+                       on, whatever --log says. Its own switch because what the log
+                       writes is one of the things that makes a frame late, so this
+                       goes with --log=quiet: nothing in the file but the pacing
+  --compose=N          pin at N microseconds the time left for the compositor to draw
+                       in, between the frame being handed over and the blank it is to
+                       be shown at, instead of finding it while running. It will not
+                       say what it needs, so this is swept: small enough that frames
+                       are known to miss their blank, then up until they stop
   --self-check         restore every snapshot as it is taken and report what differs
   --stress=N           restore the current chapter every N frames
   --no-chapters        leave orb loaded with none of its own work happening
@@ -123,6 +132,8 @@ impl Config {
                     self.block_replay_save = true;
                     pass_speed = Some(CLEAR_SPEED);
                 }
+                "--pacing" => self.pacing_log = true,
+                "--compose" => self.compose_us = number(name, value)?,
                 "--self-check" => self.self_check = true,
                 "--no-chapters" => self.chapters = false,
                 "--no-memory" => self.track_memory = false,
@@ -233,11 +244,30 @@ mod tests {
         assert!(!clear.chapter_tuning && !clear.during_replay && !clear.self_check);
     }
 
+    /// The pacing is asked for on its own, and `quiet` is the level to ask for it at: what
+    /// the log writes is one of the reasons a frame misses its blank, so a run watching the
+    /// pacing wants nothing else writing.
+    #[test]
+    fn the_pacing_is_asked_for_apart_from_the_level() {
+        let quiet = with("--pacing --log=quiet");
+        assert!(quiet.pacing_log);
+        assert_eq!(quiet.log_level, LogLevel::Quiet);
+        assert!(!with("--log=verbose").pacing_log);
+    }
+
+    /// The compositor's drawing time is swept, so it is given in the microseconds a sweep
+    /// steps in, and not given at all when it is to be found while running.
+    #[test]
+    fn the_compositors_drawing_time_is_pinned_in_microseconds() {
+        assert_eq!(with("--compose=200").compose_us, 200);
+        assert_eq!(with("--pacing").compose_us, 0);
+    }
+
     #[test]
     fn nothing_given_leaves_the_file_alone() {
         let plain = with(r"C:\game\th06.exe");
         assert!(!plain.chapter_tuning && !plain.during_replay && !plain.chapter_stepping);
-        assert!(!plain.fast_clear);
+        assert!(!plain.fast_clear && !plain.pacing_log);
         assert_eq!(plain.log_level, LogLevel::Normal);
         assert_eq!(plain.speed, 1);
     }

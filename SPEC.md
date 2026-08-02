@@ -115,7 +115,7 @@ it.
 ```
 prepare_frame          the game's full-output viewport, and its background clear
 DwmFlush()             returns just after a blank
-sleep                  until (blank + one frame) − (measured work + handover room)
+sleep                  until (blank + one frame) − (our drawing + the compositor's)
 update(chain)          the game's logic; reads the keyboard as its first act
 draw(chain)            between BeginScene and EndScene
 Present()              handed over, not waited on
@@ -128,25 +128,133 @@ input it reads is as recent as it can be and still reach that frame.
 `Present` does not wait for anything: windowed with `D3DSWAPEFFECT_COPY` it queues the frame
 and returns. `DwmFlush` is the call that waits for the compositor, and it sits at the top of
 the next frame — so a frame reaches the screen when the *following* frame's flush comes back,
-and that is where input-to-screen is measured from and to.
+and that is where input-to-screen is measured from and to. It is also what says whether the
+frame made the blank it was aimed at, since what the flush waits for is that frame being
+composed: see *The compositor's drawing time*.
 
 **Cadence.** One game frame is a whole number of refreshes of the monitor the game's window
 is on, taken from `MonitorFromWindow` and `EnumDisplaySettingsW`: two at 120Hz, one at 60Hz.
 The compositor's `qpcRefreshPeriod` follows one monitor of the desktop, which on a mixed-rate
-desktop need not be this one, so it is used only when it agrees with that rate. A rate that
-is not a whole multiple of 60 has no fixed cadence to keep — 144Hz is 2.4 refreshes a frame —
-and is paced by the clock instead. A replay being run fast, or a run being cleared fast, keeps
+desktop need not be this one, so it is used only when it agrees with that rate.
+
+**Both of those numbers are rounded, and neither rounding may decide anything.**
+`dmDisplayFrequency` is whole Hz, so the NTSC-derived rates report short — 119.88Hz says 119, and
+59.94Hz says 59 — while the compositor's period in whole microseconds puts the same display at
+120. Two consequences, and both were live faults until a 119.88Hz display was actually run:
+
+- A rate within two per cent of a multiple of 60 *is* that multiple, and gets its constant count.
+  Read as fractional instead, 119 sends the grid chasing an exact sixtieth against a rate 0.8%
+  away from one, which it settles by putting a one-refresh frame in about once a second. The
+  period is taken from the nominal multiple as well, that being the nearer of the two: a 119.88Hz
+  refresh is 8341µs, which 120 puts at 8333 and 119 at 8403.
+- Agreement between the two is within two per cent, not equality. At 119 against 120 an equality
+  test refused the blanks altogether and paced a 119.88Hz display by the clock. What the test is
+  for is the compositor timing a different monitor — 144 against 120, which ran the game at 72
+  frames a second — and that is not a rounding apart.
+
+A rate that is not a whole multiple of 60 has no one cadence to keep — 144Hz is 2.4 refreshes a
+frame — so there each frame goes on whichever blank is nearest where a sixtieth-of-a-second grid
+has got to: two refreshes, three, two, three, two. Measured over 600 frames at 144Hz, `gaps in
+refreshes 2x360 3x240`, which is 2.4 exactly and 60.00 frames a second. Every frame is still shown
+at a blank rather than at a moment on a clock that lands wherever it likes among them.
+
+Individual frames there are unequal by a refresh — 13.9ms against 20.8 — which is what 144 over 60
+comes to and not something pacing can undo.
+
+**Both the grid and the phase it is measured against are absolute**, and that is the whole of what
+makes it come out even. The aim is the blank nearest the grid, counted from a kept blank; and only
+a frame that landed where it was aimed moves that phase on. Measuring the next aim from the last
+*landing* instead cannot correct itself — a frame that lands a refresh late becomes the reference,
+so the following aim asks for one refresh fewer and the lateness is absorbed rather than undone.
+That settles: measured at 144Hz as an aim averaging 2.2 refreshes with a frame in five landing a
+refresh late, which adds back to the 2.4 the display wants, so the rate reads correct while a
+fifth of the frames are shown somewhere nobody asked for. Anchoring the aim instead took that from
+117 frames of every 600 to none.
+
+A rate that *does* divide is given the same count every frame instead of following that grid.
+A display sold as 120Hz is often 119.88, and chasing an exact sixtieth there would spend three
+refreshes on a frame every few minutes to make the difference up. Two every time is 59.94fps —
+a tenth of a percent on a clock nobody can see, against a hitch anybody can.
+
+Only a display whose refresh rate is not known at all, or one the compositor will not admit to
+timing, is paced by the clock. A replay being run fast, or a run being cleared fast, keeps
 the cadence like anything else: `--speed` is updates per drawn frame, so the frames come one per
 turn and only carry more of the game with them.
 
 `DWM_TIMING_INFO.cRefresh` counts compositions of the window rather than refreshes of the
 display, and is not used.
 
-**The handover room.** How long before the blank a frame must be handed over is not something
-the compositor will say, so it is found by trying: `DWM_TIMING_INFO.cFramesLate` — its own
-count of frames it could not show at the refresh they were aimed at — going up widens the
-room, and staying flat shaves it back. Every microsecond of it is input lag, and every one
-too few is a frame shown a refresh late.
+**The compositor's drawing time.** The window between `Present` and the blank is not idle: it is
+where the compositor composes the desktop and gets it onto the screen for that blank. So a
+frame's turn holds two drawing times, the game's and the compositor's, and both have to finish
+before the blank or the frame is shown at the one after.
+
+How long the compositor wants is not something it will say, so it is measured, and what measures
+it is `DwmFlush`'s own return.
+
+The flush waits for the compositor to compose the next frame rather than for the next blank as
+such, so it returns at the blank the frame just handed over *reached*. Its overshoot against the
+blank that frame was aimed at is therefore a per-frame answer to whether the frame made it, and
+the two cases do not overlap: every frame that made its blank came back within ±900µs of it, and
+every frame that missed came back 5944µs or more late, on a refresh of 8333. Half a refresh is
+the boundary and one frame decides it — nothing to average, and no waiting for a fault that
+happens three times in six hundred frames.
+
+Raised 100µs the moment a frame misses, and **never lowered**. Every microsecond of it is input
+lag on every frame, so the least that works is what is wanted — but the only way to learn that a
+value is too little is a frame missing its blank at it, so a value that comes down is a value
+being wagered again, and a lost wager is a stutter in the middle of a run. It starts at 2500µs
+and climbs from there; a display wanting less pays the difference in lag and nothing else.
+
+Shaving it back was tried and is why it is not done. From 2000µs at 100µs a second the first
+frame missed at 2000, which set a floor of 2100 that said nothing about 2100 being enough; the
+walk down passed the real edge without dwelling anywhere long enough to catch a value that only
+fails sometimes; and from 2100 it climbed back at a stutter a step, through the whole of stage 1.
+
+Three kinds of miss are counted and only one of them climbs:
+
+| | |
+| --- | --- |
+| overshoot beyond a whole turn | a stage load, or an update that ran long |
+| the frame after one of those | still picking itself up, and not the compositor's to answer for |
+| a frame whose own drawing outgrew its budget | late whatever the compositor had been given |
+
+The middle one was measured: of three climbs over a 37,800-frame replay, two happened in the
+periods where a boss appeared — the game stopping for 225ms while it loads one — and the value
+they climbed from had sat through thirteen quiet periods without missing once. The last was
+measured too, and worse: at 144Hz a heavy frame at startup climbed the share to its ceiling, and
+since the budget was capped at the same figure the drawing had no allowance at all, so every
+frame reached the compositor late and every one of those asked to climb again. 120 frames of
+every 600, for the rest of the run.
+
+**Two ceilings, and they are not the same.** A frame is handed over `compose` before the blank it
+is aimed at — that is the whole of what decides where the handover lands, because the drawing
+happens before it and only moves when the drawing starts. So it is the compositor's share, and
+not the budget, that has to stay inside one refresh: hand over earlier than the blank before the
+aimed one and the compositor takes it at that earlier blank. The budget may run to most of a game
+frame, since it only decides how early the drawing starts.
+
+Getting that wrong is invisible at 120Hz, where half a game frame is exactly one refresh. At
+144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one refresh apiece — `gaps
+in refreshes 1x418 2x179`, a hundred frames a second.
+
+`--compose=N` pins the share, which is how it is swept: pinned small enough that frames are known
+to miss, then walked up until they stop. A pinned value is also the floor the work estimate is
+clamped to, or the clamp would hold the sweep at `COMPOSE_FLOOR_US` and every reading below it
+would be the same reading — held under the ceiling as well, since `clamp` panics when they cross
+and this runs inside the frame loop.
+
+**What the compositor will not answer.** `cFramesLate` reads zero through runs where 57 frames
+of every 600 missed their blank, so it is reported and never acted on. `qpcFrameDisplayed`,
+`cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed` are all zero,
+while `cFrameSubmitted` and `cFrameConfirmed` in the same read move — so the call works and that
+family is not populated for the desktop composition, which is the only thing
+`DwmGetCompositionTimingInfo` will report on: it takes an `HWND` and accepts only null.
+
+orb's own present-to-present gaps cannot stand in for it either. They say when a frame was
+handed over, not which blank showed it, and they only wobble at all because the pacing is
+anchored to the flush — a frame loop paced purely by the clock would show a perfect 16.67ms
+while frames slipped a refresh apiece.
 
 **The work estimate.** How long the frame's work takes is measured and tracked near the worst
 of the recent frames rather than their average, because aiming at the average means missing
@@ -154,6 +262,51 @@ the handover on every frame heavier than it.
 
 `timeBeginPeriod(1)` is asked for at startup and released on detach. Without it `Sleep` is
 only accurate to the system tick, some fifteen milliseconds.
+
+**What a late frame says.** `--pacing` writes a line per frame whose gap was not the cadence,
+and the line accounts for the whole gap in spans that add up to it:
+
+```
+after present   what orb did once the last frame was handed over
+loop            the game's own frame loop, between orb returning and being called back
+clear           prepare_frame
+pace            the frame's turn worked out, settle's display query inside it
+flush           DwmFlush, and how far its anchor sits after the compositor's own qpcVBlank
+sleep           the rest of the turn
+update sound draw present
+```
+
+The one that decides is not in that list. `DwmFlush` returns at the *next* blank, so a frame
+must reach it before the blank that is its own turn — and the frame is handed over some
+`COMPOSE_US` before that blank, a couple of milliseconds, which is all `after present`,
+`loop`, `clear` and `pace` have between them. A frame that arrives after its blank has gone
+waits out another whole refresh, and nothing it does afterwards wins that refresh back. So the
+line leads with how far before or after its blank the frame reached the flush, measured there
+rather than worked out from the gap afterwards: a gap of the wrong size says only that
+something went wrong somewhere.
+
+`after present` and `loop` are in the line because they used to be the only part of a frame
+nothing measured, while being the part that time belongs to.
+
+The anchor the arrival is measured against is when the last flush came back, which is taken to
+be a blank and is not checked anywhere else. So the line says how far it sits after the blank
+the compositor reports as its last: a flush that overshoots a real blank and a flush that
+returns on time against an anchor a refresh early are otherwise the same line. That query is
+made only while `--pacing` is on, and after the flush, so it is spent out of the slack rather
+than out of the compositor's own.
+
+Per period, alongside the gap buckets, the worst arrival against the blank and how many frames
+were past it — the rate being what says whether a stutter is one cause or the weather. Arrivals
+beyond a whole turn are counted apart and left out of the worst: the frame after a stage load
+is that late through no fault of the compositor, and one of those would otherwise be the
+whole of the worst.
+
+**The log is an instrument and is weighed as one.** A `WriteFile` takes what it takes, and one
+in the millisecond before a handover costs that frame a refresh, so what writing the log cost
+is written down beside what it is reporting — per frame and per period, the frame's own thread
+and orb's kept apart, since the appends serialise on one handle and either can hold a frame up.
+For the same reason the frame loop's own lines are not written where they are worked out: they
+are held and written on the far side of the flush, where what is left of the turn is slack.
 
 ## Input
 
@@ -421,9 +574,20 @@ word each:
 | `--collect` | propose boundaries over the whole replay, at 64 updates a frame, with nothing stopping and nobody at the keyboard |
 | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
 
-and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--self-check`,
-`--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks` for taking orb apart until a
-fault stops happening. `--config=PATH` is the launcher's own.
+and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
+`--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks`
+for taking orb apart until a fault stops happening. `--config=PATH` is the launcher's own.
+
+**`--pacing`** writes what every frame that missed the cadence spent its turn on, at whatever
+`--log` says rather than as a tier of it — see *What a late frame says*. Its own switch because
+what the log writes is one of the reasons a frame misses its blank, so it goes with
+`--log=quiet`: nothing in the file but the startup lines and this, and every write in the run is
+one it made. It also turns on the two questions that cost a call each to answer and are asked
+once a frame: whether the anchor is a blank, and which blank the last frame reached.
+
+**`--compose=N`** pins the time left for the compositor to draw in, which is otherwise found
+while running — see *The compositor's drawing time*. For sweeping it, `N` being what the sweep
+steps in.
 
 **`--clear`** is the one that is about neither: nothing can hit the player and the run goes at
 `--speed`'s 64 updates a drawn frame, so half an hour of playing well is a minute of holding the
