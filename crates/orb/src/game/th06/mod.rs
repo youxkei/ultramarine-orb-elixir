@@ -405,9 +405,18 @@ const EXTRA_LIVES_IN_EXTRA: i8 = 4;
 impl Game for Th06 {
     fn hooks(&self) -> Hooks {
         Hooks {
-            update: Patch { target: RUN_CALC_CHAIN, prologue: RUN_CHAIN_PROLOGUE },
-            draw: Patch { target: RUN_DRAW_CHAIN, prologue: RUN_CHAIN_PROLOGUE },
-            save_replay: Some(Patch { target: SAVE_REPLAY, prologue: SAVE_REPLAY_PROLOGUE }),
+            update: Patch {
+                target: RUN_CALC_CHAIN,
+                prologue: RUN_CHAIN_PROLOGUE,
+            },
+            draw: Patch {
+                target: RUN_DRAW_CHAIN,
+                prologue: RUN_CHAIN_PROLOGUE,
+            },
+            save_replay: Some(Patch {
+                target: SAVE_REPLAY,
+                prologue: SAVE_REPLAY_PROLOGUE,
+            }),
             stop_recording: Some(Patch {
                 target: STOP_RECORDING,
                 prologue: STOP_RECORDING_PROLOGUE,
@@ -420,8 +429,14 @@ impl Game for Th06 {
                 target: INIT_D3D_DEVICE,
                 prologue: INIT_D3D_DEVICE_PROLOGUE,
             }),
-            render: Some(Patch { target: RENDER, prologue: RENDER_PROLOGUE }),
-            input: Some(Patch { target: GET_INPUT, prologue: GET_INPUT_PROLOGUE }),
+            render: Some(Patch {
+                target: RENDER,
+                prologue: RENDER_PROLOGUE,
+            }),
+            input: Some(Patch {
+                target: GET_INPUT,
+                prologue: GET_INPUT_PROLOGUE,
+            }),
             joystick: Some(Patch {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
@@ -551,9 +566,14 @@ impl Game for Th06 {
         // says is playing was deleted long ago, sound buffer and all.
         unsafe {
             mem::write::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC, 0);
-            mem::write::<usize>(G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC_THREAD_HANDLE, 0);
+            mem::write::<usize>(
+                G_SOUND_PLAYER + sound_player::BACKGROUND_MUSIC_THREAD_HANDLE,
+                0,
+            );
         }
-        let Some((path, name)) = self.stage_song() else { return false };
+        let Some((path, name)) = self.stage_song() else {
+            return false;
+        };
         log!("music: restarting {name}");
         // `__thiscall` with an argument, which unlike the one-argument case is not
         // `fastcall`: the argument goes on the stack and the callee takes it off.
@@ -589,7 +609,12 @@ impl Game for Th06 {
 
     /// From `GAME_REGION_*`, inside the game's 640x480 output.
     fn play_area(&self) -> Rect {
-        Rect { left: 32.0, top: 16.0, width: 384.0, height: 448.0 }
+        Rect {
+            left: 32.0,
+            top: 16.0,
+            width: 384.0,
+            height: 448.0,
+        }
     }
 
     fn joystick_calibration(&self) -> Option<usize> {
@@ -601,7 +626,11 @@ impl Game for Th06 {
         let size = unsafe { (mem::read::<u32>(present), mem::read::<u32>(present + 4)) };
         // Before the device exists the parameters are zero; the game renders at
         // its own size whatever the back buffer ends up being.
-        if size.0 == 0 || size.1 == 0 { BACK_BUFFER } else { size }
+        if size.0 == 0 || size.1 == 0 {
+            BACK_BUFFER
+        } else {
+            size
+        }
     }
 
     fn windowed(&self) -> bool {
@@ -678,7 +707,15 @@ impl Game for Th06 {
             if self.clears_background() {
                 (vtable.set_viewport)(device, &viewport);
                 let fog = mem::read::<u32>(G_STAGE + stage::SKY_FOG_COLOR);
-                (vtable.clear)(device, 0, std::ptr::null(), D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, fog, 1.0, 0);
+                (vtable.clear)(
+                    device,
+                    0,
+                    std::ptr::null(),
+                    D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+                    fog,
+                    1.0,
+                    0,
+                );
             }
             mem::write(G_SUPERVISOR + supervisor::VIEWPORT, viewport);
             (vtable.set_viewport)(device, &viewport);
@@ -689,8 +726,7 @@ impl Game for Th06 {
     }
 
     unsafe fn play_sounds(&self) {
-        let play: unsafe extern "fastcall" fn(usize) =
-            unsafe { std::mem::transmute(PLAY_SOUNDS) };
+        let play: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(PLAY_SOUNDS) };
         unsafe { play(G_SOUND_PLAYER) };
     }
 
@@ -732,7 +768,11 @@ impl Game for Th06 {
         // zero to what the restored score has paid for, and cannot lower it from what a
         // later stage had reached.
         let difficulty = unsafe { mem::read::<i32>(G_GAME_MANAGER + game_manager::DIFFICULTY) };
-        let extras = if difficulty < DIFFICULTY_EXTRA { 0 } else { EXTRA_LIVES_IN_EXTRA };
+        let extras = if difficulty < DIFFICULTY_EXTRA {
+            0
+        } else {
+            EXTRA_LIVES_IN_EXTRA
+        };
         unsafe { self.cut_screen_shake() };
         // What the replay menu writes, and nothing more: the stage counted as the menu
         // counts it — `GameManager::RegisterChain` raises the number by one, so it is
@@ -744,9 +784,15 @@ impl Game for Th06 {
             mem::write::<u32>(G_GAME_MANAGER + game_manager::NEXT_SCORE_INCREMENT, 0);
             mem::write::<i8>(G_GAME_MANAGER + game_manager::EXTRA_LIVES, extras);
             mem::write::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE, stage);
-            mem::write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, STATE_GAMEMANAGER_REINIT);
+            mem::write::<i32>(
+                G_SUPERVISOR + supervisor::CUR_STATE,
+                STATE_GAMEMANAGER_REINIT,
+            );
         }
-        log!("stage {}: asked the game to start the replay there", stage + 1);
+        log!(
+            "stage {}: asked the game to start the replay there",
+            stage + 1
+        );
         true
     }
 
@@ -763,7 +809,9 @@ impl Game for Th06 {
                     mem::read(G_PLAYER + player::POSITION_CENTER + size_of::<f32>()),
                 ),
                 player_area: (
-                    mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT + size_of::<f32>()),
+                    mem::read(
+                        G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT + size_of::<f32>(),
+                    ),
                     mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE + size_of::<f32>()),
                 ),
                 randoms: mem::read(G_RNG + RNG_GENERATION_COUNT),
@@ -912,7 +960,9 @@ fn path_at(address: usize) -> Option<(usize, String)> {
     let name = std::str::from_utf8(&bytes[..end]).ok()?;
     let usable = !name.is_empty()
         && name.contains('.')
-        && name.bytes().all(|byte| byte.is_ascii_graphic() || byte == b' ');
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() || byte == b' ');
     if !usable {
         log!("{address:#010x} does not hold a path");
         return None;

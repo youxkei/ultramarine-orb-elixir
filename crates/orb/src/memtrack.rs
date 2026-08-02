@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{BOOL, HANDLE};
 use windows_sys::Win32::System::Memory::{
-    HEAP_FLAGS, HeapLock, HeapUnlock, HeapWalk, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_RELEASE,
+    HEAP_FLAGS, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_RELEASE, MEMORY_BASIC_INFORMATION,
     PAGE_GUARD, PAGE_NOACCESS, PROCESS_HEAP_ENTRY, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
     VirtualQuery,
 };
@@ -39,7 +39,10 @@ impl Region {
 
 /// Heap handles and direct reservations seen so far. Any game thread can
 /// allocate, so this is the one place in `orb` that needs a lock.
-static TRACKED: Mutex<Tracked> = Mutex::new(Tracked { heaps: Vec::new(), reservations: Vec::new() });
+static TRACKED: Mutex<Tracked> = Mutex::new(Tracked {
+    heaps: Vec::new(),
+    reservations: Vec::new(),
+});
 
 struct Tracked {
     heaps: Vec<usize>,
@@ -75,7 +78,8 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
 
 type HeapCreate = unsafe extern "system" fn(HEAP_FLAGS, usize, usize) -> HANDLE;
 type HeapAlloc = unsafe extern "system" fn(HANDLE, HEAP_FLAGS, usize) -> *mut c_void;
-type HeapReAlloc = unsafe extern "system" fn(HANDLE, HEAP_FLAGS, *const c_void, usize) -> *mut c_void;
+type HeapReAlloc =
+    unsafe extern "system" fn(HANDLE, HEAP_FLAGS, *const c_void, usize) -> *mut c_void;
 type HeapFree = unsafe extern "system" fn(HANDLE, HEAP_FLAGS, *const c_void) -> BOOL;
 type VirtualAlloc =
     unsafe extern "system" fn(*const c_void, usize, VIRTUAL_ALLOCATION_TYPE, u32) -> *mut c_void;
@@ -102,12 +106,17 @@ unsafe extern "system" fn heap_realloc(
     memory: *const c_void,
     bytes: usize,
 ) -> *mut c_void {
-    let original: HeapReAlloc = unsafe { std::mem::transmute(HEAP_REALLOC.load(Ordering::Relaxed)) };
+    let original: HeapReAlloc =
+        unsafe { std::mem::transmute(HEAP_REALLOC.load(Ordering::Relaxed)) };
     note_heap(heap as usize);
     unsafe { original(heap, flags, memory, bytes) }
 }
 
-unsafe extern "system" fn heap_free(heap: HANDLE, flags: HEAP_FLAGS, memory: *const c_void) -> BOOL {
+unsafe extern "system" fn heap_free(
+    heap: HANDLE,
+    flags: HEAP_FLAGS,
+    memory: *const c_void,
+) -> BOOL {
     let original: HeapFree = unsafe { std::mem::transmute(HEAP_FREE.load(Ordering::Relaxed)) };
     note_heap(heap as usize);
     unsafe { original(heap, flags, memory) }
@@ -119,7 +128,8 @@ unsafe extern "system" fn virtual_alloc(
     allocation_type: VIRTUAL_ALLOCATION_TYPE,
     protection: u32,
 ) -> *mut c_void {
-    let original: VirtualAlloc = unsafe { std::mem::transmute(VIRTUAL_ALLOC.load(Ordering::Relaxed)) };
+    let original: VirtualAlloc =
+        unsafe { std::mem::transmute(VIRTUAL_ALLOC.load(Ordering::Relaxed)) };
     let allocated = unsafe { original(address, size, allocation_type, protection) };
     if !allocated.is_null() {
         note_reservation(allocated as usize, size);
@@ -132,7 +142,8 @@ unsafe extern "system" fn virtual_free(
     size: usize,
     free_type: VIRTUAL_FREE_TYPE,
 ) -> BOOL {
-    let original: VirtualFree = unsafe { std::mem::transmute(VIRTUAL_FREE.load(Ordering::Relaxed)) };
+    let original: VirtualFree =
+        unsafe { std::mem::transmute(VIRTUAL_FREE.load(Ordering::Relaxed)) };
     let freed = unsafe { original(address, size, free_type) };
     if freed != 0 && free_type & MEM_RELEASE != 0 {
         forget_reservation(address as usize);
@@ -144,23 +155,33 @@ fn note_heap(heap: usize) {
     if heap == 0 {
         return;
     }
-    let Ok(mut tracked) = TRACKED.lock() else { return };
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
     if !tracked.heaps.contains(&heap) {
         tracked.heaps.push(heap);
     }
 }
 
 fn note_reservation(base: usize, len: usize) {
-    let Ok(mut tracked) = TRACKED.lock() else { return };
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
     // A commit inside an already-recorded reservation is not a new region.
-    if tracked.reservations.iter().any(|region| region.base <= base && base < region.end()) {
+    if tracked
+        .reservations
+        .iter()
+        .any(|region| region.base <= base && base < region.end())
+    {
         return;
     }
     tracked.reservations.push(Region { base, len });
 }
 
 fn forget_reservation(base: usize) {
-    let Ok(mut tracked) = TRACKED.lock() else { return };
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
     tracked.reservations.retain(|region| region.base != base);
 }
 
@@ -174,7 +195,10 @@ fn forget_reservation(base: usize) {
 /// `data` must be the exe's `.data` range.
 pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
     let started = profile::now();
-    let mut regions = vec![Region { base: data.start, len: data.len() }];
+    let mut regions = vec![Region {
+        base: data.start,
+        len: data.len(),
+    }];
 
     let (heaps, reservations) = match TRACKED.lock() {
         Ok(tracked) => (tracked.heaps.clone(), tracked.reservations.clone()),
@@ -206,8 +230,8 @@ unsafe fn collect_heap(heap: usize, out: &mut Vec<Region>) {
             }
             let region = entry.Anonymous.Region;
             let base = entry.lpData as usize;
-            let span = base
-                ..base + region.dwCommittedSize as usize + region.dwUnCommittedSize as usize;
+            let span =
+                base..base + region.dwCommittedSize as usize + region.dwUnCommittedSize as usize;
             collect_committed(span, out);
         }
         HeapUnlock(heap);
@@ -222,7 +246,11 @@ unsafe fn collect_committed(span: Range<usize>, out: &mut Vec<Region>) {
     while address < span.end {
         let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
         let queried = unsafe {
-            VirtualQuery(address as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+            VirtualQuery(
+                address as *const c_void,
+                &mut info,
+                size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
         };
         if queried == 0 {
             return;
@@ -233,7 +261,13 @@ unsafe fn collect_committed(span: Range<usize>, out: &mut Vec<Region>) {
             let start = address.max(base);
             let end = next.min(span.end);
             if start < end {
-                push_merged(out, Region { base: start, len: end - start });
+                push_merged(
+                    out,
+                    Region {
+                        base: start,
+                        len: end - start,
+                    },
+                );
             }
         }
         address = next.max(address + 1);
@@ -254,10 +288,12 @@ fn push_merged(out: &mut Vec<Region>, region: Region) {
         if region.base <= existing.end() && existing.base <= region.end() {
             let base = existing.base.min(region.base);
             let end = existing.end().max(region.end());
-            *existing = Region { base, len: end - base };
+            *existing = Region {
+                base,
+                len: end - base,
+            };
             return;
         }
     }
     out.push(region);
 }
-

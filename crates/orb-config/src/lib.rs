@@ -146,8 +146,14 @@ impl fmt::Display for LogLevel {
 
 #[derive(Debug)]
 pub enum Error {
-    Read { path: PathBuf, source: std::io::Error },
-    Parse { path: PathBuf, source: yaml::Error },
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: yaml::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -170,9 +176,14 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|source| Error::Read { path: path.to_owned(), source })?;
-        Self::parse(path, &text).map_err(|source| Error::Parse { path: path.to_owned(), source })
+        let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
+            path: path.to_owned(),
+            source,
+        })?;
+        Self::parse(path, &text).map_err(|source| Error::Parse {
+            path: path.to_owned(),
+            source,
+        })
     }
 
     fn parse(path: &Path, text: &str) -> Result<Self, yaml::Error> {
@@ -180,7 +191,10 @@ impl Config {
         let doc = yaml::Document::parse(text)?;
 
         let path_of = |key| -> Result<Option<PathBuf>, yaml::Error> {
-            Ok(doc.string(key)?.filter(|value| !value.is_empty()).map(|value| base_dir.join(value)))
+            Ok(doc
+                .string(key)?
+                .filter(|value| !value.is_empty())
+                .map(|value| base_dir.join(value)))
         };
         let config = Self {
             game_dir: path_of("game_dir")?.unwrap_or_else(|| base_dir.clone()),

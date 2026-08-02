@@ -154,8 +154,17 @@ pub(crate) use pacing;
 
 pub fn open() {
     let Some(path) = host_exe() else { return };
-    let path: Vec<u16> = path.with_file_name("orb.log").as_os_str().encode_wide().chain([0]).collect();
-    let disposition = if size_of(&path) > MAX_BYTES { CREATE_ALWAYS } else { OPEN_ALWAYS };
+    let path: Vec<u16> = path
+        .with_file_name("orb.log")
+        .as_os_str()
+        .encode_wide()
+        .chain([0])
+        .collect();
+    let disposition = if size_of(&path) > MAX_BYTES {
+        CREATE_ALWAYS
+    } else {
+        OPEN_ALWAYS
+    };
     let file = unsafe {
         CreateFileW(
             path.as_ptr(),
@@ -208,7 +217,13 @@ pub fn line(message: &str) {
     let line = format!("[{:>8}ms] {message}\r\n", unsafe { GetTickCount() });
     let mut written = 0u32;
     unsafe {
-        WriteFile(file, line.as_ptr(), line.len() as u32, &mut written, std::ptr::null_mut());
+        WriteFile(
+            file,
+            line.as_ptr(),
+            line.len() as u32,
+            &mut written,
+            std::ptr::null_mut(),
+        );
     }
     let side = usize::from(unsafe { GetCurrentThreadId() } != FRAME_THREAD.load(Ordering::Relaxed));
     SPENT[side].fetch_add(counter() - started, Ordering::Relaxed);
@@ -228,7 +243,13 @@ pub struct Cost {
 /// interval — which is the frame loop, once a frame.
 pub fn spent() -> Cost {
     let frequency = frequency();
-    let micros = |ticks: i64| if frequency == 0 { 0 } else { ticks * 1_000_000 / frequency };
+    let micros = |ticks: i64| {
+        if frequency == 0 {
+            0
+        } else {
+            ticks * 1_000_000 / frequency
+        }
+    };
     Cost {
         us: micros(SPENT[0].swap(0, Ordering::Relaxed)),
         writes: WRITES[0].swap(0, Ordering::Relaxed),
@@ -315,5 +336,7 @@ pub fn module_path(module: HANDLE) -> Option<PathBuf> {
     if length == 0 || length as usize >= buffer.len() {
         return None;
     }
-    Some(PathBuf::from(OsString::from_wide(&buffer[..length as usize])))
+    Some(PathBuf::from(OsString::from_wide(
+        &buffer[..length as usize],
+    )))
 }

@@ -47,8 +47,14 @@ type CreateThread = unsafe extern "system" fn(
 /// # Safety
 /// Must run before the game creates any thread, and `module` must be the exe.
 pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
-    let previous =
-        unsafe { hook::install_import(module, "KERNEL32.dll", "CreateThread", create_thread as usize) }?;
+    let previous = unsafe {
+        hook::install_import(
+            module,
+            "KERNEL32.dll",
+            "CreateThread",
+            create_thread as usize,
+        )
+    }?;
     CREATE_THREAD.store(previous, Ordering::Relaxed);
     Ok(())
 }
@@ -80,7 +86,10 @@ fn remember(id: u32) {
         return log!("threads: cannot open the game's thread {id}");
     }
     if let Ok(mut threads) = GAME_THREADS.lock() {
-        threads.push(Thread { id, handle: handle as isize });
+        threads.push(Thread {
+            id,
+            handle: handle as isize,
+        });
     }
 }
 
@@ -90,7 +99,9 @@ pub struct Suspended(Vec<HANDLE>);
 impl Suspended {
     /// Stops every thread the game made except the caller's and `audio`.
     pub fn all_but(current: u32, audio: Option<u32>) -> Self {
-        let Ok(mut threads) = GAME_THREADS.lock() else { return Self(Vec::new()) };
+        let Ok(mut threads) = GAME_THREADS.lock() else {
+            return Self(Vec::new());
+        };
         let mut suspended = Vec::with_capacity(threads.len());
         threads.retain(|thread| {
             if thread.id == current || Some(thread.id) == audio {

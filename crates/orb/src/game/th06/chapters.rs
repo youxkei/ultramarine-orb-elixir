@@ -22,8 +22,19 @@ pub const MIDSTAGE: [&[i32]; 7] = [
     /* stage 1 */ &[4472 /* by hand */],
     /* stage 2 */ &[880, 4597 /* by hand */],
     /* stage 3 */ &[1009, 2653],
-    /* stage 4 */ &[2341 /* by hand */, 3395, 7467 /* by hand */, 8328, 9739],
+    /* stage 4 */
+    &[
+        2341, /* by hand */
+        3395, 7467, /* by hand */
+        8328, 9739,
+    ],
     /* stage 5 */ &[2363 /* by hand */, 6827],
     /* stage 6 */ &[1535 /* by hand */],
-    /* extra   */ &[2649 /* by hand */, 3728 /* by hand */, 5448 /* by hand */, 7356 /* by hand */],
+    /* extra   */
+    &[
+        2649, /* by hand */
+        3728, /* by hand */
+        5448, /* by hand */
+        7356, /* by hand */
+    ],
 ];

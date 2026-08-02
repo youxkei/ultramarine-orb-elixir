@@ -73,7 +73,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 fn bad(message: impl Into<String>) -> Error {
-    Error { message: message.into() }
+    Error {
+        message: message.into(),
+    }
 }
 
 /// Whether `--help` was asked for, alongside the options that were read.
@@ -141,9 +143,13 @@ impl Config {
                 "--speed" => speed = Some(number(name, value)?.max(1)),
                 "--stress" => self.stress_restore_frames = number(name, value)?,
                 "--log" => {
-                    let level = value.ok_or_else(|| bad(format!("`{name}` needs =quiet, =normal or =verbose")))?;
+                    let level = value.ok_or_else(|| {
+                        bad(format!("`{name}` needs =quiet, =normal or =verbose"))
+                    })?;
                     self.log_level = LogLevel::parse(level).ok_or_else(|| {
-                        bad(format!("`{name}={level}`: not one of quiet, normal or verbose"))
+                        bad(format!(
+                            "`{name}={level}`: not one of quiet, normal or verbose"
+                        ))
                     })?;
                 }
                 _ => return Err(bad(format!("unknown option `{option}`"))),
@@ -154,7 +160,6 @@ impl Config {
         }
         Ok(asked)
     }
-
 }
 
 /// What `--collect` runs at: twenty minutes of a run in twenty seconds, and one frame in
@@ -169,7 +174,9 @@ const CLEAR_SPEED: u32 = 64;
 
 fn number(name: &str, value: Option<&str>) -> Result<u32, Error> {
     let value = value.ok_or_else(|| bad(format!("`{name}` needs a number, as {name}=64")))?;
-    value.parse().map_err(|_| bad(format!("`{name}={value}`: not a number")))
+    value
+        .parse()
+        .map_err(|_| bad(format!("`{name}={value}`: not a number")))
 }
 
 /// The options out of a whole command line, which is what the DLL has: the words beginning
@@ -179,7 +186,9 @@ fn number(name: &str, value: Option<&str>) -> Result<u32, Error> {
 /// command line is the game — a path can hold anything, including a word starting with a
 /// dash, so what is taken is only what an option looks like.
 pub fn options_in(command_line: &str) -> impl Iterator<Item = &str> {
-    command_line.split_whitespace().filter(|word| word.starts_with("--"))
+    command_line
+        .split_whitespace()
+        .filter(|word| word.starts_with("--"))
 }
 
 #[cfg(test)]
@@ -276,8 +285,13 @@ mod tests {
     fn what_cannot_be_read_says_so() {
         let mut config = Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap();
         for option in ["--nonsense", "--speed", "--speed=fast", "--log=loud"] {
-            let error = config.take_arguments(super::options_in(option)).unwrap_err();
-            assert!(error.message.contains(option.split('=').next().unwrap()), "{error}");
+            let error = config
+                .take_arguments(super::options_in(option))
+                .unwrap_err();
+            assert!(
+                error.message.contains(option.split('=').next().unwrap()),
+                "{error}"
+            );
         }
     }
 }

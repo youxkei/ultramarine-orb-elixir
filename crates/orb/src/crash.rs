@@ -32,7 +32,9 @@ pub fn install() {
 
 unsafe extern "system" fn report(exception: *mut EXCEPTION_POINTERS) -> i32 {
     let record = unsafe { (*exception).ExceptionRecord.as_ref() };
-    let Some(record) = record else { return EXCEPTION_CONTINUE_SEARCH };
+    let Some(record) = record else {
+        return EXCEPTION_CONTINUE_SEARCH;
+    };
     let address = record.ExceptionAddress as usize;
     crate::log::line(&format!(
         "crash: code {:#010x} at {address:#010x} in {}",

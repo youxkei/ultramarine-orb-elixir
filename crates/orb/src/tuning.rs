@@ -99,8 +99,10 @@ pub struct Judged {
 
 impl Tuning {
     pub fn new(game: &dyn Game, dir: PathBuf) -> Self {
-        let mut tuning =
-            Self { passes: (0..game.midstage_table().len()).map(|_| None).collect(), dir };
+        let mut tuning = Self {
+            passes: (0..game.midstage_table().len()).map(|_| None).collect(),
+            dir,
+        };
         tuning.load();
         tuning
     }
@@ -131,7 +133,9 @@ impl Tuning {
     pub fn propose(&mut self, state: &State, since_last: u32) {
         let nothing_to_shoot = state.enemy_count == 0 && !state.boss_present;
         let frame = state.script_frames;
-        let Some(pass) = self.pass_mut(state.stage) else { return };
+        let Some(pass) = self.pass_mut(state.stage) else {
+            return;
+        };
         if frame <= pass.covered {
             return;
         }
@@ -143,7 +147,11 @@ impl Tuning {
                 frame - pass.without_enemies as i32,
             );
         }
-        pass.without_enemies = if nothing_to_shoot { pass.without_enemies + 1 } else { 0 };
+        pass.without_enemies = if nothing_to_shoot {
+            pass.without_enemies + 1
+        } else {
+            0
+        };
         // The frame the gap becomes one, and not every frame after it: a lull of ten
         // seconds is one boundary, where testing the two floors separately would put
         // one every time the shorter of them came round again.
@@ -156,9 +164,15 @@ impl Tuning {
     /// whether the stage has one there now. An explicit hand is allowed to bring back
     /// one that was judged out, which asking again for the same frame is the way to do.
     pub fn add(&mut self, stage: i32, frame: i32) -> bool {
-        let Some(pass) = self.pass_mut(stage) else { return false };
+        let Some(pass) = self.pass_mut(stage) else {
+            return false;
+        };
         let known = pass.at(frame).map(|boundary| boundary.verdict);
-        pass.put(Boundary { frame, verdict: Verdict::Keep, by_hand: true });
+        pass.put(Boundary {
+            frame,
+            verdict: Verdict::Keep,
+            by_hand: true,
+        });
         match known {
             None => log!("tuning: added tl {frame} by hand"),
             Some(Verdict::Keep) => log!("tuning: tl {frame} is already there"),
@@ -196,7 +210,9 @@ impl Tuning {
     }
 
     fn judge(&mut self, stage: i32, boundary: i32, step: fn(Verdict) -> Verdict) {
-        let Some(pass) = self.pass_mut(stage) else { return };
+        let Some(pass) = self.pass_mut(stage) else {
+            return;
+        };
         let Some(before) = pass.at(boundary) else {
             return log!("tuning: tl {boundary} is not a boundary of this stage");
         };
@@ -215,14 +231,22 @@ impl Tuning {
             return log!("tuning: took out tl {boundary}, which was put there by hand");
         }
         pass.put(Boundary { verdict, ..before });
-        log!("tuning: tl {boundary} {} -> {}", before.verdict.label(), verdict.label());
+        log!(
+            "tuning: tl {boundary} {} -> {}",
+            before.verdict.label(),
+            verdict.label()
+        );
     }
 
     /// What is known about one boundary, or `None` for a frame this stage has never
     /// had one at.
     pub fn judged(&self, stage: i32, boundary: i32) -> Option<Judged> {
         let found = self.pass(stage)?.at(boundary)?;
-        Some(Judged { frame: found.frame, verdict: found.verdict, by_hand: found.by_hand })
+        Some(Judged {
+            frame: found.frame,
+            verdict: found.verdict,
+            by_hand: found.by_hand,
+        })
     }
 
     /// How many boundaries of `stage` the table would have.
@@ -244,7 +268,10 @@ impl Tuning {
     /// says a chapter begins here.
     pub fn passed(&self, stage: i32, after: i32, upto: i32) -> Option<i32> {
         let pass = self.pass(stage)?;
-        pass.kept().map(|boundary| boundary.frame).filter(|frame| *frame > after && *frame <= upto).max()
+        pass.kept()
+            .map(|boundary| boundary.frame)
+            .filter(|frame| *frame > after && *frame <= upto)
+            .max()
     }
 
     fn pass(&self, stage: i32) -> Option<&Pass> {
@@ -287,7 +314,9 @@ impl Tuning {
                 Some(pass) => pass
                     .kept()
                     .map(|boundary| match (boundary.verdict, boundary.by_hand) {
-                        (Verdict::Adjust, true) => format!("{} /* by hand, adjust */", boundary.frame),
+                        (Verdict::Adjust, true) => {
+                            format!("{} /* by hand, adjust */", boundary.frame)
+                        }
                         (Verdict::Adjust, false) => format!("{} /* adjust */", boundary.frame),
                         (_, true) => format!("{} /* by hand */", boundary.frame),
                         (_, false) => boundary.frame.to_string(),
@@ -315,7 +344,9 @@ impl Tuning {
              # stage  script frame  keep|adjust|drop  proposed|hand\n",
         );
         for stage in 0..stages {
-            let Some(pass) = self.pass(stage as i32) else { continue };
+            let Some(pass) = self.pass(stage as i32) else {
+                continue;
+            };
             let label = if stage + 1 == stages {
                 "extra".to_owned()
             } else {
@@ -357,9 +388,17 @@ impl Tuning {
                         slot.get_or_insert_with(Pass::new).put(boundary);
                         read += 1;
                     }
-                    None => log!("tuning: {}:{}: no stage {stage}", path.display(), number + 1),
+                    None => log!(
+                        "tuning: {}:{}: no stage {stage}",
+                        path.display(),
+                        number + 1
+                    ),
                 },
-                None => log!("tuning: {}:{}: cannot read `{line}`", path.display(), number + 1),
+                None => log!(
+                    "tuning: {}:{}: cannot read `{line}`",
+                    path.display(),
+                    number + 1
+                ),
             }
         }
         log!("tuning: read {read} boundary(s) from {}", path.display());
@@ -377,7 +416,14 @@ fn parse(line: &str) -> Option<(i32, Boundary)> {
         Some("proposed") | None => false,
         Some(_) => return None,
     };
-    fields.next().is_none().then_some((stage, Boundary { frame, verdict, by_hand }))
+    fields.next().is_none().then_some((
+        stage,
+        Boundary {
+            frame,
+            verdict,
+            by_hand,
+        },
+    ))
 }
 
 impl Verdict {
@@ -410,21 +456,33 @@ impl Verdict {
 
 impl Pass {
     fn new() -> Self {
-        Self { boundaries: Vec::new(), covered: i32::MIN, without_enemies: 0 }
+        Self {
+            boundaries: Vec::new(),
+            covered: i32::MIN,
+            without_enemies: 0,
+        }
     }
 
     /// The ones the table would carry, in order.
     fn kept(&self) -> impl Iterator<Item = &Boundary> {
-        self.boundaries.iter().filter(|boundary| boundary.verdict != Verdict::Rejected)
+        self.boundaries
+            .iter()
+            .filter(|boundary| boundary.verdict != Verdict::Rejected)
     }
 
     fn at(&self, frame: i32) -> Option<Boundary> {
-        let at = self.boundaries.binary_search_by_key(&frame, |boundary| boundary.frame).ok()?;
+        let at = self
+            .boundaries
+            .binary_search_by_key(&frame, |boundary| boundary.frame)
+            .ok()?;
         Some(self.boundaries[at])
     }
 
     fn forget(&mut self, frame: i32) {
-        if let Ok(at) = self.boundaries.binary_search_by_key(&frame, |entry| entry.frame) {
+        if let Ok(at) = self
+            .boundaries
+            .binary_search_by_key(&frame, |entry| entry.frame)
+        {
             self.boundaries.remove(at);
         }
     }
@@ -432,7 +490,10 @@ impl Pass {
     /// Adds or replaces, keeping the list sorted so that it can be searched and
     /// written in order.
     fn put(&mut self, boundary: Boundary) {
-        match self.boundaries.binary_search_by_key(&boundary.frame, |entry| entry.frame) {
+        match self
+            .boundaries
+            .binary_search_by_key(&boundary.frame, |entry| entry.frame)
+        {
             Ok(at) => self.boundaries[at] = boundary,
             Err(at) => self.boundaries.insert(at, boundary),
         }
@@ -442,7 +503,11 @@ impl Pass {
     /// a proposal says is where a boundary might go, and a decision outranks it.
     fn propose(&mut self, frame: i32) {
         if self.at(frame).is_none() {
-            self.put(Boundary { frame, verdict: Verdict::Keep, by_hand: false });
+            self.put(Boundary {
+                frame,
+                verdict: Verdict::Keep,
+                by_hand: false,
+            });
         }
     }
 }

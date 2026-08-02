@@ -25,14 +25,12 @@
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::HWND;
-use windows_sys::Win32::Graphics::Dwm::{
-    DWM_TIMING_INFO, DwmFlush, DwmGetCompositionTimingInfo,
-};
-use windows_sys::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod, timeEndPeriod};
+use windows_sys::Win32::Graphics::Dwm::{DWM_TIMING_INFO, DwmFlush, DwmGetCompositionTimingInfo};
 use windows_sys::Win32::Graphics::Gdi::{
     DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetDC, GetDeviceCaps, GetMonitorInfoW,
     MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow, ReleaseDC, VREFRESH,
 };
+use windows_sys::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod, timeEndPeriod};
 use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows_sys::Win32::System::Threading::Sleep;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -433,8 +431,11 @@ fn settle(window: HWND) {
         }
         (blanks, true) => log!("frame: {reported} monitor, one frame every {blanks} blank(s)"),
         (_, false) => {
-            let composited = composited.map_or_else(|| "nothing".to_string(), |hz| format!("{hz}Hz"));
-            log!("frame: {reported} monitor but the compositor is timing {composited}; pacing by the clock");
+            let composited =
+                composited.map_or_else(|| "nothing".to_string(), |hz| format!("{hz}Hz"));
+            log!(
+                "frame: {reported} monitor but the compositor is timing {composited}; pacing by the clock"
+            );
         }
     }
 }
@@ -636,7 +637,11 @@ pub fn wait_for_slot(window: HWND) {
     // slow between frames, and giving the compositor longer would not touch it.
     let called = now();
     let last = LAST_BLANK.load(Ordering::Relaxed);
-    let arrival = if last == 0 { 0 } else { micros(called - (last + borne)) };
+    let arrival = if last == 0 {
+        0
+    } else {
+        micros(called - (last + borne))
+    };
     ARRIVAL_US.store(arrival, Ordering::Relaxed);
     FLUSH_CALLED.store(called, Ordering::Relaxed);
     if last != 0 {
@@ -704,7 +709,14 @@ pub fn wait_for_slot(window: HWND) {
     if read_at != 0 {
         let shown = micros(blank - read_at);
         let lag = INPUT_LAG_US.load(Ordering::Relaxed);
-        INPUT_LAG_US.store(if lag == 0 { shown } else { (lag * 7 + shown) / 8 }, Ordering::Relaxed);
+        INPUT_LAG_US.store(
+            if lag == 0 {
+                shown
+            } else {
+                (lag * 7 + shown) / 8
+            },
+            Ordering::Relaxed,
+        );
     }
 
     // Everything the last frame worked out about itself goes to the log here, on the far
@@ -870,7 +882,11 @@ fn refreshes_this_frame(period: i64, blank: i64) -> i64 {
 fn wait_by_clock(blanks: i64) {
     CLOCK_FRAMES.fetch_add(1, Ordering::Relaxed);
     let period = PERIOD.load(Ordering::Relaxed).max(1);
-    let cadence = if blanks > 0 { period * blanks } else { frame_ticks() };
+    let cadence = if blanks > 0 {
+        period * blanks
+    } else {
+        frame_ticks()
+    };
 
     let current = now();
     let mut target = NEXT_PRESENT.load(Ordering::Relaxed);
@@ -951,7 +967,11 @@ fn account(marks: &Marks) {
     // the compositor late for a reason the compositor cannot be given more time to fix, and the
     // next frame's reckoning must not read the resulting miss as one it can.
     OVERRAN.store(took > prepare, Ordering::Relaxed);
-    let next = if took > prepare { took } else { prepare - (prepare - took) / 64 };
+    let next = if took > prepare {
+        took
+    } else {
+        prepare - (prepare - took) / 64
+    };
     // The floor held under the ceiling rather than trusted to be: `clamp` panics when they
     // cross, and a pinned compose time larger than a refresh would cross them — inside the
     // frame loop, so the game would go down with it.
@@ -975,12 +995,22 @@ fn account(marks: &Marks) {
     // not a multiple of 60 is paced entirely by the spacing of these presents, so it is the
     // one path where their spacing is the whole of what orb controls. Measuring it only where
     // the blanks do the work left the other case with nothing to look at.
-    let off = micros(gap - if aimed_refreshes > 0 { period * aimed_refreshes } else { frame_ticks() });
+    let off = micros(
+        gap - if aimed_refreshes > 0 {
+            period * aimed_refreshes
+        } else {
+            frame_ticks()
+        },
+    );
     let band = off.div_euclid(JITTER_BAND_US) + (JITTER.len() as i64) / 2;
     JITTER[band.clamp(0, JITTER.len() as i64 - 1) as usize].fetch_add(1, Ordering::Relaxed);
 
     let interval = INTERVAL_US.load(Ordering::Relaxed);
-    let smoothed = if interval == 0 { micros(gap) } else { (interval * 31 + micros(gap)) / 32 };
+    let smoothed = if interval == 0 {
+        micros(gap)
+    } else {
+        (interval * 31 + micros(gap)) / 32
+    };
     INTERVAL_US.store(smoothed, Ordering::Relaxed);
 
     // How long the compositor needs is not judged here. It was, from
@@ -1008,7 +1038,10 @@ fn account(marks: &Marks) {
     // spent it — or it arrived in time and something after that overran, which the spans
     // from `sleep` on say.
     let (how, waiting) = if called == 0 {
-        ("paced by the clock".to_string(), format!("wait {}us", us(marks.cleared, marks.waited)))
+        (
+            "paced by the clock".to_string(),
+            format!("wait {}us", us(marks.cleared, marks.waited)),
+        )
     } else {
         let arrival = ARRIVAL_US.load(Ordering::Relaxed);
         let blank = BLANK_AT.load(Ordering::Relaxed);
@@ -1016,7 +1049,10 @@ fn account(marks: &Marks) {
             if arrival > 0 {
                 format!("reached the flush {arrival}us after the blank it was aiming at")
             } else {
-                format!("reached the flush {}us before the blank it was aiming at", -arrival)
+                format!(
+                    "reached the flush {}us before the blank it was aiming at",
+                    -arrival
+                )
             },
             format!(
                 "pace {}us of which settle {}us, flush {}us to an anchor {}us after the compositor's blank, sleep {}us (the frame before reached the screen {}us off its own blank)",
@@ -1155,7 +1191,11 @@ pub fn shown() -> String {
     for (refreshes, count) in MISSED.iter().enumerate() {
         let count = count.swap(0, Ordering::Relaxed);
         if count > 0 {
-            let more = if refreshes == MISSED.len() - 1 { "+" } else { "" };
+            let more = if refreshes == MISSED.len() - 1 {
+                "+"
+            } else {
+                ""
+            };
             blanks.push_str(&format!(" {refreshes}{more}x{count}"));
         }
     }
@@ -1172,15 +1212,25 @@ pub fn shown() -> String {
         (load, 0) => format!(", {load} of them the frame after a load"),
         (0, drawing) => format!(", {drawing} of them a frame whose drawing overran"),
         (load, drawing) => {
-            format!(", {load} after a load and {drawing} whose drawing overran, neither counted against the compositor")
+            format!(
+                ", {load} after a load and {drawing} whose drawing overran, neither counted against the compositor"
+            )
         }
     };
     format!(
         "frame: refreshes past the blank aimed at{blanks}{after_load}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
         COMPOSE_US.load(Ordering::Relaxed),
-        if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 { " pinned" } else { " found" },
+        if PINNED_COMPOSE_US.load(Ordering::Relaxed) > 0 {
+            " pinned"
+        } else {
+            " found"
+        },
         compose_floor(),
-        if short > 0 { format!(" since a frame missed its blank at {short}us") } else { String::new() },
+        if short > 0 {
+            format!(" since a frame missed its blank at {short}us")
+        } else {
+            String::new()
+        },
     )
 }
 

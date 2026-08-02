@@ -17,7 +17,10 @@ pub struct Keyboard {
 
 impl Keyboard {
     pub const fn new() -> Self {
-        Self { previous: [0; 256], current: [0; 256] }
+        Self {
+            previous: [0; 256],
+            current: [0; 256],
+        }
     }
 
     /// Reads the keyboard, treating everything as released unless `window` is in

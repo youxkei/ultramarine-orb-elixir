@@ -99,15 +99,8 @@ pub struct DeviceVtable {
     _slot_21_to_33: [usize; 13],
     pub begin_scene: unsafe extern "system" fn(*mut Device) -> Hresult,
     pub end_scene: unsafe extern "system" fn(*mut Device) -> Hresult,
-    pub clear: unsafe extern "system" fn(
-        *mut Device,
-        u32,
-        *const c_void,
-        u32,
-        u32,
-        f32,
-        u32,
-    ) -> Hresult,
+    pub clear:
+        unsafe extern "system" fn(*mut Device, u32, *const c_void, u32, u32, f32, u32) -> Hresult,
     _slot_37_to_39: [usize; 3],
     pub set_viewport: unsafe extern "system" fn(*mut Device, *const Viewport) -> Hresult,
     pub get_viewport: unsafe extern "system" fn(*mut Device, *mut Viewport) -> Hresult,

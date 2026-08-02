@@ -24,10 +24,16 @@ pub unsafe fn write<T: Copy>(address: usize, value: T) {
 /// released object still reads back as its old contents. Following one into
 /// DirectSound crashes, and this is the cheap check that catches most of them.
 pub fn vtable_in_image(address: usize) -> bool {
-    let Some(vtable) = read_committed::<usize>(address) else { return false };
+    let Some(vtable) = read_committed::<usize>(address) else {
+        return false;
+    };
     let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
     let queried = unsafe {
-        VirtualQuery(vtable as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+        VirtualQuery(
+            vtable as *const c_void,
+            &mut info,
+            size_of::<MEMORY_BASIC_INFORMATION>(),
+        )
     };
     queried != 0 && info.State == MEM_COMMIT && info.Type == MEM_IMAGE
 }
@@ -55,7 +61,11 @@ pub fn read_committed<T: Copy>(address: usize) -> Option<T> {
     }
     let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
     let queried = unsafe {
-        VirtualQuery(address as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+        VirtualQuery(
+            address as *const c_void,
+            &mut info,
+            size_of::<MEMORY_BASIC_INFORMATION>(),
+        )
     };
     let end = info.BaseAddress as usize + info.RegionSize;
     if queried == 0

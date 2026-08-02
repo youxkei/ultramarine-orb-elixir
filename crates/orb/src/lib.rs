@@ -3,8 +3,8 @@
 mod audio;
 mod chapter;
 mod crash;
-mod frame;
 mod d3d8;
+mod frame;
 mod game;
 mod hook;
 mod input;
@@ -30,9 +30,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use orb_config::Config;
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
+use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
-use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
@@ -108,7 +108,11 @@ struct Flash {
 /// number to read. Nobody is playing, so it can take the field for the sixth of a second it
 /// has — one frame in twenty is all the frame underneath gets — and still be gone before the
 /// next boundary.
-const FLASH_JUDGING: Flash = Flash { alpha: 0xc0, hold: 5, frames: 16 };
+const FLASH_JUDGING: Flash = Flash {
+    alpha: 0xc0,
+    hold: 5,
+    frames: 16,
+};
 
 /// A run somebody is playing, where the same wash would be in the way rather than useful: a
 /// chapter begins every few seconds through a fight, and the frame one lands on is a frame
@@ -118,7 +122,11 @@ const FLASH_JUDGING: Flash = Flash { alpha: 0xc0, hold: 5, frames: 16 };
 /// Dimmer and shorter than a judging pass's, but not by as much as it was: 0x40 held two
 /// frames of ten went unnoticed in play, where attention is on the player and not on the
 /// field. Somebody watching a pass is looking straight at the frame the wash is on.
-const FLASH_PLAYING: Flash = Flash { alpha: 0x70, hold: 3, frames: 14 };
+const FLASH_PLAYING: Flash = Flash {
+    alpha: 0x70,
+    hold: 3,
+    frames: 14,
+};
 
 /// This process's command line, which for the game is what the launcher wrote: the game's own
 /// path and orb's options after it.
@@ -276,9 +284,11 @@ fn attach() {
     std::panic::set_hook(Box::new(|info| log::line(&format!("panic: {info}"))));
     crash::install();
 
-    log!("orb {} attached to pid {}", env!("CARGO_PKG_VERSION"), unsafe {
-        GetCurrentProcessId()
-    });
+    log!(
+        "orb {} attached to pid {}",
+        env!("CARGO_PKG_VERSION"),
+        unsafe { GetCurrentProcessId() }
+    );
 
     let exe = unsafe { GetModuleHandleW(std::ptr::null()) } as usize;
     log!("exe image base {exe:#010x}");
@@ -286,7 +296,12 @@ fn attach() {
     let Some(data) = data else {
         return log!("no .data section in the exe; orb is doing nothing this run");
     };
-    log!(".data {:#010x}..{:#010x} ({} bytes)", data.start, data.end, data.len());
+    log!(
+        ".data {:#010x}..{:#010x} ({} bytes)",
+        data.start,
+        data.end,
+        data.len()
+    );
     frame::configure();
 
     let mut config = match log::host_exe().map(|path| Config::load_beside(&path)) {
@@ -371,8 +386,18 @@ fn attach() {
 
     let mut hooks = Vec::new();
     if config.frame_hooks {
-        hooks.push(("update", patches.update, run_calc_chain as usize, &RUN_CALC_CHAIN));
-        hooks.push(("draw", patches.draw, run_draw_chain as usize, &RUN_DRAW_CHAIN));
+        hooks.push((
+            "update",
+            patches.update,
+            run_calc_chain as usize,
+            &RUN_CALC_CHAIN,
+        ));
+        hooks.push((
+            "draw",
+            patches.draw,
+            run_draw_chain as usize,
+            &RUN_DRAW_CHAIN,
+        ));
     }
     match patches.render {
         Some(patch) if config.frame_hooks && config.own_frame_loop => {
@@ -417,7 +442,12 @@ fn attach() {
     // without it moving between a replay's stages quietly damages the replay in
     // memory.
     if let Some(patch) = patches.stop_recording {
-        hooks.push(("replay record end", patch, stop_recording as usize, &STOP_RECORDING));
+        hooks.push((
+            "replay record end",
+            patch,
+            stop_recording as usize,
+            &STOP_RECORDING,
+        ));
     }
     if config.borderless {
         match unsafe { window::install(exe, GAME.content_size()) } {
@@ -426,10 +456,20 @@ fn attach() {
         }
         if let Some(patch) = patches.create_window {
             FORCE_WINDOWED.store(true, Ordering::Relaxed);
-            hooks.push(("window creation", patch, create_game_window as usize, &CREATE_GAME_WINDOW));
+            hooks.push((
+                "window creation",
+                patch,
+                create_game_window as usize,
+                &CREATE_GAME_WINDOW,
+            ));
         }
         if let Some(patch) = patches.init_device {
-            hooks.push(("device init", patch, init_d3d_device as usize, &INIT_D3D_DEVICE));
+            hooks.push((
+                "device init",
+                patch,
+                init_d3d_device as usize,
+                &INIT_D3D_DEVICE,
+            ));
         }
     }
     for (name, patch, replacement, original) in hooks {
@@ -546,8 +586,10 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     }
 
     let chain = game.chain();
-    let (update, draw) =
-        (RUN_CALC_CHAIN_TARGET.load(Ordering::Relaxed), RUN_DRAW_CHAIN_TARGET.load(Ordering::Relaxed));
+    let (update, draw) = (
+        RUN_CALC_CHAIN_TARGET.load(Ordering::Relaxed),
+        RUN_DRAW_CHAIN_TARGET.load(Ordering::Relaxed),
+    );
     // Calling a null function pointer is undefined, and the compiler turns it into
     // an instruction that only crashes. Handing the frame back is the honest answer.
     if update == 0 || draw == 0 {
@@ -638,7 +680,14 @@ extern "system" fn get_input() -> u16 {
     let window = unsafe { GAME.window() };
     let active = !window.is_null() && unsafe { GetForegroundWindow() } == window;
     if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
-        log!("input: window {}", if active { "in front" } else { "behind, keys not read" });
+        log!(
+            "input: window {}",
+            if active {
+                "in front"
+            } else {
+                "behind, keys not read"
+            }
+        );
     }
 
     // Not read at all while behind, rather than read and thrown away. The game's
@@ -760,10 +809,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         previous.replay && previous.playing && !previous.demo
             || runtime.config.fast_clear && previous.in_game
     });
-    let mut repeats = if fast_forward { runtime.config.speed } else { 1 };
+    let mut repeats = if fast_forward {
+        runtime.config.speed
+    } else {
+        1
+    };
 
     let mut result = CHAIN_BREAK;
-    let mut state = runtime.previous.unwrap_or(unsafe { runtime.game.read_state() });
+    let mut state = runtime
+        .previous
+        .unwrap_or(unsafe { runtime.game.read_state() });
     // Stepping between chapter boundaries, and the hold that lets the frame one
     // falls on be looked at. Before the frame's own updates, and instead of them.
     if let Step::Held { reached, ran } = unsafe { step(runtime, chain, &state) } {
@@ -856,7 +911,10 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 runtime.game.music_identity(),
             );
         } else {
-            log!("ending skipped, {frames} frames run, scene {scene} -> {}", state.scene);
+            log!(
+                "ending skipped, {frames} frames run, scene {scene} -> {}",
+                state.scene
+            );
         }
     }
     // The roll is inside the ending as far as the game is concerned, so what says there is no
@@ -881,7 +939,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // The miss is only certain once `deaths` moves, which is after the death bomb
     // window has closed; a successful death bomb never gets here.
     let died = state.in_game
-        && runtime.previous.is_some_and(|previous| state.deaths > previous.deaths);
+        && runtime
+            .previous
+            .is_some_and(|previous| state.deaths > previous.deaths);
     if died && runtime.config.chapters && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
         runtime.retry = Some(RetryMenu::new());
@@ -892,11 +952,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .is_none_or(|previous| previous.scene != state.scene);
     let due = state.in_game && runtime.frames % STATE_LOG_INTERVAL == 0;
     if scene_changed || due {
-        summary!(
-            "f{} {state} clears={}",
-            runtime.frames,
-            unsafe { runtime.game.clears_back_buffer() },
-        );
+        summary!("f{} {state} clears={}", runtime.frames, unsafe {
+            runtime.game.clears_back_buffer()
+        },);
     }
     // `quiet` writes none of the above, and the compose time the pacing settles at is a property of
     // what the game was doing while it settled — a stage being played and a menu are not the
@@ -930,7 +988,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             }
             summary!(
                 "audio: behind {}..{} bytes",
-                if runtime.margin_best == u32::MAX { 0 } else { runtime.margin_best },
+                if runtime.margin_best == u32::MAX {
+                    0
+                } else {
+                    runtime.margin_best
+                },
                 runtime.margin_worst,
             );
             runtime.margin_best = u32::MAX;
@@ -1026,7 +1088,10 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
             return step;
         }
         return if runtime.held {
-            Step::Held { reached: *state, ran: CHAIN_BREAK }
+            Step::Held {
+                reached: *state,
+                ran: CHAIN_BREAK,
+            }
         } else {
             Step::Carry
         };
@@ -1062,7 +1127,10 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
                 state.script_frames,
             );
             return if runtime.held {
-                Step::Held { reached: *state, ran: CHAIN_BREAK }
+                Step::Held {
+                    reached: *state,
+                    ran: CHAIN_BREAK,
+                }
             } else {
                 Step::Carry
             };
@@ -1073,12 +1141,31 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
             log!("step: cannot go back — no stage start kept");
             return Step::Carry;
         }
-        return unsafe { run_to(runtime, chain, Aim { script: Some(script), ..Aim::none() }) };
+        return unsafe {
+            run_to(
+                runtime,
+                chain,
+                Aim {
+                    script: Some(script),
+                    ..Aim::none()
+                },
+            )
+        };
     }
     if next && !ended {
         let from = runtime.chapters.number();
         let at = runtime.chapters.next_start(state);
-        return unsafe { run_to(runtime, chain, Aim { at, from: Some(from), ..Aim::none() }) };
+        return unsafe {
+            run_to(
+                runtime,
+                chain,
+                Aim {
+                    at,
+                    from: Some(from),
+                    ..Aim::none()
+                },
+            )
+        };
     }
     // Back is a restore and then the same thing again: a restore rewinds the replay
     // along with everything else, so the stage's start and a run forward from it land
@@ -1089,18 +1176,34 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
         if !unsafe { runtime.chapters.rewind_stage(runtime.game) } {
             log!("step: cannot go back — no stage start kept");
         } else if let Some(frame) = behind {
-            let aim = Aim { at: Some(frame), ..Aim::none() };
+            let aim = Aim {
+                at: Some(frame),
+                ..Aim::none()
+            };
             return unsafe { run_to(runtime, chain, aim) };
         } else {
             // The stage's own start is what lies before its first boundary, and the
             // restore has already arrived there.
             let reached = unsafe { runtime.game.read_state() };
             runtime.held = true;
-            log!("step: held at the stage's start (script {})", reached.script_frames);
-            return Step::Held { reached, ran: CHAIN_BREAK };
+            log!(
+                "step: held at the stage's start (script {})",
+                reached.script_frames
+            );
+            return Step::Held {
+                reached,
+                ran: CHAIN_BREAK,
+            };
         }
     }
-    if runtime.held { Step::Held { reached: *state, ran: CHAIN_BREAK } } else { Step::Carry }
+    if runtime.held {
+        Step::Held {
+            reached: *state,
+            ran: CHAIN_BREAK,
+        }
+    } else {
+        Step::Carry
+    }
 }
 
 /// Asks the game to start the replay at the stage either side of this one, and reports
@@ -1110,7 +1213,11 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
 /// # Safety
 /// Only ever called from the frame hook, on the game's main thread.
 unsafe fn leave(runtime: &mut Runtime, state: &State, forward: bool) -> Option<Step> {
-    let stage = if forward { state.stage + 1 } else { state.stage - 1 };
+    let stage = if forward {
+        state.stage + 1
+    } else {
+        state.stage - 1
+    };
     if !unsafe { runtime.game.jump_to_stage(stage) } {
         log!("step: the replay has no stage {}", stage + 1);
         return None;
@@ -1142,12 +1249,18 @@ struct Aim {
 impl Aim {
     /// Nothing asked for, to be filled in with the one thing that is.
     fn none() -> Self {
-        Self { at: None, from: None, script: None }
+        Self {
+            at: None,
+            from: None,
+            script: None,
+        }
     }
 
     fn reached(&self, state: &State, number: u32) -> bool {
         self.at.is_some_and(|frame| state.stage_frames >= frame)
-            || self.script.is_some_and(|frame| state.script_frames >= frame)
+            || self
+                .script
+                .is_some_and(|frame| state.script_frames >= frame)
             || self.from.is_some_and(|from| number != from)
     }
 }
@@ -1214,8 +1327,11 @@ fn boundary_reached(runtime: &mut Runtime, state: &State) {
     } else {
         Watching::Nobody
     };
-    if let Some(flash) = flash_for(watching, runtime.config.boundary_flash, runtime.chapters.cause())
-    {
+    if let Some(flash) = flash_for(
+        watching,
+        runtime.config.boundary_flash,
+        runtime.chapters.cause(),
+    ) {
         runtime.flash = Some((flash, flash.frames));
     }
 }
@@ -1326,7 +1442,9 @@ unsafe fn watch_music(runtime: &mut Runtime, state: &State) {
     if !state.playing {
         return;
     }
-    let Some(music) = runtime.game.music() else { return };
+    let Some(music) = runtime.game.music() else {
+        return;
+    };
     let identity = runtime.game.music_identity();
     if runtime.stream != (music.stream, identity) {
         log!(
@@ -1438,7 +1556,9 @@ unsafe fn after_draw() {
 /// Only ever called from the draw hook, between the game's `BeginScene` and
 /// `EndScene`, on the game's main thread.
 unsafe fn draw_overlay() {
-    let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else { return };
+    let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
+        return;
+    };
     if !runtime.overlay_ready {
         let device = unsafe { runtime.game.d3d_device() };
         if device.is_null() {
@@ -1446,18 +1566,35 @@ unsafe fn draw_overlay() {
         }
         runtime.overlay_ready = true;
         runtime.overlay = unsafe {
-            Overlay::new(device, &runtime.config.game_dir.join("font.ttf"), FONT_HEIGHT)
+            Overlay::new(
+                device,
+                &runtime.config.game_dir.join("font.ttf"),
+                FONT_HEIGHT,
+            )
         };
-        log!("overlay: {}", if runtime.overlay.is_some() { "ready" } else { "unavailable" });
+        log!(
+            "overlay: {}",
+            if runtime.overlay.is_some() {
+                "ready"
+            } else {
+                "unavailable"
+            }
+        );
     }
-    let Some(overlay) = &runtime.overlay else { return };
+    let Some(overlay) = &runtime.overlay else {
+        return;
+    };
 
     if let Some(menu) = &mut runtime.retry {
         let area = runtime.game.play_area();
         // The chapter by name, which is what the menu is offering to put the player back at —
         // and by number in a pass building the table, where every number on screen is one to
         // hold against the log.
-        let chapter = match runtime.chapters.name().filter(|_| !runtime.config.chapter_tuning) {
+        let chapter = match runtime
+            .chapters
+            .name()
+            .filter(|_| !runtime.config.chapter_tuning)
+        {
             Some(name) => name.to_string(),
             None => format!("CHAPTER {}", runtime.chapters.number()),
         };
@@ -1475,9 +1612,19 @@ unsafe fn draw_overlay() {
     if let Some((flash, left)) = runtime.flash.take() {
         let area = runtime.game.play_area();
         let fading = flash.frames - flash.hold;
-        let alpha = if left > fading { flash.alpha } else { flash.alpha * left / fading };
+        let alpha = if left > fading {
+            flash.alpha
+        } else {
+            flash.alpha * left / fading
+        };
         if let Some(frame) = unsafe { overlay.frame() } {
-            frame.fill(area.left, area.top, area.width, area.height, alpha << 24 | FLASH_COLOR);
+            frame.fill(
+                area.left,
+                area.top,
+                area.width,
+                area.height,
+                alpha << 24 | FLASH_COLOR,
+            );
         }
         if left > 1 {
             runtime.flash = Some((flash, left - 1));
@@ -1495,7 +1642,9 @@ unsafe fn draw_overlay() {
 /// # Safety
 /// Must run on the game's main thread, outside a scene.
 unsafe fn write_status(runtime: &mut Runtime) {
-    let Some(state) = runtime.previous else { return };
+    let Some(state) = runtime.previous else {
+        return;
+    };
     // The lag is what the pacing costs, and it is only meaningful next to the rate it
     // buys: a low number with an uneven rate is not an improvement.
     //
@@ -1536,7 +1685,11 @@ unsafe fn write_status(runtime: &mut Runtime) {
     // Beside the lag rather than folded into it: this is the part of the lag orb chose, it is
     // the part that moves while the game runs, and watching it settle is watching the pacing
     // find how near the blank this display will take a frame.
-    lines.push(format!("COMPOSE {}.{}ms", compose / 1000, compose % 1000 / 100));
+    lines.push(format!(
+        "COMPOSE {}.{}ms",
+        compose / 1000,
+        compose % 1000 / 100
+    ));
     lines.push(format!(
         "{}.{}fps",
         1_000_000 / interval.max(1),

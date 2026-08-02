@@ -59,7 +59,8 @@ pub unsafe fn import_slot(module: usize, dll: &str, function: &str) -> Option<us
             return None;
         }
 
-        let mut descriptor = (module + directory.VirtualAddress as usize) as *const ImportDescriptor;
+        let mut descriptor =
+            (module + directory.VirtualAddress as usize) as *const ImportDescriptor;
         while (*descriptor).name != 0 {
             let imported = cstr(module + (*descriptor).name as usize);
             if imported.eq_ignore_ascii_case(dll.as_bytes()) {

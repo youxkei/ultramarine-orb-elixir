@@ -34,7 +34,12 @@ impl fmt::Display for Error {
         match self {
             Self::PrologueTooShort => write!(f, "prologue is shorter than a jmp rel32"),
             Self::UnexpectedPrologue { expected, found } => {
-                write!(f, "expected prologue {}, found {}", hex(expected), hex(found))
+                write!(
+                    f,
+                    "expected prologue {}, found {}",
+                    hex(expected),
+                    hex(found)
+                )
             }
             Self::ImportNotFound { dll, function } => write!(f, "{dll} does not import {function}"),
             Self::OutOfMemory => write!(f, "cannot allocate a trampoline"),
@@ -82,8 +87,12 @@ pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usi
 
     unsafe {
         let mut previous: PAGE_PROTECTION_FLAGS = 0;
-        if VirtualProtect(target as *const c_void, prologue.len(), PAGE_EXECUTE_READWRITE, &mut previous)
-            == FALSE
+        if VirtualProtect(
+            target as *const c_void,
+            prologue.len(),
+            PAGE_EXECUTE_READWRITE,
+            &mut previous,
+        ) == FALSE
         {
             return Err(Error::Protect);
         }
@@ -91,7 +100,12 @@ pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usi
         for offset in JMP_LENGTH..prologue.len() {
             crate::mem::write(target + offset, NOP);
         }
-        VirtualProtect(target as *const c_void, prologue.len(), previous, &mut previous);
+        VirtualProtect(
+            target as *const c_void,
+            prologue.len(),
+            previous,
+            &mut previous,
+        );
         FlushInstructionCache(GetCurrentProcess(), target as *const c_void, prologue.len());
     }
     Ok(trampoline)
@@ -114,17 +128,29 @@ pub unsafe fn install_import(
     replacement: usize,
 ) -> Result<usize, Error> {
     unsafe {
-        let slot = crate::pe::import_slot(module, dll, function)
-            .ok_or_else(|| Error::ImportNotFound { dll: dll.to_owned(), function: function.to_owned() })?;
+        let slot =
+            crate::pe::import_slot(module, dll, function).ok_or_else(|| Error::ImportNotFound {
+                dll: dll.to_owned(),
+                function: function.to_owned(),
+            })?;
         let mut previous: PAGE_PROTECTION_FLAGS = 0;
-        if VirtualProtect(slot as *const c_void, size_of::<usize>(), PAGE_READWRITE, &mut previous)
-            == FALSE
+        if VirtualProtect(
+            slot as *const c_void,
+            size_of::<usize>(),
+            PAGE_READWRITE,
+            &mut previous,
+        ) == FALSE
         {
             return Err(Error::Protect);
         }
         let original = crate::mem::read::<usize>(slot);
         crate::mem::write(slot, replacement);
-        VirtualProtect(slot as *const c_void, size_of::<usize>(), previous, &mut previous);
+        VirtualProtect(
+            slot as *const c_void,
+            size_of::<usize>(),
+            previous,
+            &mut previous,
+        );
         Ok(original)
     }
 }
@@ -138,14 +164,23 @@ pub unsafe fn install_import(
 pub unsafe fn replace_pointer(slot: usize, replacement: usize) -> Result<usize, Error> {
     unsafe {
         let mut previous: PAGE_PROTECTION_FLAGS = 0;
-        if VirtualProtect(slot as *const c_void, size_of::<usize>(), PAGE_READWRITE, &mut previous)
-            == FALSE
+        if VirtualProtect(
+            slot as *const c_void,
+            size_of::<usize>(),
+            PAGE_READWRITE,
+            &mut previous,
+        ) == FALSE
         {
             return Err(Error::Protect);
         }
         let original = crate::mem::read::<usize>(slot);
         crate::mem::write(slot, replacement);
-        VirtualProtect(slot as *const c_void, size_of::<usize>(), previous, &mut previous);
+        VirtualProtect(
+            slot as *const c_void,
+            size_of::<usize>(),
+            previous,
+            &mut previous,
+        );
         Ok(original)
     }
 }
@@ -158,5 +193,10 @@ unsafe fn write_jmp(at: usize, to: usize) {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x} ")).collect::<String>().trim_end().to_owned()
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02x} "))
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
 }

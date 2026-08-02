@@ -36,7 +36,10 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 fn err(line: usize, message: impl Into<String>) -> Error {
-    Error { line: Some(line), message: message.into() }
+    Error {
+        line: Some(line),
+        message: message.into(),
+    }
 }
 
 impl Document {
@@ -49,7 +52,10 @@ impl Document {
                 continue;
             }
             if content.starts_with([' ', '\t']) {
-                return Err(err(line, "unexpected indentation; orb.yaml is a flat key: value list"));
+                return Err(err(
+                    line,
+                    "unexpected indentation; orb.yaml is a flat key: value list",
+                ));
             }
             let (key, value) = content
                 .split_once(':')
@@ -59,11 +65,17 @@ impl Document {
                 return Err(err(line, "empty key"));
             }
             let value = unquote(value.trim(), line)?;
-            if entries.insert(key.to_owned(), Entry { value, line }).is_some() {
+            if entries
+                .insert(key.to_owned(), Entry { value, line })
+                .is_some()
+            {
                 return Err(err(line, format!("duplicate key `{key}`")));
             }
         }
-        Ok(Self { entries, taken: std::cell::RefCell::new(Vec::new()) })
+        Ok(Self {
+            entries,
+            taken: std::cell::RefCell::new(Vec::new()),
+        })
     }
 
     /// `Some("")` for a key written with no value, which callers may read as a
@@ -73,14 +85,18 @@ impl Document {
     }
 
     pub fn bool(&self, key: &str) -> Result<Option<bool>, Error> {
-        let Some(entry) = self.non_empty_entry(key) else { return Ok(None) };
+        let Some(entry) = self.non_empty_entry(key) else {
+            return Ok(None);
+        };
         match entry.value.as_str() {
             "true" | "yes" | "on" => Ok(Some(true)),
             "false" | "no" | "off" => Ok(Some(false)),
-            other => Err(err(entry.line, format!("`{key}`: expected true or false, got `{other}`"))),
+            other => Err(err(
+                entry.line,
+                format!("`{key}`: expected true or false, got `{other}`"),
+            )),
         }
     }
-
 
     fn entry(&self, key: &str) -> Option<&Entry> {
         self.taken.borrow_mut().push(key.to_owned());

@@ -83,8 +83,13 @@ type CreateWindowExA = unsafe extern "system" fn(
     *mut c_void,
     *const c_void,
 ) -> HWND;
-type Present =
-    unsafe extern "system" fn(*mut Device, *const RECT, *const RECT, HWND, *const c_void) -> Hresult;
+type Present = unsafe extern "system" fn(
+    *mut Device,
+    *const RECT,
+    *const RECT,
+    HWND,
+    *const c_void,
+) -> Hresult;
 
 /// # Safety
 /// Must run before the game creates its window, and `module` must be the exe.
@@ -92,8 +97,16 @@ pub unsafe fn install(module: usize, content: (u32, u32)) -> Result<(), hook::Er
     unsafe {
         *CONTENT.get() = content;
         for (function, replacement, original) in [
-            ("RegisterClassA", register_class_a as usize, &REGISTER_CLASS_A),
-            ("CreateWindowExA", create_window_ex_a as usize, &CREATE_WINDOW_EX_A),
+            (
+                "RegisterClassA",
+                register_class_a as usize,
+                &REGISTER_CLASS_A,
+            ),
+            (
+                "CreateWindowExA",
+                create_window_ex_a as usize,
+                &CREATE_WINDOW_EX_A,
+            ),
         ] {
             let previous = hook::install_import(module, "USER32.dll", function, replacement)?;
             original.store(previous, Ordering::Relaxed);
@@ -157,8 +170,18 @@ unsafe extern "system" fn create_window_ex_a(
     let Some(monitor) = monitor.filter(|_| unsafe { is_game_class(class_name) }) else {
         return unsafe {
             original(
-                ex_style, class_name, window_name, style, x, y, width, height, parent, menu,
-                instance, param,
+                ex_style,
+                class_name,
+                window_name,
+                style,
+                x,
+                y,
+                width,
+                height,
+                parent,
+                menu,
+                instance,
+                param,
             )
         };
     };
@@ -250,7 +273,12 @@ pub unsafe fn write_beside(lines: &[String]) {
     let window = GAME_WINDOW.load(Ordering::Relaxed) as HWND;
     let letterbox = unsafe { letterbox() };
     let Some(letterbox) = letterbox else { return };
-    let mut client = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let mut client = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
     if window.is_null() || unsafe { GetClientRect(window, &mut client) } == 0 {
         return;
     }
@@ -266,13 +294,23 @@ pub unsafe fn write_beside(lines: &[String]) {
     // this is here to avoid.
     let (strip, x, align) = if beside >= below {
         (
-            RECT { left: letterbox.right, top: 0, right: client.right, bottom: 0 },
+            RECT {
+                left: letterbox.right,
+                top: 0,
+                right: client.right,
+                bottom: 0,
+            },
             letterbox.right + BAR_MARGIN,
             TA_LEFT,
         )
     } else {
         (
-            RECT { left: client.left, top: 0, right: client.right, bottom: 0 },
+            RECT {
+                left: client.left,
+                top: 0,
+                right: client.right,
+                bottom: 0,
+            },
             letterbox.right,
             TA_RIGHT,
         )
@@ -284,12 +322,20 @@ pub unsafe fn write_beside(lines: &[String]) {
     // What there is to write in, from where the text starts to the far edge of the bar. The
     // side bar runs away from the game and the strip under it runs back towards the game's
     // own edge, so the room is on opposite sides of the same x.
-    let room = if align == TA_LEFT { strip.right - x } else { x - strip.left };
+    let room = if align == TA_LEFT {
+        strip.right - x
+    } else {
+        x - strip.left
+    };
 
     // How far up the black goes. The strip under the game runs the full width of the window,
     // so a stack taller than that strip would be painted over the game's own output; beside
     // the game the whole height is orb's.
-    let limit = if beside >= below { client.top } else { letterbox.bottom };
+    let limit = if beside >= below {
+        client.top
+    } else {
+        letterbox.bottom
+    };
 
     let shown = unsafe { SHOWN.get() };
     if shown == lines {
@@ -514,7 +560,12 @@ unsafe fn letterbox() -> Option<RECT> {
     if window.is_null() {
         return None;
     }
-    let mut client = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let mut client = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
     if unsafe { GetClientRect(window, &mut client) } == 0 {
         return None;
     }
@@ -540,19 +591,29 @@ fn fit(client: RECT, content: (u32, u32)) -> RECT {
     // Whichever axis runs out first sets the scale. All integer, so the result is
     // exactly the game's ratio rather than nearly it.
     let (width, height) = if available_width * wanted_height <= available_height * wanted_width {
-        (available_width, available_width * wanted_height / wanted_width)
+        (
+            available_width,
+            available_width * wanted_height / wanted_width,
+        )
     } else {
-        (available_height * wanted_width / wanted_height, available_height)
+        (
+            available_height * wanted_width / wanted_height,
+            available_height,
+        )
     };
 
     let left = client.left + ((available_width - width) / 2) as i32;
     let top = client.top + ((available_height - height) / 2) as i32;
-    RECT { left, top, right: left + width as i32, bottom: top + height as i32 }
+    RECT {
+        left,
+        top,
+        right: left + width as i32,
+        bottom: top + height as i32,
+    }
 }
 
 fn primary_monitor() -> Option<RECT> {
-    let monitor =
-        unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+    let monitor = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
     if monitor.is_null() {
         return None;
     }
@@ -579,24 +640,38 @@ mod tests {
     use windows_sys::Win32::Foundation::RECT;
 
     fn client(width: i32, height: i32) -> RECT {
-        RECT { left: 0, top: 0, right: width, bottom: height }
+        RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        }
     }
 
     #[test]
     fn a_four_three_game_is_pillarboxed_on_a_sixteen_nine_screen() {
         let rect = fit(client(2560, 1440), (640, 480));
-        assert_eq!((rect.left, rect.top, rect.right, rect.bottom), (320, 0, 2240, 1440));
+        assert_eq!(
+            (rect.left, rect.top, rect.right, rect.bottom),
+            (320, 0, 2240, 1440)
+        );
     }
 
     #[test]
     fn a_game_wider_than_the_screen_is_letterboxed() {
         let rect = fit(client(1000, 1000), (640, 480));
-        assert_eq!((rect.left, rect.top, rect.right, rect.bottom), (0, 125, 1000, 875));
+        assert_eq!(
+            (rect.left, rect.top, rect.right, rect.bottom),
+            (0, 125, 1000, 875)
+        );
     }
 
     #[test]
     fn a_matching_ratio_fills_the_screen() {
         let rect = fit(client(1600, 1200), (640, 480));
-        assert_eq!((rect.left, rect.top, rect.right, rect.bottom), (0, 0, 1600, 1200));
+        assert_eq!(
+            (rect.left, rect.top, rect.right, rect.bottom),
+            (0, 0, 1600, 1200)
+        );
     }
 }

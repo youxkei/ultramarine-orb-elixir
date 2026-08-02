@@ -17,7 +17,8 @@ const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
 
 /// The launcher's own argument, on top of everything `orb_config::args` takes and hands on
 /// to the game.
-const CONFIG_USAGE: &str = "  --config=PATH        orb.yaml to use (default: beside orb-launcher.exe)";
+const CONFIG_USAGE: &str =
+    "  --config=PATH        orb.yaml to use (default: beside orb-launcher.exe)";
 
 fn main() -> ExitCode {
     match run() {
@@ -36,7 +37,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         Some(path) => path,
         None => {
             let exe = std::env::current_exe()?;
-            let dir = exe.parent().ok_or("cannot locate orb-launcher.exe directory")?;
+            let dir = exe
+                .parent()
+                .ok_or("cannot locate orb-launcher.exe directory")?;
             dir.join(orb_config::FILE_NAME)
         }
     };
@@ -69,7 +72,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     load_library(&process, &orb_dll)?;
     process.resume()?;
 
-    println!("orb-launcher: started {} (pid {})", game_exe.display(), process.id());
+    println!(
+        "orb-launcher: started {} (pid {})",
+        game_exe.display(),
+        process.id()
+    );
     Ok(())
 }
 
@@ -107,12 +114,18 @@ fn unpack_orb() -> Result<PathBuf, Box<dyn Error>> {
 /// Enough of a fingerprint to tell one build's payload from another's in a file name.
 fn checksum(bytes: &[u8]) -> String {
     use md5::{Digest, Md5};
-    Md5::digest(bytes).iter().take(8).map(|byte| format!("{byte:02x}")).collect()
+    Md5::digest(bytes)
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Takes `--config` out of the arguments, since which file to read is the launcher's own
 /// business and nothing the DLL needs to be told.
-fn split_config_path(arguments: &[String]) -> Result<(Option<PathBuf>, Vec<String>), Box<dyn Error>> {
+fn split_config_path(
+    arguments: &[String],
+) -> Result<(Option<PathBuf>, Vec<String>), Box<dyn Error>> {
     let mut path = None;
     let mut rest = Vec::new();
     for argument in arguments {
@@ -132,7 +145,8 @@ fn split_config_path(arguments: &[String]) -> Result<(Option<PathBuf>, Vec<Strin
 fn verify_game_exe(path: &Path) -> Result<(), Box<dyn Error>> {
     use md5::{Digest, Md5};
 
-    let bytes = std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let bytes =
+        std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let digest = Md5::digest(&bytes);
     let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
     if digest != GAME_EXE_MD5 {

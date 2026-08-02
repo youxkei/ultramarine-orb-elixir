@@ -60,7 +60,11 @@ pub fn spawn_suspended(exe: &Path, working_dir: &Path, options: &[String]) -> io
     if started == FALSE {
         return Err(io::Error::last_os_error());
     }
-    Ok(Process { process: info.hProcess, main_thread: info.hThread, id: info.dwProcessId })
+    Ok(Process {
+        process: info.hProcess,
+        main_thread: info.hThread,
+        id: info.dwProcessId,
+    })
 }
 
 impl Process {
@@ -72,7 +76,13 @@ impl Process {
         let path = wide(dll);
         let bytes = size_of::<u16>() * path.len();
         let remote = unsafe {
-            VirtualAllocEx(self.process, null(), bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
+            VirtualAllocEx(
+                self.process,
+                null(),
+                bytes,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
         };
         if remote.is_null() {
             return Err(io::Error::last_os_error());
@@ -89,16 +99,35 @@ impl Process {
         Ok(())
     }
 
-    fn write_path_and_load(&self, remote: *mut c_void, path: &[u16], bytes: usize) -> io::Result<()> {
+    fn write_path_and_load(
+        &self,
+        remote: *mut c_void,
+        path: &[u16],
+        bytes: usize,
+    ) -> io::Result<()> {
         let written = unsafe {
-            WriteProcessMemory(self.process, remote, path.as_ptr().cast(), bytes, null_mut())
+            WriteProcessMemory(
+                self.process,
+                remote,
+                path.as_ptr().cast(),
+                bytes,
+                null_mut(),
+            )
         };
         if written == FALSE {
             return Err(io::Error::last_os_error());
         }
 
         let thread = unsafe {
-            CreateRemoteThread(self.process, null(), 0, Some(load_library_w()?), remote, 0, null_mut())
+            CreateRemoteThread(
+                self.process,
+                null(),
+                0,
+                Some(load_library_w()?),
+                remote,
+                0,
+                null_mut(),
+            )
         };
         if thread.is_null() {
             return Err(io::Error::last_os_error());
@@ -127,9 +156,9 @@ fn load_library_w() -> io::Result<unsafe extern "system" fn(*mut c_void) -> u32>
     }
     let address = unsafe { GetProcAddress(kernel32, c"LoadLibraryW".as_ptr().cast()) };
     match address {
-        Some(address) => Ok(unsafe {
-            std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(address)
-        }),
+        Some(address) => {
+            Ok(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(address) })
+        }
         None => Err(io::Error::last_os_error()),
     }
 }
@@ -151,5 +180,8 @@ fn wait_for_module(thread: HANDLE) -> io::Result<()> {
 }
 
 fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
-    text.as_ref().encode_wide().chain(std::iter::once(0)).collect()
+    text.as_ref()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }

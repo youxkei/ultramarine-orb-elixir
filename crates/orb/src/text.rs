@@ -13,10 +13,11 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
 use windows_sys::Win32::Graphics::Gdi::{
-    ANTIALIASED_QUALITY, AddFontResourceExW, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CLIP_DEFAULT_PRECIS,
-    CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, DEFAULT_PITCH, DIB_RGB_COLORS,
-    DeleteDC, DeleteObject, FR_PRIVATE, GetTextExtentPoint32W, GetTextFaceW, HFONT, OPAQUE,
-    OUT_TT_PRECIS, SHIFTJIS_CHARSET, SelectObject, SetBkColor, SetBkMode, SetTextColor, TextOutW,
+    ANTIALIASED_QUALITY, AddFontResourceExW, BI_RGB, BITMAPINFO, BITMAPINFOHEADER,
+    CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, DEFAULT_PITCH,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, FR_PRIVATE, GetTextExtentPoint32W, GetTextFaceW, HFONT,
+    OPAQUE, OUT_TT_PRECIS, SHIFTJIS_CHARSET, SelectObject, SetBkColor, SetBkMode, SetTextColor,
+    TextOutW,
 };
 
 use crate::log::log;
@@ -60,7 +61,11 @@ impl Font {
         description.lfClipPrecision = CLIP_DEFAULT_PRECIS as u8;
         description.lfQuality = ANTIALIASED_QUALITY as u8;
         description.lfPitchAndFamily = DEFAULT_PITCH as u8;
-        for (slot, unit) in description.lfFaceName.iter_mut().zip(FACE_NAME.encode_utf16()) {
+        for (slot, unit) in description
+            .lfFaceName
+            .iter_mut()
+            .zip(FACE_NAME.encode_utf16())
+        {
             *slot = unit;
         }
 
@@ -70,7 +75,10 @@ impl Font {
             return None;
         }
         let font = Self { handle };
-        log!("overlay: font.ttf loaded, GDI is using {:?}", font.face_name().as_deref());
+        log!(
+            "overlay: font.ttf loaded, GDI is using {:?}",
+            font.face_name().as_deref()
+        );
         Some(font)
     }
 
@@ -82,8 +90,7 @@ impl Font {
         }
         let previous = unsafe { SelectObject(dc, self.handle as _) };
         let mut buffer = [0u16; 64];
-        let length =
-            unsafe { GetTextFaceW(dc, buffer.len() as i32, buffer.as_mut_ptr()) };
+        let length = unsafe { GetTextFaceW(dc, buffer.len() as i32, buffer.as_mut_ptr()) };
         unsafe {
             SelectObject(dc, previous);
             DeleteDC(dc);
@@ -103,12 +110,19 @@ impl Font {
         let previous_font = unsafe { SelectObject(dc, self.handle as _) };
 
         let mut extent = unsafe { std::mem::zeroed() };
-        let measured = unsafe {
-            GetTextExtentPoint32W(dc, wide.as_ptr(), wide.len() as i32, &mut extent)
-        };
+        let measured =
+            unsafe { GetTextExtentPoint32W(dc, wide.as_ptr(), wide.len() as i32, &mut extent) };
         // Antialiasing and italic overhang can reach a pixel past the extent.
-        let width = if measured == 0 { 0 } else { extent.cx.max(0) as u32 + 2 };
-        let height = if measured == 0 { 0 } else { extent.cy.max(0) as u32 + 2 };
+        let width = if measured == 0 {
+            0
+        } else {
+            extent.cx.max(0) as u32 + 2
+        };
+        let height = if measured == 0 {
+            0
+        } else {
+            extent.cy.max(0) as u32 + 2
+        };
         if width == 0 || height == 0 {
             unsafe {
                 SelectObject(dc, previous_font);
@@ -130,7 +144,14 @@ impl Font {
         };
         let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
         let bitmap = unsafe {
-            CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0)
+            CreateDIBSection(
+                dc,
+                &info,
+                DIB_RGB_COLORS,
+                &mut bits,
+                std::ptr::null_mut(),
+                0,
+            )
         };
         let mask = if bitmap.is_null() || bits.is_null() {
             None
@@ -142,20 +163,26 @@ impl Font {
                 SetTextColor(dc, WHITE);
                 TextOutW(dc, 1, 1, wide.as_ptr(), wide.len() as i32);
             }
-            let rendered =
-                unsafe { std::slice::from_raw_parts(bits as *const u32, (width * height) as usize) };
+            let rendered = unsafe {
+                std::slice::from_raw_parts(bits as *const u32, (width * height) as usize)
+            };
             // White text on black, so any channel is the coverage; keep the
             // brightest so a subpixel-ish edge does not lose weight.
             let pixels = rendered
                 .iter()
                 .map(|pixel| {
-                    let coverage =
-                        (pixel >> 16 & 0xff).max(pixel >> 8 & 0xff).max(pixel & 0xff);
+                    let coverage = (pixel >> 16 & 0xff)
+                        .max(pixel >> 8 & 0xff)
+                        .max(pixel & 0xff);
                     coverage << 24 | WHITE
                 })
                 .collect();
             unsafe { SelectObject(dc, previous_bitmap) };
-            Some(Mask { width, height, pixels })
+            Some(Mask {
+                width,
+                height,
+                pixels,
+            })
         };
 
         unsafe {

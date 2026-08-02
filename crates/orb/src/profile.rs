@@ -51,11 +51,21 @@ struct Slot {
     calls: u32,
 }
 
-static SLOTS: MainThread<[Slot; PHASES.len()]> = MainThread::new([Slot { ticks: 0, worst: 0, calls: 0 }; PHASES.len()]);
+static SLOTS: MainThread<[Slot; PHASES.len()]> = MainThread::new(
+    [Slot {
+        ticks: 0,
+        worst: 0,
+        calls: 0,
+    }; PHASES.len()],
+);
 static FRAMES: MainThread<u32> = MainThread::new(0);
 /// The whole frame, measured between calls to `frame`. Everything the game does
 /// is in here too, so it is what says whether a slowdown is orb's at all.
-static FRAME: MainThread<Slot> = MainThread::new(Slot { ticks: 0, worst: 0, calls: 0 });
+static FRAME: MainThread<Slot> = MainThread::new(Slot {
+    ticks: 0,
+    worst: 0,
+    calls: 0,
+});
 static LAST_FRAME: MainThread<i64> = MainThread::new(0);
 
 pub fn now() -> i64 {
@@ -131,7 +141,11 @@ pub unsafe fn frame() -> bool {
 }
 
 fn microseconds(ticks: i64, frequency: i64) -> i64 {
-    if frequency == 0 { 0 } else { ticks * 1_000_000 / frequency }
+    if frequency == 0 {
+        0
+    } else {
+        ticks * 1_000_000 / frequency
+    }
 }
 
 fn frequency() -> i64 {
@@ -141,5 +155,8 @@ fn frequency() -> i64 {
 }
 
 fn index(phase: Phase) -> usize {
-    PHASES.iter().position(|(known, _)| *known == phase).unwrap_or(0)
+    PHASES
+        .iter()
+        .position(|(known, _)| *known == phase)
+        .unwrap_or(0)
 }

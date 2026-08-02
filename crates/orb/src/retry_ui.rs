@@ -29,8 +29,10 @@ pub enum Choice {
     Stage,
 }
 
-const CHOICES: [(Choice, &str); 2] =
-    [(Choice::Chapter, "チャプターをやり直す"), (Choice::Stage, "ステージをやり直す")];
+const CHOICES: [(Choice, &str); 2] = [
+    (Choice::Chapter, "チャプターをやり直す"),
+    (Choice::Stage, "ステージをやり直す"),
+];
 
 pub struct RetryMenu {
     selection: usize,

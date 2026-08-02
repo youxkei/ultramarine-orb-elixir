@@ -143,7 +143,11 @@ unsafe fn calibrate(caps: &JOYCAPSA) {
     let ours = std::ptr::from_ref(caps).cast::<u8>();
     let ours = unsafe { std::slice::from_raw_parts(ours, size_of::<JOYCAPSA>()) };
     let theirs = unsafe { std::slice::from_raw_parts(at as *const u8, size_of::<JOYCAPSA>()) };
-    let Some(differs) = ours.iter().zip(theirs).position(|(ours, theirs)| ours != theirs) else {
+    let Some(differs) = ours
+        .iter()
+        .zip(theirs)
+        .position(|(ours, theirs)| ours != theirs)
+    else {
         return;
     };
     unsafe { std::ptr::copy_nonoverlapping(ours.as_ptr(), at as *mut u8, ours.len()) };
@@ -152,7 +156,9 @@ unsafe fn calibrate(caps: &JOYCAPSA) {
     // expected way, anything else is a finding — and one line says it as well as a line a
     // frame would.
     if REPORTED_DIFFERENCE.swap(differs + 1, Ordering::Relaxed) != differs + 1 {
-        log!("joystick: the game's axis calibration was not this device's from +{differs:#x}; set from its caps");
+        log!(
+            "joystick: the game's axis calibration was not this device's from +{differs:#x}; set from its caps"
+        );
     }
 }
 
@@ -161,7 +167,10 @@ fn latest() -> Option<Sample> {
 }
 
 fn start_polling() {
-    if POLLING.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+    if POLLING
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
+    {
         return;
     }
     // Not from `DllMain`, where the rest of orb's hooks go in: a thread created while the
@@ -216,11 +225,18 @@ fn poll() -> ! {
         // What device they are of stands in the line above rather than being asked again,
         // since naming it means another read of the thing this stops reading often.
         if polls == REPORT_READS {
-            detail!("joystick: {polls} reads, {}us each", total / i64::from(polls));
+            detail!(
+                "joystick: {polls} reads, {}us each",
+                total / i64::from(polls)
+            );
             (polls, total) = (0, 0);
         }
 
-        let wait = if result == JOYERR_NOERROR { ATTACHED_MS } else { DETACHED_MS };
+        let wait = if result == JOYERR_NOERROR {
+            ATTACHED_MS
+        } else {
+            DETACHED_MS
+        };
         // Never sooner than the read itself took, so a device slow enough to cost what no
         // device at all costs cannot hold a core of its own.
         unsafe { Sleep(wait.max((cost.max(0) / 1000) as u32)) };
@@ -258,7 +274,11 @@ fn describe(sample: &Sample) -> String {
 /// the name here read `Microsoft PC �W���C�X�e�B�b�N` before this converted it, and a line
 /// nobody can read is no answer to which device it is.
 fn name(field: [i8; 32]) -> String {
-    let ansi: Vec<u8> = field.iter().take_while(|byte| **byte != 0).map(|byte| *byte as u8).collect();
+    let ansi: Vec<u8> = field
+        .iter()
+        .take_while(|byte| **byte != 0)
+        .map(|byte| *byte as u8)
+        .collect();
     let mut wide = [0u16; 32];
     let written = unsafe {
         MultiByteToWideChar(
@@ -291,17 +311,25 @@ mod tests {
             caps: JOYCAPSA,
             auto_repeat: u32,
         }
-        let mut theirs =
-            AsTheGameHasThem { caps: unsafe { std::mem::zeroed() }, auto_repeat: 0x0102_0304 };
+        let mut theirs = AsTheGameHasThem {
+            caps: unsafe { std::mem::zeroed() },
+            auto_repeat: 0x0102_0304,
+        };
         let mut ours: JOYCAPSA = unsafe { std::mem::zeroed() };
         ours.wXmax = 65535;
         ours.wNumButtons = 16;
 
-        CALIBRATION.store(std::ptr::from_mut(&mut theirs.caps) as usize, Ordering::Relaxed);
+        CALIBRATION.store(
+            std::ptr::from_mut(&mut theirs.caps) as usize,
+            Ordering::Relaxed,
+        );
         unsafe { calibrate(&ours) };
 
-        let (travel, buttons, beyond) =
-            (theirs.caps.wXmax, theirs.caps.wNumButtons, theirs.auto_repeat);
+        let (travel, buttons, beyond) = (
+            theirs.caps.wXmax,
+            theirs.caps.wNumButtons,
+            theirs.auto_repeat,
+        );
         assert_eq!((travel, buttons), (65535, 16));
         assert_eq!(beyond, 0x0102_0304);
 

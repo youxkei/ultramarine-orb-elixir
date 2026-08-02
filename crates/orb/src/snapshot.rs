@@ -105,15 +105,26 @@ struct Buffer {
 impl Buffer {
     fn new(len: usize) -> Option<Self> {
         let base = unsafe {
-            VirtualAlloc(std::ptr::null(), len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
+            VirtualAlloc(
+                std::ptr::null(),
+                len,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
         };
         if base.is_null() {
             return None;
         }
         if let Ok(mut ours) = OURS.lock() {
-            ours.push(Region { base: base as usize, len });
+            ours.push(Region {
+                base: base as usize,
+                len,
+            });
         }
-        Some(Self { base: base.cast(), len })
+        Some(Self {
+            base: base.cast(),
+            len,
+        })
     }
 
     fn as_slice(&self) -> &[u8] {
@@ -178,11 +189,20 @@ impl Snapshot {
         with_inventory: bool,
     ) {
         self.audio_thread = audio.thread;
-        self.live = live.iter().map(|r| Region { base: r.start, len: r.len() }).collect();
+        self.live = live
+            .iter()
+            .map(|r| Region {
+                base: r.start,
+                len: r.len(),
+            })
+            .collect();
         let audio_state: Vec<Region> = audio
             .state
             .iter()
-            .map(|range| Region { base: range.start, len: range.len() })
+            .map(|range| Region {
+                base: range.start,
+                len: range.len(),
+            })
             .collect();
         let (music, preserve) = match audio.policy {
             Music::Rewind(stream) => (stream, Vec::new()),
@@ -202,13 +222,22 @@ impl Snapshot {
             );
         }
         let reusable = self.saved.len() == regions.len()
-            && self.saved.iter().zip(regions).all(|(saved, region)| saved.region == *region);
+            && self
+                .saved
+                .iter()
+                .zip(regions)
+                .all(|(saved, region)| saved.region == *region);
         if !reusable {
             // Allocated before suspending: VirtualAlloc can block on a lock a
             // suspended thread would then never release.
             self.saved = regions
                 .iter()
-                .filter_map(|&region| Some(Saved { region, data: Buffer::new(region.len)? }))
+                .filter_map(|&region| {
+                    Some(Saved {
+                        region,
+                        data: Buffer::new(region.len)?,
+                    })
+                })
                 .collect();
         }
         // The sound buffer has to be captured with no thread suspended, because
@@ -246,8 +275,11 @@ impl Snapshot {
             }
         }
 
-        self.untracked =
-            if with_inventory { unsafe { fingerprint_untracked(regions) } } else { Vec::new() };
+        self.untracked = if with_inventory {
+            unsafe { fingerprint_untracked(regions) }
+        } else {
+            Vec::new()
+        };
         self.music = saved_music;
     }
 
@@ -279,8 +311,12 @@ impl Snapshot {
     /// So the sound is not restored in that case: it is torn down through the game
     /// first and started again after, which is what [`Snapshot::restore`] does.
     fn music_still_playing(&self, game: &dyn crate::game::Game) -> bool {
-        let Some((music, saved)) = &self.music else { return true };
-        let Some(live) = game.music() else { return false };
+        let Some((music, saved)) = &self.music else {
+            return true;
+        };
+        let Some(live) = game.music() else {
+            return false;
+        };
         music.still_current(saved, &live, game.music_identity())
     }
 
@@ -305,12 +341,19 @@ impl Snapshot {
         //
         // Nothing is held back when the sound has been taken down: there is no
         // longer anything live in those ranges to protect.
-        let mut holes = if same_track { self.preserve.clone() } else { Vec::new() };
+        let mut holes = if same_track {
+            self.preserve.clone()
+        } else {
+            Vec::new()
+        };
         holes.extend_from_slice(&self.live);
         holes.sort_unstable_by_key(|hole| hole.base);
         if !holes.is_empty() {
             let covered: usize = holes.iter().map(|hole| hole.len).sum();
-            log!("restore: skipping {} range(s), {covered} bytes", holes.len());
+            log!(
+                "restore: skipping {} range(s), {covered} bytes",
+                holes.len()
+            );
         }
         {
             let _suspended = suspend(self.audio_thread);
@@ -330,7 +373,11 @@ impl Snapshot {
             _ => {}
         }
         for region in failed {
-            log!("restore: cannot write {:#010x}+{:#x}", region.base, region.len);
+            log!(
+                "restore: cannot write {:#010x}+{:#x}",
+                region.base,
+                region.len
+            );
         }
     }
 
@@ -381,7 +428,12 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
 
     let mut previous: PAGE_PROTECTION_FLAGS = 0;
     let unprotected = unsafe {
-        VirtualProtect(region.base as *const c_void, region.len, PAGE_READWRITE, &mut previous)
+        VirtualProtect(
+            region.base as *const c_void,
+            region.len,
+            PAGE_READWRITE,
+            &mut previous,
+        )
     } != FALSE;
 
     let mut cursor = region.base;
@@ -399,7 +451,12 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
 
     if unprotected {
         unsafe {
-            VirtualProtect(region.base as *const c_void, region.len, previous, &mut previous);
+            VirtualProtect(
+                region.base as *const c_void,
+                region.len,
+                previous,
+                &mut previous,
+            );
         }
     }
     true
@@ -420,7 +477,11 @@ unsafe fn commit(region: Region) -> bool {
     while at < region.end() {
         let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
         let queried = unsafe {
-            VirtualQuery(at as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+            VirtualQuery(
+                at as *const c_void,
+                &mut info,
+                size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
         };
         if queried == 0 {
             return false;
@@ -475,12 +536,19 @@ unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
     loop {
         let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
         let queried = unsafe {
-            VirtualQuery(address as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+            VirtualQuery(
+                address as *const c_void,
+                &mut info,
+                size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
         };
         if queried == 0 {
             break;
         }
-        let region = Region { base: info.BaseAddress as usize, len: info.RegionSize };
+        let region = Region {
+            base: info.BaseAddress as usize,
+            len: info.RegionSize,
+        };
         let next = region.end();
 
         let interesting = info.State == MEM_COMMIT
@@ -530,7 +598,9 @@ unsafe fn process_heap_regions() -> Vec<Region> {
 }
 
 fn overlaps(region: &Region, others: &[Region]) -> bool {
-    others.iter().any(|other| region.base < other.end() && other.base < region.end())
+    others
+        .iter()
+        .any(|other| region.base < other.end() && other.base < region.end())
 }
 
 /// FNV-1a over 8 bytes at a time. A byte at a time is a serial multiply chain,
@@ -539,7 +609,11 @@ fn overlaps(region: &Region, others: &[Region]) -> bool {
 unsafe fn hash(region: Region) -> Option<u64> {
     let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
     let queried = unsafe {
-        VirtualQuery(region.base as *const c_void, &mut info, size_of::<MEMORY_BASIC_INFORMATION>())
+        VirtualQuery(
+            region.base as *const c_void,
+            &mut info,
+            size_of::<MEMORY_BASIC_INFORMATION>(),
+        )
     };
     if queried == 0 || info.State != MEM_COMMIT || info.RegionSize < region.len {
         return None;

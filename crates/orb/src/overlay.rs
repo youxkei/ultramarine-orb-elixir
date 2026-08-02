@@ -61,9 +61,25 @@ impl Overlay {
         }
 
         let white = unsafe { create_texture(device, 1, 1) }?;
-        unsafe { upload(white, &Mask { width: 1, height: 1, pixels: vec![WHITE] }, 1, 1) };
+        unsafe {
+            upload(
+                white,
+                &Mask {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![WHITE],
+                },
+                1,
+                1,
+            )
+        };
 
-        Some(Self { device, state_block, font, white })
+        Some(Self {
+            device,
+            state_block,
+            font,
+            white,
+        })
     }
 
     pub fn font(&self) -> &Font {
@@ -128,7 +144,10 @@ impl Overlay {
                 (vtable.set_texture_stage_state)(self.device, 0, state, value);
             }
         }
-        Some(Frame { overlay: self, viewport })
+        Some(Frame {
+            overlay: self,
+            viewport,
+        })
     }
 }
 
@@ -189,10 +208,42 @@ impl Frame<'_> {
         let (left, top) = (x - 0.5, y - 0.5);
         let (right, bottom) = (left + width, top + height);
         let vertices = [
-            Vertex { x: left, y: top, z: 0.0, rhw: 1.0, color, u: 0.0, v: 0.0 },
-            Vertex { x: right, y: top, z: 0.0, rhw: 1.0, color, u, v: 0.0 },
-            Vertex { x: left, y: bottom, z: 0.0, rhw: 1.0, color, u: 0.0, v },
-            Vertex { x: right, y: bottom, z: 0.0, rhw: 1.0, color, u, v },
+            Vertex {
+                x: left,
+                y: top,
+                z: 0.0,
+                rhw: 1.0,
+                color,
+                u: 0.0,
+                v: 0.0,
+            },
+            Vertex {
+                x: right,
+                y: top,
+                z: 0.0,
+                rhw: 1.0,
+                color,
+                u,
+                v: 0.0,
+            },
+            Vertex {
+                x: left,
+                y: bottom,
+                z: 0.0,
+                rhw: 1.0,
+                color,
+                u: 0.0,
+                v,
+            },
+            Vertex {
+                x: right,
+                y: bottom,
+                z: 0.0,
+                rhw: 1.0,
+                color,
+                u,
+                v,
+            },
         ];
         let device = self.overlay.device;
         let vtable = unsafe { &*(*device).vtable };
@@ -234,7 +285,13 @@ pub struct Label {
 
 impl Label {
     pub const fn new() -> Self {
-        Self { texture: None, baked: String::new(), size: (0, 0), u: 0.0, v: 0.0 }
+        Self {
+            texture: None,
+            baked: String::new(),
+            size: (0, 0),
+            u: 0.0,
+            v: 0.0,
+        }
     }
 
     pub fn width(&self) -> f32 {
@@ -255,8 +312,13 @@ impl Label {
         self.baked = text.to_owned();
         self.size = (0, 0);
 
-        let Some(mask) = overlay.font().render(text) else { return };
-        let (width, height) = (mask.width.next_power_of_two(), mask.height.next_power_of_two());
+        let Some(mask) = overlay.font().render(text) else {
+            return;
+        };
+        let (width, height) = (
+            mask.width.next_power_of_two(),
+            mask.height.next_power_of_two(),
+        );
         let texture = unsafe { create_texture(overlay.device, width, height) };
         let Some(texture) = texture else { return };
         unsafe { upload(texture, &mask, width, height) };
@@ -304,16 +366,19 @@ unsafe fn create_texture(device: *mut Device, width: u32, height: u32) -> Option
 /// Copies `mask` into the top-left of the texture, leaving the padding that
 /// rounding up to a power of two added fully transparent.
 unsafe fn upload(texture: *mut Texture, mask: &Mask, width: u32, height: u32) {
-    let mut locked = LockedRect { pitch: 0, bits: std::ptr::null_mut() };
-    let result = unsafe {
-        ((*(*texture).vtable).lock_rect)(texture, 0, &mut locked, std::ptr::null(), 0)
+    let mut locked = LockedRect {
+        pitch: 0,
+        bits: std::ptr::null_mut(),
     };
+    let result =
+        unsafe { ((*(*texture).vtable).lock_rect)(texture, 0, &mut locked, std::ptr::null(), 0) };
     if result < 0 || locked.bits.is_null() {
         return;
     }
     for row in 0..height {
         let destination = unsafe { locked.bits.byte_add(row as usize * locked.pitch as usize) };
-        let destination = unsafe { std::slice::from_raw_parts_mut(destination as *mut u32, width as usize) };
+        let destination =
+            unsafe { std::slice::from_raw_parts_mut(destination as *mut u32, width as usize) };
         destination.fill(0);
         if row < mask.height {
             let start = (row * mask.width) as usize;

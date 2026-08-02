@@ -296,10 +296,19 @@ impl Chapters {
             },
             stage: None,
             retries: 0,
-            mark: Mark { number: 0, started_at: 0, midstage_upto: i32::MIN, cause: Cause::StageStart },
+            mark: Mark {
+                number: 0,
+                started_at: 0,
+                midstage_upto: i32::MIN,
+                cause: Cause::StageStart,
+            },
             chapter: None,
             stage_start: None,
-            seen: Seen { boss_present: false, boss_timer: None, spellcard: None },
+            seen: Seen {
+                boss_present: false,
+                boss_timer: None,
+                spellcard: None,
+            },
             resync: false,
             settling_until: None,
             during_replay,
@@ -378,19 +387,26 @@ impl Chapters {
     /// back means being able to get to it — but it begins no chapter, and a step that
     /// stopped at it would be stopping at nothing.
     pub fn previous_start(&self, state: &State) -> Option<u32> {
-        self.in_table().filter(|start| *start < state.stage_frames).max()
+        self.in_table()
+            .filter(|start| *start < state.stage_frames)
+            .max()
     }
 
     /// And the chapter after it. Neither leaves the stage: what lies outside it is the
     /// game's to load, not a snapshot's to put back.
     pub fn next_start(&self, state: &State) -> Option<u32> {
-        self.in_table().filter(|start| *start > state.stage_frames).min()
+        self.in_table()
+            .filter(|start| *start > state.stage_frames)
+            .min()
     }
 
     /// The stage frames of the chapters this stage has begun, minus the ones a boundary
     /// since judged out of the table began.
     fn in_table(&self) -> impl Iterator<Item = u32> {
-        self.starts.iter().filter(|(_, cause)| self.kept(*cause)).map(|(frame, _)| *frame)
+        self.starts
+            .iter()
+            .filter(|(_, cause)| self.kept(*cause))
+            .map(|(frame, _)| *frame)
     }
 
     /// Whether a chapter's start is still one, which for the table's own boundaries is
@@ -402,16 +418,28 @@ impl Chapters {
     /// `chapter_dropped_key` cannot reach it either, since it is in no table to be found in.
     /// Whether this boundary of the current stage is one somebody put there.
     fn added_by_hand(&self, frame: i32) -> bool {
-        let Midstage::Tuning(tuning) = &self.midstage else { return false };
-        let Some(stage) = self.stage else { return false };
-        tuning.judged(stage, frame).is_some_and(|judged| judged.by_hand)
+        let Midstage::Tuning(tuning) = &self.midstage else {
+            return false;
+        };
+        let Some(stage) = self.stage else {
+            return false;
+        };
+        tuning
+            .judged(stage, frame)
+            .is_some_and(|judged| judged.by_hand)
     }
 
     fn kept(&self, cause: Cause) -> bool {
-        let Cause::Boundary(frame) = cause else { return true };
-        let Midstage::Tuning(tuning) = &self.midstage else { return true };
+        let Cause::Boundary(frame) = cause else {
+            return true;
+        };
+        let Midstage::Tuning(tuning) = &self.midstage else {
+            return true;
+        };
         let Some(stage) = self.stage else { return true };
-        tuning.judged(stage, frame).is_some_and(|judged| judged.verdict != Verdict::Rejected)
+        tuning
+            .judged(stage, frame)
+            .is_some_and(|judged| judged.verdict != Verdict::Rejected)
     }
 
     /// The script frames of the boundaries judged out of the table, either side of where
@@ -421,11 +449,15 @@ impl Chapters {
     /// judged out begins no chapter: nothing has recorded a stage frame for it, and the
     /// clock the table is written in is the only thing that names it at all.
     pub fn previous_dropped(&self, state: &State) -> Option<i32> {
-        self.dropped().filter(|frame| *frame < state.script_frames).max()
+        self.dropped()
+            .filter(|frame| *frame < state.script_frames)
+            .max()
     }
 
     pub fn next_dropped(&self, state: &State) -> Option<i32> {
-        self.dropped().filter(|frame| *frame > state.script_frames).min()
+        self.dropped()
+            .filter(|frame| *frame > state.script_frames)
+            .min()
     }
 
     fn dropped(&self) -> impl Iterator<Item = i32> {
@@ -434,7 +466,10 @@ impl Chapters {
             Midstage::Tuning(tuning) => Some(tuning),
             Midstage::Table => None,
         };
-        stage.zip(tuning).into_iter().flat_map(|(stage, tuning)| tuning.rejected(stage))
+        stage
+            .zip(tuning)
+            .into_iter()
+            .flat_map(|(stage, tuning)| tuning.rejected(stage))
     }
 
     /// Which boundary the judging keys act on: the one at the very frame the game is
@@ -447,7 +482,9 @@ impl Chapters {
     /// stands on a boss's boundary or a stage's start, the table has nothing there and
     /// there is nothing to judge.
     fn judging(&self, state: &State, held: bool) -> Option<(i32, i32)> {
-        let Midstage::Tuning(tuning) = &self.midstage else { return None };
+        let Midstage::Tuning(tuning) = &self.midstage else {
+            return None;
+        };
         let stage = self.stage?;
         let here = state.script_frames;
         (held && tuning.judged(stage, here).is_some()).then_some((stage, here))
@@ -457,7 +494,9 @@ impl Chapters {
     /// start, a boss appearing, an attack changing — which the game settles as the run
     /// goes and is not anyone's to judge.
     pub fn judged(&self, state: &State, held: bool) -> Option<Judged> {
-        let Midstage::Tuning(tuning) = &self.midstage else { return None };
+        let Midstage::Tuning(tuning) = &self.midstage else {
+            return None;
+        };
         let (stage, boundary) = self.judging(state, held)?;
         tuning.judged(stage, boundary)
     }
@@ -466,15 +505,21 @@ impl Chapters {
     /// chapter being played for as long as it is being played, where `judged` names only
     /// what a key would change and only while the game is still.
     pub fn chapter_boundary(&self) -> Option<Judged> {
-        let Midstage::Tuning(tuning) = &self.midstage else { return None };
+        let Midstage::Tuning(tuning) = &self.midstage else {
+            return None;
+        };
         tuning.judged(self.stage?, self.mark.began_at()?)
     }
 
     /// Judges it one step better, or one step worse. Does nothing where there is
     /// nothing of the table's to judge.
     pub fn judge(&mut self, state: &State, held: bool, judgement: Judgement) {
-        let Some((stage, boundary)) = self.judging(state, held) else { return };
-        let Midstage::Tuning(tuning) = &mut self.midstage else { return };
+        let Some((stage, boundary)) = self.judging(state, held) else {
+            return;
+        };
+        let Midstage::Tuning(tuning) = &mut self.midstage else {
+            return;
+        };
         match judgement {
             Judgement::Better => tuning.judge_up(stage, boundary),
             Judgement::Worse => tuning.judge_down(stage, boundary),
@@ -528,7 +573,9 @@ impl Chapters {
     /// Writes the boundary down and moves the cursor past it: everything about adding one
     /// except the chapter it begins.
     fn note_boundary(&mut self, state: &State) -> bool {
-        let Midstage::Tuning(tuning) = &mut self.midstage else { return false };
+        let Midstage::Tuning(tuning) = &mut self.midstage else {
+            return false;
+        };
         if !tuning.add(state.stage, state.script_frames) {
             return false;
         }
@@ -624,7 +671,9 @@ impl Chapters {
         if self.resync {
             return;
         }
-        let Due::Yes(cause) = self.due(game, state, current) else { return };
+        let Due::Yes(cause) = self.due(game, state, current) else {
+            return;
+        };
         unsafe { self.begin_chapter(game, state, data, self_check, cause) };
     }
 
@@ -701,8 +750,9 @@ impl Chapters {
             };
             if let Some(named) = named {
                 self.mark.cause = named;
-                if let Ok(at) =
-                    self.starts.binary_search_by_key(&self.mark.started_at, |(at, _)| *at)
+                if let Ok(at) = self
+                    .starts
+                    .binary_search_by_key(&self.mark.started_at, |(at, _)| *at)
                 {
                     self.starts[at].1 = named;
                 }
@@ -793,22 +843,21 @@ impl Chapters {
         }
         self.chapter = None;
 
-        let snapshot =
-            unsafe {
-                take(
-                    self.stage_start.take(),
-                    game,
-                    data,
-                    self_check,
-                    Audio {
-                        policy: Music::Rewind(game.music()),
-                        identity: game.music_identity(),
-                        state: game.audio_state(),
-                        thread: game.audio_thread(),
-                    },
-                    &game.live_handles(),
-                )
-            };
+        let snapshot = unsafe {
+            take(
+                self.stage_start.take(),
+                game,
+                data,
+                self_check,
+                Audio {
+                    policy: Music::Rewind(game.music()),
+                    identity: game.music_identity(),
+                    state: game.audio_state(),
+                    thread: game.audio_thread(),
+                },
+                &game.live_handles(),
+            )
+        };
         log!(
             "stage {} chapter 1 (stage start) at frame {}, music: {}, \
              lives={} bombs={} power={} deaths={} seed={:#06x}",
@@ -821,7 +870,10 @@ impl Chapters {
             state.deaths,
             state.random_seed,
         );
-        self.stage_start = Some(Checkpoint { snapshot, mark: self.mark });
+        self.stage_start = Some(Checkpoint {
+            snapshot,
+            mark: self.mark,
+        });
     }
 
     unsafe fn begin_chapter(
@@ -840,7 +892,9 @@ impl Chapters {
         };
         // Sorted and without repeats: stepping back replays part of the stage, and
         // the chapters it passes through again are the same ones.
-        if let Err(at) = self.starts.binary_search_by_key(&state.stage_frames, |(frame, _)| *frame)
+        if let Err(at) = self
+            .starts
+            .binary_search_by_key(&state.stage_frames, |(frame, _)| *frame)
         {
             self.starts.insert(at, (state.stage_frames, cause));
         }
@@ -869,7 +923,10 @@ impl Chapters {
             snapshot.regions(),
             snapshot.bytes(),
         );
-        self.chapter = Some(Checkpoint { snapshot, mark: self.mark });
+        self.chapter = Some(Checkpoint {
+            snapshot,
+            mark: self.mark,
+        });
     }
 
     /// Restores the start of the current chapter. Returns false when there is
@@ -896,7 +953,11 @@ impl Chapters {
             return false;
         }
         self.retries += 1;
-        log!("retry stage from chapter {} (retry {})", self.mark.number, self.retries);
+        log!(
+            "retry stage from chapter {} (retry {})",
+            self.mark.number,
+            self.retries
+        );
         true
     }
 
@@ -907,7 +968,9 @@ impl Chapters {
     /// # Safety
     /// Must run on the game's main thread, between frames.
     pub unsafe fn rewind_stage(&mut self, game: &dyn Game) -> bool {
-        let Some(checkpoint) = self.stage_start.as_ref() else { return false };
+        let Some(checkpoint) = self.stage_start.as_ref() else {
+            return false;
+        };
         let mark = checkpoint.mark;
         unsafe { checkpoint.snapshot.restore(game) };
         self.chapter = None;
@@ -921,9 +984,17 @@ impl Chapters {
     fn audio_for(&self, game: &dyn Game, state: &State) -> Audio {
         let identity = game.music_identity();
         let boss_has_own_music = state.boss_present && identity != self.stage_music;
-        let policy =
-            if boss_has_own_music { Music::KeepPlaying } else { Music::Rewind(game.music()) };
-        Audio { policy, identity, state: game.audio_state(), thread: game.audio_thread() }
+        let policy = if boss_has_own_music {
+            Music::KeepPlaying
+        } else {
+            Music::Rewind(game.music())
+        };
+        Audio {
+            policy,
+            identity,
+            state: game.audio_state(),
+            thread: game.audio_thread(),
+        }
     }
 
     fn after_restore(&mut self, mark: Mark) {
@@ -949,7 +1020,12 @@ impl Chapters {
         self.chapter = None;
         self.stage_start = None;
         self.settling_until = None;
-        self.mark = Mark { number: 0, started_at: 0, midstage_upto: i32::MIN, cause: Cause::StageStart };
+        self.mark = Mark {
+            number: 0,
+            started_at: 0,
+            midstage_upto: i32::MIN,
+            cause: Cause::StageStart,
+        };
         self.starts.clear();
     }
 }
@@ -987,7 +1063,12 @@ unsafe fn take(
             check.changed_untracked.len(),
             check.changed_in_process_heap,
         );
-        for region in check.unrestored.iter().chain(&check.changed_untracked).take(32) {
+        for region in check
+            .unrestored
+            .iter()
+            .chain(&check.changed_untracked)
+            .take(32)
+        {
             log!("self_check:   {:#010x}+{:#x}", region.base, region.len);
         }
     }
@@ -1020,7 +1101,10 @@ mod tests {
     /// stage's waves in the only terms the detector reads. The stage's clock and the
     /// script's are held equal, since all it asks of them is that both advance.
     fn waves(frame: u32) -> State {
-        State { enemy_count: if frame / 200 % 2 == 0 { 3 } else { 0 }, ..empty(frame) }
+        State {
+            enemy_count: if frame / 200 % 2 == 0 { 3 } else { 0 },
+            ..empty(frame)
+        }
     }
 
     /// A frame with nothing on screen at all. The stage's clock and the script's are
@@ -1085,7 +1169,9 @@ mod tests {
             cause: Cause::StageStart,
         };
         chapters.starts.clear();
-        chapters.starts.push((state.stage_frames, Cause::StageStart));
+        chapters
+            .starts
+            .push((state.stage_frames, Cause::StageStart));
         if let Some(tuning) = chapters.tuning() {
             tuning.begin_stage(state.stage);
         }
@@ -1102,7 +1188,9 @@ mod tests {
             midstage_upto: chapters.mark.midstage_upto,
             cause,
         };
-        let at = chapters.starts.binary_search_by_key(&state.stage_frames, |(at, _)| *at);
+        let at = chapters
+            .starts
+            .binary_search_by_key(&state.stage_frames, |(at, _)| *at);
         if let Err(at) = at {
             chapters.starts.insert(at, (state.stage_frames, cause));
         }
@@ -1139,7 +1227,9 @@ mod tests {
                 midstage_upto: chapters.mark.midstage_upto,
                 cause,
             };
-            let at = chapters.starts.binary_search_by_key(&state.stage_frames, |(at, _)| *at);
+            let at = chapters
+                .starts
+                .binary_search_by_key(&state.stage_frames, |(at, _)| *at);
             if let Err(at) = at {
                 chapters.starts.insert(at, (state.stage_frames, cause));
             }
@@ -1161,20 +1251,28 @@ mod tests {
     /// A frame with enemies on it, for waiting out the floor on a chapter's length without
     /// the gap detector offering a boundary in the quiet.
     fn enemies(frame: u32) -> State {
-        State { enemy_count: 3, ..empty(frame) }
+        State {
+            enemy_count: 3,
+            ..empty(frame)
+        }
     }
 
     /// One frame through the detection, with the bookkeeping a chapter beginning does and
     /// without the snapshot: what the frame hook does, as far as the name is concerned.
     fn step(chapters: &mut Chapters, state: &State) {
-        let Due::Yes(cause) = watch(chapters, state) else { return };
+        let Due::Yes(cause) = watch(chapters, state) else {
+            return;
+        };
         chapters.mark = Mark {
             number: chapters.mark.number + 1,
             started_at: state.stage_frames,
             midstage_upto: chapters.mark.midstage_upto,
             cause,
         };
-        if let Err(at) = chapters.starts.binary_search_by_key(&state.stage_frames, |(at, _)| *at) {
+        if let Err(at) = chapters
+            .starts
+            .binary_search_by_key(&state.stage_frames, |(at, _)| *at)
+        {
             chapters.starts.insert(at, (state.stage_frames, cause));
         }
     }
@@ -1264,7 +1362,10 @@ mod tests {
         // Fifty-four frames after it, which is inside the floor.
         add_boundary(&mut chapters, &empty(313));
         // And it is still a boundary on the next pass over the same ground.
-        chapters.mark = Mark { midstage_upto: 0, ..chapters.mark };
+        chapters.mark = Mark {
+            midstage_upto: 0,
+            ..chapters.mark
+        };
         let at = waves(313);
         assert!(matches!(
             chapters.due(&Th06, &at, &Seen::of(&at)),
@@ -1292,9 +1393,17 @@ mod tests {
         }
         // The timer starts again, which is the attack changing and all that is known of it.
         let due = watch(&mut chapters, &fighting(200, 0, None));
-        assert!(matches!(due, Due::Yes(Cause::MidbossNonspell | Cause::BossNonspell)));
+        assert!(matches!(
+            due,
+            Due::Yes(Cause::MidbossNonspell | Cause::BossNonspell)
+        ));
         let Due::Yes(cause) = due else { unreachable!() };
-        chapters.mark = Mark { number: 2, started_at: 200, cause, ..chapters.mark };
+        chapters.mark = Mark {
+            number: 2,
+            started_at: 200,
+            cause,
+            ..chapters.mark
+        };
 
         // The card names itself on the next frame. No second chapter, and the one standing
         // there is a spellcard's.
@@ -1360,10 +1469,22 @@ mod tests {
 
         // A midboss, up long enough for a chapter to be allowed after it.
         for frame in 0..200 {
-            watch(&mut chapters, &State { boss_present: true, ..empty(frame) });
+            watch(
+                &mut chapters,
+                &State {
+                    boss_present: true,
+                    ..empty(frame)
+                },
+            );
         }
-        let hit = State { unsettled: true, ..empty(200) };
-        assert!(matches!(watch(&mut chapters, &hit), Due::Yes(Cause::StageAfterMidboss)));
+        let hit = State {
+            unsettled: true,
+            ..empty(200)
+        };
+        assert!(matches!(
+            watch(&mut chapters, &hit),
+            Due::Yes(Cause::StageAfterMidboss)
+        ));
     }
 
     /// An attack changing under a bomb is a boundary on the frame it changes: a bomb is two
@@ -1385,11 +1506,17 @@ mod tests {
         }
         // The spellcard is bombed out and the next attack begins while the bomb is still
         // going: the boss's timer starts again from nothing.
-        let bombed = State { bombing: true, ..spell(200, 0) };
+        let bombed = State {
+            bombing: true,
+            ..spell(200, 0)
+        };
         // Whose fight it is comes from the music, which there is no game here to play, so
         // either naming will do — what matters is that the change was taken.
         let due = watch(&mut chapters, &bombed);
-        assert!(matches!(due, Due::Yes(Cause::BossSpell | Cause::MidbossSpell)));
+        assert!(matches!(
+            due,
+            Due::Yes(Cause::BossSpell | Cause::MidbossSpell)
+        ));
     }
 
     /// The judging keys do nothing unless the game is standing still on the boundary: a
@@ -1404,14 +1531,20 @@ mod tests {
         let on_it = empty(659);
         assert!(chapters.judged(&on_it, false).is_none());
         chapters.judge(&on_it, false, Judgement::Worse);
-        assert_eq!(chapters.judged(&on_it, HELD).unwrap().verdict.label(), "KEEP");
+        assert_eq!(
+            chapters.judged(&on_it, HELD).unwrap().verdict.label(),
+            "KEEP"
+        );
 
         // Nor anywhere else, held or not: what is judged is the boundary underneath, and
         // inside a chapter there is none.
         let past_it = empty(700);
         assert!(chapters.judged(&past_it, HELD).is_none());
         chapters.judge(&past_it, HELD, Judgement::Worse);
-        assert_eq!(chapters.judged(&on_it, HELD).unwrap().verdict.label(), "KEEP");
+        assert_eq!(
+            chapters.judged(&on_it, HELD).unwrap().verdict.label(),
+            "KEEP"
+        );
     }
 
     /// A fight underway outranks the table: the enemy timeline runs on through a midboss,
@@ -1430,8 +1563,10 @@ mod tests {
         let mut fought = tuning_chapters();
         begin_stage(&mut fought, &empty(0));
         fought.tuning().unwrap().add(0, 259);
-        let fight = |frame| {
-            State { boss_present: true, boss_attack_frames: Some(frame as i32), ..empty(frame) }
+        let fight = |frame| State {
+            boss_present: true,
+            boss_attack_frames: Some(frame as i32),
+            ..empty(frame)
         };
         for frame in 0..400 {
             let state = fight(frame);
@@ -1526,7 +1661,10 @@ mod tests {
 
         assert_eq!(chapters.judged(&at, HELD).unwrap().verdict.label(), "DROP");
         chapters.judge(&at, HELD, Judgement::Better);
-        assert_eq!(chapters.judged(&at, HELD).unwrap().verdict.label(), "ADJUST");
+        assert_eq!(
+            chapters.judged(&at, HELD).unwrap().verdict.label(),
+            "ADJUST"
+        );
         chapters.judge(&at, HELD, Judgement::Better);
         assert_eq!(chapters.judged(&at, HELD).unwrap().verdict.label(), "KEEP");
     }
@@ -1543,7 +1681,9 @@ mod tests {
 
         let at = empty(500);
         add_boundary(&mut chapters, &at);
-        let judged = chapters.judged(&at, HELD).expect("the added boundary is the one to judge");
+        let judged = chapters
+            .judged(&at, HELD)
+            .expect("the added boundary is the one to judge");
         assert_eq!(judged.verdict.label(), "KEEP");
         assert!(judged.by_hand);
 
@@ -1566,7 +1706,12 @@ mod tests {
         play_from(&mut chapters, 259, 1200);
 
         let tuning = chapters.tuning().unwrap();
-        assert!(tuning.judged(0, 258).expect("the one put there by hand").by_hand);
+        assert!(
+            tuning
+                .judged(0, 258)
+                .expect("the one put there by hand")
+                .by_hand
+        );
         assert!(tuning.judged(0, 259).is_none());
         // The gaps after it are still the detector's to propose.
         assert_eq!(tuning.count(0), 3);
@@ -1589,7 +1734,10 @@ mod tests {
 
         let tuning = chapters.tuning().unwrap();
         assert!(tuning.judged(0, 700).is_none());
-        assert_eq!(tuning.judged(0, 659).expect("still there").verdict.label(), "KEEP");
+        assert_eq!(
+            tuning.judged(0, 659).expect("still there").verdict.label(),
+            "KEEP"
+        );
     }
 
     /// Down to `Rejected` takes it out of the table, up brings it back, and neither
@@ -1669,7 +1817,13 @@ mod tests {
         add_boundary(&mut chapters, &empty(499));
         assert_eq!(chapters.number(), number + 1);
         assert_eq!(chapters.started_at(), 499);
-        assert_eq!(chapters.judged(&empty(499), HELD).expect("judged where it is").frame, 499);
+        assert_eq!(
+            chapters
+                .judged(&empty(499), HELD)
+                .expect("judged where it is")
+                .frame,
+            499
+        );
         assert_eq!(play_from(&mut chapters, 500, 660), [659]);
     }
 }
