@@ -599,6 +599,29 @@ fn choose(runtime: &mut Runtime, mode: Mode) {
     log!("mode: {mode}, was {was}");
 }
 
+/// Gives the run up, which is the retry menu's third choice: the game is put on its way to the
+/// title menu, and reports whether it had a run to leave.
+///
+/// Nothing of orb's is dropped here. The snapshots describe a stage the game is about to tear
+/// down, and what notices that is the run leaving `in_run` a frame or two later — the same path
+/// that ends any other run, which is also what writes the line saying how many retries it took.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn give_up(game: &dyn Game) -> bool {
+    if !unsafe { game.leave_run() } {
+        log!("retry: there is no run to give up");
+        return false;
+    }
+    // The key that answered orb's question is not one the game's own screens should act on.
+    // Needed here where it is not needed after a retry: a retry puts the whole of `.data` back
+    // from a snapshot, and this leaves the game to build the title menu — which reads the same
+    // keyboard, and would take the `z` still held from this answer as an item chosen.
+    unsafe { game.swallow_input() };
+    log!("retry: the run is given up; the game is on its way to the title");
+    true
+}
+
 /// Replaces `th06::Chain::RunCalcChain`. `__thiscall` with a single argument is
 /// `fastcall` with nothing on the stack, which is an ABI Rust can spell.
 extern "fastcall" fn run_calc_chain(chain: *mut c_void) -> i32 {
@@ -872,15 +895,18 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         unsafe { hold_frame(runtime.game) };
         let pad = pad(runtime.game);
         if let Some((choice, by)) = menu.update(&runtime.keyboard, pad) {
-            log!("retry: {} chosen on the {by}", choice.label());
-            let restored = match choice {
+            log!("retry: {} on the {by}", choice.label());
+            let acted = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },
                 Choice::Stage => unsafe { runtime.chapters.retry_stage(runtime.game) },
+                Choice::Quit => unsafe { give_up(runtime.game) },
             };
-            if restored {
+            if acted {
                 runtime.retry = None;
-                // The restored state is not a continuation of the frame we froze
-                // on, so nothing about it should be compared against that frame.
+                // What the game carries on into is not a continuation of the frame we
+                // froze on — a chapter put back, or the front end being built where the
+                // run was given up — so nothing about it should be compared against that
+                // frame.
                 runtime.previous = None;
             }
         }

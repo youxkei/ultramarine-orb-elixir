@@ -6,10 +6,21 @@ A `--clear` run has been through stages 1 to 6, the ending and the result screen
 taken and no replay offered — see [DONE.md](DONE.md). What that run cannot show is anything that
 needs somebody to be hittable, or a mode nobody chose.
 
-**Retrying the stage rather than the chapter.** The chapter's own restore is measured — see
-[DONE.md](DONE.md) — and the menu's other choice goes through the same machinery with the other
-snapshot. What to watch is that the stage's start is what comes back, and the music with it: a
-chapter inside a boss fight keeps the track playing, and a stage start rewinds it.
+**The retry menu on the keyboard.** Every item of it, both confirmations, and both ways of refusing
+one are measured — see [DONE.md](DONE.md) — and every one of them was answered on the pad. The
+keyboard goes through the same `Pressed`, so what is left is watching it: `z` or return decides, `x`
+or escape cancels, and the graces are the same frames.
+
+**Which button cancelled.** `retry: ... — cancelled, back to the choices` does not say, and neither
+does the mode question's own cancel line beyond naming the pad. Bomb and the menu button both cancel
+now, so a session where one of them has stopped working looks exactly like a session where nobody
+pressed it — which is the fault the mode question's `By` was added for. The fix is the same shape:
+say which, in the line that says it happened.
+
+**What the confirmation looks like on the real screen.** Its question is the widest text either of
+orb's menus draws, against a play field 384 pixels across, and a line clipped at that edge cannot
+be read at all. Worth looking at once: the question, and the two answers under it with the cursor
+on いいえ.
 
 **A run in normal mode**, which nothing has ever run: no chapter is observed, so no snapshot is
 taken and no wash goes off; dying costs a life and puts up no menu of orb's; the status line loses
@@ -22,15 +33,17 @@ writing, with a copy beside it, so whether the right file moved is one md5 each.
 so what it proved is that `DeletedCallback` runs, not that it writes. The
 `score: pointdevice_score.dat opened` line does not settle it either, which a played run has now
 shown: it goes in on every open of the file whatever the access was asked for, so the title menu
-reading `clrd` back out of it writes one too. A run abandoned from the retry menu after 12 retries
-logged that line and left both score files at the mtime they already had. What settles it is the
-file's own mtime, or its md5, after a run that reaches a game over or a clear.
+reading `clrd` back out of it writes one too. Two runs abandoned have now left both score files at
+the mtime they already had — one by closing the game while the retry menu was up, which was the
+only way out of a run at the time, and one given up from the menu's own third item. Neither of
+those reaches an ending or a game over, which is the case still open: what settles it is the file's
+own mtime, or its md5, after a run that reaches one.
 
-**Deciding on the pad.** Its cancel is measured; `mode: answered on the pad` has not been seen, and
-neither has the stick moving the cursor. Both go through the same reading, so what is left is
-watching the axis: the dead zone is a quarter of the travel either side of centre, taken from
-`g_JoyCaps`, and this pad's caps had to be written there by orb before the game would have believed
-them.
+**The stick moving a cursor on a menu of orb's.** Both of orb's menus have now been answered on the
+pad — see [DONE.md](DONE.md) — but nothing says which part of it moved the cursor, and a d-pad and
+a stick are read from different fields. What is left is watching the axis: the dead zone is a
+quarter of the travel either side of centre, taken from `g_JoyCaps`, and this pad's caps had to be
+written there by orb before the game would have believed them.
 
 **Two more about the question itself**, neither of which a menu session reaches:
 
@@ -84,7 +97,8 @@ back to it. Stepping has one, but only a replay can step.
 
 What it costs is known: a chapter's snapshot is five or six regions of about four megabytes, so
 a whole stage's worth is forty to fifty. The shape is a stack of them per stage, dropped from
-the chapter restored onwards, and a menu that lists what is there rather than two fixed choices.
+the chapter restored onwards, and a menu that lists what is there rather than the two fixed
+places it offers now.
 
 ## What a restore across a graphics load looks like
 
@@ -147,22 +161,53 @@ The skip stopping at the staff roll and `--clear` reaching one are both measured
 A snapshot is only good inside the process that took it: it holds pointers to Direct3D and
 DirectSound objects, and those addresses differ per launch. So closing the game loses where
 you were, which for the one thing orb exists to do — grinding a late chapter — is the wrong
-place to lose it.
+place to lose it. There is now a place to save from, the retry menu's third item, and nothing
+is saved there.
 
 Restoring raw memory cannot be made to work across launches without recreating those objects
-and fixing up every pointer to them, which is not a road worth going down. The other shape is
-to write down what the chapter *is* rather than what memory looked like:
+and fixing up every pointer to them, which is not a road worth going down. Neither is writing
+down what the chapter *is* — the run's numbers plus the chapter's script frame, with the stage
+script run forward to it — which was the shape this section used to propose: a chapter a boss
+began is not on the script clock at all, so the half of the chapters most worth grinding cannot
+be named that way, let alone reached.
 
-- let the game enter the stage the normal way, so it builds its own objects;
-- restore the fields that describe the run — power, bombs, lives, score, the random seed, the
-  chapter's script frame;
-- run the stage script forward to that frame with drawing suppressed, the way the ending skip
-  runs the ending out.
+**The inputs are a better thing to write down, and the game is already keeping them.** Read off
+`ReplayManager.cpp` of the decompilation, not measured:
 
-That is a second, weaker restore mechanism living alongside the exact one, and it has to be
-weaker: anything the script did on the way that is not in the list above will not have
-happened. Whether that matters depends on how much of a midstage's state is script-derived,
-which is worth finding out before committing to it.
+- `StageReplayData` is the state a stage needs to be played again and nothing else — score,
+  `randomSeed`, `pointItemsCollected`, `power`, `livesRemaining`, `bombsRemaining`, `rank`,
+  `powerItemCountForScore` — followed by up to 53,998 `(frameNum, inputKey)` entries, one per
+  frame the buttons changed on. `AddedCallbackDemo` writes all eight back and seeds the
+  generator from the record, and takes the score from the *previous* stage's entry.
+- The manager is `new`ed and each stage's record `ZunAlloc`ed, so both are in the heap a
+  snapshot covers. A chapter restore therefore puts `frameId`, the write cursor `replayInputs`
+  and the record's own bytes back with everything else — which means the record in memory holds
+  the path that survived and nothing of the attempts that did not: each attempt overwrites the
+  last from the chapter's own frame.
+
+So the run's surviving inputs are there for the taking at the moment it is given up, and
+resuming is playing them forward with nothing drawn — an update is tens of microseconds and the
+ending skip already runs 29,040 of them inside one frame, so a stage is well under a second.
+
+Two shapes for it, and the second is the one to try first:
+
+| | |
+| --- | --- |
+| the game's | `SaveReplay` writes the file, playback and `jump_to_stage` reach the stage, and the frame is reached by the ending skip's loop. Then a takeover: cut the replay manager's high-priority job so it stops writing `g_CurFrameInput`, clear `isInReplay`, and get recording going again into a buffer that already holds the path. Note that `SaveReplay` frees every stage's record and cuts the recording chain on its way out — which is what makes it safe to call where the run is being given up and unsafe anywhere else — and that a loaded `ReplayData` is freed as one block where a recorded one is a block per stage, so mixing the two modes is where the heap gets hurt |
+| orb's own | record `(stage frame, buttons)` in the input hook — which orb already owns — write orb's own file, and feed the buttons back through the same hook while the fast-forward runs. No replay format, no mode mixing, and the run stays an ordinary recording run throughout, so a second quit is the same machinery again. What it costs is the eight fields above being written down and put back by hand, the generator's seed among them |
+
+What neither shape settles, and what a first attempt should print rather than assume: whether
+those eight fields are everything the game reads at a stage's start. `Reproduction` is the
+instrument — the resumed run's numbers at the chapter it landed on against the same numbers
+recorded when the run was given up, and the first field they disagree on says what is missing.
+
+**One thing this reading calls into question.** *No replay is offered for a pointdevice run* is
+in [SPEC.md](SPEC.md) with the reason that a rewound run does not play back. If the record is
+rewound with the memory, that reason is wrong: what would be written is the surviving path, and
+it would play back as a run nobody could tell from a flawless one. The decision looks right
+either way — that is a better reason for not offering it, not a worse one — but the stated reason
+should not be left standing on a reading that contradicts it. What settles it is saving one from
+a normal-mode run and a pointdevice run of the same stage and watching what each plays back as.
 
 ## What a pointdevice score is
 

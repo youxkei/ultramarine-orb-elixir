@@ -967,12 +967,15 @@ impl Game for Th06 {
     /// The game's own mapping, read where `Controller::GetControllerInput` reads it, and the axis
     /// read the way that function reads it.
     ///
-    /// **Shoot and menu decide; bomb cancels.** The game's own menus take
-    /// `TH_BUTTON_RETURNMENU = TH_BUTTON_MENU | TH_BUTTON_BOMB` as back, and following that would put
-    /// the menu button on cancel — which on the pad this was written for is button 0, where a thumb
-    /// rests, so the most obvious button on it would close a menu rather than answer one. orb's
-    /// menus have no pause for that button to open, so it decides here instead: the button most
-    /// easily reached should not be the destructive one.
+    /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do:
+    /// `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
+    /// `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of those two is back there.
+    ///
+    /// The menu button decided here for a while instead, because on the pad orb was first run with
+    /// it was button 0 — where a thumb rests — and the most obvious button on the pad closing a
+    /// question rather than answering it took three launches to find. That is the thing to look for
+    /// if a menu of orb's starts cancelling itself, and the launcher printing the mapping it read is
+    /// where to look: on the pad this is written against, shoot is button 0 and menu is button 1.
     ///
     /// An unmapped button is 0xffff in that mapping, which as an `i16` is negative and names no bit
     /// — which is what the directions usually are, a stick being how a pad is pushed.
@@ -990,8 +993,8 @@ impl Game for Th06 {
         Pad {
             up: stick_up || hat_up || held(supervisor::CFG_UP_BUTTON),
             down: stick_down || hat_down || held(supervisor::CFG_DOWN_BUTTON),
-            decide: held(supervisor::CFG_SHOOT_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
-            cancel: held(supervisor::CFG_BOMB_BUTTON),
+            decide: held(supervisor::CFG_SHOOT_BUTTON),
+            cancel: held(supervisor::CFG_BOMB_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
         }
     }
 
@@ -1009,6 +1012,31 @@ impl Game for Th06 {
                 MENU_STATE_CHARACTER_LOAD,
             );
             mem::write::<i32>(G_MAIN_MENU + main_menu::STATE_TIMER, 0);
+        }
+        true
+    }
+
+    /// What `StageMenu::OnUpdateGameMenu` writes where its own quit is answered yes: the two
+    /// menu flags cleared and `g_Supervisor.curState = MAINMENU`. `Supervisor::OnUpdate` then
+    /// cuts the run's chain — the game manager, the player, the stage, the recording — and
+    /// registers the front end, so there is nothing else for orb to take down.
+    ///
+    /// The flags are written although neither should be set. orb's menu is not one of the
+    /// game's, and it opens on the frame `Player::Die` runs, where the flag a run out of lives
+    /// gets is written 30 frames later by a respawn the freeze never reaches. What makes it
+    /// worth two bytes anyway is what a stale one does rather than how it would get there:
+    /// `AsciiManager`'s job is registered by the supervisor for the whole process, so
+    /// `isInRetryMenu` left set runs `StageMenu::OnUpdateRetryMenu` on the title screen, and its
+    /// first three branches write `curState` themselves — one of them to the result screen.
+    unsafe fn leave_run(&self) -> bool {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + supervisor::CUR_STATE) };
+        if scene != STATE_GAMEMANAGER && scene != STATE_GAMEMANAGER_REINIT {
+            return false;
+        }
+        unsafe {
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::IS_IN_GAME_MENU, 0);
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::IS_IN_RETRY_MENU, 0);
+            mem::write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, STATE_MAINMENU);
         }
         true
     }

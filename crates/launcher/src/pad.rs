@@ -70,15 +70,18 @@ impl Push {
 /// there, which as an `i16` is negative and names no button; the directions usually are, a stick
 /// being how a pad is pushed.
 ///
-/// **Shoot and menu decide; bomb cancels.** The game's own menus take
-/// `TH_BUTTON_RETURNMENU = TH_BUTTON_MENU | TH_BUTTON_BOMB` as back, and following that put the menu
-/// button on cancel — which on the pad this was written for is button 0, where a thumb rests. A
-/// dialog that closes on the most obvious button is a dialog nobody can answer, and it took three
-/// launches to see why. So the menu button decides here instead: orb's own menus have no pause for
-/// it to open, and the button most easily reached should not be the destructive one.
+/// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do — its
+/// `TH_BUTTON_RETURNMENU` is `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of the two is back there.
+/// The same decision as orb's in-game menus make, and it has to be: a button that answers a
+/// question before the game starts and cancels one inside it is worse than either.
+///
+/// The menu button decided here for a while instead, because on the pad orb was first run with it
+/// was button 0, where a thumb rests — and a dialog that closes on the most obvious button is a
+/// dialog nobody can answer, which took three launches to see. That is what the line the launcher
+/// prints is for: on the pad this is written against, shoot is button 0 and menu is button 1.
 pub struct Mapping {
-    decide: [Option<u32>; 2],
-    cancel: Option<u32>,
+    decide: Option<u32>,
+    cancel: [Option<u32>; 2],
 }
 
 /// What the game falls back to when nobody has configured a pad, which is what its own defaults
@@ -98,13 +101,13 @@ impl Mapping {
         };
         match std::fs::read(path) {
             Ok(bytes) if bytes.len() >= 18 => Self {
-                // shoot and menu, and then bomb.
-                decide: [button(&bytes, 0), button(&bytes, 6)],
-                cancel: button(&bytes, 2),
+                // shoot, and then bomb and menu.
+                decide: button(&bytes, 0),
+                cancel: [button(&bytes, 2), button(&bytes, 6)],
             },
             _ => Self {
-                decide: [Some(DEFAULT_DECIDE), None],
-                cancel: Some(DEFAULT_CANCEL),
+                decide: Some(DEFAULT_DECIDE),
+                cancel: [Some(DEFAULT_CANCEL), None],
             },
         }
     }
@@ -117,19 +120,19 @@ impl Mapping {
             None => "none".to_owned(),
         };
         format!(
-            "decide {} or {}, cancel {}",
-            name(self.decide[0]),
-            name(self.decide[1]),
-            name(self.cancel),
+            "decide {}, cancel {} or {}",
+            name(self.decide),
+            name(self.cancel[0]),
+            name(self.cancel[1]),
         )
     }
 
     fn decides(&self, buttons: u32) -> bool {
-        self.decide.iter().any(|button| held(*button, buttons))
+        held(self.decide, buttons)
     }
 
     fn cancels(&self, buttons: u32) -> bool {
-        held(self.cancel, buttons)
+        self.cancel.iter().any(|button| held(*button, buttons))
     }
 }
 
@@ -353,10 +356,10 @@ mod tests {
         assert!(!mapping.decides(1 << 4));
     }
 
-    /// The menu button decides rather than cancelling. It is button 0 on the pad this was written
-    /// for, where a thumb rests, and a dialog that closes on that button cannot be answered at all.
+    /// The menu button cancels, beside the bomb button, and does not decide — which is what the
+    /// game's own `TH_BUTTON_RETURNMENU` is. Shoot is the only button that answers a question.
     #[test]
-    fn the_menu_button_is_not_a_cancel() {
+    fn the_menu_button_cancels_beside_the_bomb() {
         let dir = std::env::temp_dir().join(format!("orb-pad-menu-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("game.cfg");
@@ -367,12 +370,12 @@ mod tests {
         std::fs::write(&path, &bytes).unwrap();
 
         let mapping = Mapping::read(&path);
-        // Menu is 0 here, and so is shoot's opposite number: both decide.
-        assert!(mapping.decides(1 << 0));
+        // Shoot is 2 here and menu is 0: one decides and the other does not.
         assert!(mapping.decides(1 << 2));
-        assert!(!mapping.cancels(1 << 0));
-        // Bomb, and nothing else, cancels.
+        assert!(!mapping.decides(1 << 0));
+        // Bomb is 5, and both it and menu cancel. Focus, at 4, is neither.
         assert!(mapping.cancels(1 << 5));
+        assert!(mapping.cancels(1 << 0));
         assert!(!mapping.cancels(1 << 4));
 
         std::fs::remove_dir_all(&dir).ok();

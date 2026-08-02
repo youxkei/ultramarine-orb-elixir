@@ -109,7 +109,6 @@ pub struct ModeMenu {
     title: Label,
     choices: [Label; CHOICES.len()],
     aside: Label,
-    hint: Label,
     cursor: Label,
 }
 
@@ -128,7 +127,6 @@ impl ModeMenu {
             title: Label::new(),
             choices: [Label::new(), Label::new()],
             aside: Label::new(),
-            hint: Label::new(),
             cursor: Label::new(),
         }
     }
@@ -174,7 +172,6 @@ impl ModeMenu {
         unsafe {
             self.title.set(overlay, title(self.asked));
             self.aside.set(overlay, aside(self.asked, selected));
-            self.hint.set(overlay, HINT);
             self.cursor.set(overlay, "▶");
             for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
                 label.set(overlay, text);
@@ -204,18 +201,8 @@ impl ModeMenu {
 
         y += LINE_HEIGHT;
         frame.label(&self.aside, center - self.aside.width() / 2.0, y, ASIDE);
-
-        // Said, because cancelling is the one thing here nothing else on the screen suggests: the
-        // game has already taken the item and started its fade, so that going back is possible at
-        // all is not obvious.
-        y += LINE_HEIGHT * 2.0;
-        frame.label(&self.hint, center - self.hint.width() / 2.0, y, ASIDE);
     }
 }
-
-/// The keys, in the game's own terms: `z` is its shoot key and `x` its bomb key, which are what
-/// its menus take as decide and cancel.
-const HINT: &str = "Z 決定    X 戻る";
 
 /// What is being asked about. Two questions rather than one, because what a mode decides about a
 /// run and what it decides about a ranking are not the same thing to somebody choosing.

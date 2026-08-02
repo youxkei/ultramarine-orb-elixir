@@ -578,12 +578,22 @@ fn template(font: &Font) -> Vec<u32> {
     })
     // Said, because a dialog that answers to a pad is not something anybody expects one to do, and
     // what its buttons do here is worth a line even to somebody who guesses that they do anything.
+    //
+    // The two buttons are named by what they are in the game rather than by a letter on a pad,
+    // because that is what they are: which physical button decides is read out of the game's own
+    // configuration — see `Mapping` — so a line naming one cannot be right for two pads. The line
+    // used to say `A で決定`, and on the pad this was written for decide is button 0 or 1.
+    //
+    // Left and right are left out although they do something on two of the rows — the size, and
+    // moving between the two buttons — because they do nothing on the four switches, and a line
+    // that is wrong for four rows out of six is worse than one thing fewer to read. The decide
+    // button is what turns a switch over, and that is said.
     .chain(std::iter::once(Item {
         class: ATOM_STATIC,
         style: WS_CHILD | WS_VISIBLE,
         id: 0,
         at: (MARGIN.0, hint_top, DIALOG.0 - MARGIN.0 * 2, 10),
-        text: "パッド: 上下で移動  左右で変更  A で決定".to_owned(),
+        text: "パッド: 上下で移動  ショットで決定  ボムでやめる".to_owned(),
     }))
     .chain(std::iter::once(Item {
         class: ATOM_COMBOBOX,

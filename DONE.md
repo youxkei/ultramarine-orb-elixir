@@ -128,6 +128,73 @@ settled by measurement rather than by looking at the screen, the measurement is 
   the boss's life ticking down again through 5456, 4792, 4342, 3466. 687ms passed between the death
   and the choice, so the menu's 24 frames of grace are not in the way. The skipped range is the
   Direct3D texture handles, which a restore deliberately leaves as it finds them.
+- **The stage retried, and the run given up**, on stage 6 Lunatic with the pad in hand. Three
+  deaths in one run, each answered differently:
+
+  ```
+  died in chapter 1
+  retry: asking about the stage again
+  retry: the stage again on the pad                    8.1s after the question went up
+  retry stage from chapter 1 (retry 1)
+
+  stage 6 chapter 6 at frame 4661 (script 3172): a boss nonspell, boss, music=keep
+  died in chapter 6
+  retry: asking about the stage again
+  retry: the stage again on the pad                    1.0s after it
+  restore: the track has changed since this snapshot; taking the music down
+  music: stopped through the game
+  music: restarting bgm/th06_12.mid
+  retry stage from chapter 1 (retry 2)
+
+  died in chapter 1
+  retry: asking about the run given up
+  retry: the run given up on the pad                   3.1s after it
+  retry: the run is given up; the game is on its way to the title
+  score: pointdevice_score.dat opened in place of the game's own
+  run ended after 2 retries
+  f7918 scene=1                                        the title menu, 265ms after the answer
+  f8115 scene=4                                        the game closed, 3.3s later
+  ```
+
+  - **The stage's start comes back, and the music with it**, which was the half of the retry menu
+    no run had shown. The second death was in a chapter the boss's own track was playing under, so
+    that chapter was snapshotted `music=keep` and the stage's own snapshot names a stream the game
+    freed when the track changed. It was asked to do it rather than copied back — `StopBGM`, then
+    `PlayAudio` with the path read out of the memory the restore had just put back — and the run
+    carried on from the stage's start as far as a death in chapter 1. Between the two retries the
+    fight was walked back up through chapters 2 to 6: a table boundary at script 1535, a midboss
+    nonspell, its spellcard, the midboss beaten, and the boss's first attack.
+  - **Both confirmations were answered yes, and the graces are not in the way**: 8.1s, 1.0s and
+    3.1s between a question appearing and being answered, against the 12 frames a confirmation
+    holds its keys off for.
+  - **Giving up lands on the title menu and starts nothing.** `scene=1` 265ms after the answer, and
+    no `menu: Run chosen, asking which mode` between it and the game being closed 3.3s later —
+    which is what says the front end did not take the press that answered orb's question as an item
+    of its own. `run ended after 2 retries` on the same millisecond as the title is the snapshots
+    being dropped, by the same path that ends any other run.
+  - **Neither score file was written.** `score.dat` and `pointdevice_score.dat` both came out of the
+    session at the mtime they went into it with, hours before it started. The
+    `score: pointdevice_score.dat opened` line 15ms after the answer is the title menu reading
+    `clrd` back out as it rebuilds, which is an open and not a write.
+  - **Refusing one, both ways**, from a later run on the same stage:
+
+    ```
+    died in chapter 3
+    retry: asking about the stage again
+    retry: the stage again — answered no, back to the choices
+    retry: asking about the run given up
+    retry: the run given up — answered no, back to the choices
+    retry: the chapter again on the pad
+    retry chapter 3 (retry 1)
+    ```
+
+    Two questions asked and refused on the cursor's own いいえ, and then the chapter taken from the
+    same menu — so a refusal leaves the menu where it was with nothing done, and the chapter it was
+    standing on is still the one the next press restores. Cancelling was pressed on four more
+    questions later in the run, `— cancelled, back to the choices` each time, and the fifth answer
+    gave the run up. What the log does not say is which button cancelled: bomb and the menu button
+    both do, and the line names neither.
+  - What this run could not show: the keyboard. Every one of these was answered on the pad.
 - **No replay is offered for a pointdevice run**, measured over a `--clear` run to the ending —
   which is what reaches a result screen without half an hour of playing well, and which is a
   pointdevice run because `--clear` fixes the mode rather than asking: `mode: pointdevice to start

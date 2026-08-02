@@ -98,8 +98,8 @@ So the game is asked to do it:
 The track therefore starts again from its beginning rather than from where it was, which is what
 a midstage restore does to the music anyway.
 
-Two generations are kept: the current chapter and the stage's start, matching the two choices
-the retry menu offers. Of this stage only — a snapshot of an earlier one would name Direct3D
+Two generations are kept: the current chapter and the stage's start, matching the two items of
+the retry menu that put anything back. Of this stage only — a snapshot of an earlier one would name Direct3D
 textures the game released when it loaded this stage, and reloading them is not enough to make
 it whole: an `AnmVm` holds its script as a raw pointer into the file's buffer, so a file
 loaded again at another address leaves every live one of them pointing at nothing. Measured as
@@ -109,6 +109,77 @@ It is kept across a stage transition, which is not the run ending however much i
 one from outside: the game leaves the gameplay scene for `GAMEMANAGER_REINIT` while it tears
 the last stage's managers down and builds the next one's. Only leaving the run for good takes
 it.
+
+## Where the chapter was lost
+
+The menu goes up on the frame the miss becomes certain, which is `deaths` moving rather than the
+player being hit: the death bomb window closes first, and a successful one never gets here. The
+game is frozen underneath it — `RunCalcChain` returning `CHAIN_BREAK` with the drawing carrying
+on — so the frame the player died on stays on the screen behind the menu, and the play field's
+viewport has to be set by orb because the game's own frame setup is part of the update being held
+back.
+
+Three ways on, and the chapter is the first of them:
+
+| | |
+| --- | --- |
+| チャプターをやり直す | the snapshot taken where this chapter began |
+| ステージをやり直す | the snapshot taken where the stage began, which is chapter 1 |
+| タイトルに戻る | the run given up, and the game on its way to the title menu |
+
+The third is named for where it ends up rather than for what it gives up, that being the half of
+it somebody reading the item does not already know: that the run is over is the obvious part, and
+that the game carries on into its own front end is not.
+
+**The chapter acts on the press; the other two ask first.** A fight worth grinding loses a
+chapter every few seconds, so the first item is answered hundreds of times in a session — a
+question in front of it would be answered without being read, and that trains the hand which then
+answers the other two. Those two are one press away from that hand and neither can be taken back:
+the stage's start throws away everything the stage has gained since it, and giving up throws away
+the run. So each of them puts up a second question naming what it is about to do, with the cursor
+on いいえ, which is where the game's own quit question puts it.
+
+The question is the whole of what is said there. A line under it spelling out what would be lost
+was tried and taken out: the question already names what is about to happen, and a screen somebody
+arrives at by dying is not the place to be read at.
+
+`x`, escape or the pad's cancel takes a confirmation back to the three items.
+
+**Neither of orb's menus writes its keys on the screen.** Both had a `Z 決定    X 戻る` line under
+them and both lost it: the keys are the game's own — `z` shoots and `x` bombs, which is what its own
+menus take as decide and back — so the line was telling somebody playing 紅魔郷 the one thing they
+already know. Where a way out is worth pointing at, the screen does it with an item rather than with
+a key: a confirmation's cursor sits on いいえ, and the retry menu's third item says where it goes.
+
+**Both graces are keys being held off, for two different reasons.** The menu itself waits 24
+frames because the player was holding a direction and the shot key when they died, and those
+presses belong to the run. A confirmation waits 12, and not for that: the press that opened it is
+an edge and so already spent, which is why this is a few frames rather than a fifth of a second —
+what it buys is that a question cannot be answered on the frame it appeared on, since an answer
+that fast is one nobody read. The cursor starting on いいえ is what makes such a press cost
+nothing but the question closing.
+
+**Giving up is what the game's own quit does**: `isInGameMenu` and `isInRetryMenu` cleared and
+`g_Supervisor.curState = MAINMENU`, which is `StageMenu::OnUpdateGameMenu`'s answer to yes.
+`Supervisor::OnUpdate` then cuts the run's chain — the game manager, the player, the stage, the
+recording — and registers the front end, so nothing of the run is orb's to take down. What
+notices the run is gone is the state leaving `in_run` a frame or two later, which is the same
+path that ends any other run and is what drops the snapshots and writes the line saying how many
+retries it took.
+
+The two flags are written although neither can be set here: orb's menu is not one of the game's,
+and it goes up on the frame `Player::Die` runs, where the flag a run out of lives gets is written
+30 frames later by a respawn the freeze never reaches. They are worth two bytes for what a stale
+one *does*, not for how it would get there — `AsciiManager`'s job is registered by the supervisor
+for the whole process rather than per run, so `isInRetryMenu` left set has
+`StageMenu::OnUpdateRetryMenu` running on the title screen, and its first three branches write
+`curState` themselves, one of them to the result screen.
+
+The key that answered has to be swallowed here, where a retry needs nothing of the sort: a retry
+puts the whole of `.data` back from a snapshot, and this leaves the game to build the title menu
+— which reads the same keyboard, and would take the `z` still held as an item chosen. No score is
+entered on the way out, the same as the game's own quit: that happens at the result screen, and
+giving up does not go through one.
 
 ## Pointdevice and normal
 
@@ -139,15 +210,20 @@ own menu one keypress earlier. So both of orb's menus take the pad from the samp
 keeps for the game, and hand it to the game to be read as *its* buttons, out of
 `g_Supervisor.cfg.controllerMapping` — the same copy `Controller::GetControllerInput` reads.
 
-**Shoot and menu decide; bomb cancels.** Which is not what the game's own menus do:
+**Shoot decides; bomb and menu cancel.** Which is what the game's own menus do:
 `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
-`TH_BUTTON_MENU | TH_BUTTON_BOMB`, so there the menu button is a back. Following that put cancel on
-the menu button, which on the pad this was run with is button 0 — where a thumb rests. The most
-obvious button on the pad closed the question instead of answering it, and three launches went by
-before the mapping said why. orb's own menus have no pause for that button to open, so it decides
-instead: the button most easily reached should not be the destructive one. The launcher prints the
-mapping it read for the same reason, that being the only place it is written down in a form anybody
-can look at.
+`TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of those two is a back there. The settings dialog reads
+it the same way, out of the game's configuration file rather than the game's memory, because a
+button that answers a question before the game starts and cancels one inside it is worse than
+either.
+
+The menu button decided for a while instead. On the pad orb was first run with it was button 0 —
+where a thumb rests — so the most obvious button on the pad closed the question instead of answering
+it, and three launches went by before the mapping said why. That is what the launcher printing the
+mapping it read is for, that being the only place it is written down in a form anybody can look at:
+on the pad these were last run with, shoot is button 0 and menu is button 1. A pad where the two are
+the other way round is a pad on which orb's menus will look like they cancel themselves, and the
+printed line is where to see it.
 
 Up and
 down come from that mapping too, and from the Y axis read the way that function reads it — the centre

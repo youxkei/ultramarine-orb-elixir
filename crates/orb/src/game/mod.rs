@@ -302,6 +302,17 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, with the front end running.
     unsafe fn leave_menu(&self) -> bool;
 
+    /// Gives the run up, and says whether there was one to give up.
+    ///
+    /// For the retry menu's third choice. Asked of the game rather than done by hand, because
+    /// every game has its own way out of a run and each of them already works: what a pause
+    /// menu's quit does is what orb should do, so that whatever a run has to be taken down is
+    /// taken down by the code that knows about it.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with a run in progress.
+    unsafe fn leave_run(&self) -> bool;
+
     /// Leaves the game's own idea of the buttons so that the frame it carries on into has no new
     /// press on it, whatever is being held.
     ///
