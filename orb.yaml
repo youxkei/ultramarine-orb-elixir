@@ -2,19 +2,11 @@
 # the default, so this whole file is optional: without it orb runs exactly as it does with it
 # as it stands, and installing orb is the one exe.
 #
-# Relative paths resolve against this file's directory; blank means "unset". A switch is
-# written true or false, and a key nobody here reads is refused by name.
+# A switch is written true or false, and a key nobody here reads is refused by name.
 #
-# What is here is what somebody playing sets and leaves set. Building the midstage
-# chapter table and looking into a fault are arguments to orb-launcher instead —
-# `orb-launcher --help` — because those are different every time they are run.
-
-# Directory holding 東方紅魔郷.exe. Blank: this file's directory.
-game_dir:
-
-# An orb.dll to load instead of the one orb-launcher.exe carries inside itself.
-# Blank for the carried one, which is always the same build as the launcher.
-orb_dll:
+# What is here is what somebody playing sets and leaves set. Where the game is, building the
+# midstage chapter table and looking into a fault are arguments to orb-launcher instead —
+# `orb-launcher --help` — because those are one machine's or one launch's and not settings.
 
 # Borderless, filling the monitor with the game's aspect ratio kept and the rest
 # of the screen black. The game's own fullscreen setting is overruled, so what

@@ -22,12 +22,14 @@ pub use keys::VirtualKey;
 pub const FILE_NAME: &str = "orb.yaml";
 
 pub struct Config {
-    /// Directory holding `orb.yaml`; every relative path below resolves here.
+    /// Directory `orb.yaml` is looked for in, which for the DLL is also what it writes its log
+    /// and its tuning table beside.
     pub base_dir: PathBuf,
+    /// Directory holding 東方紅魔郷.exe.
+    ///
+    /// The one `base_dir` is, which for the injected DLL is where it already is. The launcher
+    /// is the only side that can be somewhere else, and `--game-dir` is how it is told.
     pub game_dir: PathBuf,
-    /// An `orb.dll` to load instead of the one the launcher carries inside itself. Blank
-    /// for the carried one, which is what makes the launcher the only file to install.
-    pub orb_dll: Option<PathBuf>,
     /// Chapters, snapshots and the retry menu. Off leaves orb loaded but with
     /// nothing of its own happening, which is what makes a fault bisectable.
     pub chapters: bool,
@@ -207,14 +209,8 @@ impl Config {
     }
 
     fn from_file(base_dir: PathBuf, file: file::File) -> Self {
-        let path_of = |value: Option<String>| {
-            value
-                .filter(|value| !value.is_empty())
-                .map(|value| base_dir.join(value))
-        };
         Self {
-            game_dir: path_of(file.game_dir).unwrap_or_else(|| base_dir.clone()),
-            orb_dll: path_of(file.orb_dll),
+            game_dir: base_dir.clone(),
             chapters: true,
             track_memory: true,
             frame_hooks: true,
@@ -252,9 +248,9 @@ mod tests {
     #[test]
     fn defaults_place_everything_beside_the_config() {
         let config = parse("");
+        // Nothing in the file says where the game is: it is where the file is, and the launcher
+        // is the only side that can be told otherwise.
         assert_eq!(config.game_dir, PathBuf::from("/opt/orb"));
-        // The launcher carries orb.dll; a path here is an override, not the normal case.
-        assert_eq!(config.orb_dll, None);
         assert!(!config.chapter_stepping);
         assert!(config.block_replay_save);
         assert!(config.own_score_file);
@@ -311,41 +307,20 @@ mod tests {
         assert!(error.contains("orb-config-no-such-file.yaml"), "{error}");
     }
 
-    #[test]
-    fn relative_paths_resolve_against_the_config_directory() {
-        let config = parse("game_dir: game\n");
-        assert_eq!(config.game_dir, PathBuf::from("/opt/orb/game"));
-    }
-
-    #[test]
-    fn absolute_paths_are_kept_as_written() {
-        let config = parse("game_dir: /srv/th06\n");
-        assert_eq!(config.game_dir, PathBuf::from("/srv/th06"));
-    }
-
-    /// A key written with nothing after it is a deliberate "unset", the same as leaving the
-    /// key out, which is how the shipped file states a default without hiding it in a comment.
-    #[test]
-    fn a_key_written_with_no_value_is_unset() {
-        let config = parse("game_dir:\norb_dll:\n");
-        assert_eq!(config.game_dir, PathBuf::from("/opt/orb"));
-        assert_eq!(config.orb_dll, None);
-    }
-
-    /// What the shipped file is made of: a comment per key, and the `#` that starts a trailing
-    /// comment told apart from one inside a value.
+    /// What the shipped file is made of: a comment per key, a blank line between them, and a
+    /// comment after a value on the same line as it.
     #[test]
     fn reads_the_file_as_it_is_written() {
         let config = parse(
-            "# Directory holding 東方紅魔郷.exe.\n\
-             game_dir: game  # where it is on this machine\n\
+            "# Borderless, filling the monitor.\n\
+             borderless: false  # not on this machine\n\
              \n\
-             orb_dll: orb#2.dll\n\
-             borderless: false\n",
+             # Never show the ending.\n\
+             skip_ending: false\n",
         );
-        assert_eq!(config.game_dir, PathBuf::from("/opt/orb/game"));
-        assert_eq!(config.orb_dll, Some(PathBuf::from("/opt/orb/orb#2.dll")));
         assert!(!config.borderless);
+        assert!(!config.skip_ending);
+        assert!(config.always_draw);
     }
 
     /// Anything this file does not know is an error rather than something passed over, since a

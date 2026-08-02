@@ -46,7 +46,8 @@ Then copy one file into the directory holding `東方紅魔郷.exe`:
 
 Start the game with `orb-launcher.exe`. Everything orb has to say goes to `orb.log` beside
 it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
-is left as it was.
+is left as it was. To keep the launcher somewhere else, `--game-dir=PATH` says where the game
+is.
 
 With no `orb.yaml` beside it, every setting is its default: borderless fullscreen, the ending
 run out without being shown, no replay written, and the scores in orb's own file. Copy the

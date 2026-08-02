@@ -2,8 +2,7 @@
 //!
 //! Its own struct rather than deserialising straight into [`Config`](crate::Config), which is
 //! not the same set: every option in [`args`](crate::args) is a field of `Config` and none of
-//! them is a key here, and `game_dir` is a path resolved against the file's own directory
-//! rather than the string that is written down.
+//! them is a key here.
 //!
 //! `deny_unknown_fields` is what makes a key nobody reads an error naming it, since a setting
 //! that is quietly passed over is a setting somebody thinks is on.
@@ -13,9 +12,6 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct File {
-    /// Blank, which is `None` here, for the directory the file itself is in.
-    pub game_dir: Option<String>,
-    pub orb_dll: Option<String>,
     pub always_draw: bool,
     pub block_replay_save: bool,
     pub own_score_file: bool,
@@ -29,8 +25,6 @@ pub(crate) struct File {
 impl Default for File {
     fn default() -> Self {
         Self {
-            game_dir: None,
-            orb_dll: None,
             always_draw: true,
             block_replay_save: true,
             own_score_file: true,

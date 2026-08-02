@@ -547,9 +547,10 @@ them unloaded.
 inside — the game's, which is where the launcher is installed too — and not relative to the
 DLL.
 
-Two keys are about this rather than about behaviour: `game_dir` says where the game is when
-it is not beside the launcher and `orb_dll` names a DLL to load instead of the carried
-one.
+Where the game and the DLL are is the launcher's own question, and `--game-dir=PATH` and
+`--orb-dll=PATH` are how it is answered when they are not where they normally are. The DLL is
+inside the game, so its answer is where it is; neither is handed on to it, and neither is a key
+in `orb.yaml`, which therefore holds no paths and nothing belonging to one machine.
 
 One DLL covers every game it is taught, and is not split per game the way vpatch's is. vpatch
 patches per-game code; orb's per-game part is a `Game` implementation, which is a table of
@@ -559,12 +560,11 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 ## Configuration
 
 **Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
-set: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`, `boundary_flash`,
-`always_draw`, and where the game and an override `orb.dll` are. YAML read with serde: a key is
-`key: value`, a switch is `true` or `false`, and a key written with nothing after it is the same
-as leaving it out. `deny_unknown_fields`, so a key nobody reads is an error naming it and the
-keys there are rather than something passed over — a setting that is quietly not read is a
-setting somebody thinks is on.
+set, and nothing else: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`,
+`boundary_flash` and `always_draw`. Six switches, YAML read with serde, `true` or `false` each.
+`deny_unknown_fields`, so a key nobody reads is an error naming it and the keys there are rather
+than something passed over — a setting that is quietly not read is a setting somebody thinks is
+on.
 
 **No file is every default**, which is what leaves the launcher the one file to install: each
 key is one thing somebody changed, and changing nothing is what an installation does. A file
@@ -585,7 +585,11 @@ word each:
 and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
 `--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory`,
 `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
-`--config=PATH` is the launcher's own.
+
+`--game-dir=PATH`, `--orb-dll=PATH` and `--config=PATH` are the launcher's own three, and the
+only ones it does not hand on: each answers a question the DLL, being inside the game already,
+never has to ask. Keeping them here is also what keeps a path with a space in it off the line
+the DLL reads.
 
 **`--no-frame-loop`** leaves the frame to the game: its own order, draw before update, and its
 own pacing, with the update and the draw still hooked so chapters carry on. The frame of input

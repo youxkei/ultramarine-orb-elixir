@@ -19,9 +19,9 @@ const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
 
 /// Starts 東方紅魔郷 1.02h with orb loaded, and hands the options below on to it.
 ///
-/// Everything but --config is read twice, here and again inside the game off the command line
-/// this writes, so nothing about which pass a launch is has to be written down for the two
-/// halves to agree.
+/// Every option but the launcher's own is read twice, here and again inside the game off the
+/// command line this writes, so nothing about which pass a launch is has to be written down for
+/// the two halves to agree.
 #[derive(Parser, Debug)]
 // Capped at the width the prose below is written to be read at, so that a wide terminal gets
 // paragraphs rather than one line per option running off the side of it.
@@ -30,10 +30,22 @@ struct Launch {
     #[command(flatten)]
     options: Options,
 
+    /// where 東方紅魔郷.exe is, if it is not beside orb-launcher.exe
+    #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
+    game_dir: Option<PathBuf>,
+
+    /// an orb.dll to load instead of the one orb-launcher.exe carries inside itself
+    #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
+    orb_dll: Option<PathBuf>,
+
     /// the orb.yaml to read, instead of the one beside orb-launcher.exe
-    #[arg(long, require_equals = true, value_name = "PATH")]
+    #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     config: Option<PathBuf>,
 }
+
+/// The three the launcher answers itself. The DLL is inside the game already, so where the game
+/// and the DLL are is a question it never has to ask.
+const MINE: &str = "Read here and not handed on to the game";
 
 fn main() -> ExitCode {
     match run() {
@@ -54,6 +66,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         None => Config::load_beside(&std::env::current_exe()?)?,
     };
     config.apply(&launch.options);
+    // Where the DLL will read it from is where it is itself, so this side is the only one that
+    // has to be told, and the file it reads never says anything about a path.
+    if let Some(game_dir) = launch.game_dir {
+        config.game_dir = game_dir;
+    }
     let options = to_hand_on(std::env::args().skip(1));
 
     let game_exe = config.game_dir.join(GAME_EXE);
@@ -62,8 +79,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Written out before the game starts, because a `LoadLibrary` needs a path. Kept out
     // of the game's directory: nothing there is orb's to leave behind, and this file is a
     // detail of how the launcher carries its payload rather than something to install.
-    let orb_dll = match &config.orb_dll {
-        Some(path) => path.clone(),
+    let orb_dll = match launch.orb_dll {
+        Some(path) => path,
         None => unpack_orb()?,
     };
 
@@ -123,16 +140,18 @@ fn checksum(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// The arguments as written, less `--config`: which file to read is the launcher's own business
-/// and nothing the DLL needs to be told.
+/// The arguments as written, less the launcher's own three: the DLL knows none of them and
+/// would refuse the line for carrying a name it cannot read.
 ///
 /// What is handed on is what was typed rather than the parsed options written back out, so that
 /// the line the DLL reads is the line somebody wrote and there is no second spelling of an
-/// option to keep in step with the first. Only the one form has to be dropped, since every
-/// option takes its value onto itself and a `--config` written any other way was refused above.
+/// option to keep in step with the first. One form each is enough to drop, since every option
+/// takes its value onto itself and any other spelling was refused above — which is also what
+/// keeps a path with a space in it out of a line the DLL splits on whitespace.
 fn to_hand_on(arguments: impl Iterator<Item = String>) -> Vec<String> {
+    const MINE: [&str; 3] = ["--game-dir=", "--orb-dll=", "--config="];
     arguments
-        .filter(|argument| !argument.starts_with("--config="))
+        .filter(|argument| !MINE.iter().any(|name| argument.starts_with(name)))
         .collect()
 }
 
