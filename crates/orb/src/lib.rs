@@ -12,6 +12,7 @@ mod joystick;
 mod log;
 mod mem;
 mod memtrack;
+mod mode_ui;
 mod overlay;
 mod pe;
 mod profile;
@@ -38,9 +39,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use chapter::{Cause, Chapters, Judgement};
 use game::th06::Th06;
-use game::{Game, State};
+use game::{Game, Menu, Pad, State};
 use input::Keyboard;
 use log::{detail, log, pacing, summary};
+use mode_ui::{Answer, Mode, ModeMenu};
 use overlay::Overlay;
 use retry_ui::{Choice, RetryMenu};
 use sync::MainThread;
@@ -217,6 +219,16 @@ struct Runtime {
     stressing: (i32, u32),
     /// `Some` while the game is frozen on the retry menu.
     retry: Option<RetryMenu>,
+    /// Which of the two things a run is, and which of the two rankings is being looked at.
+    mode: Mode,
+    /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
+    /// frozen on a question nobody answers is a pass that never ends.
+    asks_mode: bool,
+    /// What the game's own menu was doing last frame, so the question is put at the moment
+    /// something is chosen and not for as long as the game takes to act on it.
+    menu: Menu,
+    /// `Some` while the game is frozen on that question.
+    asking: Option<ModeMenu>,
     /// Whether the game is being held on a chapter boundary stepped to during a
     /// replay. Its update does not run while it is; the drawing carries on, which
     /// is what makes the frame the boundary falls on something to look at.
@@ -322,7 +334,7 @@ fn attach() {
     }
     log!(
         "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
-         block_replay_save={} skip_ending={} borderless={} during_replay={} \
+         block_replay_save={} skip_ending={} screen={} during_replay={} \
          fast_clear={} speed={} stress_restore_frames={} chapters={} track_memory={} \
          frame_hooks={} own_frame_loop={}",
         config.game_dir.display(),
@@ -333,7 +345,7 @@ fn attach() {
         config.chapter_tuning,
         config.block_replay_save,
         config.skip_ending,
-        config.borderless,
+        config.screen,
         config.during_replay,
         config.fast_clear,
         config.speed,
@@ -360,21 +372,42 @@ fn attach() {
         }
     }
 
-    // Only where chapters are: `--no-chapters` leaves orb loaded with nothing of its own
-    // happening, and a run nothing can rewind belongs in the game's own ranking. Loud rather
-    // than fatal if the import is not there, since what it costs is scores in the game's file
-    // and not a run that cannot be played.
+    // Which mode a launch starts in, before anybody has been asked: pointdevice, since that is
+    // what orb is for, and normal where `--no-chapters` has left it nothing to be.
+    let mode = if config.chapters {
+        Mode::Pointdevice
+    } else {
+        Mode::Normal
+    };
+    // The question is only put to somebody who is there to answer it. A pass over a replay has
+    // nobody at the keyboard, and neither has a clear: those take the mode they are given.
+    let asks_mode =
+        config.chapters && !config.during_replay && !config.chapter_tuning && !config.fast_clear;
+    log!(
+        "mode: {mode} to start with; {}",
+        if asks_mode {
+            "the menu asks which"
+        } else {
+            "nobody is asked"
+        }
+    );
+
+    // Only where the score file might have to be somewhere other than the game's own: with
+    // `--no-chapters` nothing can rewind, so every run belongs in the game's own ranking and
+    // there is nothing to fork. Loud rather than fatal if the import is not there, since what it
+    // costs is which file scores land in and not a run that cannot be played.
     //
-    // A clear run installs it whichever way those are set, because there the fork is not what it
-    // is for: the file that must not be written is the game's own, and refusing the write means
-    // being in the path of it.
-    if config.fast_clear || (config.chapters && config.own_score_file) {
+    // A clear installs it whichever way that is set, because there the fork is not what it is
+    // for: the file that must not be written is whichever this run would write, and refusing the
+    // write means being in the path of it.
+    if config.chapters || config.fast_clear {
         if config.fast_clear {
             score::refuse_writes();
         }
+        score::fork(mode == Mode::Pointdevice);
         match unsafe { score::install(exe) } {
             Ok(()) if config.fast_clear => log!("score: no file is written this run"),
-            Ok(()) => log!("score: score.dat is forked to orb_score.dat"),
+            Ok(()) => log!("score: score.dat is forked while orb is in pointdevice mode"),
             Err(error) => log!("score: {error}; the game will write its own score.dat"),
         }
     }
@@ -451,28 +484,30 @@ fn attach() {
             &STOP_RECORDING,
         ));
     }
-    if config.borderless {
-        match unsafe { window::install(exe, GAME.content_size()) } {
-            Ok(()) => log!("borderless: window hooks installed"),
-            Err(error) => log!("borderless: {error}; the window is left as the game makes it"),
-        }
-        if let Some(patch) = patches.create_window {
-            FORCE_WINDOWED.store(true, Ordering::Relaxed);
-            hooks.push((
-                "window creation",
-                patch,
-                create_game_window as usize,
-                &CREATE_GAME_WINDOW,
-            ));
-        }
-        if let Some(patch) = patches.init_device {
-            hooks.push((
-                "device init",
-                patch,
-                init_d3d_device as usize,
-                &INIT_D3D_DEVICE,
-            ));
-        }
+    // Always, because both of the answers are orb's: fullscreen is a borderless window covering
+    // the monitor and a size is a window of that size, and either way it is a window rather than
+    // the display taken exclusively — which is what leaves orb somewhere to draw the numbers
+    // beside the game, and what the letterbox is presented into.
+    match unsafe { window::install(exe, GAME.content_size(), config.screen) } {
+        Ok(()) => log!("screen: window hooks installed"),
+        Err(error) => log!("screen: {error}; the window is left as the game makes it"),
+    }
+    if let Some(patch) = patches.create_window {
+        FORCE_WINDOWED.store(true, Ordering::Relaxed);
+        hooks.push((
+            "window creation",
+            patch,
+            create_game_window as usize,
+            &CREATE_GAME_WINDOW,
+        ));
+    }
+    if let Some(patch) = patches.init_device {
+        hooks.push((
+            "device init",
+            patch,
+            init_d3d_device as usize,
+            &INIT_D3D_DEVICE,
+        ));
     }
     for (name, patch, replacement, original) in hooks {
         match unsafe { hook::install(patch.target, patch.prologue, replacement) } {
@@ -507,11 +542,50 @@ fn attach() {
             stressed: 0,
             stressing: (-1, 0),
             retry: None,
+            mode,
+            asks_mode,
+            menu: Menu::Elsewhere,
+            asking: None,
             held: false,
             walled: false,
             rolling: false,
         });
     }
+}
+
+impl Runtime {
+    /// Whether this run has chapters at all: the mode says so, and `--no-chapters` says not.
+    fn chaptering(&self) -> bool {
+        self.config.chapters && self.mode == Mode::Pointdevice
+    }
+}
+
+/// What the pad is doing, for a menu of orb's own.
+///
+/// Read from the sample orb's own thread takes and handed to the game to be read as *its* buttons,
+/// because the frames these menus are up are frames the game's own input is not running on — so a
+/// pad does nothing on them unless orb does this. Nothing where no pad is answering.
+fn pad(game: &dyn Game) -> Pad {
+    joystick::reading()
+        .map(|reading| game.pad_menu(reading))
+        .unwrap_or_default()
+}
+
+/// Takes the answer to the mode question: what a run does, and which of the two files the
+/// scores are kept in.
+///
+/// One answer for both, because they are one thing: the ranking of pointdevice runs is the file
+/// pointdevice runs are written to, and the game reads what that file has unlocked when it
+/// rebuilds its own menu.
+fn choose(runtime: &mut Runtime, mode: Mode) {
+    let was = std::mem::replace(&mut runtime.mode, mode);
+    score::fork(mode == Mode::Pointdevice);
+    // Nothing kept of a run that will not be rewound: a stage's snapshots are forty megabytes or
+    // so, and normal mode is the game as it was.
+    if mode == Mode::Normal {
+        runtime.chapters.forget();
+    }
+    log!("mode: {mode}, was {was}");
 }
 
 /// Replaces `th06::Chain::RunCalcChain`. `__thiscall` with a single argument is
@@ -785,7 +859,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
 
     if let Some(menu) = &mut runtime.retry {
         unsafe { hold_frame(runtime.game) };
-        if let Some(choice) = menu.update(&runtime.keyboard) {
+        let pad = pad(runtime.game);
+        if let Some((choice, by)) = menu.update(&runtime.keyboard, pad) {
+            log!("retry: {} chosen on the {by}", choice.label());
             let restored = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },
                 Choice::Stage => unsafe { runtime.chapters.retry_stage(runtime.game) },
@@ -796,6 +872,40 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 // on, so nothing about it should be compared against that frame.
                 runtime.previous = None;
             }
+        }
+        return CHAIN_BREAK;
+    }
+
+    // No `hold_frame` with this one: it is over the game's own menu, and the frame that menu
+    // draws into wants the whole output — which `prepare_frame` has already given it — rather
+    // than the play field's viewport.
+    if let Some(asking) = &mut runtime.asking {
+        let pad = pad(runtime.game);
+        if let Some((answer, by)) = asking.update(&runtime.keyboard, pad) {
+            runtime.asking = None;
+            match answer {
+                Answer::Chosen(mode) => {
+                    log!("mode: answered on the {by}");
+                    choose(runtime, mode);
+                }
+                // Back to the menu it was asked over, by the game's own way out of the state the
+                // chosen item put it in. The mode is left as it was: nothing was answered.
+                Answer::Cancelled => {
+                    let left = unsafe { runtime.game.leave_menu() };
+                    log!(
+                        "mode: not chosen on the {by}, {}",
+                        if left {
+                            "the menu is on its way back"
+                        } else {
+                            "and there is no menu to go back to"
+                        }
+                    );
+                }
+            }
+            // The key that answered this is not one the game's own menu should act on. Written
+            // here rather than on the frame the game carries on, because what reads it is the
+            // first thing that frame does.
+            unsafe { runtime.game.swallow_input() };
         }
         return CHAIN_BREAK;
     }
@@ -846,7 +956,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         started = profile::now();
         state = unsafe { runtime.game.read_state() };
-        if runtime.config.chapters {
+        if runtime.chaptering() {
             unsafe {
                 runtime.chapters.observe(
                     runtime.game,
@@ -925,9 +1035,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         runtime.rolling = false;
     }
 
+    // The screen that offers to save a replay of the run just finished, which a pointdevice run
+    // has nothing to put in one — see `Game::skip_replay_prompt`. Costs one read on every other
+    // frame there is.
+    if runtime.mode == Mode::Pointdevice && unsafe { runtime.game.skip_replay_prompt() } {
+        log!("result: no replay is offered for a run with chapters");
+    }
+
     // Over a replay as well as over a run someone is playing, because a replay is
     // what plays a whole run for a tuning pass.
-    if runtime.config.chapters && runtime.chapters.tracking(&state) {
+    if runtime.chaptering() && runtime.chapters.tracking(&state) {
         tune(runtime, &state);
         boundary_reached(runtime, &state);
     }
@@ -944,9 +1061,29 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         && runtime
             .previous
             .is_some_and(|previous| state.deaths > previous.deaths);
-    if died && runtime.config.chapters && runtime.chapters.can_retry() {
+    if died && runtime.chaptering() && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
         runtime.retry = Some(RetryMenu::new());
+    }
+
+    // The question orb puts over the game's own menu. Asked on the change rather than on the
+    // state, so it is put once at the moment something is chosen and not for as long as the game
+    // then takes to act on it; read after the game's update, so the freeze lands on the frame
+    // after — one frame of the fade the keypress started, and none of the second the game spends
+    // loading what comes next.
+    //
+    // Not without the overlay, which is what would draw it: a frozen game with an invisible
+    // question over it is a game that looks broken, and what is lost by not asking is the mode
+    // orb is in already.
+    if runtime.asks_mode {
+        let menu = unsafe { runtime.game.menu() };
+        let chosen = std::mem::replace(&mut runtime.menu, menu) != menu && menu != Menu::Elsewhere;
+        if chosen && runtime.overlay.is_none() {
+            log!("menu: {menu:?} chosen, but there is no overlay to ask over it with");
+        } else if chosen {
+            log!("menu: {menu:?} chosen, asking which mode");
+            runtime.asking = Some(ModeMenu::new(menu, runtime.mode));
+        }
     }
 
     let scene_changed = runtime
@@ -1604,6 +1741,11 @@ unsafe fn draw_overlay() {
         return;
     }
 
+    if let Some(asking) = &mut runtime.asking {
+        unsafe { asking.draw(overlay) };
+        return;
+    }
+
     // Over the play field and no further. The rest of the game's output — the panel beside
     // it, the border around it — is not repainted every frame, so a wash drawn there is
     // not drawn over again and stays on the screen for good.
@@ -1671,17 +1813,21 @@ unsafe fn write_status(runtime: &mut Runtime) {
     // belongs in the table at all.
     let tuning = runtime.config.chapter_tuning;
     let mut lines = Vec::new();
-    if tuning {
-        lines.push(format!(
-            "CH {:02}  RETRY {}",
-            runtime.chapters.number(),
-            runtime.chapters.retries(),
-        ));
-    } else {
-        if let Some(name) = runtime.chapters.name() {
-            lines.push(name.to_string());
+    // Neither in normal mode, where there are no chapters: an empty name and a retry count that
+    // cannot move are two lines saying that the run is not the one they describe.
+    if runtime.chaptering() {
+        if tuning {
+            lines.push(format!(
+                "CH {:02}  RETRY {}",
+                runtime.chapters.number(),
+                runtime.chapters.retries(),
+            ));
+        } else {
+            if let Some(name) = runtime.chapters.name() {
+                lines.push(name.to_string());
+            }
+            lines.push(format!("RETRY {}", runtime.chapters.retries()));
         }
-        lines.push(format!("RETRY {}", runtime.chapters.retries()));
     }
     lines.push(format!("INPUT LAG {}.{}ms", lag / 1000, lag % 1000 / 100));
     // Beside the lag rather than folded into it: this is the part of the lag orb chose, it is

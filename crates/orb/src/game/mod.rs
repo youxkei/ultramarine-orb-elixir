@@ -16,6 +16,7 @@ use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::Music;
 use crate::d3d8::Device;
+use crate::joystick::Reading;
 
 /// A function to hook and the bytes expected at it, so a mismatch is caught
 /// rather than relocating an instruction that cannot be relocated.
@@ -52,6 +53,40 @@ pub struct Hooks {
     /// The part of the input read that goes to a joystick, if the game keeps it
     /// separate. Hooked only to find out what it costs.
     pub joystick: Option<Patch>,
+}
+
+/// What the game's own front end has just been asked for.
+///
+/// Only the two moments orb has a question of its own to put over: a run is one thing in
+/// pointdevice mode and another in normal mode, and so is a ranking. Everything else the front
+/// end does is [`Elsewhere`](Menu::Elsewhere), including being nowhere near it.
+///
+/// The moment rather than the choice: what a game is left holding after the front end has acted
+/// on a keypress differs per game, and every game has a frame on which a run has been chosen and
+/// not yet built.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Menu {
+    /// Anywhere else: a run in progress, a replay, the options, or no front end at all.
+    Elsewhere,
+    /// A run has been chosen and the game is on its way into it. Practice as well as a full
+    /// run and the Extra stage: each is a run, and each is one thing with chapters and another
+    /// without.
+    Run,
+    /// The ranking has been chosen and the game is on its way into it.
+    Scores,
+}
+
+/// What a pad is doing, in the terms a menu of orb's needs.
+///
+/// Asked of the game because every one of these is its own mapping: which button decides and which
+/// cancels, and how far a stick goes before it counts. Answered from a reading orb took itself,
+/// because a menu of orb's has the game frozen and the game is not reading the pad on those frames.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Pad {
+    pub up: bool,
+    pub down: bool,
+    pub decide: bool,
+    pub cancel: bool,
 }
 
 /// A rectangle in the game's own output resolution.
@@ -243,6 +278,60 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn replaying(&self) -> bool;
+
+    /// What the game's own front end has just been asked for, so orb can put its question over
+    /// the moment a run or the ranking is chosen.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn menu(&self) -> Menu;
+
+    /// What a reading of the pad means to the game's own menus: which way it is being pushed, and
+    /// whether it is deciding or cancelling.
+    fn pad_menu(&self, reading: Reading) -> Pad;
+
+    /// Puts the game's front end back on its way to the title menu, the way its own back button
+    /// does, and says whether there was a front end to do it to.
+    ///
+    /// For a question orb asked over a choice the game has already acted on: the answer to it can
+    /// be "neither", and then what the player asked for is the menu they came from. Doing it the
+    /// game's own way rather than undoing what the choice did is what keeps orb out of the business
+    /// of putting a screen's worth of animation back.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the front end running.
+    unsafe fn leave_menu(&self) -> bool;
+
+    /// Leaves the game's own idea of the buttons so that the frame it carries on into has no new
+    /// press on it, whatever is being held.
+    ///
+    /// For the frames orb froze the game for: the key that answered orb's question is not a key
+    /// the game's own menu should act on, and the keyboard is read globally rather than per
+    /// window, so there is nothing else to tell one from the other. Without it, whether the
+    /// answer also reaches the game depends on whether the screen behind the question happens to
+    /// read input on the frame it resumes on, which is a property of that screen and not
+    /// something orb decided.
+    ///
+    /// Not needed after a retry, where the snapshot restore puts the same state back with
+    /// everything else in `.data`.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn swallow_input(&self);
+
+    /// Takes the game off the screen that offers to save a replay of the run just finished, if
+    /// that is where it is, and says whether it did.
+    ///
+    /// For a pointdevice run, where the offer is one nothing could accept: a replay is the
+    /// inputs and nothing about the rewinds between them, so one recorded here plays back as a
+    /// run that dies where this one carried on. Refusing the write instead would leave somebody
+    /// naming a file that never appears.
+    ///
+    /// Asked every frame, so it must cost nothing on the frames where there is no such screen.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn skip_replay_prompt(&self) -> bool;
 
     /// # Safety
     /// Must run on the game's main thread, with a stage running.

@@ -14,7 +14,8 @@ use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::{Music, SoundBuffer};
 use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Viewport};
-use crate::game::{Game, Hooks, Patch, Rect, Reproduction, State};
+use crate::game::{Game, Hooks, Menu, Pad, Patch, Rect, Reproduction, State};
+use crate::joystick::Reading;
 use crate::log::log;
 
 use crate::mem;
@@ -54,6 +55,10 @@ const SHAKE_SCREEN: usize = 0x0042ffc0;
 /// it. `Ending::RegisterChain` at 0x4107b0 is what identifies it — it hands this address to
 /// `Chain::CreateElem` and writes the object it allocated into the element that comes back.
 const ENDING_ON_UPDATE: usize = 0x004109c0;
+/// `th06::ResultScreen::OnUpdate`, found the same way and for the same reason: the result
+/// screen is allocated by `ResultScreen::RegisterChain` at 0x42d773, which puts it nowhere but
+/// into the element it registers.
+const RESULT_SCREEN_ON_UPDATE: usize = 0x0042d98e;
 
 /// `th06::ReplayManager::StopRecording`, `__cdecl`. Writes the last two entries of an
 /// input record: a blank one at the frame the run stopped, and a terminator at frame
@@ -135,10 +140,22 @@ const G_SOUND_PLAYER: usize = 0x006d3f50;
 const G_REPLAY_MANAGER: usize = 0x006d3f18;
 /// `AnmManager *g_AnmManager` — a pointer to it, allocated once at startup.
 const G_ANM_MANAGER: usize = 0x006d4588;
+/// `MainMenu g_MainMenu`, the whole front end: the title menu, the difficulty and character
+/// selects, the options, the replay list. `MainMenu::RegisterChain` memsets it and sets its
+/// state afresh every time the front end is entered, so nothing in it is left over from the
+/// last time round.
+const G_MAIN_MENU: usize = 0x006d46c0;
 /// `u16 g_CurFrameInput`, assigned from `Controller::GetInput` at the top of
 /// `Supervisor::OnUpdate` and then, for a replay, overwritten with the record's buttons
 /// in place of the ones on the keyboard.
 const G_CUR_FRAME_INPUT: usize = 0x0069d904;
+/// The bounds inside [`G_JOY_CAPS`] that an axis is measured against, which is where the game
+/// takes the centre of one and its dead zone from.
+mod joy_caps {
+    pub const Y_MIN: usize = 0x2c;
+    pub const Y_MAX: usize = 0x30;
+}
+
 /// `JOYCAPSA g_JoyCaps`, the 0x194 bytes `joyGetDevCapsA` fills. `GetControllerInput` reads
 /// `wXmin`/`wXmax` (+0x24, +0x28) and `wYmin`/`wYmax` (+0x2c, +0x30) out of it every frame to
 /// place the centre of each axis and a dead zone of a quarter of its travel. This address
@@ -227,6 +244,18 @@ mod supervisor {
     pub const PRESENT_PARAMETERS: usize = 0xe0;
     /// `cfg.windowed`, inside the `GameConfiguration` at 0x114.
     pub const CFG_WINDOWED: usize = 0x132;
+    /// `cfg.controllerMapping`, which is that configuration's first member, so these are its `i16`
+    /// in order: shoot, bomb, focus, menu, up, down, left, right, skip. What a pad's buttons mean
+    /// to the game, and the copy `Controller::GetControllerInput` itself reads every frame.
+    pub const CFG_SHOOT_BUTTON: usize = 0x114;
+    pub const CFG_BOMB_BUTTON: usize = 0x116;
+    pub const CFG_MENU_BUTTON: usize = 0x11a;
+    pub const CFG_UP_BUTTON: usize = 0x11c;
+    pub const CFG_DOWN_BUTTON: usize = 0x11e;
+    /// `wantedState`, the field before `curState`. Assigned from `curState` at the end of every
+    /// `Supervisor::OnUpdate`, so the two differing is a scene change that has been asked for and
+    /// not yet acted on.
+    pub const WANTED_STATE: usize = 0x188;
     /// `effectiveFramerateMultiplier`, how far the game's timers advance in one
     /// update.
     pub const FRAMERATE_MULTIPLIER: usize = 0x1a8;
@@ -306,6 +335,24 @@ mod chain_elem {
     pub const ARG: usize = 0x1c;
 }
 
+/// `th06::MainMenu`, whose own fields come after an `AnmVm vm[122]` of 0x110 bytes each: 122 *
+/// 0x110 is 0x81a0, and four bytes of cursor and 0x40 of padding after that lands exactly on the
+/// field the decompilation names `unk_81e4` for its offset, which is the arithmetic checking out.
+mod main_menu {
+    /// `GameState gameState`, three fields further on, and the whole of where the front end is.
+    pub const GAME_STATE: usize = 0x81f0;
+    /// `stateTimer`, the frames the front end has been in that state. Every state that walks
+    /// itself out counts this up to a number of its own.
+    pub const STATE_TIMER: usize = 0x81f4;
+}
+
+/// `th06::ResultScreen`, 0x56b0 bytes on the heap, reached through the job it registers. Its
+/// `unk_3c` and `unk_40` are named for their offsets, which is what fixes this one.
+mod result_screen {
+    /// `i32 resultScreenState`, after the score file it opened and its frame timer.
+    pub const STATE: usize = 0x8;
+}
+
 /// `th06::Ending`, 0x1170 bytes on the heap, reached through the job it registers.
 mod ending {
     /// The `.end` script as it was read. `Ending::LoadEndingFile` at 0x4106d0 reads the new
@@ -363,12 +410,42 @@ mod wave_file {
 }
 
 /// `th06::SupervisorState`.
+const STATE_MAINMENU: i32 = 1;
 const STATE_GAMEMANAGER: i32 = 2;
 /// The state between two stages of a run, where the game tears the last stage's
 /// managers down and builds the next one's. Not the run ending, which is what makes it
 /// worth telling apart.
 const STATE_GAMEMANAGER_REINIT: i32 = 3;
+/// The result screen a run has just ended into, which is the only one of the two that offers to
+/// save a replay. The other — 6, reached from the ranking on the title menu — has no run behind
+/// it to record.
+const STATE_RESULTSCREEN_FROMGAME: i32 = 7;
 const STATE_ENDING: i32 = 10;
+
+/// `th06::GameState`, the front end's own state, of which orb watches two.
+///
+/// A run is chosen by three of the title menu's items — a full run, the Extra stage, practice —
+/// and all three set this same state, which is where the game spends the second it takes to load
+/// the difficulty select. Nothing else reaches it: coming back from the difficulty select goes
+/// through `STATE_CHARACTER_LOAD` instead.
+const MENU_STATE_DIFFICULTY_LOAD: i32 = 6;
+/// Chosen from the title menu's `Score`, and where the game spends the second before the
+/// ranking's own chain is registered and it opens the score file.
+const MENU_STATE_SCORE: i32 = 10;
+/// What the front end's own back button puts it in: 36 frames later it goes to `STATE_STARTUP`,
+/// which reloads the title and falls through to the menu. The difficulty select's `RETURNMENU`
+/// branch is what this is copied from, sprite interrupts and all — those are already the fade the
+/// chosen item started, which is the same one that branch sets.
+const MENU_STATE_CHARACTER_LOAD: i32 = 8;
+
+/// `th06::ResultScreenState`: the screen that asks whether to save a replay, and the state that
+/// leaves for the title menu without any of that.
+///
+/// `RESULT_STATE_EXIT` is the game's own way out — it is what a practice run's result screen is
+/// registered in, and its `OnUpdate` case sets the supervisor back to the title menu and takes
+/// the job out. So the score file is still written on the way, by `DeletedCallback`.
+const RESULT_STATE_SAVE_REPLAY_QUESTION: i32 = 10;
+const RESULT_STATE_EXIT: i32 = 17;
 
 /// `th06::PlayerState`.
 const PLAYER_NORMAL: i8 = 0;
@@ -854,6 +931,123 @@ impl Game for Th06 {
             .is_some_and(|demo| demo != 0)
     }
 
+    /// The front end's own state, and only while the front end is what the game is running and
+    /// has been since before this frame: `g_MainMenu` is a global that keeps whatever it was left
+    /// holding, and what says it is being used is the supervisor.
+    ///
+    /// Both of the supervisor's states, because one of them is not enough. `Supervisor::OnUpdate`
+    /// is chain priority 0 and assigns `wantedState = curState` as its last act, so a screen that
+    /// sets `curState` to the front end — which is how the ranking leaves — is a frame ending with
+    /// `curState` already saying front end while `wantedState` still says where the game was, and
+    /// the front end not yet rebuilt. On that one frame `gameState` is whatever the screen being
+    /// left was entered from, which for the ranking is `STATE_SCORE` — so orb read leaving the
+    /// ranking as choosing it, and asked again for nothing. The frame after, the supervisor
+    /// rebuilds the menu and `MainMenu::RegisterChain` memsets that stale state away.
+    unsafe fn menu(&self) -> Menu {
+        let settled = unsafe {
+            mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_MAINMENU
+                && mem::read::<i32>(G_SUPERVISOR + supervisor::WANTED_STATE) == STATE_MAINMENU
+        };
+        if !settled {
+            return Menu::Elsewhere;
+        }
+        match unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) } {
+            MENU_STATE_DIFFICULTY_LOAD => Menu::Run,
+            MENU_STATE_SCORE => Menu::Scores,
+            _ => Menu::Elsewhere,
+        }
+    }
+
+    /// The game's own mapping, read where `Controller::GetControllerInput` reads it, and the axis
+    /// read the way that function reads it.
+    ///
+    /// **Shoot and menu decide; bomb cancels.** The game's own menus take
+    /// `TH_BUTTON_RETURNMENU = TH_BUTTON_MENU | TH_BUTTON_BOMB` as back, and following that would put
+    /// the menu button on cancel — which on the pad this was written for is button 0, where a thumb
+    /// rests, so the most obvious button on it would close a menu rather than answer one. orb's
+    /// menus have no pause for that button to open, so it decides here instead: the button most
+    /// easily reached should not be the destructive one.
+    ///
+    /// An unmapped button is 0xffff in that mapping, which as an `i16` is negative and names no bit
+    /// — which is what the directions usually are, a stick being how a pad is pushed.
+    fn pad_menu(&self, reading: Reading) -> Pad {
+        let held = |at: usize| {
+            u32::try_from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) })
+                .ok()
+                .filter(|button| *button < u32::BITS)
+                .is_some_and(|button| reading.buttons & (1 << button) != 0)
+        };
+        // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
+        // hat rather than on the axes at all.
+        let (stick_up, stick_down) = axis(joy_caps::Y_MIN, joy_caps::Y_MAX, reading.y);
+        let (hat_up, hat_down) = hat(reading.pov);
+        Pad {
+            up: stick_up || hat_up || held(supervisor::CFG_UP_BUTTON),
+            down: stick_down || hat_down || held(supervisor::CFG_DOWN_BUTTON),
+            decide: held(supervisor::CFG_SHOOT_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
+            cancel: held(supervisor::CFG_BOMB_BUTTON),
+        }
+    }
+
+    /// The state the front end's own back button uses, and the timer it counts from. Nothing else
+    /// has to be put back: the sprites are already running the fade the chosen item started, which
+    /// is the same one the back button sets, and the cursor is already on the item that was chosen
+    /// — which is where the title menu should have it.
+    unsafe fn leave_menu(&self) -> bool {
+        if unsafe { self.menu() } == Menu::Elsewhere {
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(
+                G_MAIN_MENU + main_menu::GAME_STATE,
+                MENU_STATE_CHARACTER_LOAD,
+            );
+            mem::write::<i32>(G_MAIN_MENU + main_menu::STATE_TIMER, 0);
+        }
+        true
+    }
+
+    /// Every button, so that the `held & ~held-last-frame` every one of the game's own
+    /// `WAS_PRESSED` is finds nothing on the frame it carries on into. `Supervisor::OnUpdate`
+    /// runs first in the calc chain — priority 0 against the main menu's 2 — and its first act is
+    /// `g_LastFrameInput = g_CurFrameInput; g_CurFrameInput = GetInput()`, so this is read once,
+    /// by that, and by nothing else. What is genuinely held still reads as held, since that comes
+    /// from the fresh read; only the edge is gone, and only for the one frame.
+    ///
+    /// Not zero, which is what the game itself writes into these three at a scene change — see
+    /// the end of `Supervisor::OnUpdate`'s state switch. Zero leaves `g_LastFrameInput` empty and
+    /// so turns every button still down into a fresh press, which is the opposite of what is
+    /// wanted here. The game gets away with it because the screens it changes to guard their own
+    /// first frames with timers instead.
+    unsafe fn swallow_input(&self) {
+        unsafe { mem::write::<u16>(G_CUR_FRAME_INPUT, u16::MAX) };
+    }
+
+    /// The state is written rather than the screen being answered for the player, because
+    /// answering it means writing the interrupt each of its 38 sprites is to run next and then
+    /// waiting out the fade they play — where this is one number, and the one the game itself
+    /// puts a practice run's result screen into.
+    ///
+    /// Written the frame the state is reached and before the frame timer gets to the 60 that
+    /// starts the question's own animation, so no part of the screen is ever drawn.
+    unsafe fn skip_replay_prompt(&self) -> bool {
+        // The one read on the frames there is no such screen, which is every frame of a run.
+        if unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) }
+            != STATE_RESULTSCREEN_FROMGAME
+        {
+            return false;
+        }
+        let Some(screen) = chain_argument(RESULT_SCREEN_ON_UPDATE) else {
+            return false;
+        };
+        let state = screen + result_screen::STATE;
+        if mem::read_committed::<i32>(state) != Some(RESULT_STATE_SAVE_REPLAY_QUESTION) {
+            return false;
+        }
+        unsafe { mem::write::<i32>(state, RESULT_STATE_EXIT) };
+        true
+    }
+
     fn midstage_table(&self) -> &'static [&'static [i32]] {
         &chapters::MIDSTAGE
     }
@@ -944,6 +1138,48 @@ impl Th06 {
         let wave_file = mem::read_committed::<usize>(streaming + streaming_sound::WAVE_FILE)?;
         mem::read_committed::<u32>(wave_file + wave_file::SIZE).map(|_| wave_file)
     }
+}
+
+/// Whether an axis is pushed past its dead zone, as `(low, high)` in the position it reports —
+/// which for the Y axis, measured downwards, is `(up, down)`.
+///
+/// The centre is halfway between the caps' bounds and the dead zone is a quarter of the travel
+/// either side of it, which is what `Controller::GetControllerInput` does with the same two
+/// numbers. Nothing where the bounds say nothing, since a device whose travel is zero has no
+/// middle to be off.
+fn axis(low_at: usize, high_at: usize, position: u32) -> (bool, bool) {
+    let (low, high) = unsafe {
+        (
+            mem::read::<u32>(G_JOY_CAPS + low_at),
+            mem::read::<u32>(G_JOY_CAPS + high_at),
+        )
+    };
+    if high <= low {
+        return (false, false);
+    }
+    let centre = low + (high - low) / 2;
+    let dead = (high - low) / 4;
+    (position + dead < centre, position > centre + dead)
+}
+
+/// Whether a hat — a d-pad — is pushed up or down.
+///
+/// Its own field rather than the axes, because that is where a d-pad reports: hundredths of a degree
+/// clockwise from straight up, and `JOY_POVCENTERED` — 0xffff, past a full circle — for pushed
+/// nowhere. A diagonal counts as its two, so a hat held up-and-left still moves up. The game itself
+/// reads none of this; orb's own menus are the only thing here a hat drives.
+fn hat(pov: u32) -> (bool, bool) {
+    /// A full circle, and an eighth of one either side of each direction.
+    const CIRCLE: u32 = 36000;
+    const EIGHTH: u32 = CIRCLE / 8;
+
+    if pov > CIRCLE {
+        return (false, false);
+    }
+    (
+        pov <= EIGHTH || pov >= CIRCLE - EIGHTH,
+        (CIRCLE / 2 - EIGHTH..=CIRCLE / 2 + EIGHTH).contains(&pov),
+    )
 }
 
 /// A path out of the game's own memory, and what it says, checked before either is

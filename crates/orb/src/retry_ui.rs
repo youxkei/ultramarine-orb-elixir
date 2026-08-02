@@ -1,10 +1,12 @@
 //! The menu that appears where the chapter was lost.
 //!
 //! The game is frozen while this is up, which means its own input handling is
-//! not running either, so the menu reads the keyboard itself.
+//! not running either — so the menu reads the keyboard itself, and takes the pad
+//! from the sample orb's own thread keeps.
 
-use crate::game::Rect;
+use crate::game::{Pad, Rect};
 use crate::input::Keyboard;
+use crate::mode_ui::By;
 use crate::overlay::{Label, Overlay};
 
 const VK_RETURN: u8 = 0x0d;
@@ -29,6 +31,16 @@ pub enum Choice {
     Stage,
 }
 
+impl Choice {
+    /// For the log, in the English the rest of it is in — the menu itself is in Japanese.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Chapter => "the chapter again",
+            Self::Stage => "the stage again",
+        }
+    }
+}
+
 const CHOICES: [(Choice, &str); 2] = [
     (Choice::Chapter, "チャプターをやり直す"),
     (Choice::Stage, "ステージをやり直す"),
@@ -37,6 +49,10 @@ const CHOICES: [(Choice, &str); 2] = [
 pub struct RetryMenu {
     selection: usize,
     grace: u32,
+    /// What the pad was doing last frame. The game is frozen here, so it is not reading the pad
+    /// itself and this menu would take nothing from one at all — and dying with a pad in hand is
+    /// exactly when this menu comes up.
+    pad: Pad,
     chapter: Label,
     retry: Label,
     choices: [Label; CHOICES.len()],
@@ -48,6 +64,7 @@ impl RetryMenu {
         Self {
             selection: 0,
             grace: INPUT_GRACE_FRAMES,
+            pad: Pad::default(),
             chapter: Label::new(),
             retry: Label::new(),
             choices: [Label::new(), Label::new()],
@@ -55,20 +72,30 @@ impl RetryMenu {
         }
     }
 
-    /// Returns the choice once it is confirmed.
-    pub fn update(&mut self, keyboard: &Keyboard) -> Option<Choice> {
+    /// Returns the choice once it is confirmed. `pad` is what the pad is doing now, read for this
+    /// menu by the caller.
+    ///
+    /// Nothing cancels: the player is dead, and the two choices are the only two ways on.
+    pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Choice, By)> {
+        // Every frame, grace or not: the player was holding the shot key when they died, and that
+        // must not become a press the moment the grace ends.
+        let was = std::mem::replace(&mut self.pad, pad);
+        let pushed = |now: bool, before: bool| now && !before;
         if self.grace > 0 {
             self.grace -= 1;
             return None;
         }
-        if keyboard.pressed(VK_UP) {
+        if keyboard.pressed(VK_UP) || pushed(pad.up, was.up) {
             self.selection = self.selection.checked_sub(1).unwrap_or(CHOICES.len() - 1);
         }
-        if keyboard.pressed(VK_DOWN) {
+        if keyboard.pressed(VK_DOWN) || pushed(pad.down, was.down) {
             self.selection = (self.selection + 1) % CHOICES.len();
         }
-        let confirmed = keyboard.pressed(VK_Z) || keyboard.pressed(VK_RETURN);
-        confirmed.then(|| CHOICES[self.selection].0)
+        let chosen = CHOICES[self.selection].0;
+        if keyboard.pressed(VK_Z) || keyboard.pressed(VK_RETURN) {
+            return Some((chosen, By::Keyboard));
+        }
+        pushed(pad.decide, was.decide).then_some((chosen, By::Pad))
     }
 
     /// # Safety

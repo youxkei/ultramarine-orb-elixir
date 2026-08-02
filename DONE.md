@@ -83,8 +83,129 @@ settled by measurement rather than by looking at the screen, the measurement is 
     stage 2 while a bomb's shake was running — the log says it was taken down at
     61041250ms — and holding the stage 1 that followed against a menu-started pass of it:
     identical from its first frame to the 742nd, where the replay was stopped by hand.
+- **The mode question over the game's own menu.** `Game Start`, `Extra Start` and `Practice Start`
+  each froze the game the frame after the item was taken and put the question up; `Score` asked
+  which of the two rankings. Answered with both, six times over one session:
+  `menu: Run chosen, asking which mode` then `mode: normal, was pointdevice`, and the cursor
+  starting on whichever mode orb was already in — `was normal` on the ones after it.
+  - **The ranking follows the mode.** With normal chosen, the ranking screen — scene 6, the game's
+    `SUPERVISOR_STATE_RESULTSCREEN` — opened the game's own file, which the log shows by there
+    being no `score:` line at all for it. With pointdevice chosen, the same screen opened
+    `pointdevice_score.dat`, once as it was built and again as it was written on the way out, and
+    the title menu then read the same file when it rebuilt itself.
+  - **Neither is an answer.** `x` on the question put the front end back on its way to the title
+    menu four times in a row — `mode: not chosen, the menu is on its way back` — and each of those
+    was followed by another `menu: Run chosen`, which is the proof that it got there: that line
+    needs the title menu rebuilt and an item taken again. The second of the four was cancelled 469ms
+    after the question appeared, so the ten frames of grace are not in the way of somebody who means
+    it.
+  - **And on the pad, both ways**: `mode: not chosen on the pad, the menu is on its way back`
+    followed by the next `menu: Run chosen`, and `mode: answered on the pad` with the mode taken. A
+    menu of orb's freezes the game, so the game is not reading the pad on those frames and one does
+    nothing there unless orb reads it itself — which is how it came to be missing, and why the log
+    says which hand answered.
+  - **Leaving the ranking used to ask again**, on the same millisecond as the score file being
+    written on the way out. `Supervisor::OnUpdate` assigns `wantedState = curState` as its last act
+    and runs first in the chain, so the frame the ranking sets `curState` itself ends with the front
+    end reported as running, the menu not yet rebuilt, and `gameState` still holding the
+    `STATE_SCORE` it was entered from. Requiring `wantedState` to say front end as well excludes
+    exactly that frame; two round trips through the ranking after the fix asked nothing.
+- **Dying into the retry menu, and the chapter coming back**, on a stage 1 boss on Lunatic with the
+  pad in hand:
+
+  ```
+  f3600 ... frames=2162 script=2162 ... lives=2 ... boss_life=5290 attack_frames=154
+  died in chapter 2
+  retry: the chapter again chosen on the pad
+  restore: skipping 1 range(s), 1056 bytes
+  retry chapter 2 (retry 6)
+  f3651 ... frames=2010 script=2010 ... lives=2 ... boss_life=6000 attack_frames=2
+  ```
+
+  The stage clock went back 152 frames to where the chapter began, the boss's life back to the 6000
+  its attack starts with, its timer to 2 — and `lives=2` with `deaths=0` on both sides of it, which
+  is the whole of what orb is for: the miss cost a rewind and not a life. The fight then carried on,
+  the boss's life ticking down again through 5456, 4792, 4342, 3466. 687ms passed between the death
+  and the choice, so the menu's 24 frames of grace are not in the way. The skipped range is the
+  Direct3D texture handles, which a restore deliberately leaves as it finds them.
+- **No replay is offered for a pointdevice run**, measured over a `--clear` run to the ending —
+  which is what reaches a result screen without half an hour of playing well, and which is a
+  pointdevice run because `--clear` fixes the mode rather than asking: `mode: pointdevice to start
+  with; nobody is asked`. Stages 1 to 6 in 35 seconds, then `ending run out in 29040 update(s),
+  where its staff roll begins` — the same 29,040 as the ending measured before it, from the same
+  track to the same track — and then:
+
+  ```
+  f5966 scene=7                                                     the result screen
+  score: pointdevice_score.dat opened in place of the game's own     read as it was built
+  result: no replay is offered for a run with chapters
+  score: nothing written, this run had nothing able to hit the player
+  f6545 scene=1                                                     the title menu
+  score: pointdevice_score.dat opened in place of the game's own     the menu reading it again
+  ```
+
+  The result screen was up for 9.5 seconds between those two scene lines, which is the high-score
+  name entry and the stats screen being played through as they always were — the state is written
+  after those, not instead of them. Then the title menu, with no save-replay screen in between. And
+  `score: nothing written` on the same millisecond is the proof that `DeletedCallback` still ran:
+  that line is its write being refused, which is what `--clear` asks for. So writing the state
+  leaves the game's own teardown in the path rather than skipping it.
+  - What this run could not show, `--clear` refusing every write: that the score is *written* on the
+    way out when a run is an ordinary one. That is one `score: pointdevice_score.dat opened` at the
+    end of a run played without it.
+- **Chapters in a pointdevice run**, from the same run: `stage 1 chapter 1 (stage start) at frame 9`
+  and then chapters 2 to 6 of stage 1 at script frames 2009, 3449, 4472, 5280 and 5282 — a midboss
+  nonspell twice, one out of the midstage table, a boss nonspell and a boss spellcard, so all four
+  kinds of boundary — each keeping 5 regions of 4,643,324 bytes, and each of stages 1 to 6 starting
+  its own chapter 1.
+- **The settings asked before the game starts.** The dialog came up on each launch, and what was
+  chosen in it was in `orb.yaml` and read back by both halves at the next launch:
+  `screen: 1280x720`, `screen: fullscreen` and `screen: 2560x1440` each went through, with the DLL
+  logging the same in its config line.
+  - **And a pad answers it**, both ways. `orb: no game started (answered on the pad)` with nothing
+    written, which is what closing it is supposed to do; and then
+    `orb: settings written to ... (answered on the pad)` followed by the game starting, which is
+    `はじめる` reached and pressed on the pad. A dialog answers to no pad by itself, so those lines
+    are about orb rather than about the pad — which is why they are printed at all.
+  - **And it had to be read faster than a dialog needs anything else.** At 120ms between reads, with
+    a read costing 15 to 33ms, a cycle was up to 155ms and a quick tap fell between two of them: the
+    pad answered sometimes and not others, which from the outside is a pad that does not work. Read
+    again as soon as each read finishes, one session of it came out as
+    `settings written ... (answered on the pad; a pad, pushed 29 time(s))` — every push through the
+    rows, the sizes and the switches landing, and `はじめる` pressed on the pad at the end of it.
+  - **Cancel was on the wrong button for three launches.** The game's own menus take
+    `TH_BUTTON_RETURNMENU = TH_BUTTON_MENU | TH_BUTTON_BOMB` as back, so following the game put cancel
+    on the menu button — which this pad's configuration has as button 0, where a thumb rests. Every
+    attempt to answer the dialog closed it instead, logged three times as
+    `no game started (answered on the pad)` with no way to see why until the launcher was made to
+    print the mapping: `orb: pad — decide 2 or 0, cancel 5`. The menu button decides in orb's own
+    menus now, there being no pause in them for it to open.
 - **Borderless fullscreen.** Rewriting the game's own `CreateWindowExA` arguments, so there
-  is no frame to remove and nothing flashes first. Aspect ratio kept, the rest black.
+  is no frame to remove and nothing flashes first. Aspect ratio kept, the rest black. With display
+  scaling ignored it is the monitor's real pixels: `screen: fullscreen — window at 0,0 sized
+  3840x2160, client 3840x2160` on a monitor that read as 2560x1440 before `SetProcessDPIAware`.
+- **A window of a chosen size, and display scaling ignored.** `screen: 1280x720` came out as
+  `screen: 1280x720 — window at 1277,700 sized 1286x760, client 1280x720`: the client is exactly
+  the size asked for, the frame this machine adds is the 6x40 between the two, and the window is
+  centred on a monitor read as 3840x2160 — which is the point of `SetProcessDPIAware`, since the
+  same monitor read as 2560x1440 before it and every size would have been scaled behind the game's
+  back. Still `client 1280x720` when the device was created.
+  - **And it stayed, once the window managers on that machine were out of the way.**
+    `screen: 2560x1440 — window at 637,340 sized 2566x1480, client 2560x1440`, centred exactly —
+    (3840−2566)/2 = 637 and (2160−1480)/2 = 340 — and not one further `screen:` line for the rest of
+    the session, where every run before it had been resized within four seconds. The status line had
+    its black too: the game is letterboxed to 1920x1440 inside that client, 320 pixels of it either
+    side, and the `no black to write in` line that a 4:3 client produces never appeared.
+  - **And then something outside the game resized it**, to `client 2880x2160` three and a half
+    seconds later — 4:3 filling the monitor's height. Not orb: the two client sizes logged before
+    it are right, and the resize lands seconds after the last moment orb has any say. Identified as
+    a borderless tool running on that machine, from its own configuration, which lists
+    `東方紅魔郷.exe` with an aspect ratio of 4:3 and acts on window creation. The game's own code
+    was ruled out first — `GameWindow::CreateGameWindow` calls `CreateWindowEx` once and stores the
+    handle, and nothing else in it moves the window — as were vpatch, whose `[Window]` section is
+    disabled and which was not loaded, and a wrapper `d3d8.dll`, of which there is none in the
+    game's directory. It also takes the black beside the game, so the status line has nowhere to go
+    and says so: `client 2880x2160, game 2880x2160 at 0,0 — no black to write in`.
 - **Ending skipped and its staff roll kept**, and never during a demo or a replay. A stage 6
   clear ran the ending out in **29,040 updates inside the frame it began on** and stopped where
   the ending hands its script over to the roll:
@@ -133,19 +254,24 @@ settled by measurement rather than by looking at the screen, the measurement is 
     and its caller dropping the answer. `score.dat` came out with the md5 and timestamp it went in
     with, `004c8eda5a29a4ff985529838c21efe5` and `2026-07-29_22:44:45`, and `orb_score.dat` with
     `eca4048d984295dc91ca4f55050a779a` and `2026-08-01_21:18:05`.
-- **Scores kept out of the game's file.** With `own_score_file`, every open of `score.dat`
-  becomes an open of `orb_score.dat` at the exe's `CreateFileA` import. Over a session that
-  cleared stage 6: `score.dat` came out with the md5 it went in with,
-  `004c8eda5a29a4ff985529838c21efe5`, and the timestamp it went in with, while
-  `orb_score.dat` changed to `eca4048d984295dc91ca4f55050a779a`. The log has
+- **Scores kept out of the game's file.** Every open of `score.dat` becomes an open of orb's own
+  at the exe's `CreateFileA` import. Over a session that cleared stage 6: `score.dat` came out
+  with the md5 it went in with, `004c8eda5a29a4ff985529838c21efe5`, and the timestamp it went in
+  with, while orb's changed to `eca4048d984295dc91ca4f55050a779a`. The log has
   `score: orb_score.dat opened in place of the game's own` at every open, including one 47ms
   into the result screen, which is the score being entered going that way. It started as a
   copy of `score.dat`, so nothing it had unlocked was locked again, and the next launch of the
   session said `not copied from the game's, GetLastError 80` — the file being there already,
   which is the copy happening once and only once.
+  - **Measured when orb's file was `orb_score.dat` and the fork was the `own_score_file` key**,
+    which is what those log lines say. It is `pointdevice_score.dat` now and the fork follows the
+    mode chosen in the game instead; the seam, the comparison and the seeding are the same code.
+    What the change left to check is in [TODO.md](TODO.md).
 - **Replay writing suppressed.** Only the write; the game's scene-change teardown, which
   goes through the same function with null arguments, still runs. Stubbing the whole
-  function crashed the game later.
+  function crashed the game later. This is what `--clear` still does. A pointdevice run is not
+  offered the screen that saves a replay at all now, which is a different mechanism and unmeasured
+  — see [TODO.md](TODO.md).
 - **Replay-driven automation.** `--replay` with `--speed` lets a replay of a full run do the
   playing, for building the table and for the stress mode.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the

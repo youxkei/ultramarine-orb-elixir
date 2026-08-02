@@ -4,6 +4,8 @@
 //! file.
 
 mod inject;
+mod pad;
+mod settings;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -16,6 +18,9 @@ use orb_config::args::Options;
 /// Only 1.02h is supported: every address `orb` uses was read off this build.
 const GAME_EXE: &str = "東方紅魔郷.exe";
 const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
+/// What the game keeps its own configuration in, read for one thing only: which pad button it takes
+/// as shoot and which as bomb, so that the settings dialog answers to the same two.
+const GAME_CFG: &str = "東方紅魔郷.cfg";
 
 /// Starts 東方紅魔郷 1.02h with orb loaded, and hands the options below on to it.
 ///
@@ -41,10 +46,16 @@ struct Launch {
     /// the orb.yaml to read, instead of the one beside orb.exe
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     config: Option<PathBuf>,
+
+    /// ask for the settings — the screen, the ending, the wash a chapter gets — however
+    /// orb.yaml has "ask at startup" set, and write down what is answered
+    #[arg(long, help_heading = MINE)]
+    settings: bool,
 }
 
-/// The three the launcher answers itself. The DLL is inside the game already, so where the game
-/// and the DLL are is a question it never has to ask.
+/// The four the launcher answers itself. The DLL is inside the game already, so where the game
+/// and the DLL are is a question it never has to ask, and a game that has started is past the
+/// moment the settings could be asked for.
 const MINE: &str = "Read here and not handed on to the game";
 
 fn main() -> ExitCode {
@@ -61,16 +72,54 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Read here as well as in the DLL, so that anything unreadable is said before a game
     // starts rather than into a log inside one.
     let launch = Launch::parse();
-    let mut config = match &launch.config {
-        Some(path) => Config::load(path)?,
-        None => Config::load_beside(&std::env::current_exe()?)?,
+    let exe = std::env::current_exe()?;
+    let (path, mut config) = match &launch.config {
+        Some(path) => (path.clone(), Config::load(path)?),
+        None => (
+            exe.parent()
+                .unwrap_or(Path::new("."))
+                .join(orb_config::FILE_NAME),
+            Config::load_beside(&exe)?,
+        ),
     };
-    config.apply(&launch.options);
+
     // Where the DLL will read it from is where it is itself, so this side is the only one that
     // has to be told, and the file it reads never says anything about a path.
+    //
+    // Before the settings are asked for, because the pad they can be answered with is described by
+    // a file in that directory.
     if let Some(game_dir) = launch.game_dir {
         config.game_dir = game_dir;
     }
+
+    // Before the options are applied, so that what is written back is the settings and not one
+    // launch's arguments — and before the game starts, since the DLL reads the same file from
+    // inside it.
+    if config.ask_at_startup || launch.settings {
+        let game_cfg = config.game_dir.join(GAME_CFG);
+        // Said before the dialog, because a pad answering it the wrong way round is this mapping and
+        // there is nowhere else it is written down in a form anybody can read.
+        println!("orb: pad — {}", pad::Mapping::read(&game_cfg).describe());
+        let asked = settings::ask(&config, &game_cfg)?;
+        // Which hand answered, and what the pad did while the dialog was up. Both, because a pad
+        // answering a dialog is orb's own doing: without the first there is no evidence it worked,
+        // and without the second a pad that was never there cannot be told from one that was
+        // pushed and ignored.
+        let with = settings::answered_with();
+        let saw = pad::report();
+        let Some(answers) = asked else {
+            println!("orb: no game started (answered on the {with}; {saw})");
+            return Ok(());
+        };
+        answers.apply(&mut config);
+        config.save(&path)?;
+        println!(
+            "orb: settings written to {} (answered on the {with}; {saw})",
+            path.display()
+        );
+    }
+
+    config.apply(&launch.options);
     let options = to_hand_on(std::env::args().skip(1));
 
     let game_exe = config.game_dir.join(GAME_EXE);
@@ -136,7 +185,7 @@ fn checksum(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// The arguments as written, less the launcher's own three: the DLL knows none of them and
+/// The arguments as written, less the launcher's own four: the DLL knows none of them and
 /// would refuse the line for carrying a name it cannot read.
 ///
 /// What is handed on is what was typed rather than the parsed options written back out, so that
@@ -145,7 +194,7 @@ fn checksum(bytes: &[u8]) -> String {
 /// takes its value onto itself and any other spelling was refused above — which is also what
 /// keeps a path with a space in it out of a line the DLL splits on whitespace.
 fn to_hand_on(arguments: impl Iterator<Item = String>) -> Vec<String> {
-    const MINE: [&str; 3] = ["--game-dir=", "--orb-dll=", "--config="];
+    const MINE: [&str; 4] = ["--game-dir=", "--orb-dll=", "--config=", "--settings"];
     arguments
         .filter(|argument| !MINE.iter().any(|name| argument.starts_with(name)))
         .collect()

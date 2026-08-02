@@ -10,8 +10,13 @@ Returning to a chapter restores a snapshot of the game's memory taken at the cha
 start, rather than asking the game to jump somewhere. Nothing has to understand what a
 boss's script was in the middle of.
 
-orb does its own borderless fullscreen, its own frame pacing, and removes a frame of input lag
-by updating before drawing, so nothing else has to be loaded alongside it.
+Which of the two a run is, is asked where the game asks: choosing *Game Start*, *Extra Start* or
+*Practice Start* puts a question over the title menu, pointdevice or normal. Normal is the game
+as it was, and its scores go in the game's own `score.dat`; pointdevice runs are ranked among
+themselves in `pointdevice_score.dat`, and *Score* asks which of the two to show.
+
+orb does its own window — fullscreen or a size you pick — its own frame pacing, and removes a
+frame of input lag by updating before drawing, so nothing else has to be loaded alongside it.
 
 Only 1.02h is supported (`md5 fa3d64768b1bfc50703dedc2db92f7fa`). The launcher checks the
 exe before starting it, because every address orb uses was read off that exact build.
@@ -45,14 +50,17 @@ Then copy one file into the directory holding `東方紅魔郷.exe`:
 | `target/i686-pc-windows-gnu/release/orb.exe` | the whole of orb: it carries `orb.dll` inside itself and unpacks it to `%TEMP%\orb` when it runs |
 
 Start the game with `orb.exe`. Everything orb has to say goes to `orb.log` beside
-it, and the scores of runs it could rewind to `orb_score.dat`, so the game's own `score.dat`
-is left as it was. To keep the launcher somewhere else, `--game-dir=PATH` says where the game
-is.
+it, and the scores of runs it could rewind to `pointdevice_score.dat`, so the game's own
+`score.dat` holds only runs anybody could have played. To keep the launcher somewhere else,
+`--game-dir=PATH` says where the game is.
 
-With no `orb.yaml` beside it, every setting is its default: borderless fullscreen, the ending
-run out without being shown, no replay written, and the scores in orb's own file. Copy the
-`orb.yaml` in this repository there to change one of those — the file is a list of the defaults
-with what each is for, so a key left as it stands says the same thing as no key at all.
+**The first launch asks for the settings** — how much of the screen the game gets, whether the
+ending is shown, whether it keeps drawing while something else is in front, whether a chapter
+beginning washes the play field — and writes the answers to `orb.yaml` beside the exe. The screen
+is fullscreen or one of the window sizes this monitor can show, 4:3 or 16:9. The last of the
+questions is whether to ask again next time; answer no and the game starts straight away, and
+`orb --settings` asks anyway. Delete `orb.yaml` and everything is back to its default, including
+being asked.
 
 What is different every time it is run is an argument instead, and `orb --help` lists
 them: `--collect` and `--judge` are the two passes over a replay that build a midstage chapter

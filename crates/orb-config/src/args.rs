@@ -28,8 +28,9 @@ const FAULT: &str = "Looking into a fault";
 /// beside the options it is about rather than in the launcher that prints it.
 pub const AFTER_HELP: &str = "\
 The keys pressed while a table is being built are fixed in the code, since whoever is building \
-one is the only person who presses them. Everything else — the window, the ending, the score \
-file — is in orb.yaml, which is what somebody playing sets.";
+one is the only person who presses them. Everything else — the window, the ending, the wash a \
+chapter gets — is asked for before the game starts and kept in orb.yaml; --settings asks again. \
+Whether a run keeps chapters at all is asked inside the game, where the run is started.";
 
 /// What is said at a launch rather than left in `orb.yaml`.
 ///
@@ -176,10 +177,11 @@ impl Config {
         // than decides.
         if options.clear {
             self.fast_clear = true;
-            // Whatever the file says, since this is the other record such a run could leave
-            // behind and it would be a broken one: a replay holds the inputs and nothing about
-            // the player having been unhittable, so playing it back is a run that dies where
-            // this one did not.
+            // The other record such a run could leave behind, and it would be a broken one: a
+            // replay holds the inputs and nothing about the player having been unhittable, so
+            // playing it back is a run that dies where this one did not. A cleared run reaches
+            // the screen that offers to save one — a pointdevice run does not — so the write
+            // itself is what has to be refused.
             self.block_replay_save = true;
             pass_speed = Some(CLEAR_SPEED);
         }
@@ -280,14 +282,13 @@ mod tests {
         assert_eq!(with("--clear --speed=1").speed, 1);
     }
 
-    /// It leaves no record of a run nobody could have played, whichever way the file has that
-    /// set: a replay of one plays back as a run that dies where this one did not.
+    /// It leaves no record of a run nobody could have played: a replay of one plays back as a
+    /// run that dies where this one did not. Nothing else refuses the write, since nothing else
+    /// reaches the screen that offers to save one.
     #[test]
     fn a_clear_writes_no_replay() {
-        let mut config = config();
-        config.block_replay_save = false;
-        config.apply(&Options::from_command_line("--clear").unwrap());
-        assert!(config.block_replay_save);
+        assert!(!config().block_replay_save);
+        assert!(with("--clear").block_replay_save);
     }
 
     /// Nothing else about the run changes. What a clear is for is reaching an ending, and

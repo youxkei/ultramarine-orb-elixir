@@ -1,5 +1,60 @@
 # To do
 
+## What a played run still has to show
+
+A `--clear` run has been through stages 1 to 6, the ending and the result screen with chapters
+taken and no replay offered — see [DONE.md](DONE.md). What that run cannot show is anything that
+needs somebody to be hittable, or a mode nobody chose.
+
+**Retrying the stage rather than the chapter.** The chapter's own restore is measured — see
+[DONE.md](DONE.md) — and the menu's other choice goes through the same machinery with the other
+snapshot. What to watch is that the stage's start is what comes back, and the music with it: a
+chapter inside a boss fight keeps the track playing, and a stage start rewinds it.
+
+**A run in normal mode**, which nothing has ever run: no chapter is observed, so no snapshot is
+taken and no wash goes off; dying costs a life and puts up no menu of orb's; the status line loses
+the chapter name and the `RETRY` line and keeps the lag, the compose time and the frame rate. The
+score goes in the game's own `score.dat` — `004c8eda5a29a4ff985529838c21efe5` at the time of
+writing, with a copy beside it, so whether the right file moved is one md5 each. And a normal run
+*is* still offered a replay to save, and can still save one.
+
+**The score written on the way out of an ordinary pointdevice run.** `--clear` refuses every write,
+so what it proved is that `DeletedCallback` runs, not that it writes. One
+`score: pointdevice_score.dat opened` at the end of a run played without `--clear` settles it.
+
+**Deciding on the pad.** Its cancel is measured; `mode: answered on the pad` has not been seen, and
+neither has the stick moving the cursor. Both go through the same reading, so what is left is
+watching the axis: the dead zone is a quarter of the travel either side of centre, taken from
+`g_JoyCaps`, and this pad's caps had to be written there by orb before the game would have believed
+them.
+
+**Two more about the question itself**, neither of which a menu session reaches:
+
+- that the demo does not start while it is up. The idle counter is in an update that is not running,
+  which is the argument, but 720 frames of it has never been sat through.
+- what the key that answers it does to the difficulty select. `g_CurFrameInput` is left as every
+  button so that no edge exists on the frame the game carries on into: the cursor should not move,
+  and a direction genuinely held across the answer should still move it on the frame after.
+
+**What the title menu shows as unlocked** comes from the file the mode last chosen points at,
+because `MainMenu::AddedCallback` opens the score file and parses `clrd` out of it. So looking at
+the normal ranking and going back should be able to grey out `Extra Start` where only a pointdevice
+run has cleared the game. Worth seeing happen, and worth deciding whether it is a fault: the
+alternative is orb parsing both files and handing the game the union.
+
+**The `orb_score.dat` an earlier version wrote** is not read or renamed by anything. A session that
+has one has its old scores in a file nothing opens, and whether that is worth a rename is a question
+nobody has been asked.
+
+**A window of a chosen size, with nothing else resizing it.** The window comes out exactly the size
+asked for — see [DONE.md](DONE.md) — but on the machine it was run on a borderless tool then took
+it to 4:3 filling the screen, so what a window of orb's own actually looks like has not been seen.
+The game has to be left out of such a tool for the run. What is still to watch: the game
+letterboxed inside a 16:9 window with the status line in the black beside it, that the 16x40 the
+launcher allows for a frame is enough for the sizes it offers — this machine's frame was 6x40 —
+and what a 4:3 window does to the status line, which then has no black to write in and should say
+so once in the log.
+
 ## Judge the flash a run gets
 
 A chapter beginning now washes the play field in a run somebody is playing, and not only in a
@@ -105,7 +160,7 @@ weaker: anything the script did on the way that is not in the list above will no
 happened. Whether that matters depends on how much of a midstage's state is script-derived,
 which is worth finding out before committing to it.
 
-## What a chapter-mode score is
+## What a pointdevice score is
 
 The scores of runs orb could rewind are kept apart from the game's now — see
 [DONE.md](DONE.md) — but that only keeps them from being compared with runs somebody played. It
@@ -117,6 +172,64 @@ Nothing here is broken, so there is nothing that has to be done. What would make
 reading is the retries beside the score, since a clear with none of them and a clear with sixty
 are not the same clear, and `RETRY` is already counted. That means orb's own format rather than
 the game's, and with it the game's ranking screen no longer being where these are read.
+
+## The game runs at double speed for a third of a second after every long frame
+
+Noticed as the frame rate on the status line reading far too high just after a stage began, and
+measured under `--log=quiet --pacing`. **The number on screen is the least of it**: it is a smoothed
+present-to-present interval — `INTERVAL_US`, an exponential average weighted a thirty-second — so a
+run of half-length gaps reads as nearly double the rate. What the half-length gaps *are* is the game
+being updated twice as often, one update per drawn frame, bullets and enemies with it.
+
+The counts, one reporting period each:
+
+```
+frame: 599 frames, ... gaps in refreshes 1x29 2x569
+frame: 638 frames, ... gaps in refreshes 1x88 2x547 5+x3
+```
+
+**One long frame gives 29 short ones and three give 88**, and this is arithmetic rather than
+coincidence.
+
+**The long frame is the game's own update.** From the pacing line for it:
+
+```
+frame: 32 refreshes, 266624us — ... update 252326us, sound 0us, draw 239us, present 229us
+```
+
+252ms in one `RunCalcChain`, beside the `run ended after 1 retries` line — a run ending and the next
+scene being built. orb's own parts of that frame are the 239µs of drawing and the 229µs of
+presenting.
+
+**The frames after it are aimed at one refresh, and say so.** Each begins `frame: 1 refreshes`, so
+`refreshes_this_frame` returned 1; `cadence` is then one period rather than two, the turn is
+`8333 − 3694 ≈ 4640µs`, and the measured sleeps are 4319, 4469, 4617, 4763µs. The numbers close.
+
+**Why it returns 1, and why for thirty frames.** `IDEAL_NEXT` is where the next present is wanted, an
+absolute moment advanced by one *frame* — 16.67ms — per frame. While the game stalls, wall time
+advances 252ms and `IDEAL_NEXT` does not, so afterwards the target is in the past on every frame and
+`.max(1)` gives one refresh. Each such frame then makes up only 8.33ms of the debt, so 252ms takes
+252 / 8.33 ≈ 30 frames — and three stalls take three times that. The grid is described as
+self-correcting because it is absolute and cannot push the frames after it; what it actually does
+with a debt is spend it running the game fast.
+
+Ruled out along the way: `wait_by_clock`, which was the first guess and is the only part of the
+pacing that deliberately emits a short gap — the same report says `0 frame(s) paced by the clock`.
+Worth noting but not the cause: those frames' anchors come back 7.8ms before the compositor's own
+blank (`anchor -7774us` and its neighbours, against an 8333µs refresh), which is what aiming a
+refresh early looks like from the other end rather than a second fault.
+
+**The shape of the fix.** After a stall beyond a frame or two, put `IDEAL_NEXT` at one frame from
+now instead of leaving it behind to be caught up: drop the frames that were missed rather than
+compress the ones after them. `wait_by_clock` already does exactly this — *"Nowhere near the plan —
+after a load, a snapshot, or a window that was not being drawn. Start again from here rather than
+racing to catch up"* — and `refreshes_this_frame`'s own
+`(blank - phase).abs() > frame_ticks() * 4` guard is meant to, but did not fire here; why it did not
+is the first thing to find out, since `PHASE` and `IDEAL_NEXT` are reset together by it.
+
+What a fix has to show: the `1x` bucket empty over a session with stage starts and runs ending in
+it, the `5+` bucket unchanged — the stall is the game's and is not orb's to remove — and no
+double-speed moment on the screen where the bullets are.
 
 ## What the fixed stutter costs
 

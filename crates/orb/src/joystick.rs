@@ -166,6 +166,32 @@ fn latest() -> Option<Sample> {
     *SAMPLE.lock().ok()?
 }
 
+/// What the pad is doing, in the numbers `joyGetPosEx` reports it in — which are the numbers the
+/// game's own menus are driven from.
+/// No `x`: the menus orb puts up are lists, so up and down are the whole of what a stick has to
+/// say to them, and a field nothing reads is a field somebody will one day trust.
+#[derive(Clone, Copy)]
+pub struct Reading {
+    pub buttons: u32,
+    pub y: u32,
+    /// Where the hat — the d-pad — points, which is its own field and not the axes.
+    pub pov: u32,
+}
+
+/// The pad as it was last sampled, and `None` while none is answering.
+///
+/// For the menus orb puts up itself. Those freeze the game, so the game's own reading of the pad
+/// is not running either and a pad would do nothing at all on them; the sample this thread already
+/// takes every few milliseconds is there to be read.
+pub fn reading() -> Option<Reading> {
+    let sample = latest()?;
+    Some(Reading {
+        buttons: sample.info.dwButtons,
+        y: sample.info.dwYpos,
+        pov: sample.info.dwPOV,
+    })
+}
+
 fn start_polling() {
     if POLLING
         .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)

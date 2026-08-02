@@ -110,6 +110,134 @@ one from outside: the game leaves the gameplay scene for `GAMEMANAGER_REINIT` wh
 the last stage's managers down and builds the next one's. Only leaving the run for good takes
 it.
 
+## Pointdevice and normal
+
+**Which of the two a run is, is asked where the run is started**, over the game's own title
+menu, because that is where it belongs: a run with chapters and a run without are two different
+things to start, and 紺珠伝 asks it in the same place. Not a key in `orb.yaml`, which is for
+what somebody sets once.
+
+| | |
+| --- | --- |
+| 完全無欠モード | chapters, snapshots, the retry menu, the wash a chapter gets, the retry count on the status line, and `pointdevice_score.dat` |
+| レガシーモード | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
+
+On screen they are 紺珠伝's own two names, since that is where the mode comes from and those are
+the names somebody who wants it knows. In the code, the log and the file it writes they are
+pointdevice and normal — the English of the first, and what the second actually is.
+
+**Neither is an answer too.** `x` — the game's own bomb key, which its menus read as back — escape,
+or the pad's cancel, and the front end goes back to the title the way its own back button does:
+`gameState` to `STATE_CHARACTER_LOAD` and its timer to zero, which 36 frames later reaches
+`STATE_STARTUP` and falls through to the menu. Copied from the difficulty select's `RETURNMENU`
+branch rather than undoing what the chosen item did, because the sprites are already running the
+fade that branch would set and the cursor is already on the item that was chosen.
+
+**A menu of orb's has to read the pad itself.** Freezing the game stops its input read, so on those
+frames a pad drives nothing — which looks like the pad being broken, since it worked on the game's
+own menu one keypress earlier. So both of orb's menus take the pad from the sample orb's own thread
+keeps for the game, and hand it to the game to be read as *its* buttons, out of
+`g_Supervisor.cfg.controllerMapping` — the same copy `Controller::GetControllerInput` reads.
+
+**Shoot and menu decide; bomb cancels.** Which is not what the game's own menus do:
+`TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
+`TH_BUTTON_MENU | TH_BUTTON_BOMB`, so there the menu button is a back. Following that put cancel on
+the menu button, which on the pad this was run with is button 0 — where a thumb rests. The most
+obvious button on the pad closed the question instead of answering it, and three launches went by
+before the mapping said why. orb's own menus have no pause for that button to open, so it decides
+instead: the button most easily reached should not be the destructive one. The launcher prints the
+mapping it read for the same reason, that being the only place it is written down in a form anybody
+can look at.
+
+Up and
+down come from that mapping too, and from the Y axis read the way that function reads it — the centre
+halfway between `g_JoyCaps`' bounds and a dead zone of a quarter of the travel either side, its low
+side being up since the axis is measured downwards — and from the hat, which is where a d-pad reports
+and which the game itself does not read at all. All of it on the press
+rather than the holding, and the previous frame's state is kept through the grace frames as well —
+a button held from before the menu opened must not become a press the moment the grace ends.
+
+The question goes over three of the title menu's items — a full run, the Extra stage, practice —
+because each of them starts a run, and over `Score`, because the two modes have a ranking each.
+One answer for both: orb is in one mode at a time, and the ranking of pointdevice runs *is* the
+file pointdevice runs are written to. So looking at the other ranking puts orb in the other mode,
+and the next run asks again.
+
+**How the moment is caught.** `g_MainMenu.gameState` at 0x6dc8b0 — 0x81f0 into the 0x10f34-byte
+`MainMenu` at 0x6d46c0, past its `AnmVm vm[122]` of 0x110 each — is read once a frame while the
+supervisor says the front end is what is running. All three of the items that start a run set it to
+`STATE_DIFFICULTY_LOAD`, and `Score` sets it to `STATE_SCORE`; each then waits 60 frames before the
+game acts on it, so there is a second to spare. It is the *change* that is acted on, and coming
+back from the difficulty select goes through `STATE_CHARACTER_LOAD` rather than through either, so
+a choice is caught once. `MainMenu::RegisterChain` memsets the whole struct and writes the state
+afresh, so nothing there is left over from the last time round.
+
+**Both of the supervisor's states have to say front end**, not just `curState`.
+`Supervisor::OnUpdate` is chain priority 0 and assigns `wantedState = curState` as its last act, so
+a screen that leaves by setting `curState` itself — which is how the ranking leaves — produces one
+frame ending with `curState` already saying front end, `wantedState` still saying where the game
+was, and the front end not yet rebuilt. `gameState` on that frame is whatever the screen being left
+was entered from, and for the ranking that is `STATE_SCORE`: leaving the ranking read as choosing
+it, and the question was asked again for nothing. Seen in the log as
+`menu: Scores chosen, asking which mode` on the same millisecond as the score file being written on
+the way out. Requiring `wantedState` too excludes exactly that frame, and the frame after it the
+memset has taken the stale state away.
+
+Nothing has to be undone by the answer, which is why the question can be asked after the game has
+acted on the keypress rather than instead of it: what the game has done by then is start a fade
+and set a state, and both of them are wanted whichever mode is chosen. The game is frozen the
+frame after — `RunCalcChain` returning `CHAIN_BREAK` while the drawing carries on, the mechanism
+the retry menu uses — so one update of the front end runs after the keypress and none of the
+second that follows it. The play field's viewport is *not* set for these frames, unlike a retry:
+what is underneath is a menu, and `prepare_frame` has already given the frame the whole output.
+
+**The key that answers it does not also reach the game.** `g_CurFrameInput` is left as every
+button, so that the `held & ~held-last-frame` every one of the game's own `WAS_PRESSED` is finds
+nothing on the frame the game carries on into: `Supervisor::OnUpdate` runs first in the calc chain
+— priority 0 against the main menu's 2 — and its first act is
+`g_LastFrameInput = g_CurFrameInput; g_CurFrameInput = GetInput()`, so that is the one thing which
+reads it. What is genuinely held still reads as held, from the fresh read; only the edge goes, and
+only for that frame.
+
+Not zero, which is what the game itself writes into those three at a scene change: zero leaves
+`g_LastFrameInput` empty and turns every button still down into a fresh press, which is the
+opposite of what is wanted. The game gets away with it because the screens it changes to guard
+their own first frames with timers — which is also why doing nothing here would have worked, and
+is exactly the kind of reason not to rely on: it is a property of the screen behind the question
+rather than something orb decided. A retry needs none of this, since the snapshot restore puts the
+same state back with the rest of `.data`.
+
+**The fade goes on underneath it**, because `MainMenu::OnDraw` is what advances it —
+`numFramesSinceActive` against the 60 the chosen item set `framesActive` to — and the drawing is
+the half that is not frozen. So the title screen darkens to the black the item's fade was heading
+for and stays there while the question is up, which is a background for it rather than a problem
+with it. The vms' own scripts do stop, since those are stepped by `ExecuteScript` at the end of
+`MainMenu::OnUpdate`.
+
+**No replay is offered for a pointdevice run.** A replay is the inputs and nothing about the
+rewinds between them, so one recorded here plays back as a run that dies where this one carried
+on. The screen that offers to save one is `ResultScreen`, reached through the job it registers —
+`ResultScreen::OnUpdate` at 0x42d98e, the same walk the ending's object is found by — and its
+`resultScreenState` at +0x8 is written from `SAVE_REPLAY_QUESTION` to `EXIT` on the frame it
+arrives there, before the frame timer reaches the 60 that starts the question's own animation. So
+no part of it is ever drawn. `EXIT` is the game's own way out and not something invented for
+this: it is the state a practice run's result screen is registered in, and its `OnUpdate` case
+sets the supervisor back to the title menu and takes the job out — which runs
+`DeletedCallback`, so the score file is still written on the way. The alternative was answering
+the question for the player, which means writing the interrupt each of the screen's 38 sprites is
+to run next and then waiting out the fade they play.
+
+Refusing the write instead — which is what `--clear` still does, since a cleared run *does* reach
+that screen — would leave somebody naming a replay file that never appears.
+
+**Nobody is asked** where there is nobody to ask: a pass over a replay (`--collect`, `--judge`,
+`--replay`), a tuning session (`--tune`) and a clear (`--clear`) take the mode they are given,
+which is pointdevice. A menu frozen on a question nobody answers is a pass that never ends. Nor
+is anything asked with `--no-chapters`, where the mode is normal because there is nothing for it
+to be: orb is loaded with none of its own work happening. And nothing is asked without the
+overlay, which is what would draw the question — a frozen game with an invisible question over it
+looks broken, and what is lost by not asking is the mode orb is in already.
+
 ## The frame loop
 
 ```
@@ -357,16 +485,46 @@ There is no setting for any of this. There was one — the read cost most of a f
 it off was the only way out — and now that the frame pays a copy there is nothing left for it
 to be off for. `GetControllerInput` is still hooked at `verbose`, to time what it now costs.
 
-## Borderless fullscreen
+## How much of the screen the game gets
 
 The arguments of the game's own `CreateWindowExA` are rewritten on the way through, so the
-window is borderless and covering the monitor from the moment it exists — no frame to remove
-afterwards and nothing to flash first. Its window class gets a black background brush, and
-that is the letterbox.
+window is the size it is going to be from the moment it exists — no frame to remove afterwards
+and nothing to flash first. Its window class gets a black background brush, and that is the
+letterbox.
+
+`screen: fullscreen` is that window borderless — `WS_POPUP | WS_VISIBLE`, and nothing else,
+since a caption or a frame is exactly what puts a border on one — covering the monitor.
+`screen: 1280x720` is that window with a caption to move it by and a system menu to close it
+with, centred on the monitor, and nothing to resize it with: the size is one of the settings, so
+dragging the edge would be a second place to say it and the one that is not written down. The
+size is of what is *inside* the window, `AdjustWindowRect` being what turns it into the window to
+ask for, so `1280x720` is 1280x720 of game however thick this machine's frames are. A window too
+big for the monitor goes against its top-left corner rather than half off the top, since a caption
+above the screen cannot be dragged back onto it.
+
+**Always a window, either way.** The game's own fullscreen setting is overruled before it creates
+anything: a game that has taken the display exclusively has no window to size, and orb needs one
+to write its numbers in the black beside the game.
+
+**Display scaling is off**, said with `SetProcessDPIAware` at the same moment — before the window
+exists, which is the only moment it can be said. So a size in `orb.yaml` is that many pixels of
+screen, and the monitor a fullscreen window is measured against is the whole of it. The size the
+window came out with is logged beside the size that was asked for, and again when the device is
+created, because those are two different numbers whenever anything in between has an opinion.
 
 The back buffer stays 640x480. Windowed, the game asks for `D3DSWAPEFFECT_COPY`, the swap
 effect that honours a destination rectangle on `Present`, so the back buffer goes into a
-centred rectangle of the game's aspect ratio.
+centred rectangle of the game's aspect ratio. Which is why a 16:9 window is worth offering at
+all: the black it leaves down the sides is where the status line goes.
+
+**Anything outside the game that squares windows up wins**, and there is nothing orb can do about
+it: such a tool acts on the window after it exists, which is after every moment orb has. It takes
+the black beside the game with it, and with that the numbers written there. Measured on a machine
+running one — a `1280x720` window was created with a client of exactly 1280x720, still 1280x720
+when the device was created, and 2880x2160 three and a half seconds later, which is 4:3 filling the
+height of a 3840x2160 monitor. The client the window came out with is logged next to the size asked
+for, and again at the device, so a run where this happens says so rather than looking like orb
+getting the size wrong. vpatch's `[Window]` section is the same hazard from inside.
 
 A monitor-sized back buffer would not scale the game: its 2D drawing uses `D3DFVF_XYZRHW`,
 whose coordinates are already screen space, so a viewport does not transform them. Scaling
@@ -389,6 +547,11 @@ one run of chapters through the whole stage — its start, each midstage boundar
 handed back when a midboss goes down — since a midboss interrupts them rather than starting a
 new set: the chapter after the midboss of stage 4 is `MIDSTAGE 3`, not `MIDSTAGE 1` again.
 Where there is no chapter, in a menu, that line is not there at all.
+
+**Neither it nor `RETRY` is there in a normal run**, where there are no chapters: an empty name
+and a retry count that cannot move are two lines saying the run is not the one they describe.
+What is left is the lag, the compositor's share and the frame rate, which are about the machine
+and are the same in both modes.
 
 The count comes out of the frames this stage's chapters began at rather than a counter per
 kind, because a retry puts the mark back and the run then reaches the same chapters again. A
@@ -473,17 +636,29 @@ counter is left alone; orb's numbers are outside the game's output.
 ## The score file
 
 A run with chapter retries is not a run anyone played, so its score does not belong in the
-game's ranking — the same reason replay files are not written. Refusing the write would lose
-the record altogether, so with `own_score_file` the file is forked: every open of `score.dat`
-becomes an open of `orb_score.dat`, chapter-mode runs are ranked against each other in the
-game's own format and on its own screen, and `score.dat` comes out of a session unchanged
+game's ranking — the same reason no replay is offered for one. Refusing the write would lose
+the record altogether, so the file is forked: while orb is in pointdevice mode every open of
+`score.dat` becomes an open of `pointdevice_score.dat`, those runs are ranked against each other
+in the game's own format and on its own screen, and `score.dat` comes out of such a run unchanged
 because it is never opened.
+
+**Which file is open is a runtime switch, not a setting.** The mode is chosen inside the game —
+see *Pointdevice and normal* — and the fork follows it, because a normal run and the ranking of
+normal runs are the game's own file: that is where a run anybody could have played belongs. A
+launch starts in pointdevice, which is what orb is for, and in normal with `--no-chapters`, where
+there is nothing to fork because nothing can rewind.
+
+The consequence worth knowing: `MainMenu::AddedCallback` opens the score file too, and parses
+`clrd` and `pscr` out of it into `g_GameManager` — which is what the title menu's Extra item and
+its practice stages are lit from. So the unlocks the menu shows are the ones in the file the mode
+last chosen points at, and they change when the mode does. Two files means two records of what has
+been cleared, and there is no third place for their union to live.
 
 orb's file starts as a copy of the game's, so that what a `score.dat` has already unlocked —
 practice on a stage that has been reached, the Extra stage — is not locked again by playing
 through orb. Only where there is nothing there yet, which `CopyFileA` with `bFailIfExists`
-decides for itself; after that the two are separate records and the game's is never read
-again.
+decides for itself; after that the two are separate records and the game's is only read again by
+a normal run.
 
 **At the exe's import of `CreateFileA`**, not at the game's own score code, because that
 import is where both of the game's own paths to the file end up. `score.dat` is one string, at
@@ -505,20 +680,22 @@ file class truncates a `"w"` by calling `DeleteFileA` on the name before creatin
 its own file deleted while orb's was written. 紅魔郷's does not go that way.
 
 The whole file name is compared, ignoring case, and the directory the game named is kept. So
-`orb_score.dat` is not itself taken for the game's file and forked again, and a relative name
-resolves where the game's own open would have resolved it. The paths are handled as the bytes
-the game gave: a directory name in the game's code page is not necessarily UTF-8, and the
-copy goes through `CopyFileA` rather than `std::fs` for that reason. They are converted to
-text in one place, the log.
+`pointdevice_score.dat` is not itself taken for the game's file and forked again — a second pass
+over it would open `pointdevice_pointdevice_score.dat` — and a relative name resolves where the
+game's own open would have resolved it. The paths are handled as the bytes the game gave: a
+directory name in the game's code page is not necessarily UTF-8, and the copy goes through
+`CopyFileA` rather than `std::fs` for that reason. They are converted to text in one place, the
+log.
 
-With `--no-chapters` the fork is not installed: nothing can rewind that run, and its score
+With `--no-chapters` the hook is not installed at all: nothing can rewind that run, and its score
 belongs in the game's own file.
 
-**With `--clear` nothing is written**, whichever way `own_score_file` and `--no-chapters` are
-set — there the hook is in the path for the refusing rather than for the forking, and the file
-that must not be written is the game's own. A cheated clear is not a score: orb's file is where
+**With `--clear` nothing is written**, whichever mode the run is in — there the hook is in the
+path for the refusing rather than for the forking, and the file that must not be written is
+whichever this run would have written. A cheated clear is not a score: orb's file is where
 runs that cannot be compared with the game's are kept, and a clear nobody could have played at
-the top of *that* ranking is the same mistake one file further on. The open for writing is
+the top of *that* ranking is the same mistake one file further on. The refusal is decided before
+the fork is, so it covers both files. The open for writing is
 refused rather than the write being sent elsewhere, which the game takes cleanly:
 `WriteDataToFile` checks its `fopen`, returns -1, and its one caller — the `call` at 0x42bc1a —
 drops that and frees the buffer either way. Reads go through, so the ranking screen and what the
@@ -559,18 +736,96 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 
 ## Configuration
 
-**Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
-set, and nothing else: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`,
-`boundary_flash` and `always_draw`. Six switches, YAML read with serde, `true` or `false` each.
-`deny_unknown_fields`, so a key nobody reads is an error naming it and the keys there are rather
-than something passed over — a setting that is quietly not read is a setting somebody thinks is
-on.
+**Three places, split by who sets them and when.** `orb.yaml` holds what somebody playing sets
+and leaves set; a launch's arguments hold what is different every time it is run; and the mode a
+run is in is asked inside the game, where the run is started — see *Pointdevice and normal*.
 
-**No file is every default**, which is what leaves the launcher the one file to install: each
-key is one thing somebody changed, and changing nothing is what an installation does. A file
-that `--config=PATH` names and does not find is an error even so, since a path somebody typed
-is one they meant, and answering it with the defaults would leave them watching for a setting
-nothing read.
+`orb.yaml` is five keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash` and
+`ask_at_startup`. YAML read with serde; four switches written `true` or `false`, and `screen`
+written `fullscreen` or a size like `1280x720`. `deny_unknown_fields`, so a key nobody reads is
+an error naming it — including one that used to be a key, which is a file to edit rather than one
+to pass over quietly. A setting that is not read is a setting somebody thinks is on.
+
+**The launcher asks for all five before it starts the game**, and writes back what it is told.
+Which is why they are the five they are: each is about the machine the game is being played on,
+and somebody who has just installed one file has nothing to edit. It is orb's own window rather
+than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for six
+controls — with the system's own message font asked for rather than a face named, since a face
+named here is one that is missing on somebody's machine and the text is Japanese.
+
+**A real dialog, class `#32770`**, from a `DLGTEMPLATE` built in memory: a resource would mean a
+`.rc` and a resource compiler in the build, and this is six controls. Being one rather than looking
+like one is the point — a window manager decides whether to leave a window alone by asking what it
+is, and the dialog class is the answer it looks for. A window of orb's own class with a dialog's
+styles was tiled by the one on the machine this was run on, which is how the difference showed up.
+Its measurements are therefore in dialog units, a quarter of the font's average character width
+across and an eighth of its height down, so the whole of it scales with the font the system gives
+it and nothing in it is in pixels — which is also why display scaling costs the dialog nothing. The
+dialog manager brings the rest: tab between the controls, return on `はじめる`, escape on
+`やめる`. The window sizes
+offered are 16:9 and then 4:3 at the heights monitors have, biggest of each first and the game's
+own 640x480 last, filtered to those that fit the primary monitor with a window frame's worth of
+room to spare. 16:9 above because that is the ratio that leaves black for the status line, and
+biggest first because on a large monitor the size wanted is the large one. The frame is allowed
+for by a fixed 16x40 rather than measured, because the window being filtered for is the game's: it
+does not exist yet, and it is created by the other half of orb inside a process that has not
+started. A monitor is therefore never offered a window as tall as itself — that is what
+fullscreen is for.
+
+**The dialog answers to a pad**, which no dialog does by itself and which matters because the person
+it is put in front of is about to play a game with one in their hands. `joyGetPosEx` on a thread of
+its own — the same call the game makes, and slow for the same reason: 15ms with a pad awake and 33ms
+with none, so a message loop cannot be made to wait for it — read again as soon as each read
+finishes, because a press is only ever seen if a read lands while the button is down. A cycle that
+waited 120ms between reads was 155ms long and lost quick taps between two of them, which is what a
+pad that answers *sometimes* looks like; the launcher now also prints whether a pad answered at all
+and how many pushes it sent, since a pad that was never there and one that was pushed and ignored
+want opposite things done about them. The thread posts what it sees to the dialog,
+which turns it into what the dialog manager and the controls already answer to.
+
+**What the pad does is a menu's, not a dialog's.** Up and down move a row at a time, and the two
+buttons are one row — left and right choose between them, the way a menu with two answers on one
+line works. Left and right otherwise change what the row holds more than one of, which is the list
+of sizes; a switch is on or off, so turning one over is the decide button's job rather than a
+sideways push, which does nothing there. The decide button does whatever the row it is on needs
+doing to it: a list is opened, a switch is turned over, a button is pressed. While the list is open
+it has the whole pad — up and down move inside it and either button closes it, a dropped list's
+selection already being whatever it is showing. The row is worked out from whatever has the focus
+rather than remembered, so the pad picks up wherever a mouse or the tab key left off, and the focus
+is moved through the dialog with `WM_NEXTDLGCTL` so that its own idea of where it is goes along.
+
+A stick and a d-pad both drive it:
+a hat reports in `dwPOV` — hundredths of a degree clockwise from up, and 0xffff for pushed
+nowhere — and not on the axes at all, so reading only the axes leaves a d-pad dead. Up is the *low*
+side of the Y axis, that axis being measured downwards; getting it the other way round is a dialog
+that moves the wrong way, which is what it did once. Nothing about the controls is aware
+that a pad exists. Which button is which comes out of the first 18 bytes of the game's own
+configuration file — its `ControllerMapping`, nine `i16` — so the dialog answers to the buttons the
+game will, and falls back to the game's own defaults where there is no file to read.
+
+**Display scaling is ignored on both sides.** `SetProcessDPIAware` before either process puts
+anything on the screen: the launcher before it measures the monitor, and orb inside the game
+before the window is created. Without it every size is a size Windows quietly multiplies — a
+1280x720 window asked for on a monitor at 150% covers 1920x1080 of screen, and the monitor a
+fullscreen window is measured against reads as two thirds of itself. What it costs is that the
+settings window's own layout is then in real pixels and has to be scaled by hand, from
+`GetDeviceCaps(LOGPIXELSY)` against the 96 the numbers are written in; the font does not, since
+what the system hands back for its own windows is already the size it wants at that dpi.
+
+`ask_at_startup` is the last of the questions. Answer no and the next launch starts the game
+straight away; `--settings` asks whichever way it is set, which is the way back. Closing the
+window rather than answering it starts no game and writes nothing.
+
+**No file is every default**, which is what leaves the launcher the one file to install — and
+what makes the default `ask_at_startup: true`, so a first launch asks and there is a file
+afterwards. A file that `--config=PATH` names and does not find is an error even so, since a path
+somebody typed is one they meant, and answering it with the defaults would leave them watching for
+a setting nothing read.
+
+The file is written out as text with a comment over each key rather than through a serialiser,
+which would leave five bare keys and nothing beside them to say what any of it is for. There is
+no copy of it in this repository to install: it is written by the thing that asks, and a second
+hand-kept copy is one that goes stale.
 
 Everything to do with building the midstage table, reaching an ending, or looking into a fault
 is an argument to `orb.exe` instead — `--help` lists them — because a file is the wrong
@@ -586,10 +841,10 @@ and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`,
 `--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory`,
 `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
 
-`--game-dir=PATH`, `--orb-dll=PATH` and `--config=PATH` are the launcher's own three, and the
-only ones it does not hand on: each answers a question the DLL, being inside the game already,
-never has to ask. Keeping them here is also what keeps a path with a space in it off the line
-the DLL reads.
+`--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own
+four, and the only ones it does not hand on: each answers a question the DLL, being inside a game
+that has already started, never has to ask. Keeping them here is also what keeps a path with a
+space in it off the line the DLL reads.
 
 **`--no-frame-loop`** leaves the frame to the game: its own order, draw before update, and its
 own pacing, with the update and the draw still hooked so chapters carry on. The frame of input
@@ -625,9 +880,11 @@ whose frames have run out is a state put back to normal before the hit test in t
 and the player dies with it written. Only from the states the player can be hit in or is already
 invulnerable in, so a spawn or a death still plays out as itself.
 It leaves no record: no score file is written at all — see *The score file* — because such a run
-has no score to keep in either ranking, and no replay is written whichever way
-`block_replay_save` is set, because a replay holds the inputs and nothing about the player having
-been unhittable, so playing one back is a run that dies where this one did not.
+has no score to keep in either ranking, and no replay either. `--clear` is the one thing that
+still refuses the write of one, rather than not being offered it: a cleared run does reach the
+screen that offers to save a replay, since that screen is only kept from a pointdevice run and
+this run is not one. A replay holds the inputs and nothing about the player having been
+unhittable, so playing one back is a run that dies where this one did not.
 
 The launcher reads them, refuses to start on anything it cannot, and hands them on the game's
 own command line — which the game never looks at, `lpCmdLine` appearing once in the whole of its
@@ -891,7 +1148,9 @@ game's entry point and the memory hooks see the first allocation.
 | | |
 | --- | --- |
 | `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
-| `crates/orb-config` | `orb.yaml` and the command line, shared by both halves |
+| `launcher/settings.rs` | the dialog that asks for the five settings before the game starts |
+| `launcher/pad.rs` | reading a pad on the launcher's side, so that dialog answers to one |
+| `crates/orb-config` | `orb.yaml` — read by both halves, written by the launcher — and the command line |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |
@@ -901,10 +1160,11 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
+| `orb/mode_ui.rs` | the question put over the game's own menu: pointdevice or normal |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb/tuning.rs` | building the midstage table |
-| `orb/window.rs` | the borderless window, the letterbox, the status line |
+| `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
 | `orb/overlay.rs`, `text.rs`, `d3d8.rs` | drawing over the game's frame |
 | `orb/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
@@ -920,6 +1180,7 @@ and offsets.
 - Chapter progress across launches.
 - Returning the music to where it was across a track change: the track starts again from its
   beginning instead. See *Chapters and retries*.
-- Replay files are not written at all, because a rewound run does not play back. A
-  chapter-mode run's score is kept, but in orb's own file — see *The score file*.
+- A replay of a pointdevice run, because a rewound run does not play back: the screen that offers
+  to save one is skipped rather than the write being refused. Its score is kept, in orb's own
+  file — see *The score file*. A normal run saves replays the way the game always did.
 - Sound effects cut off on a restore rather than rewinding. Only the music is restored.

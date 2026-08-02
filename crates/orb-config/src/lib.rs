@@ -10,8 +10,10 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use clap::ValueEnum;
+use serde::Deserialize;
 
 pub mod args;
 mod file;
@@ -70,20 +72,24 @@ pub struct Config {
     /// is watching: the game is held on each boundary, and a stage's end holds the run
     /// rather than letting it carry on into the next stage.
     pub chapter_stepping: bool,
+    /// Refuse to write replay files.
+    ///
+    /// Not a key in `orb.yaml` and set by `--clear` alone. A pointdevice run is never
+    /// offered the screen that saves one, so there is nothing there for a switch to turn
+    /// off; a cleared run is offered it, and what it would record is not what happened.
     pub block_replay_save: bool,
-    /// Keep the scores of runs orb could rewind in `orb_score.dat` and leave the game's
-    /// `score.dat` alone. Off ranks them in the game's own file, which is where a run nobody
-    /// could have played does not belong.
-    pub own_score_file: bool,
     /// Wash the play field the moment a chapter begins, so that where dying sends you back
     /// to is something seen rather than a number to read. A judging pass flashes whichever
     /// way this is set: there the wash is what the pass is run with.
     pub boundary_flash: bool,
     /// Run the ending out without ever drawing it, stopping at its staff roll.
     pub skip_ending: bool,
-    /// Borderless, scaled to the monitor with the game's aspect ratio kept and
-    /// the rest of the screen black.
-    pub borderless: bool,
+    /// How big the game's window is, the game's aspect ratio kept either way.
+    pub screen: Screen,
+    /// Ask for the settings above before starting the game, and write down what was
+    /// answered. The launcher's question alone: the DLL is inside a game that has already
+    /// started.
+    pub ask_at_startup: bool,
     /// How much goes into `orb.log`.
     pub log_level: LogLevel,
     /// Write what every frame that missed the cadence spent its turn on, whatever
@@ -141,6 +147,71 @@ impl fmt::Display for LogLevel {
     }
 }
 
+/// How much of the screen the game gets.
+///
+/// One setting rather than a switch and a size, because they are answers to one question and
+/// a size that is only read when the switch is off is a size somebody has set and is not
+/// getting.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    /// Borderless and covering the monitor, with the game's aspect ratio kept and the rest
+    /// of the screen black.
+    Fullscreen,
+    /// A window this many pixels across inside its frame, centred on the monitor. The game
+    /// keeps its own aspect ratio inside it, so a 16:9 window is the game with black down
+    /// both sides — which is where orb's own numbers go.
+    Window { width: u32, height: u32 },
+}
+
+impl Screen {
+    /// Below this a window is not one: too small to hold anything of a 640x480 game, and small
+    /// enough that a size this low in the file is a typing mistake rather than a wish. Low enough
+    /// to be out of the way of anything anybody would ask for.
+    const MIN: u32 = 64;
+}
+
+impl fmt::Display for Screen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Fullscreen => f.write_str("fullscreen"),
+            Self::Window { width, height } => write!(f, "{width}x{height}"),
+        }
+    }
+}
+
+impl FromStr for Screen {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("fullscreen") {
+            return Ok(Self::Fullscreen);
+        }
+        // `x` rather than `*`, because that is how a resolution is written everywhere else
+        // it is written, including in the list the launcher offers.
+        let size = text
+            .split_once(['x', 'X'])
+            .and_then(|(width, height)| {
+                Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
+            })
+            .filter(|(width, height)| *width >= Self::MIN && *height >= Self::MIN);
+        match size {
+            Some((width, height)) => Ok(Self::Window { width, height }),
+            None => Err(format!(
+                "{text:?} is not fullscreen or a window size like 1280x720"
+            )),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Screen {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Through a string, since that is what YAML makes of both `fullscreen` and `1280x720`.
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     Read {
@@ -151,6 +222,10 @@ pub enum Error {
         path: PathBuf,
         source: serde_yaml_ng::Error,
     },
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -158,6 +233,7 @@ impl fmt::Display for Error {
         match self {
             Self::Read { path, source } => write!(f, "cannot read {}: {source}", path.display()),
             Self::Parse { path, source } => write!(f, "{}: {source}", path.display()),
+            Self::Write { path, source } => write!(f, "cannot write {}: {source}", path.display()),
         }
     }
 }
@@ -223,22 +299,41 @@ impl Config {
             speed: 1,
             fast_clear: false,
             chapter_stepping: false,
-            block_replay_save: file.block_replay_save,
-            own_score_file: file.own_score_file,
+            block_replay_save: false,
             boundary_flash: file.boundary_flash,
             skip_ending: file.skip_ending,
-            borderless: file.borderless,
+            screen: file.screen,
+            ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
             pacing_log: false,
             compose_us: 0,
             base_dir,
         }
     }
+
+    /// Writes the keys of `orb.yaml` back, which is what the launcher does with the answers to
+    /// the settings it asked for.
+    ///
+    /// Only the keys: everything else in a `Config` came off a command line, and a launch's
+    /// arguments are not somebody's settings.
+    pub fn save(&self, path: &Path) -> Result<(), Error> {
+        let file = file::File {
+            screen: self.screen,
+            always_draw: self.always_draw,
+            boundary_flash: self.boundary_flash,
+            skip_ending: self.skip_ending,
+            ask_at_startup: self.ask_at_startup,
+        };
+        std::fs::write(path, file::text(&file)).map_err(|source| Error::Write {
+            path: path.to_owned(),
+            source,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, LogLevel};
+    use super::{Config, LogLevel, Screen};
     use std::path::{Path, PathBuf};
 
     fn parse(text: &str) -> Config {
@@ -252,11 +347,13 @@ mod tests {
         // is the only side that can be told otherwise.
         assert_eq!(config.game_dir, PathBuf::from("/opt/orb"));
         assert!(!config.chapter_stepping);
-        assert!(config.block_replay_save);
-        assert!(config.own_score_file);
+        // Not a key: only `--clear` refuses a replay, and a file that says so is a file
+        // somebody has to edit back.
+        assert!(!config.block_replay_save);
         assert!(config.boundary_flash);
         assert!(config.skip_ending);
-        assert!(config.borderless);
+        assert_eq!(config.screen, Screen::Fullscreen);
+        assert!(config.ask_at_startup);
         assert!(config.chapters);
         assert!(config.track_memory);
         assert!(config.frame_hooks);
@@ -284,14 +381,78 @@ mod tests {
 
         let config = Config::load_beside(&dir.join("orb.exe")).unwrap();
         assert_eq!(config.game_dir, dir);
-        assert!(config.borderless);
+        assert_eq!(config.screen, Screen::Fullscreen);
         assert!(config.skip_ending);
         assert!(config.always_draw);
-        assert!(config.block_replay_save);
-        assert!(config.own_score_file);
         assert!(config.boundary_flash);
+        assert!(config.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// What the launcher writes is what the next launch reads, since the file it writes is the
+    /// file both halves of orb then read. Every key, so a key added to one side and not the
+    /// other is caught here.
+    #[test]
+    fn what_is_written_is_what_is_read_back() {
+        let dir = std::env::temp_dir().join(format!("orb-config-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(super::FILE_NAME);
+
+        let mut config = parse("");
+        config.screen = Screen::Window {
+            width: 1440,
+            height: 1080,
+        };
+        config.always_draw = false;
+        config.boundary_flash = false;
+        config.skip_ending = false;
+        config.ask_at_startup = false;
+        config.save(&path).unwrap();
+
+        let read = Config::load(&path).unwrap();
+        assert_eq!(read.screen, config.screen);
+        assert!(!read.always_draw);
+        assert!(!read.boundary_flash);
+        assert!(!read.skip_ending);
+        assert!(!read.ask_at_startup);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The window size as it is written everywhere else a resolution is written, and
+    /// fullscreen as a word rather than as a size nothing could mean.
+    #[test]
+    fn a_screen_is_fullscreen_or_a_size() {
+        assert_eq!(parse("screen: fullscreen\n").screen, Screen::Fullscreen);
+        assert_eq!(
+            parse("screen: 1280x720\n").screen,
+            Screen::Window {
+                width: 1280,
+                height: 720
+            }
+        );
+        // Written back the way it is read, which is what makes the round trip above one.
+        assert_eq!(Screen::Fullscreen.to_string(), "fullscreen");
+        assert_eq!(
+            Screen::Window {
+                width: 640,
+                height: 480
+            }
+            .to_string(),
+            "640x480"
+        );
+    }
+
+    #[test]
+    fn a_screen_that_is_neither_says_so() {
+        for text in ["window", "1280", "1280x", "x720", "1280x720x60", "8x8", ""] {
+            let error = match Config::parse(Path::new("orb.yaml"), &format!("screen: {text:?}\n")) {
+                Err(error) => error.to_string(),
+                Ok(config) => panic!("{text:?} was read as {}", config.screen),
+            };
+            assert!(error.contains("1280x720"), "{text:?}: {error}");
+        }
     }
 
     /// A file `--config` names and does not find is an error, where the one orb looks for
@@ -312,23 +473,36 @@ mod tests {
     #[test]
     fn reads_the_file_as_it_is_written() {
         let config = parse(
-            "# Borderless, filling the monitor.\n\
-             borderless: false  # not on this machine\n\
+            "# How much of the screen the game gets.\n\
+             screen: 1280x720  # not fullscreen on this machine\n\
              \n\
              # Never show the ending.\n\
              skip_ending: false\n",
         );
-        assert!(!config.borderless);
+        assert_eq!(
+            config.screen,
+            Screen::Window {
+                width: 1280,
+                height: 720
+            }
+        );
         assert!(!config.skip_ending);
         assert!(config.always_draw);
     }
 
     /// Anything this file does not know is an error rather than something passed over, since a
     /// setting that is quietly not read is a setting somebody thinks is on. What an option is
-    /// named is not a key here, however much it reads like one.
+    /// named is not a key here, however much it reads like one, and neither is a key that used
+    /// to be one — a file still carrying it is a file to edit rather than one to pass over.
     #[test]
     fn a_key_that_is_not_a_key_says_so() {
-        for key in ["chapter_tuning", "own_frame_loop"] {
+        for key in [
+            "chapter_tuning",
+            "own_frame_loop",
+            "borderless",
+            "block_replay_save",
+            "own_score_file",
+        ] {
             let text = format!("{key}: true\n");
             let error = match Config::parse(Path::new("orb.yaml"), &text) {
                 Err(error) => error.to_string(),
@@ -343,9 +517,9 @@ mod tests {
     #[test]
     fn what_cannot_be_read_says_so() {
         for (text, complaint) in [
-            ("borderless: maybe\n", "expected a boolean"),
-            ("borderless\n", "invalid type"),
-            ("borderless: true\nborderless: false\n", "duplicate"),
+            ("skip_ending: maybe\n", "expected a boolean"),
+            ("skip_ending\n", "invalid type"),
+            ("skip_ending: true\nskip_ending: false\n", "duplicate"),
         ] {
             let error = match Config::parse(Path::new("orb.yaml"), text) {
                 Err(error) => error.to_string(),
