@@ -10,78 +10,130 @@
 //! reads them back off its own command line, so the two sides always agree without either
 //! writing anything down. 東方紅魔郷 never looks at its command line: `lpCmdLine` appears
 //! once in the whole of `main.cpp`, as the parameter it ignores.
+//!
+//! Both sides read them with the same [`Options`]: the launcher as one part of its own
+//! arguments, alongside the `--config` that is its business alone, and the DLL out of the
+//! command line of the process it is inside.
 
-use std::fmt;
+use clap::{Args, Parser};
 
 use crate::{Config, LogLevel};
 
-/// What the launcher prints when it is asked, and when it is given something it cannot read.
-pub const USAGE: &str = "\
-usage: orb-launcher [option...]
+/// The three reasons to give an option at all, which are what `--help` lists them under.
+const TABLE: &str = "Building the midstage chapter table, over a replay of a run";
+const ENDING: &str = "Getting to an ending, which only clearing the game reaches";
+const FAULT: &str = "Looking into a fault";
 
-Building the midstage chapter table, over a replay of a run:
-  --collect            propose boundaries over the whole replay, at speed 64, with
-                       nothing stopping and nobody at the keyboard
-  --judge              step between them at speed 1 and decide about each: the pass
-                       somebody watches
-  --tune               propose and decide without either of those, for a run being played
-  --replay             track chapters while a replay plays back
-  --speed=N            updates per drawn frame while a replay plays back, or while a
-                       run is being cleared
+/// The last thing `--help` says, which is where the other half of the settings are. It lives
+/// beside the options it is about rather than in the launcher that prints it.
+pub const AFTER_HELP: &str = "\
+The keys pressed while a table is being built are fixed in the code, since whoever is building \
+one is the only person who presses them. Everything else — the window, the ending, the score \
+file — is in orb.yaml, which is what somebody playing sets.";
 
-Getting to an ending, which only clearing the game reaches:
-  --clear              nothing can hit the player and the run goes at 64 updates a
-                       drawn frame, so half an hour of playing well is a minute of
-                       holding the shot key. It leaves no record: no score file is
-                       written, in the game's ranking or in orb's, and no replay
-                       either. Add --no-chapters to spend none of it on snapshots of
-                       a run nobody could have played
+/// What is said at a launch rather than left in `orb.yaml`.
+///
+/// A value is written `--speed=64` and not `--speed 64`. The DLL takes its options out of the
+/// game's whole command line by picking the words that begin with two dashes, so a value in a
+/// word of its own would be dropped on that side and the two would read the same line
+/// differently; requiring the `=` makes the line that cannot be read that way unwritable.
+#[derive(Args, Debug)]
+pub struct Options {
+    /// propose boundaries over the whole replay, at speed 64, with nothing stopping and
+    /// nobody at the keyboard
+    // Against --judge rather than the later of the two winning: they are two passes over the
+    // same replay, and asking for both is a mistake worth being told about, not a preference.
+    #[arg(long, conflicts_with = "judge", help_heading = TABLE)]
+    collect: bool,
 
-Looking into a fault:
-  --log=LEVEL          quiet, normal or verbose
-  --pacing             write what every frame that missed the cadence spent its turn
-                       on, whatever --log says. Its own switch because what the log
-                       writes is one of the things that makes a frame late, so this
-                       goes with --log=quiet: nothing in the file but the pacing
-  --compose=N          pin at N microseconds the time left for the compositor to draw
-                       in, between the frame being handed over and the blank it is to
-                       be shown at, instead of finding it while running. It will not
-                       say what it needs, so this is swept: small enough that frames
-                       are known to miss their blank, then up until they stop
-  --self-check         restore every snapshot as it is taken and report what differs
-  --stress=N           restore the current chapter every N frames
-  --no-chapters        leave orb loaded with none of its own work happening
-  --no-memory          do not hook the heap, so a snapshot covers only .data
-  --no-hooks           do not hook the game's frame at all
+    /// step between them at speed 1 and decide about each: the pass somebody watches
+    #[arg(long, help_heading = TABLE)]
+    judge: bool,
 
-The keys pressed while a table is being built are fixed in the code, since whoever is
-building one is the only person who presses them. Everything else — the window, the
-ending, the score file — is in orb.yaml, which is what somebody playing sets.\
-";
+    /// propose and decide without either of those, for a run being played
+    #[arg(long, help_heading = TABLE)]
+    tune: bool,
 
-#[derive(Debug)]
-pub struct Error {
-    pub message: String,
+    /// track chapters while a replay plays back
+    #[arg(long, help_heading = TABLE)]
+    replay: bool,
+
+    /// updates per drawn frame while a replay plays back, or while a run is being cleared
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "N",
+        value_parser = clap::value_parser!(u32).range(1..),
+        help_heading = TABLE,
+    )]
+    speed: Option<u32>,
+
+    /// nothing can hit the player and the run goes at 64 updates a drawn frame, so half an
+    /// hour of playing well is a minute of holding the shot key. It leaves no record: no score
+    /// file is written, in the game's ranking or in orb's, and no replay either. Add
+    /// --no-chapters to spend none of it on snapshots of a run nobody could have played
+    #[arg(long, help_heading = ENDING)]
+    clear: bool,
+
+    /// how much goes into orb.log; normal unless said
+    #[arg(long, require_equals = true, value_name = "LEVEL", help_heading = FAULT)]
+    log: Option<LogLevel>,
+
+    /// write what every frame that missed the cadence spent its turn on, whatever --log says.
+    /// Its own switch because what the log writes is one of the things that makes a frame
+    /// late, so this goes with --log=quiet: nothing in the file but the pacing
+    #[arg(long, help_heading = FAULT)]
+    pacing: bool,
+
+    /// pin at N microseconds the time left for the compositor to draw in, between the frame
+    /// being handed over and the blank it is to be shown at, instead of finding it while
+    /// running. It will not say what it needs, so this is swept: small enough that frames are
+    /// known to miss their blank, then up until they stop
+    #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
+    compose: Option<u32>,
+
+    /// restore every snapshot as it is taken and report what differs
+    #[arg(long, help_heading = FAULT)]
+    self_check: bool,
+
+    /// restore the current chapter every N frames
+    #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
+    stress: Option<u32>,
+
+    /// leave orb loaded with none of its own work happening
+    #[arg(long, help_heading = FAULT)]
+    no_chapters: bool,
+
+    /// do not hook the heap, so a snapshot covers only .data
+    #[arg(long, help_heading = FAULT)]
+    no_memory: bool,
+
+    /// do not hook the game's frame at all
+    #[arg(long, help_heading = FAULT)]
+    no_hooks: bool,
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
+/// A whole command line with the options somewhere in it, which is the shape the DLL is given
+/// them in: it has the line the launcher started the game with and nothing else.
+#[derive(Parser, Debug)]
+#[command(name = "orb")]
+struct CommandLine {
+    #[command(flatten)]
+    options: Options,
+}
+
+impl Options {
+    /// The options out of a whole command line, which is what the DLL has.
+    ///
+    /// Everything before them is the path of whatever is being run, which on the game's own
+    /// command line is the game — a path can hold anything, including a word starting with a
+    /// dash, so what is taken is only what an option looks like.
+    pub fn from_command_line(command_line: &str) -> Result<Self, clap::Error> {
+        let words = command_line
+            .split_whitespace()
+            .filter(|word| word.starts_with("--"));
+        CommandLine::try_parse_from(std::iter::once("orb").chain(words)).map(|line| line.options)
     }
-}
-
-impl std::error::Error for Error {}
-
-fn bad(message: impl Into<String>) -> Error {
-    Error {
-        message: message.into(),
-    }
-}
-
-/// Whether `--help` was asked for, alongside the options that were read.
-#[derive(Debug)]
-pub struct Asked {
-    pub help: bool,
 }
 
 impl Config {
@@ -89,76 +141,69 @@ impl Config {
     /// launcher with what it was given, the DLL with what it finds on the command line of the
     /// process it is inside.
     ///
-    /// Anything not named here keeps the value the file's defaults gave it, which for every
-    /// one of these is off, none or the key the table below names.
-    pub fn take_arguments<'a>(
-        &mut self,
-        options: impl Iterator<Item = &'a str>,
-    ) -> Result<Asked, Error> {
-        let mut asked = Asked { help: false };
-        // Set by whichever of the pass options came last, so that `--speed` after one of
-        // them wins and before one of them does not.
+    /// Anything not given keeps the value the file's defaults gave it, which for every one of
+    /// these is off, none or one.
+    pub fn apply(&mut self, options: &Options) {
+        // Named by whichever pass was asked for, so that a `--speed` given by hand wins
+        // whichever order the two come in: the pass names a default, not a decision.
         let mut pass_speed = None;
-        let mut speed = None;
-        for option in options {
-            let (name, value) = match option.split_once('=') {
-                Some((name, value)) => (name, Some(value)),
-                None => (option, None),
-            };
-            match name {
-                "--help" | "-h" => asked.help = true,
-                // A pass over a replay is the whole of what it is: tuning, driven by the
-                // replay, and one of the two kinds. Saying it in one word is the point.
-                "--collect" => {
-                    self.chapter_tuning = true;
-                    self.during_replay = true;
-                    self.chapter_stepping = false;
-                    pass_speed = Some(COLLECT_SPEED);
-                }
-                "--judge" => {
-                    self.chapter_tuning = true;
-                    self.during_replay = true;
-                    self.chapter_stepping = true;
-                    pass_speed = Some(1);
-                }
-                "--tune" => self.chapter_tuning = true,
-                "--replay" => self.during_replay = true,
-                // The same shape as a pass: what it is for in one word, and a speed it
-                // names rather than decides.
-                "--clear" => {
-                    self.fast_clear = true;
-                    // Whatever the file says, since this is the other record such a run could
-                    // leave behind and it would be a broken one: a replay holds the inputs and
-                    // nothing about the player having been unhittable, so playing it back is a
-                    // run that dies where this one did not.
-                    self.block_replay_save = true;
-                    pass_speed = Some(CLEAR_SPEED);
-                }
-                "--pacing" => self.pacing_log = true,
-                "--compose" => self.compose_us = number(name, value)?,
-                "--self-check" => self.self_check = true,
-                "--no-chapters" => self.chapters = false,
-                "--no-memory" => self.track_memory = false,
-                "--no-hooks" => self.frame_hooks = false,
-                "--speed" => speed = Some(number(name, value)?.max(1)),
-                "--stress" => self.stress_restore_frames = number(name, value)?,
-                "--log" => {
-                    let level = value.ok_or_else(|| {
-                        bad(format!("`{name}` needs =quiet, =normal or =verbose"))
-                    })?;
-                    self.log_level = LogLevel::parse(level).ok_or_else(|| {
-                        bad(format!(
-                            "`{name}={level}`: not one of quiet, normal or verbose"
-                        ))
-                    })?;
-                }
-                _ => return Err(bad(format!("unknown option `{option}`"))),
-            }
+        // A pass over a replay is the whole of what it is: tuning, driven by the replay, and
+        // one of the two kinds. Saying it in one word is the point.
+        if options.collect {
+            self.chapter_tuning = true;
+            self.during_replay = true;
+            pass_speed = Some(COLLECT_SPEED);
         }
-        if let Some(speed) = speed.or(pass_speed) {
+        if options.judge {
+            self.chapter_tuning = true;
+            self.during_replay = true;
+            self.chapter_stepping = true;
+            pass_speed = Some(1);
+        }
+        if options.tune {
+            self.chapter_tuning = true;
+        }
+        if options.replay {
+            self.during_replay = true;
+        }
+        // The same shape as a pass: what it is for in one word, and a speed it names rather
+        // than decides.
+        if options.clear {
+            self.fast_clear = true;
+            // Whatever the file says, since this is the other record such a run could leave
+            // behind and it would be a broken one: a replay holds the inputs and nothing about
+            // the player having been unhittable, so playing it back is a run that dies where
+            // this one did not.
+            self.block_replay_save = true;
+            pass_speed = Some(CLEAR_SPEED);
+        }
+        if let Some(speed) = options.speed.or(pass_speed) {
             self.speed = speed;
         }
-        Ok(asked)
+        if let Some(level) = options.log {
+            self.log_level = level;
+        }
+        if options.pacing {
+            self.pacing_log = true;
+        }
+        if let Some(compose_us) = options.compose {
+            self.compose_us = compose_us;
+        }
+        if options.self_check {
+            self.self_check = true;
+        }
+        if let Some(frames) = options.stress {
+            self.stress_restore_frames = frames;
+        }
+        if options.no_chapters {
+            self.chapters = false;
+        }
+        if options.no_memory {
+            self.track_memory = false;
+        }
+        if options.no_hooks {
+            self.frame_hooks = false;
+        }
     }
 }
 
@@ -172,32 +217,18 @@ const COLLECT_SPEED: u32 = 64;
 /// hit them — so what is left to see is the run going by.
 const CLEAR_SPEED: u32 = 64;
 
-fn number(name: &str, value: Option<&str>) -> Result<u32, Error> {
-    let value = value.ok_or_else(|| bad(format!("`{name}` needs a number, as {name}=64")))?;
-    value
-        .parse()
-        .map_err(|_| bad(format!("`{name}={value}`: not a number")))
-}
-
-/// The options out of a whole command line, which is what the DLL has: the words beginning
-/// with two dashes and nothing else.
-///
-/// Everything before them is the path of whatever is being run, which on the game's own
-/// command line is the game — a path can hold anything, including a word starting with a
-/// dash, so what is taken is only what an option looks like.
-pub fn options_in(command_line: &str) -> impl Iterator<Item = &str> {
-    command_line
-        .split_whitespace()
-        .filter(|word| word.starts_with("--"))
-}
-
 #[cfg(test)]
 mod tests {
+    use super::Options;
     use crate::{Config, LogLevel};
 
-    fn with(options: &str) -> Config {
-        let mut config = Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap();
-        config.take_arguments(super::options_in(options)).unwrap();
+    fn config() -> Config {
+        Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap()
+    }
+
+    fn with(command_line: &str) -> Config {
+        let mut config = config();
+        config.apply(&Options::from_command_line(command_line).unwrap());
         config
     }
 
@@ -213,6 +244,13 @@ mod tests {
         let judge = with("--judge");
         assert!(judge.chapter_tuning && judge.during_replay && judge.chapter_stepping);
         assert_eq!(judge.speed, 1);
+    }
+
+    /// Asking for both passes at once is a mistake rather than the later one winning: they are
+    /// two passes over the same replay, made of opposite answers to whether it stops.
+    #[test]
+    fn the_two_passes_are_not_asked_for_together() {
+        assert!(Options::from_command_line("--collect --judge").is_err());
     }
 
     /// A speed given by hand wins over the one the pass chose, whichever order they come in:
@@ -237,9 +275,9 @@ mod tests {
     /// set: a replay of one plays back as a run that dies where this one did not.
     #[test]
     fn a_clear_writes_no_replay() {
-        let mut config = Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap();
+        let mut config = config();
         config.block_replay_save = false;
-        config.take_arguments(super::options_in("--clear")).unwrap();
+        config.apply(&Options::from_command_line("--clear").unwrap());
         assert!(config.block_replay_save);
     }
 
@@ -281,17 +319,30 @@ mod tests {
         assert_eq!(plain.speed, 1);
     }
 
+    /// A value is written onto the option, so that a line the launcher accepts is a line the
+    /// DLL reads the same way: the DLL takes the options out of the game's command line by the
+    /// two dashes they start with, and would never see a value standing in a word of its own.
+    #[test]
+    fn a_value_is_written_onto_the_option() {
+        use clap::Parser;
+
+        assert!(super::CommandLine::try_parse_from(["orb", "--speed=8"]).is_ok());
+        assert!(super::CommandLine::try_parse_from(["orb", "--speed", "8"]).is_err());
+        assert!(super::CommandLine::try_parse_from(["orb", "--log", "verbose"]).is_err());
+    }
+
     #[test]
     fn what_cannot_be_read_says_so() {
-        let mut config = Config::parse(std::path::Path::new("/opt/orb/orb.yaml"), "").unwrap();
-        for option in ["--nonsense", "--speed", "--speed=fast", "--log=loud"] {
-            let error = config
-                .take_arguments(super::options_in(option))
-                .unwrap_err();
-            assert!(
-                error.message.contains(option.split('=').next().unwrap()),
-                "{error}"
-            );
+        for option in [
+            "--nonsense",
+            "--speed",
+            "--speed=fast",
+            "--speed=0",
+            "--log=loud",
+        ] {
+            let error = Options::from_command_line(option).unwrap_err();
+            let name = option.split('=').next().unwrap();
+            assert!(error.to_string().contains(name), "{option}: {error}");
         }
     }
 }

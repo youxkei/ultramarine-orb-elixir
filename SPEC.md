@@ -547,7 +547,7 @@ them unloaded.
 inside — the game's, which is where the launcher is installed too — and not relative to the
 DLL.
 
-Three keys are about this rather than about behaviour: `game_dir` says where the game is when
+Two keys are about this rather than about behaviour: `game_dir` says where the game is when
 it is not beside the launcher and `orb_dll` names a DLL to load instead of the carried
 one.
 
@@ -561,8 +561,11 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 **Two places, split by who sets them.** `orb.yaml` holds what somebody playing sets and leaves
 set: `borderless`, `skip_ending`, `block_replay_save`, `own_score_file`,
 `boundary_flash`, `own_frame_loop`, `always_draw`, and where the game and an override `orb.dll`
-are. A flat list of `key: value`, and an unknown key is an error rather than being passed
-over — a setting that is quietly not read is a setting somebody thinks is on.
+are. YAML read with serde: a key is `key: value`, a switch is `true` or `false`, and a key
+written with nothing after it is the same as leaving it out. `deny_unknown_fields`, so a key
+nobody reads is an error naming it and the keys there are rather than something passed over — a
+setting that is quietly not read is a setting somebody thinks is on, and a key that was one in
+an older build is worth being told to delete.
 
 Everything to do with building the midstage table, reaching an ending, or looking into a fault
 is an argument to `orb-launcher` instead — `--help` lists them — because a file is the wrong
@@ -577,6 +580,13 @@ word each:
 and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
 `--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory` and `--no-hooks`
 for taking orb apart until a fault stops happening. `--config=PATH` is the launcher's own.
+
+One clap definition for all of them, read by both halves: the launcher out of its own
+arguments, the DLL out of the command line the launcher wrote. A value goes onto its option,
+`--speed=64` rather than `--speed 64`, and clap is told to require the `=` — the DLL picks the
+options out of that whole command line by the two dashes they begin with, since everything
+before them is a path that may hold anything, so a value standing in a word of its own is a
+line the two halves would read differently.
 
 **`--pacing`** writes what every frame that missed the cadence spent its turn on, at whatever
 `--log` says rather than as a tier of it — see *What a late frame says*. Its own switch because

@@ -3,3 +3,10 @@ name = "orb-config"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+
+[dependencies]
+clap.workspace = true
+serde = { version = "1", features = ["derive"] }
+
+# serde_yaml itself is archived; this is the fork that carried it on, with the same API.
+serde_yaml_ng = "0.10"

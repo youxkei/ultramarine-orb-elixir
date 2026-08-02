@@ -6,14 +6,16 @@
 //! is different every time it is run.
 //!
 //! Both sides read the whole of both, so each must know every key and every option:
-//! `reject_unknown_keys` would otherwise fire on the other side's.
+//! `deny_unknown_fields` and clap would otherwise each refuse the other side's.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
+
 pub mod args;
+mod file;
 pub mod keys;
-mod yaml;
 
 pub use keys::VirtualKey;
 
@@ -110,7 +112,7 @@ pub struct Config {
 /// Three tiers rather than a switch per thing worth logging, because what decides
 /// them is one question: whether the log is being read to see that a run happened,
 /// to see how it went, or to find out why one frame in a hundred was late.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
 pub enum LogLevel {
     /// What happened at startup, and anything that went wrong. What is left of a
     /// long session when nobody is looking into anything.
@@ -121,17 +123,6 @@ pub enum LogLevel {
     /// The above, plus per-frame detail: every frame the display did not get on the
     /// cadence, with where its time went.
     Verbose,
-}
-
-impl LogLevel {
-    fn parse(name: &str) -> Option<Self> {
-        match name {
-            "quiet" => Some(Self::Quiet),
-            "normal" => Some(Self::Normal),
-            "verbose" => Some(Self::Verbose),
-            _ => None,
-        }
-    }
 }
 
 impl fmt::Display for LogLevel {
@@ -152,7 +143,7 @@ pub enum Error {
     },
     Parse {
         path: PathBuf,
-        source: yaml::Error,
+        source: serde_yaml_ng::Error,
     },
 }
 
@@ -186,24 +177,27 @@ impl Config {
         })
     }
 
-    fn parse(path: &Path, text: &str) -> Result<Self, yaml::Error> {
+    fn parse(path: &Path, text: &str) -> Result<Self, serde_yaml_ng::Error> {
         let base_dir = path.parent().unwrap_or(Path::new(".")).to_owned();
-        let doc = yaml::Document::parse(text)?;
+        // Through `Option` rather than straight into `File`, because a file with nothing in it
+        // but the comments it is shipped with is an empty document — `null`, which is not a
+        // mapping — and every key having a default is the whole point of it being allowed.
+        let file: Option<file::File> = serde_yaml_ng::from_str(text)?;
+        let file = file.unwrap_or_default();
 
-        let path_of = |key| -> Result<Option<PathBuf>, yaml::Error> {
-            Ok(doc
-                .string(key)?
+        let path_of = |value: Option<String>| {
+            value
                 .filter(|value| !value.is_empty())
-                .map(|value| base_dir.join(value)))
+                .map(|value| base_dir.join(value))
         };
-        let config = Self {
-            game_dir: path_of("game_dir")?.unwrap_or_else(|| base_dir.clone()),
-            orb_dll: path_of("orb_dll")?,
+        Ok(Self {
+            game_dir: path_of(file.game_dir).unwrap_or_else(|| base_dir.clone()),
+            orb_dll: path_of(file.orb_dll),
             chapters: true,
             track_memory: true,
             frame_hooks: true,
-            own_frame_loop: doc.bool("own_frame_loop")?.unwrap_or(true),
-            always_draw: doc.bool("always_draw")?.unwrap_or(true),
+            own_frame_loop: file.own_frame_loop,
+            always_draw: file.always_draw,
             self_check: false,
             chapter_tuning: false,
             during_replay: false,
@@ -211,18 +205,16 @@ impl Config {
             speed: 1,
             fast_clear: false,
             chapter_stepping: false,
-            block_replay_save: doc.bool("block_replay_save")?.unwrap_or(true),
-            own_score_file: doc.bool("own_score_file")?.unwrap_or(true),
-            boundary_flash: doc.bool("boundary_flash")?.unwrap_or(true),
-            skip_ending: doc.bool("skip_ending")?.unwrap_or(true),
-            borderless: doc.bool("borderless")?.unwrap_or(true),
+            block_replay_save: file.block_replay_save,
+            own_score_file: file.own_score_file,
+            boundary_flash: file.boundary_flash,
+            skip_ending: file.skip_ending,
+            borderless: file.borderless,
             log_level: LogLevel::Normal,
             pacing_log: false,
             compose_us: 0,
             base_dir,
-        };
-        doc.reject_unknown_keys()?;
-        Ok(config)
+        })
     }
 }
 
@@ -271,6 +263,31 @@ mod tests {
         assert_eq!(config.game_dir, PathBuf::from("/srv/th06"));
     }
 
+    /// A key written with nothing after it is a deliberate "unset", the same as leaving the
+    /// key out, which is how the shipped file states a default without hiding it in a comment.
+    #[test]
+    fn a_key_written_with_no_value_is_unset() {
+        let config = parse("game_dir:\norb_dll:\n");
+        assert_eq!(config.game_dir, PathBuf::from("/opt/orb"));
+        assert_eq!(config.orb_dll, None);
+    }
+
+    /// What the shipped file is made of: a comment per key, and the `#` that starts a trailing
+    /// comment told apart from one inside a value.
+    #[test]
+    fn reads_the_file_as_it_is_written() {
+        let config = parse(
+            "# Directory holding 東方紅魔郷.exe.\n\
+             game_dir: game  # where it is on this machine\n\
+             \n\
+             orb_dll: orb#2.dll\n\
+             borderless: false\n",
+        );
+        assert_eq!(config.game_dir, PathBuf::from("/opt/orb/game"));
+        assert_eq!(config.orb_dll, Some(PathBuf::from("/opt/orb/orb#2.dll")));
+        assert!(!config.borderless);
+    }
+
     /// Anything this file does not know is an error rather than something passed over, since a
     /// setting that is quietly not read is a setting somebody thinks is on.
     #[test]
@@ -279,7 +296,24 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("chapter_tuning was read from the file"),
         };
-        assert!(error.message.contains("chapter_tuning"), "{error}");
+        assert!(error.to_string().contains("chapter_tuning"), "{error}");
+    }
+
+    /// The ways a file written by hand goes wrong: a switch that is not one, a key with
+    /// nothing after it to say `key: value`, and a key written twice.
+    #[test]
+    fn what_cannot_be_read_says_so() {
+        for (text, complaint) in [
+            ("borderless: maybe\n", "expected a boolean"),
+            ("borderless\n", "invalid type"),
+            ("borderless: true\nborderless: false\n", "duplicate"),
+        ] {
+            let error = match Config::parse(Path::new("orb.yaml"), text) {
+                Err(error) => error.to_string(),
+                Ok(_) => panic!("{text:?} was read"),
+            };
+            assert!(error.contains(complaint), "{text:?}: {error}");
+        }
     }
 
     #[test]

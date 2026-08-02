@@ -316,8 +316,9 @@ fn attach() {
     // not; this is the same reading, and a second complaint if the game was started some other
     // way.
     let command_line = command_line();
-    if let Err(error) = config.take_arguments(orb_config::args::options_in(&command_line)) {
-        return log!("arguments: {error}; orb is doing nothing this run");
+    match orb_config::args::Options::from_command_line(&command_line) {
+        Ok(options) => config.apply(&options),
+        Err(error) => return log!("arguments: {error}; orb is doing nothing this run"),
     }
     log!(
         "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \

@@ -11,6 +11,16 @@ publish = false
 orb-config = { path = "crates/orb-config" }
 windows-sys = "0.59"
 
+# Here rather than in each crate because cargo unions the features of both, so one of them
+# asking for the defaults would put them in the other's build as well. No colour: what the
+# launcher cannot read it prints to a terminal, and what the DLL cannot read goes into
+# orb.log, where escape codes are noise. `wrap_help` because without it nothing is wrapped at
+# all, and the options are described in paragraphs.
+[workspace.dependencies.clap]
+version = "4"
+default-features = false
+features = ["std", "derive", "help", "usage", "error-context", "suggestions", "wrap_help"]
+
 [profile.release]
 # Unwinding out of a hook would cross back into the game's frames, which the
 # game's MSVC6 code cannot handle. Abort instead; the panic hook logs first.

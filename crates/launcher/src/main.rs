@@ -9,16 +9,31 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use clap::Parser;
 use orb_config::Config;
+use orb_config::args::Options;
 
 /// Only 1.02h is supported: every address `orb` uses was read off this build.
 const GAME_EXE: &str = "東方紅魔郷.exe";
 const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
 
-/// The launcher's own argument, on top of everything `orb_config::args` takes and hands on
-/// to the game.
-const CONFIG_USAGE: &str =
-    "  --config=PATH        orb.yaml to use (default: beside orb-launcher.exe)";
+/// Starts 東方紅魔郷 1.02h with orb loaded, and hands the options below on to it.
+///
+/// Everything but --config is read twice, here and again inside the game off the command line
+/// this writes, so nothing about which pass a launch is has to be written down for the two
+/// halves to agree.
+#[derive(Parser, Debug)]
+// Capped at the width the prose below is written to be read at, so that a wide terminal gets
+// paragraphs rather than one line per option running off the side of it.
+#[command(name = "orb-launcher", max_term_width = 100, after_help = orb_config::args::AFTER_HELP)]
+struct Launch {
+    #[command(flatten)]
+    options: Options,
+
+    /// the orb.yaml to read, instead of the one beside orb-launcher.exe
+    #[arg(long, require_equals = true, value_name = "PATH")]
+    config: Option<PathBuf>,
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -31,9 +46,10 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let (config_path, options) = split_config_path(&arguments)?;
-    let config_path = match config_path {
+    // Read here as well as in the DLL, so that anything unreadable is said before a game
+    // starts rather than into a log inside one.
+    let launch = Launch::parse();
+    let config_path = match launch.config {
         Some(path) => path,
         None => {
             let exe = std::env::current_exe()?;
@@ -44,15 +60,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     };
     let mut config = Config::load(&config_path)?;
-    // Read here as well as in the DLL, so that anything unreadable is said before a game
-    // starts rather than into a log inside one.
-    let asked = config
-        .take_arguments(options.iter().map(String::as_str))
-        .map_err(|error| format!("{error}\n\n{}\n{CONFIG_USAGE}", orb_config::args::USAGE))?;
-    if asked.help {
-        println!("{}\n{CONFIG_USAGE}", orb_config::args::USAGE);
-        return Ok(());
-    }
+    config.apply(&launch.options);
+    let options = to_hand_on(std::env::args().skip(1));
 
     let game_exe = config.game_dir.join(GAME_EXE);
     verify_game_exe(&game_exe)?;
@@ -121,23 +130,17 @@ fn checksum(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Takes `--config` out of the arguments, since which file to read is the launcher's own
-/// business and nothing the DLL needs to be told.
-fn split_config_path(
-    arguments: &[String],
-) -> Result<(Option<PathBuf>, Vec<String>), Box<dyn Error>> {
-    let mut path = None;
-    let mut rest = Vec::new();
-    for argument in arguments {
-        match argument.split_once('=') {
-            Some(("--config", value)) if value.is_empty() => {
-                return Err("--config needs a path, as --config=orb.yaml".into());
-            }
-            Some(("--config", value)) => path = Some(PathBuf::from(value)),
-            _ => rest.push(argument.clone()),
-        }
-    }
-    Ok((path, rest))
+/// The arguments as written, less `--config`: which file to read is the launcher's own business
+/// and nothing the DLL needs to be told.
+///
+/// What is handed on is what was typed rather than the parsed options written back out, so that
+/// the line the DLL reads is the line somebody wrote and there is no second spelling of an
+/// option to keep in step with the first. Only the one form has to be dropped, since every
+/// option takes its value onto itself and a `--config` written any other way was refused above.
+fn to_hand_on(arguments: impl Iterator<Item = String>) -> Vec<String> {
+    arguments
+        .filter(|argument| !argument.starts_with("--config="))
+        .collect()
 }
 
 /// `orb` reads the game's state through absolute addresses, so a different
