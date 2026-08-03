@@ -663,7 +663,7 @@ Settled by measurement.
   the screen in stage 1. The stroke is `brush.rs`: a picture of a real one, baked to 144x30 of
   coverage — a generated stroke was tried first, through several shapes, and none of them read as a
   brush. The count is not painted out; the game is asked to repaint that row every frame — `Gui`'s
-  `flags.flag0` written back to 2, which is the game's own "this row changed" bit — so the stars are
+  `flags.flag0` written back to 2, which is the game's own "this row changed" bits — so the stars are
   drawn again under the ink and show through where it is dry, and nothing of orb's accumulates on a
   panel that is otherwise repainted only for a stage's first 250 frames.
 
@@ -674,6 +674,46 @@ Settled by measurement.
   strips were visible as exactly the patch the tile exists to avoid. That is what the line
   `lives: the panel's own tile is what the strips are painted with` is in the log for, against
   `lives: no panel tile; the strips are painted flat and will show as a patch`.
+
+  **Drawn on the run rather than on the frame**, which it was not at first: the count came back for
+  an instant at every stage boundary. A stage transition leaves the gameplay scene for exactly one
+  frame — `f44096 scene=3 stage=2` and then `f44097 scene=2 stage=3 frames=1` — and the log's
+  timestamps put those 265ms apart, because the game builds the next stage inside that frame. Every
+  transition of the run went the same way, 250ms to 265ms each, so the one frame the mark was asked
+  about and said no to was a quarter of a second of screen. The frame a chapter is put back on is
+  the same case for a different reason: the update drops what it knows of the frame it froze on,
+  since a chapter put back is not a continuation of it. Both are a run's own frames, so what the
+  mark is drawn on is whether the run being tracked is one somebody is playing — taken with the
+  stage's snapshot, where a run and a replay have just been told apart, and dropped when the run is
+  left. Both were seen gone on the screen, at a stage boundary and after a retry.
+
+  **And past the end of the run, for as long as the game is still painting that row**, which is what
+  leaving a run showed once the frames above were right: the stars, plain, for the whole fade to the
+  title. `esc` and then やめる ends the run on a single frame — `run ended after 8 retries` and
+  `f20724 scene=1` together, with `f20700 scene=2 paused` before them — and the panel stays on the
+  screen after it, so the row the game paints on that frame is the one left standing there. A mark
+  that stopped with the run stopped one frame early.
+
+  What ends it instead is the game's own `Gui` no longer being in the draw chain. `Gui::RegisterChain`
+  at 0x41b252 registers two statics: 0x69bc7c through `AddToCalcChain` at priority 0xc, and 0x69bc5c
+  through `AddToDrawChain` at priority 0xb with `Gui::OnDraw` (0x417502) at +4 and `&g_Gui` at +0x1c.
+  Which of the two `Chain` lists is which came out of the lines they log — "add calc chain (pri = %d)"
+  at 0x46afb8 against "add draw chain (pri = %d)" at 0x46afd4 — and the draw list's head is the calc
+  list's 0x20 further in. So the mark is drawn while 0x69bc5c is in that list, which also means it can
+  never be drawn over a screen that is no longer the panel.
+
+  How much that is worth is one frame, and the log says so where each run ends:
+  `lives: the mark stayed on the panel for 1 frame(s) after the run ended`, against `run ended after
+  8 retries` and `f676 scene=1` on the frame before it. One frame — the last one the game paints that
+  row in — is the whole of what was missing, and it is a frame that stays on the screen for the fade
+  to the title. Giving the same run up from orb's own retry menu instead needed none: no line, the
+  chain already cut on the frame the run ended, and nothing painted that row after the last marked
+  frame. Both were seen on the screen keeping the mark to the end.
+
+  Two, not one, in the ask. One was tried first, to leave no repaint standing for the frame after the
+  last marked one, and it is not what put the count back: the panel being laid over a stage's first
+  250 frames sets all five of those fields to 2 itself, at 0x41a2b6, so during those frames the value
+  orb writes decides nothing.
 - **A pad that only the game could see, now answering orb's own menus.** The mode question was
   answered on the pad — `mode: answered on the pad` — with the pad in XInput's second slot, which is
   the case that used to leave orb's menus dead while the game's own worked. Why: the game polls its

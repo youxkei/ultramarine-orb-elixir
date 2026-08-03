@@ -270,6 +270,17 @@ pub trait Game {
     /// Must run on the game's main thread, before the game draws.
     unsafe fn repaint_lives_row(&self);
 
+    /// Whether the game is going to paint that row itself this frame.
+    ///
+    /// Which is not the same question as whether a run is being played, and the difference is the
+    /// frames a run's panel outlives the run: the game leaves the run on one frame and its panel
+    /// stays on the screen until the front end has drawn over it. Every frame the game paints that
+    /// row is a frame a mark has to go over, or the paint that is left standing there is the count.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the game past initialisation.
+    unsafe fn draws_lives_row(&self) -> bool;
+
     /// Where the game shows how many lives are left, in its own 640x480 output: the part of
     /// the status panel holding the count itself, which is what a mark saying the count
     /// decides nothing goes over.

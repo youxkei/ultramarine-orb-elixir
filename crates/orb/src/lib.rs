@@ -253,6 +253,13 @@ struct Runtime {
     /// The mark over the game's own count of lives, in a run where dying costs a chapter
     /// rather than one of them.
     lives: LivesMark,
+    /// Whether that mark is being drawn, as `before_draw` decided at the top of this frame: read
+    /// again by the drawing itself, so that the row the game was asked to repaint and the row a
+    /// mark goes over are the same row — and read by the next frame's decision, which is what
+    /// keeps the mark on a panel the game is still painting after the run it belonged to has ended.
+    marked: bool,
+    /// How many frames it has been kept for on that second count, for the line that says so.
+    marked_after: u32,
     /// Which of the two things a run is, and which of the two rankings is being looked at.
     mode: Mode,
     /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
@@ -643,6 +650,8 @@ fn attach() {
             stressing: (-1, 0),
             retry: None,
             lives: LivesMark::new(),
+            marked: false,
+            marked_after: 0,
             mode,
             asks_mode,
             menu: Menu::Elsewhere,
@@ -2209,21 +2218,72 @@ unsafe fn before_draw() {
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return;
     };
-    if marking(runtime) {
+    // Decided here and kept, so the ask and the mark cannot disagree about a frame — and so that
+    // the answer is the one the next frame's decision is carried past the end of a run by.
+    let marking = marking(runtime);
+    runtime.marked = marking != Marking::No;
+    if runtime.marked {
         unsafe { runtime.game.repaint_lives_row() };
+    }
+    // How long a panel outlives its run, said where it ends: that number is the whole of whether
+    // the mark stops a frame before the painting does, and half a second of fade to the title is
+    // not something to count by eye.
+    if marking == Marking::PanelLeft {
+        runtime.marked_after += 1;
+    } else if runtime.marked_after > 0 {
+        log!(
+            "lives: the mark stayed on the panel for {} frame(s) after the run ended",
+            std::mem::replace(&mut runtime.marked_after, 0)
+        );
     }
 }
 
 /// Whether the lives are being marked as disabled this frame.
 ///
-/// The same three things the death itself is answered by: the mode, a run somebody is playing —
-/// not a demo or a replay, which have no menu offered to them — and a chapter there is a snapshot
-/// to go back to. On the frames before the stage's own snapshot exists a death does cost a life,
-/// and a mark saying otherwise would be wrong about exactly the frames it matters.
-fn marking(runtime: &Runtime) -> bool {
-    runtime.chaptering()
-        && runtime.chapters.can_retry()
-        && runtime.previous.is_some_and(|state| state.in_game)
+/// Three things: the mode, a chapter there is a snapshot to go back to, and a run somebody is
+/// playing — not a demo or a replay, which have no menu offered to them. On the frames before the
+/// stage's own snapshot exists a death does cost a life, and a mark saying otherwise would be
+/// wrong about exactly the frames it matters.
+///
+/// **Asked of the run and not of the frame**, which is `runtime.previous`, and which was wrong
+/// about the mark twice over. It is the gameplay scene alone, so it does not hold the frame a stage
+/// transition is built in — one frame of the log and a quarter of a second of screen, `f44096
+/// scene=3 stage=2` and then `f44097 scene=2 stage=3 frames=1` 265ms later, every transition of
+/// that run between 250 and 265ms. And it is dropped outright wherever an update has put the game
+/// somewhere that has nothing to do with the frame it froze on — a chapter put back, a resume
+/// landed — which are frames in the middle of a run and drawn like any other. On both the mark went
+/// off, and the game paints that row from its own "this row changed" bits without asking orb, so
+/// what stood there instead was the count.
+///
+/// **And then the frames the run's panel outlives the run**, for as long as the game is still
+/// painting that row: leaving a run ends it on one frame and leaves its panel on the screen until
+/// the front end has drawn its own, and the row the game paints last is the one left standing
+/// there. `Game::draws_lives_row` is that question, and it is what ends the mark rather than the
+/// run ending — so the mark cannot stop a frame before the painting does, and cannot go on to be
+/// drawn over a screen that is no longer the panel.
+///
+/// The death itself is still answered on `in_game`, which is where it belongs: it is a comparison
+/// against the frame before, and nothing can be hit on a frame the game spends building a stage or
+/// walking back to its title.
+fn marking(runtime: &Runtime) -> Marking {
+    if runtime.chaptering() && runtime.chapters.can_retry() && runtime.chapters.somebody_playing() {
+        return Marking::Run;
+    }
+    if runtime.marked && unsafe { runtime.game.draws_lives_row() } {
+        return Marking::PanelLeft;
+    }
+    Marking::No
+}
+
+/// Which of the two counts the mark over the lives is drawn on, where it is drawn at all.
+#[derive(Clone, Copy, PartialEq)]
+enum Marking {
+    /// A frame of the run itself.
+    Run,
+    /// A frame after the run has ended, with the game still painting that row: the panel a run
+    /// leaves on the screen for as long as the front end takes to draw over it.
+    PanelLeft,
+    No,
 }
 
 /// # Safety
@@ -2271,7 +2331,12 @@ unsafe fn draw_overlay() {
 
     // The game's count of lives painted over, where dying costs the chapter and not one of them.
     // Before the menus, because the mark belongs to the panel and a menu goes up over that.
-    if marking(runtime) {
+    //
+    // What `before_draw` decided for this frame, not the question asked again: the ask it made of
+    // the game has already been spent by the game's own drawing, and a frame where one of the two
+    // happened without the other is either a count with nothing over it or ink over a row nobody
+    // repainted.
+    if runtime.marked {
         let row = runtime.game.lives_row();
         let panel = unsafe { runtime.game.panel_tile() };
         unsafe { runtime.lives.draw(overlay, row, panel) };

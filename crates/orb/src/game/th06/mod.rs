@@ -436,6 +436,19 @@ mod chain_elem {
     pub const ARG: usize = 0x1c;
 }
 
+/// How much further into a `Chain` its draw list's head is than its calc list's. The two lists are
+/// the same shape 0x20 apart: `AddToCalcChain` at 0x41c860 links from `chain + 0x14` and
+/// `AddToDrawChain` at 0x41c940 from `chain + 0x20 + 0x14`, and which is which is out of the line
+/// each of them logs — "add calc chain (pri = %d)" at 0x46afb8 against "add draw chain (pri = %d)"
+/// at 0x46afd4. A walk from `G_CHAIN` without this is a walk of the calc list.
+const CHAIN_DRAW_LIST: usize = 0x20;
+
+/// `g_Gui`'s own element in the draw chain, a static rather than a heap job: `Gui::RegisterChain`
+/// at 0x41b252 writes `Gui::OnDraw` into 0x69bc60 and `&g_Gui` into 0x69bc78, then hands 0x69bc5c to
+/// `AddToDrawChain` at priority 0xb. Element + 4 and element + 0x1c, which is `chain_elem` checking
+/// out against a second registration.
+const GUI_DRAW_ELEM: usize = 0x0069bc5c;
+
 /// `th06::MainMenu`, whose own fields come after an `AnmVm vm[122]` of 0x110 bytes each: 122 *
 /// 0x110 is 0x81a0, and four bytes of cursor and 0x40 of padding after that lands exactly on the
 /// field the decompilation names `unk_81e4` for its offset, which is the arithmetic checking out.
@@ -854,16 +867,36 @@ impl Game for Th06 {
     }
 
     /// `Gui::OnDraw` erases the count's row and draws the stars again only while `Gui`'s own
-    /// `flags.flag0` is not zero, which is set to 2 by whatever changed the count — a death, an
-    /// extend, an item — and decremented by each draw. So two is what orb writes, every frame it
-    /// draws the mark: the game then repaints that row for orb, background and stars, and the two
-    /// bits cost nothing else.
+    /// `flags.flag0` is not zero — the test at 0x41a3cb for the bar and 0x41a5eb for the stars — and
+    /// takes one off it at the end of the same draw, at 0x41acdb. Whatever changes the count sets it
+    /// to 2: a death, an extend, an item. So two is what orb writes, every frame it draws the mark:
+    /// the game then repaints that row for orb, background and stars, and the two bits cost nothing
+    /// else.
+    ///
+    /// One was tried, so that no repaint is left standing for the frame after the last marked one.
+    /// It is not what leaves the count on the panel of a run being left — see `draws_lives_row`,
+    /// which is — and a stage's first 250 frames make it moot anyway: the panel being laid sets
+    /// every one of these fields to 2 itself, at 0x41a2b6.
     ///
     /// The rest of the flags are left alone: they are the other rows of the panel, two bits each,
     /// in one word at `Gui + 0`.
     unsafe fn repaint_lives_row(&self) {
         let flags = unsafe { mem::read::<u32>(G_GUI + gui::FLAGS) };
         unsafe { mem::write::<u32>(G_GUI + gui::FLAGS, flags & !0b11 | 0b10) };
+    }
+
+    /// Whether the game will paint the row the lives are in this frame, which is its `Gui`'s own
+    /// draw job being registered: the stars are drawn in one place in the whole exe, the loop at
+    /// 0x41a622 inside what that job calls.
+    ///
+    /// What this is for: a run being left is not a run whose panel has gone. `esc` and then やめる
+    /// has `StageMenu::OnUpdateGameMenu` write `curState = MAINMENU`, and orb's own bookkeeping ends
+    /// the run on that frame — `run ended after 8 retries` and `f20724 scene=1` together in the log —
+    /// while the panel stays on the screen until the front end has drawn its own. The game painting
+    /// that row once more with the mark stopped is the count back on the panel, which is what was
+    /// seen: the stars, plain, for as long as the fade to the title took.
+    unsafe fn draws_lives_row(&self) -> bool {
+        chain_holds(CHAIN_DRAW_LIST, GUI_DRAW_ELEM)
     }
 
     /// `Gui::OnDraw` draws one 16x16 star per life from (496, 122) rightwards, 16 pixels
@@ -1742,6 +1775,28 @@ fn ending_script() -> Option<usize> {
     mem::read_committed::<usize>(ending + ending::SCRIPT).filter(|script| *script != 0)
 }
 
+/// Longer than any chain the game builds: it has seventeen jobs to register in all, one per
+/// priority from 0 to 0x10. A chain left in a state where the links do not end is then a walk that
+/// answers nothing rather than one that does not end either.
+const CHAIN_LINKS: usize = 64;
+
+/// Whether `elem` is one of the jobs in a chain's `list`, which for a job registered from a static
+/// is the whole of whether the game is still running it.
+///
+/// Every step is asked of the memory map rather than read outright, the same way and for the same
+/// reason as `chain_argument`.
+fn chain_holds(list: usize, elem: usize) -> bool {
+    let mut at = mem::read_committed::<usize>(G_CHAIN + list + chain_elem::NEXT);
+    for _ in 0..CHAIN_LINKS {
+        match at {
+            None | Some(0) => return false,
+            Some(job) if job == elem => return true,
+            Some(job) => at = mem::read_committed::<usize>(job + chain_elem::NEXT),
+        }
+    }
+    false
+}
+
 /// What a chain job's callbacks are called on, found by the callback it was registered for.
 /// How the ending's object is reached at all: `Ending::RegisterChain` allocates it, hands it
 /// to the element it registers, and puts it nowhere else.
@@ -1750,13 +1805,8 @@ fn ending_script() -> Option<usize> {
 /// The walk is short, it only runs on the frames of an ending, and it is what makes this
 /// answerable with no game around it.
 fn chain_argument(callback: usize) -> Option<usize> {
-    /// Longer than any chain the game builds: it has seventeen jobs to register in all, one
-    /// per priority from 0 to 0x10. A chain left in a state where the links do not end is then
-    /// a missing answer rather than a walk that does not either.
-    const LINKS: usize = 64;
-
     let mut elem = mem::read_committed::<usize>(G_CHAIN + chain_elem::NEXT)?;
-    for _ in 0..LINKS {
+    for _ in 0..CHAIN_LINKS {
         if elem == 0 {
             return None;
         }

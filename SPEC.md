@@ -467,10 +467,21 @@ pointdevice and normal — the English of the first, and what the second actuall
 `DISABLE` written on it. Dying there costs the chapter and not a life — the menu goes up, and the
 snapshot that puts the chapter back puts the count back with it — so the row is the one thing left
 on the screen still describing the game as it was. 紺珠伝 says it the same way across its own 残機
-row, which is where somebody who wants the mode will look for it. Drawn on the same three
-conditions the death itself is answered on: the mode, a run somebody is playing rather than a demo
-or a replay, and a chapter with a snapshot to go back to — that last being the frames at a stage's
-start before its own snapshot has been taken, where a death does still cost a life.
+row, which is where somebody who wants the mode will look for it. Drawn on three conditions: the
+mode, a run of somebody's own rather than a demo or a replay, and a chapter with a snapshot to go
+back to — that last being the frames at a stage's start before its own snapshot has been taken,
+where a death does still cost a life.
+
+Asked of the run and not of the frame, unlike the death, which is a comparison against the frame
+before and belongs to one. A run passes through frames that are not gameplay frames and are drawn
+like any other: the single frame a stage transition is built in, which is a quarter of a second of
+screen because the game builds the next stage inside it, and the frame a chapter is put back on,
+where what orb knows of the frame before has deliberately been dropped. So what decides is whether
+the run being tracked is one somebody is playing — settled where that stage's snapshot was taken —
+and, past the end of the run, whether the game is still painting that row at all. A mark that
+stopped on any of those frames would leave whatever the game paints in that row standing there
+instead, which is the count: the game paints it from its own "this row changed" bits, and does not
+ask orb first.
 
 **The stroke is a picture of one and not a generated one.** Generating one was tried first, and
 every version read as a smear rather than as a brush: a spine with a taper has the ends wrong, and
@@ -495,9 +506,16 @@ fits a stroke between the score's row and the bombs'.
 **The count is not painted out; the stroke goes over it.** Where the ink is dry, the stars show
 faintly through — which is what they are, disabled rather than gone, and one gained still shows.
 That needs the count drawn again underneath every frame, and the game is asked to do it: `Gui`'s
-`flags.flag0`, the two bits set by whatever changes the count and decremented by each draw, is
+`flags.flag0`, the two bits set by whatever changes the count and taken one off by each draw, is
 written back to 2 before the game draws. So the game erases that row and draws its own stars again
 for orb, background and all.
+
+**Which means every frame the game paints that row is a frame the mark has to go over.** The row it
+paints last is the one left standing on the screen, and a run's panel outlives the run: leaving one
+ends it on a single frame and the panel stays there until the front end has drawn its own screen. So
+what ends the mark is the game no longer painting that row — its `Gui`'s own draw job gone from the
+draw chain — and not the run ending. Ending it with the run left the count back on the panel for the
+whole fade to the title.
 
 The two strips the stroke reaches past that row are orb's to paint, and painted first: a panel that
 is not repainted is one where a mark blended over what the last frame left hardens into its own

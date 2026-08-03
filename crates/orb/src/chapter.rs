@@ -77,6 +77,11 @@ pub struct Chapters {
     settling_until: Option<u32>,
     /// Whether a replay playing back counts as a run to track chapters over.
     during_replay: bool,
+    /// Whether the run these snapshots belong to is one somebody is playing, rather than a replay
+    /// a pass over the table is reading. Settled with the stage's own snapshot, which is where
+    /// [`Chapters::tracking`] has just told the two apart, and it stands for as long as the run
+    /// does.
+    somebody_playing: bool,
     /// The track playing when the stage began. A boss brings its own, and that is
     /// what tells a stage's own boss from a midboss, which keeps the stage's.
     stage_music: Option<u32>,
@@ -318,6 +323,7 @@ impl Chapters {
             resync: false,
             settling_until: None,
             during_replay,
+            somebody_playing: false,
             stage_music: None,
             starts: Vec::new(),
             fighting: None,
@@ -380,6 +386,15 @@ impl Chapters {
 
     pub fn can_retry(&self) -> bool {
         self.stage_start.is_some()
+    }
+
+    /// Whether what is being tracked is a run somebody is playing.
+    ///
+    /// A property of the run and not of the frame, which is what asking about the panel wants: the
+    /// frames a run passes through outside the gameplay scene are still that run's — the one a
+    /// stage transition is built in, and the one a chapter is put back on.
+    pub fn somebody_playing(&self) -> bool {
+        self.somebody_playing
     }
 
     /// Whether this state is a run to track chapters over: one someone is playing,
@@ -847,6 +862,12 @@ impl Chapters {
             cause: Cause::StageStart,
         };
         self.stage_music = game.music_identity();
+        // `tracking` let this frame through, so the run is either one somebody is playing or a
+        // replay a pass is reading, and `in_game` is which. Kept for the whole run rather than
+        // asked of each frame: what it answers is whether the panel says the lives are disabled,
+        // and the frames that would be read wrong are the ones inside a run that are not gameplay
+        // frames.
+        self.somebody_playing = state.in_game;
         self.starts.clear();
         self.starts.push((state.stage_frames, Cause::StageStart));
         if let Midstage::Tuning(tuning) = &mut self.midstage {
@@ -1076,6 +1097,7 @@ impl Chapters {
         self.chapter = None;
         self.stage_start = None;
         self.settling_until = None;
+        self.somebody_playing = false;
         self.mark = Mark {
             number: 0,
             started_at: 0,
@@ -1204,6 +1226,16 @@ mod tests {
         }
     }
 
+    /// A frame of a replay playing back, which a pass building the table follows like a run with
+    /// nobody playing it.
+    fn replaying(frame: u32) -> State {
+        State {
+            in_game: false,
+            replay: true,
+            ..empty(frame)
+        }
+    }
+
     fn tuning_chapters() -> Chapters {
         // The directory is only reached by `write` and by the read at startup, which
         // most tests here want no part of.
@@ -1222,6 +1254,7 @@ mod tests {
     /// takes: there is no game to capture the memory of.
     fn begin_stage(chapters: &mut Chapters, state: &State) {
         chapters.stage = Some(state.stage);
+        chapters.somebody_playing = state.in_game;
         chapters.mark = Mark {
             number: 1,
             started_at: state.stage_frames,
@@ -1339,6 +1372,31 @@ mod tests {
 
     fn named(chapters: &Chapters) -> String {
         chapters.name().expect("a stage is running").to_string()
+    }
+
+    /// Whether somebody is playing is settled by the frame the stage began on and then stands for
+    /// the whole run, which is what the mark over the lives is drawn on — and it goes when the run
+    /// does, since a front end still carrying the mark would be the panel of a run that is over.
+    ///
+    /// It stands for the run because the run passes through frames that are not gameplay frames and
+    /// are drawn like any other: the one a stage transition is built in, and the one a chapter is
+    /// put back on. Asking those frames would read them as nobody playing.
+    #[test]
+    fn a_run_somebody_is_playing_is_settled_where_the_stage_began() {
+        let mut chapters = tuning_chapters();
+        begin_stage(&mut chapters, &empty(0));
+        assert!(chapters.somebody_playing());
+        chapters.forget();
+        assert!(!chapters.somebody_playing());
+    }
+
+    /// And a replay is not one, whatever else is tracked over it: it drives the same scene with
+    /// nobody to offer a chapter to, and dying in one costs the life it costs.
+    #[test]
+    fn a_replay_is_not_a_run_somebody_is_playing() {
+        let mut chapters = tuning_chapters();
+        begin_stage(&mut chapters, &replaying(0));
+        assert!(!chapters.somebody_playing());
     }
 
     /// What the status line and the retry menu call each chapter, in the order a stage
