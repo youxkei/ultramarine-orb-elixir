@@ -36,6 +36,23 @@ pub struct Hooks {
     /// game does not also run it while playing a replay back, where the record it
     /// would write into is the replay's own.
     pub stop_recording: Option<Patch>,
+    /// Runs where the game has just put a stage's numbers in place and before that
+    /// stage's first update: the one moment a run's state can be written without
+    /// something of the stage having already been decided from the state it replaces.
+    ///
+    /// `None` for a game with no such point, which leaves a run unable to be picked up
+    /// again — see [`crate::resume`].
+    pub stage_begun: Option<Patch>,
+    /// Runs after those numbers are in place and before the stage is built out of them,
+    /// which is the last moment nothing of the stage has been drawn from the generator
+    /// yet: the only place a resumed run's seed can go.
+    ///
+    /// A separate seam from [`stage_begun`](Hooks::stage_begun) because the two moments are
+    /// not the same one, and what the seed has to be in before is this one.
+    ///
+    /// `None` where the game has no such call, which costs a resumed run the seed and with
+    /// it every enemy the seed decides.
+    pub stage_building: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
     /// is the only moment `force_windowed` can still take effect.
     pub create_window: Option<Patch>,
@@ -101,6 +118,50 @@ pub struct PanelTile {
     /// Where the grid starts in the game's output, and how far apart its lines are.
     pub origin: (f32, f32),
     pub pitch: f32,
+}
+
+/// Which run this is: everything the game's own front end is asked for before one starts.
+///
+/// What says whether a chapter written down belongs to the run about to be played. A run of another
+/// character is another run — its buttons would play somebody else's shot — which is why 紺珠伝 keeps
+/// a pointdevice save per difficulty and character, and why orb keeps one per [`Game::run_slot`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RunStart {
+    pub difficulty: i32,
+    /// Whose run it is, and which of that character's two shots. Two numbers because that is
+    /// how the game keeps them, and every table it indexes by them is `character * 2 + shot`.
+    pub character: i32,
+    pub shot_type: i32,
+    /// One stage rather than a whole run.
+    pub practice: bool,
+    /// Counted from zero, the way orb counts stages everywhere.
+    pub stage: i32,
+}
+
+/// The run's numbers as a stage begins, which is the state a stage needs to be played again and
+/// nothing else.
+///
+/// These are the fields the game's own replay keeps per stage — see `SPEC.md` for the record they
+/// are read out of — plus the count of deaths, which the replay leaves behind because the result
+/// screen is the only thing that reads it. Everything else a stage starts with is either loaded
+/// with the stage or set the same way every time, so it is the same on both sides of a resume.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RunState {
+    pub score: u32,
+    /// What the generator was seeded with as the stage began. The whole of why the buttons alone
+    /// are not enough: the game takes this from wherever the generator had got to, so a stage
+    /// played again from a different seed is a different stage.
+    pub seed: u16,
+    pub point_items: u16,
+    pub power: u16,
+    pub lives: i8,
+    pub bombs: i8,
+    /// What the game makes of how the run is going, which the enemies read.
+    pub rank: i32,
+    pub power_items: i8,
+    /// How many extra lives the score has already paid for, so the next one is not paid twice.
+    pub extra_lives: i8,
+    pub deaths: i32,
 }
 
 /// A rectangle in the game's own output resolution.
@@ -262,6 +323,20 @@ pub trait Game {
     /// Must run on the game's main thread, with the window in front.
     unsafe fn acquire_input(&self) -> bool;
 
+    /// Makes the game read its keyboard the way it does when DirectInput has no device to read,
+    /// and says whether it had one to let go of.
+    ///
+    /// For a session driven by another program: a device taken `DISCL_EXCLUSIVE | DISCL_FOREGROUND`
+    /// does not see keys sent with `SendInput`, and every screen orb has a question over is the
+    /// game's own screen answered on the game's own keyboard. What is left is the path the game
+    /// takes when it never got a device, which reads the state the system keeps — and that does see
+    /// them. Nothing else about the run changes: the same code turns those keys into the same
+    /// buttons.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the game past initialisation.
+    unsafe fn take_sent_keys(&self) -> bool;
+
     /// Where the game keeps the `JOYCAPSA` it measures a joystick's axes against, if it
     /// keeps one at all.
     ///
@@ -396,6 +471,116 @@ pub trait Game {
     /// Must run on the game's main thread, between frames.
     unsafe fn skip_replay_prompt(&self) -> bool;
 
+    /// The frame the stage now running is on, or `None` where no stage is running.
+    ///
+    /// Its own accessor rather than a whole [`State`] because the input read asks for it on every
+    /// frame there is, including the frames of a menu: what a frame's buttons are written down
+    /// against is this number, and reading the rest of the state to get it would put a job-chain
+    /// walk inside the game's keyboard read.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn stage_frame(&self) -> Option<u32>;
+
+    /// Which bits of a frame's input decide how a run goes, and so are the ones worth writing
+    /// down and handing back.
+    ///
+    /// 紅魔郷's own replay records exactly these, which is what says the rest do not change a run.
+    /// The pause button is outside them, which is the one that matters: a resume that fed it back
+    /// would open the menu instead of playing.
+    fn run_input(&self) -> u16;
+
+    /// Which run this is, as the game's own front end left it.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn run_start(&self) -> RunStart;
+
+    /// Which run the front end is *pointing* at, where it is on a screen that knows: the difficulty
+    /// and the character already chosen, and the last of the three under the cursor.
+    ///
+    /// For the mark that says a run of it was left unfinished, which is worth putting where the run is
+    /// being chosen rather than only offering it a screen later — nothing on the game's own screens
+    /// remembers which run somebody was in the middle of.
+    ///
+    /// `None` anywhere the answer would be a guess: any other screen, and a practice run, whose stage
+    /// is part of which run it is and is not chosen until afterwards.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn run_pointed_at(&self) -> Option<RunStart>;
+
+    /// Which run this is one of, as a name: what two runs have in common when a chapter of one can
+    /// be picked up in the other.
+    ///
+    /// Asked of the game because the characters are its own. It is also the name of the file that
+    /// chapter is kept in, so it has to be one a directory listing can be read — and two runs are
+    /// the same run exactly when this is the same, which is what keeps the answer in one place.
+    ///
+    /// `None` for a run there is no slot for, which is what stops one being kept at all: nothing to
+    /// name is nothing to write, nothing to offer and nothing to mark, in one place rather than as a
+    /// check three callers have to remember.
+    fn run_slot(&self, run: &RunStart) -> Option<String>;
+
+    /// The run's numbers, which at a stage's own first frame are the numbers that stage started
+    /// with.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn run_state(&self) -> RunState;
+
+    /// Puts them back, the way the game's own replay puts a stage's numbers back — all but the seed,
+    /// which is [`Game::set_run_seed`]'s and has to be earlier.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, where the game has a stage built and has not yet
+    /// updated it — see [`Hooks::stage_begun`].
+    unsafe fn set_run_state(&self, state: &RunState);
+
+    /// Seeds the generator for the stage the game is about to build, and puts its own copy of the
+    /// seed beside it.
+    ///
+    /// Apart from the rest of a stage's numbers because it goes in at another moment: building a
+    /// stage draws from the generator, so the seed has to be in before that, where the numbers cannot
+    /// go in until the stage exists. Both moments were measured wrong before they were measured
+    /// right — see the game's own account of the seam, `th06`'s `STAGE_REGISTER_CHAIN`.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, from the hook over [`Hooks::stage_building`], before the
+    /// original.
+    unsafe fn set_run_seed(&self, seed: u16);
+
+    /// Whether the game's front end has asked for a run and nothing of that run has been built yet.
+    ///
+    /// The one frame on which what the run is — its difficulty, its character, its shot — is settled
+    /// and none of it has been acted on, which is where the question of picking one up belongs: the
+    /// answer costs nothing either way there, and the front end has already taken itself down. Never
+    /// true of the attract demo or a replay, which ask for a run the same way.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn run_chosen(&self) -> bool;
+
+    /// Points the run being built at another of its stages, and says whether the game has one.
+    ///
+    /// The whole of what picking a run up asks of the front end: the difficulty, character and shot
+    /// are the ones just chosen, and [`Hooks::stage_begun`] is where the run's own numbers go in.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, on a frame [`Game::run_chosen`] is true
+    /// of.
+    unsafe fn start_stage(&self, stage: i32) -> bool;
+
+    /// Whether the run has finished into the game's own result screen.
+    ///
+    /// What says a run is over rather than left: a run given up does not go through one — see
+    /// [`Game::leave_run`] — so this is what tells the chapter worth coming back to from the run
+    /// that has none.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn run_finished(&self) -> bool;
+
     /// # Safety
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> Reproduction;
@@ -433,6 +618,12 @@ pub struct Reproduction {
     pub player_area: (f32, f32),
     /// How many numbers have come out of the generator since the stage seeded it.
     pub randoms: u32,
+    /// The generator itself, which is the one number a wrong stage start can be wrong in while
+    /// every other field of this line is right: a resumed stage 2 agreed on all of them with the
+    /// seed 2048 draws out, the player's place being the player's own inputs and the bullets being
+    /// the stage's script. Not the `GameManager` copy the file's own header carries — this is what
+    /// the next number out of it will be made from.
+    pub seed: u16,
     /// Items in the air, which nothing about a stage's start puts back to none.
     pub items: u32,
     /// The score as shown, which is what an extra life is measured against.
@@ -450,7 +641,7 @@ impl fmt::Display for Reproduction {
         write!(
             f,
             "replay_frame={} input={:#06x} player={:.2},{:.2} area={:.2}+{:.2} randoms={} \
-             items={} score={} extras={} rank={} subrank={}",
+             rng={:#06x} items={} score={} extras={} rank={} subrank={}",
             self.replay_frame,
             self.input,
             self.player.0,
@@ -458,6 +649,7 @@ impl fmt::Display for Reproduction {
             self.player_area.0,
             self.player_area.1,
             self.randoms,
+            self.seed,
             self.items,
             self.score,
             self.extra_lives,

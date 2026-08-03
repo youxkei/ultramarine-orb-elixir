@@ -10,6 +10,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 orb-config.workspace = true
+serde = { version = "1", features = ["derive"] }
+
+# MessagePack through serde: the file a run is left in is the same derived structs as everything
+# else, written with the field names in them so that any converter can print one back without being
+# told the format. See `resume::EXTENSION`.
+rmp-serde = "1.3"
 
 # For `build.rs`, which bakes `brush.png` down to the coverage the mark over the lives is drawn
 # from. Only the inflate is taken from a crate: walking a PNG's chunks and undoing its row filters
@@ -17,6 +23,12 @@ orb-config.workspace = true
 # every picture there has ever been.
 [build-dependencies]
 miniz_oxide = "0.8"
+
+# For the tests over the file a run is left in, which build a MessagePack map by hand: what has to be
+# refused is a *file* of the wrong shape, however it came to be one, and that is not something the
+# derived writer can be asked to produce.
+[dev-dependencies]
+rmpv = "1.3"
 
 [dependencies.windows-sys]
 workspace = true

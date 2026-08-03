@@ -83,6 +83,149 @@ settled by measurement rather than by looking at the screen, the measurement is 
     stage 2 while a bomb's shake was running — the log says it was taken down at
     61041250ms — and holding the stage 1 that followed against a menu-started pass of it:
     identical from its first frame to the 742nd, where the replay was stopped by hand.
+- **A chapter picked up after the game was closed.** Two launches, at 200740000ms and 200755453ms
+  in the log, with the front end driven by keys sent from another program — see *Driving the game
+  without a keyboard* below for what that took and why it is honest:
+  - A pointdevice run started, `Lunatic ReimuA`, and its first chapter written down as soon as it
+    was reached: `resume: stage 1 chapter 1 (MIDSTAGE 1) at frame 9, 9 frame(s) of buttons, diff=3
+    char=0-0 score=0 seed=0x7c76 lives=2 bombs=3 power=0 rank=16 written to
+    pointdevice_resume\lunatic-reimu-a.txt`. Its `start` line held the same numbers as the
+    `stage 1 chapter 1 (stage start)` line beside it, seed included, and the file was named for the
+    run rather than for the stage.
+  - `died in chapter 1`, the retry menu, and the run left. Both ways of leaving it are on record:
+    this session took *the stage again* and was then killed mid-run, and the session before it took
+    the third item — `retry: the run given up on the keyboard`, `retry: the run is given up; the
+    game is on its way to the title`. The file was still there after the game was gone.
+  - A new launch: `resume: 1 run(s) left unfinished: lunatic-reimu-a`. The same difficulty and
+    character chosen again, and the question came up on the frame after the shot type —
+    `resume: lunatic-reimu-a was left; asking where to start` — with the file read there rather
+    than at startup.
+  - `つづきから` answered: `resume: from where it stopped, answered on the keyboard`, the run built
+    at that stage, 8 updates run inside the frame that built it, and **`resume: the landing is the
+    frame that was written down, field for field`** — stage 1 frame 9, chapter 1 (MIDSTAGE 1),
+    against chapter 1 (MIDSTAGE 1) at frame 9.
+  - **What that check caught before it agreed**, on the run before this one:
+    `resume: the landing is not the frame written down: randoms=2 against randoms=0`, every other
+    field of the line the same. Building a stage draws two numbers from the generator on stage 1,
+    and the game's own replay is called from inside `GameManager::AddedCallback` *before* the
+    loading, so those two draws advance its seed as they did the recorded run's. orb wrote the seed
+    after the loading instead, leaving the generator two numbers behind and the run a different one
+    from the landing on. The seed now goes in before the stage is built and the rest of the numbers
+    after it, which is what the second run says field for field.
+  - **And what it caught the third time, which is where the seed actually goes.** A Normal ReimuA run
+    left in stage 4's `MIDSTAGE 3` at frame 3395 was picked up and came apart: the player was hit at
+    frame 743, four lives went in 3394 frames, and the landing was `player=290.74,134.51 against
+    player=186.54,253.03` with `randoms` 1955 out. The stage's own line said why —
+    `resume: the generator seeded 0xc381`, and then `stage 4 chapter 1 (stage start) … seed=0x789c`.
+    `GameManager::AddedCallback` draws from the generator **2048 times before it copies the seed**:
+    0x41bc4f fills 64 records of 32 `u16` at `manager+0x30`, one `Rng::GetRandomU16` (0x41e780) each,
+    and that generator is `seed = rotl16(((seed ^ 0x9630) - 0x6553), 2)` — every draw rewrites it. The
+    block is skipped when `curState == 3`, the state between two stages of a run, which is why an
+    ordinary stage 2 draws none of them and a resume, built from the menu, draws all 2048. Confirmed by
+    arithmetic rather than by argument: 2048 draws from `0xc381` are `0x789c`, and from the stage-2
+    file's `0x0d45` they are `0x6e26`, which is what that stage showed. The seed is now written on the
+    way into `Stage::RegisterChain` (0x4044c0, called from 0x41c00d and nowhere else in the exe) —
+    after the 2048, before the stage is built out of the generator, which is the same window the game's
+    own replay writes in.
+  - **The landing check agreed with a wrong seed, so the seed is now one of its fields.** The stage-2
+    resume that reported `field for field` had `0x6e26` where `0x0d45` was written down: the player's
+    place comes from the player's own inputs, 紅魔郷's bullets come from the stage's script, and the
+    two runs even took the same hit at frame 2064 — so nothing in that line showed it. `rng=` is in the
+    reproduction line now, and the comparison holds lines together by field name rather than by
+    position, so a line written before the field existed is still checked on what it does have and
+    `resume: nothing was held against rng` says what it could not.
+  - **And what it caught the second time, on a chapter deep enough to show it.** A Normal ReimuA run
+    left in `MIDBOSS NONSPELL 1` was picked up: 2008 updates ran, the landing was that chapter at
+    frame 2009 as written down, `input=0x0091 player=94.75,219.03 items=3 rank=17` all the same — and
+    `randoms=3295 against randoms=3425`, with `score=400760` landing as `359550`. The player was on
+    the pixel it was written down on, so the buttons went in right; what differed was everything the
+    generator fed. The stage's own line said why: `seed=0x90b9` where `0x4fea` had been written down.
+    Writing the seed on the frame the question is answered is a frame too early — whatever the front
+    end draws in between moves it off — so it is written on `GameManager::AddedCallback`'s way in
+    instead, which is after the front end is gone, before the stage is loaded out of the generator,
+    and before the callback copies the seed into `randomSeed`. **Not re-checked yet** — see
+    [TODO.md](TODO.md).
+  - The same session showed the song being left at the track's opening milliseconds, with the
+    position that had been written down (`song=5900628`) never read: the restore was asked of the
+    chapter's *kind*, and a midboss is not one of the midstage kinds although the stage's own song is
+    what plays through it. It is asked of the song now, from the same place a retry asks it, so the
+    two cannot disagree about a chapter.
+  - **And with the song put back where the chapter had it, a section of it repeating.** Heard once
+    near the end of a resumed stage 1's midstage and once near the end of a resumed stage 2's, and
+    read off the game afterwards: `WaveFile::Read` (0x43c080) clamps every read to `m_ck.cksize`
+    (0x43c1aa) and subtracts what it read from it (0x43c1be), and `StreamingSound::ServiceBuffer`
+    takes the track's loop only where a read comes up *short against that countdown* (0x43b759 →
+    `ResetFile(TRUE)` at 0x43b76f). The file's own end is never asked. Seeking the file 5,900,628
+    bytes forward and leaving the countdown alone therefore left the stream believing it had that much
+    more sound than the file held: it read past the end of the `data` chunk, where `Read` fails rather
+    than returning short — `mmioAdvance` leaves nothing to copy (0x43c233) — so no loop was taken and
+    the buffer was left going round its own contents. It came right by itself after the skipped bytes
+    had been counted off, which is why it was one episode and not a hang. The countdown is now moved
+    with the file, to the loop point less where the file ends up, and the loop point is taken as the
+    position plus the countdown as they stand — the pair the game reads, rather than the header's loop
+    fields, since a track without a loop end runs on `cksize` instead. **Not re-heard yet** — see
+    [TODO.md](TODO.md).
+- **A later stage's chapter written down, with a run's numbers behind it.** A Normal ReimuB run
+  played by hand to stage 2 and stopped there. Every chapter of stage 1 was written as it was
+  reached — frames 9, 2009, 2651, 4472, 5714, 6115, 6736, 7316, each one the frames before it, so a
+  chapter deep in a boss fight is 7316 frames of buttons rather than the nine stage 1's first is —
+  and then stage 2's, which is the case stage 1 cannot show:
+  `resume: stage 2 chapter 2 (MIDSTAGE 2) at frame 880, 880 frame(s) of buttons, diff=1 char=0-1
+  score=3760130 seed=0x7b9d lives=2 bombs=3 power=83 rank=24`. On stage 1 every one of those numbers
+  is zero and the stage orb writes is the 0 the menu had already written; here the score, the power,
+  the rank, the point items and the stage are all the run's own, read where the game itself reads
+  them. Its `landing` line is a stage being played rather than a stage's first frame:
+  `player=191.21,432.00 randoms=1481 items=16 score=3881080 subrank=34`. **Picking that one up has
+  not been watched** — see [TODO.md](TODO.md).
+  - **A run is offered only where all three of difficulty, character and shot match**, which the same
+    session showed by accident: a launch that chose ReimuA where the run left was ReimuB said
+    `resume: 1 run(s) left unfinished: normal-reimu-b` at startup and then
+    `resume: nothing was left of normal-reimu-a`, asked nothing, and started a fresh run whose own
+    chapters went to `normal-reimu-a.txt`. The ReimuB file was not touched, which is what the file per
+    run is for. Nothing on the game's own screens remembers which shot the last run used —
+    `MainMenu::RegisterChain` memsets the menu, so its cursor starts at ReimuA every time — so
+    picking a run up means choosing the same three again.
+- **Driving the game without a keyboard**, which is what made the above possible and is worth
+  writing down for every other unwatched thing in [TODO.md](TODO.md). The launcher's dialog is got
+  past with `--config` naming a file that says `ask_at_startup: false`. The game's own screens
+  cannot be, as it stands: keys injected with `SendInput` — tried carrying the virtual key with its
+  scancode, and as the scancode alone with `KEYEVENTF_SCANCODE` — are accepted by the system
+  (`SendInput` returns 1) and not seen by the game, which sat idle into its attract demo twice.
+  `Controller::GetInput` takes the keyboard `DISCL_EXCLUSIVE | DISCL_FOREGROUND` and such a device
+  does not see them. `--sent-keys` has orb let that device go — `Unacquire`, `Release`, the pointer
+  cleared, which is what `Supervisor::RegisterChain` does with a device it cannot set up — and the
+  game then reads `GetKeyboardState`, its own other way, which does see them. The first press after
+  that ended the attract demo, which is what proved it. Two things learned about the timing: a
+  press inside the title's own opening animation is spent on nothing, and the demo eats one to
+  leave, so what works is a press every 1.1 seconds until the log says the screen moved.
+- **The hook at the moment a stage's numbers are put in place**, which is what picking a run up
+  rests on. One launch to the title screen, at 199297250ms in the log, left standing
+  until the attract demo took itself into a stage:
+  - `stage start hook installed, original at 0x01150000` — the prologue expected at
+    `GameManager::AddedCallback`, 0x41bb02, is the one that is there. Read off the file first, so
+    this is the check agreeing with the read rather than the only evidence.
+  - `resume: stage 4 of a run orb is not keeping; nothing of it is written down`, 16 seconds in,
+    which is the hook firing where the game registers a stage. Stage 4 is the demo's, and the
+    demo's own path writes `currentStage = 3` before it asks for a run: the hook reads the stage
+    the way the rest of orb does, *after* that callback has raised the number, and it came out as
+    the same stage. The demo is refused rather than recorded, and `pointdevice_resume/` was still
+    not there afterwards.
+  - `input=2us/frame worst=109us calls=600` with `0 shown late` and `gaps in refreshes 2x598`
+    over the two reporting periods: the input read is now hooked on every launch rather than only
+    where the window may be behind, and the frame it costs is what it cost before.
+  - Nothing else in those 66 lines: no panic, no fault, no line about a hook it could not install.
+  Started with `--config` naming a temporary file that says `ask_at_startup: false`, since the
+  launcher's dialog waits for a keypress and nobody was there to give it one; the game's own
+  `orb.yaml` was read by the DLL as always. Closed by killing it, having never left the title
+  screen.
+  - **And the files those chapters are kept in are found and named.** Two put in
+    `pointdevice_resume/` by hand and a launch made the same way:
+    `resume: 2 run(s) left unfinished: lunatic-marisa-b, normal-reimu-a-practice5`, in order and
+    named for the runs they belong to. Which run a chapter belongs to is the same string, so this
+    is also the naming the question chooses by. Both were taken away again afterwards, being
+    nobody's runs. The second is a name orb wrote at the time and does not any more — a practice run
+    is kept no longer, see [SPEC.md](SPEC.md) — and a file called that today is one somebody made,
+    which is what both of these were.
 - **The mode question over the game's own menu.** `Game Start`, `Extra Start` and `Practice Start`
   each froze the game the frame after the item was taken and put the question up; `Score` asked
   which of the two rankings. Answered with both, six times over one session:

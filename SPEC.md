@@ -66,7 +66,9 @@ A snapshot covers:
 Direct3D and DirectSound objects are not saved. The game loads a stage's resources on entry
 and creates nothing within a chapter, so restoring the pointers in `.data` leaves them
 naming the same live objects. Since those addresses differ per launch, a snapshot is only
-valid inside the process that took it, and chapter progress cannot be written to disk.
+valid inside the process that took it, so nothing of one is written to disk. What is written down
+instead is what the run *pressed*, and a chapter is reached again by being played to — see
+*Picking a run up again*.
 
 Restoring suspends the game's other threads, puts back any page of a saved region that has
 gone since — the game freeing a few megabytes hands part of a segment back to the OS, and the
@@ -180,6 +182,270 @@ puts the whole of `.data` back from a snapshot, and this leaves the game to buil
 — which reads the same keyboard, and would take the `z` still held as an item chosen. No score is
 entered on the way out, the same as the game's own quit: that happens at the result screen, and
 giving up does not go through one.
+
+## Picking a run up again
+
+A snapshot is only good inside the process that took it, so closing the game would lose where the
+run was — which for the one thing orb exists to do, grinding a late chapter, is the wrong place to
+lose it. What survives a launch is what the run *pressed*, and the chapter is reached again by
+being played to.
+
+`pointdevice_resume/` beside the game holds one `.msgpack` per run there is a chapter of, and each
+holds: which run it is, the run's numbers as the stage it is in began, and the buttons of every frame
+from that stage's first to the frame the chapter began on. One is written **every time a chapter
+begins**, because there is no moment a session ends at — the window closed, the game killed and a
+crash all leave nothing to write from.
+
+**MessagePack, through the same serde the settings go through, and with the field names in it** —
+`to_vec_named`, not the positional arrays rmp-serde writes by default. Packed because the file is the
+machine's own: written as text a chapter deep in a stage came to 30KB against 11KB here, and nobody
+reads a button mask by eye. Named because a file that carries its own field names needs nothing but
+itself to be read.
+
+**Reading one takes a MessagePack-to-YAML converter and nothing more**, which is the reading half of
+that decision: reading one of these beside the log is what has caught every fault in this
+machinery — the seed written 2048 draws early, the song position ignored, a landing that agreed on
+every field it had. Because the file carries its own field names, that converter needs to know nothing
+about the format and so cannot fall out of step with what wrote it — any of the msgpack CLIs will do,
+and the tree this was written in keeps one of its own under `scripts/`, which the repository does not
+carry. Not a flag on the launcher: it is for whoever is working on orb, not for anybody playing.
+
+The buttons are a map keyed by the frame they changed on, rather than a list of pairs: a map of frames
+is in order because it is a map, not because something checked, it is a byte smaller each, and the
+dump prints one change per line where pairs are two. Everything anyone reads by eye is a string
+either way — the seed as `0x1a2b`, since that is how every line of the log writes it, and the
+reproduction line as the log's own text.
+
+A chapter is never written down part-way through: the resume point is a chapter's own first frame,
+which is where dying sends the player anyway, and the frame a run was abandoned on is as likely as
+not the frame they were hit on.
+
+**One per run there can be one of**, the way 紺珠伝 keeps a pointdevice save per difficulty and
+character. A run of another character is another run and its buttons would play somebody else's
+shot, so what two runs have in common when a chapter of one can be picked up in the other is the
+difficulty, the character and the shot. That answer is one string, `lunatic-marisa-b`, which is both
+the name of the file and the test for whether two runs are the same run: a listing of the directory
+then reads as the runs somebody has left unfinished. A directory rather than one file holding them
+all, because a file is written whole at every chapter and with every run in it that write would be
+every run's buttons a few seconds apart.
+
+**A practice run has no such name, and that is the whole of why none is kept.** It is one stage
+played on its own — nothing carried in, nothing after it — so what a resume would save is the walk
+back through a menu that starts the same stage again in a moment. Having no slot is also what keeps
+it from taking the full run's: a practice run of the same shot would name that same file unless the
+stage went into the name too. Nothing is written for one, nothing is offered, and nothing is marked,
+by there being nothing to call it rather than by three separate checks.
+
+**The record is one entry per stage frame, kept by frame number**, where the game's own replay
+keeps a `(frame, buttons)` pair per change. That is what makes a retried chapter cost nothing: an
+attempt that is rewound plays the same frames over and writes over them, so the entries below any
+frame are always the ones that survived to reach it, and a restore has nothing to drop. What goes
+in the file is the frames the buttons changed on, which is a few hundred lines for a stage.
+
+The buttons are written down and handed back in `Controller::GetInput` (0x41d820), which
+`Supervisor::OnUpdate` calls once a frame and is the one place every button the game acts on passes
+through. They are keyed to `GameManager.gameFrames`, read in that same call: the supervisor is
+chain priority 0 and `GameManager::OnUpdate` — which is what advances that counter, at its very
+end — is priority 4, so the number read there is the frame the update about to run *is*. That
+counter is also the clock a chapter's start is expressed in, which is what lets a chapter name a
+place in the record.
+
+Only the buttons the game's own replay records: `g_CurFrameInput & 0x1f7`, which is every button
+but 0x8. That one opens the pause menu, and a resume that fed it back would put up a menu instead
+of playing. A frame with a menu up is not in the record either, and does not have to be kept out
+of it by hand: `GameManager::OnUpdate` returns `CHAIN_CALLBACK_RESULT_BREAK` there before it
+reaches the counter, so the frame does not advance and the same entry is written again by the frame
+that eventually runs.
+
+**What the run's numbers are, and where they go back.** The state a stage needs to be played again
+is what the game's own replay keeps per stage, which is `StageReplayData`'s eight fields:
+
+| | |
+| --- | --- |
+| score | `guiScore` at `GameManager+0x0` and `score` at `+0x4`, both, as the replay writes both |
+| `randomSeed` | `g_Rng.seed` at 0x69d8f8, with the generation count cleared |
+| `pointItemsCollected` | `+0x1816` |
+| power | `+0x1810` |
+| `livesRemaining`, `bombsRemaining` | `+0x181a`, `+0x181b` |
+| rank | `+0x1a70` |
+| `powerItemCountForScore` | `+0x1819` |
+
+and beside them the difficulty at `+0x10` and the character and shot at `+0x181d` and `+0x181e`,
+which the replay keeps in its own header. orb writes two more. `extraLives` (`+0x181c`), because
+the replay's path does not: `GameManager::AddedCallback` raises that count with a loop against the
+score thresholds instead, and a count that can only rise means a resume writing the score without
+it hands out every extra life the run has already had — a life the run never got, and with it the
+`IncreaseSubrank(200)` that came with the last one. And the count of deaths (`+0x20`), which
+nothing but the result screen reads, so that a resumed run's is the run's. The two counters beside
+that one are left as a fresh stage leaves them, the game's own replay not carrying them either.
+
+**The seed is the whole of why the buttons alone are not enough.** `GameManager::AddedCallback`
+copies the generator's seed into `randomSeed` as each stage begins and clears the generation count
+— it does not reseed — so a stage played again from a different seed is a different stage however
+the buttons fall.
+
+**And it goes in at one instant, which is neither end of that callback.** It is written on the way into
+`Stage::RegisterChain` (0x4044c0) — called from one place in the whole exe, 0x41c00d, between the
+numbers being put in place and the stage being built out of them. Both ends of the callback are wrong,
+and each was measured wrong in turn:
+
+- **After it is two draws late.** Building a stage draws from the generator — two numbers on stage 1 —
+  and `Stage::RegisterChain` is what draws them. The landing check said so in the one field it
+  disagreed on: `randoms=2 against randoms=0`.
+- **On the way in is 2048 draws early.** Before the callback copies the seed anywhere it fills a table
+  of keys out of the generator: 0x41bc4f, 64 records of 32 `u16` at `manager+0x30`, one
+  `Rng::GetRandomU16` (0x41e780) each, and every draw rewrites `g_Rng.seed`. The whole block is
+  skipped when `curState` is 3, the state between two stages of a run — so a stage reached by playing
+  draws none of them and a stage reached from the menu, which is every resume, draws all 2048.
+  Measured as a stage resumed with `seed=0x789c` where `0xc381` was written down, and 2048 draws of
+  that generator from `0xc381` are `0x789c` exactly.
+
+Written where the game's own replay effectively writes it, in other words: `AddedCallbackDemo` is
+called from 0x41bf7e, after the 2048 and before `g_Rng.generationCount = 0` at 0x41bfec. The
+`GameManager` copy of the seed goes in beside the generator, since the callback has already taken it
+by then and that copy is what the *next* chapter of the resumed stage writes down.
+
+**The seed is in the landing line too**, and not only in the header, because it is the one number a
+stage can start wrong in while every other field of that line is right: a resumed stage 2 agreed with
+what was written down field for field with its seed 2048 draws out — the player's place being the
+player's own inputs, and the bullets being the stage's script, which is deterministic. A landing that
+agrees now agrees about the generator as well.
+
+**Which score is the run's depends on the frame it is read on.** The last thing that callback does
+is `score = 0`, and `GameManager::OnUpdate` raises it back on the stage's first update — `if (score
+< guiScore) score = guiScore`, which is what carries a run's total across a stage at all. So on the
+frame orb reads, `score` is nothing and `guiScore` is the total, and it is `guiScore` that is read.
+The game's own recording reads `score` there and is right to: it is registered from inside that
+callback, before the zeroing. Reading the field the game reads, on a different frame from the game,
+is where this would have gone wrong silently — every stage written down with a score of nothing.
+
+**They go back where the game puts them back**, which is that same callback: 0x41bb02, registered
+by `GameManager::RegisterChain` as the added callback of the chain element at 0x69d720 and so run
+by `Chain::AddToCalcChain` at the moment a stage is registered, before that stage's first update.
+It is where `ReplayManager::AddedCallbackDemo` writes a replay's stage record from — called from
+inside it — and it has to be after rather than before, because that callback is also what sets rank
+from a table indexed by difficulty and what overwrites the power in practice mode. orb hooks it and
+writes the run's numbers as it returns; on any other stage of any other run, that is where they are
+*read*, which is the only moment they are the numbers the stage started with.
+
+**Starting the run is one write, because the game's own front end has done the rest.** The question
+is put on the frame after the character select has taken its item, which is the one frame where
+`g_Supervisor.curState` is already `GAMEMANAGER` while `wantedState` is still the front end:
+`Supervisor::OnUpdate` is chain priority 0 and copies `wantedState = curState` as its last act, and
+the front end is priority 2, so an item that starts a run writes the state after that copy and the
+supervisor has not yet acted on it. By then the difficulty, the character and the shot are the ones
+just chosen, the front end has removed its own job — its update returns
+`CHAIN_CALLBACK_RESULT_CONTINUE_AND_REMOVE_JOB`, whose deleted callback releases the title's
+graphics and cuts its drawing — and nothing of the run exists. So orb writes `currentStage`, as the
+menu counts it: `AddedCallback` raises the number by one, so it is handed the stage before the one
+meant, which is what the character select writes too.
+
+The number is checked against what the game has, since it comes out of a text file and one that is
+nonsense is `AddedCallback` indexing its stage table past the end — `[eax*8+0x4764ec]` is where it
+picks a stage's data out of. Nothing else has to be checked or written: what the run *is* was chosen
+on the game's own screens, and the file is only read at all when its name says it is that same run.
+The demo and a replay reach those two states the same way, so both are refused: the demo starts from
+the title screen itself.
+
+**The playback runs inside the frame that built the stage**, updating with nothing drawn until the
+frame the chapter began on — the ending skip's mechanism aimed at a chapter. An update is tens of
+microseconds and a stage is thousands of them. Every update is observed, so the run lands with the
+stage divided into the same chapters and with the chapter's own snapshot to be sent back to, and
+the retry count carries on from what the run had already spent.
+
+**A chapter the stage's own song plays through lands with that song where the chapter had it**, which
+is what a retry of one does to the music — and a resume is the same chapter arrived at another way, so
+it owes the same. Otherwise what plays is the track's opening milliseconds, the stage having been
+built a frame ago.
+
+Which chapters those are is decided by the song and not by the chapter's kind: a midboss is a fight
+with the stage's song still playing, so its chapters want the same thing done to them as the
+midstage's, and it is the same question the retry answers from the same place. Asked of the kind
+instead, a resume into `MIDBOSS NONSPELL 1` left the track at its opening milliseconds with the
+position that had been written down ignored.
+
+What is written down for it is one number: the file offset of the sound that was audible when the
+chapter began, which is where the streaming thread's next read was less everything sitting in the
+buffer unplayed. The buffer's own contents are what a snapshot keeps for a rewind and are no use
+across a launch — the buffer is an object of that process — where the wave file is the same file
+next time. Putting it back seeks the file there, fills the buffer from it, and starts the buffer at
+nothing, which leaves the stream exactly as a freshly loaded track leaves it: one buffer's worth
+from that offset, the play cursor and the next write at nothing, the file at what follows. Filled
+rather than left to the streaming thread so that nothing of the opening it already held is heard
+first.
+
+**And the countdown to the loop with it, which is the second half of that seek.** The game's wave
+file is the DirectX SDK's `CWaveFile` with loop points added, and it keeps `m_ck.cksize` — the size
+`mmioDescend` left, or the loop end where the track has one — as how much sound is left: every read
+is clamped to it and subtracted from it, and the track is looped when a read comes up *short against
+it*. The file's own end is never consulted. So the position and that countdown are a pair, and a seek
+that moves one alone is a track that loops in the wrong place: measured as seconds of the song
+repeating, once, near the end of a resumed stage, because the stream believed it had as much left as
+it did before the seek, read past the end of the sound, and got a failed read rather than a short one
+— no loop taken, and the buffer left going round its own contents until the skipped bytes had been
+counted off. It is put back as the loop point less where the file now is, and the loop point is taken
+from the pair as it stands before the seek rather than from the header's fields, since which of them
+the track is going by is the game's business. The buffer is stopped for both reads: the streaming
+thread moves both halves, on notifications a stopped buffer does not raise.
+
+The chapter's own snapshot is then taken again, because the one from the playback holds the sound as
+the playback had it: left alone, the first death in that chapter would rewind the music to the top
+and undo this. It costs one copy of a chapter on a frame that has just run a stage's worth of
+updates. A chapter of a boss's own theme is left alone in both respects, the way that fight's retry
+leaves it: starting a long theme over every attempt is worse than the jump in it.
+
+`song=-1` in the file is a stream that would not say — `mmioSeek` refusing, or a song that had
+looped within a buffer's length of the reading — and a resume then leaves the music as the stage
+started it. So is a file written before the field existed.
+
+**What is asked, and where.** `どこから始める`, with `つづきから` and `はじめから`, on the frame above —
+after the character select and before the run is built. Asked there rather than beside the mode
+question because which run this is includes the character, and the mode question is a screen too
+early to know it; and because on that frame both answers cost nothing, one being the run the game was
+about to start anyway. Only where a run of that same difficulty, character and shot was left, so the
+question never appears for a run there is nothing of.
+
+The line under `つづきから` says where that run stopped — the stage, the chapter by name, the
+retries — and not which run it is, that having just been chosen. Under `はじめから` it says what
+starting again costs, which is that the chapter left behind is written over as soon as the new run
+reaches one; this is the last moment anybody is told so. The cursor starts on `つづきから`, not
+because it is the likelier answer but because of what the two mistakes cost: a run picked up by
+accident is a run put back where it was, while a fresh run started by accident is the file gone.
+
+**And said once more a screen earlier, as a mark rather than a question.** `中断データあり`, with the
+stage, the chapter and the retries under it, in the bottom left of the game's own shot type select
+while the cursor is on a shot a run was left in. That screen is the first one that knows which run is
+about to be played — the difficulty and the character are settled, and the shot is under the cursor at
+`MainMenu+0x81a0`, which is where it has to be read from since nothing writes `shotType` until the
+screen is left. Nothing is frozen and nothing is asked: the screen carries on running underneath and
+the line follows the cursor between the two shots.
+
+It is there because the choice that quietly loses a run is made on those screens, not on the question
+after them: `MainMenu::RegisterChain` memsets the cursor, so somebody who left a ReimuB run and picks
+ReimuA out of habit is offered nothing, gets a fresh run, and that run writes its own file —
+measured, by doing it, and nothing on the game's own screens says otherwise. A practice run is not
+marked, its stage being part of which run it is and not chosen until afterwards. The file is read when
+the cursor moves onto another run rather than every frame, and it is a few hundred lines to read.
+Nothing cancels the question — the front end has already taken itself down by the time a run is asked
+for, so there is nothing behind it to go back to, and its two items are the two ways into the run
+that was chosen. The file is read where the question is put rather than at startup, so what is
+offered is the chapter the last session stopped at.
+
+**The file goes when the run finishes**, which is the result screen: a run given up does not go
+through one, so what is left holding a chapter is exactly a run that was left. A cleared run's file
+is taken away — that run's own, which is the one it was being written to.
+
+**What settles whether this works is the landing.** The reproduction line — the replay clock, the
+buttons, where the player is, how many numbers the generator has given out, the score, the rank —
+is written into the file for the chapter's frame and read again at the frame the playback stops on,
+and the log says whether the two agree field for field and which field they first differ on. That
+is the instrument for the one thing the mechanism rests on: that the numbers a stage reads at its
+start are all written down. A player hit during the playback is reported too, and at which frame: a
+path that survived does not do that, every death a run had having been rewound away, so a hit is a
+playback that has come out of step at or before that frame.
+
+`--no-resume` takes the whole of it out — the two hooks and the file — while leaving the chapters
+it is built on, which is what a fault in a run that chapters alone do not explain wants.
 
 ## Pointdevice and normal
 
@@ -346,9 +612,14 @@ for and stays there while the question is up, which is a background for it rathe
 with it. The vms' own scripts do stop, since those are stepped by `ExecuteScript` at the end of
 `MainMenu::OnUpdate`.
 
-**No replay is offered for a pointdevice run.** A replay is the inputs and nothing about the
-rewinds between them, so one recorded here plays back as a run that dies where this one carried
-on. The screen that offers to save one is `ResultScreen`, reached through the job it registers —
+**No replay is offered for a pointdevice run.** What one recorded here would play back as is a run
+nobody could tell from a flawless one: the game keeps its record of inputs in the heap a snapshot
+covers — `ReplayManager` is `new`ed at 0x42a27f and each stage's record allocated per stage — so a
+retry rewinds the record along with the run, and each attempt writes over the last from the
+chapter's own frame. What would be saved is therefore the path that survived, with nothing in it of
+the attempts that did not. That is a better reason not to offer one than a broken replay would be,
+and it is the same property orb's own record of a run leans on — see *Picking a run up again*.
+The screen that offers to save one is `ResultScreen`, reached through the job it registers —
 `ResultScreen::OnUpdate` at 0x42d98e, the same walk the ending's object is found by — and its
 `resultScreenState` at +0x8 is written from `SAVE_REPLAY_QUESTION` to `EXIT` on the frame it
 arrives there, before the frame timer reaches the 60 that starts the question's own animation. So
@@ -1016,8 +1287,18 @@ word each:
 | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
 
 and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
-`--compose=N`, `--self-check`, `--stress=N`, and `--no-chapters`, `--no-memory`,
-`--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
+`--compose=N`, `--self-check`, `--stress=N`, `--sent-keys`, and `--no-chapters`, `--no-memory`,
+`--no-resume`, `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
+
+**`--sent-keys`** has the game read its keyboard the way it does when DirectInput gave it no device:
+orb lets the device go — `Unacquire`, `Release`, the pointer cleared, which is what
+`Supervisor::RegisterChain` itself does with one it cannot set up — and `Controller::GetInput` then
+takes its `GetKeyboardState` branch. What that buys is a session another program can drive, which is
+otherwise impossible: a device held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` does not see keys injected
+with `SendInput`, and every screen orb has a question over is the game's own screen answered on the
+game's own keyboard. Nothing else about a run changes — the same code turns those keys into the same
+buttons — and what it made possible is in [DONE.md](DONE.md): the whole of picking a run up again,
+watched twice through the front end without a hand on the keyboard.
 
 `--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own
 four, and the only ones it does not hand on: each answers a question the DLL, being inside a game
@@ -1337,6 +1618,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/audio.rs` | the sound buffer and file position, which live outside the game's memory |
 | `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
+| `orb/resume.rs` | the buttons a run has pressed, and the file that lets its chapter be played to again |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
 | `orb/lives_ui.rs` | the brush stroke over the game's count of lives, for a run that cannot lose one |
 | `orb/build.rs`, `orb/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
@@ -1357,7 +1639,12 @@ and offsets.
 
 ## Not supported
 
-- Chapter progress across launches.
+- Restoring a snapshot across launches: it holds pointers to Direct3D and DirectSound objects, and
+  those addresses differ per launch. A chapter is reached again by the run being played to it
+  instead — see *Picking a run up again*.
+- More than one chapter of the same run written down. Its file holds the newest, and starting that
+  same run from the beginning replaces it. Runs of different difficulties, characters and shots each
+  have their own — see *Picking a run up again*.
 - Returning the music to where it was across a track change: the track starts again from its
   beginning instead. See *Chapters and retries*.
 - A replay of a pointdevice run, because a rewound run does not play back: the screen that offers

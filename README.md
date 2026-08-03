@@ -14,6 +14,13 @@ Returning to a chapter restores a snapshot of the game's memory taken at the cha
 start, rather than asking the game to jump somewhere. Nothing has to understand what a
 boss's script was in the middle of.
 
+**A chapter also survives the game being closed**, which the snapshot cannot: what the run has
+pressed is written down at every chapter, and choosing a difficulty and character that a run was left
+unfinished on then asks *どこから始める* — *つづきから* builds that stage again and plays those buttons
+back into the chapter it was left in, with nothing of it drawn. Whatever ends the session leaves that
+chapter — the retry menu's third item, the window closed, a crash — and finishing the run takes it
+away. One run per difficulty, character and shot, the way 紺珠伝 keeps them.
+
 Which of the two a run is, is asked where the game asks: choosing *Game Start*, *Extra Start* or
 *Practice Start* puts a question over the title menu, pointdevice or normal. Normal is the game
 as it was, and its scores go in the game's own `score.dat`; pointdevice runs are ranked among
@@ -57,9 +64,13 @@ Then copy one file into the directory holding `東方紅魔郷.exe`:
 | `target/i686-pc-windows-gnu/release/orb.exe` | the whole of orb: it carries `orb.dll` inside itself and unpacks it to `%TEMP%\orb` when it runs |
 
 Start the game with `orb.exe`. Everything orb has to say goes to `orb.log` beside
-it, and the scores of runs it could rewind to `pointdevice_score.dat`, so the game's own
-`score.dat` holds only runs anybody could have played. To keep the launcher somewhere else,
+it, the scores of runs it could rewind to `pointdevice_score.dat`, so the game's own
+`score.dat` holds only runs anybody could have played, and the chapter each unfinished run was left
+in to a file per run under `pointdevice_resume/`. To keep the launcher somewhere else,
 `--game-dir=PATH` says where the game is.
+
+Those last ones are MessagePack, with their own field names in them, so any msgpack-to-YAML or
+msgpack-to-JSON converter prints one — which is the shape to hold the log's numbers against.
 
 **The first launch asks for the settings** — how much of the screen the game gets, whether the
 ending is shown, whether it keeps drawing while something else is in front, whether a chapter

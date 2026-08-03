@@ -13,7 +13,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use crate::game::{Game, State};
-use crate::log::log;
+use crate::log::{detail, log};
 use crate::memtrack;
 use crate::profile;
 use crate::snapshot::{Audio, Music, Snapshot};
@@ -369,6 +369,13 @@ impl Chapters {
 
     pub fn retries(&self) -> u32 {
         self.retries
+    }
+
+    /// Puts the count back, for a run picked up where an earlier session left it: the rewinds it
+    /// had already cost are part of what that run is, and a clear with none of them and a clear
+    /// with sixty are not the same clear.
+    pub fn carry_retries(&mut self, retries: u32) {
+        self.retries = retries;
     }
 
     pub fn can_retry(&self) -> bool {
@@ -935,6 +942,34 @@ impl Chapters {
         });
     }
 
+    /// Takes the current chapter's snapshot again, for a moment when what it holds of the sound is
+    /// no longer what is playing: a resume has just put the song where that chapter had it, and the
+    /// snapshot was taken with the song wherever the playback left it. Everything else in it is the
+    /// same memory it already held.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    pub unsafe fn retake(
+        &mut self,
+        game: &dyn Game,
+        state: &State,
+        data: &Range<usize>,
+        self_check: bool,
+    ) {
+        let Some(checkpoint) = self.chapter.take() else {
+            return;
+        };
+        let mark = checkpoint.mark;
+        let audio = self.audio_for(game, state);
+        let live = unsafe { game.live_handles() };
+        let snapshot = unsafe { take(Some(checkpoint), game, data, self_check, audio, &live) };
+        detail!(
+            "chapter {} taken again with the sound as it is now",
+            mark.number
+        );
+        self.chapter = Some(Checkpoint { snapshot, mark });
+    }
+
     /// Restores the start of the current chapter. Returns false when there is
     /// nothing to go back to.
     ///
@@ -989,8 +1024,7 @@ impl Chapters {
     /// stage's music, and that is rewound like anything else midstage.
     fn audio_for(&self, game: &dyn Game, state: &State) -> Audio {
         let identity = game.music_identity();
-        let boss_has_own_music = state.boss_present && identity != self.stage_music;
-        let policy = if boss_has_own_music {
+        let policy = if self.boss_has_own_music(game, state) {
             Music::KeepPlaying
         } else {
             Music::Rewind(game.music())
@@ -1001,6 +1035,22 @@ impl Chapters {
             state: game.audio_state(),
             thread: game.audio_thread(),
         }
+    }
+
+    /// Whether the track playing is a boss's own rather than the stage's, which is what decides
+    /// whether the music is put back with a chapter — here and wherever else a chapter's music is
+    /// restored, so that the two cannot disagree about one.
+    ///
+    /// Not the chapter's kind, which is the test that suggests itself and is wrong: a midboss is a
+    /// fight with the stage's song still playing, and its chapters want that song put back like any
+    /// other of the stage's. Measured as a resume landing in `MIDBOSS NONSPELL 1` with the track at
+    /// its opening milliseconds and the position that was written down ignored.
+    pub fn stage_song_playing(&self, game: &dyn Game, state: &State) -> bool {
+        !self.boss_has_own_music(game, state)
+    }
+
+    fn boss_has_own_music(&self, game: &dyn Game, state: &State) -> bool {
+        state.boss_present && game.music_identity() != self.stage_music
     }
 
     fn after_restore(&mut self, mark: Mark) {

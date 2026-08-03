@@ -23,6 +23,8 @@ mod mode_ui;
 mod overlay;
 mod pe;
 mod profile;
+mod resume;
+mod resume_ui;
 mod retry_ui;
 mod score;
 mod snapshot;
@@ -192,6 +194,18 @@ mod keys {
     pub const DROPPED: VirtualKey = CTRL;
 }
 
+/// How long to wait for the game to build the stage a resume asked for before giving up on it.
+///
+/// Ten seconds of frames, against the second or so a stage takes to load: what this is a stop on
+/// is the game having gone somewhere else with the run — back to its own menu, which is what a
+/// stage it cannot load does.
+const RESUME_START_FRAMES: u32 = 600;
+
+/// How much longer than the frame it is aiming at a playback may run for, which is slack for a
+/// clock that has stopped rather than room to reach anything: the game's own stage clock counts
+/// every update of a stage, so one update is one frame of it.
+const STALLED_FRAMES: u32 = 60;
+
 /// A stop on a chapter step, for a target the run never reaches — a replay that
 /// has ended, or a stage that has no further boundary.
 ///
@@ -260,6 +274,20 @@ struct Runtime {
     /// Whether the ending skip has reached the staff roll, which is where it stops and
     /// leaves the game to play the roll a frame at a time.
     rolling: bool,
+    /// `Some` while the game is frozen on the question of where to start a run that has one left
+    /// unfinished, holding the run that would be picked up.
+    asking_resume: Option<(resume_ui::ResumeMenu, resume::Saved)>,
+    /// The line drawn on the shot type select where the run under the cursor has a chapter written
+    /// down. Kept across frames because it holds what it read, the screen being one somebody sits on.
+    mark: resume_ui::Mark,
+    /// Which chapter this run's file describes — the stage and the frame it began on — so that it is
+    /// written once per chapter rather than once per frame of one.
+    kept: Option<(i32, u32)>,
+    /// Frames spent waiting for the game to build the stage a resume asked for.
+    starting: u32,
+    /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
+    /// which is asked once and cannot be asked before the device exists.
+    sent_keys: bool,
 }
 
 /// The one game orb knows how to run inside.
@@ -276,6 +304,8 @@ static IN_HOOK: AtomicBool = AtomicBool::new(false);
 
 static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
 static RUN_DRAW_CHAIN: AtomicUsize = AtomicUsize::new(0);
+static STAGE_BEGUN: AtomicUsize = AtomicUsize::new(0);
+static STAGE_BUILDING: AtomicUsize = AtomicUsize::new(0);
 static SAVE_REPLAY: AtomicUsize = AtomicUsize::new(0);
 static STOP_RECORDING: AtomicUsize = AtomicUsize::new(0);
 static CREATE_GAME_WINDOW: AtomicUsize = AtomicUsize::new(0);
@@ -355,8 +385,8 @@ fn attach() {
     log!(
         "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
          block_replay_save={} skip_ending={} screen={} during_replay={} \
-         fast_clear={} speed={} stress_restore_frames={} chapters={} track_memory={} \
-         frame_hooks={} own_frame_loop={}",
+         fast_clear={} speed={} stress_restore_frames={} chapters={} resume={} sent_keys={} \
+         track_memory={} frame_hooks={} own_frame_loop={}",
         config.game_dir.display(),
         config.log_level,
         config.pacing_log,
@@ -371,6 +401,8 @@ fn attach() {
         config.speed,
         config.stress_restore_frames,
         config.chapters,
+        config.resume,
+        config.sent_keys,
         config.track_memory,
         config.frame_hooks,
         config.own_frame_loop,
@@ -411,6 +443,20 @@ fn attach() {
             "nobody is asked"
         }
     );
+
+    // Whether this launch keeps what it plays, and which runs an earlier one left unfinished. The
+    // names only: which of them is offered depends on what is chosen at the character select, and
+    // this is the line that says whether there was anything there to offer at all.
+    resume::keep(config.chapters && config.resume && mode == Mode::Pointdevice);
+    if config.resume {
+        let left = resume::left(&config.base_dir);
+        log!(
+            "resume: {} run(s) left unfinished{}{}",
+            left.len(),
+            if left.is_empty() { "" } else { ": " },
+            left.join(", "),
+        );
+    }
 
     // Only where the score file might have to be somewhere other than the game's own: with
     // `--no-chapters` nothing can rewind, so every run belongs in the game's own ranking and
@@ -461,10 +507,39 @@ fn attach() {
         _ => {}
     }
     match patches.input {
-        // Only worth hooking when orb keeps the game updating with the window in the
-        // background; left alone otherwise, the game stops updating there by itself.
-        Some(patch) if config.frame_hooks && config.own_frame_loop && config.always_draw => {
+        // Two things want this one. Keeping the game updating with the window in the background
+        // means the keys have to be dropped there, since the keyboard is read globally rather
+        // than per window; and a run that can be picked up again is a run whose buttons are
+        // written down here and handed back here.
+        Some(patch) if config.frame_hooks => {
             hooks.push(("input", patch, hook::address(get_input as _), &GET_INPUT));
+        }
+        _ => {}
+    }
+    match patches.stage_begun {
+        // Whatever mode the launch starts in, since the mode is answered per run: this is the
+        // moment a stage's numbers are put in place, which is where they are read from and the
+        // only place a resumed run's go back.
+        Some(patch) if config.chapters && config.resume => {
+            hooks.push((
+                "stage start",
+                patch,
+                hook::address(stage_begun as _),
+                &STAGE_BEGUN,
+            ));
+        }
+        _ => {}
+    }
+    match patches.stage_building {
+        // The other half of the same job: the numbers go in where the stage has just been built, and
+        // the seed has to be in before it is.
+        Some(patch) if config.chapters && config.resume => {
+            hooks.push((
+                "stage build",
+                patch,
+                hook::address(stage_building as _),
+                &STAGE_BUILDING,
+            ));
         }
         _ => {}
     }
@@ -575,6 +650,11 @@ fn attach() {
             held: false,
             walled: false,
             rolling: false,
+            asking_resume: None,
+            mark: resume_ui::Mark::new(),
+            kept: None,
+            starting: 0,
+            sent_keys: false,
         });
     }
 }
@@ -583,6 +663,12 @@ impl Runtime {
     /// Whether this run has chapters at all: the mode says so, and `--no-chapters` says not.
     fn chaptering(&self) -> bool {
         self.config.chapters && self.mode == Mode::Pointdevice
+    }
+
+    /// And whether what it presses is being written down, so that the chapter it is left in can be
+    /// played again in a later launch.
+    fn keeping(&self) -> bool {
+        self.chaptering() && self.config.resume
     }
 }
 
@@ -608,10 +694,13 @@ unsafe fn pad(game: &dyn Game) -> Pad {
 fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
+    resume::keep(runtime.keeping());
     // Nothing kept of a run that will not be rewound: a stage's snapshots are forty megabytes or
-    // so, and normal mode is the game as it was.
+    // so, and normal mode is the game as it was. Its buttons go with them — a run that cannot be
+    // rewound has nothing a chapter would be resumed into.
     if mode == Mode::Normal {
         runtime.chapters.forget();
+        unsafe { resume::forget() };
     }
     log!("mode: {mode}, was {was}");
 }
@@ -795,13 +884,26 @@ extern "C" fn init_d3d_device() {
 }
 
 /// What the game sees on the keyboard this frame — nothing, while its window is not
-/// the one in front.
+/// the one in front, and the buttons written down for this frame while a run is being
+/// played back into the chapter it was left in.
 ///
 /// The keyboard is read globally, not per window, so a game that keeps updating in
 /// the background would otherwise act on whatever is being typed elsewhere. Dropping
 /// the buttons here rather than skipping the update is what lets a background window
 /// go on being drawn.
+///
+/// This is also the one place every button the game acts on passes through, which is what makes it
+/// where a run's own buttons are written down: against the frame of the stage about to run, since
+/// the read happens before the counter moves. See [`resume`].
 extern "system" fn get_input() -> u16 {
+    // Which frame of the stage this read is for. Before anything else, and before the foreground
+    // check: a run being played back into place is being played with the window wherever it is,
+    // and the frames it runs through are not frames anybody is at the keyboard for.
+    let frame = unsafe { GAME.stage_frame() };
+    if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame) }) {
+        return buttons;
+    }
+
     // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
     // flag, which only says what the game was last told; this is the same question
     // orb asks for its own keys, so the two cannot disagree.
@@ -825,7 +927,7 @@ extern "system" fn get_input() -> u16 {
     // hands it an uninitialised stack buffer as the key state.
     if !active {
         INPUT_LOST.store(true, Ordering::Relaxed);
-        return 0;
+        return unsafe { noted(frame, 0) };
     }
     // Back in front: get the device back before anyone reads it. Left to itself the
     // game would only try on the one `DIERR_INPUTLOST` that reports the loss, and
@@ -833,7 +935,7 @@ extern "system" fn get_input() -> u16 {
     // which is not something to leave the whole keyboard resting on.
     if INPUT_LOST.load(Ordering::Relaxed) {
         if !unsafe { GAME.acquire_input() } {
-            return 0;
+            return unsafe { noted(frame, 0) };
         }
         INPUT_LOST.store(false, Ordering::Relaxed);
         log!("input: keyboard re-acquired");
@@ -846,7 +948,50 @@ extern "system" fn get_input() -> u16 {
     let started = profile::now();
     let buttons = original();
     unsafe { profile::record(profile::Phase::Input, started) };
+    unsafe { noted(frame, buttons) }
+}
+
+/// Writes down what the update about to run will act on, and hands it back to the game.
+///
+/// The frames the window was behind are written down as well, as the nothing the game is given
+/// there: what has to be reproduced is what the update saw, and a run left with the window behind
+/// has frames of exactly that.
+///
+/// # Safety
+/// Only ever called from the input hook, on the game's main thread.
+unsafe fn noted(frame: Option<u32>, buttons: u16) -> u16 {
+    if let Some(frame) = frame {
+        unsafe { resume::noted(frame, buttons & GAME.run_input()) };
+    }
     buttons
+}
+
+/// Runs after `th06::GameManager::AddedCallback`, where the game has just put a stage's numbers in
+/// place and that stage has not been updated yet.
+///
+/// Nothing of `Runtime` is touched here: this is called from inside the game's own update, where
+/// the frame hook is already holding it. What it needs to know — whether this run is being kept —
+/// is [`resume`]'s own flag.
+extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
+    let original: extern "C" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
+    let result = original(manager);
+    // Its own answer first: anything but nothing is a stage it could not build, and the game is
+    // on its way back to its menu with no stage for any of this to be about.
+    if result == 0 {
+        unsafe { resume::stage_begun(&GAME) };
+    }
+    result
+}
+
+/// Runs before `th06::Stage::RegisterChain`, where the stage's numbers are in place and the stage
+/// itself is about to be built out of them — including out of the generator, which is why a resumed
+/// run's seed goes in here and nowhere else.
+extern "C" fn stage_building(stage: i32) -> i32 {
+    let original: extern "C" fn(i32) -> i32 =
+        unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
+    unsafe { resume::stage_building(&GAME) };
+    original(stage)
 }
 
 /// The joystick half of the input read, which is a tail call inside the keyboard half and so
@@ -909,6 +1054,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
 
+    // Asked once, and here rather than at startup because the device does not exist until the game
+    // has made one — which it does after `DllMain` has been and gone.
+    if runtime.config.sent_keys && !runtime.sent_keys {
+        runtime.sent_keys = true;
+        log!(
+            "input: {}",
+            if unsafe { runtime.game.take_sent_keys() } {
+                "the game's own keyboard device let go of; keys sent to it are read the other way"
+            } else {
+                "the game had no keyboard device to let go of; it was already reading the other way"
+            }
+        );
+    }
+
     if let Some(menu) = &mut runtime.retry {
         unsafe { hold_frame(runtime.game) };
         let pad = unsafe { pad(runtime.game) };
@@ -960,6 +1119,35 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             // The key that answered this is not one the game's own menu should act on. Written
             // here rather than on the frame the game carries on, because what reads it is the
             // first thing that frame does.
+            unsafe { runtime.game.swallow_input() };
+        }
+        return CHAIN_BREAK;
+    }
+
+    // Where to start a run that has a chapter of its own left unfinished. Also over the game's own
+    // screen — the title the front end left behind when it took itself down — so no `hold_frame`
+    // here either.
+    if let Some((menu, _)) = &mut runtime.asking_resume {
+        let pad = unsafe { pad(runtime.game) };
+        if let Some((answer, by)) = menu.update(&runtime.keyboard, pad) {
+            let (_, saved) = runtime.asking_resume.take().expect("the menu is up");
+            match answer {
+                resume_ui::Answer::Continue => {
+                    log!("resume: from where it stopped, answered on the {by}");
+                    runtime.starting = 0;
+                    unsafe { resume::begin(runtime.game, saved) };
+                }
+                // Nothing to do: the run is the one the game was about to build. The file is left
+                // where it is, and the first chapter this run reaches writes over it.
+                resume_ui::Answer::Beginning => {
+                    log!(
+                        "resume: from the beginning, answered on the {by}; {saved} is left behind"
+                    );
+                }
+            }
+            // The key that answered is not one the stage about to be built should act on — the same
+            // reason as the mode question's, and here the frame the game carries on into is the one
+            // that registers the run.
             unsafe { runtime.game.swallow_input() };
         }
         return CHAIN_BREAK;
@@ -1024,6 +1212,26 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         unsafe { reproduced(runtime, &state) };
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
             break;
+        }
+    }
+
+    // A run being picked up where an earlier session left it: the buttons it has already pressed,
+    // played into the stage the game has just built. Inside the frame that built it, so nothing of
+    // the run being played forward is ever drawn.
+    if let Some(at) = unsafe { resume::landing() }
+        && state.playing
+    {
+        let (reached, ran) = unsafe { play_in(runtime, chain, at) };
+        state = reached;
+        result = ran;
+    }
+    // Waiting for the stage one asked for. A stage takes a second to build; ten seconds of frames
+    // is the game having gone somewhere else with the run, which is what a stage it cannot load
+    // does.
+    if unsafe { resume::starting() } {
+        runtime.starting += 1;
+        if runtime.starting > RESUME_START_FRAMES {
+            unsafe { resume::abandon("the stage never came up") };
         }
     }
 
@@ -1102,6 +1310,21 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     if runtime.chaptering() && runtime.chapters.tracking(&state) {
         tune(runtime, &state);
         boundary_reached(runtime, &state);
+        unsafe { keep_chapter(runtime, &state) };
+    }
+    // The run over, whichever way: what was written down is a stage the game is taking down, and
+    // the file beside it is left holding the chapter unless the run *finished* — the result screen
+    // is what a run reaches and what giving one up does not go through.
+    if runtime.previous.is_some_and(|previous| previous.in_run) && !state.in_run {
+        unsafe { resume::forget() };
+    }
+    // The mode as well as the chapter, because the result screen is a screen every run ends at: a
+    // normal run's game over would otherwise take away the chapter a pointdevice run was left in.
+    // And this run's own file, which is the one the run just finished was written to.
+    if runtime.kept.is_some() && runtime.keeping() && unsafe { runtime.game.run_finished() } {
+        let run = unsafe { runtime.game.run_start() };
+        resume::discard(&runtime.config.base_dir, runtime.game, &run);
+        runtime.kept = None;
     }
     unsafe { stress(runtime, &state) };
     // Polling DirectSound every frame is diagnostic work, so it only happens when
@@ -1140,6 +1363,52 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             runtime.asking = Some(ModeMenu::new(menu, runtime.mode));
         }
     }
+
+    // And the question after the character select, where a run has been chosen and a chapter of that
+    // same run — the same difficulty, character and shot — was left unfinished. Read off the disk
+    // here rather than kept from startup: what it offers is the chapter the last session stopped at,
+    // which moves with every chapter a run reaches.
+    //
+    // Before the frame that builds the run, which is what makes both answers cost nothing: the game
+    // has settled what the run is and has not acted on it.
+    if runtime.keeping() && runtime.asking_resume.is_none() && unsafe { runtime.game.run_chosen() }
+    {
+        let run = unsafe { runtime.game.run_start() };
+        // A run the game keeps no slot for is a practice run: nothing was written down for it and
+        // nothing is asked about it, and that ends here rather than in a line of the log.
+        if let Some(slot) = runtime.game.run_slot(&run) {
+            match resume::load(&runtime.config.base_dir, runtime.game, &run) {
+                // Not without the overlay, which is what would draw it: a frozen game with an
+                // invisible question over it is a game that looks broken, and what is lost by not
+                // asking is the run starting where the game was going to start it anyway.
+                Some(_) if runtime.overlay.is_none() => {
+                    log!(
+                        "resume: {slot} was left, but there is no overlay to ask over the game with"
+                    );
+                }
+                Some(saved) => {
+                    log!("resume: {slot} was left; asking where to start");
+                    let menu = resume_ui::ResumeMenu::new(saved.describe());
+                    runtime.asking_resume = Some((menu, saved));
+                }
+                None => detail!("resume: nothing was left of {slot}"),
+            }
+        }
+    }
+
+    // And the same thing said a screen earlier, over the game's own shot type select, where it costs
+    // nothing and freezes nothing: which run is under the cursor, and whether that one has a chapter
+    // written down. Every frame, because the cursor moves between the two shots on the screen — the
+    // file is only read where the answer would be about another run.
+    let keeping = runtime.keeping();
+    let pointed = keeping
+        .then(|| unsafe { runtime.game.run_pointed_at() })
+        .flatten()
+        .and_then(|run| runtime.game.run_slot(&run));
+    let base = &runtime.config.base_dir;
+    runtime
+        .mark
+        .pointing(pointed, |slot| resume::peek(base, slot));
 
     let scene_changed = runtime
         .previous
@@ -1501,6 +1770,199 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
     Step::Held { reached, ran }
 }
 
+/// Plays a saved run's buttons into the stage the game has just built, until the frame the chapter
+/// it was left in began on, and reports where that left the game.
+///
+/// The ending skip's mechanism aimed at a chapter: drawing happens once per frame, so however many
+/// updates this runs, not one of them is seen. Every one of them is observed, though, which is
+/// what leaves the run with the chapter's own snapshot to be sent back to and the stage divided
+/// the way it was.
+///
+/// What the run lands on is then held against what was written down for that frame. Both lines go
+/// to the log whatever comes of it: what a resume rests on is that the numbers a stage reads at its
+/// start are all written down, and this is the instrument for that — see [`game::Reproduction`].
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State, i32) {
+    let mut reached = unsafe { runtime.game.read_state() };
+    let mut ran = CHAIN_BREAK;
+    let mut frames = 0;
+    let deaths = reached.deaths;
+    // The first frame the player was hit, where one was. The buttons written down are a path that
+    // survived — every death a run had was rewound away by the retry menu, and the frames of the
+    // attempt that did not survive were written over by the one that did — so a death here is a
+    // playback that has come out of step, and the frame it happened on is where to look.
+    let mut hit = None;
+    // A bound on a clock that has stopped rather than on how far there is to go: an update of a
+    // stage is one of its frames, so a playback that has run more updates than the frame it aims at
+    // is one whose updates are going somewhere else.
+    let limit = at + STALLED_FRAMES;
+    while reached.stage_frames < at
+        && reached.playing
+        && frames < limit
+        && ran != CHAIN_EXIT_SUCCESS
+        && ran != CHAIN_EXIT_ERROR
+    {
+        ran = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+        reached = unsafe { runtime.game.read_state() };
+        unsafe {
+            runtime.chapters.observe(
+                runtime.game,
+                &reached,
+                &runtime.data,
+                runtime.config.self_check,
+            )
+        };
+        if hit.is_none() && reached.deaths > deaths {
+            hit = Some(reached.stage_frames);
+        }
+        frames += 1;
+    }
+    if let Some(frame) = hit {
+        log!(
+            "resume: the player was hit at frame {frame}, which a path that survived does not do; \
+             the playback has come out of step there or before it"
+        );
+    }
+    let arrived = unsafe { resume::landed() };
+    let Some(landing) = arrived else {
+        return (reached, ran);
+    };
+    // The rewinds the run had already cost are part of what it is, and the status line's count
+    // carries on from them rather than starting again at none.
+    runtime.chapters.carry_retries(landing.retries);
+    // The file already describes the chapter the run is standing in, so nothing writes it again —
+    // and a run that goes on to finish from here still has that file taken away.
+    runtime.kept = Some((reached.stage, landing.at));
+    // Nothing about the frame the question was frozen on is worth comparing against this one. The
+    // count of deaths above all: the run's own is in place now, and against the count the front end
+    // was left holding it reads as a death on the frame the resume landed.
+    runtime.previous = None;
+    let landed = unsafe { runtime.game.reproduction() };
+    log!(
+        "resume: {frames} update(s) run; stage {} frame {} (script {}) in chapter {} ({}), \
+         written down as chapter {} ({}) at frame {}; lives={} bombs={} power={} score={}",
+        reached.stage + 1,
+        reached.stage_frames,
+        reached.script_frames,
+        runtime.chapters.number(),
+        runtime
+            .chapters
+            .name()
+            .map_or_else(|| "none yet".to_owned(), |name| name.to_string()),
+        landing.chapter,
+        landing.name,
+        landing.at,
+        reached.lives,
+        reached.bombs,
+        reached.power,
+        landed.score,
+    );
+    let landed = landed.to_string();
+    match resume::differs(&landing.reproduction, &landed) {
+        None => log!("resume: the landing is the frame that was written down, field for field"),
+        Some(field) => {
+            log!("resume: the landing is not the frame written down: {field}");
+            log!("resume:   written {}", landing.reproduction);
+            log!("resume:   landed  {landed}");
+        }
+    }
+
+    // The song put where that chapter had it, which is what a retry of a chapter of the stage does
+    // to the music — so a resume, which is the same chapter arrived at another way, owes the same.
+    // What is playing at the landing is otherwise the track's opening milliseconds, the stage having
+    // been built a frame ago.
+    //
+    // A boss's own theme is left alone, the way a fight's retry leaves it: starting it over every
+    // attempt is worse than the jump in it. Which chapters those are is the same question the retry
+    // asks, asked the same way — of the song playing and not of the chapter's kind, a midboss being a
+    // fight the stage's song plays through.
+    if runtime.chapters.stage_song_playing(runtime.game, &reached) {
+        let moved = landing
+            .song
+            .zip(runtime.game.music())
+            .is_some_and(|(song, music)| {
+                let moved = unsafe { music.play_from(song) };
+                log!(
+                    "resume: the song {} at {song} in the track's own file",
+                    if moved {
+                        "picked up"
+                    } else {
+                        "could not be put"
+                    },
+                );
+                moved
+            });
+        // The chapter's snapshot was taken during the playback, with the song where the playback had
+        // it — nothing, near enough. Left at that, the first death in this chapter would rewind the
+        // music to the top and undo what was just put right, so the snapshot is taken again now that
+        // the sound is where it belongs. It costs one copy of a chapter, on a frame that has just
+        // run a stage's worth of updates.
+        if moved {
+            unsafe {
+                runtime.chapters.retake(
+                    runtime.game,
+                    &reached,
+                    &runtime.data,
+                    runtime.config.self_check,
+                )
+            };
+        }
+    }
+    (reached, ran)
+}
+
+/// Writes down where the run is at every chapter it reaches, which is what a later launch offers to
+/// pick up.
+///
+/// At every one of them rather than where a session ends, because there is no moment a session ends
+/// at: closing the window, the game being killed and a crash all leave nothing to write from. What
+/// this costs is one file of a few tens of kilobytes per chapter, beside a snapshot of several
+/// megabytes taken on the same frame.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
+    // A run somebody is playing, and not one being played back into place: the chapters a playback
+    // passes through are behind the one it is going to, and writing one of those down would move
+    // the resume point backwards.
+    if !runtime.keeping() || !state.in_game || unsafe { resume::landing() }.is_some() {
+        return;
+    }
+    let Some(name) = runtime.chapters.name() else {
+        return;
+    };
+    let at = runtime.chapters.started_at();
+    let chapter = (state.stage, at);
+    if runtime.kept == Some(chapter) {
+        return;
+    }
+    // Only from the frame the chapter began on, because what goes in the file with it is the
+    // reproduction line for that frame and a frame further on is not that frame. A run at more
+    // than one update to a drawn frame — a clear — passes chapters without ever standing on one.
+    if state.stage_frames != at {
+        return detail!(
+            "resume: chapter {} began at frame {at} and the game is at {}; not written",
+            runtime.chapters.number(),
+            state.stage_frames,
+        );
+    }
+    // Set whether or not the write comes off: what it would do again next frame is fail again,
+    // and the line saying why has been written once.
+    runtime.kept = Some(chapter);
+    unsafe {
+        resume::write(
+            &runtime.config.base_dir,
+            runtime.game,
+            at,
+            runtime.chapters.number(),
+            &name.to_string(),
+            runtime.chapters.retries(),
+        )
+    };
+}
+
 /// Starts the flash when the game comes to rest on a boundary it was not on before.
 ///
 /// The boundary rather than the chapter number, because numbering starts again at every
@@ -1836,6 +2298,15 @@ unsafe fn draw_overlay() {
         unsafe { asking.draw(overlay) };
         return;
     }
+
+    if let Some((asking, _)) = &mut runtime.asking_resume {
+        unsafe { asking.draw(overlay) };
+        return;
+    }
+
+    // Over the game's own screen and not instead of it: what it says is about the item the game's
+    // cursor is on, and the screen carries on running underneath.
+    unsafe { runtime.mark.draw(overlay) };
 
     // Over the play field and no further. The rest of the game's output — the panel beside
     // it, the border around it — is not repainted every frame, so a wash drawn there is

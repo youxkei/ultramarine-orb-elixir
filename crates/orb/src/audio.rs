@@ -13,7 +13,7 @@ use std::mem::offset_of;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
-use crate::log::log;
+use crate::log::{detail, log};
 
 const DSBSTATUS_PLAYING: u32 = 0x1;
 const DSBSTATUS_BUFFER_LOST: u32 = 0x2;
@@ -25,6 +25,7 @@ const SEEK_CUR: i32 = 1;
 
 /// `mmioSeek` from winmm, which the game already has loaded.
 type MmioSeek = unsafe extern "system" fn(HANDLE, i32, i32) -> i32;
+type MmioRead = unsafe extern "system" fn(HANDLE, *mut u8, i32) -> i32;
 
 #[repr(C)]
 pub struct SoundBuffer {
@@ -83,6 +84,11 @@ pub struct Music {
     /// How much the streaming thread writes each time it is woken.
     pub notify_size: u32,
     pub mmio: HANDLE,
+    /// Address of the countdown the track's loop is taken on: how many bytes of sound the stream
+    /// believes are left before it. The game subtracts every byte it reads from it and starts the
+    /// track over when a read comes up short against it, so it and the file's position are a pair —
+    /// moving one without the other is a track that loops in the wrong place, or not at all.
+    pub bytes_left: usize,
     /// Address of the offset the streaming thread will write the next chunk at.
     /// It moves exactly when that thread tops the buffer up, which makes it the
     /// token for "has the stream moved since I looked".
@@ -227,6 +233,120 @@ impl Music {
         self.token() == Some(saved.token)
     }
 
+    /// Where in the wav the sound now audible begins, as a file offset [`Music::play_from`] takes
+    /// back. `None` where the stream will not say.
+    ///
+    /// One number rather than the buffer's contents, because this is what crosses a launch: the file
+    /// is the same file next time, where the buffer is an object of this process. The streaming
+    /// thread reads its next chunk from the file position, so what is audible began that position
+    /// less everything sitting in the buffer unplayed.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    pub unsafe fn audible_offset(&self) -> Option<i32> {
+        let vtable = unsafe { &*(*self.buffer).vtable };
+        let mut play = 0;
+        if unsafe { (vtable.get_current_position)(self.buffer, &mut play, &mut 0) } < 0 {
+            return None;
+        }
+        let write = self.token()?;
+        if self.buffer_size == 0 || play >= self.buffer_size || write >= self.buffer_size {
+            return None;
+        }
+        let unplayed = (write + self.buffer_size - play) % self.buffer_size;
+        let position = unsafe { mmio_seek(self.mmio, 0, SEEK_CUR) };
+        // Negative is `mmioSeek` refusing to say. Less than a buffer in is a song that has looped
+        // since the position was read, and the offset before its own start is no place to seek to.
+        u32::try_from(position)
+            .ok()
+            .filter(|position| *position >= unplayed)
+            .map(|position| (position - unplayed) as i32)
+    }
+
+    /// The file offset the game will take the track's loop at: where the file is now, plus what the
+    /// countdown says is left before it does.
+    ///
+    /// Asked of the two together rather than of the loop fields in the header, because which of them
+    /// the game is going by is its own business — a track with no loop end runs to the end of its
+    /// sound instead — and this is the number both answers come out as.
+    ///
+    /// # Safety
+    /// Must run with the buffer stopped, so that neither half of the pair moves between the reads.
+    unsafe fn loop_point(&self) -> Option<i32> {
+        let position = unsafe { mmio_seek(self.mmio, 0, SEEK_CUR) };
+        if position < 0 {
+            return None;
+        }
+        let left = unsafe { crate::mem::read::<u32>(self.bytes_left) };
+        i32::try_from(left).ok()?.checked_add(position)
+    }
+
+    /// Starts the track again from `offset`, the file offset of the sound to be heard next, and says
+    /// whether it could.
+    ///
+    /// The buffer is filled from the file rather than left to the streaming thread, so that nothing
+    /// of what it already held is heard first: after a resume that is the song's opening
+    /// milliseconds, the stage having been built a frame ago. Everything is then where a freshly
+    /// loaded track has it — the buffer holding one buffer's worth from `offset`, the play cursor and
+    /// the next write at nothing, the file at what follows, and the countdown to the loop as far off
+    /// as `offset` is — so the thread carries on without a seam and loops where the track does.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with no game thread suspended: this locks
+    /// the buffer, which the streaming thread can be inside DirectSound holding.
+    pub unsafe fn play_from(&self, offset: i32) -> bool {
+        let vtable = unsafe { &*(*self.buffer).vtable };
+        let mut status = 0;
+        if unsafe { (vtable.get_status)(self.buffer, &mut status) } < 0 {
+            return false;
+        }
+        // Stopped before the file is touched rather than after it: the streaming thread seeks and
+        // reads the same handle and moves the same countdown, on notifications a stopped buffer does
+        // not raise. Every read below is of a pair that has to agree, and one of them moving in
+        // between is a track that loops in the wrong place.
+        unsafe { (vtable.stop)(self.buffer) };
+        let Some(loop_point) = (unsafe { self.loop_point() }) else {
+            return false;
+        };
+        if unsafe { mmio_seek(self.mmio, offset, SEEK_SET) } != offset {
+            return false;
+        }
+        let mut chunk = vec![0u8; self.buffer_size as usize];
+        // Short of a whole buffer is the song's end inside it, and the rest of the buffer is left
+        // silent: the thread tops it up from wherever the file now is, which is what it does at the
+        // end of any pass over the song.
+        let read = unsafe { mmio_read(self.mmio, &mut chunk) };
+        if read <= 0 {
+            return false;
+        }
+        // The countdown moved to match the file, because what loops the track is that running out and
+        // not the file ending. Left where it was, the stream believes it has as much left as it did
+        // at `offset` bytes ago, reads past the end of the sound, and the read fails rather than
+        // coming up short — so no loop is taken and the buffer is left going round its own contents,
+        // for as long as it takes to count off the bytes that were skipped. Which is audible, and
+        // was: seconds of the song repeating, once, near the end of a resumed stage.
+        let left = (loop_point - offset - read).max(0) as u32;
+        unsafe { crate::mem::write::<u32>(self.bytes_left, left) };
+        detail!("music: the track loops at {loop_point}, so {left} byte(s) left from {offset}");
+        unsafe {
+            if self
+                .with_locked_buffer(|locked| locked.copy_from_slice(&chunk))
+                .is_none()
+            {
+                return false;
+            }
+            (vtable.set_current_position)(self.buffer, 0);
+            crate::mem::write::<u32>(self.write_offset, 0);
+            let flags = if status & DSBSTATUS_LOOPING != 0 {
+                DSBPLAY_LOOPING
+            } else {
+                0
+            };
+            (vtable.play)(self.buffer, 0, 0, flags);
+        }
+        true
+    }
+
     /// Locks the whole buffer and hands it over as one slice. DirectSound splits
     /// a lock that wraps the end of the buffer in two, which a lock starting at
     /// zero never does.
@@ -305,4 +425,32 @@ unsafe fn mmio_seek(mmio: HANDLE, offset: i32, origin: i32) -> i32 {
     }
     let seek: MmioSeek = unsafe { std::mem::transmute(seek) };
     unsafe { seek(mmio, offset, origin) }
+}
+
+/// The game's own handle read through the game's own library, so the bytes are the ones its
+/// streaming thread would have read next. Negative or zero where nothing was read.
+unsafe fn mmio_read(mmio: HANDLE, into: &mut [u8]) -> i32 {
+    static READ: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let read = *READ.get_or_init(|| {
+        let winmm: Vec<u16> = "winmm.dll".encode_utf16().chain([0]).collect();
+        let module = unsafe { GetModuleHandleW(winmm.as_ptr()) };
+        if module.is_null() {
+            log!("audio: winmm.dll is not loaded; a track cannot be started part way through");
+            return None;
+        }
+        let address = unsafe { GetProcAddress(module, c"mmioRead".as_ptr().cast()) };
+        if address.is_none() {
+            log!("audio: winmm.dll has no mmioRead");
+        }
+        address.map(|address| address as usize)
+    });
+    let Some(read) = read else { return -1 };
+    if mmio.is_null() {
+        return -1;
+    }
+    let read: MmioRead = unsafe { std::mem::transmute(read) };
+    let Ok(length) = i32::try_from(into.len()) else {
+        return -1;
+    };
+    unsafe { read(mmio, into.as_mut_ptr(), length) }
 }

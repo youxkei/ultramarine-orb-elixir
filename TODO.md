@@ -181,58 +181,89 @@ The skip stopping at the staff roll and `--clear` reaching one are both measured
   which it is, and the log does not say which character it was either. Worth one line per ending
   as they get seen, since what the skip has to run out is what those come to.
 
-## Resume a chapter after quitting
+## What picking a run up has not been through
 
-A snapshot is only good inside the process that took it: it holds pointers to Direct3D and
-DirectSound objects, and those addresses differ per launch. So closing the game loses where
-you were, which for the one thing orb exists to do — grinding a late chapter — is the wrong
-place to lose it. There is now a place to save from, the retry menu's third item, and nothing
-is saved there.
+A chapter has been written down, the game closed, and the chapter played back into place — the
+landing agreeing with what was written down field for field. See [DONE.md](DONE.md) for that session
+and for the fault it caught on the way. What it was, though, is one chapter of stage 1 nine frames
+in, driven by keys sent from another program. What is left is everything that is more than that.
 
-Restoring raw memory cannot be made to work across launches without recreating those objects
-and fixing up every pointer to them, which is not a road worth going down. Neither is writing
-down what the chapter *is* — the run's numbers plus the chapter's script frame, with the stage
-script run forward to it — which was the shape this section used to propose: a chapter a boss
-began is not on the script clock at all, so the half of the chapters most worth grinding cannot
-be named that way, let alone reached.
+**A chapter worth grinding, landing on every field — including the seed.** Chapters of 2009, 4597 and
+3394 frames have been picked up now, and the landing check has moved the seed's write twice: out of the
+frame before the stage, and out of the callback's own entry, which turned out to be 2048 draws early
+because that callback fills a key table from the generator first. See [DONE.md](DONE.md) for both and
+for the arithmetic. The check itself now carries `rng=`, having once agreed field for field with a seed
+2048 draws out. **Nothing has been resumed since either fix**, so what is owed is one landing that
+agrees with `rng=` among the fields it agrees on. The song's position, ignored in that same session and now decided by the song
+rather than by the chapter's kind, is unwatched for the same reason: the chapter to hear it on is a
+midboss's or a midstage one, and what should be heard is the phrase that was playing rather than the
+track's first bar.
 
-**The inputs are a better thing to write down, and the game is already keeping them.** Read off
-`ReplayManager.cpp` of the decompilation, not measured:
+**The track's loop, on a resumed stage.** Putting the song back where the chapter had it worked and
+then looped a section of itself near the end of the stage, which was the countdown the loop is taken
+on being left where the file's old position had put it — moved with the file now, see
+[DONE.md](DONE.md). What is left is to hear a resumed stage's track run past that point and take its
+loop where it should: the loop is minutes in, so it is the end of a resumed 道中 that shows it, and
+`music: the track loops at …, so … byte(s) left from …` is the line to hold against how it sounds.
 
-- `StageReplayData` is the state a stage needs to be played again and nothing else — score,
-  `randomSeed`, `pointItemsCollected`, `power`, `livesRemaining`, `bombsRemaining`, `rank`,
-  `powerItemCountForScore` — followed by up to 53,998 `(frameNum, inputKey)` entries, one per
-  frame the buttons changed on. `AddedCallbackDemo` writes all eight back and seeds the
-  generator from the record, and takes the score from the *previous* stage's entry.
-- The manager is `new`ed and each stage's record `ZunAlloc`ed, so both are in the heap a
-  snapshot covers. A chapter restore therefore puts `frameId`, the write cursor `replayInputs`
-  and the record's own bytes back with everything else — which means the record in memory holds
-  the path that survived and nothing of the attempts that did not: each attempt overwrites the
-  last from the chapter's own frame.
+**Where the mark sits on the shot type select.** `中断データあり` is drawn there now, under the run the
+cursor is on — see [SPEC.md](SPEC.md) for what it is for and why that screen. What has not been done is
+look at it: the corner it is drawn in was chosen from the layout of the screen and not from a screen
+with the line on it, so whether it collides with what the game draws, and whether the bottom left is
+where the eye goes, are both open. It also says nothing on the character select, a screen earlier,
+where the choice that loses a run is actually made — a mark there would have to stand for either shot
+of that character, which is a different sentence.
 
-So the run's surviving inputs are there for the taking at the moment it is given up, and
-resuming is playing them forward with nothing drawn — an update is tens of microseconds and the
-ending skip already runs 29,040 of them inside one frame, so a stage is well under a second.
+**What the playback costs there.** Eight updates took no measurable time. A stage's worth is
+thousands, each with `chapters.observe` behind it taking a snapshot at every boundary — and the
+frame it all happens inside is one frame. `--pacing` says what that frame came to, and it will be
+in the log as one enormous miss, which is worth seeing once so it is not read later as a fault.
 
-Two shapes for it, and the second is the one to try first:
+**What writing it costs.** The whole file goes out every time a chapter begins, which in a fight is
+every few seconds, on the same frame the chapter's snapshot is copied. A stage played to its boss
+should be tens of kilobytes; whether that is a frame off the cadence is `--pacing` against the same
+stage under `--no-resume`.
 
-| | |
-| --- | --- |
-| the game's | `SaveReplay` writes the file, playback and `jump_to_stage` reach the stage, and the frame is reached by the ending skip's loop. Then a takeover: cut the replay manager's high-priority job so it stops writing `g_CurFrameInput`, clear `isInReplay`, and get recording going again into a buffer that already holds the path. Note that `SaveReplay` frees every stage's record and cuts the recording chain on its way out — which is what makes it safe to call where the run is being given up and unsafe anywhere else — and that a loaded `ReplayData` is freed as one block where a recorded one is a block per stage, so mixing the two modes is where the heap gets hurt |
-| orb's own | record `(stage frame, buttons)` in the input hook — which orb already owns — write orb's own file, and feed the buttons back through the same hook while the fast-forward runs. No replay format, no mode mixing, and the run stays an ordinary recording run throughout, so a second quit is the same machinery again. What it costs is the eight fields above being written down and put back by hand, the generator's seed among them |
+**Whether a converter is enough to read one by.** The file is MessagePack now, and printing it as
+YAML takes a converter that knows nothing about the format — see [SPEC.md](SPEC.md). What that has not
+been through is a session where something went wrong: every fault so far was found by reading the file
+itself with `cat` beside the log, and whether one command in front of that changes how often anyone
+looks is the thing to notice next time one is being chased.
 
-What neither shape settles, and what a first attempt should print rather than assume: whether
-those eight fields are everything the game reads at a stage's start. `Reproduction` is the
-instrument — the resumed run's numbers at the chapter it landed on against the same numbers
-recorded when the run was given up, and the first field they disagree on says what is missing.
+**Whether the resumed run then plays as itself**, which nine frames cannot say much about: the
+chapter's name and number on the status line, the retry count carrying on from the file's, the brush
+over the lives, a deliberate miss putting the player back at that chapter, and the score on the
+panel being the run's.
 
-**One thing this reading calls into question.** *No replay is offered for a pointdevice run* is
-in [SPEC.md](SPEC.md) with the reason that a rewound run does not play back. If the record is
-rewound with the memory, that reason is wrong: what would be written is the surviving path, and
-it would play back as a run nobody could tell from a flawless one. The decision looks right
-either way — that is a better reason for not offering it, not a worse one — but the stated reason
-should not be left standing on a reading that contradicts it. What settles it is saving one from
-a normal-mode run and a pointdevice run of the same stage and watching what each plays back as.
+**The cases the sessions so far did not reach.** A resume of a resumed run, which is this machinery
+a second time. A run of another character, which has its own file — two short runs settle that the
+second does not write over the first. A practice run, which is not kept at all now: nothing should be
+written, offered or marked for one, and what would say otherwise is a file appearing in the directory
+while one is played. The Extra stage, stage 7 at difficulty 4. A run paused
+mid-stage, where the claim that a paused frame is not in the record gets tested. A run given up and
+*then* cleared in the same session, where the result screen has to take the file away. And a stage
+longer than ten minutes of game time, the only way to reach the bound on how far a playback may run.
+
+**What the sound does through a playback.** Thousands of updates queue their sound effects into the
+game's own list inside one frame, and `PlaySounds` runs once at the end of it. Whether that is a
+burst at the landing or nothing at all has not been heard — nine frames queue nothing. The music is
+the stage's and then the boss's from their beginnings, which is what a chapter restore already does.
+
+**Two things about the file itself.** Its `landing` line is `Reproduction`'s own text, so changing
+what that line holds makes every file written before the change disagree at its first field, and the
+version number does not catch it — the line is opaque to the reader. And a run written down by one
+build and picked up by another whose midstage table differs lands on a chapter named and numbered by
+the second build, which the landing check does not notice: what it compares is the reproduction, not
+the name.
+
+**And one thing the same reading changed elsewhere.** *No replay is offered for a pointdevice run*
+stood in [SPEC.md](SPEC.md) on the reason that a rewound run does not play back. The game keeps its
+record of inputs in the heap a snapshot covers, so it is rewound with everything else and each
+attempt writes over the last from the chapter's own frame — which is the property orb's own record
+leans on too. What would be saved is therefore the path that survived, playing back as a run nobody
+could tell from a flawless one, and that is what `SPEC.md` says now. Settling it by measurement
+rather than by reading means saving a replay from a normal-mode run and from a pointdevice run of
+the same stage and watching what each plays back as.
 
 ## What a pointdevice score is
 

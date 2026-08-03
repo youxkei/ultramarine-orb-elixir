@@ -38,6 +38,21 @@ pub struct Config {
     /// Hook the exe's heap and reservation calls, which is what lets a snapshot
     /// cover more than `.data`.
     pub track_memory: bool,
+    /// Have the game read its keyboard the way it does when DirectInput has no device, so that keys
+    /// another program sends are seen.
+    ///
+    /// For driving a session from a script, which is otherwise impossible: the game takes its
+    /// keyboard `DISCL_EXCLUSIVE | DISCL_FOREGROUND` and such a device does not see `SendInput`, so
+    /// every screen — the game's menus and the questions orb puts over them — needs a hand. Measured
+    /// rather than assumed; see `TODO.md`.
+    pub sent_keys: bool,
+    /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
+    /// played again in a later launch.
+    ///
+    /// Off through `--no-resume` and nothing else. It hooks the game's own input read and the
+    /// moment a stage's numbers are put in place, and writes a file at every chapter — so a
+    /// fault in a run that chapters alone do not explain wants a way to take exactly that out.
+    pub resume: bool,
     /// Hook the game's per-frame update and draw at all.
     pub frame_hooks: bool,
     /// Run the frame ourselves: update before draw, so nothing on screen is an
@@ -289,6 +304,8 @@ impl Config {
             game_dir: base_dir.clone(),
             chapters: true,
             track_memory: true,
+            resume: true,
+            sent_keys: false,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,
@@ -356,6 +373,8 @@ mod tests {
         assert!(config.ask_at_startup);
         assert!(config.chapters);
         assert!(config.track_memory);
+        assert!(config.resume);
+        assert!(!config.sent_keys);
         assert!(config.frame_hooks);
         assert!(config.own_frame_loop);
         assert!(config.always_draw);

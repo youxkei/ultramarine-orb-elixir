@@ -14,7 +14,9 @@ use windows_sys::Win32::Foundation::HWND;
 
 use crate::audio::{Music, SoundBuffer};
 use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Texture, Viewport};
-use crate::game::{Game, Hooks, Menu, Pad, PanelTile, Patch, Rect, Reproduction, State};
+use crate::game::{
+    Game, Hooks, Menu, Pad, PanelTile, Patch, Rect, Reproduction, RunStart, RunState, State,
+};
 use crate::joystick::Reading;
 use crate::log::log;
 
@@ -70,6 +72,38 @@ const STOP_RECORDING: usize = 0x0042aab0;
 /// absolute load reading 0x6d3f18 is both position-independent and what identifies the
 /// function.
 const STOP_RECORDING_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x51, 0xa1, 0x18, 0x3f, 0x6d, 0x00];
+
+/// `th06::GameManager::AddedCallback`, `__cdecl` taking the manager. `GameManager::RegisterChain`
+/// at 0x41ba6a registers it as the added callback of the element at 0x69d720, priority 4, so
+/// `Chain::AddToCalcChain` runs it at the moment a stage is registered — before that stage's own
+/// first update, which comes later in the same walk of the chain.
+///
+/// This is where the game itself puts a stage's numbers in place: for a replay it calls
+/// `ReplayManager::RegisterChain` from inside itself, whose `AddedCallbackDemo` writes the eight
+/// fields of that stage's record. It is also where rank comes from a table indexed by difficulty
+/// and where practice mode overwrites the power, which is why orb writes a resumed run's numbers
+/// after it returns rather than before the transition into the stage.
+const GAME_MANAGER_ADDED: usize = 0x0041bb02;
+/// `push ebp; mov ebp,esp; sub esp,0x28` — position-independent, 6 bytes.
+const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x28];
+
+/// `th06::Stage::RegisterChain`, `__cdecl` taking the stage number. Called from one place in the
+/// whole exe — 0x41c00d, inside the callback above — which makes it the seam between the numbers
+/// being put in place and the stage being built out of them.
+///
+/// That is the only window a resumed run's seed can go in at. The callback above **draws from the
+/// generator 2048 times before it copies the seed**: 0x41bc4f fills 64 records of 32 `u16` keys at
+/// `manager+0x30` from `g_Rng`, one call to `Rng::GetRandomU16` (0x41e780) each, and every one of
+/// them rewrites `g_Rng.seed` — the whole block is skipped when `curState` is
+/// [`STATE_GAMEMANAGER_REINIT`] at 0x41bb1e, which is how a stage reached
+/// by playing gets none of it and a stage reached from the menu gets all of it. So a seed written on
+/// the way into the callback comes out 2048 draws later, and a seed written after the callback is two
+/// draws late: `Stage::RegisterChain` is what draws those two, building the stage. Written here, in
+/// between, is where the game's own replay effectively writes it — `AddedCallbackDemo` from 0x41bf7e,
+/// after the 2048 and before `g_Rng.generationCount = 0` at 0x41bfec.
+const STAGE_REGISTER_CHAIN: usize = 0x004044c0;
+/// `push ebp; mov ebp,esp; sub esp,0x8; push edi` — position-independent, 7 bytes.
+const STAGE_REGISTER_CHAIN_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x57];
 
 /// `th06::GameWindow::CreateGameWindow`, `__cdecl`. `WinMain` calls it after
 /// reading the config and before creating the device, so it is the last moment
@@ -152,6 +186,11 @@ const G_MAIN_MENU: usize = 0x006d46c0;
 /// `Supervisor::OnUpdate` and then, for a replay, overwritten with the record's buttons
 /// in place of the ones on the keyboard.
 const G_CUR_FRAME_INPUT: usize = 0x0069d904;
+/// The buttons a run is made of, which `ReplayManager::OnUpdate` masks `g_CurFrameInput` with
+/// before it writes an entry — and `OnUpdateDemo` puts back under the same mask, keeping the rest
+/// of the word as it was read. Every button but 0x8, which is the one `GameManager::OnUpdate`
+/// reads at 0x41b72c to open the pause menu.
+const RUN_INPUT: u16 = 0x01f7;
 /// The bounds inside [`G_JOY_CAPS`] that an axis is measured against, which is where the game
 /// takes the centre of one and its dead zone from.
 mod joy_caps {
@@ -189,9 +228,20 @@ mod game_manager {
     pub const IS_IN_REPLAY: usize = 0x1c;
     pub const DEATHS: usize = 0x20;
     pub const CURRENT_POWER: usize = 0x1810;
+    /// `pointItemsCollected`, which is what the end of a stage is scored on.
+    pub const POINT_ITEMS: usize = 0x1816;
+    /// `powerItemCountForScore`, the count a power item collected at full power is worth,
+    /// which the item code holds at 30.
+    pub const POWER_ITEMS: usize = 0x1819;
     pub const LIVES_REMAINING: usize = 0x181a;
     pub const BOMBS_REMAINING: usize = 0x181b;
     pub const EXTRA_LIVES: usize = 0x181c;
+    /// Whose run it is and which of that character's two shots, as the character select left
+    /// them: `AddedCallbackDemo` writes these two out of a replay's header — `character` from
+    /// `shottypeChara / 2` and `shotType` from its low bit — and every table the game indexes by
+    /// them is `character * 2 + shotType`.
+    pub const CHARACTER: usize = 0x181d;
+    pub const SHOT_TYPE: usize = 0x181e;
     pub const IS_IN_GAME_MENU: usize = 0x181f;
     pub const IS_IN_RETRY_MENU: usize = 0x1820;
     pub const IS_IN_PRACTICE_MODE: usize = 0x1823;
@@ -245,7 +295,10 @@ const G_CONTROLLER: usize = 0x006c6d2c;
 /// The slots of `IDirectInputDevice8A`'s vtable that orb calls. Slot 7 is the one the keyboard's
 /// re-acquire uses, and the game's own `*0x1c(%eax)` for it is what settled the numbering.
 mod dinput_device {
+    /// `IUnknown`'s third, which every COM interface begins with.
+    pub const RELEASE: usize = 2;
     pub const ACQUIRE: usize = 7;
+    pub const UNACQUIRE: usize = 8;
     pub const GET_DEVICE_STATE: usize = 9;
     pub const POLL: usize = 25;
 }
@@ -387,6 +440,11 @@ mod chain_elem {
 /// 0x110 is 0x81a0, and four bytes of cursor and 0x40 of padding after that lands exactly on the
 /// field the decompilation names `unk_81e4` for its offset, which is the arithmetic checking out.
 mod main_menu {
+    /// `i32 cursor`, the item every one of the front end's screens has under its own cursor. On the
+    /// shot type select that is the shot itself: 0x436d07 takes `shotType` from it on the way out and
+    /// 0x436dae on the way into a run, and nothing writes `shotType` while the screen is up — so this
+    /// is the only place the shot being pointed at is to be read.
+    pub const CURSOR: usize = 0x81a0;
     /// `GameState gameState`, three fields further on, and the whole of where the front end is.
     pub const GAME_STATE: usize = 0x81f0;
     /// `stateTimer`, the frames the front end has been in that state. Every state that walks
@@ -450,6 +508,11 @@ mod streaming_sound {
 
 mod wave_file {
     pub const MMIO: usize = 0x04;
+    /// `m_ck.cksize`, the size of the `data` chunk as `mmioDescend` left it — which
+    /// `WaveFile::Read` (0x43c080) uses as how much is left to read, clamping each read to it and
+    /// subtracting what it read. The stream loops when a read comes up short against it, so it is
+    /// the countdown to the track's loop and not a size at all after the first read.
+    pub const BYTES_LEFT: usize = 0x0c;
     /// `m_dwSize`, the length of the wave file.
     pub const SIZE_OF_FILE: usize = 0x30;
     pub const LOOP_START: usize = 0x90;
@@ -480,6 +543,14 @@ const MENU_STATE_DIFFICULTY_LOAD: i32 = 6;
 /// Chosen from the title menu's `Score`, and where the game spends the second before the
 /// ranking's own chain is registered and it opens the score file.
 const MENU_STATE_SCORE: i32 = 10;
+/// The shot type select, where a run's third and last question is answered and so the first screen
+/// that knows which run is about to be played.
+///
+/// `MainMenu::OnUpdate` switches on `gameState` through the table at 0x4374d0, whose eleventh entry
+/// is 0x436a7c — the block that takes the shot from the cursor at 0x436d07 and 0x436dae. The
+/// character select (the ninth entry, 0x4364e0) is what sets it, at 0x4368fd, right after writing the
+/// character it was asked for.
+const MENU_STATE_SHOT_TYPE: i32 = 0xb;
 /// What the front end's own back button puts it in: 36 frames later it goes to `STATE_STARTUP`,
 /// which reloads the title and falls through to the menu. The difficulty select's `RETURNMENU`
 /// branch is what this is copied from, sprite interrupts and all — those are already the fade the
@@ -545,6 +616,14 @@ impl Game for Th06 {
             stop_recording: Some(Patch {
                 target: STOP_RECORDING,
                 prologue: STOP_RECORDING_PROLOGUE,
+            }),
+            stage_begun: Some(Patch {
+                target: GAME_MANAGER_ADDED,
+                prologue: GAME_MANAGER_ADDED_PROLOGUE,
+            }),
+            stage_building: Some(Patch {
+                target: STAGE_REGISTER_CHAIN,
+                prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
             }),
             create_window: Some(Patch {
                 target: CREATE_GAME_WINDOW,
@@ -659,6 +738,7 @@ impl Game for Th06 {
             buffer_size,
             notify_size: mem::read_committed(streaming + streaming_sound::NOTIFY_SIZE)?,
             mmio,
+            bytes_left: wave_file + wave_file::BYTES_LEFT,
             write_offset: streaming + streaming_sound::NEXT_WRITE_OFFSET,
         })
     }
@@ -801,6 +881,29 @@ impl Game for Th06 {
             width: 144.0,
             height: 16.0,
         }
+    }
+
+    /// `Unacquire` then `Release` then the pointer cleared, which is what `Supervisor::RegisterChain`
+    /// itself does where the device it just created cannot be set up — so it is a state the game
+    /// already knows how to be in. `Controller::GetInput` then takes its `GetKeyboardState` branch,
+    /// and the two places that would touch the device again — the shutdown's `Unacquire` and
+    /// `Release` — test the pointer first.
+    unsafe fn take_sent_keys(&self) -> bool {
+        let device: usize = unsafe { mem::read(G_SUPERVISOR + supervisor::KEYBOARD) };
+        if device == 0 {
+            return false;
+        }
+        let vtable: usize = unsafe { mem::read(device) };
+        let slot = |index: usize| unsafe {
+            let address: usize = mem::read(vtable + index * size_of::<usize>());
+            std::mem::transmute::<usize, unsafe extern "system" fn(usize) -> i32>(address)
+        };
+        unsafe {
+            slot(dinput_device::UNACQUIRE)(device);
+            slot(dinput_device::RELEASE)(device);
+            mem::write::<usize>(G_SUPERVISOR + supervisor::KEYBOARD, 0);
+        }
+        true
     }
 
     fn joystick_calibration(&self) -> Option<usize> {
@@ -982,6 +1085,218 @@ impl Game for Th06 {
         true
     }
 
+    /// The reinit state counts too: a stage move is where the frame counter is about to be put
+    /// back to nothing, and the frames either side of it belong to the stage whose counter this
+    /// still is.
+    unsafe fn stage_frame(&self) -> Option<u32> {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + supervisor::CUR_STATE) };
+        (scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT)
+            .then(|| unsafe { mem::read(G_GAME_MANAGER + game_manager::GAME_FRAMES) })
+    }
+
+    fn run_input(&self) -> u16 {
+        RUN_INPUT
+    }
+
+    unsafe fn run_start(&self) -> RunStart {
+        unsafe {
+            RunStart {
+                difficulty: mem::read(G_GAME_MANAGER + game_manager::DIFFICULTY),
+                character: mem::read::<u8>(G_GAME_MANAGER + game_manager::CHARACTER).into(),
+                shot_type: mem::read::<u8>(G_GAME_MANAGER + game_manager::SHOT_TYPE).into(),
+                practice: mem::read::<u8>(G_GAME_MANAGER + game_manager::IS_IN_PRACTICE_MODE) != 0,
+                // The game counts it from one while a stage runs — see `CURRENT_STAGE` — and orb
+                // counts from zero, which is also what it has to be written back as.
+                stage: mem::read::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE) - 1,
+            }
+        }
+    }
+
+    unsafe fn run_pointed_at(&self) -> Option<RunStart> {
+        let settled = unsafe {
+            mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_MAINMENU
+                && mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) == MENU_STATE_SHOT_TYPE
+        };
+        if !settled {
+            return None;
+        }
+        let practice =
+            unsafe { mem::read::<u8>(G_GAME_MANAGER + game_manager::IS_IN_PRACTICE_MODE) } != 0;
+        if practice {
+            return None;
+        }
+        Some(RunStart {
+            difficulty: unsafe { mem::read(G_GAME_MANAGER + game_manager::DIFFICULTY) },
+            character: unsafe { mem::read::<u8>(G_GAME_MANAGER + game_manager::CHARACTER) }.into(),
+            shot_type: unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::CURSOR) },
+            practice: false,
+            // A full run's chapter can be in any of them, and which one is what the mark says rather
+            // than part of naming it.
+            stage: 0,
+        })
+    }
+
+    /// `th06::Difficulty` and the four shots, named as the game's own screens name them and written
+    /// as a file can be. Anything outside them is said as the number it is rather than guessed at,
+    /// since a run nothing recognises is one somebody should be able to see is wrong.
+    ///
+    /// **A practice run has none**, which is the whole of why none is kept: nothing to name is nothing
+    /// to write, offer or mark. It is one stage played on its own, started again from the game's own
+    /// menu in less time than a playback takes — and a name for it would have to carry the stage, or
+    /// it is the file the full run of that shot keeps.
+    fn run_slot(&self, run: &RunStart) -> Option<String> {
+        if run.practice {
+            return None;
+        }
+        const DIFFICULTIES: [&str; 5] = ["easy", "normal", "hard", "lunatic", "extra"];
+        // `character * 2 + shotType`, which is the order every table the game indexes by them is
+        // in — see `game_manager::CHARACTER`.
+        const SHOTS: [&str; 4] = ["reimu-a", "reimu-b", "marisa-a", "marisa-b"];
+
+        let difficulty = usize::try_from(run.difficulty)
+            .ok()
+            .and_then(|at| DIFFICULTIES.get(at));
+        let shot = usize::try_from(run.character * 2 + run.shot_type)
+            .ok()
+            .and_then(|at| SHOTS.get(at));
+        Some(match (difficulty, shot) {
+            (Some(difficulty), Some(shot)) => format!("{difficulty}-{shot}"),
+            _ => format!(
+                "difficulty{}-character{}-shot{}",
+                run.difficulty, run.character, run.shot_type
+            ),
+        })
+    }
+
+    /// Two of these are not the field they look like, and both are because of where this is read:
+    /// just after `GameManager::AddedCallback`, which is the moment the game's own replay reads
+    /// them at.
+    ///
+    /// **The score comes out of `guiScore`, not `score`.** The last thing that callback does is set
+    /// `score = 0`, and `GameManager::OnUpdate` raises it back — `if (score < guiScore) score =
+    /// guiScore` — on the stage's first update. So on this frame `score` is nothing at all and
+    /// `guiScore` is the run's total. The game's own recording reads `score` for its record and
+    /// gets away with it because it is registered from inside that callback, before the zeroing.
+    ///
+    /// **The seed comes out of `randomSeed`, not the generator.** That field is where the same
+    /// callback copies the generator's seed as a stage begins, so it still says what the stage
+    /// started from once the stage has drawn from it.
+    unsafe fn run_state(&self) -> RunState {
+        unsafe {
+            RunState {
+                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
+                seed: mem::read(G_GAME_MANAGER + game_manager::RANDOM_SEED),
+                point_items: mem::read(G_GAME_MANAGER + game_manager::POINT_ITEMS),
+                power: mem::read(G_GAME_MANAGER + game_manager::CURRENT_POWER),
+                lives: mem::read(G_GAME_MANAGER + game_manager::LIVES_REMAINING),
+                bombs: mem::read(G_GAME_MANAGER + game_manager::BOMBS_REMAINING),
+                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
+                power_items: mem::read(G_GAME_MANAGER + game_manager::POWER_ITEMS),
+                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
+                deaths: mem::read(G_GAME_MANAGER + game_manager::DEATHS),
+            }
+        }
+    }
+
+    /// The same writes `ReplayManager::AddedCallbackDemo` makes, in the same places, plus the two
+    /// it has no need of.
+    ///
+    /// `extraLives` because that function does not write it: the replay branch of
+    /// `GameManager::AddedCallback` raises the count with a loop against the score thresholds
+    /// instead, which can only ever raise it — and a resume writing the score without it would
+    /// have the game hand out every extra life the run has already had. Which is the fault
+    /// `jump_to_stage` describes: a life the recording never got, and the subrank that came with
+    /// it.
+    ///
+    /// `deaths` because the result screen shows it and a resumed run's count should be the run's.
+    /// The two counters beside it — the ones a fresh stage zeroes — are left alone: the game's own
+    /// replay does not carry them either, and nothing but that screen reads them.
+    unsafe fn set_run_state(&self, state: &RunState) {
+        unsafe {
+            // Both, and the increment between them cleared: `guiScore` is the number on the panel
+            // and it chases `score`, so leaving it behind would show the score counting up from
+            // wherever the front end left it.
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::GUI_SCORE, state.score);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::SCORE, state.score);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::NEXT_SCORE_INCREMENT, 0);
+            // The seed is not here: it goes in before the stage is built — see `set_run_seed` — and
+            // by this point the loading has drawn from the generator, as it did in the run that was
+            // written down.
+            mem::write::<u16>(
+                G_GAME_MANAGER + game_manager::POINT_ITEMS,
+                state.point_items,
+            );
+            mem::write::<u16>(G_GAME_MANAGER + game_manager::CURRENT_POWER, state.power);
+            mem::write::<i8>(G_GAME_MANAGER + game_manager::LIVES_REMAINING, state.lives);
+            mem::write::<i8>(G_GAME_MANAGER + game_manager::BOMBS_REMAINING, state.bombs);
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::RANK, state.rank);
+            mem::write::<i8>(
+                G_GAME_MANAGER + game_manager::POWER_ITEMS,
+                state.power_items,
+            );
+            mem::write::<i8>(
+                G_GAME_MANAGER + game_manager::EXTRA_LIVES,
+                state.extra_lives,
+            );
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::DEATHS, state.deaths);
+        }
+    }
+
+    /// The generator, and the `GameManager` copy of it beside it.
+    ///
+    /// Both, because this runs where `GameManager::AddedCallback` has already taken its copy — see
+    /// [`STAGE_REGISTER_CHAIN`] for why it cannot run any earlier — and the copy is what a stage
+    /// written down reads its seed from, orb's own record included. Left as the game set it, the
+    /// generator would be right and the number written down for the next resume of that stage wrong.
+    /// The count of numbers drawn is not touched: the callback has just zeroed it, which is what a
+    /// stage starts from.
+    unsafe fn set_run_seed(&self, seed: u16) {
+        unsafe {
+            mem::write::<u16>(G_RNG, seed);
+            mem::write::<u16>(G_GAME_MANAGER + game_manager::RANDOM_SEED, seed);
+        }
+    }
+
+    /// `curState` already the game manager while `wantedState` is still the front end, which is the
+    /// one frame between the two.
+    ///
+    /// `Supervisor::OnUpdate` is chain priority 0 and copies `wantedState = curState` as its last
+    /// act, and the front end is priority 2 — so an item that starts a run writes `curState` after
+    /// that copy, and the frame that follows is the one where the two disagree and the supervisor has
+    /// not yet built anything. The front end has already removed its own job by then, its update
+    /// being what does that.
+    ///
+    /// The demo and a replay are refused rather than left to the caller: both ask for a run through
+    /// the same two states, the demo from the title screen itself.
+    unsafe fn run_chosen(&self) -> bool {
+        unsafe {
+            mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_GAMEMANAGER
+                && mem::read::<i32>(G_SUPERVISOR + supervisor::WANTED_STATE) == STATE_MAINMENU
+                && mem::read::<u32>(G_GAME_MANAGER + game_manager::IS_IN_REPLAY) == 0
+                && mem::read::<u8>(G_GAME_MANAGER + game_manager::DEMO_MODE) == 0
+        }
+    }
+
+    /// The stage as the menu counts it: `GameManager::AddedCallback` raises the number by one, so it
+    /// is handed the stage before the one meant — which is what the character select writes too.
+    ///
+    /// Checked against what the game has, because the number comes out of a text file beside the
+    /// game and one that is nonsense is `AddedCallback` indexing its stage table past the end:
+    /// `[eax*8+0x4764ec]` is where it picks a stage's data out of.
+    unsafe fn start_stage(&self, stage: i32) -> bool {
+        if !(0..replay_data::STAGES).contains(&stage) {
+            log!("resume: there is no stage {}", stage + 1);
+            return false;
+        }
+        unsafe { mem::write::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE, stage) };
+        true
+    }
+
+    unsafe fn run_finished(&self) -> bool {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + supervisor::CUR_STATE) };
+        scene == STATE_RESULTSCREEN_FROMGAME
+    }
+
     unsafe fn reproduction(&self) -> Reproduction {
         unsafe {
             Reproduction {
@@ -1001,6 +1316,7 @@ impl Game for Th06 {
                     mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE + size_of::<f32>()),
                 ),
                 randoms: mem::read(G_RNG + RNG_GENERATION_COUNT),
+                seed: mem::read(G_RNG),
                 items: mem::read(G_ITEM_MANAGER + ITEM_COUNT),
                 score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
                 extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
@@ -1477,6 +1793,71 @@ unsafe fn dialogue_msg_idx() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::ending_script;
+    use crate::game::{Game, RunStart, th06::Th06};
+
+    /// Which runs a chapter can be picked up in, as the name of the file it is kept in: the
+    /// difficulty, the character and the shot, and the stage not among them — a full run's stage is
+    /// what a resume moves through.
+    #[test]
+    fn a_slot_names_the_run_a_chapter_belongs_to() {
+        let run = RunStart {
+            difficulty: 3,
+            character: 1,
+            shot_type: 1,
+            practice: false,
+            stage: 3,
+        };
+        assert_eq!(Th06.run_slot(&run).as_deref(), Some("lunatic-marisa-b"));
+        assert_eq!(
+            Th06.run_slot(&RunStart { stage: 5, ..run }).as_deref(),
+            Some("lunatic-marisa-b"),
+        );
+        // Another difficulty, character or shot is another run, and none of the three may be lost
+        // in the name: a chapter picked up in the wrong one plays somebody else's shot.
+        for other in [
+            RunStart {
+                difficulty: 1,
+                ..run
+            },
+            RunStart {
+                character: 0,
+                ..run
+            },
+            RunStart {
+                shot_type: 0,
+                ..run
+            },
+        ] {
+            assert_ne!(Th06.run_slot(&other), Th06.run_slot(&run));
+        }
+        // A run this game has not got is said as the numbers it is rather than guessed at.
+        assert_eq!(
+            Th06.run_slot(&RunStart {
+                character: 7,
+                ..run
+            })
+            .as_deref(),
+            Some("difficulty3-character7-shot1"),
+        );
+    }
+
+    /// A practice run has no slot at all, which is what keeps one from being written down: it is one
+    /// stage played on its own, and the game's own menu starts that stage again in a moment.
+    #[test]
+    fn a_practice_run_has_no_slot() {
+        for stage in 0..6 {
+            assert_eq!(
+                Th06.run_slot(&RunStart {
+                    difficulty: 3,
+                    character: 1,
+                    shot_type: 1,
+                    practice: true,
+                    stage,
+                }),
+                None,
+            );
+        }
+    }
 
     /// With no game around it — which is not the same as with nothing there. This binary's own
     /// image is 10.5MB from 0x400000, so the game's globals are addresses inside it, and what the

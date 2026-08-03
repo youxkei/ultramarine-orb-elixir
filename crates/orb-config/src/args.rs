@@ -109,6 +109,19 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     no_memory: bool,
 
+    /// have the game read its keyboard the way it does when DirectInput has no device, so that keys
+    /// another program sends with SendInput are seen. For driving a session from a script, which is
+    /// otherwise impossible: the device the game takes is exclusive and foreground, and does not see
+    /// them
+    #[arg(long, help_heading = FAULT)]
+    sent_keys: bool,
+
+    /// do not write down what a run pressed, so no chapter can be picked up in a later launch.
+    /// Takes the game's input read and the moment a stage's numbers are put in place out of
+    /// orb's hands, and leaves pointdevice_resume/ alone
+    #[arg(long, help_heading = FAULT)]
+    no_resume: bool,
+
     /// leave the frame to the game: its own order, draw before update, and its own pacing,
     /// with the update and the draw still hooked so chapters carry on. A frame of input lag
     /// comes back with it, and frames are doubled and dropped as they were
@@ -208,6 +221,12 @@ impl Config {
         }
         if options.no_memory {
             self.track_memory = false;
+        }
+        if options.no_resume {
+            self.resume = false;
+        }
+        if options.sent_keys {
+            self.sent_keys = true;
         }
         if options.no_frame_loop {
             self.own_frame_loop = false;
@@ -310,6 +329,17 @@ mod tests {
         assert!(quiet.pacing_log);
         assert_eq!(quiet.log_level, LogLevel::Quiet);
         assert!(!with("--log=verbose").pacing_log);
+    }
+
+    /// What a run pressed is written down unless the launch says not to, and the file cannot say
+    /// it: a run that cannot be picked up again loses the one thing orb exists for the moment the
+    /// game is closed.
+    #[test]
+    fn a_run_is_written_down_unless_the_launch_says_not_to() {
+        assert!(with("").resume);
+        assert!(!with("--no-resume").resume);
+        // And it is its own switch: taking it out leaves the chapters it was built on.
+        assert!(with("--no-resume").chapters);
     }
 
     /// The frame is orb's unless somebody says otherwise at the launch, and the file cannot say
