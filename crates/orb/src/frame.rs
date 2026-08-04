@@ -1052,13 +1052,12 @@ fn account(marks: &Marks) {
     // not a multiple of 60 is paced entirely by the spacing of these presents, so it is the
     // one path where their spacing is the whole of what orb controls. Measuring it only where
     // the blanks do the work left the other case with nothing to look at.
-    let off = micros(
-        gap - if aimed_refreshes > 0 {
-            period * aimed_refreshes
-        } else {
-            frame_ticks()
-        },
-    );
+    let aimed = if aimed_refreshes > 0 {
+        period * aimed_refreshes
+    } else {
+        frame_ticks()
+    };
+    let off = micros(gap - aimed);
     let band = off.div_euclid(JITTER_BAND_US) + (JITTER.len() as i64) / 2;
     JITTER[band.clamp(0, JITTER.len() as i64 - 1) as usize].fetch_add(1, Ordering::Relaxed);
 
@@ -1079,7 +1078,7 @@ fn account(marks: &Marks) {
 
     // The breakdown, for the frames that did not come out on the cadence. Rationed,
     // because a bad patch would otherwise fill the log with the same line.
-    if aimed_refreshes == 0 || refreshes == aimed_refreshes {
+    if on_cadence(gap, aimed, period) {
         return;
     }
     let spoken = SPOKEN.fetch_add(1, Ordering::Relaxed);
@@ -1142,6 +1141,19 @@ fn account(marks: &Marks) {
         cost.other_us,
         cost.other_writes,
     );
+}
+
+/// Whether a frame's gap came out on the cadence it was aimed at, both read as a number of the
+/// display's refreshes.
+///
+/// Asked of the cadence and not of `AIMED_REFRESHES`: a frame paced by the clock counted no
+/// refreshes of its own, and `wait_for_slot` stores a zero there so that it says so — so holding
+/// that zero against a count threw every one of those frames out of the pacing log before the
+/// line was formatted, which is the run whose cadence there is a question about. For a frame that
+/// did count them, the two are the same test.
+fn on_cadence(gap: i64, aimed: i64, period: i64) -> bool {
+    let refreshes = |ticks: i64| (ticks + period / 2) / period;
+    refreshes(gap) == refreshes(aimed)
 }
 
 /// How the pacing is doing, for the log. With the blanks pacing, every gap should be
@@ -1319,7 +1331,7 @@ fn sleep_until(deadline: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{grid_aim, next_budget, same_rate, whole_multiple};
+    use super::{grid_aim, next_budget, on_cadence, same_rate, whole_multiple};
 
     /// A 144Hz refresh and a sixtieth of a second, in microseconds standing in for the
     /// performance counter's ticks. 2.4 refreshes to the frame, so the count has to vary.
@@ -1341,6 +1353,22 @@ mod tests {
         assert_eq!(whole_multiple(120), Some(2));
         assert_eq!(whole_multiple(119), Some(2), "119.88Hz");
         assert_eq!(whole_multiple(239), Some(4), "239.76Hz");
+    }
+
+    /// A frame paced by the clock is held to its cadence like any other, so that the run whose
+    /// cadence there is a question about is the one the pacing log has lines for.
+    #[test]
+    fn a_frame_paced_by_the_clock_is_still_held_to_its_cadence() {
+        // 50Hz, which is no whole multiple of the game's sixtieth: nothing counts refreshes,
+        // and what the wait aims at is a sixtieth on the clock.
+        const FIFTY: i64 = 20_000;
+        assert!(on_cadence(FRAME, FRAME, FIFTY));
+        assert!(on_cadence(FRAME + 2_000, FRAME, FIFTY), "within a refresh");
+        assert!(!on_cadence(FRAME * 2, FRAME, FIFTY), "a whole frame late");
+
+        // And a frame that did count them: two refreshes of 144Hz aimed at, three taken.
+        assert!(on_cadence(REFRESH * 2, REFRESH * 2, REFRESH));
+        assert!(!on_cadence(REFRESH * 3, REFRESH * 2, REFRESH));
     }
 
     /// And the ones that are genuinely not, which have to stay that way or the frames get put on
