@@ -420,7 +420,10 @@ fn entry(frame: i32, by_hand: bool, adjust: bool) -> String {
 /// One line of the state file: the stage counted from one, then the boundary.
 fn parse(line: &str) -> Option<(i32, Boundary)> {
     let mut fields = line.split_whitespace();
-    let stage = fields.next()?.parse().ok()?;
+    // Held to being a stage number here and not where `stage - 1` indexes with it: the file
+    // invites hand-editing, and a number below one overflows that subtraction. One malformed
+    // line is then the `cannot read` every other malformed field here gets.
+    let stage = fields.next()?.parse().ok().filter(|stage| *stage >= 1)?;
     let frame = fields.next()?.parse().ok()?;
     let verdict = Verdict::parse(fields.next()?)?;
     let by_hand = match fields.next() {
@@ -579,5 +582,20 @@ mod tests {
         // And a stage this knows nothing about keeps what is compiled in, hands and all.
         assert!(source.contains("hand(4597)"), "{source}");
         assert!(source.contains("proposed(880)"), "{source}");
+    }
+
+    /// A line whose stage is not a stage number is one that cannot be read, however far out it
+    /// is: the number is counted from one and indexed with one taken off it, so nothing below
+    /// one may reach that subtraction.
+    #[test]
+    fn a_stage_below_one_cannot_be_read() {
+        assert!(super::parse("1 900 keep hand").is_some());
+        for line in [
+            "0 900 keep hand",
+            "-1 900 keep",
+            "-2147483648 900 keep hand",
+        ] {
+            assert!(super::parse(line).is_none(), "{line}");
+        }
     }
 }
