@@ -16,8 +16,8 @@ use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, AddFontResourceExW, BI_RGB, BITMAPINFO, BITMAPINFOHEADER,
     CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, DEFAULT_PITCH,
     DIB_RGB_COLORS, DeleteDC, DeleteObject, FR_PRIVATE, GetTextExtentPoint32W, GetTextFaceW, HFONT,
-    OPAQUE, OUT_TT_PRECIS, SHIFTJIS_CHARSET, SelectObject, SetBkColor, SetBkMode, SetTextColor,
-    TextOutW,
+    OPAQUE, OUT_TT_PRECIS, RemoveFontResourceExW, SHIFTJIS_CHARSET, SelectObject, SetBkColor,
+    SetBkMode, SetTextColor, TextOutW,
 };
 
 use crate::log::log;
@@ -33,6 +33,9 @@ const WHITE: u32 = 0x00ff_ffff;
 
 pub struct Font {
     handle: HFONT,
+    /// The path as `AddFontResourceExW` was given it, so the drop can hand the same string
+    /// back and take the add out again.
+    path: Vec<u16>,
 }
 
 /// A glyph coverage mask: `0x00ffffff` with coverage in the alpha channel.
@@ -72,9 +75,10 @@ impl Font {
         let handle = unsafe { CreateFontIndirectW(&description) };
         if handle.is_null() {
             log!("overlay: cannot create a font");
+            unsafe { RemoveFontResourceExW(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) };
             return None;
         }
-        let font = Self { handle };
+        let font = Self { handle, path: wide };
         log!(
             "overlay: font.ttf loaded, GDI is using {:?}",
             font.face_name().as_deref()
@@ -198,7 +202,13 @@ impl Font {
 
 impl Drop for Font {
     fn drop(&mut self) {
-        unsafe { DeleteObject(self.handle as _) };
+        unsafe {
+            DeleteObject(self.handle as _);
+            // The add taken back out, not only the handle deleted: GDI counts the adds, the
+            // overlay makes two of them for the same file — one per size — and makes them
+            // again every time the overlay is built.
+            RemoveFontResourceExW(self.path.as_ptr(), FR_PRIVATE, std::ptr::null());
+        }
     }
 }
 
