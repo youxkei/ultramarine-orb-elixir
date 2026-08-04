@@ -75,6 +75,14 @@ const FONT_HEIGHT: i32 = 15;
 /// is a word on a brush stroke rather than a line to be scanned.
 const MARK_FONT_HEIGHT: i32 = 19;
 
+/// How many frames to keep trying to build the overlay for.
+///
+/// More than one because what one failure costs is the whole run: no retry menu and none of the
+/// three questions, each of them being skipped where there is no overlay. Not forever, because
+/// the failure to expect is `font.ttf` missing, and that answer does not change however often it
+/// is asked — so this is a handful of tries and then the line saying it is unavailable.
+const OVERLAY_ATTEMPTS: u32 = 8;
+
 /// `CHAIN_CALLBACK_RESULT_BREAK`: what `RunCalcChain` returns when a job asks it
 /// to stop for this frame. Returning it instead of calling the original is how
 /// the retry menu freezes the game while drawing carries on.
@@ -221,10 +229,11 @@ struct Runtime {
     frames: u32,
     previous: Option<State>,
     keyboard: Keyboard,
-    /// Created on the first frame that has a Direct3D device; `None` for good
-    /// once it has failed, so a broken overlay does not retry every frame.
+    /// Created on the first frame that has a Direct3D device.
     overlay: Option<Overlay>,
-    overlay_ready: bool,
+    /// Frames left to try building it on, so that a broken overlay is not retried for the whole
+    /// run and a busy first frame is not the whole of the answer either.
+    overlay_attempts: u32,
     /// The lag and the frame interval as the status line last showed them, in
     /// microseconds. Held between refreshes so the numbers can be read.
     shown: (i64, i64, i64),
@@ -637,7 +646,7 @@ fn attach() {
             previous: None,
             keyboard: Keyboard::new(),
             overlay: None,
-            overlay_ready: false,
+            overlay_attempts: OVERLAY_ATTEMPTS,
             shown: (0, 0, 0),
             chapters: Chapters::new(&GAME, tuning, during_replay),
             margin_worst: 0,
@@ -2309,12 +2318,12 @@ unsafe fn draw_overlay() {
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return;
     };
-    if !runtime.overlay_ready {
+    if runtime.overlay.is_none() && runtime.overlay_attempts > 0 {
         let device = unsafe { runtime.game.d3d_device() };
         if device.is_null() {
             return;
         }
-        runtime.overlay_ready = true;
+        runtime.overlay_attempts -= 1;
         runtime.overlay = unsafe {
             Overlay::new(
                 device,
@@ -2323,14 +2332,13 @@ unsafe fn draw_overlay() {
                 MARK_FONT_HEIGHT,
             )
         };
-        log!(
-            "overlay: {}",
-            if runtime.overlay.is_some() {
-                "ready"
-            } else {
-                "unavailable"
-            }
-        );
+        // Said when it is there and when the last try has gone, and nothing in between: what
+        // each try itself could not do is already a line of its own.
+        match (runtime.overlay.is_some(), runtime.overlay_attempts) {
+            (true, _) => log!("overlay: ready"),
+            (false, 0) => log!("overlay: unavailable"),
+            (false, _) => {}
+        }
     }
     let Some(overlay) = &runtime.overlay else {
         return;

@@ -70,7 +70,13 @@ impl Overlay {
             return None;
         }
 
-        let white = unsafe { create_texture(device, 1, 1) }?;
+        let Some(white) = (unsafe { create_texture(device, 1, 1) }) else {
+            // Deleted, not abandoned in the device: the block is the device's to hold and
+            // there is no `Overlay` left to be dropped, so nothing would ever come back for
+            // it. The two fonts above have a drop of their own and go with the `None`.
+            unsafe { ((*(*device).vtable).delete_state_block)(device, state_block) };
+            return None;
+        };
         unsafe {
             upload(
                 white,
