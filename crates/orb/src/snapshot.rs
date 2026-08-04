@@ -336,6 +336,21 @@ impl Snapshot {
         // Nothing between the suspend and the resume may allocate: a suspended
         // thread can hold the allocator's lock, and would never give it back.
         let mut failed = Vec::with_capacity(self.saved.len());
+        // Which is why the pages a saved region has lost since — the game freeing a few megabytes
+        // does it — are committed here rather than inside the write loop, where `commit`'s
+        // `VirtualAlloc` was exactly the call that rule forbids. It leaves a gap in which a page
+        // committed here could go again before it is written: the same gap the region list already
+        // lives with, `memtrack::regions` calling its own result a plan rather than a fact. Taken
+        // deliberately, because a fault in the copy is a fault and a lock a stopped thread will
+        // never give back is a hang with the game's threads frozen.
+        let mut writable = Vec::with_capacity(self.saved.len());
+        for entry in &self.saved {
+            if unsafe { commit(entry.region) } {
+                writable.push(entry);
+            } else {
+                failed.push(entry.region);
+            }
+        }
         // Sorted here rather than while writing: the write loop runs with threads
         // suspended and must not allocate or do anything it can avoid.
         //
@@ -357,10 +372,8 @@ impl Snapshot {
         }
         {
             let _suspended = suspend(self.audio_thread);
-            for entry in &self.saved {
-                if !unsafe { restore_region(entry, &holes) } {
-                    failed.push(entry.region);
-                }
+            for entry in writable {
+                unsafe { restore_region(entry, &holes) };
             }
         }
         // After the memory copy, so the streaming bookkeeping this has to agree
@@ -413,19 +426,15 @@ impl Snapshot {
     }
 }
 
-/// Returns false if the region could not be written back. Must not allocate or
-/// log: it runs with the game's other threads suspended.
+/// Writes one saved region back. Must not allocate or log: it runs with the game's other
+/// threads suspended, which is why `commit` is the caller's to have done already.
 ///
 /// `holes` are ranges to leave at their current values, sorted by address. They
 /// are skipped rather than saved and put back, because the one thread allowed to
 /// keep running is the one that owns them: writing anything there would be
 /// writing a value it had already moved past.
-unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
+unsafe fn restore_region(entry: &Saved, holes: &[Region]) {
     let region = entry.region;
-    if !unsafe { commit(region) } {
-        return false;
-    }
-
     let mut previous: PAGE_PROTECTION_FLAGS = 0;
     let unprotected = unsafe {
         VirtualProtect(
@@ -459,12 +468,13 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) -> bool {
             );
         }
     }
-    true
 }
 
 /// Puts back any page of `region` that has gone since the snapshot, so that the copy
 /// has somewhere to write. The game will reach every one of them again through a
 /// restored pointer, so they have to exist at the same addresses.
+///
+/// Allocates, so it runs before anything is suspended — see [`Snapshot::restore`].
 ///
 /// Walked run by run rather than tested at the region's first page. `VirtualQuery`
 /// describes only the run of pages that begins where it is asked, so a region whose
