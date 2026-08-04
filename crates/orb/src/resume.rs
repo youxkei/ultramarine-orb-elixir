@@ -42,7 +42,7 @@
 //! Written down here instead, the run stays an ordinary recording run throughout, and a second
 //! quit is this machinery over again.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -791,7 +791,10 @@ fn dense(changes: &BTreeMap<u32, u16>, upto: u32) -> Vec<u16> {
 /// them has not is a line something other than this version wrote, and nothing of it is to be read as
 /// agreeing.
 pub fn differs(written: &str, landed: &str) -> Option<String> {
-    fn keys(line: &str) -> Vec<&str> {
+    /// Into a set and not a list: what makes two lines the same shape is which fields they
+    /// carry, and holding them in the order they were written would call a line whose fields
+    /// come in another order a line of some other version.
+    fn keys(line: &str) -> BTreeSet<&str> {
         line.split_whitespace()
             .filter_map(|field| field.split_once('=').map(|(key, _)| key))
             .collect()
@@ -1012,8 +1015,13 @@ mod tests {
         );
         // The same fields in another order still agree, being read by name.
         assert_eq!(
-            super::differs(written, "replay_frame=-1 randoms=1234 score=7417420"),
+            super::differs(written, "score=7417420 replay_frame=-1 randoms=1234"),
             None,
+        );
+        // And one of them differing is still named, wherever in the line it stands.
+        assert_eq!(
+            super::differs(written, "score=7417420 randoms=1200 replay_frame=-1"),
+            Some("randoms=1234 against randoms=1200".to_owned()),
         );
         // Two lines of different shapes have no field to point at, so both are said whole.
         assert!(
