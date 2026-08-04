@@ -63,13 +63,18 @@ pub enum Answer {
     Cancelled,
 }
 
+/// How many lines the longest of [`aside`]'s descriptions is, and so how many labels are kept for
+/// whichever one is up. A number rather than something read off the descriptions, which a `match`
+/// cannot be asked for in a const; a test holds the two together.
+const ASIDE_LINES: usize = 3;
+
 pub struct ModeMenu {
     asked: Menu,
     selection: usize,
     keys: Keys,
     title: Label,
     choices: [Label; CHOICES.len()],
-    aside: Label,
+    aside: [Label; ASIDE_LINES],
     cursor: Label,
 }
 
@@ -86,7 +91,7 @@ impl ModeMenu {
             keys: Keys::new(INPUT_GRACE_FRAMES),
             title: Label::new(),
             choices: [Label::new(), Label::new()],
-            aside: Label::new(),
+            aside: [const { Label::new() }; ASIDE_LINES],
             cursor: Label::new(),
         }
     }
@@ -108,12 +113,15 @@ impl ModeMenu {
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
         let selected = CHOICES[self.selection].0;
+        let said = aside(self.asked, selected);
         unsafe {
             self.title.set(overlay, title(self.asked));
-            self.aside.set(overlay, aside(self.asked, selected));
             self.cursor.set(overlay, "▶");
             for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
                 label.set(overlay, text);
+            }
+            for (label, line) in self.aside.iter_mut().zip(said.iter().copied()) {
+                label.set(overlay, line);
             }
         }
 
@@ -126,7 +134,7 @@ impl ModeMenu {
         let y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
         menu_ui::centred(&frame, &self.title, center, y, NORMAL);
 
-        let y = menu_ui::list(
+        let mut y = menu_ui::list(
             &frame,
             &self.choices,
             &self.cursor,
@@ -134,7 +142,12 @@ impl ModeMenu {
             y + LINE_HEIGHT * 2.0,
             self.selection,
         );
-        menu_ui::centred(&frame, &self.aside, center, y + LINE_HEIGHT, ASIDE);
+        // Only the lines this choice has: the labels past them still hold whatever the choice
+        // before said, the ones that are set being set by what is up now.
+        for label in self.aside.iter().take(said.len()) {
+            y += LINE_HEIGHT;
+            menu_ui::centred(&frame, label, center, y, ASIDE);
+        }
     }
 }
 
@@ -147,36 +160,76 @@ fn title(asked: Menu) -> &'static str {
     }
 }
 
-/// What the choice under the cursor means. For a ranking that is the file it is kept in, which
-/// is the whole of what there is to say and is also what a directory listing then shows.
-fn aside(asked: Menu, mode: Mode) -> &'static str {
+/// What the choice under the cursor means, a line at a time.
+///
+/// A line rather than a sentence wrapped by the drawing: a label is one `TextOutW` and so one line,
+/// and where each break falls is a decision about what belongs together rather than about how wide
+/// the screen is.
+fn aside(asked: Menu, mode: Mode) -> &'static [&'static str] {
     match (asked, mode) {
-        (Menu::Scores, Mode::Pointdevice) => "pointdevice_score.dat",
-        (Menu::Scores, Mode::Normal) => "score.dat  ゲームのもの",
-        (_, Mode::Pointdevice) => "死んだらチャプターの頭からやり直す",
-        (_, Mode::Normal) => "ゲームそのまま  死んだら残機が減る",
+        // Nothing under a ranking's two choices: the two names are the whole of that choice, and a
+        // line naming the file each is kept in answers a question about the disk that nobody
+        // standing in front of a ranking is asking.
+        (Menu::Scores, _) => &[],
+        // What a pointdevice run gives and what it costs, both: the progress kept is the reason to
+        // choose it, and the replay is the one thing the game would have offered afterwards that it
+        // no longer does — see `Game::skip_replay_prompt`.
+        (_, Mode::Pointdevice) => &[
+            "被弾したらチャプターの頭からやり直します",
+            "進行状況は自動的にセーブされ、いつでも続きから遊べます",
+            "リプレイは保存できません",
+        ],
+        (_, Mode::Normal) => &["いつものゲームモードです", "被弾したら残機が減ります"],
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, aside, title};
+    use super::{ASIDE_LINES, Mode, aside, title};
     use crate::game::Menu;
 
-    /// A run and a ranking are asked about differently, and each choice says what it means.
+    fn said(asked: Menu, mode: Mode) -> String {
+        aside(asked, mode).join("\n")
+    }
+
+    /// A run and a ranking are asked about differently, and the run's two choices each say what
+    /// they mean.
     #[test]
     fn each_question_says_what_it_is_about() {
         assert_ne!(title(Menu::Run), title(Menu::Scores));
-        for asked in [Menu::Run, Menu::Scores] {
-            assert_ne!(aside(asked, Mode::Pointdevice), aside(asked, Mode::Normal));
+        assert_ne!(
+            aside(Menu::Run, Mode::Pointdevice),
+            aside(Menu::Run, Mode::Normal)
+        );
+    }
+
+    /// A ranking is asked with nothing under either choice: what a mode does to a run is not what
+    /// somebody looking at a ranking of one came to read.
+    #[test]
+    fn a_ranking_is_asked_with_no_description_at_all() {
+        for mode in [Mode::Pointdevice, Mode::Normal] {
+            assert!(aside(Menu::Scores, mode).is_empty());
         }
     }
 
-    /// The ranking's two choices are the two files, named as they are on disk: that is what
-    /// somebody looking for one afterwards has to go on.
+    /// The two things a pointdevice run does that the game does not: it keeps where the run got to,
+    /// and it has no replay to offer at the end of one. Said here because this screen is the last
+    /// place the choice between the modes is still open.
     #[test]
-    fn a_ranking_names_the_file_it_is_kept_in() {
-        assert!(aside(Menu::Scores, Mode::Pointdevice).contains("pointdevice_score.dat"));
-        assert!(aside(Menu::Scores, Mode::Normal).contains("score.dat"));
+    fn a_pointdevice_run_says_its_progress_is_kept_and_its_replay_is_not() {
+        let said = said(Menu::Run, Mode::Pointdevice);
+        assert!(said.contains("セーブ"));
+        assert!(said.contains("リプレイは保存できません"));
+    }
+
+    /// Every description fits the labels the menu keeps for one: a line past those is a line
+    /// nothing draws.
+    #[test]
+    fn no_description_is_longer_than_the_labels_kept_for_it() {
+        for asked in [Menu::Run, Menu::Scores] {
+            for mode in [Mode::Pointdevice, Mode::Normal] {
+                assert!(aside(asked, mode).len() <= ASIDE_LINES);
+            }
+        }
     }
 }

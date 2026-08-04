@@ -42,7 +42,7 @@ const CHOICES: [(Answer, &str); 2] = [
 
 /// What starting again costs, said under that item: the run left unfinished is written over as soon
 /// as the new one reaches a chapter, and this is the last moment anybody is told so.
-const OVERWRITES: &str = "残してあるところは上書きされる";
+const OVERWRITES: &str = "中断データは上書きされます";
 
 pub struct ResumeMenu {
     selection: usize,
