@@ -292,20 +292,65 @@ pub fn is_readable(protection: u32) -> bool {
 
 /// Heap regions and direct reservations can name the same pages; saving them
 /// twice would make a restore's write order decide the outcome.
+///
+/// Every entry the region touches and not the first of them: one that bridges two entries
+/// already apart — a heap region and a reservation with a gap between — would otherwise grow
+/// the first across the second and leave the pair overlapping, which is the duplicate this
+/// exists to prevent. One pass reaches them all, because no two entries here ever touch each
+/// other: this is the only thing that adds one.
 fn push_merged(out: &mut Vec<Region>, region: Region) {
-    for existing in out.iter_mut() {
-        if region.base >= existing.base && region.end() <= existing.end() {
-            return;
+    let mut base = region.base;
+    let mut end = region.end();
+    out.retain(|existing| {
+        let touching = base <= existing.end() && existing.base <= end;
+        if touching {
+            base = base.min(existing.base);
+            end = end.max(existing.end());
         }
-        if region.base <= existing.end() && existing.base <= region.end() {
-            let base = existing.base.min(region.base);
-            let end = existing.end().max(region.end());
-            *existing = Region {
-                base,
-                len: end - base,
-            };
-            return;
+        !touching
+    });
+    out.push(Region {
+        base,
+        len: end - base,
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Region, push_merged};
+
+    fn region(base: usize, end: usize) -> Region {
+        Region {
+            base,
+            len: end - base,
         }
     }
-    out.push(region);
+
+    /// Nothing here covers the same pages as anything else, whichever order the walk found
+    /// them in — including where what arrives bridges two that were apart.
+    #[test]
+    fn a_region_bridging_two_entries_leaves_one() {
+        for mut out in [
+            vec![region(0x1000, 0x2000), region(0x3000, 0x4000)],
+            vec![region(0x3000, 0x4000), region(0x1000, 0x2000)],
+        ] {
+            push_merged(&mut out, region(0x1800, 0x3800));
+            assert_eq!(out, [region(0x1000, 0x4000)]);
+        }
+    }
+
+    /// One already covered adds nothing, one that abuts an entry extends it, and one that
+    /// touches nothing stands on its own.
+    #[test]
+    fn what_is_already_covered_is_not_saved_again() {
+        let mut out = vec![region(0x1000, 0x4000)];
+        push_merged(&mut out, region(0x2000, 0x3000));
+        assert_eq!(out, [region(0x1000, 0x4000)]);
+
+        push_merged(&mut out, region(0x4000, 0x5000));
+        assert_eq!(out, [region(0x1000, 0x5000)]);
+
+        push_merged(&mut out, region(0x8000, 0x9000));
+        assert_eq!(out, [region(0x1000, 0x5000), region(0x8000, 0x9000)]);
+    }
 }
