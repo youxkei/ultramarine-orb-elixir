@@ -1196,6 +1196,11 @@ Where the game and the DLL are is the launcher's own question, and `--game-dir=P
 inside the game, so its answer is where it is; neither is handed on to it, and neither is a key
 in `orb.yaml`, which therefore holds no paths and nothing belonging to one machine.
 
+`--game-dir` therefore names the `orb.yaml` as well, since that directory is where the DLL will
+read it from. The launcher reading the one beside itself instead put every answer the settings
+dialog wrote into a file the game never opens — a size and an ending answered, and the game
+starting on the defaults.
+
 One DLL covers every game it is taught, and is not split per game the way vpatch's is. vpatch
 patches per-game code; orb's per-game part is a `Game` implementation, which is a table of
 addresses and a handful of accessors. Splitting would copy the snapshot, chapter, retry and

@@ -73,21 +73,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     // starts rather than into a log inside one.
     let launch = Launch::parse();
     let exe = std::env::current_exe()?;
-    let (path, mut config) = match &launch.config {
-        Some(path) => (path.clone(), Config::load(path)?),
-        None => (
-            exe.parent()
-                .unwrap_or(Path::new("."))
-                .join(orb_config::FILE_NAME),
-            Config::load_beside(&exe)?,
-        ),
+    // Settled before the settings are asked for, because the pad they can be answered with is
+    // described by a file in the game's directory too.
+    let path = config_path(&exe, launch.game_dir.as_deref(), launch.config.as_deref());
+    let mut config = match &launch.config {
+        Some(path) => Config::load(path)?,
+        None => Config::load_beside(&path)?,
     };
 
-    // Where the DLL will read it from is where it is itself, so this side is the only one that
-    // has to be told, and the file it reads never says anything about a path.
-    //
-    // Before the settings are asked for, because the pad they can be answered with is described by
-    // a file in that directory.
+    // `--config` names a file that may be anywhere, so where the game is has to be said again;
+    // for the file orb found itself, the directory it was found in is already the game's.
     if let Some(game_dir) = launch.game_dir {
         config.game_dir = game_dir;
     }
@@ -142,6 +137,24 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("orb: started {} (pid {})", game_exe.display(), process.id());
     Ok(())
+}
+
+/// Which `orb.yaml` a launch reads.
+///
+/// The one beside the game, because that is the one the DLL reads: the DLL is inside the game and
+/// both sides call `load_beside`, so nothing carries a path across to it. `--game-dir` therefore
+/// names the file as well as the game — read beside orb.exe instead, every answer the settings
+/// dialog wrote went into a file the game never opens, and a size and an ending answered here
+/// left it starting on the defaults.
+///
+/// `--config` names one outright, wherever it is, which is what it is for.
+fn config_path(exe: &Path, game_dir: Option<&Path>, named: Option<&Path>) -> PathBuf {
+    if let Some(named) = named {
+        return named.to_owned();
+    }
+    game_dir
+        .unwrap_or_else(|| exe.parent().unwrap_or(Path::new(".")))
+        .join(orb_config::FILE_NAME)
 }
 
 /// `orb.dll`, carried inside this exe and written out where the game can be told to load
@@ -229,4 +242,34 @@ fn load_library(process: &inject::Process, dll: &Path) -> Result<(), Box<dyn Err
     process
         .load_library(&dll)
         .map_err(|error| format!("cannot load {}: {error}", dll.display()).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::config_path;
+    use std::path::{Path, PathBuf};
+
+    /// The file a launch reads is the one the DLL will read, which is the one beside the game:
+    /// answers written into any other file are answers the game never sees.
+    #[test]
+    fn the_config_read_is_the_one_beside_the_game() {
+        let exe = PathBuf::from(r"C:\tools\orb.exe");
+        assert_eq!(
+            config_path(&exe, None, None),
+            PathBuf::from(r"C:\tools\orb.yaml"),
+        );
+        assert_eq!(
+            config_path(&exe, Some(Path::new(r"D:\th06")), None),
+            PathBuf::from(r"D:\th06\orb.yaml"),
+        );
+        // And `--config` names one outright, wherever it is.
+        assert_eq!(
+            config_path(
+                &exe,
+                Some(Path::new(r"D:\th06")),
+                Some(Path::new(r"E:\mine.yaml")),
+            ),
+            PathBuf::from(r"E:\mine.yaml"),
+        );
+    }
 }
