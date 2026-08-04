@@ -802,12 +802,19 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     if device.is_null() {
         return unsafe { call_render(_window) };
     }
-    // The game does nothing at all while its window is behind. Carrying on is what
-    // makes coming back to it instant instead of a stale frame, and it is also what
-    // keeps a replay or a stress run going while attention is elsewhere. The keys are
-    // dealt with in the input hook, not by stopping.
+    // The game does nothing at all while its window is behind, and orb carries on: that is what
+    // makes coming back to it instant instead of a stale frame, and what keeps a replay or a
+    // stress run going while attention is elsewhere. The keys are dealt with in the input hook,
+    // not by stopping. `always_draw: false` is for somebody who wants the game's own behaviour
+    // back, and below is where they get it.
     let window = unsafe { game.window() };
     if !runtime.config.always_draw && unsafe { GetForegroundWindow() } != window {
+        // Paced even with nothing drawn. The wait this frame loop runs on is inside this
+        // function, and the game's own loop calls it straight back, so a return that waits for
+        // nothing spins a core for as long as the window stays behind. Not being in front is
+        // exactly the case `wait_for_slot` paces by the clock, which is what is wanted here:
+        // the cadence without a blank to count against.
+        frame::wait_for_slot(window);
         return RENDER_KEEP_RUNNING;
     }
 
