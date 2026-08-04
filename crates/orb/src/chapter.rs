@@ -437,6 +437,27 @@ impl Chapters {
             .map(|(frame, _)| *frame)
     }
 
+    /// Whether this boundary of the current stage is one somebody put there.
+    ///
+    /// Asked of the baked table as well as of a tuning pass, because what turns on the answer —
+    /// the exemption from the shortest a chapter may be — has to come out the same in play as in
+    /// the pass that chose the number. While only a pass could answer it, a stage divided one way
+    /// under `--judge` and another way in the run that used the table it wrote.
+    fn added_by_hand(&self, game: &dyn Game, frame: i32) -> bool {
+        let Some(stage) = self.stage else {
+            return false;
+        };
+        match &self.midstage {
+            Midstage::Tuning(tuning) => tuning
+                .judged(stage, frame)
+                .is_some_and(|judged| judged.by_hand),
+            Midstage::Table => game
+                .midstage(stage)
+                .iter()
+                .any(|entry| entry.frame == frame && entry.by_hand),
+        }
+    }
+
     /// Whether a chapter's start is still one, which for the table's own boundaries is
     /// whether the table still has it and still carries it.
     ///
@@ -444,19 +465,6 @@ impl Chapters {
     /// altogether rather than remembering it as refused, and a chapter start that outlived
     /// the boundary it came from is a place the stepping would stop at for no reason —
     /// `chapter_dropped_key` cannot reach it either, since it is in no table to be found in.
-    /// Whether this boundary of the current stage is one somebody put there.
-    fn added_by_hand(&self, frame: i32) -> bool {
-        let Midstage::Tuning(tuning) = &self.midstage else {
-            return false;
-        };
-        let Some(stage) = self.stage else {
-            return false;
-        };
-        tuning
-            .judged(stage, frame)
-            .is_some_and(|judged| judged.by_hand)
-    }
-
     fn kept(&self, cause: Cause) -> bool {
         let Cause::Boundary(frame) = cause else {
             return true;
@@ -721,7 +729,7 @@ impl Chapters {
             Midstage::Table => game
                 .midstage(state.stage)
                 .iter()
-                .copied()
+                .map(|entry| entry.frame)
                 .filter(|frame| *frame > self.mark.midstage_upto && *frame <= state.script_frames)
                 .max(),
             Midstage::Tuning(tuning) => {
@@ -799,7 +807,7 @@ impl Chapters {
         // last one meant it, and dropping it on every pass after the one it was added on
         // would quietly lose what they wrote down. Stage 5's 2363, added by hand 54 frames
         // after the boundary at 2309, is the one that showed it.
-        let by_hand = midstage.is_some_and(|frame| self.added_by_hand(frame));
+        let by_hand = midstage.is_some_and(|frame| self.added_by_hand(game, frame));
         if elapsed < MIN_CHAPTER_FRAMES && !by_hand {
             return Due::No;
         }
@@ -1489,6 +1497,23 @@ mod tests {
             chapters.due(&Th06, &at, &Seen::of(&at)),
             Due::Yes(Cause::Boundary(313))
         ));
+    }
+
+    /// And the same question is answerable of the baked table, which is what makes that exemption
+    /// the same in play as in the `--judge` pass that chose the numbers. While only a tuning pass
+    /// could answer it, a table entry inside the floor began a chapter under `--judge` and was
+    /// silently dropped in the run that used the table it wrote.
+    #[test]
+    fn the_baked_table_says_which_boundaries_a_hand_put_there() {
+        let mut chapters = Chapters::new(&Th06, None, false);
+        // Stage 5, whose 2363 somebody put there and whose 6827 the detector proposed.
+        chapters.stage = Some(4);
+        assert!(chapters.added_by_hand(&Th06, 2363));
+        assert!(!chapters.added_by_hand(&Th06, 6827));
+        // A frame no boundary of that stage falls on is nobody's, and neither is one of another
+        // stage's.
+        assert!(!chapters.added_by_hand(&Th06, 2364));
+        assert!(!chapters.added_by_hand(&Th06, 4472));
     }
 
     /// A spellcard that names itself after the chapter its attack began takes that chapter's

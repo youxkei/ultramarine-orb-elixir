@@ -15,7 +15,8 @@ use windows_sys::Win32::Foundation::HWND;
 use crate::audio::{Music, SoundBuffer};
 use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Texture, Viewport};
 use crate::game::{
-    Game, Hooks, Menu, Pad, PanelTile, Patch, Rect, Reproduction, RunStart, RunState, State,
+    Boundary, Game, Hooks, Menu, Pad, PanelTile, Patch, Rect, Reproduction, RunStart, RunState,
+    State,
 };
 use crate::joystick::Reading;
 use crate::log::log;
@@ -1514,7 +1515,7 @@ impl Game for Th06 {
         true
     }
 
-    fn midstage_table(&self) -> &'static [&'static [i32]] {
+    fn midstage_table(&self) -> &'static [&'static [Boundary]] {
         &chapters::MIDSTAGE
     }
 }

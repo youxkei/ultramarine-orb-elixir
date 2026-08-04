@@ -596,14 +596,45 @@ pub trait Game {
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> Reproduction;
 
-    /// Midstage chapter boundaries per stage, as script frame numbers.
-    fn midstage_table(&self) -> &'static [&'static [i32]];
+    /// Midstage chapter boundaries per stage.
+    fn midstage_table(&self) -> &'static [&'static [Boundary]];
 
-    fn midstage(&self, stage: i32) -> &'static [i32] {
+    fn midstage(&self, stage: i32) -> &'static [Boundary] {
         usize::try_from(stage)
             .ok()
             .and_then(|stage| self.midstage_table().get(stage).copied())
             .unwrap_or(&[])
+    }
+}
+
+/// One entry of the midstage table: the frame, and whether somebody put it there.
+///
+/// Whose hand it was is data and not a comment on the number, because the shortest a chapter may
+/// be exempts a boundary somebody placed — see `Chapters::due`. Left as a comment it was an
+/// exemption only a tuning pass could reach, so a baked table divided a stage one way in the
+/// `--judge` pass that chose its numbers and another way in the run that used them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Boundary {
+    /// The enemy-timeline frame the chapter begins on. That clock advances the same way however
+    /// the player is doing and on every difficulty, which is what lets one number stand for a
+    /// place in the wave pattern.
+    pub frame: i32,
+    pub by_hand: bool,
+}
+
+/// A boundary the detector proposed and a pass kept.
+pub const fn proposed(frame: i32) -> Boundary {
+    Boundary {
+        frame,
+        by_hand: false,
+    }
+}
+
+/// And one somebody put there, which is a number nothing would propose again if it were lost.
+pub const fn hand(frame: i32) -> Boundary {
+    Boundary {
+        frame,
+        by_hand: true,
     }
 }
 

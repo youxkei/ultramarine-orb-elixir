@@ -305,24 +305,23 @@ impl Tuning {
     /// tuned, baked and left alone while the next one is done.
     fn table(&self, game: &dyn Game) -> String {
         let table = game.midstage_table();
-        let mut source = format!("pub const MIDSTAGE: [&[i32]; {}] = [\n", table.len());
+        let mut source = format!("pub const MIDSTAGE: [&[Boundary]; {}] = [\n", table.len());
         for (stage, built_in) in table.iter().enumerate() {
             let frames: Vec<String> = match self.pass(stage as i32) {
-                // Marked rather than left out: a boundary in roughly the right place
-                // is worth having while someone works out where exactly, and a number
-                // nobody can get back by replaying the stage is worth flagging.
                 Some(pass) => pass
                     .kept()
-                    .map(|boundary| match (boundary.verdict, boundary.by_hand) {
-                        (Verdict::Adjust, true) => {
-                            format!("{} /* by hand, adjust */", boundary.frame)
-                        }
-                        (Verdict::Adjust, false) => format!("{} /* adjust */", boundary.frame),
-                        (_, true) => format!("{} /* by hand */", boundary.frame),
-                        (_, false) => boundary.frame.to_string(),
+                    .map(|boundary| {
+                        entry(
+                            boundary.frame,
+                            boundary.by_hand,
+                            boundary.verdict == Verdict::Adjust,
+                        )
                     })
                     .collect(),
-                None => built_in.iter().map(i32::to_string).collect(),
+                None => built_in
+                    .iter()
+                    .map(|built| entry(built.frame, built.by_hand, false))
+                    .collect(),
             };
             let label = if stage + 1 == table.len() {
                 "extra  ".to_owned()
@@ -403,6 +402,19 @@ impl Tuning {
         }
         log!("tuning: read {read} boundary(s) from {}", path.display());
     }
+}
+
+/// One entry of the generated table.
+///
+/// Which hand it came from is the call and not a comment on the number, because the shortest a
+/// chapter may be reads it: a boundary somebody placed is exempt and a proposal is not, so a
+/// table that only remarked on it divided a stage differently in play than in the pass that
+/// chose it. `adjust` stays a comment — nothing reads that, and what it means is that a boundary
+/// is in roughly the right place while somebody works out where exactly.
+fn entry(frame: i32, by_hand: bool, adjust: bool) -> String {
+    let placed = if by_hand { "hand" } else { "proposed" };
+    let note = if adjust { " /* adjust */" } else { "" };
+    format!("{placed}({frame}){note}")
 }
 
 /// One line of the state file: the stage counted from one, then the boundary.
@@ -548,5 +560,24 @@ mod tests {
         assert_eq!(next.count(3), 1);
         assert!(next.judged(3, 900).is_some());
         assert!(next.judged(1, 900).is_none());
+    }
+
+    /// The table this writes carries which hand each boundary came from as data, because the
+    /// shortest a chapter may be reads it: a table that only said it in a comment divided a stage
+    /// differently in play than in the pass that chose the numbers.
+    #[test]
+    fn the_written_table_says_which_hand_each_boundary_came_from() {
+        let dir = std::env::temp_dir().join("orb-tuning-table");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::remove_file(dir.join(super::STATE_FILE)).ok();
+
+        let mut tuning = Tuning::new(&Th06, dir);
+        tuning.begin_stage(0);
+        tuning.add(0, 1886);
+        let source = tuning.table(&Th06);
+        assert!(source.contains("hand(1886)"), "{source}");
+        // And a stage this knows nothing about keeps what is compiled in, hands and all.
+        assert!(source.contains("hand(4597)"), "{source}");
+        assert!(source.contains("proposed(880)"), "{source}");
     }
 }

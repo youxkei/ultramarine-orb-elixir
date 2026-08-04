@@ -1565,21 +1565,23 @@ cannot be seen. So what a key acts on is always the frame on screen, and the sta
 always naming it.
 
 A boundary is `Keep` from the moment it is proposed. `Adjust` keeps it and writes it out marked
-— `1886 /* adjust */` — for a gap that is real where the frame is not quite right. `Rejected`
-keeps it out of the table while remembering it, because a decision outranks the detector: the
-same stage played again would otherwise propose it back, and taking a rejection back means
-finding it again.
+— `proposed(1886) /* adjust */` — for a gap that is real where the frame is not quite right.
+`Rejected` keeps it out of the table while remembering it, because a decision outranks the
+detector: the same stage played again would otherwise propose it back, and taking a rejection
+back means finding it again.
 
-One put there by hand is written out marked as well — `/* by hand */` — since that is the
-number nothing would propose again if it were lost, and refusing one takes it out altogether
-rather than remembering it as refused. There is nothing for a refusal to hold back there, and
-`a` is the way back.
+Whose hand a boundary came from is written out as the entry itself — `hand(1886)` against
+`proposed(1886)` — since that is the number nothing would propose again if it were lost, and
+refusing one put there by hand takes it out altogether rather than remembering it as refused.
+There is nothing for a refusal to hold back there, and `a` is the way back.
 
 **The shortest a chapter may be does not apply to one put there by hand.** That floor is there to
 stop a boss's opening flurry of script transitions carving out chapters a fraction of a second
 long, and a hand is not that: stage 5's 2363 was added 54 frames after the boundary at 2309, and
 being dropped on every pass but the one it was added on would lose what somebody wrote down while
-leaving it in the table to look at.
+leaving it in the table to look at. Which is why `hand` is an entry of the table and not a comment
+on a number: the exemption is read in play, where a comment could not be, and a table that only
+remarked on it divided a stage differently from the pass that chose it.
 
 **A boundary and the start of a chapter are one thing**, and adding one by hand begins its
 chapter on its own frame. Crossing a boundary is otherwise noticed on the update where the script
