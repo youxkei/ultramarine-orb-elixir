@@ -11,8 +11,8 @@ use std::fmt;
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Diagnostics::Debug::FlushInstructionCache;
 use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
-    VirtualAlloc, VirtualProtect,
+    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+    PAGE_READWRITE, VirtualAlloc, VirtualFree, VirtualProtect,
 };
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
@@ -106,6 +106,10 @@ pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usi
             &mut previous,
         ) == FALSE
         {
+            // Given back rather than abandoned: `attach` answers a failed hook by leaving orb
+            // doing nothing for the rest of the run, so nothing would ever come back for a page
+            // of executable memory nobody holds the address of.
+            VirtualFree(trampoline as *mut c_void, 0, MEM_RELEASE);
             return Err(Error::Protect);
         }
         write_jmp(target, hook);
