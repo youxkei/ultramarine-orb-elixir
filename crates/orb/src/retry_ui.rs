@@ -1,27 +1,13 @@
 //! The menu that appears where the chapter was lost.
 //!
-//! The game is frozen while this is up, which means its own input handling is
-//! not running either — so the menu reads the keyboard itself, and takes the pad
-//! from the sample orb's own thread keeps.
+//! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
+//! orb asks share.
 
 use crate::game::{Pad, Rect};
 use crate::input::Keyboard;
 use crate::log::log;
-use crate::mode_ui::By;
+use crate::menu_ui::{self, By, DIM_FIELD, Keys, LINE_HEIGHT, NORMAL, Pressed};
 use crate::overlay::{Label, Overlay};
-
-const VK_RETURN: u8 = 0x0d;
-const VK_ESCAPE: u8 = 0x1b;
-const VK_UP: u8 = 0x26;
-const VK_DOWN: u8 = 0x28;
-const VK_X: u8 = 0x58;
-const VK_Z: u8 = 0x5a;
-
-const DIM: u32 = 0xb400_0000;
-const NORMAL: u32 = 0xffff_ffff;
-const SELECTED: u32 = 0xffff_e066;
-
-const LINE_HEIGHT: f32 = 24.0;
 
 /// Frames before the menu accepts anything. The player was holding keys when they
 /// died — very likely a direction and the shoot key — and those presses belong to
@@ -106,11 +92,7 @@ pub struct RetryMenu {
     selection: usize,
     /// Which answer the cursor is on, while a confirmation is up.
     answer: usize,
-    grace: u32,
-    /// What the pad was doing last frame. The game is frozen here, so it is not reading the pad
-    /// itself and this menu would take nothing from one at all — and dying with a pad in hand is
-    /// exactly when this menu comes up.
-    pad: Pad,
+    keys: Keys,
     chapter: Label,
     retry: Label,
     choices: [Label; CHOICES.len()],
@@ -119,22 +101,13 @@ pub struct RetryMenu {
     cursor: Label,
 }
 
-/// A frame's presses, whichever hand made them.
-struct Pressed {
-    up: bool,
-    down: bool,
-    decide: bool,
-    cancel: bool,
-}
-
 impl RetryMenu {
     pub fn new() -> Self {
         Self {
             showing: Showing::Choices,
             selection: 0,
             answer: NO,
-            grace: INPUT_GRACE_FRAMES,
-            pad: Pad::default(),
+            keys: Keys::new(INPUT_GRACE_FRAMES),
             chapter: Label::new(),
             retry: Label::new(),
             choices: [Label::new(), Label::new(), Label::new()],
@@ -150,66 +123,36 @@ impl RetryMenu {
     /// Nothing cancels the menu itself: the player is dead, and its items are the only ways on.
     /// Cancelling a confirmation goes back to them.
     pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Choice, By)> {
-        // Every frame, grace or not: the player was holding the shot key when they died, and that
-        // must not become a press the moment the grace ends.
-        let was = std::mem::replace(&mut self.pad, pad);
-        let pushed = |now: bool, before: bool| now && !before;
-        let decided = keyboard.pressed(VK_Z) || keyboard.pressed(VK_RETURN);
-        let pressed = Pressed {
-            up: keyboard.pressed(VK_UP) || pushed(pad.up, was.up),
-            down: keyboard.pressed(VK_DOWN) || pushed(pad.down, was.down),
-            decide: decided || pushed(pad.decide, was.decide),
-            // The game's own cancel — `x` is its bomb key and its menus read that as back —
-            // escape, which is what anything with a window on it is expected to close on, and
-            // whichever pad button the game maps to that.
-            cancel: keyboard.pressed(VK_X)
-                || keyboard.pressed(VK_ESCAPE)
-                || pushed(pad.cancel, was.cancel),
-        };
-        if self.grace > 0 {
-            self.grace -= 1;
-            return None;
-        }
+        let pressed = self.keys.read(keyboard, pad)?;
         // Which hand answered, which is only ever asked about the press that decided.
-        let by = if decided { By::Keyboard } else { By::Pad };
-        self.step(pressed).map(|choice| (choice, by))
+        let by = pressed.decide;
+        let choice = self.step(&pressed)?;
+        // `step` returns a choice only on a press that decided it, so there is a hand to name.
+        Some((choice, by?))
     }
 
-    fn step(&mut self, pressed: Pressed) -> Option<Choice> {
+    fn step(&mut self, pressed: &Pressed) -> Option<Choice> {
         match self.showing {
             Showing::Choices => {
-                if pressed.up {
-                    self.selection = self.selection.checked_sub(1).unwrap_or(CHOICES.len() - 1);
-                }
-                if pressed.down {
-                    self.selection = (self.selection + 1) % CHOICES.len();
-                }
-                if !pressed.decide {
-                    return None;
-                }
+                self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
+                pressed.decide?;
                 let chosen = CHOICES[self.selection].0;
                 if question(chosen).is_none() {
                     return Some(chosen);
                 }
                 self.showing = Showing::Confirming(chosen);
                 self.answer = NO;
-                self.grace = CONFIRM_GRACE_FRAMES;
+                self.keys.hold(CONFIRM_GRACE_FRAMES);
                 log!("retry: asking about {}", chosen.label());
                 None
             }
             Showing::Confirming(choice) => {
-                // Either direction, there being two answers: what a direction means here is the
-                // other one.
-                if pressed.up || pressed.down {
-                    self.answer = (self.answer + 1) % ANSWERS.len();
-                }
-                if pressed.cancel {
+                self.answer = menu_ui::moved(self.answer, ANSWERS.len(), pressed);
+                if pressed.cancel.is_some() {
                     self.back_to_choices(choice, "cancelled");
                     return None;
                 }
-                if !pressed.decide {
-                    return None;
-                }
+                pressed.decide?;
                 if ANSWERS[self.answer].0 {
                     return Some(choice);
                 }
@@ -256,7 +199,7 @@ impl RetryMenu {
 
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
-        frame.fill(area.left, area.top, area.width, area.height, DIM);
+        frame.fill(area.left, area.top, area.width, area.height, DIM_FIELD);
 
         let center = area.center_x();
         // The header and the gap under it are three lines, which puts what follows one line above
@@ -264,35 +207,32 @@ impl RetryMenu {
         // and its two answers, with a line between — sits inside the same room.
         let mut y = area.center_y() - LINE_HEIGHT * 4.0;
         for label in [&self.chapter, &self.retry] {
-            frame.label(label, center - label.width() / 2.0, y, NORMAL);
+            menu_ui::centred(&frame, label, center, y, NORMAL);
             y += LINE_HEIGHT;
         }
         y += LINE_HEIGHT;
 
         match self.showing {
             Showing::Choices => {
-                for (index, label) in self.choices.iter().enumerate() {
-                    let selected = index == self.selection;
-                    let x = center - label.width() / 2.0;
-                    frame.label(label, x, y, if selected { SELECTED } else { NORMAL });
-                    if selected {
-                        frame.label(&self.cursor, x - self.cursor.width() - 6.0, y, SELECTED);
-                    }
-                    y += LINE_HEIGHT;
-                }
+                menu_ui::list(
+                    &frame,
+                    &self.choices,
+                    &self.cursor,
+                    center,
+                    y,
+                    self.selection,
+                );
             }
             Showing::Confirming(_) => {
-                frame.label(&self.asked, center - self.asked.width() / 2.0, y, NORMAL);
-                y += LINE_HEIGHT * 2.0;
-                for (index, label) in self.answers.iter().enumerate() {
-                    let selected = index == self.answer;
-                    let x = center - label.width() / 2.0;
-                    frame.label(label, x, y, if selected { SELECTED } else { NORMAL });
-                    if selected {
-                        frame.label(&self.cursor, x - self.cursor.width() - 6.0, y, SELECTED);
-                    }
-                    y += LINE_HEIGHT;
-                }
+                menu_ui::centred(&frame, &self.asked, center, y, NORMAL);
+                menu_ui::list(
+                    &frame,
+                    &self.answers,
+                    &self.cursor,
+                    center,
+                    y + LINE_HEIGHT * 2.0,
+                    self.answer,
+                );
             }
         }
     }
@@ -303,20 +243,21 @@ mod tests {
     use super::{
         ANSWERS, CHOICES, CONFIRM_GRACE_FRAMES, Choice, NO, Pressed, RetryMenu, Showing, question,
     };
+    use crate::menu_ui::By;
 
     /// A frame nothing was pressed on.
     fn nothing() -> Pressed {
         Pressed {
             up: false,
             down: false,
-            decide: false,
-            cancel: false,
+            decide: None,
+            cancel: None,
         }
     }
 
     fn decide() -> Pressed {
         Pressed {
-            decide: true,
+            decide: Some(By::Keyboard),
             ..nothing()
         }
     }
@@ -330,7 +271,7 @@ mod tests {
 
     fn cancel() -> Pressed {
         Pressed {
-            cancel: true,
+            cancel: Some(By::Keyboard),
             ..nothing()
         }
     }
@@ -340,7 +281,7 @@ mod tests {
     /// off first.
     fn open() -> RetryMenu {
         let mut menu = RetryMenu::new();
-        menu.grace = 0;
+        menu.keys.hold(0);
         menu
     }
 
@@ -351,16 +292,19 @@ mod tests {
             .position(|(item, _)| *item == choice)
             .expect("the menu offers it");
         while menu.selection != at {
-            assert_eq!(menu.step(down()), None);
+            assert_eq!(menu.step(&down()), None);
         }
-        menu.step(decide())
+        menu.step(&decide())
     }
 
     /// Lets the confirmation's grace run out, which `update` is what spends — so a test that
     /// drives `step` has to spend it itself.
     fn read_it(menu: &mut RetryMenu) {
-        assert!(menu.grace > 0, "a confirmation holds its keys off first");
-        menu.grace = 0;
+        assert!(
+            menu.keys.held() > 0,
+            "a confirmation holds its keys off first"
+        );
+        menu.keys.hold(0);
     }
 
     /// The chapter is the one this menu exists for, and it acts on the press that chose it:
@@ -383,9 +327,9 @@ mod tests {
             assert!(matches!(menu.showing, Showing::Confirming(asked) if asked == choice));
 
             read_it(&mut menu);
-            assert_eq!(menu.step(down()), None);
+            assert_eq!(menu.step(&down()), None);
             assert!(ANSWERS[menu.answer].0, "on yes");
-            assert_eq!(menu.step(decide()), Some(choice));
+            assert_eq!(menu.step(&decide()), Some(choice));
         }
     }
 
@@ -399,7 +343,7 @@ mod tests {
         assert!(!ANSWERS[menu.answer].0);
 
         read_it(&mut menu);
-        assert_eq!(menu.step(decide()), None);
+        assert_eq!(menu.step(&decide()), None);
         assert!(matches!(menu.showing, Showing::Choices));
         // And the cursor is still on the item that was asked about, not moved by the answering.
         assert_eq!(CHOICES[menu.selection].0, Choice::Quit);
@@ -412,7 +356,7 @@ mod tests {
         let mut menu = open();
         assert_eq!(choose(&mut menu, Choice::Stage), None);
         read_it(&mut menu);
-        assert_eq!(menu.step(cancel()), None);
+        assert_eq!(menu.step(&cancel()), None);
         assert!(matches!(menu.showing, Showing::Choices));
     }
 
@@ -421,7 +365,7 @@ mod tests {
     fn a_confirmation_holds_its_keys_off_before_it_answers() {
         let mut menu = open();
         assert_eq!(choose(&mut menu, Choice::Quit), None);
-        assert_eq!(menu.grace, CONFIRM_GRACE_FRAMES);
+        assert_eq!(menu.keys.held(), CONFIRM_GRACE_FRAMES);
     }
 
     /// A direction is the other answer, both ways: with two of them there is nowhere else for
@@ -432,10 +376,10 @@ mod tests {
         assert_eq!(choose(&mut menu, Choice::Stage), None);
         read_it(&mut menu);
 
-        assert_eq!(menu.step(down()), None);
+        assert_eq!(menu.step(&down()), None);
         assert!(ANSWERS[menu.answer].0, "on yes");
         assert_eq!(
-            menu.step(Pressed {
+            menu.step(&Pressed {
                 up: true,
                 ..nothing()
             }),

@@ -19,6 +19,7 @@ mod lives_ui;
 mod log;
 mod mem;
 mod memtrack;
+mod menu_ui;
 mod mode_ui;
 mod overlay;
 mod pe;

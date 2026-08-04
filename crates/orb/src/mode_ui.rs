@@ -6,31 +6,15 @@
 //! Not a setting in `orb.yaml`, which is for what somebody sets once — this is a choice made per
 //! run, the way 紺珠伝 asks it.
 //!
-//! The game is frozen while this is up, which means its own input handling is not running
-//! either — so this menu reads the keyboard itself, and takes the pad from the sample orb's own
-//! thread keeps. Without that second half a pad does nothing at all here while working perfectly
-//! on the game's own menu one keypress earlier, which is the whole of how it looks broken.
+//! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
+//! share.
 
 use std::fmt;
 
 use crate::game::{Menu, Pad};
 use crate::input::Keyboard;
+use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, Keys, LINE_HEIGHT, NORMAL};
 use crate::overlay::{Label, Overlay, SCREEN_HEIGHT, SCREEN_WIDTH};
-
-const VK_RETURN: u8 = 0x0d;
-const VK_ESCAPE: u8 = 0x1b;
-const VK_UP: u8 = 0x26;
-const VK_DOWN: u8 = 0x28;
-const VK_X: u8 = 0x58;
-const VK_Z: u8 = 0x5a;
-
-const DIM: u32 = 0xc800_0000;
-const NORMAL: u32 = 0xffff_ffff;
-const SELECTED: u32 = 0xffff_e066;
-/// The line under the choices, which says what the one under the cursor means.
-const ASIDE: u32 = 0xffb0_b0b0;
-
-const LINE_HEIGHT: f32 = 24.0;
 
 /// Frames before the menu accepts anything. The key that chose the item this is asked over is
 /// very likely still down, and while a press is only acted on as it goes down, somebody who
@@ -79,33 +63,10 @@ pub enum Answer {
     Cancelled,
 }
 
-/// What answered, which goes in the log.
-///
-/// Because a menu of orb's reads the pad itself — see the module comment — whether a pad works on
-/// one is a question about orb rather than about the pad, and a log that does not say which hand
-/// answered cannot settle it. It could not, and that cost a session.
-#[derive(Clone, Copy, Debug)]
-pub enum By {
-    Keyboard,
-    Pad,
-}
-
-impl fmt::Display for By {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Keyboard => "keyboard",
-            Self::Pad => "pad",
-        })
-    }
-}
-
 pub struct ModeMenu {
     asked: Menu,
     selection: usize,
-    grace: u32,
-    /// What the pad was doing last frame, since what this acts on is a press and not the holding —
-    /// and holding a button is how somebody arrives here from the game's own menu.
-    pad: Pad,
+    keys: Keys,
     title: Label,
     choices: [Label; CHOICES.len()],
     aside: Label,
@@ -122,8 +83,7 @@ impl ModeMenu {
                 .iter()
                 .position(|(mode, _)| *mode == current)
                 .unwrap_or(0),
-            grace: INPUT_GRACE_FRAMES,
-            pad: Pad::default(),
+            keys: Keys::new(INPUT_GRACE_FRAMES),
             title: Label::new(),
             choices: [Label::new(), Label::new()],
             aside: Label::new(),
@@ -135,34 +95,13 @@ impl ModeMenu {
     /// caller asks the game to read: the game is frozen here, so its own reading of the pad is not
     /// running and a pad would otherwise do nothing on this menu at all.
     pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Answer, By)> {
-        // Every frame, grace or not, so that a button held from before the menu opened is not a
-        // press the moment the grace ends.
-        let was = std::mem::replace(&mut self.pad, pad);
-        let pushed = |now: bool, before: bool| now && !before;
-        if self.grace > 0 {
-            self.grace -= 1;
-            return None;
+        let pressed = self.keys.read(keyboard, pad)?;
+        self.selection = menu_ui::moved(self.selection, CHOICES.len(), &pressed);
+        if let Some(by) = pressed.cancel {
+            return Some((Answer::Cancelled, by));
         }
-        if keyboard.pressed(VK_UP) || pushed(pad.up, was.up) {
-            self.selection = self.selection.checked_sub(1).unwrap_or(CHOICES.len() - 1);
-        }
-        if keyboard.pressed(VK_DOWN) || pushed(pad.down, was.down) {
-            self.selection = (self.selection + 1) % CHOICES.len();
-        }
-        // The game's own cancel — `x` is its bomb key and its menus read that as back — escape,
-        // which is what anything with a window on it is expected to close on, and whichever pad
-        // button the game maps to that.
-        if keyboard.pressed(VK_X) || keyboard.pressed(VK_ESCAPE) {
-            return Some((Answer::Cancelled, By::Keyboard));
-        }
-        if pushed(pad.cancel, was.cancel) {
-            return Some((Answer::Cancelled, By::Pad));
-        }
-        let chosen = Answer::Chosen(CHOICES[self.selection].0);
-        if keyboard.pressed(VK_Z) || keyboard.pressed(VK_RETURN) {
-            return Some((chosen, By::Keyboard));
-        }
-        pushed(pad.decide, was.decide).then_some((chosen, By::Pad))
+        let by = pressed.decide?;
+        Some((Answer::Chosen(CHOICES[self.selection].0), by))
     }
 
     /// # Safety
@@ -180,27 +119,22 @@ impl ModeMenu {
 
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
-        // The whole screen, not the play field: this is over the game's own menu, and what is
-        // underneath is not something to leave half readable.
-        frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM);
+        // The whole screen, not the play field: this is over the game's own menu.
+        frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM_SCREEN);
 
         let center = SCREEN_WIDTH / 2.0;
-        let mut y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
-        frame.label(&self.title, center - self.title.width() / 2.0, y, NORMAL);
+        let y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
+        menu_ui::centred(&frame, &self.title, center, y, NORMAL);
 
-        y += LINE_HEIGHT * 2.0;
-        for (index, label) in self.choices.iter().enumerate() {
-            let chosen = index == self.selection;
-            let x = center - label.width() / 2.0;
-            frame.label(label, x, y, if chosen { SELECTED } else { NORMAL });
-            if chosen {
-                frame.label(&self.cursor, x - self.cursor.width() - 6.0, y, SELECTED);
-            }
-            y += LINE_HEIGHT;
-        }
-
-        y += LINE_HEIGHT;
-        frame.label(&self.aside, center - self.aside.width() / 2.0, y, ASIDE);
+        let y = menu_ui::list(
+            &frame,
+            &self.choices,
+            &self.cursor,
+            center,
+            y + LINE_HEIGHT * 2.0,
+            self.selection,
+        );
+        menu_ui::centred(&frame, &self.aside, center, y + LINE_HEIGHT, ASIDE);
     }
 }
 

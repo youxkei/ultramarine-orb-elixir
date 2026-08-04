@@ -1653,6 +1653,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/lives_ui.rs` | the brush stroke over the game's count of lives, for a run that cannot lose one |
 | `orb/build.rs`, `orb/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
 | `orb/mode_ui.rs` | the question put over the game's own menu: pointdevice or normal |
+| `orb/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
+| `orb/menu_ui.rs` | what those three have in common — the keys they read for themselves, and the list they draw |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb/tuning.rs` | building the midstage table |

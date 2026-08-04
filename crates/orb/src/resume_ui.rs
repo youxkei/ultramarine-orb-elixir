@@ -8,30 +8,18 @@
 //! has not built anything yet, so it is also the one frame on which the answer costs nothing either
 //! way.
 //!
-//! The game is frozen while this is up, which means its own input handling is not running either —
-//! so this menu reads the keyboard itself, and takes the pad from the sample orb's own thread keeps.
+//! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
+//! share.
 //!
 //! **Nothing cancels it.** The front end has already taken itself down by the time the run is
 //! asked for — its own update is what removes its job — so there is nothing behind this question to
-//! go back to, and its two items are the two ways into the run that was chosen.
+//! go back to, and its two items are the two ways into the run that was chosen. Which is why the
+//! cancel every one of these menus reads is the one thing here that goes unread.
 
 use crate::game::Pad;
 use crate::input::Keyboard;
-use crate::mode_ui::By;
+use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, Keys, LINE_HEIGHT, NORMAL, Pressed, SELECTED};
 use crate::overlay::{Label, Overlay, SCREEN_HEIGHT, SCREEN_WIDTH};
-
-const VK_RETURN: u8 = 0x0d;
-const VK_UP: u8 = 0x26;
-const VK_DOWN: u8 = 0x28;
-const VK_Z: u8 = 0x5a;
-
-const DIM: u32 = 0xc800_0000;
-const NORMAL: u32 = 0xffff_ffff;
-const SELECTED: u32 = 0xffff_e066;
-/// The line under the choices, which says what the one under the cursor means.
-const ASIDE: u32 = 0xffb0_b0b0;
-
-const LINE_HEIGHT: f32 = 24.0;
 
 /// Frames before the menu accepts anything. The key that chose the shot type is very likely still
 /// down, and while a press is only acted on as it goes down, somebody who pressed it twice meant
@@ -58,23 +46,13 @@ const OVERWRITES: &str = "残してあるところは上書きされる";
 
 pub struct ResumeMenu {
     selection: usize,
-    grace: u32,
-    /// What the pad was doing last frame, since what this acts on is a press and not the holding —
-    /// and holding the shot key is how somebody arrives here from the character select.
-    pad: Pad,
+    keys: Keys,
     /// Which chapter the run was left in, for the line under the choices.
     left: String,
     title: Label,
     choices: [Label; CHOICES.len()],
     aside: Label,
     cursor: Label,
-}
-
-/// A frame's presses, whichever hand made them.
-struct Pressed {
-    up: bool,
-    down: bool,
-    decide: bool,
 }
 
 impl ResumeMenu {
@@ -87,8 +65,7 @@ impl ResumeMenu {
     pub fn new(left: String) -> Self {
         Self {
             selection: 0,
-            grace: INPUT_GRACE_FRAMES,
-            pad: Pad::default(),
+            keys: Keys::new(INPUT_GRACE_FRAMES),
             left,
             title: Label::new(),
             choices: [Label::new(), Label::new()],
@@ -101,30 +78,16 @@ impl ResumeMenu {
     /// caller asks the game to read: the game is frozen here, so its own reading of the pad is not
     /// running and a pad would otherwise do nothing on this menu at all.
     pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Answer, By)> {
-        // Every frame, grace or not, so that a button held from before the menu opened is not a
-        // press the moment the grace ends.
-        let was = std::mem::replace(&mut self.pad, pad);
-        let pushed = |now: bool, before: bool| now && !before;
-        let decided = keyboard.pressed(VK_Z) || keyboard.pressed(VK_RETURN);
-        let pressed = Pressed {
-            up: keyboard.pressed(VK_UP) || pushed(pad.up, was.up),
-            down: keyboard.pressed(VK_DOWN) || pushed(pad.down, was.down),
-            decide: decided || pushed(pad.decide, was.decide),
-        };
-        if self.grace > 0 {
-            self.grace -= 1;
-            return None;
-        }
-        let by = if decided { By::Keyboard } else { By::Pad };
-        self.step(pressed).map(|answer| (answer, by))
+        let pressed = self.keys.read(keyboard, pad)?;
+        let by = pressed.decide;
+        let answer = self.step(&pressed)?;
+        // `step` answers only on a press that decided, so there is a hand to name.
+        Some((answer, by?))
     }
 
-    fn step(&mut self, pressed: Pressed) -> Option<Answer> {
-        // Either direction, there being two answers: what a direction means here is the other one.
-        if pressed.up || pressed.down {
-            self.selection = (self.selection + 1) % CHOICES.len();
-        }
-        pressed.decide.then(|| CHOICES[self.selection].0)
+    fn step(&mut self, pressed: &Pressed) -> Option<Answer> {
+        self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
+        pressed.decide.map(|_| CHOICES[self.selection].0)
     }
 
     /// # Safety
@@ -146,26 +109,22 @@ impl ResumeMenu {
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
         // The whole screen, the way the mode question covers it: what is underneath is the title the
-        // front end left behind when it took itself down, and not something to leave half readable.
-        frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM);
+        // front end left behind when it took itself down.
+        frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM_SCREEN);
 
         let center = SCREEN_WIDTH / 2.0;
-        let mut y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
-        frame.label(&self.title, center - self.title.width() / 2.0, y, NORMAL);
+        let y = SCREEN_HEIGHT / 2.0 - LINE_HEIGHT * 3.0;
+        menu_ui::centred(&frame, &self.title, center, y, NORMAL);
 
-        y += LINE_HEIGHT * 2.0;
-        for (index, label) in self.choices.iter().enumerate() {
-            let chosen = index == self.selection;
-            let x = center - label.width() / 2.0;
-            frame.label(label, x, y, if chosen { SELECTED } else { NORMAL });
-            if chosen {
-                frame.label(&self.cursor, x - self.cursor.width() - 6.0, y, SELECTED);
-            }
-            y += LINE_HEIGHT;
-        }
-
-        y += LINE_HEIGHT;
-        frame.label(&self.aside, center - self.aside.width() / 2.0, y, ASIDE);
+        let y = menu_ui::list(
+            &frame,
+            &self.choices,
+            &self.cursor,
+            center,
+            y + LINE_HEIGHT * 2.0,
+            self.selection,
+        );
+        menu_ui::centred(&frame, &self.aside, center, y + LINE_HEIGHT, ASIDE);
     }
 }
 
@@ -234,6 +193,7 @@ impl Mark {
 #[cfg(test)]
 mod tests {
     use super::{Answer, Mark, Pressed, ResumeMenu};
+    use crate::menu_ui::By;
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.
@@ -257,7 +217,7 @@ mod tests {
 
     fn open() -> ResumeMenu {
         let mut menu = ResumeMenu::new("STAGE 4  BOSS SPELL 2  RETRY 42".to_owned());
-        menu.grace = 0;
+        menu.keys.hold(0);
         menu
     }
 
@@ -265,7 +225,8 @@ mod tests {
         Pressed {
             up: false,
             down: false,
-            decide: false,
+            decide: None,
+            cancel: None,
         }
     }
 
@@ -274,12 +235,12 @@ mod tests {
     #[test]
     fn the_chapter_left_behind_is_the_one_offered() {
         let mut menu = open();
-        assert_eq!(menu.step(decide()), Some(Answer::Continue));
+        assert_eq!(menu.step(&decide()), Some(Answer::Continue));
     }
 
     fn decide() -> Pressed {
         Pressed {
-            decide: true,
+            decide: Some(By::Keyboard),
             ..nothing()
         }
     }
@@ -299,15 +260,30 @@ mod tests {
             },
         ] {
             let mut menu = open();
-            assert_eq!(menu.step(direction), None);
-            assert_eq!(menu.step(decide()), Some(Answer::Beginning));
+            assert_eq!(menu.step(&direction), None);
+            assert_eq!(menu.step(&decide()), Some(Answer::Beginning));
         }
+    }
+
+    /// Nothing cancels this one: the front end it was asked over has already taken itself down, so
+    /// there is nothing to go back to — and the cancel the other two act on is read here and left
+    /// alone.
+    #[test]
+    fn nothing_cancels_it() {
+        let mut menu = open();
+        let cancelled = Pressed {
+            cancel: Some(By::Keyboard),
+            ..nothing()
+        };
+        assert_eq!(menu.step(&cancelled), None);
+        // And it changed nothing: the question is still up, on the item it started on.
+        assert_eq!(menu.step(&decide()), Some(Answer::Continue));
     }
 
     /// Nothing is answered on the frames it has just gone up, whatever is pressed: the key that
     /// chose the shot type is still down.
     #[test]
     fn it_holds_its_keys_off_first() {
-        assert!(ResumeMenu::new(String::new()).grace > 0);
+        assert!(ResumeMenu::new(String::new()).keys.held() > 0);
     }
 }
