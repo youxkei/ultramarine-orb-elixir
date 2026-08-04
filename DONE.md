@@ -505,10 +505,81 @@ settled by measurement rather than by looking at the screen, the measurement is 
   copy of `score.dat`, so nothing it had unlocked was locked again, and the next launch of the
   session said `not copied from the game's, GetLastError 80` — the file being there already,
   which is the copy happening once and only once.
-  - **Measured when orb's file was `orb_score.dat` and the fork was the `own_score_file` key**,
-    which is what those log lines say. It is `pointdevice_score.dat` now and the fork follows the
-    mode chosen in the game instead; the seam, the comparison and the seeding are the same code.
-    What the change left to check is in [TODO.md](TODO.md).
+  - **Measured when orb's file was `orb_score.dat`, the fork was the `own_score_file` key, and
+    orb's file was started as a copy of the game's**, which is what those log lines say. It is
+    `pointdevice_score.dat` now, the fork follows the mode chosen in the game, and nothing copies
+    `score.dat` into it — see [SPEC.md](SPEC.md) — so the `started as a copy` and `not copied from
+    the game's` lines above are not lines any session writes now. The seam and the comparison are
+    the same code. What those changes left to check is in [TODO.md](TODO.md).
+- **What a session counted about spell cards survives being stopped, and an attempt at a chapter
+  counts.** Both were watched on 2026-08-05 in play.
+  - A run ended anywhere but the result screen is followed by a trip through the game's own ranking,
+    which is where it writes: `score: a run ended; what it counted waits for the trip through the
+    ranking` at 371528265ms, `score.dat opened as the game's own, write` 297ms later, and
+    `score: taken through the ranking in 84 update(s) — cur=1 wanted=1` — the scene back at the front
+    end. The same shape with `pointdevice_score.dat` for a pointdevice run. Both modes, and both ways
+    out of a run: orb's retry menu and the game's own `ESC`.
+  - The counts read off the game's own screen afterwards were up: the attempt count against the card
+    a chapter was retried at, and the capture count for a card taken in a legacy run stopped partway.
+  - **Four attempts at this before it worked, and what each cost**, since the shape of the mistake is
+    the useful part: writing `curState` — the game's *result* — instead of asking the way the game
+    asks left the front end white twice and doubled once; taking `curState == 6` for the ranking being
+    up caught a frame mid-transition; guarding the trip's loops on `CHAIN_EXIT_SUCCESS`, which is 0 and
+    so also an ordinary chain answer, ended them after one update and left the screen standing where
+    the player met it; and the front end's cursor was written into the menu object being discarded
+    rather than the one built on the way back. The decompilation settles all four in a read —
+    `ResultScreen.cpp:1527-1535` for how that screen leaves, `MainMenu.cpp:848` for the request being
+    a reservation the front end acts on 60 frames later.
+- **What a missing `pointdevice_score.dat` does to the unlocks: it locks them.** A launch on
+  2026-08-04 with no such file — `score.dat` beside it untouched, mtime `2026-08-02_18:47:50` —
+  showed `Extra Start` locked on the title menu with pointdevice chosen, and the log's only score
+  line for that menu was `score: pointdevice_score.dat opened in place of the game's own` at
+  338359890ms. So a failed read is not left as a no-op: `clrd`'s parse at 0x42b502 clears its
+  destination before it looks for the chunk — four records memset at 0x42b535 — which is what
+  answered the question [TODO.md](TODO.md) had been carrying about this.
+  - The three reads were then told apart in the exe, and `MainMenu::AddedCallback`'s (0x43a5c0) is
+    the only one the front end's own items are lit from: it fills `g_GameManager` at 0x69ccd0 and
+    0x69cd30 with `clrd` and `pscr` and parses nothing else. The other two —
+    `GameManager::AddedCallback` (0x41bcdc, once per stage) and the ranking screen's added callback
+    (0x42f47f) — read all four chunks, ranking and captures included. The table of which parses each
+    calls is in [SPEC.md](SPEC.md). The write has one caller in the whole exe, 0x42f5cd in that
+    screen's deleted callback.
+  - **The same session made the file, without finishing a run**: `pointdevice_score.dat` came out
+    at 4,224 bytes, `4f733fc56b8e80d3a511acfc7ba8cb0d`, against `score.dat`'s 8,724. Leaving the
+    ranking screen is what wrote it — the deleted callback writes whether a score was entered or the
+    ranking was only looked at — so orb's file appears with an empty record rather than waiting for
+    a clear.
+  - `score.dat` was written in that session too, its mtime moving to `2026-08-04_19:01:40`, which is
+    the same callback leaving a *normal* ranking. Whether its contents changed is not established:
+    no md5 was taken before the launch, and the `004c8eda5a29a4ff985529838c21efe5` above is from
+    2026-08-01, three writes ago. It reads `ec50b0a2e69c0e56c18d11ca68e9d73a` now. The lesson for
+    the next session that means to say a file came out untouched is to md5 it first.
+- **The front end's read is the game's own file and every other open follows the mode.** The bracket
+  is on `MainMenu::AddedCallback` — see [SPEC.md](SPEC.md) — and a session on 2026-08-05 showed both
+  halves of it:
+  - `unlocks read hook installed, original at 0x02940000` at 357601218ms, so the six bytes at
+    0x43a464 were the `push ebp; mov ebp,esp; sub esp,0x10` expected of it.
+  - **Nothing between that and the title menu**: the menu was up at 357605156ms (`f0 scene=1`) with
+    no `score:` line anywhere in between, where the same point in the session before the bracket had
+    one — `score: pointdevice_score.dat opened in place of the game's own` at 338359890ms. A
+    pass-through open is not logged, so a missing line is the read going to `score.dat`.
+  - **And the ranking still pointdevice's own**: answering pointdevice at the *Score* item
+    (357616406ms) and the screen coming up at 357617437ms (`f555 scene=6`) was followed by
+    `score: pointdevice_score.dat opened in place of the game's own` 31ms later.
+  - Neither file was written by any of that: `score.dat` and `pointdevice_score.dat` kept the
+    mtimes they went in with, `2026-08-04_19:01:40` and `2026-08-04_19:03:35`.
+  - What the log cannot show is what the menu then offered. Whether `Extra Start` and the practice
+    stages are lit, and what the spell card history holds in each mode, is in [TODO.md](TODO.md).
+  - **Both files written by their own ranking screen, in one session.** Answering pointdevice at the
+    *Score* item sent the read to orb's file at 357617468ms and the write at `2026-08-05_00:21:53`;
+    answering the game's own ranking next — `mode: normal, was pointdevice` at 357638484ms — read and
+    wrote `score.dat`, mtime `2026-08-05_00:22:28`. The mode an answer leaves behind cannot reach a
+    screen that reads the file, because every item that opens it asks first.
+  - **The inferences above rest on a line that is no longer missing.** Those sessions logged an open
+    only when the file was swapped, so a read of the game's own file and a read that never happened
+    looked the same, and reading one for the other is exactly the mistake that was made. Every open
+    now says which file it landed in and what it was for — see [SPEC.md](SPEC.md) — so a session run
+    today says these things outright instead of by absence.
 - **Replay writing suppressed.** Only the write; the game's scene-change teardown, which
   goes through the same function with null arguments, still runs. Stubbing the whole
   function crashed the game later. This is what `--clear` still does. A pointdevice run is not

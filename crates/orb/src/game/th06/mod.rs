@@ -9,6 +9,7 @@
 pub mod chapters;
 
 use std::ops::Range;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::HWND;
 
@@ -87,6 +88,92 @@ const STOP_RECORDING_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x51, 0xa1, 0x18, 0x3
 const GAME_MANAGER_ADDED: usize = 0x0041bb02;
 /// `push ebp; mov ebp,esp; sub esp,0x28` — position-independent, 6 bytes.
 const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x28];
+
+/// `th06::MainMenu::AddedCallback`, `__cdecl` taking the menu. Registered at 0x43a3c4 as the `+0x8`
+/// of the chain element at `menu+0x8234`, and it is the callback that starts the title theme —
+/// `bgm/th06_01.mid` at 0x46c3a4, pushed at 0x43a475.
+///
+/// Hooked to bracket one read of the score file out of the three. All three go through the helper
+/// at 0x42b0d9: this one at 0x43a5c0, `GameManager::AddedCallback`'s at 0x41bcdc, and the ranking
+/// screen's at 0x42f47f. What each does with what it read is what tells them apart — `hscr` at
+/// 0x42b280, `catk` at 0x42b466, `clrd` at 0x42b502, `pscr` at 0x42b65e:
+///
+/// | read | hscr | catk | clrd | pscr |
+/// | --- | --- | --- | --- | --- |
+/// | this one | | | into `g_GameManager` at 0x69ccd0 | at 0x69cd30 |
+/// | `GameManager::AddedCallback`, once per stage | ✓ | ✓ | ✓ | ✓ |
+/// | the ranking screen's added callback at 0x42f060 | into a 5×4 table of difficulty by shot at screen+0x3ab0 | ✓ | ✓ | ✓ |
+///
+/// The two globals this one fills are what the front end lights `Extra Start` and its practice
+/// stages from, and it is the only read that fills them — which is what makes this the one read
+/// that has to stay pointed at the game's own file. See [`crate::score`].
+///
+/// The write is not bracketed and does not need to be: the whole exe reaches it from one place,
+/// 0x42f5cd in the ranking screen's deleted callback (0x42f5bc, the `+0xc` beside its added).
+const MAIN_MENU_ADDED: usize = 0x0043a464;
+/// `push ebp; mov ebp,esp; sub esp,0x10` — position-independent, 6 bytes.
+const MAIN_MENU_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x10];
+
+/// The added callback of the screen a ranking is shown on, `__cdecl` taking the screen. Registered
+/// at 0x42d7ec as the `+0x8` of the chain element that screen makes, and the read at 0x42f47f is
+/// the ranking's own — see [`MAIN_MENU_ADDED`] for what each of the three reads is for.
+///
+/// Hooked to get in front of that read, which is the one moment the record of captures in memory
+/// can be cleared without losing anything: see [`Th06::forget_captures`].
+const RANKING_ADDED: usize = 0x0042f060;
+/// `push ebp; mov ebp,esp; sub esp,0x40` — position-independent, 6 bytes.
+const RANKING_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x40];
+
+/// The `curState` a ranking is shown in, measured as `scene=6->1` while a player had one open.
+const STATE_SCORE: i32 = 6;
+/// What the title menu's `Score` item writes into [`main_menu::GAME_STATE`]: its handler at 0x437f56,
+/// the fifth entry of the table at 0x4381cc, writing 0xa at 0x437f84.
+const MENU_STATE_SCORE: i32 = 0xa;
+
+/// `RESULT_SCREEN_STATE_EXITING` of the decompilation's `ResultScreenState`, which is how that screen
+/// leaves: its own `case RESULT_SCREEN_STATE_EXITING` writes `g_Supervisor.curState =
+/// SUPERVISOR_STATE_MAINMENU` itself (ResultScreen.cpp:1527-1535). Writing that `curState` from
+/// outside instead is what left a screen up with nothing behind it and a front end built twice.
+const RESULT_SCREEN_STATE_EXITING: i32 = 2;
+/// The states the screen is in while it is showing something — `CHOOSING_DIFFICULTY`, the five
+/// `BEST_SCORES_*`, and `SPELLCARDS` of the decompilation's `ResultScreenState`. Looked for by name
+/// rather than by "not `INIT`": a screen whose added callback has just run holds a value that is
+/// neither, and taking that for a built screen is what left one standing.
+const RESULT_SCREEN_SHOWING: [i32; 7] = [1, 3, 4, 5, 6, 7, 8];
+/// The screen itself, as the added callback was handed it: it is allocated into the chain element and
+/// nowhere else, so this is where orb learns the address.
+static RESULT_SCREEN: AtomicUsize = AtomicUsize::new(0);
+/// What the front end's own state was before orb asked it for the ranking, plus one so that zero means
+/// nothing was asked. Put back afterwards: the field is the item the front end is acting on, so leaving
+/// orb's request in it left the cursor sitting on `Score` and the *next* run's end acting on it again —
+/// a give-up that went to the ranking instead of the title.
+static MENU_STATE_BEFORE: AtomicUsize = AtomicUsize::new(0);
+/// And the item its cursor was on, plus one the same way. The state alone was not enough: the cursor
+/// stayed on `Score` after a trip, and the next run given up was read as that item being chosen again.
+static MENU_CURSOR_BEFORE: AtomicUsize = AtomicUsize::new(0);
+
+/// `ResultScreen+0x8`, the state the screen a ranking is shown on is in.
+const RANKING_STATE: usize = 0x8;
+/// The two of those states the screen does not parse the score file it read in — compared at
+/// 0x42f4e5 and 0x42f4f1, jumping over the `catk`, `clrd` and `pscr` parses at 0x42f4f7 onwards.
+/// They are the states on the way out of a run, where what is in memory is that run's own record and
+/// the file is about to be written from it.
+const RANKING_STATES_KEEPING_THE_RECORD: [i32; 2] = [0x9, 0x11];
+/// `g_GameManager.cardHistory`: the `GameManager` at 0x69bca0 plus the 0x30 its own read parses
+/// `catk` into (0x41bd1e), which is the same address the ranking screen parses it into (0x42f4f7)
+/// and the same one the write copies it out of (0x42b9ed).
+const CARD_HISTORY: usize = 0x0069bcd0;
+/// `Catk::numAttempts` of the decompilation's 0x40-byte record — the field after `unk_38`, and one of
+/// the two words `GameManager::AddedCallback` clears at 0x41bcd2 and 0x41bcd5. A `u16`.
+const CATK_ATTEMPTS: usize = 0x3c;
+/// `Catk::base.magic`, which says a slot holds a record at all.
+const CATK_MAGIC: u32 = u32::from_le_bytes(*b"CATK");
+/// The card a boss is on, as both of the places the game counts one index by: `ds:0x5a5f98`, shifted
+/// into [`CARD_HISTORY`] at 0x4096df and 0x409889.
+const CURRENT_CARD: usize = 0x005a5f98;
+
+/// 64 records of 0x40, which is the count the write walks and the size it copies each at.
+const CARD_HISTORY_BYTES: usize = 64 * 0x40;
 
 /// `th06::Stage::RegisterChain`, `__cdecl` taking the stage number. Called from one place in the
 /// whole exe — 0x41c00d, inside the callback above — which makes it the seam between the numbers
@@ -667,6 +754,14 @@ impl Game for Th06 {
                 target: STAGE_REGISTER_CHAIN,
                 prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
             }),
+            unlocks_read: Some(Patch {
+                target: MAIN_MENU_ADDED,
+                prologue: MAIN_MENU_ADDED_PROLOGUE,
+            }),
+            ranking_read: Some(Patch {
+                target: RANKING_ADDED,
+                prologue: RANKING_ADDED_PROLOGUE,
+            }),
             create_window: Some(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
@@ -704,6 +799,7 @@ impl Game for Th06 {
 
             State {
                 scene,
+                wanted: mem::read(G_SUPERVISOR + supervisor::WANTED_STATE),
                 playing: scene == STATE_GAMEMANAGER,
                 in_run: scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT,
                 in_game: scene == STATE_GAMEMANAGER && !demo && !replay,
@@ -1443,6 +1539,103 @@ impl Game for Th06 {
             .filter(|manager| *manager != 0)
             .and_then(|manager| mem::read_committed::<i32>(manager + replay_manager::IS_DEMO))
             .is_some_and(|demo| demo != 0)
+    }
+
+    unsafe fn count_card_attempt(&self) -> Option<u16> {
+        let card = unsafe { mem::read::<i32>(CURRENT_CARD) };
+        let record = CARD_HISTORY + usize::try_from(card).ok()? * 0x40;
+        if record + 0x40 > CARD_HISTORY + CARD_HISTORY_BYTES
+            || unsafe { mem::read::<u32>(record) } != CATK_MAGIC
+        {
+            return None;
+        }
+        let attempts = unsafe { mem::read::<u16>(record + CATK_ATTEMPTS) }.saturating_add(1);
+        unsafe { mem::write::<u16>(record + CATK_ATTEMPTS, attempts) };
+        Some(attempts)
+    }
+
+    unsafe fn captures(&self) -> Vec<u8> {
+        unsafe { std::slice::from_raw_parts(CARD_HISTORY as *const u8, CARD_HISTORY_BYTES) }
+            .to_vec()
+    }
+
+    unsafe fn set_captures(&self, saved: &[u8]) {
+        if saved.len() != CARD_HISTORY_BYTES {
+            return log!(
+                "score: {} bytes of captures is not this build's {CARD_HISTORY_BYTES}; left alone",
+                saved.len()
+            );
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(saved.as_ptr(), CARD_HISTORY as *mut u8, saved.len())
+        };
+    }
+
+    unsafe fn show_ranking(&self) {
+        let before: i32 = unsafe { mem::read(G_MAIN_MENU + main_menu::GAME_STATE) };
+        MENU_STATE_BEFORE.store(before as usize + 1, Ordering::Relaxed);
+        let cursor: i32 = unsafe { mem::read(G_MAIN_MENU + main_menu::CURSOR) };
+        MENU_CURSOR_BEFORE.store(cursor as usize + 1, Ordering::Relaxed);
+        unsafe { mem::write::<i32>(G_MAIN_MENU + main_menu::GAME_STATE, MENU_STATE_SCORE) };
+    }
+
+    unsafe fn showing_ranking(&self) -> bool {
+        let screen = RESULT_SCREEN.load(Ordering::Relaxed);
+        screen != 0
+            && unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) } == STATE_SCORE
+            && RESULT_SCREEN_SHOWING.contains(&unsafe { mem::read::<i32>(screen + RANKING_STATE) })
+    }
+
+    unsafe fn ranking_scene(&self) -> bool {
+        unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_SCORE }
+    }
+
+    unsafe fn ranking_state(&self) -> String {
+        let screen = RESULT_SCREEN.load(Ordering::Relaxed);
+        format!(
+            "cur={} wanted={} screen={screen:#x} state={}",
+            unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) },
+            unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::WANTED_STATE) },
+            if screen == 0 {
+                -1
+            } else {
+                unsafe { mem::read::<i32>(screen + RANKING_STATE) }
+            },
+        )
+    }
+
+    unsafe fn leave_ranking(&self) {
+        let screen = RESULT_SCREEN.load(Ordering::Relaxed);
+        if screen != 0 {
+            unsafe { mem::write::<i32>(screen + RANKING_STATE, RESULT_SCREEN_STATE_EXITING) };
+        }
+        // The front end's own state back as it was, before it is the thing acting on orb's request.
+        // The item list rather than whatever was found there: after somebody has looked at the
+        // ranking themselves the field still holds that item, and putting *that* back is the front end
+        // acting on it again — a give-up that landed on the score screen instead of the title, and a
+        // trip that therefore never wrote.
+        if MENU_STATE_BEFORE.swap(0, Ordering::Relaxed) != 0 {
+            unsafe { mem::write::<i32>(G_MAIN_MENU + main_menu::GAME_STATE, MENU_STATE_TITLE) };
+        }
+    }
+
+    unsafe fn restore_menu_cursor(&self) {
+        if let Some(cursor) = MENU_CURSOR_BEFORE.swap(0, Ordering::Relaxed).checked_sub(1) {
+            unsafe { mem::write::<i32>(G_MAIN_MENU + main_menu::CURSOR, cursor as i32) };
+        }
+    }
+
+    unsafe fn forget_captures(&self, screen: *mut std::ffi::c_void) {
+        RESULT_SCREEN.store(screen as usize, Ordering::Relaxed);
+        let state: i32 = unsafe { mem::read(screen as usize + RANKING_STATE) };
+        if RANKING_STATES_KEEPING_THE_RECORD.contains(&state) {
+            return;
+        }
+        // Written as bytes rather than record by record: what the game holds here is 64 of a
+        // structure orb has no use for the shape of, and all that is being said is that it holds
+        // none of them.
+        unsafe { std::ptr::write_bytes(CARD_HISTORY as *mut u8, 0, CARD_HISTORY_BYTES) };
+        log!("score: the captures in memory cleared for the ranking about to be read");
     }
 
     /// The item under the title menu's cursor, and only while the front end is what the game is

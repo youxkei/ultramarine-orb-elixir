@@ -53,6 +53,25 @@ pub struct Hooks {
     /// `None` where the game has no such call, which costs a resumed run the seed and with
     /// it every enemy the seed decides.
     pub stage_building: Option<Patch>,
+    /// Runs around the read of the score file that the front end's own unlocks are taken out of —
+    /// which stages it offers, whether it offers the Extra stage — and around no other read of it.
+    ///
+    /// What it buys is one exception to the mode's file. A pointdevice run's ranking and the record
+    /// it keeps beside it are the mode's own, but what the front end offers is not a record of
+    /// anything: a stage that has been reached has been reached, and a mode whose file is new would
+    /// otherwise start with the game locked back to stage 1.
+    ///
+    /// `None` for a game whose unlocks come out of a read that cannot be told from the rest, which
+    /// leaves them following the mode like everything else in the file.
+    pub unlocks_read: Option<Patch>,
+    /// Runs as a ranking is about to be read out of the score file, before the read.
+    ///
+    /// Where [`Game::forget_captures`] goes, and nowhere else: the record it clears is the one that
+    /// read is about to fill.
+    ///
+    /// `None` for a game whose ranking read cannot be got in front of, which leaves the captures in
+    /// memory carrying from one file's ranking into the next one's.
+    pub ranking_read: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
     /// is the only moment `force_windowed` can still take effect.
     pub create_window: Option<Patch>,
@@ -406,6 +425,106 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn replaying(&self) -> bool;
 
+    /// Asks the front end for the screen a ranking is shown on, by writing what its own item writes:
+    /// the game builds it from there. orb stays out of the transition, which is what it got wrong.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the front end settled.
+    unsafe fn show_ranking(&self);
+
+    /// Whether that screen is built — the scene being it *and* the screen past its own init state.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn showing_ranking(&self) -> bool;
+
+    /// Whether the ranking is still the scene at all, which is a coarser thing than
+    /// [`showing_ranking`](Game::showing_ranking) and what says the trip is over: the screen answers a
+    /// request to leave by changing its own state first and putting the scene back a few updates
+    /// later, so a trip that stopped at the state change let those updates fall into drawn frames —
+    /// the ranking, seen for a second on the way out of a run.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn ranking_scene(&self) -> bool;
+
+    /// Puts the front end's cursor back where it was before the trip, once the front end is up again.
+    ///
+    /// After the trip rather than as part of leaving it: asking for the ranking takes the front end
+    /// down and coming back builds a new one, so a cursor written on the way out goes into the object
+    /// being discarded — and the new one starts on the item the game thinks you came back from, which
+    /// is the ranking.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the front end up.
+    unsafe fn restore_menu_cursor(&self);
+
+    /// What the trip is looking at, for the log: the scene, the scene wanted, the screen orb has the
+    /// address of, and the state that screen is in. Numbers rather than a verdict, because a verdict
+    /// is what has been wrong.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn ranking_state(&self) -> String;
+
+    /// Tells that screen to leave, the way its own menu tells it to: the screen then puts the scene
+    /// back itself, and going down is what writes the file.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with
+    /// [`showing_ranking`](Game::showing_ranking) true.
+    unsafe fn leave_ranking(&self);
+
+    /// Counts one more attempt at the spell card a boss is on, and answers the count. `None` where no
+    /// card is up or the record is not one the game has written.
+    ///
+    /// The game counts an attempt where a card *starts*, and a chapter beginning inside one never
+    /// starts it: a card retried ten times is one attempt to the game. Counting it where the game
+    /// cannot is the whole of it — the cleaner shape is a snapshot that predates the game's own count,
+    /// which needs the moment a card starts to be a seam of its own.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn count_card_attempt(&self) -> Option<u16>;
+
+    /// The game's own record of which spell cards have been captured, as the bytes it keeps it in.
+    ///
+    /// Taken and put back rather than read field by field: orb has no use for the shape of it, only
+    /// for holding it across something that would replace it. Two such things: the snapshot a chapter
+    /// is rewound from, which would take back the attempt the game counted for a try that failed —
+    /// and the ranking read, which fills this record out of the file and would overwrite what a
+    /// session has counted since the file was last written.
+    ///
+    /// Empty where the game keeps no such record, which leaves both of those alone.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn captures(&self) -> Vec<u8>;
+
+    /// Puts back what [`captures`](Game::captures) took.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with `saved` a `captures` of this same build.
+    unsafe fn set_captures(&self, saved: &[u8]);
+
+    /// Empties the game's own record of which spell cards have been captured, where a ranking is
+    /// about to be read into it.
+    ///
+    /// The game's parse of that part of the file copies the records the file holds and leaves the
+    /// rest as they were — which is how a run's captures survive the reload the game does at every
+    /// stage, and with two score files is also how one file's captures reach the other: the record
+    /// is written back out of memory, so looking at one ranking and then leaving the other writes
+    /// the first one's captures into the second one's file. Cleared here so that a ranking read
+    /// defines the history instead of adding to what was already in memory.
+    ///
+    /// `screen` is what the callback was handed, because whether the game is going to do that parse
+    /// at all is a state of that screen: the states it is in on the way out of a run are the ones
+    /// where the record in memory is that run's own, and they keep it.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, before the game's own read of the ranking.
+    unsafe fn forget_captures(&self, screen: *mut c_void);
+
     /// What the game's own title menu is *pointing* at, where that is something orb has a question
     /// about, so the question can go on the press rather than after it.
     ///
@@ -734,6 +853,11 @@ pub struct State {
     /// The game's own scene identifier. Only for the log and for noticing that
     /// the scene changed.
     pub scene: i32,
+    /// The scene the game is on its way to, which is the same number as [`scene`](State::scene)
+    /// wherever it has arrived. Read because a trip through one of the game's own screens has to
+    /// start from a game that has arrived somewhere: asking for a screen while a change is still in
+    /// flight left the front end built twice, moving its cursor two items to a press.
+    pub wanted: i32,
     /// The gameplay scene, whoever is driving it.
     pub playing: bool,
     /// That scene, or the step between two of its stages. Everything a run's
@@ -796,9 +920,10 @@ impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "scene={} stage={} diff={} frames={} script={} seed={:#06x} \
+            "scene={}->{} stage={} diff={} frames={} script={} seed={:#06x} \
              deaths={} lives={} bombs={} power={} enemies={} bullets={} lasers={} boss={}",
             self.scene,
+            self.wanted,
             self.stage,
             self.difficulty,
             self.stage_frames,

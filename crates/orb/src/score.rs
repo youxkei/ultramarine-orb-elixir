@@ -2,10 +2,18 @@
 //!
 //! A run that has been rewound is not a run anyone played, so its score does not belong in the
 //! game's ranking. Refusing the write would lose the record altogether, so the file is forked
-//! instead: while orb is in pointdevice mode every open of `score.dat` becomes an open of
-//! `pointdevice_score.dat`. Pointdevice runs are then ranked against each other, in the game's
-//! own format and on its own screen, and the game's file comes out of such a run unchanged
-//! because it is never opened at all.
+//! instead: while orb is in pointdevice mode an open of `score.dat` becomes an open of
+//! `pointdevice_score.dat`. Pointdevice runs are then ranked against each other, in the game's own
+//! format and on its own screen, and the game's file comes out of such a run unchanged because it
+//! is never opened.
+//!
+//! **One read is not the mode's, and it is the one that is not a record.** The game keeps four
+//! things in the file, and the ranking and the spell cards a run has captured are the mode's own —
+//! a capture in a chapter that can be played again is not the capture the game's record is a record
+//! of. What the front end *offers*, though, is not a record: a stage that has been reached has been
+//! reached, and answering that out of a new file locks the game back to stage 1 for want of
+//! anything in it. So that read alone is left pointed at the game's own file — [`reading_unlocks`],
+//! set from the one callback that fills the globals the front end lights its items from.
 //!
 //! **Which file is open is a runtime switch, not a setting.** The mode is chosen inside the
 //! game — at the item that starts a run, and at the one that shows the ranking — so the fork
@@ -29,10 +37,7 @@ use std::borrow::Cow;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use windows_sys::Win32::Foundation::{
-    GENERIC_WRITE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE,
-};
-use windows_sys::Win32::Storage::FileSystem::CopyFileA;
+use windows_sys::Win32::Foundation::{GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 
 use crate::hook;
 use crate::log::log;
@@ -49,14 +54,18 @@ const OURS: &[u8] = b"pointdevice_score.dat";
 const LIMIT: usize = 1024;
 
 static CREATE_FILE_A: AtomicUsize = AtomicUsize::new(0);
-/// Whether the copy that starts orb's file off has been tried, whatever came of it.
-static SEEDED: AtomicBool = AtomicBool::new(false);
 /// Whether the file may be written at all.
 static WRITTEN: AtomicBool = AtomicBool::new(true);
 /// Whether opens of the score file go to orb's own, which is what pointdevice mode means for
 /// this file. Off until orb says, so a run started before anything was chosen is the game's own
 /// file — the same answer as no orb at all.
 static FORKED: AtomicBool = AtomicBool::new(false);
+/// Whether the read now happening is the one the front end's unlocks come out of, which is the one
+/// read that is the game's own file whatever the mode.
+///
+/// One flag rather than anything per thread: the score file is opened on the game's own thread,
+/// which is where the bracket is set and cleared, and nothing else in the process opens it.
+static UNLOCKS: AtomicBool = AtomicBool::new(false);
 
 /// Sends the score file to orb's own, or leaves it as the game's.
 ///
@@ -65,6 +74,15 @@ static FORKED: AtomicBool = AtomicBool::new(false);
 /// chosen, one screen earlier.
 pub fn fork(ours: bool) {
     FORKED.store(ours, Ordering::Relaxed);
+}
+
+/// Says that the read about to happen is the one the front end's unlocks come out of, or that it is
+/// over.
+///
+/// Called around that read and nowhere else, so that it alone is answered from the game's own file
+/// while everything else the file holds follows the mode.
+pub fn reading_unlocks(inside: bool) {
+    UNLOCKS.store(inside, Ordering::Relaxed);
 }
 
 /// Keeps the run being played out of the file altogether, rather than out of the game's.
@@ -109,7 +127,10 @@ unsafe extern "system" fn create_file_a(
         unsafe { std::mem::transmute(CREATE_FILE_A.load(Ordering::Relaxed)) };
     // Every archive, stage script and replay the game reads comes through here, so a path
     // that is not the score file costs one walk and one comparison.
-    let Some(directory) = unsafe { given(name) }.and_then(theirs) else {
+    let Some(path) = (unsafe { given(name) }) else {
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
+    };
+    let Some(directory) = theirs(path) else {
         return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
     // The open is refused rather than the write being sent somewhere else, because the game asks
@@ -121,14 +142,32 @@ unsafe extern "system" fn create_file_a(
         log!("score: nothing written, this run had nothing able to hit the player");
         return INVALID_HANDLE_VALUE;
     }
-    if !FORKED.load(Ordering::Relaxed) {
+    // Written whichever file the open lands in, so that no fact about this file has to be read out
+    // of a line that is not there: an open that was left alone and an open that never happened look
+    // the same in a log that only says when one was swapped, and telling those two apart is most of
+    // what anybody reads these lines for.
+    if !redirected() {
+        log!(
+            "score: {} opened as the game's own, {}",
+            text(path),
+            asked(access)
+        );
         return unsafe { original(name, access, share, security, disposition, flags, template) };
     }
+    // orb's file is made by the game writing it — which the ranking screen does on its way out,
+    // whether a score was entered into it or the ranking was only looked at — and until then there
+    // is nothing there: the open of a file that is not there fails, and the game takes that the way
+    // it takes a first launch. It is not started as a copy of `score.dat`,
+    // which would carry that file's record into a ranking none of it belongs to: what a
+    // `score.dat` says has been cleared was cleared by runs nobody could rewind. The cost of
+    // not copying is what such a file has unlocked — practice on a stage that has been reached,
+    // the Extra stage — since the menu lights those from the file the mode points at.
     let ours = forked(directory);
-    if !SEEDED.swap(true, Ordering::Relaxed) {
-        unsafe { seed(name, &ours) };
-    }
-    log!("score: {} opened in place of the game's own", text(&ours));
+    log!(
+        "score: {} opened in place of the game's own, {}",
+        text(&ours),
+        asked(access)
+    );
     unsafe {
         original(
             ours.as_ptr(),
@@ -147,6 +186,40 @@ unsafe extern "system" fn create_file_a(
 /// look like the file had been lost rather than left alone.
 fn refused(access: u32) -> bool {
     !WRITTEN.load(Ordering::Relaxed) && access & GENERIC_WRITE != 0
+}
+
+/// What the open now happening is for, as far as anything here can tell: a write, the read the front
+/// end's unlocks come out of, or one of the two reads that cannot be told from each other —
+/// `GameManager::AddedCallback`'s at every stage and the ranking screen's.
+///
+/// For the log, so that a line says which read it was and a reader is not left counting opens
+/// against scenes to work it out.
+fn asked(access: u32) -> &'static str {
+    if access & GENERIC_WRITE != 0 {
+        "write"
+    } else if UNLOCKS.load(Ordering::Relaxed) {
+        "read for the front end's unlocks"
+    } else {
+        "read"
+    }
+}
+
+/// Whether the open now happening is one to send to orb's file.
+///
+/// Everything the file holds is the mode's own — the ranking, and beside it which spell cards a run
+/// has captured, since a capture in a chapter that can be played again is not the capture the
+/// game's record is a record of. **With one exception**, and it is not a record of anything: what
+/// the front end offers. A stage that has been reached has been reached, and a first pointdevice
+/// session answering that question out of its own new file locked the Extra stage and every
+/// practice stage a `score.dat` had already earned — see `SPEC.md` for the three reads and what
+/// each is for.
+///
+/// Reads and writes alike, which is why this asks nothing about the access: the exception is a read
+/// the game makes nowhere near a write, and the exe reaches its score write from one place only —
+/// the ranking screen on its way out. So a write while pointdevice mode is on is that screen's, a
+/// score entered into it or a ranking that was only looked at and written back as it was read.
+fn redirected() -> bool {
+    FORKED.load(Ordering::Relaxed) && !UNLOCKS.load(Ordering::Relaxed)
 }
 
 /// The directory the game named its score file in, and `None` for every path that is not the
@@ -172,33 +245,6 @@ fn forked(directory: &[u8]) -> Vec<u8> {
     ours.extend_from_slice(OURS);
     ours.push(0);
     ours
-}
-
-/// Starts orb's file off as a copy of the game's, so that what a `score.dat` has already
-/// unlocked — practice on a stage that has been reached, the Extra stage — is not locked
-/// again by playing through orb. Only where there is nothing there yet, which `CopyFileA`
-/// decides for itself; after that the two are separate records and the game's is never read
-/// again.
-///
-/// Copied with the bytes the game gave rather than through `std::fs`: a path in the game's
-/// own code page is not necessarily UTF-8, and `CopyFileA` takes the same ANSI string the
-/// game's open would have.
-///
-/// # Safety
-/// `theirs` must be the NUL-terminated path the game asked for, and `ours` the terminated
-/// one it is being turned into.
-unsafe fn seed(theirs: *const u8, ours: &[u8]) {
-    if unsafe { CopyFileA(theirs, ours.as_ptr(), TRUE) } != 0 {
-        return log!("score: {} started as a copy of the game's", text(ours));
-    }
-    // The two ordinary answers — orb's file is already there, and there is no `score.dat` to
-    // copy because nothing has been played yet — are both errors to `CopyFileA`, so the code
-    // is said rather than the line reading as a fault: 80 is one, 2 the other.
-    log!(
-        "score: {} not copied from the game's, GetLastError {}",
-        text(ours),
-        unsafe { GetLastError() }
-    );
 }
 
 /// The path the game gave, as its own bytes without the terminator, and `None` for a null
@@ -231,7 +277,23 @@ fn text(path: &[u8]) -> Cow<'_, str> {
 mod tests {
     use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
 
-    use super::{forked, refuse_writes, refused, text, theirs};
+    use super::{fork, forked, reading_unlocks, redirected, refuse_writes, refused, text, theirs};
+
+    /// Pointdevice mode sends the whole file to orb's — the ranking, and the spell cards a run has
+    /// captured beside it — except the one read the front end's unlocks come out of, which is the
+    /// game's own file however a run is played.
+    #[test]
+    fn everything_but_the_unlocks_follows_the_mode() {
+        assert!(!redirected(), "nothing until the mode says so");
+        fork(true);
+        assert!(redirected());
+        reading_unlocks(true);
+        assert!(!redirected(), "what the front end offers");
+        reading_unlocks(false);
+        assert!(redirected());
+        fork(false);
+        assert!(!redirected(), "a normal run is the game's own file");
+    }
 
     /// The path orb's file is opened at, for a path the game asked for.
     fn ours(path: &[u8]) -> Option<Vec<u8>> {

@@ -315,6 +315,7 @@ pub unsafe fn stage_begun(game: &dyn Game) {
         record.stage = Some(state.stage);
         record.start = saved.state;
         log!("resume: {saved}; playing its buttons in");
+        unsafe { hold_captures(game) };
         record.feeding = Some(Landing {
             at: saved.at,
             chapter: saved.chapter,
@@ -370,6 +371,40 @@ pub unsafe fn landing() -> Option<u32> {
 /// Must run on the game's main thread.
 pub unsafe fn landed() -> Option<Landing> {
     unsafe { RECORD.get() }.feeding.take()
+}
+
+/// What the game's record of captured spell cards was before a run's buttons were played back into
+/// it, held so that the playback leaves it alone.
+///
+/// Playing a stage in again starts every card the run had passed, and the game counts an attempt at
+/// each — a resumed run would arrive with an attempt, and a capture, against cards nobody had played
+/// this session. So it is taken at [`begin`] and put back at [`landed_captures`].
+static CAPTURES: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+
+/// Holds the record while the buttons go in.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn hold_captures(game: &dyn Game) {
+    if let Ok(mut held) = CAPTURES.lock() {
+        *held = unsafe { game.captures() };
+    }
+}
+
+/// Puts it back, the playback being over, and says how many bytes went back.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn landed_captures(game: &dyn Game) -> usize {
+    let Ok(mut held) = CAPTURES.lock() else {
+        return 0;
+    };
+    let held = std::mem::take(&mut *held);
+    if held.is_empty() {
+        return 0;
+    }
+    unsafe { game.set_captures(&held) };
+    held.len()
 }
 
 /// Whether a saved run is waiting for the game to build its stage.

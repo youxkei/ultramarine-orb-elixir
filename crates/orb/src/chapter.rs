@@ -1009,7 +1009,14 @@ impl Chapters {
             return false;
         };
         let mark = checkpoint.mark;
-        unsafe { checkpoint.snapshot.restore(game) };
+        unsafe { put_back(game, checkpoint) };
+        // After the restore, against the record that survived it. Only for a run somebody is playing:
+        // a pass over a replay retries nothing anybody attempted.
+        if self.somebody_playing
+            && let Some(attempts) = unsafe { game.count_card_attempt() }
+        {
+            log!("retry: attempt {attempts} at this spell card");
+        }
         self.after_restore(mark);
         self.retries += 1;
         log!("retry chapter {} (retry {})", mark.number, self.retries);
@@ -1042,7 +1049,7 @@ impl Chapters {
             return false;
         };
         let mark = checkpoint.mark;
-        unsafe { checkpoint.snapshot.restore(game) };
+        unsafe { put_back(game, checkpoint) };
         self.chapter = None;
         self.after_restore(mark);
         true
@@ -1114,6 +1121,22 @@ impl Chapters {
         };
         self.starts.clear();
     }
+}
+
+/// Puts a checkpoint back, keeping across it the one thing a rewind must not take back.
+///
+/// The game's record of which spell cards have been captured is in the memory a snapshot covers, so
+/// a restore would undo what the game counted about the attempt that just failed: the attempt
+/// itself, which is the thing a chapter retried ten times should have ten of, and a capture, which
+/// in a chapter that can be played again means that chapter was cleared. Neither is part of what a
+/// rewind is for — the stage goes back, what the player has done to the game's own records does not.
+///
+/// # Safety
+/// Must run on the game's main thread, between frames.
+unsafe fn put_back(game: &dyn Game, checkpoint: &Checkpoint) {
+    let captures = unsafe { game.captures() };
+    unsafe { checkpoint.snapshot.restore(game) };
+    unsafe { game.set_captures(&captures) };
 }
 
 /// Reuses `previous`'s buffers when there is one, so a boundary costs a copy
@@ -1203,6 +1226,7 @@ mod tests {
     fn empty(frame: u32) -> State {
         State {
             scene: 2,
+            wanted: 2,
             playing: true,
             in_run: true,
             in_game: true,

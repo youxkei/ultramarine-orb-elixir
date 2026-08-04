@@ -100,11 +100,52 @@ written there by orb before the game would have believed them.
   button so that no edge exists on the frame the game carries on into: the cursor should not move,
   and a direction genuinely held across the answer should still move it on the frame after.
 
-**What the title menu shows as unlocked** comes from the file the mode last chosen points at,
-because `MainMenu::AddedCallback` opens the score file and parses `clrd` out of it. So looking at
-the normal ranking and going back should be able to grey out `Extra Start` where only a pointdevice
-run has cleared the game. Worth seeing happen, and worth deciding whether it is a fault: the
-alternative is orb parsing both files and handing the game the union.
+**What the front end offers with the bracket in.** Which file each open goes to is measured — see
+[DONE.md](DONE.md) — and what is left is the half no log can show: `Extra Start` and the practice
+stages lit in pointdevice mode where a `score.dat` has earned them, which is the whole point of the
+bracket and has been read off the addresses rather than seen. One glance at the title menu with
+pointdevice answered says it.
+
+**Whether a pointdevice clear should unlock anything.** It does not now: the clear is written into
+`pointdevice_score.dat`'s `clrd` — the game writes the file whole — and the front end is lit from
+`score.dat`, so clearing the game in pointdevice mode leaves the Extra stage locked. Someone who
+plays nothing but pointdevice runs is never offered it. The fix is the union of the two files'
+`clrd`, which means orb parsing both and handing the game the answer, and with it orb knowing the
+format and the encryption it has so far stayed out of. Nobody has been asked whether that is worth
+it.
+
+## What is left of the spell card record
+
+Both halves work and are measured — see [DONE.md](DONE.md): a session that stops keeps what it counted,
+and a chapter retried counts an attempt.
+
+**Who counts an attempt.** orb does it, at the chapter retry and at a resumed run's landing, by writing
+`Catk::numAttempts`. The cleaner shape is the game counting it, which needs the chapter's snapshot to
+predate the game's own count — a seam at the function that starts a card (the one holding 0x4096df), so
+a retry replays that update. orb's own increment comes out at the same time or it double-counts.
+
+**The pause when a run is given up.** The trip's eighty-odd updates run inside one frame, so the frame
+is long enough to feel. Spreading them over frames is what would be drawn, which is the ranking
+appearing for a second — the thing that was fixed. Nobody has been asked whether the pause is worth
+trading back.
+
+**A window closed mid-run** writes nothing: there is no front end to take through and the loop is on
+its way out. 紅魔郷 loses that record too.
+
+
+**That the spell card history is the mode's own now.** It read as `score.dat`'s in pointdevice mode,
+twice, and the mechanism is settled — see [SPEC.md](SPEC.md): the record lives in one global the
+parse never clears, and the file is written from that global. Two things were done about it, and
+neither has been through a session. orb empties the block before a ranking is read, and the file that
+had `score.dat`'s history in it was moved aside as `pointdevice_score.dat.dirty` — it was 4,224 bytes,
+`a09a505fb32c41a5b03083f50f48a38d`, and the 8,724-byte `pointdevice_score.dat.bak` beside it is the
+same size as `score.dat`, which is what the `CopyFileA` that used to seed orb's file left.
+
+What a session has to show: the pointdevice ranking's history empty on a file that has no captures,
+`score: the captures in memory cleared for the ranking about to be read` in the log at each ranking
+read and not on the way out of a run, and then a card captured in each mode counted only in that
+mode's file. The one that would say the clearing went too far is a run whose captures do not reach
+its own file.
 
 **The `orb_score.dat` an earlier version wrote** is not read or renamed by anything. A session that
 has one has its old scores in a file nothing opens, and whether that is worth a rename is a question

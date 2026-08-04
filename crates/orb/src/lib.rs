@@ -112,6 +112,11 @@ const CHAIN_EXIT_ERROR: i32 = -1;
 /// pause under a second rather than a game that never comes back.
 const ENDING_SKIP_LIMIT: u32 = 60 * 60 * 15;
 
+/// A stop on the trip through the ranking that writes what a run counted about spell cards: room for
+/// the front end's wait on the item and the screen building itself, in updates run inside one frame
+/// with nothing drawn.
+const COMMIT_FRAME_LIMIT: u32 = 240;
+
 /// How many times the stress mode restores the same chapter before letting the
 /// run carry on. Without a limit it would rewind the first chapter for ever and
 /// never reach a boss, which is where the paths worth exercising are.
@@ -289,6 +294,8 @@ struct Runtime {
     /// Whether the ending skip has reached the staff roll, which is where it stops and
     /// leaves the game to play the roll a frame at a time.
     rolling: bool,
+    /// Whether a run was given up, the one way out of a run that writes nothing.
+    given_up: bool,
     /// `Some` while the game is frozen on the question of where to start a run that has one left
     /// unfinished, holding the run that would be picked up.
     asking_resume: Option<(resume_ui::ResumeMenu, resume::Saved)>,
@@ -334,6 +341,8 @@ static IN_HOOK: AtomicBool = AtomicBool::new(false);
 
 static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
 static RUN_DRAW_CHAIN: AtomicUsize = AtomicUsize::new(0);
+static UNLOCKS_READ: AtomicUsize = AtomicUsize::new(0);
+static RANKING_READ: AtomicUsize = AtomicUsize::new(0);
 static STAGE_BEGUN: AtomicUsize = AtomicUsize::new(0);
 static STAGE_BUILDING: AtomicUsize = AtomicUsize::new(0);
 static SAVE_REPLAY: AtomicUsize = AtomicUsize::new(0);
@@ -646,6 +655,35 @@ fn attach() {
         Ok(()) => log!("screen: window hooks installed"),
         Err(error) => log!("screen: {error}; the window is left as the game makes it"),
     }
+    match patches.unlocks_read {
+        // Only where a run can be rewound, which is the only way the mode is ever pointdevice and
+        // so the only way any open goes anywhere but the game's own file. A clear does not need it:
+        // there the score hook is in the path to refuse the write, which is decided before any of
+        // this.
+        Some(patch) if config.chapters => {
+            hooks.push((
+                "unlocks read",
+                patch,
+                hook::address(unlocks_read as _),
+                &UNLOCKS_READ,
+            ));
+        }
+        _ => {}
+    }
+    match patches.ranking_read {
+        // Only where there are two score files to keep apart, which is where a run can be rewound.
+        // With one file the game's own way of carrying the captures in memory is right, and orb
+        // clearing them would be orb losing a record nothing else keeps.
+        Some(patch) if config.chapters => {
+            hooks.push((
+                "ranking read",
+                patch,
+                hook::address(ranking_read as _),
+                &RANKING_READ,
+            ));
+        }
+        _ => {}
+    }
     if let Some(patch) = patches.create_window {
         FORCE_WINDOWED.store(true, Ordering::Relaxed);
         hooks.push((
@@ -705,6 +743,7 @@ fn attach() {
             held: false,
             walled: false,
             rolling: false,
+            given_up: false,
             asking_resume: None,
             mark: resume_ui::Mark::new(),
             started: None,
@@ -745,8 +784,9 @@ unsafe fn pad(game: &dyn Game) -> Pad {
 /// scores are kept in.
 ///
 /// One answer for both, because they are one thing: the ranking of pointdevice runs is the file
-/// pointdevice runs are written to, and the game reads what that file has unlocked when it
-/// rebuilds its own menu.
+/// pointdevice runs are written to. What the game has unlocked is not part of that answer — the
+/// menu is lit from `score.dat` whichever mode is chosen, since a stage reached is a stage
+/// reached.
 fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
@@ -759,6 +799,68 @@ fn choose(runtime: &mut Runtime, mode: Mode) {
         unsafe { resume::forget() };
     }
     log!("mode: {mode}, was {was}");
+}
+
+/// Takes the game through the screen a ranking is shown on, with nothing drawn, that being the one
+/// place it writes the records its score file holds.
+///
+/// A run given up writes nothing, so what it counted about spell cards would go with the process. The
+/// screen is asked for the way the front end's item asks, the updates that brings run inside this one
+/// frame, and then the screen is told to leave the way its own menu tells it to — it puts the scene
+/// back itself, and going down is what writes. Nothing is seen: drawing happens once a frame, after.
+///
+/// **The record goes back in the middle**: building that screen is also the game loading the record
+/// out of the file, which is what it held before this session counted anything.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread, with no run in progress and the
+/// game settled where it is.
+unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut i32) {
+    let captures = unsafe { runtime.game.captures() };
+    if captures.is_empty() {
+        return log!("score: this game keeps no record of captures; nothing to write");
+    }
+    let mut frames = 0;
+    // Only the frame limit stops this. Not the chain's answer: `CHAIN_EXIT_SUCCESS` is 0, which is
+    // also what a chain walk returns when it simply carried on, so guarding on it ended both loops
+    // after one update — the screen was left standing where the player then met it, and the write came
+    // from whatever the screen itself did later.
+    let running = |result: &mut i32, frames: &mut u32| {
+        *result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+        *frames += 1;
+        *frames < COMMIT_FRAME_LIMIT
+    };
+    unsafe { runtime.game.show_ranking() };
+    while !unsafe { runtime.game.showing_ranking() } && running(result, &mut frames) {}
+    if !unsafe { runtime.game.showing_ranking() } {
+        // The request undone as well: asking is a reservation the front end acts on later, so leaving
+        // one behind is a ranking that comes up by itself — which is what a give-up landing on the
+        // score screen was.
+        unsafe { runtime.game.leave_ranking() };
+        return log!("score: the ranking was not built after {frames} update(s); nothing written");
+    }
+    log!("score: the ranking is up — {}", unsafe {
+        runtime.game.ranking_state()
+    });
+    unsafe { runtime.game.set_captures(&captures) };
+    unsafe { runtime.game.leave_ranking() };
+    log!("score: asked it to leave — {}", unsafe {
+        runtime.game.ranking_state()
+    });
+    // Until the scene is no longer the ranking's, not until the screen's own state changes: the state
+    // changes on the update it is asked, and the scene goes back several updates later. Stopping at the
+    // first left those updates to be drawn — the ranking, visible for a second.
+    while unsafe { runtime.game.ranking_scene() } && running(result, &mut frames) {}
+    // A couple more so the front end is built before its cursor is put back, and then the cursor: the
+    // one that comes back is on the item the game thinks was left, which is the ranking orb asked for.
+    for _ in 0..2 {
+        running(result, &mut frames);
+    }
+    unsafe { runtime.game.restore_menu_cursor() };
+    log!(
+        "score: taken through the ranking in {frames} update(s) — {}",
+        unsafe { runtime.game.ranking_state() }
+    );
 }
 
 /// Gives the run up, which is the retry menu's third choice: the game is put on its way to the
@@ -1127,6 +1229,31 @@ extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
     result
 }
 
+/// Runs around the callback that takes what the front end offers out of the score file, which is the
+/// one read of that file whose answer is the game's own whichever mode is on.
+///
+/// Bracketed rather than the mode's file being chosen once: everything else the file holds is a
+/// record of runs played one way or the other, and what the front end offers is not a record —
+/// see [`score`].
+extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
+    let original: extern "C" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
+    score::reading_unlocks(true);
+    let result = original(menu);
+    score::reading_unlocks(false);
+    result
+}
+
+/// Runs before the callback that reads a ranking out of the score file, which is where the record of
+/// captures that read is about to fill is emptied. See [`Game::forget_captures`] for why it has to be
+/// emptied at all, and why here.
+extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
+    let original: extern "C" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
+    unsafe { GAME.forget_captures(screen) };
+    original(screen)
+}
+
 /// Runs before `th06::Stage::RegisterChain`, where the stage's numbers are in place and the stage
 /// itself is about to be built out of them — including out of the generator, which is why a resumed
 /// run's seed goes in here and nowhere else.
@@ -1219,7 +1346,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             let acted = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },
                 Choice::Stage => unsafe { runtime.chapters.retry_stage(runtime.game) },
-                Choice::Quit => unsafe { give_up(runtime.game) },
+                Choice::Quit => {
+                    let left = unsafe { give_up(runtime.game) };
+                    runtime.given_up |= left;
+                    left
+                }
             };
             if acted {
                 runtime.retry = None;
@@ -1443,6 +1574,24 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // is what a run reaches and what giving one up does not go through.
     if runtime.previous.is_some_and(|previous| previous.in_run) && !state.in_run {
         unsafe { resume::forget() };
+        // Any run that ends, not only one given up through orb's own menu: legacy mode has no such
+        // menu, so the game's own quit is the only way out of one and it writes nothing either. A demo
+        // is nobody's run and has nothing to write.
+        if runtime
+            .previous
+            .is_some_and(|previous| !previous.demo && !previous.replay)
+        {
+            runtime.given_up = true;
+            log!("score: a run ended; what it counted waits for the trip through the ranking");
+        }
+    }
+    // The first frame after a run was given up on which the game has arrived somewhere: asking for a
+    // screen while a change was in flight is what broke the front end twice.
+    // The first frame after a run was given up on which the game has arrived somewhere.
+    if runtime.given_up && !state.in_run && state.scene == state.wanted {
+        runtime.given_up = false;
+        unsafe { commit_records(runtime, chain, &mut result) };
+        state = unsafe { runtime.game.read_state() };
     }
     // The mode as well as the chapter, because the result screen is a screen every run ends at: a
     // normal run's game over would otherwise take away the chapter a pointdevice run was left in.
@@ -1571,6 +1720,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
     }
 
+    // Every frame while nothing is being played, not only where the scene changed: what a trip through
+    // the game's own ranking has to fit into is the frames *inside* a transition, and a line per
+    // change showed neither how many there are nor what the two fields do across them.
+    if !state.in_run {
+        detail!("state: cur={} wanted={}", state.scene, state.wanted);
+    }
     let scene_changed = runtime
         .previous
         .is_none_or(|previous| previous.scene != state.scene);
@@ -2080,6 +2235,20 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         );
     }
     let arrived = unsafe { resume::landed() };
+    // The captures back as they were before the buttons went in: playing a stage again starts every
+    // card the run had passed, and the game counts an attempt — and a capture — at each of them.
+    if arrived.is_some() {
+        let bytes = unsafe { resume::landed_captures(runtime.game) };
+        if bytes != 0 {
+            log!("resume: {bytes} byte(s) of captures put back; the playback counts none of them");
+        }
+        // And one attempt at the card the chapter is on, because picking a run up where it was left is
+        // an attempt at that chapter — the same as the retry menu's, and the game counts neither: it
+        // counts where a card starts, and this landing is inside one.
+        if let Some(attempts) = unsafe { runtime.game.count_card_attempt() } {
+            log!("resume: attempt {attempts} at this spell card");
+        }
+    }
     let Some(landing) = arrived else {
         return (reached, ran);
     };

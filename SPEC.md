@@ -627,7 +627,8 @@ The question goes over three of the title menu's items — a full run, the Extra
 because each of them starts a run, and over `Score`, because the two modes have a ranking each.
 One answer for both: orb is in one mode at a time, and the ranking of pointdevice runs *is* the
 file pointdevice runs are written to. So looking at the other ranking puts orb in the other mode,
-and the next run asks again.
+and the next run asks again — which is why the mode left behind cannot be what a screen reads from:
+every item that opens the file, the ranking included, asks first.
 
 **How the moment is caught.** `g_MainMenu.gameState` at 0x6dc8b0 — 0x81f0 into the 0x10f34-byte
 `MainMenu` at 0x6d46c0, past its `AnmVm vm[122]` of 0x110 each — is read once a frame while the
@@ -1154,7 +1155,7 @@ counter is left alone; orb's numbers are outside the game's output.
 
 A run with chapter retries is not a run anyone played, so its score does not belong in the
 game's ranking — the same reason no replay is offered for one. Refusing the write would lose
-the record altogether, so the file is forked: while orb is in pointdevice mode every open of
+the record altogether, so the file is forked: while orb is in pointdevice mode an open of
 `score.dat` becomes an open of `pointdevice_score.dat`, those runs are ranked against each other
 in the game's own format and on its own screen, and `score.dat` comes out of such a run unchanged
 because it is never opened.
@@ -1165,17 +1166,90 @@ normal runs are the game's own file: that is where a run anybody could have play
 launch starts in pointdevice, which is what orb is for, and in normal with `--no-chapters`, where
 there is nothing to fork because nothing can rewind.
 
-The consequence worth knowing: `MainMenu::AddedCallback` opens the score file too, and parses
-`clrd` and `pscr` out of it into `g_GameManager` — which is what the title menu's Extra item and
-its practice stages are lit from. So the unlocks the menu shows are the ones in the file the mode
-last chosen points at, and they change when the mode does. Two files means two records of what has
-been cleared, and there is no third place for their union to live.
+**A rewind does not take back what the game counted about a spell card.** The record lives in the
+memory a snapshot covers, so restoring a chapter would undo the attempt the game counted when the
+card started — a chapter retried ten times would show one attempt — and undo a capture, which in a
+chapter that can be played again is that chapter cleared. So the block is taken before the restore
+and put back after it, in both of the paths that restore one. Both counters, not the attempt alone:
+capturing the card is what clearing the chapter *is*, and keeping the two apart would mean orb
+knowing which word of the record is which.
 
-orb's file starts as a copy of the game's, so that what a `score.dat` has already unlocked —
-practice on a stage that has been reached, the Extra stage — is not locked again by playing
-through orb. Only where there is nothing there yet, which `CopyFileA` with `bFailIfExists`
-decides for itself; after that the two are separate records and the game's is only read again by
-a normal run.
+**A session that stops without the game writing is taken through the ranking.** The write is reached
+from one place, so a run given up or quit with `ESC` leaves what it counted about spell cards in
+memory and nowhere else — 紅魔郷 loses it, and orb does not. On the first frame the front end is up
+after a run that ended anywhere else, orb writes `MainMenu.gameState` with what the `Score` item
+writes — 0xa, from the handler at 0x437f56 — runs the updates that brings inside that one frame with
+nothing drawn, and writes `curState` back to the front end the way the ranking leaves itself. The
+deleted callback then writes the file. Bounded at 180 updates, against the 60 the front end waits and
+the one each scene change costs; at 30µs an update the whole trip is under a frame's worth of time
+and none of it is seen, the draw chain running once a frame after this.
+
+**The record is put back in the middle of that trip.** The added callback fills the captures out of
+the file it read, which is what they were before the session counted anything, so orb puts back what
+it took before asking the screen to leave. The ranking is the file's own and has to be: the write
+takes it out of the table that read just filled — which is also why the trip is through the game's
+screen rather than orb calling the write itself.
+
+Whether a run wrote on its own is asked rather than assumed: every open for writing is noted, and a
+run that ended at the result screen has one. Both modes make the trip. A legacy session stopping
+partway keeping its record is the one place orb is deliberately not the game as it was.
+
+**The captures in memory are emptied before a ranking is read.** 紅魔郷 keeps the record of which
+spell cards have been captured in one place, `g_GameManager.cardHistory` at 0x69bcd0 — 64 records of
+0x40 — and both reads that load it copy the records the file holds while leaving the rest as they
+were: 0x42b466 has no clear of its own, unlike `clrd`'s parse at 0x42b502, which memsets four
+records before it looks. That is how a run's captures survive the reload the game does at every
+stage, and it is what the file is written from: the write at 0x42b9ed copies `catk` out of that
+global, not out of what the screen read.
+
+With one file that is consistent. With two it is how one file's captures reach the other: a session
+that looks at one ranking has that file's records in memory, and leaving the other one's screen
+writes them into the other file. So orb empties the block before the ranking screen's read — at
+0x42f060, before the callback — and the read then defines the history rather than adding to it. Not
+in the two states that screen is in on the way out of a run, 9 and 0x11 at `screen+0x8`, which are
+the ones the game itself skips its parses in: there the record in memory is that run's own and the
+file is about to be written from it. And not with `--no-chapters`, where there is one file and
+carrying the captures in memory is right.
+
+**Every open of the file goes in the log, with which of the two it landed in and what it was for**:
+`opened in place of the game's own` or `opened as the game's own`, and `write`, `read`, or `read for
+the front end's unlocks`. Both sides rather than the redirected ones alone, because a line that is
+only written when the file was swapped makes the absence of a line carry the meaning — and an
+absence is equally what a read that never happened looks like. The three reads cannot be told apart
+past the one that is bracketed, so the line says which of them it is and no more.
+
+**One read is not the mode's, and it is the one that is not a record.** 紅魔郷 keeps four things in
+the one file: `hscr`, the ranking; `catk`, which spell cards have been captured; `clrd`, what has
+been cleared; `pscr`, which stages may be practised. The ranking and the captures are the mode's
+own — a card captured in a chapter that can be played again is not the capture the game's record is
+a record of, for the same reason the score is not that score. What the front end *offers* is not a
+record of anything, though: a stage that has been reached has been reached, and answering that
+question out of a new file locks the game back to stage 1 for want of anything in it. So that one
+read is left pointed at `score.dat` whatever the mode. The three reads are told apart by which
+callback is running:
+
+| read | what it is for | which file |
+| --- | --- | --- |
+| `MainMenu::AddedCallback`, 0x43a5c0 | `clrd` and `pscr` into `g_GameManager` at 0x69ccd0 and 0x69cd30, the only place the front end's `Extra Start` and practice stages are lit from | the game's own, always |
+| `GameManager::AddedCallback`, 0x41bcdc, once per stage | the run's own record: the score to beat, and the spell cards it can add a capture to | the mode's |
+| the ranking screen's added callback, 0x42f47f | the ranking on screen, and the record a score is entered into | the mode's |
+
+The one write needs no telling apart: the exe reaches it from a single place, the ranking screen's
+deleted callback on its way out, so a write while pointdevice mode is on is that screen's — a score
+entered into it, or a ranking that was only looked at and written back as it was read, which is
+what brings `pointdevice_score.dat` into existence before any run has finished. It carries `clrd`
+along with the rest, because the game writes the file whole — so a pointdevice clear is recorded in
+orb's file and unlocks nothing, the front end being lit from `score.dat`. Whether a pointdevice
+clear ought to unlock the Extra stage is in [TODO.md](TODO.md), and would be the union of the two
+files' `clrd`.
+
+**orb's file is a new one, not a copy of the game's.** Nothing seeds it: until a pointdevice run
+has entered a score there is no `pointdevice_score.dat` at all, the open of one that is not there
+fails, and the game takes that the way it takes a first launch. A copy would put the game's whole
+record at the top of a ranking none of it belongs to — what a `score.dat` says has been cleared
+was cleared by runs nobody could rewind, which is the one thing keeping these two files apart.
+Where a copy was what kept a pointdevice session's unlocks, the reads above are: the file being new
+costs a ranking its history and nothing else.
 
 **At the exe's import of `CreateFileA`**, not at the game's own score code, because that
 import is where both of the game's own paths to the file end up. `score.dat` is one string, at
@@ -1187,9 +1261,21 @@ statically linked, so the open reaches the OS at the exe's own import, IAT slot 
 slot is called from exactly two places: the CRT's open at 0x4677fa, and a file class at
 0x43ceea that the score file never goes through.
 
-So nothing here is per-game: no address, no offset, and nothing about the format or the
+So the redirect itself knows nothing about the game: no offset, and nothing about the format or the
 encryption. It is the seam `memtrack` hooks for the heap calls, and d3d8's and dsound's own
 opens go through their own imports and are not in the path.
+
+**One address is needed, and only to tell the front end's read from the others**:
+`MainMenu::AddedCallback` at 0x43a464, hooked so that the game's own file answers the read made
+while it runs and the mode's file answers the rest. It is registered at 0x43a3c4 as the `+0x8` of
+the chain element at `menu+0x8234`, and it is the callback that starts the title theme:
+`bgm/th06_01.mid` at 0x46c3a4, pushed at 0x43a475, which is what identifies it. The parses identify
+each read: `hscr` at 0x42b280, `catk` at 0x42b466, `clrd` at 0x42b502, `pscr` at 0x42b65e; this
+callback calls only the last two, and the ranking screen picks `hscr` into a table of five
+difficulties by four shots at screen+0x3ab0. Nothing but which file an open lands in rides on that
+address, and a game orb has no such address for lights its front end from whichever file the mode
+points at — which for a mode whose file is new is nothing at all, and is the reason this is one
+address rather than none.
 
 **Only the open is redirected, which is enough here and would not be everywhere.** That other
 file class truncates a `"w"` by calling `DeleteFileA` on the name before creating it — at
@@ -1199,10 +1285,10 @@ its own file deleted while orb's was written. 紅魔郷's does not go that way.
 The whole file name is compared, ignoring case, and the directory the game named is kept. So
 `pointdevice_score.dat` is not itself taken for the game's file and forked again — a second pass
 over it would open `pointdevice_pointdevice_score.dat` — and a relative name resolves where the
-game's own open would have resolved it. The paths are handled as the bytes the game gave: a
-directory name in the game's code page is not necessarily UTF-8, and the copy goes through
-`CopyFileA` rather than `std::fs` for that reason. They are converted to text in one place, the
-log.
+game's own open would have resolved it. The paths are handled as the bytes the game gave and
+handed to the game's own `CreateFileA` as those bytes: a directory name in the game's code page is
+not necessarily UTF-8, so nothing in the path converts one. They are converted to text in one
+place, the log.
 
 With `--no-chapters` the hook is not installed at all: nothing can rewind that run, and its score
 belongs in the game's own file.
