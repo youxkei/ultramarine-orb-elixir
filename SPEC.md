@@ -398,12 +398,33 @@ leaves it: starting a long theme over every attempt is worse than the jump in it
 looped within a buffer's length of the reading — and a resume then leaves the music as the stage
 started it. So is a file written before the field existed.
 
-**What is asked, and where.** `どこから始める`, with `つづきから` and `はじめから`, on the frame above —
-after the character select and before the run is built. Asked there rather than beside the mode
-question because which run this is includes the character, and the mode question is a screen too
-early to know it; and because on that frame both answers cost nothing, one being the run the game was
-about to start anyway. Only where a run of that same difficulty, character and shot was left, so the
-question never appears for a run there is nothing of.
+**What is asked, and where.** `どこから始める`, with `つづきから` and `はじめから`, on the game's own shot
+type select — on the press that would have started the run, which orb holds back. Asked there rather
+than beside the mode question because which run this is includes the character and the shot, and the
+mode question is two screens too early to know them; that screen knows all three, the first two being
+settled and the third under its cursor at `MainMenu+0x81a0`. Only where a run of that same difficulty,
+character and shot was left, so the question never appears for a run there is nothing of.
+
+**The press is held back in the input read**, `GetInput`'s answer having the front end's decide taken
+out of it — `0x1001`, the shot button and return, which is what every one of its screens tests against
+the frame before. That word is what `Supervisor::OnUpdate` assigns `g_CurFrameInput` from, so a press
+taken out there is one no screen in the frame ever saw. Which is what `キャンセル` is: the press is
+never handed over, and the screen carries on where it was, on the shot it was asked about. Nothing is
+put back, and nothing has to be — beyond holding the key that cancelled back too, until it is let go:
+it is still down on the frame the game carries on into, and what the shot type select does with it is
+go back to the character select.
+
+Handed over on one read, by putting those bits back in, where the answer is a run to start. The screen
+then decides as it would have — `shotType` from its own cursor, `curState` to the run — rather than orb
+writing the run's three numbers and the scene by hand. Two frames later the run is registered, and the
+chapter asked for goes in there, that being the one frame the game will take a stage for a run it has
+not built.
+
+Not asked after the run is chosen. The shot type select does not fade or wait: 0x436dae writes the shot
+and the scene in one go, and by the frame the run is chosen the front end has taken its own job out, so
+a question asked there has nothing behind it to go back to. That frame is kept as the one place a run
+whose press could not be held back is still asked about, and there the cancel it cannot act on is left
+unread.
 
 The line under `つづきから` says where that run stopped — the stage, the chapter by name, the
 retries — and not which run it is, that having just been chosen. Under `はじめから` it says what
@@ -412,13 +433,18 @@ reaches one; this is the last moment anybody is told so. The cursor starts on `�
 because it is the likelier answer but because of what the two mistakes cost: a run picked up by
 accident is a run put back where it was, while a fresh run started by accident is the file gone.
 
-**And said once more a screen earlier, as a mark rather than a question.** `中断データあり`, with the
-stage, the chapter and the retries under it, in the bottom left of the game's own shot type select
-while the cursor is on a shot a run was left in. That screen is the first one that knows which run is
-about to be played — the difficulty and the character are settled, and the shot is under the cursor at
-`MainMenu+0x81a0`, which is where it has to be read from since nothing writes `shotType` until the
-screen is left. Nothing is frozen and nothing is asked: the screen carries on running underneath and
-the line follows the cursor between the two shots.
+**And said before the press, as a mark rather than a question.** `中断データあり`, with the
+stage, the chapter and the retries under it, in the bottom left of that same screen while the cursor is
+on a shot a run was left in. Nothing is frozen and nothing is asked for it: the screen carries on
+running underneath and the line follows the cursor between the two shots.
+
+The press is held back on that screen whichever shot the cursor is on, and not only where the line is
+up. What the line says is read one frame after the cursor arrives — orb's own frame work runs after the
+game's update — while the screen moves its cursor before it reads its decide, 0x436a88 against 0x436d79.
+So a direction and the shot button on one frame start a run on the shot the cursor has just reached, and
+holding the press back only under the line would leave that one frame able to lose a chapter. Where there
+turns out to be nothing to ask, the press is handed over on the next read, which is a frame nobody
+sees.
 
 It is there because the choice that quietly loses a run is made on those screens, not on the question
 after them: `MainMenu::RegisterChain` memsets the cursor, so somebody who left a ReimuB run and picks
@@ -426,10 +452,8 @@ ReimuA out of habit is offered nothing, gets a fresh run, and that run writes it
 measured, by doing it, and nothing on the game's own screens says otherwise. A practice run is not
 marked, its stage being part of which run it is and not chosen until afterwards. The file is read when
 the cursor moves onto another run rather than every frame, and it is a few hundred lines to read.
-Nothing cancels the question — the front end has already taken itself down by the time a run is asked
-for, so there is nothing behind it to go back to, and its two items are the two ways into the run
-that was chosen. The file is read where the question is put rather than at startup, so what is
-offered is the chapter the last session stopped at.
+The file is read where the question is put rather than at startup, so what is offered is the chapter the
+last session stopped at.
 
 **The file goes when the run finishes**, which is the result screen: a run given up does not go
 through one, so what is left holding a chapter is exactly a run that was left. A cleared run's file
@@ -453,6 +477,32 @@ it is built on, which is what a fault in a run that chapters alone do not explai
 menu, because that is where it belongs: a run with chapters and a run without are two different
 things to start, and 紺珠伝 asks it in the same place. Not a key in `orb.yaml`, which is for
 what somebody sets once.
+
+**On the press, not after it.** The title menu's decide is held back the same way the shot type
+select's is — `g_CurFrameInput & 0x1001`, tested at 0x437c1b against the frame before — and what the
+cursor is on is what says whether orb has a question: `MainMenu+0x81a0` bounded to 0..=7 and jumped
+through the table at 0x4381cc, of which items 0, 1 and 2 start a run and item 4 is the ranking.
+Answering picks the mode and hands the press over, so the menu chooses its own item; cancelling hands it
+over to nobody, and the menu is still on the item, with its cursor where it was and nothing of it
+redrawn.
+
+**Only where the screen would have acted on the press.** Each ignores its own decide for its first
+frames — 20 for the title menu at 0x437c0e, 30 for the shot type select at 0x436c0a — and a press held
+back over those and handed over afterwards is a keypress the game had thrown away, acted on late. Held
+from a frame before either grace runs out, because what decides the holding is read after the game's
+update and applies to the next read: tested for the frame it is on, the frame the grace expires on would
+go unheld and a press there would start a run nobody was asked about. What the cursor is on is asked
+apart from this, the mark on the shot type select being drawn from the same reading and having nothing to
+wait for.
+
+**The key a question was cancelled with is held back as well**, until it is let go or until the screen it
+was cancelled on is gone, whichever comes first, on both screens. It
+is still down on the frame the game carries on into, and going back is what each of them does with it —
+the title menu puts its cursor on `Quit` (0x4381b0), the shot type select returns to the character
+select (0x436c49) — where what was answered is about the screen the question was on. The press after it
+is the screen's own again: cancelling a question and asking to go back are two different things to ask
+for. It ends with that screen because a hold that outlived it would be taking the bomb and the pause
+button out of the run started next, and out of what a resumed run writes down as its own buttons.
 
 | | |
 | --- | --- |

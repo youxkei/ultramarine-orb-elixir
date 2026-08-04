@@ -192,6 +192,16 @@ const G_CUR_FRAME_INPUT: usize = 0x0069d904;
 /// of the word as it was read. Every button but 0x8, which is the one `GameManager::OnUpdate`
 /// reads at 0x41b72c to open the pause menu.
 const RUN_INPUT: u16 = 0x01f7;
+/// The buttons the front end reads as *decide*: the shot button and return. Every one of its screens
+/// tests them the same way — `g_CurFrameInput & 0x1001` against `g_LastFrameInput` under the same
+/// mask, the shot type select's own at 0x436d79 and the title menu's at 0x437c1b — so a change in
+/// these two, with one of them down, is what moves it on.
+const MENU_DECIDE: u16 = 0x1001;
+/// And as *back*: the bomb and the menu button, tested the same way at 0x436c1b and 0x438188. What it
+/// does differs per screen — the shot type select goes to the character select, the title menu puts
+/// its cursor on `Quit` — and both are things orb has to keep from happening on the frame one of its
+/// own questions was cancelled with that very key.
+const MENU_CANCEL: u16 = 0x000a;
 /// The bounds inside [`G_JOY_CAPS`] that an axis is measured against, which is where the game
 /// takes the centre of one and its dead zone from.
 mod joy_caps {
@@ -549,27 +559,45 @@ const STATE_ENDING: i32 = 10;
 
 /// `th06::GameState`, the front end's own state, of which orb watches two.
 ///
-/// A run is chosen by three of the title menu's items — a full run, the Extra stage, practice —
-/// and all three set this same state, which is where the game spends the second it takes to load
-/// the difficulty select. Nothing else reaches it: coming back from the difficulty select goes
-/// through `STATE_CHARACTER_LOAD` instead.
-const MENU_STATE_DIFFICULTY_LOAD: i32 = 6;
-/// Chosen from the title menu's `Score`, and where the game spends the second before the
-/// ranking's own chain is registered and it opens the score file.
-const MENU_STATE_SCORE: i32 = 10;
-/// The shot type select, where a run's third and last question is answered and so the first screen
-/// that knows which run is about to be played.
+/// `MainMenu::OnUpdate` switches on it through the table at 0x4374d0, one entry per state, and the
+/// two below are entry 2 and entry 11 of it.
 ///
-/// `MainMenu::OnUpdate` switches on `gameState` through the table at 0x4374d0, whose eleventh entry
-/// is 0x436a7c — the block that takes the shot from the cursor at 0x436d07 and 0x436dae. The
-/// character select (the ninth entry, 0x4364e0) is what sets it, at 0x4368fd, right after writing the
-/// character it was asked for.
+/// The title menu with its eight items live. Its own handler is a function of its own, 0x437b41,
+/// called from the state's block at 0x435972.
+const MENU_STATE_TITLE: i32 = 2;
+/// The shot type select, where a run's third and last question is answered and so the first screen
+/// that knows which run is about to be played. 0x436a7c takes the shot from the cursor at 0x436d07
+/// and 0x436dae; the character select — entry 9, 0x4364e0 — is what sets this state, at 0x4368fd,
+/// right after writing the character it was asked for.
 const MENU_STATE_SHOT_TYPE: i32 = 0xb;
-/// What the front end's own back button puts it in: 36 frames later it goes to `STATE_STARTUP`,
-/// which reloads the title and falls through to the menu. The difficulty select's `RETURNMENU`
-/// branch is what this is copied from, sprite interrupts and all — those are already the fade the
-/// chosen item started, which is the same one that branch sets.
-const MENU_STATE_CHARACTER_LOAD: i32 = 8;
+
+/// Which item of the title menu is which, as its cursor counts them: `MainMenu+0x81a0` bounded to
+/// 0..=7 at 0x437c5c and jumped through the table at 0x4381cc.
+///
+/// The three that start a run set `gameState` to 6, the difficulty load — 0x437c9e, 0x437d9d and
+/// 0x437e4b, one per item — and the ranking sets 10 at 0x437f84. The four not named here are the
+/// replay, the music room, the options and quitting, none of which orb has anything to ask about.
+const TITLE_ITEM_START: i32 = 0;
+const TITLE_ITEM_EXTRA: i32 = 1;
+const TITLE_ITEM_PRACTICE: i32 = 2;
+const TITLE_ITEM_SCORE: i32 = 4;
+
+/// The frames each of the two screens ignores its own decide for, counted in `stateTimer`: the title
+/// menu at 0x437c0e and the shot type select at 0x436c0a.
+///
+/// What they are needed for is that orb holds the decide back on both — a press it read where the
+/// screen would have ignored it is a press the screen then acts on when it is handed back, which is
+/// a run started by a keypress the game had thrown away.
+const MENU_TITLE_GRACE_FRAMES: i32 = 0x14;
+const MENU_SHOT_TYPE_GRACE_FRAMES: i32 = 0x1e;
+/// And how far ahead of either of them orb starts holding: one frame.
+///
+/// What decides the holding is read after the game's update and applies to the *next* read, so a screen
+/// tested for the frame it is on leaves the frame its grace runs out on unheld — and a press on that
+/// frame is one the game acts on and orb never saw. The frame the other way costs nothing: answering a
+/// question takes ten frames of its own grace at least, so the press handed back lands well past
+/// either.
+const MENU_GRACE_LOOKAHEAD: i32 = 1;
 
 /// `th06::ResultScreenState`: the screen that asks whether to save a replay, and the state that
 /// leaves for the title menu without any of that.
@@ -1132,6 +1160,28 @@ impl Game for Th06 {
         RUN_INPUT
     }
 
+    fn menu_decide(&self) -> u16 {
+        MENU_DECIDE
+    }
+
+    fn menu_cancel(&self) -> u16 {
+        MENU_CANCEL
+    }
+
+    unsafe fn menu_takes_a_press(&self) -> bool {
+        if unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) } != STATE_MAINMENU {
+            return false;
+        }
+        let grace = match unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) } {
+            MENU_STATE_TITLE => MENU_TITLE_GRACE_FRAMES,
+            MENU_STATE_SHOT_TYPE => MENU_SHOT_TYPE_GRACE_FRAMES,
+            // Every other state either has no decide to read or is not one orb asks anything over.
+            _ => return false,
+        };
+        let timer: i32 = unsafe { mem::read(G_MAIN_MENU + main_menu::STATE_TIMER) };
+        timer >= grace - MENU_GRACE_LOOKAHEAD
+    }
+
     unsafe fn run_start(&self) -> RunStart {
         unsafe {
             RunStart {
@@ -1146,9 +1196,14 @@ impl Game for Th06 {
         }
     }
 
+    /// Both of the supervisor's states, for the reason [`Th06::menu_pointed_at`] gives: the frame a
+    /// run leaves for the front end ends with `curState` already saying front end and `gameState` still
+    /// saying whatever screen that run was entered from, which for every run is this one. Without
+    /// `wantedState` the mark flashes on that frame and the shot button is taken out of the next read.
     unsafe fn run_pointed_at(&self) -> Option<RunStart> {
         let settled = unsafe {
             mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_MAINMENU
+                && mem::read::<i32>(G_SUPERVISOR + supervisor::WANTED_STATE) == STATE_MAINMENU
                 && mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) == MENU_STATE_SHOT_TYPE
         };
         if !settled {
@@ -1390,30 +1445,30 @@ impl Game for Th06 {
             .is_some_and(|demo| demo != 0)
     }
 
-    /// The front end's own state, and only while the front end is what the game is running and
-    /// has been since before this frame: `g_MainMenu` is a global that keeps whatever it was left
-    /// holding, and what says it is being used is the supervisor.
+    /// The item under the title menu's cursor, and only while the front end is what the game is
+    /// running and has been since before this frame: `g_MainMenu` is a global that keeps whatever it
+    /// was left holding, and what says it is being used is the supervisor.
     ///
     /// Both of the supervisor's states, because one of them is not enough. `Supervisor::OnUpdate`
     /// is chain priority 0 and assigns `wantedState = curState` as its last act, so a screen that
     /// sets `curState` to the front end — which is how the ranking leaves — is a frame ending with
     /// `curState` already saying front end while `wantedState` still says where the game was, and
-    /// the front end not yet rebuilt. On that one frame `gameState` is whatever the screen being
-    /// left was entered from, which for the ranking is `STATE_SCORE` — so orb read leaving the
-    /// ranking as choosing it, and asked again for nothing. The frame after, the supervisor
-    /// rebuilds the menu and `MainMenu::RegisterChain` memsets that stale state away.
-    unsafe fn menu(&self) -> Menu {
+    /// the front end not yet rebuilt. On that one frame `gameState` is whatever the screen being left
+    /// was entered from, and `MainMenu::RegisterChain` only memsets that stale state away the frame
+    /// after.
+    unsafe fn menu_pointed_at(&self) -> Option<Menu> {
         let settled = unsafe {
             mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_MAINMENU
                 && mem::read::<i32>(G_SUPERVISOR + supervisor::WANTED_STATE) == STATE_MAINMENU
+                && mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) == MENU_STATE_TITLE
         };
         if !settled {
-            return Menu::Elsewhere;
+            return None;
         }
-        match unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE) } {
-            MENU_STATE_DIFFICULTY_LOAD => Menu::Run,
-            MENU_STATE_SCORE => Menu::Scores,
-            _ => Menu::Elsewhere,
+        match unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::CURSOR) } {
+            TITLE_ITEM_START | TITLE_ITEM_EXTRA | TITLE_ITEM_PRACTICE => Some(Menu::Run),
+            TITLE_ITEM_SCORE => Some(Menu::Scores),
+            _ => None,
         }
     }
 
@@ -1429,24 +1484,6 @@ impl Game for Th06 {
         unsafe { self.controller_pad() }
             .or_else(|| crate::joystick::reading().map(|reading| self.winmm_pad(reading)))
             .unwrap_or_default()
-    }
-
-    /// The state the front end's own back button uses, and the timer it counts from. Nothing else
-    /// has to be put back: the sprites are already running the fade the chosen item started, which
-    /// is the same one the back button sets, and the cursor is already on the item that was chosen
-    /// — which is where the title menu should have it.
-    unsafe fn leave_menu(&self) -> bool {
-        if unsafe { self.menu() } == Menu::Elsewhere {
-            return false;
-        }
-        unsafe {
-            mem::write::<i32>(
-                G_MAIN_MENU + main_menu::GAME_STATE,
-                MENU_STATE_CHARACTER_LOAD,
-            );
-            mem::write::<i32>(G_MAIN_MENU + main_menu::STATE_TIMER, 0);
-        }
-        true
     }
 
     /// What `StageMenu::OnUpdateGameMenu` writes where its own quit is answered yes: the two

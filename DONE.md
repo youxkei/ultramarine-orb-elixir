@@ -97,7 +97,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
     the third item — `retry: the run given up on the keyboard`, `retry: the run is given up; the
     game is on its way to the title`. The file was still there after the game was gone.
   - A new launch: `resume: 1 run(s) left unfinished: lunatic-reimu-a`. The same difficulty and
-    character chosen again, and the question came up on the frame after the shot type —
+    character chosen again, and the question came up as the shot was chosen —
     `resume: lunatic-reimu-a was left; asking where to start` — with the file read there rather
     than at startup.
   - `つづきから` answered: `resume: from where it stopped, answered on the keyboard`, the run built
@@ -185,6 +185,32 @@ settled by measurement rather than by looking at the screen, the measurement is 
     run is for. Nothing on the game's own screens remembers which shot the last run used —
     `MainMenu::RegisterChain` memsets the menu, so its cursor starts at ReimuA every time — so
     picking a run up means choosing the same three again.
+- **The question asked on the press, and cancelled without the run starting.** A Normal ReimuB run left
+  in stage 5's `MIDSTAGE 3` at frame 7477, chosen again from the front end on the pad. The shot type
+  select's own decide is held back, so the press put the question up rather than the run:
+  `resume: normal-reimu-b was left; asking where to start`, and then
+  `resume: neither, answered on the pad; no run is started`. Four times in a row — the questions at
+  334506843, 334508187, 334509156 and 334510156, each cancelled within 600ms and each followed by
+  another press on the same screen 600 to 900ms later.
+  - That sequence is the proof the screen never moved: its own back goes to the character select
+    (0x436c49), from where a second question would have needed the character and the shot chosen again,
+    and the presses came too close together for that. **The key that cancelled has to be held back as
+    well** for it — see `Game::menu_cancel` for what was tried first and why it delivered the press it
+    was meant to stop.
+  - The file was still there after all four, which is the whole point of `キャンセル`: nothing was
+    started, so nothing wrote over it.
+  - **And then answered `つづきから` from the same screen**, ten seconds after the question went up:
+    `resume: from where it stopped, answered on the pad`, the press handed back for one read, the shot
+    type select choosing its own item, and the chapter going in on the frame the run was registered —
+    `resume: ... the run is being built at that stage`. 7476 updates played in and
+    **`resume: the landing is the frame that was written down, field for field`**, with the song picked
+    up at 21968908 in its own file. So the answer remembered against its slot arrives on the one frame
+    the game will take a stage for a run it has not built.
+  - **The run was then played**, which is what says the shot button reaches the game on the frames
+    orb is not holding it: stage 5's boss through two chapters — `stage 5 chapter 9 ... a boss
+    spellcard` at frame 11610 and `chapter 10 ... a boss nonspell` at 12297 — with its life going down
+    5420, 3833, 2312 and then 14954 to 7338 on the next attack. A miss in chapter 10 put the retry menu
+    up, and the run was given up from it on the pad.
 - **Driving the game without a keyboard**, which is what made the above possible and is worth
   writing down for every other unwatched thing in [TODO.md](TODO.md). The launcher's dialog is got
   past with `--config` naming a file that says `ask_at_startup: false`. The game's own screens
@@ -227,25 +253,31 @@ settled by measurement rather than by looking at the screen, the measurement is 
     is kept no longer, see [SPEC.md](SPEC.md) — and a file called that today is one somebody made,
     which is what both of these were.
 - **The mode question over the game's own menu.** `Game Start`, `Extra Start` and `Practice Start`
-  each froze the game the frame after the item was taken and put the question up; `Score` asked
-  which of the two rankings. Answered with both, six times over one session:
-  `menu: Run chosen, asking which mode` then `mode: normal, was pointdevice`, and the cursor
-  starting on whichever mode orb was already in — `was normal` on the ones after it.
+  each put the question up; `Score` asked which of the two rankings. Answered with both, six times over
+  one session, and the cursor started on whichever mode orb was already in — `was normal` on the ones
+  after the first.
+  - **On the press that would have chosen the item**, once the title menu's own decide was held back:
+    `menu: Run is under the cursor, asking which mode` and `menu: Scores is under the cursor, asking
+    which mode`, each on the frame the shot button went down and with the menu behind it untouched.
+    Answered, `mode: answered on the pad` is followed by the item being taken as usual — the press is
+    handed back for one read and the menu chooses it itself.
   - **The ranking follows the mode.** With normal chosen, the ranking screen — scene 6, the game's
     `SUPERVISOR_STATE_RESULTSCREEN` — opened the game's own file, which the log shows by there
     being no `score:` line at all for it. With pointdevice chosen, the same screen opened
     `pointdevice_score.dat`, once as it was built and again as it was written on the way out, and
     the title menu then read the same file when it rebuilt itself.
-  - **Neither is an answer.** `x` on the question put the front end back on its way to the title
-    menu four times in a row — `mode: not chosen, the menu is on its way back` — and each of those
-    was followed by another `menu: Run chosen`, which is the proof that it got there: that line
-    needs the title menu rebuilt and an item taken again. The second of the four was cancelled 469ms
-    after the question appeared, so the ten frames of grace are not in the way of somebody who means
-    it.
-  - **And on the pad, both ways**: `mode: not chosen on the pad, the menu is on its way back`
-    followed by the next `menu: Run chosen`, and `mode: answered on the pad` with the mode taken. A
-    menu of orb's freezes the game, so the game is not reading the pad on those frames and one does
-    nothing there unless orb reads it itself — which is how it came to be missing, and why the log
+  - **Neither is an answer, and the menu does not move for it.** Cancelled five times in a row on the
+    pad — `mode: not chosen on the pad; the menu is where it was` at 334495687, 334497000, 334498296,
+    334499828 and 334500484 — with a fresh `menu: Run is under the cursor` between each, from a press
+    that took 300 to 1200ms to arrive. That sequence is the proof the title menu never saw the cancel:
+    its own back puts the cursor on `Quit` (0x4381b0), an item orb asks nothing about, so a cancel that
+    reached it would have made the next press report nothing at all. The shortest of the five was
+    answered 297ms after the question appeared, so the ten frames of grace are not in the way of
+    somebody who means it. Nothing of the title was redrawn either — the fade it plays on the way back
+    from an item is what the press being held back avoids.
+  - **And on the pad, both ways**: the five cancels above and `mode: answered on the pad` with the mode
+    taken. A menu of orb's freezes the game, so the game is not reading the pad on those frames and one
+    does nothing there unless orb reads it itself — which is how it came to be missing, and why the log
     says which hand answered.
   - **Leaving the ranking used to ask again**, on the same millisecond as the score file being
     written on the way out. `Supervisor::OnUpdate` assigns `wantedState = curState` as its last act

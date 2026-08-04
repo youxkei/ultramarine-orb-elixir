@@ -1,10 +1,16 @@
-//! The question orb puts over the game's own menu: whether a run keeps chapters, and which of
+//! The question orb puts over the game's own title menu: whether a run keeps chapters, and which of
 //! the two rankings is being looked at.
 //!
 //! Asked where the game is asked, because that is where the answer belongs: a run is started
 //! from the title menu, and one with chapters and one without are two different things to start.
 //! Not a setting in `orb.yaml`, which is for what somebody sets once — this is a choice made per
 //! run, the way 紺珠伝 asks it.
+//!
+//! On the press that would have chosen the item, held back in the input read, so the menu has not
+//! moved: answering picks the mode and hands that press over, and cancelling is the press never
+//! being handed over at all. Asked after the menu had acted, cancelling meant putting the front end
+//! back the way its own back button does — which reloads the title and plays its animation through
+//! for a question somebody has just said no to.
 //!
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! share.
@@ -16,9 +22,9 @@ use crate::input::Keyboard;
 use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, Keys, LINE_HEIGHT, NORMAL};
 use crate::overlay::{Label, Overlay, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-/// Frames before the menu accepts anything. The key that chose the item this is asked over is
-/// very likely still down, and while a press is only acted on as it goes down, somebody who
-/// pressed it twice meant both presses for the game's menu and not for this.
+/// Frames before the menu accepts anything. The key this went up on is still down — it is the press
+/// that was held back — and while a press is only acted on as it goes down, somebody who pressed it
+/// twice meant both presses for the game's menu and not for this.
 const INPUT_GRACE_FRAMES: u32 = 10;
 
 /// Which of the two things a run is, and which of the two files a ranking is.
@@ -58,8 +64,8 @@ const CHOICES: [(Mode, &str); 2] = [
 pub enum Answer {
     /// One of the two was chosen.
     Chosen(Mode),
-    /// Neither: what was asked for is the menu this was asked over, which the game is put back on
-    /// its way to.
+    /// Neither: the item is not chosen at all. The menu underneath never acted on the press, so it is
+    /// still on that item and nothing has to be put back.
     Cancelled,
 }
 
@@ -156,7 +162,7 @@ impl ModeMenu {
 fn title(asked: Menu) -> &'static str {
     match asked {
         Menu::Scores => "どちらのスコアを見る",
-        _ => "モードを選ぶ",
+        Menu::Run => "モードを選ぶ",
     }
 }
 
@@ -174,12 +180,12 @@ fn aside(asked: Menu, mode: Mode) -> &'static [&'static str] {
         // What a pointdevice run gives and what it costs, both: the progress kept is the reason to
         // choose it, and the replay is the one thing the game would have offered afterwards that it
         // no longer does — see `Game::skip_replay_prompt`.
-        (_, Mode::Pointdevice) => &[
+        (Menu::Run, Mode::Pointdevice) => &[
             "被弾したらチャプターの頭からやり直します",
             "進行状況は自動的にセーブされ、いつでも続きから遊べます",
             "リプレイは保存できません",
         ],
-        (_, Mode::Normal) => &["いつものゲームモードです", "被弾したら残機が減ります"],
+        (Menu::Run, Mode::Normal) => &["いつものゲームモードです", "被弾したら残機が減ります"],
     }
 }
 

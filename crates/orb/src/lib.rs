@@ -37,7 +37,7 @@ mod window;
 
 use std::ffi::c_void;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 
 use orb_config::Config;
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
@@ -55,10 +55,11 @@ mod brush {
 
 use chapter::{Cause, Chapters, Judgement};
 use game::th06::Th06;
-use game::{Game, Menu, Pad, State};
+use game::{Game, Pad, RunStart, State};
 use input::Keyboard;
 use lives_ui::LivesMark;
 use log::{detail, log, pacing, summary};
+use menu_ui::By;
 use mode_ui::{Answer, Mode, ModeMenu};
 use overlay::Overlay;
 use retry_ui::{Choice, RetryMenu};
@@ -275,9 +276,6 @@ struct Runtime {
     /// Whether anybody is there to be asked which. A pass over a replay is not, and a menu
     /// frozen on a question nobody answers is a pass that never ends.
     asks_mode: bool,
-    /// What the game's own menu was doing last frame, so the question is put at the moment
-    /// something is chosen and not for as long as the game takes to act on it.
-    menu: Menu,
     /// `Some` while the game is frozen on that question.
     asking: Option<ModeMenu>,
     /// Whether the game is being held on a chapter boundary stepped to during a
@@ -297,6 +295,10 @@ struct Runtime {
     /// The line drawn on the shot type select where the run under the cursor has a chapter written
     /// down. Kept across frames because it holds what it read, the screen being one somebody sits on.
     mark: resume_ui::Mark,
+    /// What the question over the shot type select was answered with, waiting for the frame the run it
+    /// was about is registered on. That frame is where a chapter can be put back — see
+    /// [`Game::start_stage`] — and is also where the question would otherwise be asked a second time.
+    started: Option<Started>,
     /// Which chapter this run's file describes — the stage and the frame it began on — so that it is
     /// written once per chapter rather than once per frame of one.
     kept: Option<(i32, u32)>,
@@ -305,6 +307,17 @@ struct Runtime {
     /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
     /// which is asked once and cannot be asked before the device exists.
     sent_keys: bool,
+}
+
+/// A run the resume question has been answered for, waiting for the game to get to it.
+struct Started {
+    /// Which run it was answered about. A run the game then registers that is not this one is a run
+    /// nothing was answered about — the cursor moved between the answer and the press being handed
+    /// over, which is not something the front end lets happen, but starting somebody else's chapter is
+    /// not a thing to leave resting on that.
+    slot: String,
+    /// The chapter to put back, where that is what was asked for.
+    saved: Option<resume::Saved>,
 }
 
 /// The one game orb knows how to run inside.
@@ -342,6 +355,30 @@ static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
 /// Whether the keyboard has been out of reach since it was last read, and so needs
 /// getting back before the next read.
 static INPUT_LOST: AtomicBool = AtomicBool::new(false);
+/// Whether the front end's own decide is being kept from the game — see [`held_back`]. Set for as
+/// long as the screen orb has a question about is up with a run of a chapter under the cursor, and
+/// left alone while the question itself is up: the frame that writes it ends in the question's own
+/// branch and never reaches the write.
+static HOLD_DECIDE: AtomicBool = AtomicBool::new(false);
+/// Whether one of those presses has arrived and has not been asked about yet.
+static DECIDE_PRESSED: AtomicBool = AtomicBool::new(false);
+/// Whether it was down on the read before. What is held back is the press and not the holding, and
+/// the game's own `g_LastFrameInput` cannot tell orb which this is: the bits were taken out of the
+/// word it is assigned from.
+static DECIDE_WAS_DOWN: AtomicBool = AtomicBool::new(false);
+/// Whether the press held back is to be handed over on the next read, the question having been
+/// answered with a run to start.
+static FEED_DECIDE: AtomicBool = AtomicBool::new(false);
+/// Whether the key a question was cancelled with is being kept from the game until it is let go. What
+/// the screen underneath would do with it is go back — see [`Game::menu_cancel`].
+static HOLD_CANCEL: AtomicBool = AtomicBool::new(false);
+/// Whether the next read is the first after one of orb's questions came down, on which nothing the
+/// game was not already holding is let through — see [`held_back`].
+static SETTLE_KEYS: AtomicBool = AtomicBool::new(false);
+/// The word the game was handed on the read before, which is what the game's own idea of the frame
+/// before still says while a question of orb's is up: no frame of one runs its chain, so nothing
+/// assigns `g_LastFrameInput`.
+static LAST_WORD: AtomicU16 = AtomicU16::new(0);
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_void) -> BOOL {
@@ -664,13 +701,13 @@ fn attach() {
             marked_after: 0,
             mode,
             asks_mode,
-            menu: Menu::Elsewhere,
             asking: None,
             held: false,
             walled: false,
             rolling: false,
             asking_resume: None,
             mark: resume_ui::Mark::new(),
+            started: None,
             kept: None,
             starting: 0,
             sent_keys: false,
@@ -953,6 +990,13 @@ extern "system" fn get_input() -> u16 {
     // hands it an uninitialised stack buffer as the key state.
     if !active {
         INPUT_LOST.store(true, Ordering::Relaxed);
+        // Nothing is being held back on the frames the game is being given nothing, and what it was
+        // holding is forgotten with them: a button let go of behind the window would otherwise still
+        // read as held on the frame it comes back on, and a press then is a press swallowed rather than
+        // held back. A button still down on that frame reads as a fresh press instead, which puts the
+        // question up — the same trade the game makes across its own scene changes, and the harmless
+        // way round. See [`held_back`].
+        DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
         return unsafe { noted(frame, 0) };
     }
     // Back in front: get the device back before anyone reads it. Left to itself the
@@ -974,7 +1018,80 @@ extern "system" fn get_input() -> u16 {
     let started = profile::now();
     let buttons = original();
     unsafe { profile::record(profile::Phase::Input, started) };
-    unsafe { noted(frame, buttons) }
+    unsafe { noted(frame, held_back(buttons)) }
+}
+
+/// The word the game reads, with the front end's own decide taken out of it while orb has a question
+/// to ask on that press, and put back for the one read that hands the press over.
+///
+/// Done to the word the read hands back rather than to `g_CurFrameInput` afterwards, because that is
+/// what `Supervisor::OnUpdate` assigns from and what every `WAS_PRESSED` in the frame is worked out
+/// against — see [`Game::swallow_input`]. A press taken out here is one no screen in that frame ever
+/// saw, so the screen orb asked over is still standing, on the item it was asked about, and answering
+/// "neither" is nothing at all rather than a scene put back by hand.
+///
+/// The edge is orb's own to keep, for the same reason: the game's copy of the frame before has the
+/// bits missing too, so it would call a press that has been held back for ten frames a fresh one on
+/// the frame the holding stopped.
+///
+/// And with nothing new in it at all on the first read after a question came down, which is what
+/// [`SETTLE_KEYS`] asks for.
+fn held_back(buttons: u16) -> u16 {
+    let decide = GAME.menu_decide();
+    let cancel = GAME.menu_cancel();
+
+    // The key a question was cancelled with, until it is let go: it is still down on the frame the
+    // game carries on into, and going back is what the screen underneath does with it.
+    //
+    // Or until the screen it was cancelled on is gone, which is the same holding as the decide's. A
+    // hold that outlived it would take the bomb and the pause button out of a run: answer a question
+    // with the cancel key still down — a run is started with the other hand — and every read of the
+    // stage would be short of them until it was let go, including the reads a resumed run writes down
+    // as its own.
+    let buttons = if !HOLD_CANCEL.load(Ordering::Relaxed) {
+        buttons
+    } else if buttons & cancel == 0 || !HOLD_DECIDE.load(Ordering::Relaxed) {
+        HOLD_CANCEL.store(false, Ordering::Relaxed);
+        buttons
+    } else {
+        buttons & !cancel
+    };
+
+    // And every other key that was pressed while the question was up, on the one read the game
+    // carries on with. Its own idea of the frame before is the frame the question went up on — no
+    // frame of one runs the chain, so nothing assigns `g_LastFrameInput` — so a key held on orb's
+    // menu is a key the screen underneath reads as a fresh press. The directions are what that costs:
+    // orb's menus and the game's read the same ones, and both of these screens move their cursor
+    // before they read their decide, so the item handed the press would not be the item asked about.
+    //
+    // The decide is left in, being the one bit whose edge orb keeps itself: masked out here it would
+    // read as let go, and the read after as pressed again — which is the question coming straight back
+    // up on the frame it was cancelled.
+    let buttons = if SETTLE_KEYS.swap(false, Ordering::Relaxed) {
+        buttons & (LAST_WORD.load(Ordering::Relaxed) | decide)
+    } else {
+        buttons
+    };
+
+    let word = if FEED_DECIDE.swap(false, Ordering::Relaxed) {
+        buttons | decide
+    } else if !HOLD_DECIDE.load(Ordering::Relaxed) {
+        // Written down on these reads too, so that what is already down as the holding starts is not
+        // taken for a press made under it. It is the opposite: the press that reached the screen before
+        // is the one that got the game *to* this screen, and the key is still down on its first frames.
+        // Read as a press, that put the question up before anybody had asked for a run.
+        DECIDE_WAS_DOWN.store(buttons & decide != 0, Ordering::Relaxed);
+        buttons
+    } else {
+        let down = buttons & decide != 0;
+        let was = DECIDE_WAS_DOWN.swap(down, Ordering::Relaxed);
+        if down && !was {
+            DECIDE_PRESSED.store(true, Ordering::Relaxed);
+        }
+        buttons & !decide
+    };
+    LAST_WORD.store(word, Ordering::Relaxed);
+    word
 }
 
 /// Writes down what the update about to run will act on, and hands it back to the game.
@@ -1123,58 +1240,41 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         let pad = unsafe { pad(runtime.game) };
         if let Some((answer, by)) = asking.update(&runtime.keyboard, pad) {
             runtime.asking = None;
+            // Whichever way it was answered: the keys that answered it are the title menu's own keys
+            // too, and the frame it carries on into is one where nothing of orb's has moved its
+            // cursor. See `held_back`.
+            SETTLE_KEYS.store(true, Ordering::Relaxed);
             match answer {
+                // The mode goes in before the item is acted on, and then the press is handed over so
+                // that the menu chooses the item itself.
                 Answer::Chosen(mode) => {
                     log!("mode: answered on the {by}");
                     choose(runtime, mode);
+                    FEED_DECIDE.store(true, Ordering::Relaxed);
                 }
-                // Back to the menu it was asked over, by the game's own way out of the state the
-                // chosen item put it in. The mode is left as it was: nothing was answered.
+                // The item is not chosen: the press that would have chosen it was held back, so the
+                // menu never left the item it is on and there is no animation to put back. The mode is
+                // left as it was, nothing having been answered.
+                //
+                // The key that cancelled is held back until it is let go: it is still down, and what
+                // the title menu does with it is put its own cursor on `Quit`.
                 Answer::Cancelled => {
-                    let left = unsafe { runtime.game.leave_menu() };
-                    log!(
-                        "mode: not chosen on the {by}, {}",
-                        if left {
-                            "the menu is on its way back"
-                        } else {
-                            "and there is no menu to go back to"
-                        }
-                    );
+                    log!("mode: not chosen on the {by}; the menu is where it was");
+                    HOLD_CANCEL.store(true, Ordering::Relaxed);
                 }
             }
-            // The key that answered this is not one the game's own menu should act on. Written
-            // here rather than on the frame the game carries on, because what reads it is the
-            // first thing that frame does.
-            unsafe { runtime.game.swallow_input() };
         }
         return CHAIN_BREAK;
     }
 
-    // Where to start a run that has a chapter of its own left unfinished. Also over the game's own
-    // screen — the title the front end left behind when it took itself down — so no `hold_frame`
-    // here either.
-    if let Some((menu, _)) = &mut runtime.asking_resume {
+    // Where to start a run that has a chapter of its own left unfinished. Over the game's own shot
+    // type select, whose decide is being held back for exactly this — so no `hold_frame` here either.
+    if let Some((menu, ..)) = &mut runtime.asking_resume {
         let pad = unsafe { pad(runtime.game) };
         if let Some((answer, by)) = menu.update(&runtime.keyboard, pad) {
             let (_, saved) = runtime.asking_resume.take().expect("the menu is up");
-            match answer {
-                resume_ui::Answer::Continue => {
-                    log!("resume: from where it stopped, answered on the {by}");
-                    runtime.starting = 0;
-                    unsafe { resume::begin(runtime.game, saved) };
-                }
-                // Nothing to do: the run is the one the game was about to build. The file is left
-                // where it is, and the first chapter this run reaches writes over it.
-                resume_ui::Answer::Beginning => {
-                    log!(
-                        "resume: from the beginning, answered on the {by}; {saved} is left behind"
-                    );
-                }
-            }
-            // The key that answered is not one the stage about to be built should act on — the same
-            // reason as the mode question's, and here the frame the game carries on into is the one
-            // that registers the run.
-            unsafe { runtime.game.swallow_input() };
+            SETTLE_KEYS.store(true, Ordering::Relaxed);
+            unsafe { answered(runtime, answer, saved, by) };
         }
         return CHAIN_BREAK;
     }
@@ -1370,27 +1470,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         runtime.retry = Some(RetryMenu::new());
     }
 
-    // The question orb puts over the game's own menu. Asked on the change rather than on the
-    // state, so it is put once at the moment something is chosen and not for as long as the game
-    // then takes to act on it; read after the game's update, so the freeze lands on the frame
-    // after — one frame of the fade the keypress started, and none of the second the game spends
-    // loading what comes next.
-    //
-    // Not without the overlay, which is what would draw it: a frozen game with an invisible
-    // question over it is a game that looks broken, and what is lost by not asking is the mode
-    // orb is in already.
-    if runtime.asks_mode {
-        let menu = unsafe { runtime.game.menu() };
-        let chosen = std::mem::replace(&mut runtime.menu, menu) != menu && menu != Menu::Elsewhere;
-        if chosen && runtime.overlay.is_none() {
-            log!("menu: {menu:?} chosen, but there is no overlay to ask over it with");
-        } else if chosen {
-            log!("menu: {menu:?} chosen, asking which mode");
-            runtime.asking = Some(ModeMenu::new(menu, runtime.mode));
-        }
-    }
-
-    // And the question after the character select, where a run has been chosen and a chapter of that
+    // The question after the character select, where a run has been chosen and a chapter of that
     // same run — the same difficulty, character and shot — was left unfinished. Read off the disk
     // here rather than kept from startup: what it offers is the chapter the last session stopped at,
     // which moves with every chapter a run reaches.
@@ -1403,21 +1483,25 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // A run the game keeps no slot for is a practice run: nothing was written down for it and
         // nothing is asked about it, and that ends here rather than in a line of the log.
         if let Some(slot) = runtime.game.run_slot(&run) {
-            match resume::load(&runtime.config.base_dir, runtime.game, &run) {
-                // Not without the overlay, which is what would draw it: a frozen game with an
-                // invisible question over it is a game that looks broken, and what is lost by not
-                // asking is the run starting where the game was going to start it anyway.
-                Some(_) if runtime.overlay.is_none() => {
-                    log!(
-                        "resume: {slot} was left, but there is no overlay to ask over the game with"
-                    );
+            match runtime.started.take() {
+                // Answered a screen earlier, on the press that started this run. The chapter goes in
+                // here and not there because this is the one frame the game will take a stage for a
+                // run it has not built yet — see [`Game::start_stage`].
+                Some(started) if started.slot == slot => {
+                    if let Some(saved) = started.saved {
+                        runtime.starting = 0;
+                        unsafe { resume::begin(runtime.game, saved) };
+                    }
                 }
-                Some(saved) => {
-                    log!("resume: {slot} was left; asking where to start");
-                    let menu = resume_ui::ResumeMenu::new(saved.describe());
-                    runtime.asking_resume = Some((menu, saved));
+                answered => {
+                    if let Some(started) = answered {
+                        log!(
+                            "resume: {} was answered for, and {slot} is what the game registered",
+                            started.slot
+                        );
+                    }
+                    ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::Nothing);
                 }
-                None => detail!("resume: nothing was left of {slot}"),
             }
         }
     }
@@ -1427,14 +1511,65 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // written down. Every frame, because the cursor moves between the two shots on the screen — the
     // file is only read where the answer would be about another run.
     let keeping = runtime.keeping();
-    let pointed = keeping
+    let pointing = keeping
         .then(|| unsafe { runtime.game.run_pointed_at() })
-        .flatten()
-        .and_then(|run| runtime.game.run_slot(&run));
+        .flatten();
+    let pointed = pointing.as_ref().and_then(|run| runtime.game.run_slot(run));
     let base = &runtime.config.base_dir;
     runtime
         .mark
-        .pointing(pointed, |slot| resume::peek(base, slot));
+        .pointing(pointed.as_deref(), |slot| resume::peek(base, slot));
+
+    // And the press that would choose an item is kept from the game on both of the screens orb has a
+    // question about — the title menu and the shot type select — so that a question goes on the press
+    // rather than after it. See `held_back`, and `Game::menu_pointed_at` for what that buys: a screen
+    // whose press never arrived is a screen a cancel leaves exactly where it was, with no state to put
+    // back and no animation to sit through.
+    //
+    // Whichever item the cursor is on, and not only the ones orb would ask about, although that is a
+    // press held back on every run started and one file read on each. The frame the cursor arrives on
+    // the item is why: this is written after the game's update, so it is the *next* frame's read the
+    // holding starts on, and both screens move their cursor before they read their decide — 0x436a88
+    // against 0x436d79 on the one, 0x437b5c against 0x437c1b on the other. So a direction and the shot
+    // button on one frame choose the item the cursor has just reached, and holding only under the
+    // cursor's own answer would leave that one frame able to start a run nobody was asked about.
+    //
+    // Not without an overlay to draw the question with: a press held back for a question nobody can
+    // see is a screen that has stopped working.
+    // Flattened, and not left as the `Option<Option<_>>` `then` hands back: the outer one says only
+    // that somebody is there to be asked, which is a property of the launch and not of the screen —
+    // read for the hold it would have been on every frame of every run, with the shot button taken
+    // out of the word the game reads.
+    let asked_about = runtime
+        .asks_mode
+        .then(|| unsafe { runtime.game.menu_pointed_at() })
+        .flatten();
+    HOLD_DECIDE.store(
+        (pointing.is_some() || asked_about.is_some())
+            && runtime.overlay.is_some()
+            && unsafe { runtime.game.menu_takes_a_press() },
+        Ordering::Relaxed,
+    );
+    if DECIDE_PRESSED.swap(false, Ordering::Relaxed) {
+        match (pointing, pointed, asked_about) {
+            (Some(run), Some(slot), _) => {
+                ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::TheRun);
+            }
+            (_, _, Some(menu)) => {
+                log!("menu: {menu:?} is under the cursor, asking which mode");
+                runtime.asking = Some(ModeMenu::new(menu, runtime.mode));
+            }
+            // An item orb has nothing to ask about, which is four of the title menu's eight and every
+            // frame the cursor has moved off one it does ask about. The press goes to the front end
+            // unanswered, a frame late and otherwise as it was made.
+            _ => {
+                detail!(
+                    "menu: nothing to ask about the item under the cursor; the press is handed over"
+                );
+                FEED_DECIDE.store(true, Ordering::Relaxed);
+            }
+        }
+    }
 
     let scene_changed = runtime
         .previous
@@ -1499,6 +1634,99 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
 /// skip runs the scene out the way it did before there was a script to read.
 fn moved_on(from: Option<usize>, to: Option<usize>) -> bool {
     matches!((from, to), (Some(from), Some(to)) if from != to)
+}
+
+/// Puts the resume question up, where the run has a chapter of its own to ask about.
+///
+/// `cancels` says what a cancel does, which is what differs between the two frames this is asked on.
+/// [`resume_ui::Cancels::TheRun`] is also what says a press is being held back for the question, so
+/// where there turns out to be nothing to ask it is that press which has to be handed over: one held
+/// back for a question that never appears is a screen that has stopped working.
+fn ask_where_to_start(
+    runtime: &mut Runtime,
+    run: &RunStart,
+    slot: &str,
+    cancels: resume_ui::Cancels,
+) {
+    let asked = match resume::load(&runtime.config.base_dir, runtime.game, run) {
+        // Not without the overlay, which is what would draw it: a frozen game with an invisible
+        // question over it is a game that looks broken, and what is lost by not asking is the run
+        // starting where the game was going to start it anyway.
+        Some(_) if runtime.overlay.is_none() => {
+            log!("resume: {slot} was left, but there is no overlay to ask over the game with");
+            false
+        }
+        Some(saved) => {
+            log!("resume: {slot} was left; asking where to start");
+            let menu = resume_ui::ResumeMenu::new(saved.describe(), cancels);
+            runtime.asking_resume = Some((menu, saved));
+            true
+        }
+        None => {
+            detail!("resume: nothing was left of {slot}");
+            false
+        }
+    };
+    if !asked && cancels == resume_ui::Cancels::TheRun {
+        FEED_DECIDE.store(true, Ordering::Relaxed);
+    }
+}
+
+/// What answering it does, which is not the same at the two frames it can be asked on. The game is
+/// what says which of them this is: on the frame a run was chosen a chapter can go in at once, and on
+/// the press there is no run to put one into yet.
+///
+/// # Safety
+/// Must run on the game's main thread, between frames.
+unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resume::Saved, by: By) {
+    let slot = runtime.game.run_slot(&saved.run);
+    let picked_up = match answer {
+        resume_ui::Answer::Continue => {
+            log!("resume: from where it stopped, answered on the {by}");
+            Some(saved)
+        }
+        // The file is left where it is, and the first chapter this run reaches writes over it.
+        resume_ui::Answer::Beginning => {
+            log!("resume: from the beginning, answered on the {by}; {saved} is left behind");
+            None
+        }
+        // Nothing to hand over and nothing to put back: the press that would have started the run is
+        // the one this was asked on, and holding it back was the whole of it. What carries on
+        // underneath is the shot type select, on the shot the question was about.
+        //
+        // Except for the key that cancelled, which is held back until it is let go: it is still down,
+        // and what the shot type select does with it is go back to the character select — which is not
+        // what somebody answering "neither" about this screen asked for.
+        resume_ui::Answer::Cancelled => {
+            log!("resume: neither, answered on the {by}; no run is started");
+            HOLD_CANCEL.store(true, Ordering::Relaxed);
+            return;
+        }
+    };
+    if unsafe { runtime.game.run_chosen() } {
+        if let Some(saved) = picked_up {
+            runtime.starting = 0;
+            unsafe { resume::begin(runtime.game, saved) };
+        }
+        // The key that answered is not one the stage about to be built should act on — the same reason
+        // as the mode question's, and here the frame the game carries on into is the one that
+        // registers the run.
+        unsafe { runtime.game.swallow_input() };
+        return;
+    }
+    match slot {
+        Some(slot) => {
+            runtime.started = Some(Started {
+                slot,
+                saved: picked_up,
+            });
+        }
+        // Not reachable through the question, `resume::load` having found the file under that very
+        // name; said rather than unwrapped, an answer dropped being a run that starts from the
+        // beginning.
+        None => log!("resume: the run answered about has no slot; the answer is dropped"),
+    }
+    FEED_DECIDE.store(true, Ordering::Relaxed);
 }
 
 /// Where a step left the game, when one happened.
@@ -2520,7 +2748,104 @@ unsafe fn write_status(runtime: &mut Runtime) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cause, FLASH_JUDGING, FLASH_PLAYING, Watching, flash_for, moved_on};
+    use std::sync::atomic::Ordering;
+
+    use super::{
+        Cause, DECIDE_PRESSED, DECIDE_WAS_DOWN, FEED_DECIDE, FLASH_JUDGING, FLASH_PLAYING, GAME,
+        Game, HOLD_CANCEL, HOLD_DECIDE, SETTLE_KEYS, Watching, flash_for, held_back, moved_on,
+    };
+
+    /// What the game reads while orb is holding a press of its own back: the buttons it does read are
+    /// its own, the decide is gone from every frame of the holding, it is the press that is reported
+    /// and not each frame the button is down, the key a question was cancelled with reaches nothing
+    /// until it is let go, and no other key held on the question reaches the read the game carries on
+    /// with.
+    ///
+    /// One test for the sequence rather than one per step. Each read's answer depends on the reads
+    /// before it, and what they are kept in is statics of the process — so two tests of this would be
+    /// two tests writing each other's state as the harness ran them side by side. Every one of them is
+    /// put where this test wants it first, for the same reason.
+    #[test]
+    fn a_press_held_back_is_reported_once_and_reaches_the_game_only_when_handed_over() {
+        let decide = GAME.menu_decide();
+        let other = 0x20;
+        HOLD_DECIDE.store(false, Ordering::Relaxed);
+        DECIDE_PRESSED.store(false, Ordering::Relaxed);
+        DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
+        FEED_DECIDE.store(false, Ordering::Relaxed);
+        HOLD_CANCEL.store(false, Ordering::Relaxed);
+        SETTLE_KEYS.store(false, Ordering::Relaxed);
+
+        // Nothing held back: the word is the game's own, whatever is in it.
+        assert_eq!(held_back(decide | other), decide | other);
+        assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
+
+        // Held back, with the button still down from the press that got the game to this screen. Not a
+        // press: nobody has asked for anything here yet, and reading it as one puts the question up on
+        // the screen's own first frames.
+        HOLD_DECIDE.store(true, Ordering::Relaxed);
+        assert_eq!(held_back(decide), 0);
+        assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
+
+        // Still down, and still nothing.
+        assert_eq!(held_back(decide | other), other);
+        assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
+
+        // Let go and pressed: that is the press the question goes on.
+        assert_eq!(held_back(0), 0);
+        assert_eq!(held_back(decide), 0);
+        assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
+
+        // Let go and pressed again, which is a second question.
+        assert_eq!(held_back(0), 0);
+        assert_eq!(held_back(decide), 0);
+        assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
+
+        // Handed over on one read, and on that read only: the screen decides on the edge, and a second
+        // read with the bits in would be a second decide.
+        FEED_DECIDE.store(true, Ordering::Relaxed);
+        assert_eq!(held_back(other), decide | other);
+        assert_eq!(held_back(other), other);
+        assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
+
+        // A key pushed while the question was up does not reach the read the game carries on with: the
+        // game's own frame before is the frame the question went up on, so a direction still down there
+        // is a direction it reads as pressed — and it moves its cursor before it reads its decide.
+        let direction = 0x40;
+        assert_eq!(held_back(decide | other), other);
+        assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
+        SETTLE_KEYS.store(true, Ordering::Relaxed);
+        assert_eq!(held_back(decide | other | direction), other);
+        // And the decide is not settled with the rest of them: read as let go there, it would be a
+        // press again on the read after, which is the question coming back up on its own cancel.
+        assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
+        // One read only. What is still down after it is down against a frame the game was given, so it
+        // is the game's own to read — by which time the item it asked about has already had the press.
+        assert_eq!(held_back(decide | other | direction), other | direction);
+
+        // And the key a question was cancelled with: kept from the screen underneath, whose own back it
+        // is, for as long as it is down. One of the two buttons rather than both, that being the
+        // ordinary case and the one a faked previous frame got wrong.
+        let cancel = GAME.menu_cancel();
+        let one = cancel.isolate_lowest_one();
+        HOLD_CANCEL.store(true, Ordering::Relaxed);
+        assert_eq!(held_back(one | other), other);
+        assert_eq!(held_back(cancel | other), other);
+
+        // Let go, and the next press of it is the screen's own again: cancelling a question and asking
+        // to go back are two different things to ask for.
+        assert_eq!(held_back(other), other);
+        assert!(!HOLD_CANCEL.load(Ordering::Relaxed));
+        assert_eq!(held_back(one | other), one | other);
+
+        // And it ends with the screen it was cancelled on whether or not the key has been let go: held
+        // past that, it would be taking the bomb out of whatever was started next.
+        HOLD_CANCEL.store(true, Ordering::Relaxed);
+        assert_eq!(held_back(one | other), other);
+        HOLD_DECIDE.store(false, Ordering::Relaxed);
+        assert_eq!(held_back(one | other), one | other);
+        assert!(!HOLD_CANCEL.load(Ordering::Relaxed));
+    }
 
     /// The address is the file the script was read from, so the same address is the same part
     /// of the ending still running and any other address is the next part of it.

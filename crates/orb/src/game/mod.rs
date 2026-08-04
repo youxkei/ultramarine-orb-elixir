@@ -71,24 +71,21 @@ pub struct Hooks {
     pub joystick: Option<Patch>,
 }
 
-/// What the game's own front end has just been asked for.
+/// What the game's own front end is being asked for.
 ///
-/// Only the two moments orb has a question of its own to put over: a run is one thing in
-/// pointdevice mode and another in normal mode, and so is a ranking. Everything else the front
-/// end does is [`Elsewhere`](Menu::Elsewhere), including being nowhere near it.
+/// Only the two things orb has a question of its own to put over: a run is one thing in pointdevice
+/// mode and another in normal mode, and so is a ranking. Everything else the front end can be asked
+/// for is nothing to orb, and [`Game::menu_pointed_at`] answers `None` for it.
 ///
-/// The moment rather than the choice: what a game is left holding after the front end has acted
-/// on a keypress differs per game, and every game has a frame on which a run has been chosen and
-/// not yet built.
+/// What the cursor is on rather than what the game has acted on, so that the question can be asked on
+/// the press: every game reads a decide before it acts on one, and none of them can be persuaded to
+/// un-act.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Menu {
-    /// Anywhere else: a run in progress, a replay, the options, or no front end at all.
-    Elsewhere,
-    /// A run has been chosen and the game is on its way into it. Practice as well as a full
-    /// run and the Extra stage: each is a run, and each is one thing with chapters and another
-    /// without.
+    /// A run: practice as well as a full run and the Extra stage, each being one thing with chapters
+    /// and another without.
     Run,
-    /// The ranking has been chosen and the game is on its way into it.
+    /// The ranking, of which there is one per mode.
     Scores,
 }
 
@@ -409,12 +406,28 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn replaying(&self) -> bool;
 
-    /// What the game's own front end has just been asked for, so orb can put its question over
-    /// the moment a run or the ranking is chosen.
+    /// What the game's own title menu is *pointing* at, where that is something orb has a question
+    /// about, so the question can go on the press rather than after it.
+    ///
+    /// `None` on any other screen and on an item orb has nothing to ask about. Whether a press would be
+    /// acted on there is [`Game::menu_takes_a_press`] and not part of this: what the cursor is on is
+    /// also what the mark on the shot type select is drawn from, and that has nothing to wait for.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn menu(&self) -> Menu;
+    unsafe fn menu_pointed_at(&self) -> Option<Menu>;
+
+    /// Whether the screen the front end is on would act on a decide, on the read after this one.
+    ///
+    /// Which is what says a press held back there is a press the game would have honoured: these
+    /// screens ignore their own decide for their first frames, and one held back over those frames and
+    /// handed over afterwards is a keypress the game had thrown away, acted on late.
+    ///
+    /// The read after rather than this one, because what this decides is the *next* read's holding.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn menu_takes_a_press(&self) -> bool;
 
     /// What the pad is doing, in the terms a menu of orb's needs: which way it is being pushed,
     /// and whether it is deciding or cancelling.
@@ -427,18 +440,6 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn pad(&self) -> Pad;
-
-    /// Puts the game's front end back on its way to the title menu, the way its own back button
-    /// does, and says whether there was a front end to do it to.
-    ///
-    /// For a question orb asked over a choice the game has already acted on: the answer to it can
-    /// be "neither", and then what the player asked for is the menu they came from. Doing it the
-    /// game's own way rather than undoing what the choice did is what keeps orb out of the business
-    /// of putting a screen's worth of animation back.
-    ///
-    /// # Safety
-    /// Must run on the game's main thread, between frames, with the front end running.
-    unsafe fn leave_menu(&self) -> bool;
 
     /// Gives the run up, and says whether there was one to give up.
     ///
@@ -467,6 +468,31 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, between frames.
     unsafe fn swallow_input(&self);
+
+    /// Which buttons the game's own front end reads as *decide*, in the word its input read hands
+    /// back.
+    ///
+    /// For the question orb asks over the screen a run is started from: a press taken out of that
+    /// word is a press no screen in the frame ever saw, so the screen is still standing when the
+    /// question comes down and answering "neither" is nothing at all rather than a scene put back by
+    /// hand. Handed over afterwards the same way, by putting the bits back in for one read, which
+    /// leaves starting the run to the screen whose business it is.
+    ///
+    /// Which bits those are is the game's own: 紅魔郷's shot type select tests
+    /// `g_CurFrameInput & 0x1001` against the frame before at 0x436d79.
+    fn menu_decide(&self) -> u16;
+
+    /// And which it reads as *back*, for the frames after one of orb's questions was cancelled with
+    /// that key: the key is still down, and what the screen underneath would do with it is go back —
+    /// which is not what somebody who answered "neither" about *this* screen asked for. So it is kept
+    /// from the game until it is let go.
+    ///
+    /// Held back rather than swallowed. [`Game::swallow_input`] leaves the game's idea of the frame
+    /// before as all-ones, and a screen that tests `(cur & mask) != (last & mask)` — which is how these
+    /// menus read both of their keys — then takes anything short of the whole mask being down for a
+    /// press. One of the two buttons is the ordinary case, so that made the press arrive rather than
+    /// stopping it.
+    fn menu_cancel(&self) -> u16;
 
     /// Takes the game off the screen that offers to save a replay of the run just finished, if
     /// that is where it is, and says whether it did.

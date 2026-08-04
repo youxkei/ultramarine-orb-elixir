@@ -1,29 +1,29 @@
-//! The question asked where a run has been chosen and a chapter of that same run was left: from
+//! The question asked where a run about to be started has a chapter of its own left unfinished: from
 //! where it stopped, or from the beginning.
 //!
-//! Asked after the character select rather than beside the mode question, because which run this is
-//! includes the character: 紺珠伝 keeps a pointdevice save per difficulty and character, and a run
-//! of another character would take the buttons written down and play somebody else's shot with them.
-//! By the frame this goes up the game has settled all three — difficulty, character and shot — and
-//! has not built anything yet, so it is also the one frame on which the answer costs nothing either
-//! way.
+//! Asked on the shot type select, on the press that would have started the run — held back in the
+//! input read, so the screen never sees it. Which run this is includes the character and the shot:
+//! 紺珠伝 keeps a pointdevice save per difficulty and character, and a run of another shot would take
+//! the buttons written down and play somebody else's with them. That screen knows all three, the
+//! first two being settled and the third under its cursor.
+//!
+//! On the press rather than on the frame the run is chosen, which is where this used to be asked. The
+//! shot type select does not fade or wait: its decide writes the run's shot and `curState` in one go,
+//! and by the frame the run is chosen the front end has taken its own job out — so a question asked
+//! there is one with nothing behind it, and its cancel had nothing to do. Held back a screen earlier
+//! there is nothing to put back, the screen having never moved.
 //!
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! share.
-//!
-//! **Nothing cancels it.** The front end has already taken itself down by the time the run is
-//! asked for — its own update is what removes its job — so there is nothing behind this question to
-//! go back to, and its two items are the two ways into the run that was chosen. Which is why the
-//! cancel every one of these menus reads is the one thing here that goes unread.
 
 use crate::game::Pad;
 use crate::input::Keyboard;
 use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, Keys, LINE_HEIGHT, NORMAL, Pressed, SELECTED};
 use crate::overlay::{Label, Overlay, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-/// Frames before the menu accepts anything. The key that chose the shot type is very likely still
-/// down, and while a press is only acted on as it goes down, somebody who pressed it twice meant
-/// both presses for the game's own select.
+/// Frames before the menu accepts anything. The key this went up on is still down — it is the press
+/// that was held back — and while a press is only acted on as it goes down, somebody who pressed it
+/// twice meant both presses for the game's own select.
 const INPUT_GRACE_FRAMES: u32 = 10;
 
 /// What came of putting the question up.
@@ -33,6 +33,23 @@ pub enum Answer {
     Continue,
     /// The run as the game would have started it.
     Beginning,
+    /// Neither: the run is not started at all. The screen underneath is the one the question was
+    /// asked over, on the shot it was asked about, and the press that would have left it was never
+    /// handed to it — so this is the screen carrying on rather than a screen put back.
+    Cancelled,
+}
+
+/// Whether cancelling is something this question can be answered with, which is a property of the
+/// frame it went up on rather than of the question.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cancels {
+    /// The run: it was asked on the press that would have started one, and that press is being held
+    /// back. Cancelling is the press never being handed over.
+    TheRun,
+    /// Nothing. Asked on the frame a run was chosen, where the front end has already taken its own job
+    /// out: there is no press left to withhold and no screen to carry on, so the question stays up
+    /// until one of its two items is chosen.
+    Nothing,
 }
 
 const CHOICES: [(Answer, &str); 2] = [
@@ -47,6 +64,7 @@ const OVERWRITES: &str = "中断データは上書きされます";
 pub struct ResumeMenu {
     selection: usize,
     keys: Keys,
+    cancels: Cancels,
     /// Which chapter the run was left in, for the line under the choices.
     left: String,
     title: Label,
@@ -62,10 +80,11 @@ impl ResumeMenu {
     /// two mistakes cost: a run picked up by accident is a run put back where it was, while a fresh
     /// run started by accident writes its own first chapter over the file and the one left
     /// unfinished is gone.
-    pub fn new(left: String) -> Self {
+    pub fn new(left: String, cancels: Cancels) -> Self {
         Self {
             selection: 0,
             keys: Keys::new(INPUT_GRACE_FRAMES),
+            cancels,
             left,
             title: Label::new(),
             choices: [Label::new(), Label::new()],
@@ -79,14 +98,22 @@ impl ResumeMenu {
     /// running and a pad would otherwise do nothing on this menu at all.
     pub fn update(&mut self, keyboard: &Keyboard, pad: Pad) -> Option<(Answer, By)> {
         let pressed = self.keys.read(keyboard, pad)?;
-        let by = pressed.decide;
         let answer = self.step(&pressed)?;
-        // `step` answers only on a press that decided, so there is a hand to name.
+        // The hand that made the press this answer *is*, and not whichever of the two is there: a frame
+        // carrying a decide on one and a cancel on the other is answered by the cancel — see `step` —
+        // and naming the other hand for it is the one thing `By` exists to stop being guessed at.
+        let by = match answer {
+            Answer::Cancelled => pressed.cancel,
+            Answer::Continue | Answer::Beginning => pressed.decide,
+        };
         Some((answer, by?))
     }
 
     fn step(&mut self, pressed: &Pressed) -> Option<Answer> {
         self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
+        if pressed.cancel.is_some() && self.cancels == Cancels::TheRun {
+            return Some(Answer::Cancelled);
+        }
         pressed.decide.map(|_| CHOICES[self.selection].0)
     }
 
@@ -95,7 +122,9 @@ impl ResumeMenu {
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
         let said = match CHOICES[self.selection].0 {
             Answer::Continue => self.left.as_str(),
-            Answer::Beginning => OVERWRITES,
+            // `Cancelled` is not one of the two items and so never under the cursor: it is what a
+            // cancel answers, and the items are what a decide does.
+            Answer::Beginning | Answer::Cancelled => OVERWRITES,
         };
         unsafe {
             self.title.set(overlay, "どこから始める");
@@ -108,8 +137,8 @@ impl ResumeMenu {
 
         let frame = unsafe { overlay.frame() };
         let Some(frame) = frame else { return };
-        // The whole screen, the way the mode question covers it: what is underneath is the title the
-        // front end left behind when it took itself down.
+        // The whole screen, the way the mode question covers it: what is underneath is the shot type
+        // select, still standing and still being drawn — its update is what has stopped.
         frame.fill(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, DIM_SCREEN);
 
         let center = SCREEN_WIDTH / 2.0;
@@ -131,10 +160,11 @@ impl ResumeMenu {
 /// One line on the shot type select, saying that the run under the cursor has a chapter written down
 /// and where it was left.
 ///
-/// Drawn over the game's own screen rather than asked there: the screen carries on running, the
-/// cursor moves between the two shots, and this follows it. What it saves somebody is choosing the
-/// shot they always choose and finding out a screen later that the run they left was the other one —
-/// `MainMenu::RegisterChain` memsets the cursor, so nothing on the game's screens remembers.
+/// Said without stopping anything, unlike the question the same screen asks on the press: nothing is
+/// frozen, the cursor moves between the two shots, and this follows it. What it saves somebody is
+/// pressing at all on the shot they always choose and finding the question there —
+/// `MainMenu::RegisterChain` memsets the cursor, so nothing on the game's own screens remembers which
+/// run was left.
 pub struct Mark {
     /// Which slot the line is about, so that the file is read when the cursor moves onto another run
     /// and not on every frame the screen is up.
@@ -161,12 +191,12 @@ impl Mark {
 
     /// The run the front end is pointing at, and what to say about it. `look` is only asked where
     /// that has changed, this being called every frame.
-    pub fn pointing(&mut self, slot: Option<String>, look: impl FnOnce(&str) -> Option<String>) {
-        if self.about == slot {
+    pub fn pointing(&mut self, slot: Option<&str>, look: impl FnOnce(&str) -> Option<String>) {
+        if self.about.as_deref() == slot {
             return;
         }
-        self.said = slot.as_deref().and_then(look);
-        self.about = slot;
+        self.said = slot.and_then(look);
+        self.about = slot.map(str::to_owned);
     }
 
     /// # Safety
@@ -192,7 +222,7 @@ impl Mark {
 
 #[cfg(test)]
 mod tests {
-    use super::{Answer, Mark, Pressed, ResumeMenu};
+    use super::{Answer, Cancels, Mark, Pressed, ResumeMenu};
     use crate::menu_ui::By;
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
@@ -203,7 +233,7 @@ mod tests {
         let mut mark = Mark::new();
         for slot in ["normal-reimu-a", "normal-reimu-a", "normal-reimu-b"] {
             for _ in 0..3 {
-                mark.pointing(Some(slot.to_owned()), |slot| {
+                mark.pointing(Some(slot), |slot| {
                     looked.push(slot.to_owned());
                     Some("STAGE 1".to_owned())
                 });
@@ -216,9 +246,20 @@ mod tests {
     }
 
     fn open() -> ResumeMenu {
-        let mut menu = ResumeMenu::new("STAGE 4  BOSS SPELL 2  RETRY 42".to_owned());
+        opened(Cancels::TheRun)
+    }
+
+    fn opened(cancels: Cancels) -> ResumeMenu {
+        let mut menu = ResumeMenu::new("STAGE 4  BOSS SPELL 2  RETRY 42".to_owned(), cancels);
         menu.keys.hold(0);
         menu
+    }
+
+    fn cancelled() -> Pressed {
+        Pressed {
+            cancel: Some(By::Keyboard),
+            ..nothing()
+        }
     }
 
     fn nothing() -> Pressed {
@@ -265,25 +306,54 @@ mod tests {
         }
     }
 
-    /// Nothing cancels this one: the front end it was asked over has already taken itself down, so
-    /// there is nothing to go back to — and the cancel the other two act on is read here and left
-    /// alone.
+    /// Cancelling answers neither, which is the run not being started: the press that would have
+    /// started it is the one this question was asked on, and it was held back.
     #[test]
-    fn nothing_cancels_it() {
+    fn cancelling_starts_no_run_at_all() {
         let mut menu = open();
-        let cancelled = Pressed {
-            cancel: Some(By::Keyboard),
-            ..nothing()
-        };
-        assert_eq!(menu.step(&cancelled), None);
-        // And it changed nothing: the question is still up, on the item it started on.
+        assert_eq!(menu.step(&cancelled()), Some(Answer::Cancelled));
+    }
+
+    /// Whichever item the cursor is on: neither of them is what a cancel is a slower way of asking
+    /// for, and starting a run that writes over the chapter is what it is asking not to do.
+    #[test]
+    fn cancelling_is_not_the_item_under_the_cursor() {
+        let mut menu = open();
+        assert_eq!(
+            menu.step(&Pressed {
+                down: true,
+                ..nothing()
+            }),
+            None
+        );
+        assert_eq!(menu.step(&cancelled()), Some(Answer::Cancelled));
+    }
+
+    /// Where the run has already been chosen there is nothing a cancel could do — no press being held
+    /// back, and no screen behind the question to carry on — so it is read and left alone, and the
+    /// question stays up on the item it was on.
+    #[test]
+    fn a_question_asked_after_the_run_was_chosen_cancels_nothing() {
+        let mut menu = opened(Cancels::Nothing);
+        assert_eq!(menu.step(&cancelled()), None);
         assert_eq!(menu.step(&decide()), Some(Answer::Continue));
+    }
+
+    /// A line is only said about a run there is a chapter of: a run with nothing written down for it is
+    /// a screen with nothing on it.
+    #[test]
+    fn nothing_is_said_about_a_run_with_no_chapter() {
+        let mut mark = Mark::new();
+        mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 1".to_owned()));
+        assert!(mark.said.is_some());
+        mark.pointing(Some("normal-reimu-b"), |_| None);
+        assert!(mark.said.is_none());
     }
 
     /// Nothing is answered on the frames it has just gone up, whatever is pressed: the key that
     /// chose the shot type is still down.
     #[test]
     fn it_holds_its_keys_off_first() {
-        assert!(ResumeMenu::new(String::new()).keys.held() > 0);
+        assert!(ResumeMenu::new(String::new(), Cancels::TheRun).keys.held() > 0);
     }
 }

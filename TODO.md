@@ -22,6 +22,28 @@ orb's menus draws, against a play field 384 pixels across, and a line clipped at
 be read at all. Worth looking at once: the question, and the two answers under it with the cursor
 on いいえ.
 
+**What a question asked on the press has left unwatched.** Both questions going up on the press and both
+being cancelled without the screen moving are in [DONE.md](DONE.md), on the pad. What that sitting did
+not reach:
+
+- **`はじめから` through this path.** `つづきから` is in [DONE.md](DONE.md) — the press handed back, the
+  screen choosing its own item, the chapter going in on the frame the run was registered. The other item
+  is the one that writes over a chapter, and what it has to show is the fresh run starting and the file
+  going only when that run reaches a chapter of its own.
+- **The keyboard.** Every line of the sitting says `on the pad`. The same `Pressed` is what both hands
+  answer through, so what is left is watching it: `z` or return deciding, `x` or escape cancelling.
+- **Every other item of the title menu**, none of which orb asks about and all of which now go through a
+  press held back and handed over: `Replay`, `Music Room`, `Option`, `Quit`. No press anywhere may be
+  eaten, and `Quit` is the one that would say so loudest.
+- **The Extra shot type select**, which reaches the same state the same way, and a shot with no
+  `中断データあり` under it, which must start its run on the press with no question at all.
+
+**What the widest line of the mode question looks like.** Its longest is now
+`進行状況は自動的にセーブされ、いつでも続きから遊べます` — 26 characters at an em of 15 against a 640-wide
+output, so roughly 400 pixels and inside the screen by arithmetic rather than by having been looked at.
+Worth one glance, with the cursor on each of the two modes, since the two now draw a different number of
+lines.
+
 **The rest of what the pad now reaches.** The mode question answers on it — see
 [DONE.md](DONE.md) — which leaves three things that go through the same reading and have not been
 pushed. The retry menu: up and down on the stick and on the d-pad, shoot deciding, bomb or the menu
