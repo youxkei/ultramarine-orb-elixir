@@ -49,9 +49,11 @@ pub struct Config {
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
-    /// Off through `--no-resume` and nothing else. It hooks the game's own input read and the
-    /// moment a stage's numbers are put in place, and writes a file at every chapter — so a
-    /// fault in a run that chapters alone do not explain wants a way to take exactly that out.
+    /// Not a key in `orb.yaml`. Off through `--no-resume`, which is there because this hooks the
+    /// game's own input read and the moment a stage's numbers are put in place and writes a file
+    /// at every chapter — so a fault in a run that chapters alone do not explain wants a way to
+    /// take exactly that out. Off through `--clear` as well, which has nothing worth writing
+    /// down: see there.
     pub resume: bool,
     /// Hook the game's per-frame update and draw at all.
     pub frame_hooks: bool,

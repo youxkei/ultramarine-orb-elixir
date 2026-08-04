@@ -1363,6 +1363,11 @@ screen that offers to save a replay, since that screen is only kept from a point
 this run is not one. A replay holds the inputs and nothing about the player having been
 unhittable, so playing one back is a run that dies where this one did not.
 
+Nor is the chapter it is in written down — see *Picking a run up again* — for the same reason and
+with the same consequence: what is kept is the buttons, so a later launch offered that chapter
+would play them into a player who can be hit, and land somewhere else. A clear takes the third
+record out along with the other two, and is never asked the question either.
+
 The launcher reads them, refuses to start on anything it cannot, and hands them on the game's
 own command line — which the game never looks at, `lpCmdLine` appearing once in the whole of its
 `WinMain` as the parameter it ignores. orb reads them back off that inside the game, so the two

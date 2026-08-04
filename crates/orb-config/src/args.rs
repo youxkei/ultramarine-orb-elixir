@@ -71,8 +71,9 @@ pub struct Options {
 
     /// nothing can hit the player and the run goes at 64 updates a drawn frame, so half an
     /// hour of playing well is a minute of holding the shot key. It leaves no record: no score
-    /// file is written, in the game's ranking or in orb's, and no replay either. Add
-    /// --no-chapters to spend none of it on snapshots of a run nobody could have played
+    /// file is written, in the game's ranking or in orb's, no replay, and no chapter for a
+    /// later launch to offer. Add --no-chapters to spend none of it on snapshots of a run
+    /// nobody could have played
     #[arg(long, help_heading = ENDING)]
     clear: bool,
 
@@ -196,6 +197,12 @@ impl Config {
             // the screen that offers to save one — a pointdevice run does not — so the write
             // itself is what has to be refused.
             self.block_replay_save = true;
+            // And the third record such a run could leave, for the same reason as the replay:
+            // what is written down is the buttons and nothing about the player having been
+            // unhittable, so a later launch offered that chapter plays them into a player who
+            // dies — and lands somewhere else, which is what `resume: the player was hit at
+            // frame N` then reports about a file this run had no business writing.
+            self.resume = false;
             pass_speed = Some(CLEAR_SPEED);
         }
         if let Some(speed) = options.speed.or(pass_speed) {
@@ -301,18 +308,22 @@ mod tests {
         assert_eq!(with("--clear --speed=1").speed, 1);
     }
 
-    /// It leaves no record of a run nobody could have played: a replay of one plays back as a
-    /// run that dies where this one did not. Nothing else refuses the write, since nothing else
-    /// reaches the screen that offers to save one.
+    /// It leaves no record of a run nobody could have played: whether the record is a replay or
+    /// the chapter written down for a later launch, what it holds is the buttons and nothing
+    /// about the player having been unhittable, so playing either back is a run that dies where
+    /// this one did not.
     #[test]
-    fn a_clear_writes_no_replay() {
+    fn a_clear_writes_no_replay_and_no_chapter_to_pick_up() {
         assert!(!config().block_replay_save);
         assert!(with("--clear").block_replay_save);
+        assert!(config().resume);
+        assert!(!with("--clear").resume);
     }
 
     /// Nothing else about the run changes. What a clear is for is reaching an ending, and
     /// whether the chapters of a run nobody could have played are worth snapshotting is a
-    /// separate question with `--no-chapters` for an answer.
+    /// separate question with `--no-chapters` for an answer — the snapshots a retry uses are
+    /// not the file a later launch would be offered.
     #[test]
     fn a_clear_changes_nothing_but_the_player_the_speed_and_what_is_written() {
         let clear = with("--clear");
