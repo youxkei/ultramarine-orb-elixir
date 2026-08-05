@@ -28,6 +28,9 @@ features = [
     "Win32_Graphics_Gdi",
     # `timeBeginPeriod`, without which `Sleep` is only accurate to the system's tick.
     "Win32_Media",
+    # `GetKeyboardState`, which orb's own menus read because the game's input handling is not
+    # running on the frames they are up on.
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
     # `CreateFileW` takes a `SECURITY_ATTRIBUTES` and `WriteFile` an `OVERLAPPED`, which are
     # declared in these two rather than beside the calls that name them.
@@ -36,6 +39,9 @@ features = [
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    # `PROCESS_HEAP_REGION`, which the heap walk tests each entry against and which is declared here
+    # rather than beside `HeapWalk`.
+    "Win32_System_SystemServices",
     "Win32_System_Performance",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",

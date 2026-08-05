@@ -9,7 +9,6 @@
 mod chapter;
 mod crash;
 mod hook;
-mod input;
 mod joystick;
 mod lives_ui;
 mod memtrack;
@@ -42,7 +41,9 @@ use orb_config::Config;
 // `log` carries both the module and the macro of that name — they are in different namespaces —
 // which is why every call site can say `use crate::{detail, log}` whether it lives here or in
 // `orb-core`, and go on saying it as it moves between them.
-pub(crate) use orb_core::{audio, d3d8, detail, frame, game, log, pacing, profile, summary, sync};
+pub(crate) use orb_core::{
+    audio, d3d8, detail, frame, game, input, log, pacing, profile, summary, sync,
+};
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -61,16 +62,6 @@ use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 #[allow(clippy::mut_from_ref)]
 unsafe fn pacing() -> &'static mut frame::Pacing {
     unsafe { PACING.get() }.get_or_insert_with(frame::Pacing::new)
-}
-
-/// The game's window as Win32 wants it.
-///
-/// `Game` traffics in `orb_api::Hwnd` so that nothing in `orb-core` names a Windows type; the window
-/// is handed back to Win32 here, which is the one place in orb that both sides meet. The mapping is
-/// the identity — orb never asks what is inside a window handle, only that the number it read out of
-/// the game's memory is the number Windows gets back.
-fn hwnd(window: orb_api::Hwnd) -> windows_sys::Win32::Foundation::HWND {
-    window.0 as windows_sys::Win32::Foundation::HWND
 }
 
 /// One brush stroke, as coverage: what the mark over the lives is drawn from, baked out of
@@ -1352,9 +1343,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
-    runtime
-        .keyboard
-        .poll(hwnd(unsafe { runtime.game.window() }));
+    runtime.keyboard.poll(unsafe { runtime.game.window() });
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.

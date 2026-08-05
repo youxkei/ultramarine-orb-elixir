@@ -20,11 +20,13 @@ use orb_api::{Composition, Hwnd, LogFile, Win};
 
 mod clock;
 mod display;
+mod keyboard;
 mod log;
 mod noise;
 mod space;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
+pub use keyboard::{Keyboard, keys};
 pub use log::Log;
 pub use space::Space;
 
@@ -63,7 +65,15 @@ pub struct Sim {
     space: Space,
     clock: Clock,
     display: Display,
+    keyboard: Keyboard,
     log: Log,
+    /// The ranges orb has said are its own — where it keeps the copies a snapshot holds. Nothing is
+    /// ever excluded from anything here, `private_regions` answering with none; what the list is for
+    /// is a scenario asking whether the copies a chapter took were given back with it.
+    ours: Mutex<HashMap<usize, usize>>,
+    /// The threads the game has said it created. Nothing is ever stopped; what the list is for is a
+    /// scenario asking whether orb noticed one.
+    threads: Mutex<Vec<u32>>,
     host_exe: Mutex<PathBuf>,
     /// What `module::proc_address` finds, keyed by module and name. Empty by default: a test that
     /// has not said `mmioSeek` is there is a test of what orb does without it, which is a case orb
@@ -92,7 +102,10 @@ impl Sim {
             space: Space::new(),
             clock: Clock::new(),
             display: Display::new(seed),
+            keyboard: Keyboard::new(),
             log: Log::new(),
+            ours: Mutex::new(HashMap::new()),
+            threads: Mutex::new(Vec::new()),
             host_exe: Mutex::new(host_exe()),
             procs: Mutex::new(HashMap::new()),
             modules: Mutex::new(Vec::new()),
@@ -125,6 +138,22 @@ impl Sim {
     /// The display and its compositor, for a test that says what the pacing is pacing against.
     pub fn display(&self) -> &Display {
         &self.display
+    }
+
+    /// The keyboard, for a test that presses a key at one of orb's own menus.
+    pub fn keyboard(&self) -> &Keyboard {
+        &self.keyboard
+    }
+
+    /// How many ranges orb is holding copies of the game's memory in, for a scenario asking whether
+    /// the ones a chapter took were given back with it.
+    pub fn copies_held(&self) -> usize {
+        self.ours.lock().unwrap().len()
+    }
+
+    /// The threads orb has said the game created.
+    pub fn threads(&self) -> Vec<u32> {
+        self.threads.lock().unwrap().clone()
     }
 
     /// Puts a compositor there timing `hz`, with the monitor reporting the same, and the window in
@@ -209,6 +238,26 @@ impl Win for Sim {
         self.space.game_regions(data)
     }
 
+    fn keep_out_of_private_regions(&self, base: usize, len: usize) {
+        self.ours.lock().unwrap().insert(base, len);
+    }
+
+    fn count_private_region_again(&self, base: usize) {
+        self.ours.lock().unwrap().remove(&base);
+    }
+
+    /// Nothing. The walk this answers is `self_check`'s hunt for memory a snapshot did not cover, and
+    /// what it would find here is the test binary's own pages — every allocation the harness made,
+    /// reported as the game having changed memory behind orb's back. The check still says what it
+    /// found in the regions it *did* cover, which is the half a laid-out game can speak to.
+    fn private_regions(&self) -> Vec<(usize, usize)> {
+        Vec::new()
+    }
+
+    fn process_heap_regions(&self) -> Vec<(usize, usize)> {
+        Vec::new()
+    }
+
     fn counter(&self) -> i64 {
         self.clock.counter()
     }
@@ -262,9 +311,28 @@ impl Win for Sim {
         self.display.foreground()
     }
 
+    fn keyboard_state(&self) -> Option<[u8; 256]> {
+        self.keyboard.state()
+    }
+
     fn current_thread_id(&self) -> u32 {
         thread_id()
     }
+
+    /// Remembered, and nothing is ever stopped. A simulated game runs on the thread the scenario is
+    /// on, so there is nothing else touching the memory a copy covers — and what `SuspendThread` does
+    /// is checked against real threads a test makes and registers itself, in `orb-api`, rather than
+    /// against a model of it here.
+    fn register_thread(&self, id: u32) -> bool {
+        self.threads.lock().unwrap().push(id);
+        true
+    }
+
+    fn suspend_game_threads(&self, _audio: Option<u32>) -> Vec<u32> {
+        Vec::new()
+    }
+
+    fn resume_threads(&self, _ids: &[u32]) {}
 
     fn open_log(&self, path: &Path, max_bytes: u64) -> Option<LogFile> {
         self.log.open(path, max_bytes)

@@ -943,6 +943,19 @@ a moment when re-acquiring cannot succeed.
 **Re-acquired on the way back.** orb calls `Acquire` itself — `g_Supervisor.keyboard` at
 `G_SUPERVISOR + 0x10` (0x6c6d28), vtable slot 7 — and holds the keys back until it succeeds.
 
+**orb's own questions read the keyboard for themselves**, with `GetKeyboardState`, because each of
+them is up on frames the game is frozen on and the game's own input handling is frozen with it. Every
+key at once rather than a key at a time, that being what the call answers, and a call that fails reads
+as nothing down rather than as whatever was down last — the state it left standing would be a key
+stuck down on menus that act on edges.
+
+**Nothing is down while the window is behind, and the way back is not a press.** Reading while behind
+would let typing elsewhere drive the game, so everything reads as released — but zeroing alone makes
+the return an edge, everything read as up and then read as down, which is a press by the rule those
+menus use. So whatever is down on the first frame orb is reading again counts as already held. The
+first read of all goes the same way: orb starting while a key is down is the same thing as coming back
+to one.
+
 **The joystick is read on a thread of orb's own.** `Controller::GetControllerInput` (0x41cfc0,
 `__cdecl`) is a tail call inside `GetInput` that adds a joystick's buttons to the keyboard's.
 Where it gets them is `joyGetPosEx(0, JOY_RETURNALL)`, winmm's, through the exe's import
@@ -1768,7 +1781,8 @@ restoring as it goes.
 ## The seam between orb and its host
 
 Some of what orb asks of Windows goes through `orb-api`. Each area of it — the game's memory, the
-clock, which thread is running, the log file, the modules the process has loaded — is a facade of
+clock, which keys are down, which thread is running, the log file, the modules the process has loaded —
+is a facade of
 free functions with two answers behind it: the real Win32 call, under `#[cfg(windows)]`, and whatever
 `Win` implementation a test has installed.
 
@@ -1778,7 +1792,9 @@ its lines are stamped with the host's clock, so a test that cannot be two thread
 is cannot reach the mechanism at all. The display and its compositor are behind it because the pacing
 decides from two numbers they answer — the monitor's rate and the compositor's own — and the case
 that matters is the two disagreeing, which otherwise wants two monitors of different rates and the
-game's window on the wrong one.
+game's window on the wrong one. And the keyboard is behind it because orb's own questions read it
+themselves, the game being frozen on the frames they are up on: which mode a run is, and so whether it
+has chapters at all, is decided by keys nobody could press in a test.
 
 A Win32 call with nothing like that behind it stays where it is: orb ships for Windows and only for
 Windows, so being able to build without a call buys nothing on its own — what buys something is being
@@ -1899,8 +1915,12 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-api/real/` | the Windows behind it — `#[cfg(windows)]`, and the only part of the crate that is |
 | `crates/orb-core` | orb's logic over that seam, with no `windows-sys` anywhere in it — 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions |
 | `orb-core/frame.rs` | the frame loop's pacing and its measurements |
+| `orb-core/input.rs` | the keyboard orb reads for itself, and what it does when the game is not the window in front |
+| `orb-core/menu.rs` | the keys the three questions read, whose press each is, and where a cursor over them goes |
+| `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
 | `crates/orb-sim` | the simulated Windows, and in its `tests/` the scenarios that drive `orb-core` against it |
 | `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
+| `orb-sim/keyboard.rs` | the keys a test holds down, and a host that refuses to say what is down at all |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb-sim/tests/pacing/` | the harness the frame-loop scenarios share: a display they declare, a run they drive a frame at a time, and the rate each second of it came out at |
@@ -1915,9 +1935,9 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
 | `orb/lives_ui.rs` | the brush stroke over the game's count of lives, for a run that cannot lose one |
 | `orb/build.rs`, `orb/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
-| `orb/mode_ui.rs` | the question put over the game's own menu: pointdevice or normal |
+| `orb/mode_ui.rs` | that question drawn — the labels and the wash. What it decides is `orb-core/mode.rs` |
 | `orb/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
-| `orb/menu_ui.rs` | what those three have in common — the keys they read for themselves, and the list they draw |
+| `orb/menu_ui.rs` | the list those three draw, and the colours they draw it in |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |

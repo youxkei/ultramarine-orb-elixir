@@ -520,12 +520,18 @@ that will never be loaded by anything but Windows. CI is one job, on Windows, an
 
 **What the seam is worth is the other thing, and it is worth it one mechanism at a time.** A
 mechanism whose behaviour turns on something a test cannot make Windows do is a mechanism nothing
-tests. Two of those are covered now and neither had a test before:
+tests. Three of those are covered now and none of them had a test before:
 
 - **The log's deferral.** Which lines are held and which are written where they stand turns on
   whether the caller is the thread the frame loop claimed. With a real `GetCurrentThreadId` a test
   has no way to be two threads; with the clock behind the seam it can also say what a line's stamp
   should be. Four scenarios, including the giving-up path when no drain is coming.
+- **Choosing 完全無欠モード.** What the mode question *draws* was already asserted against a recording
+  device; what it *decides* is a function of `GetKeyboardState` and so was decided by hand. With the
+  keyboard behind the seam a scenario presses the keys somebody would, and thirteen of them do —
+  including the alt-tab that found a defect: everything reads as released while another window is in
+  front, so a key held across the way back read as a fresh press and chose a mode. `input.rs` counts
+  the first frame it is reading again as already held now.
 - **`Th06::read_state` out of a laid-out game.** Not about the host at all — see *Move the rest of
   the suite onto the space* above, which asked for it.
 
@@ -534,21 +540,23 @@ off a Linux runner. It is whether there is behaviour behind it that no test can 
 the answer is no, leave it where it is.
 
 **Where it stands, measured.** `orb-api` holds the seam: the `Win` trait, the neutral types, and the
-facades for the game's memory, the clock and its timer, the display and its compositor, which thread
-is running, which window is in front, the log file and the loaded modules. **Twenty-six** distinct
-Win32 functions are behind it, and the only files that reach `windows-sys` for any of them are the
-seven under `orb-api/src/real/`.
+facades for the game's memory, the clock and its timer, the display and its compositor, which keys are
+down, which thread is running, which window is in front, the log file and the loaded modules.
+**Twenty-seven** distinct Win32 functions are behind it, and the only files that reach `windows-sys`
+for any of them are the eight under `orb-api/src/real/`.
 
-`orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame` and the whole of `game/` — `Game`,
-`State`, and the two thousand three hundred lines of `Th06` — and **not one of its eleven files uses
-`windows-sys`**; the one that mentions it is `lib.rs`, saying why it does not. Neither does `orb-sim`,
-which implements `Win` over an address space, a clock a test moves itself, a display and compositor it
-declares, and a log it reads back. Thirteen of `orb`'s twenty-two files still use `windows_sys`, and
-three of the launcher's four.
+`orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame`, the keyboard and what orb's own
+menus decide from it, and the whole of `game/` — `Game`, `State`, and the two thousand three hundred
+lines of `Th06` — and **not one of its fourteen files uses `windows-sys`**; the one that mentions it is
+`lib.rs`, saying why it does not. Neither does `orb-sim`, which implements `Win` over an address space,
+a clock a test moves itself, a display and compositor it declares, a keyboard it presses, and a log it
+reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
+four.
 
-**Twenty-eight of the 214 tests are scenarios** in `orb-sim/tests`, driving the real `orb-core` against
+**Forty-one of the 228 tests are scenarios** in `orb-sim/tests`, driving the real `orb-core` against
 the simulated Windows: four over the log, three reading a whole `State` out of a game laid out by
-hand, twenty over the frame loop, and one over the timer it asks the host for.
+hand, twenty over the frame loop, one over the timer it asks the host for, and thirteen over the mode
+question — the keys somebody presses to choose 完全無欠モード and what orb makes of them.
 
 **Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to
 `orb-core` compiles and nobody is told. What would make it a check is one step rather than a second job:
@@ -558,8 +566,8 @@ Run by hand for now, which is a convention and not a check.
 
 **What is still where it was**, with the question above asked of each: `SuspendThread`,
 `ResumeThread`, `OpenThread` and `GetThreadId` for holding the game still; the heap walk for the
-regions; twenty-odd GDI calls for the status line; `GetKeyboardState` and DirectInput's `EnumDevices`
-for the input; `AdjustWindowRect` and the window's own size and position.
+regions; twenty-odd GDI calls for the status line; DirectInput's `EnumDevices` and winmm's own
+enumeration for finding a pad; `AdjustWindowRect` and the window's own size and position.
 
 **The pacing — done, and it found the thing it was predicted to find.** `frame.rs` is in `orb-core`
 and its host calls are behind the seam: the counter, `Sleep`, `timeBeginPeriod`, the monitor's rate,
@@ -665,8 +673,8 @@ So the lesson for the crate split is not the one this section was started for. T
 cutting where a *test* cannot otherwise get at the behaviour — not where a Win32 call happens to be,
 and not to get off a Windows runner, which was never reachable and would have bought nothing.
 
-**Not yet run in the game.** What the split has been held to is the suite and the lints: **all 214 tests
-passing on `i686-pc-windows-gnu`** — every one that passed before it, plus the twenty-eight scenarios,
+**Not yet run in the game.** What the split has been held to is the suite and the lints: **all 228 tests
+passing on `i686-pc-windows-gnu`** — every one that passed before it, plus the forty-one scenarios,
 with nothing ignored — and with
 `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean. Its rustdoc links too, since
 the split moved items out from under four doc comments that named them. `orb-api`, `orb-core` and

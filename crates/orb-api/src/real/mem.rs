@@ -2,11 +2,21 @@
 
 use std::ffi::c_void;
 
+use std::sync::Mutex;
+
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_IMAGE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS,
-    PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VirtualAlloc, VirtualProtect, VirtualQuery,
+    GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_IMAGE, MEM_PRIVATE,
+    MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY,
+    PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY, VirtualAlloc, VirtualProtect, VirtualQuery,
 };
+use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
+
+/// The ranges orb has said are its own, so that [`private_regions`] can leave them out: they hold
+/// copies of the game's memory, and a walk that counted them would report orb's own copies as memory
+/// something changed behind a snapshot's back.
+static OURS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 
 pub unsafe fn read<T: Copy>(address: usize) -> T {
     unsafe { (address as *const T).read_volatile() }
@@ -126,4 +136,89 @@ fn query(address: usize) -> Option<MEMORY_BASIC_INFORMATION> {
         )
     };
     (queried != 0).then_some(info)
+}
+
+pub fn keep_out_of_private_regions(base: usize, len: usize) {
+    if let Ok(mut ours) = OURS.lock() {
+        ours.push((base, len));
+    }
+}
+
+pub fn count_private_region_again(base: usize) {
+    if let Ok(mut ours) = OURS.lock() {
+        ours.retain(|(at, _)| *at != base);
+    }
+}
+
+pub fn private_regions() -> Vec<(usize, usize)> {
+    let ours = OURS.lock().map(|ours| ours.clone()).unwrap_or_default();
+    let mut regions = Vec::new();
+    let mut address = 0usize;
+    while let Some(info) = query(address) {
+        let base = info.BaseAddress as usize;
+        let next = base + info.RegionSize;
+        let interesting = info.State == MEM_COMMIT
+            && info.Type == MEM_PRIVATE
+            && is_readable(info.Protect)
+            && !ours
+                .iter()
+                .any(|(at, len)| base < at + len && *at < base + info.RegionSize);
+        if interesting {
+            regions.push((base, info.RegionSize));
+        }
+        if next <= address {
+            break;
+        }
+        address = next;
+    }
+    regions
+}
+
+/// A page that can be read at all. `PAGE_GUARD` and `PAGE_NOACCESS` cannot, and reading one is how a
+/// walk of the whole address space takes the process down instead of describing it.
+fn is_readable(protect: PAGE_PROTECTION_FLAGS) -> bool {
+    if protect & (PAGE_GUARD | PAGE_NOACCESS) != 0 {
+        return false;
+    }
+    protect
+        & (PAGE_READONLY
+            | PAGE_READWRITE
+            | PAGE_WRITECOPY
+            | PAGE_EXECUTE_READ
+            | PAGE_EXECUTE_READWRITE
+            | PAGE_EXECUTE_WRITECOPY)
+        != 0
+}
+
+pub fn process_heap_regions() -> Vec<(usize, usize)> {
+    let heap = unsafe { GetProcessHeap() };
+    let mut regions = Vec::new();
+    if heap.is_null() || unsafe { HeapLock(heap) } == 0 {
+        return regions;
+    }
+    let mut entry: PROCESS_HEAP_ENTRY = unsafe { std::mem::zeroed() };
+    while unsafe { HeapWalk(heap, &mut entry) } != 0 {
+        if entry.wFlags & PROCESS_HEAP_REGION as u16 == 0 {
+            continue;
+        }
+        let region = unsafe { entry.Anonymous.Region };
+        regions.push((
+            entry.lpData as usize,
+            region.dwCommittedSize as usize + region.dwUnCommittedSize as usize,
+        ));
+    }
+    unsafe { HeapUnlock(heap) };
+    regions
+}
+
+pub fn read_committed_bytes(address: usize, len: usize) -> Option<Vec<u8>> {
+    let info = query(address)?;
+    let end = info.BaseAddress as usize + info.RegionSize;
+    if info.State != MEM_COMMIT
+        || info.Protect & (PAGE_NOACCESS | PAGE_GUARD) != 0
+        || address + len > end
+    {
+        return None;
+    }
+    Some(unsafe { read_bytes(address, len) })
 }

@@ -12,24 +12,12 @@
 //! have been released, and the game releasing it a second time faults inside itself: which
 //! is what a step back across the frame a boss's graphics are loaded on used to do.
 
-use std::ffi::c_void;
-use std::sync::Mutex;
-
-use windows_sys::Win32::System::Memory::{
-    GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_PRIVATE, MEM_RELEASE,
-    MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE, PROCESS_HEAP_ENTRY, VirtualAlloc,
-    VirtualFree, VirtualQuery,
-};
-use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
-use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-
 use std::ops::Range;
 
 use crate::audio;
 use crate::log;
 use crate::memtrack::Region;
-use crate::threads;
-use orb_api::mem;
+use orb_api::{mem, thread};
 
 /// How a snapshot treats the game's sound.
 pub struct Audio {
@@ -55,10 +43,6 @@ pub enum Music {
 /// How many times to retry a capture the streaming thread interrupted. It tops
 /// the buffer up a few times a second, so one retry is almost always enough.
 const AUDIO_ATTEMPTS: u32 = 4;
-
-/// Ranges `orb` itself allocated, so `self_check` does not report its own
-/// buffers as game memory that changed behind our back.
-static OURS: Mutex<Vec<Region>> = Mutex::new(Vec::new());
 
 pub struct Snapshot {
     saved: Vec<Saved>,
@@ -94,50 +78,42 @@ struct Fingerprint {
     in_process_heap: bool,
 }
 
-/// Backing store for a saved region, taken straight from the OS: the game's own
-/// heap is what is being copied, and Rust's allocator shares a heap with the
-/// libraries `self_check` has to tell apart from the game.
+/// Backing store for a saved region.
+///
+/// An allocation of orb's own, with the host *told* about it rather than asked for it: `self_check`
+/// finds memory the game changed outside a snapshot by fingerprinting every private page in the
+/// process, and Rust's allocator shares the process heap with the libraries it has to tell apart from
+/// the game — so the range is named as orb's and left out of that walk.
+///
+/// Pages from the host instead was tried and is a crash. A buffer taken from a simulated Windows and
+/// given back once that Windows has gone is a `VirtualFree` of a heap pointer, which is what the suite
+/// did while taking a chapter's snapshots down: the installation is scoped to a call and the chapter
+/// outlives it.
+///
+/// Never grown after it is made, so the pointer the copy is written through does not move.
 struct Buffer {
-    base: *mut u8,
-    len: usize,
+    bytes: Vec<u8>,
 }
 
 impl Buffer {
     fn new(len: usize) -> Option<Self> {
-        let base = unsafe {
-            VirtualAlloc(
-                std::ptr::null(),
-                len,
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
-            )
-        };
-        if base.is_null() {
-            return None;
-        }
-        if let Ok(mut ours) = OURS.lock() {
-            ours.push(Region {
-                base: base as usize,
-                len,
-            });
-        }
-        Some(Self {
-            base: base.cast(),
-            len,
-        })
+        let bytes = vec![0u8; len];
+        mem::keep_out_of_private_regions(bytes.as_ptr() as usize, len);
+        Some(Self { bytes })
+    }
+
+    fn base(&self) -> *mut u8 {
+        self.bytes.as_ptr() as *mut u8
     }
 
     fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.base, self.len) }
+        &self.bytes
     }
 }
 
 impl Drop for Buffer {
     fn drop(&mut self) {
-        if let Ok(mut ours) = OURS.lock() {
-            ours.retain(|region| region.base != self.base as usize);
-        }
-        unsafe { VirtualFree(self.base.cast(), 0, MEM_RELEASE) };
+        mem::count_private_region_again(self.bytes.as_ptr() as usize);
     }
 }
 
@@ -254,7 +230,9 @@ impl Snapshot {
             {
                 let _suspended = suspend(audio.thread);
                 for entry in &mut self.saved {
-                    unsafe { mem::copy_out(entry.region.base, entry.data.base, entry.region.len) };
+                    unsafe {
+                        mem::copy_out(entry.region.base, entry.data.base(), entry.region.len)
+                    };
                 }
             }
             match &saved_music {
@@ -450,86 +428,40 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) {
 /// Copies one span of a saved region back over the live memory.
 unsafe fn write_back(entry: &Saved, span: Range<usize>) {
     let offset = span.start - entry.region.base;
-    unsafe { mem::copy_in(span.start, entry.data.base.add(offset), span.len()) };
+    unsafe { mem::copy_in(span.start, entry.data.base().add(offset), span.len()) };
 }
 
 /// Fingerprints every private committed range that `regions` does not cover, so
 /// a later `check` can name game state the snapshot is missing.
 unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
-    // The inventory is a walk of every private page in the process, which is a question about the
-    // process and not about the game: under a laid-out simulated Windows there is no such thing to
-    // walk, and the regions a test did not hand over are the ones it chose not to. What
-    // `self_check` is for — naming game state a snapshot is missing — needs the real process to
-    // mean anything.
-    #[cfg(test)]
-    if orb_api::installed().is_some() {
+    // Nothing in a test build. The walk is a question about the *process*, and what it relies on is
+    // the one thing a test binary cannot give it: everything that allocates is held still. On a real
+    // host this runs with the game's threads suspended, so a region the walk found is a region that
+    // is still there to be read; in a test binary the harness's other threads are running, and a
+    // region freed between the walk and the read is a fault inside the read. Measured — the suite
+    // crashed here in parallel and passed with `--test-threads=1`.
+    //
+    // What `self_check` is for, naming game state a snapshot is missing, needs the real process to
+    // mean anything anyway: under a laid-out simulated Windows the regions a scenario did not hand
+    // over are the ones it chose not to.
+    if cfg!(test) {
         return Vec::new();
     }
-    let ours = OURS.lock().map(|ours| ours.clone()).unwrap_or_default();
-    let process_heap = unsafe { process_heap_regions() };
-
-    let mut fingerprints = Vec::new();
-    let mut address = 0usize;
-    loop {
-        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
-        let queried = unsafe {
-            VirtualQuery(
-                address as *const c_void,
-                &mut info,
-                size_of::<MEMORY_BASIC_INFORMATION>(),
-            )
-        };
-        if queried == 0 {
-            break;
-        }
-        let region = Region {
-            base: info.BaseAddress as usize,
-            len: info.RegionSize,
-        };
-        let next = region.end();
-
-        let interesting = info.State == MEM_COMMIT
-            && info.Type == MEM_PRIVATE
-            && crate::memtrack::is_readable(info.Protect)
-            && !overlaps(&region, regions)
-            && !overlaps(&region, &ours);
-        if interesting && let Some(hash) = unsafe { hash(region) } {
-            fingerprints.push(Fingerprint {
+    let process_heap = mem::process_heap_regions();
+    mem::private_regions()
+        .into_iter()
+        .map(|(base, len)| Region { base, len })
+        .filter(|region| !overlaps(region, regions))
+        .filter_map(|region| {
+            Some(Fingerprint {
                 region,
-                hash,
-                in_process_heap: overlaps(&region, &process_heap),
-            });
-        }
-
-        if next <= address {
-            break;
-        }
-        address = next;
-    }
-    fingerprints
-}
-
-/// Rust's allocator and the DirectX runtimes share the process heap, so
-/// `self_check` counts changes there instead of listing them.
-unsafe fn process_heap_regions() -> Vec<Region> {
-    let heap = unsafe { GetProcessHeap() };
-    let mut regions = Vec::new();
-    if heap.is_null() || unsafe { HeapLock(heap) } == 0 {
-        return regions;
-    }
-    let mut entry: PROCESS_HEAP_ENTRY = unsafe { std::mem::zeroed() };
-    while unsafe { HeapWalk(heap, &mut entry) } != 0 {
-        if entry.wFlags & PROCESS_HEAP_REGION as u16 == 0 {
-            continue;
-        }
-        let region = unsafe { entry.Anonymous.Region };
-        regions.push(Region {
-            base: entry.lpData as usize,
-            len: region.dwCommittedSize as usize + region.dwUnCommittedSize as usize,
-        });
-    }
-    unsafe { HeapUnlock(heap) };
-    regions
+                hash: unsafe { hash(region) }?,
+                in_process_heap: process_heap
+                    .iter()
+                    .any(|(base, len)| region.base < base + len && *base < region.end()),
+            })
+        })
+        .collect()
 }
 
 fn overlaps(region: &Region, others: &[Region]) -> bool {
@@ -542,18 +474,7 @@ fn overlaps(region: &Region, others: &[Region]) -> bool {
 /// and `self_check` fingerprints every private page in the process twice per
 /// snapshot, which made it slow enough to look like a hang.
 unsafe fn hash(region: Region) -> Option<u64> {
-    let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
-    let queried = unsafe {
-        VirtualQuery(
-            region.base as *const c_void,
-            &mut info,
-            size_of::<MEMORY_BASIC_INFORMATION>(),
-        )
-    };
-    if queried == 0 || info.State != MEM_COMMIT || info.RegionSize < region.len {
-        return None;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(region.base as *const u8, region.len) };
+    let bytes = mem::read_committed_bytes(region.base, region.len)?;
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let (chunks, tail) = bytes.as_chunks::<8>();
     for chunk in chunks {
@@ -567,11 +488,11 @@ unsafe fn hash(region: Region) -> Option<u64> {
 
 /// The game's threads, stopped for as long as this lives.
 ///
-/// Timed here rather than in `threads`, so the cost of holding the game still is
-/// visible next to the cost of the copy it exists for.
-fn suspend(audio: Option<u32>) -> threads::Suspended {
+/// Timed here rather than behind the seam, so the cost of holding the game still is visible next to
+/// the cost of the copy it exists for.
+fn suspend(audio: Option<u32>) -> thread::Suspended {
     let started = crate::profile::now();
-    let suspended = threads::Suspended::all_but(unsafe { GetCurrentThreadId() }, audio);
+    let suspended = thread::Suspended::all_but_audio(audio);
     unsafe { crate::profile::record(crate::profile::Phase::Threads, started) };
     suspended
 }

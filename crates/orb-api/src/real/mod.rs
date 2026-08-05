@@ -6,6 +6,7 @@
 
 pub mod clock;
 pub mod display;
+pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;

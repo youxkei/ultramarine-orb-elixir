@@ -219,6 +219,78 @@ pub fn read_committed<T: Copy>(address: usize) -> Option<T> {
     host::read_committed(address)
 }
 
+/// Pages of orb's own to hold a copy of the game's memory in, or `None` where the host would not
+/// give them. The length asked for must be handed back to [`release`] with the base.
+///
+/// Not Rust's allocator, and this is the one place in orb where that matters: `self_check` finds
+/// memory the game changed outside a snapshot by fingerprinting every private page in the process,
+/// Rust's allocator shares the process heap with the DirectX runtimes, and a copy of the game living
+/// there would read as the game having changed it. So the copies live in pages the host hands over
+/// and leaves out of [`private_regions`].
+/// A whole range, read only where all of it can be read at all — `None` where any of it is unmapped,
+/// reserved without being committed, or guarded.
+///
+/// A range rather than one value, unlike [`read_committed`], for the caller that has a region rather
+/// than an address: `self_check` fingerprints whole regions, and a region it was told about may have
+/// gone between the telling and the reading.
+pub fn read_committed_bytes(address: usize, len: usize) -> Option<Vec<u8>> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.read_committed_bytes(address, len);
+    }
+    host::read_committed_bytes(address, len)
+}
+
+/// Says a range is orb's own, so that [`private_regions`] leaves it out.
+///
+/// What orb keeps in one is a copy of the game's memory, and `self_check` finds memory the game
+/// changed outside a snapshot by fingerprinting every private page in the process — so a walk that
+/// counted orb's copies would report them as the game having changed them.
+///
+/// Told rather than asked for, the buffer being an ordinary allocation of orb's. Pages handed out by
+/// the host instead was tried and is a crash: a buffer taken from a simulated Windows and given back
+/// after that Windows has gone is a `VirtualFree` of a heap pointer, which is what the suite did while
+/// taking a chapter's snapshots down.
+pub fn keep_out_of_private_regions(base: usize, len: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        win.keep_out_of_private_regions(base, len);
+        return;
+    }
+    host::keep_out_of_private_regions(base, len);
+}
+
+/// And that it is not any more.
+pub fn count_private_region_again(base: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        win.count_private_region_again(base);
+        return;
+    }
+    host::count_private_region_again(base);
+}
+
+/// Every committed, private, readable region in the process, as `(base, len)`, less the ones
+/// [`keep_out_of_private_regions`] named. What `self_check` fingerprints.
+pub fn private_regions() -> Vec<(usize, usize)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.private_regions();
+    }
+    host::private_regions()
+}
+
+/// The regions of the process heap, as `(base, len)`. Apart from [`private_regions`] because
+/// `self_check` counts changes here rather than listing them — Rust's allocator and the DirectX
+/// runtimes share this heap, so a change in it is nobody's in particular.
+pub fn process_heap_regions() -> Vec<(usize, usize)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.process_heap_regions();
+    }
+    host::process_heap_regions()
+}
+
 #[cfg(windows)]
 use crate::real::mem as host;
 
@@ -294,5 +366,20 @@ mod host {
     }
     pub fn read_committed<T: Copy>(_address: usize) -> Option<T> {
         no_windows("mem::read_committed")
+    }
+    pub fn read_committed_bytes(_address: usize, _len: usize) -> Option<Vec<u8>> {
+        no_windows("mem::read_committed_bytes")
+    }
+    pub fn keep_out_of_private_regions(_base: usize, _len: usize) {
+        no_windows("mem::keep_out_of_private_regions")
+    }
+    pub fn count_private_region_again(_base: usize) {
+        no_windows("mem::count_private_region_again")
+    }
+    pub fn private_regions() -> Vec<(usize, usize)> {
+        no_windows("mem::private_regions")
+    }
+    pub fn process_heap_regions() -> Vec<(usize, usize)> {
+        no_windows("mem::process_heap_regions")
     }
 }

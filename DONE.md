@@ -279,6 +279,22 @@ settled by measurement rather than by looking at the screen, the measurement is 
     taken. A menu of orb's freezes the game, so the game is not reading the pad on those frames and one
     does nothing there unless orb reads it itself — which is how it came to be missing, and why the log
     says which hand answered.
+  - **And it is driven in tests now, keys and all.** `GetKeyboardState` went behind the seam and what
+    the question decides — the two modes, the cursor, which key answers — went into `orb-core` beside
+    it, apart from the labels it draws them with. Thirteen scenarios in `orb-sim/tests/mode.rs` press
+    the keys somebody would: the cursor starting on the mode orb is in, so 完全無欠モード is one press
+    away from a run that was one; either of the two keys the game decides with deciding here; the bomb
+    key and escape cancelling and choosing neither; the ten frames of grace with the key that put the
+    question up held down the whole way, and it still not answering when the grace runs out; a held key
+    answering once rather than once a frame; a host that refuses to say what is down reading as nothing
+    down; and the pad doing all of it and being named as the hand that did.
+
+    **One of them found a defect.** Everything reads as released while another window is in front —
+    otherwise typing elsewhere would drive the game — but zeroing alone made the way back an edge:
+    every key read as up, then read as down, which is a press by the rule those menus use. So a key
+    held through an alt-tab chose a mode on the frame the window came forward. Whatever is down on the
+    first frame orb is reading again counts as already held now, and the first read of all goes the same
+    way.
   - **Leaving the ranking used to ask again**, on the same millisecond as the score file being
     written on the way out. `Supervisor::OnUpdate` assigns `wantedState = curState` as its last act
     and runs first in the chain, so the frame the ranking sets `curState` itself ends with the front
@@ -686,7 +702,7 @@ Settled by measurement.
   remaining gap is the compose time, which nothing reports, so the scenario asserts the direction and
   this table keeps the number.
 - **The loop itself is driven in tests now, against a simulated Windows.** `frame.rs` is in `orb-core`
-  with its host calls behind `orb_api`, and twenty-one scenarios in `orb-sim/tests` run the real
+  with its host calls behind `orb_api`, and twenty-one of the forty-one scenarios in `orb-sim/tests` run the real
   `pacing`/`settle`/`wait` over a display a test declares: the counter, `Sleep`, `timeBeginPeriod`, the
   monitor's reported rate, `DwmGetCompositionTimingInfo` and `DwmFlush`. Its own thirteen tests were all
   arithmetic and not one of them drove the loop.

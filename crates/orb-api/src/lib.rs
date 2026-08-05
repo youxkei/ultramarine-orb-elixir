@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 pub mod clock;
 pub mod display;
+pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
@@ -104,6 +105,36 @@ pub trait Win: Send + Sync + 'static {
     /// since a chapter is a copy of the game's state and not of itself.
     fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)>;
 
+    /// Says a range is orb's own, so that [`private_regions`](Win::private_regions) leaves it out.
+    ///
+    /// What orb keeps there is copies of the game's memory, and `self_check` finds memory the game
+    /// changed outside a snapshot by walking the process's private pages — so a walk that counted
+    /// orb's copies would report them as the game having changed them.
+    ///
+    /// Told rather than asked for: the memory itself is an ordinary allocation of orb's, because a
+    /// buffer handed out by one side of the seam and given back after the other one has been
+    /// installed is a `VirtualFree` of a heap pointer. Measured, before it was this way round — the
+    /// suite crashed taking a chapter's snapshots down after the simulated Windows had gone.
+    fn keep_out_of_private_regions(&self, base: usize, len: usize);
+
+    /// And that it is not any more.
+    fn count_private_region_again(&self, base: usize);
+
+    /// Every committed, private, readable region in the process, as `(base, len)`, less the ones
+    /// [`keep_out_of_private_regions`](Win::keep_out_of_private_regions) named.
+    ///
+    /// What `self_check` fingerprints, to find memory a snapshot did not cover that something changed
+    /// anyway. A diagnostic, so a host with nothing to say answers with nothing and the check reports
+    /// on what it did cover.
+    fn private_regions(&self) -> Vec<(usize, usize)>;
+
+    /// The regions of the process heap, as `(base, len)`.
+    ///
+    /// Apart from [`private_regions`](Win::private_regions) because `self_check` counts changes here
+    /// rather than listing them: Rust's allocator and the DirectX runtimes share this heap, so a
+    /// change in it is nobody's in particular.
+    fn process_heap_regions(&self) -> Vec<(usize, usize)>;
+
     // --- the clock ------------------------------------------------------------
 
     /// `QueryPerformanceCounter`. Monotonic; the unit is [`frequency`](Win::frequency) ticks a
@@ -155,6 +186,28 @@ pub trait Win: Send + Sync + 'static {
     /// from every other one without a lock.
     fn current_thread_id(&self) -> u32;
 
+    /// Stops every thread the game made except the caller's and `audio`, and answers with the ones
+    /// stopped so they can be started again.
+    ///
+    /// Only the threads the game created itself, which the host is told about as they are made — see
+    /// [`Win::register_thread`]. Suspending everything, which is what enumerating the process's
+    /// threads amounts to, also stops DirectSound's mixer and the graphics driver's workers, and
+    /// stopping those for the length of a copy is audible as the sound breaking up. The game's audio
+    /// thread is left running for the same reason, even though it is the game's.
+    ///
+    /// Ids and not handles, so that nothing about a handle crosses the seam. A host that knows of no
+    /// such threads answers with none, which is a copy taken with nothing to hold still.
+    fn suspend_game_threads(&self, audio: Option<u32>) -> Vec<u32>;
+
+    /// Starts them again.
+    fn resume_threads(&self, ids: &[u32]);
+
+    /// Remembers a thread the game has just created, and answers whether it can be stopped later.
+    ///
+    /// The id and not a handle: the noticing is orb's — an import hook on `CreateThread` — and
+    /// opening a handle of our own is the host's, because what a handle is belongs on this side.
+    fn register_thread(&self, id: u32) -> bool;
+
     // --- the log --------------------------------------------------------------
 
     /// Opens the log for appending, starting it over rather than appending where it has already
@@ -178,6 +231,16 @@ pub trait Win: Send + Sync + 'static {
     /// `GetForegroundWindow`. The pacing asks it because counting refreshes against a window that
     /// is not in front comes out wrong.
     fn foreground_window(&self) -> Hwnd;
+
+    // --- the keyboard ----------------------------------------------------------
+
+    /// `GetKeyboardState` — every key at once, `0x80` set on the ones that are down. `None` where
+    /// the call failed, which orb reads as nothing being down.
+    ///
+    /// The whole array rather than a key at a time, because that is what the call answers: asking
+    /// per key would be several reads of a state that may have moved between them, and orb's menus
+    /// read six keys a frame.
+    fn keyboard_state(&self) -> Option<[u8; 256]>;
 
     // --- loaded modules --------------------------------------------------------
 
