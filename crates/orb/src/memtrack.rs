@@ -206,12 +206,12 @@ fn forget_reservation(base: usize) {
 /// # Safety
 /// `data` must be the exe's `.data` range.
 pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
-    // A laid-out space *is* the game's memory, so what it holds is the whole answer: there are no
-    // heaps to walk and no reservations to have been told about. The data range still leads, as it
-    // does in a real game, and the rest is whatever else the test put there.
+    // A laid-out simulated Windows *is* the game's memory, so what it holds is the whole answer:
+    // there are no heaps to walk and no reservations to have been told about. The data range still
+    // leads, as it does in a real game, and the rest is whatever else the test put there.
     #[cfg(test)]
-    if let Some(space) = crate::mem::space::installed() {
-        return space
+    if let Some(win) = orb_api::installed() {
+        return win
             .game_regions(&data)
             .into_iter()
             .map(|(base, len)| Region { base, len })

@@ -223,9 +223,9 @@ impl Mark {
 #[cfg(test)]
 mod tests {
     use super::{Answer, Cancels, MARK_LEFT, Mark, Pressed, ResumeMenu};
-    use crate::d3d8::recording::Screen;
     use crate::menu_ui::{By, LINE_HEIGHT};
     use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
+    use crate::recording::Screen;
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.

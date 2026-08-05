@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/launcher", "crates/orb", "crates/orb-config"]
+members = [
+    "crates/launcher",
+    "crates/orb",
+    "crates/orb-api",
+    "crates/orb-config",
+    "crates/orb-core",
+    "crates/orb-sim",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,7 +15,10 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+orb-api = { path = "crates/orb-api" }
 orb-config = { path = "crates/orb-config" }
+orb-core = { path = "crates/orb-core" }
+orb-sim = { path = "crates/orb-sim" }
 windows-sys = "0.59"
 
 # Here rather than in each crate because cargo unions the features of both, so one of them

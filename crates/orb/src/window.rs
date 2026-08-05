@@ -36,7 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::d3d8::{Device, Hresult};
 use crate::hook;
-use crate::log::log;
+use crate::log;
 use crate::profile;
 use crate::sync::MainThread;
 

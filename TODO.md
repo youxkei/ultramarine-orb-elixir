@@ -396,12 +396,50 @@ What is left:
 
   The mechanism does not special-case any of them, which is the argument that they work, and no
   measurement is the reason that is only an argument.
-- **A second display, and a mixed-rate desktop.** What the compositor wants is cleared and found
-  again when the mode or the monitor changes, so nothing carries over wrongly, but the case that
-  matters is the game on one monitor while the compositor times another: the fractional path is
-  refused there — `agrees` is false and the clock takes it — and that refusal has not been seen
-  happen. A whole multiple is *not* refused there, which is the older hazard the code comments
-  describe and which nothing has re-checked since.
+- **A second display, and a mixed-rate desktop — the setup is measured on real hardware now, and it
+  is the ordinary one rather than an exotic one.** `scripts/compositor-probe.c` on a 120Hz primary
+  with a 144Hz monitor beside it: the compositor reports 144.00Hz and its flushes come at 143.97Hz,
+  and a window on any monitor gets that same 143.97Hz while `EnumDisplaySettingsW` answers about the
+  monitor the window is on. The numbers are in [DONE.md](DONE.md).
+
+  **The compositor followed the fastest monitor, not the primary and not the game's**, so "the game
+  on the wrong monitor" is not what it takes: a 120Hz primary to play on and a 144Hz monitor attached
+  is enough, and it is the configuration this machine was already in.
+
+  **And the game on it runs a fifth too fast.** Measured — the game fullscreen on the 120Hz primary
+  with the 144Hz monitor attached, `--log=quiet --pacing`, four periods of 600 frames. The numbers are
+  in [DONE.md](DONE.md); the shape of it:
+
+  - **71 to 72 frames a second** where sixty was asked for, with the music to match. 13888µs is two
+    refreshes of 144Hz exactly, and that is what the frames are landing on: the blanks are the
+    compositor's and the cadence is counted in the monitor's. `adopt` sets `BLANK_PACED` from the whole
+    multiple alone, so a 120Hz monitor stays paced by the blanks whatever the compositor says.
+  - **The same number `frame::settle`'s own comment recorded years ago** — "144 read for a 120Hz
+    display ran the game at 72 frames a second" — so this reproduces it. What is new is that it happens
+    with the game on the *primary*, and that nobody has to have put it on the wrong monitor.
+  - **And the log says the wrong mechanism.** The same run says `120Hz monitor but the compositor is
+    timing 144Hz; pacing by the clock` and then `0 frame(s) paced by the clock`. Two lines of one run
+    contradicting each other: the `agrees` check only guards the `blanks == 0` branch, so it changes
+    what is written and not what is done.
+
+  Which of the two to change is the decision that was missing a measurement: refuse the blanks for a
+  whole multiple the compositor disagrees with, as the line already claims, or keep the pacing and fix
+  the line. Refusing is what the fractional path already does and what 72 frames a second says is
+  needed.
+
+  **The rate is never sixty for any of them** — `orb-sim/tests/pacing_rates.rs` is the table. A
+  compositor on a whole multiple of sixty is harmless however far it disagrees (a 120Hz monitor with a
+  240Hz compositor still holds sixty every second); one that is not never does, over 70, 75, 90, 100,
+  110, 144, 150, 165 and 200Hz.
+
+  What the *simulator* is not for is which way it is wrong. Asked for this display it first said 48
+  frames a second — slow, where the machine runs fast — because it modelled the host as a metronome;
+  modelling the wake delays it really has turned that into 69 to 70. The number turns on how long the
+  compositor takes over a frame, and nothing reports that. So the scenarios assert the direction and
+  `DONE.md` keeps the number.
+
+  What is still unmeasured is the rest of that bullet's table — the rates themselves, 240Hz and
+  under-60Hz — which the scenarios could now reach the same way.
 
 ## Move the rest of the suite onto the space
 
@@ -412,12 +450,20 @@ helpers that used to set `mark` and insert into `starts` in their own words are 
 them the reason none of those tests could fail when `observe` changed. Breaking the production
 `starts` insert now fails four of them; before, it failed none.
 
-**What the space does not answer yet.** `State` is still built by hand rather than read by
-`Th06::read_state()` out of a laid-out image, so the parse of the game's structures is exercised
-only as far as the accessors the chapter path calls — `music`, `music_identity`, `audio_state`,
-`audio_thread`, `live_handles`, `captures`, `count_card_attempt`. Reading a whole `State` out of
-the image is the next piece, and it is what would let the tests hand over a stage rather than a
-struct.
+**`read_state` is read out of an image now, and `chapter.rs` still is not handed one.** The parse
+itself is covered: `orb-sim/tests/game_state.rs` writes a stage in progress through `Image::playing`
+— the game's own terms, over the same offset constants `Th06` reads through — and asserts the whole
+`State` that comes back, plus the two chases that have to come back as nothing rather than fault
+(the bosses pointer, and the dialogue index through `GuiImpl` on the heap). What is left is the
+handover: `chapter.rs`'s scenarios still build a `State` by hand and step the detector with it, so
+what they cannot catch is `observe` reading a different stage from the one the image holds. Laying
+the stage out and letting `read_state` describe it is the piece that closes that, and it is behind
+moving `chapter.rs` itself — see *Put Windows behind a seam* below.
+
+Laying one out also cost seven regions where the old image had five: the player is 0x98f0 bytes at
+0x006ca628, the enemy manager sits at 0x004b79c8, and the bullet manager's laser array is 0xec000
+into it, which puts laser zero at 0x00691ff8 and the array's tail inside the static data. Nothing
+about that was guessed — each was found by a read panicking with the address it wanted.
 
 **No track plays in a laid-out game, and that is a limit rather than a choice.** With the sound
 structures zeroed, `music()` reads as nothing, so a stage takes `STAGE_SETTLE_FRAMES` *plus*
@@ -427,64 +473,215 @@ into DirectSound through the buffer's vtable, so it needs the COM calls simulate
 then nothing about the music in a snapshot is covered here, and the frames a chapter's music is
 judged by are the real game's to answer for.
 
-**`self_check`'s inventory is skipped under a space** — see `fingerprint_untracked`. It is a walk
+**`self_check`'s inventory is skipped under a simulated Windows** — see `fingerprint_untracked`. It is a walk
 of every private page in the process, which is a question about the process and not about the
 game.
 
-## Put Windows itself behind a seam, and run the suite on any host
+## A 240Hz display leaves the compositor less room than it may want
 
-The memory seam took the game out of the tests. What is left holding them to Windows is Windows:
-the suite is a set of `i686-pc-windows-gnu` binaries because the crate cannot be built without
-`windows-sys`, so CI needs a Windows runner and a 32-bit mingw to get anything run at all.
+**Not a defect, and the reason it is here is that nothing says it is happening.** The allowance cannot
+pass one refresh: a frame is handed over that long before the blank it is aimed at, so an allowance over
+a refresh hands it over before the blank *before* that one, and the compositor takes it there — the frame
+is shown a refresh early and the whole reckoning moves with it. `compose_ceiling` therefore stops at
+three quarters of a refresh, and `frame.rs` has the 144Hz measurement of what going past it did:
+`gaps in refreshes 1x418 2x179`, a hundred frames a second.
 
-**Measured, so the size of it is not a guess.** Twenty of the thirty-nine files under
-`crates/orb/src` name `windows_sys`, and between them they call **sixty-four** distinct Win32
-functions: the memory ones the seam already covers, and then `QueryPerformanceCounter`,
-`DwmGetCompositionTimingInfo` and `DwmFlush` for the pacing; `SuspendThread`, `ResumeThread`,
-`OpenThread` and `GetThreadId` for holding the game still; twenty-odd GDI calls for the status
-line; `GetKeyboardState` and DirectInput's `EnumDevices` for the input; `MonitorFromWindow`,
-`EnumDisplaySettingsW` and `AdjustWindowRect` for the window. On top of the functions there are
-three surfaces that are not functions at all: Direct3D 8 and DirectSound reached through COM
-vtables, the window procedure and its message pump, and the game's own code called through
-transmuted pointers.
+Three quarters of a refresh is 12500µs at 60Hz and **3124µs at 240Hz**. A compositor wanting 3200µs — the
+figure `DONE.md`'s mixed-rate run had orb's own allowance chasing — is inside the geometry at every rate
+anyone plays at except the fastest, and outside it there.
 
-**There is no small first slice.** Only six of `Game`'s sixty-three methods name a Win32 or COM
-type — `window`, `d3d_device`, `set_play_viewport`, `chain`, `prepare_frame`, `forget_captures` —
-so making the trait traffic in plain data is a morning's work. It buys nothing on its own: an
-opaque device handle is still handed to `overlay.rs` and `d3d8.rs`, which make the real calls, so
-the host requirement does not move until those calls go behind the seam too. The value arrives
-whole or not at all.
+Measured, 240Hz with the compositor held at 3200µs over 20,000 frames: the allowance climbs to exactly
+3124µs and stops, no miss is charged to anything, and the rate settles at **48.00** for the rest of the
+run — every fifth frame taking an extra refresh. `pacing_converges.rs` asserts that shape, so a run
+reading 48 with the allowance *below* the ceiling would be a different fault and would be caught.
 
-**The shape to build, when it is built.** `orb-core` for the logic with no `windows-sys` in it;
-`orb-api` for the seam traits and the `#[cfg(windows)]` real implementations; `orb-sim` for the
-simulated Windows, with the scenarios in its own `tests/` — a cdylib cannot host them, and the
-sim is where they belong anyway. The simulated game becomes a client of the simulated Windows
-rather than part of it: it takes its memory, its audio thread and its device from the sim, so that
-a snapshot walks the sim's pages the way it walks the real ones and the failures that only happen
-around a free or a suspended thread stay reachable. The seam traffics in plain data — no
-`windows-sys` types in any signature — which is the whole reason the result builds on a Linux
-runner.
+What is left is the reporting. A run in this state looks, in the log, like a run whose compositor is
+merely slow: the allowance sits at a number and the misses are counted, with nothing to say the number is
+the most there is and no amount of waiting will change it. What that wants is a line at the point the
+climb is refused — the allowance asked for more than the display has room for — which is a decision about
+the log rather than about the pacing.
 
-**Three things looked like they needed a seam and none of them did.** The drawing, because a
-Direct3D device is a pointer to a vtable and a vtable of Rust functions is a device. Holding the
-game still, because the threads it stops are ones a test can make and register itself. And the
-clock, because every decision the pacing makes is already a function of numbers — `grid_aim`,
-`next_budget`, `whole_multiple`, `on_cadence`, `refreshes_this_frame`, the three ceilings — so what
-a seam would add is the order the waiting calls come in, and what matters about the waiting is
-whether frames land on blanks, which is a measurement of real hardware. `DONE.md` keeps those.
+Nobody has seen this happen. It wants a 240Hz display and a compositor taking three quarters of a
+refresh, and this machine has neither.
 
-So the lesson for the crate split is that the seam is worth cutting where the *host* is in the way,
-not where a call is: what is left needing one is Windows itself, for a suite that runs anywhere.
+## Put Windows behind a seam, for the mechanisms a test cannot otherwise reach
 
-**The Linux runner is already there, with the host-independent half of the tree on it.** `orb-config`
-names no Windows at all — it reads `orb.yaml` and the command line and depends on nothing but clap
-and serde — so its twenty-three tests pass on `x86_64-unknown-linux-gnu` as they stand, and CI has a
-job that runs them and clippy there. That is the path the rest is meant to move onto, and a crate
-that stops building on it is a crate that has taken a dependency on the host — worth finding out
-about when it happens rather than at the end of the work.
+**Running the suite on any host is off the table, and this is the measurement that took it off.**
+`orb-core` does not compile for `x86_64-unknown-linux-gnu` and no seam over Windows will make it:
+`Th06` calls the game's own functions through transmuted pointers, by the conventions MSVC6 compiled
+them with — `extern "thiscall"` and `extern "fastcall"`, which exist on 32-bit x86 and nowhere else.
+Not being Windows was never the whole of the requirement. Being x86 is the other half, and what is on
+the far side of *that* is the game's own code rather than the host's.
 
-What is left is the moving: `orb`'s twenty files that name `windows_sys` and the sixty-four Win32
-functions behind them, which is the weeks and not the wiring.
+So the prize the earlier version of this section named — a suite that runs anywhere, off the Windows
+runner and the 32-bit mingw — was never on offer. The best available was ever "anywhere that targets
+32-bit x86", which wants a toolchain about as particular as the mingw one already in place, for a DLL
+that will never be loaded by anything but Windows. CI is one job, on Windows, and that is right.
+
+**What the seam is worth is the other thing, and it is worth it one mechanism at a time.** A
+mechanism whose behaviour turns on something a test cannot make Windows do is a mechanism nothing
+tests. Two of those are covered now and neither had a test before:
+
+- **The log's deferral.** Which lines are held and which are written where they stand turns on
+  whether the caller is the thread the frame loop claimed. With a real `GetCurrentThreadId` a test
+  has no way to be two threads; with the clock behind the seam it can also say what a line's stamp
+  should be. Four scenarios, including the giving-up path when no drain is coming.
+- **`Th06::read_state` out of a laid-out game.** Not about the host at all — see *Move the rest of
+  the suite onto the space* above, which asked for it.
+
+So the question to ask of each of the fifty Win32 functions left is not whether it keeps the suite
+off a Linux runner. It is whether there is behaviour behind it that no test can reach today. Where
+the answer is no, leave it where it is.
+
+**Where it stands, measured.** `orb-api` holds the seam: the `Win` trait, the neutral types, and the
+facades for the game's memory, the clock and its timer, the display and its compositor, which thread
+is running, which window is in front, the log file and the loaded modules. **Twenty-six** distinct
+Win32 functions are behind it, and the only files that reach `windows-sys` for any of them are the
+seven under `orb-api/src/real/`.
+
+`orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame` and the whole of `game/` — `Game`,
+`State`, and the two thousand three hundred lines of `Th06` — and **not one of its eleven files uses
+`windows-sys`**; the one that mentions it is `lib.rs`, saying why it does not. Neither does `orb-sim`,
+which implements `Win` over an address space, a clock a test moves itself, a display and compositor it
+declares, and a log it reads back. Thirteen of `orb`'s twenty-two files still use `windows_sys`, and
+three of the launcher's four.
+
+**Twenty-eight of the 214 tests are scenarios** in `orb-sim/tests`, driving the real `orb-core` against
+the simulated Windows: four over the log, three reading a whole `State` out of a game laid out by
+hand, twenty over the frame loop, and one over the timer it asks the host for.
+
+**Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to
+`orb-core` compiles and nobody is told. What would make it a check is one step rather than a second job:
+`cargo check -p orb-api -p orb-core -p orb-sim --target i686-unknown-linux-gnu` fails the moment
+anything above the seam names Windows, and needs no linker for that target because it never links.
+Run by hand for now, which is a convention and not a check.
+
+**What is still where it was**, with the question above asked of each: `SuspendThread`,
+`ResumeThread`, `OpenThread` and `GetThreadId` for holding the game still; the heap walk for the
+regions; twenty-odd GDI calls for the status line; `GetKeyboardState` and DirectInput's `EnumDevices`
+for the input; `AdjustWindowRect` and the window's own size and position.
+
+**The pacing — done, and it found the thing it was predicted to find.** `frame.rs` is in `orb-core`
+and its host calls are behind the seam: the counter, `Sleep`, `timeBeginPeriod`, the monitor's rate,
+`DwmGetCompositionTimingInfo` as one value, and `DwmFlush`. The simulated compositor holds a refresh
+period, a compose time a test may change mid-run, and a `DwmFlush` that returns at the blank the
+frame just handed over reached — modelled that way because that is what the real one does and the
+whole of how the pacing knows whether a frame made its blank.
+
+Twenty-one scenarios drive the loop, where its own thirteen tests were all arithmetic and **not one of
+them drove it**: the whole-multiple cadence, the rates a display reports and the rate each gets, the
+fractional 2-2-3-2-3 pattern, the budget rising after a frame overran, a compositor that spikes and the
+allowance following it, what that spike costs at each rate, three stage loads and what they must not buy
+the compositor, the clock path, a refused millisecond timer, the mixed-rate desktop, and sixty frames a
+second for every compose time the pacing has room to cover — which is the one that found the deadlock in
+`measure_compose`, now fixed.
+
+**The simulator is deliberately non-deterministic, and that is the point.** The OS is, from the
+application's side: it wakes a thread when it gets round to it and its compositor is slow now and then.
+So the host draws its delays from a seeded stream, a scenario is held against several seeds, and the
+seed goes in every assertion so a failure can be replayed. A scenario that holds for one seed and not
+another has found something a real machine can do, which is a defect and not a flake.
+
+Which means the assertions are about the *rate* and not about ticks. What they ask is what somebody
+playing would ask: **what share of the seconds were sixty frames a second**, judged within half a
+frame, from a few seconds in. A display the pacing accepts holds every one of them; a mixed-rate
+desktop holds none.
+
+Two things the simulator needed that nothing else has:
+
+- **Reading the counter has to cost time.** `sleep_until` sleeps most of the way to its deadline and
+  spins the last 1500µs, and a spin is a loop whose only host call is the counter read — so a clock
+  that moved only when something asked it to wait never reached the deadline and the frame loop hung.
+  A real one does not, because reading the counter takes time. One tick a read, which is the smallest
+  step the counter has.
+- **The distributions have to be measured, not chosen, and the rate matters more than the range.** The
+  wake delay was modelled as spread evenly over its measured range and made a tenth of the frames miss;
+  the histogram says 81% of returns are within 100µs and the rest are single excursions. The compose
+  spike was set at nine frames in six hundred, taken from a mixed-rate run's own miss accounting — but
+  that run was mispaced and those misses were the pacing's, not the compositor's. Half an hour of play
+  reaching 3.5ms puts it nearer one frame in a hundred thousand, three orders of magnitude rarer, and
+  with the wrong figure the simulated 60Hz display lost two seconds in five that a real one holds.
+
+**The drawing, which is already checked abstractly and depends on the wrong font to do it.** A
+`Device` is a pointer to a vtable, so `recording.rs` is one, and the four UI modules asserted against
+it in twenty-seven places — that part needs no seam and never did. What is not covered is the
+rasterising: `text.rs` goes through the GDI, and `recording.rs`'s `Screen` fixture builds its overlay
+on **`C:\Windows\Fonts\arial.ttf`** — not the `font.ttf` orb ships and loads `FR_PRIVATE`, which is
+what those assertions are really about. So the twenty-seven of them are measured against a font that
+is not the one in play and that a machine need not have. A simulated rasteriser with known glyph boxes
+closes that, lets `recording.rs` leave `orb`, and brings the status line's own placement in
+`window.rs` — untested today — within reach.
+
+**The regions and the copies** — `memtrack`, `snapshot` — where the cases worth having are a page
+freed between a snapshot and the restore of it, which a laid-out address space can make and a real
+process cannot be asked to.
+
+**Holding the game still** is the one where the argument holds: what is relied on is what
+`SuspendThread` does, and that is checked against threads a test makes and registers itself. The
+enumeration around it could go behind the seam; the suspending should not.
+
+**What is next, and why each one is behind the one before it.** `chapter.rs` is the prize — its
+twenty-seven scenarios drive the real `observe` over a game laid out by hand, which is the closest
+thing to an end-to-end suite there is — and it is behind three modules:
+
+- `memtrack.rs` for the regions a snapshot covers, which is a walk of the process's heaps.
+- `threads.rs` for holding the game still, which is `OpenThread`, `SuspendThread` and `ResumeThread`
+  over the threads the game made. The rule it exists for is checked against real threads today and
+  should stay that way — a test makes threads of its own and registers them — so what goes behind
+  the seam is the enumeration, not the suspending.
+- `snapshot.rs` for the copies, which needs both of those and `VirtualQuery` besides.
+
+`hook.rs` is behind them in turn — `memtrack` and `threads` both patch the game's import table — and
+it needs exactly one seam function that is not there yet: `FlushInstructionCache`. `VirtualProtect`
+it already has.
+
+**`joystick.rs` is the one that can move on its own**, and a trap in it is worth writing down before
+somebody finds it the hard way. `joystick::calibrate` copies the bytes of a `JOYCAPSA` straight into
+the game's memory, and `const _: () = assert!(size_of::<JOYCAPSA>() == 0x194)` is what holds it to
+the struct the game passes 0x194 for. A plain-data mirror in `orb-api` has to have that layout
+exactly, so it must keep that assert *and* gain a `#[cfg(windows)]` one against `windows-sys`' own —
+which is a better check than the one there now, since today nothing says the two agree.
+
+**`d3d8/recording.rs` stayed in `orb`** while the vtable declarations went to `orb-core`, and that is
+where it belongs until the drawing seam is cut: its `Screen` fixture builds a real `Overlay`, which
+reaches `text.rs` and the GDI. The split is what let `game/` move without taking the whole of the
+drawing on at once.
+
+**Three surfaces are not functions at all**, and they are still ahead: Direct3D 8 and DirectSound
+reached through COM vtables, the window procedure and its message pump, and the game's own code
+called through transmuted pointers.
+
+**Two things needed no seam, and the third only looked that way.** The Direct3D device needed none,
+because it is a pointer to a vtable and a vtable of Rust functions is a device — `recording.rs`.
+Holding the game still needed none, because the threads it stops are ones a test can make and register
+itself. The third was the clock, and the argument for leaving it — that every decision the pacing
+makes is already a function of numbers, so a seam would only add the order the waiting calls come in —
+does not survive being checked: the order *is* what is untested, `agrees` is decided from two numbers
+a sim can declare, and `DONE.md`'s measurements are of frames landing on blanks, which is a different
+question. Reading the clock went behind the seam for the log's sake in any case, since a test that
+cannot say what time it is cannot assert on a stamped line.
+
+So the lesson for the crate split is not the one this section was started for. The seam is worth
+cutting where a *test* cannot otherwise get at the behaviour — not where a Win32 call happens to be,
+and not to get off a Windows runner, which was never reachable and would have bought nothing.
+
+**Not yet run in the game.** What the split has been held to is the suite and the lints: **all 214 tests
+passing on `i686-pc-windows-gnu`** — every one that passed before it, plus the twenty-eight scenarios,
+with nothing ignored — and with
+`cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean. Its rustdoc links too, since
+the split moved items out from under four doc comments that named them. `orb-api`, `orb-core` and
+`orb-sim` also *check*
+clean for `i686-unknown-linux-gnu`, which is the only evidence that the boundary holds — the crates
+above the seam name nothing that is Windows. Running the suite there is a different matter and not one
+worth arranging: it wants a 32-bit Linux toolchain on top of the mingw one, for a DLL Windows is the
+only thing that will ever load.
+
+Nobody has launched 東方紅魔郷 with the DLL since. The paths most worth watching when somebody does
+are the three the seam rewrote out from under a caller: the log, which now reaches `CreateFileW`
+through `orb_api::logfile` from inside `DllMain` while the loader lock is held; `crash.rs`'s
+module-and-offset line, which now asks `orb_api::module::path` for a handle rather than
+`log::module_path`; and `Game::pad`, which is handed orb's own last joystick sample now instead of
+fetching it. None of them has a test that means anything without a real process.
 
 **And the one place a simulated Windows is still the answer** is the window and its message pump:
 `IN_HOOK` exists because a Win32 call that moves a window dispatches messages synchronously and the

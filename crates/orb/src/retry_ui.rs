@@ -5,7 +5,7 @@
 
 use crate::game::{Pad, Rect};
 use crate::input::Keyboard;
-use crate::log::log;
+use crate::log;
 use crate::menu_ui::{self, By, DIM_FIELD, Keys, LINE_HEIGHT, NORMAL, Pressed};
 use crate::overlay::{Label, Overlay};
 
@@ -243,9 +243,9 @@ mod tests {
     use super::{
         ANSWERS, CHOICES, CONFIRM_GRACE_FRAMES, Choice, NO, Pressed, RetryMenu, Showing, question,
     };
-    use crate::d3d8::recording::{Quad, Screen};
     use crate::game::Rect;
     use crate::menu_ui::{By, DIM_FIELD, LINE_HEIGHT, SELECTED};
+    use crate::recording::{Quad, Screen};
 
     /// A frame nothing was pressed on.
     fn nothing() -> Pressed {

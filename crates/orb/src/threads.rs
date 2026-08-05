@@ -21,7 +21,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::hook;
-use crate::log::log;
+use crate::log;
 
 /// The threads the game has created, with a handle each so that suspending one
 /// needs no lookup. A thread that has exited fails to suspend and is dropped.

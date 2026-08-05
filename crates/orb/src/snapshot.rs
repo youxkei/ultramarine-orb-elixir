@@ -26,10 +26,10 @@ use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use std::ops::Range;
 
 use crate::audio;
-use crate::log::log;
-use crate::mem;
+use crate::log;
 use crate::memtrack::Region;
 use crate::threads;
+use orb_api::mem;
 
 /// How a snapshot treats the game's sound.
 pub struct Audio {
@@ -457,11 +457,12 @@ unsafe fn write_back(entry: &Saved, span: Range<usize>) {
 /// a later `check` can name game state the snapshot is missing.
 unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
     // The inventory is a walk of every private page in the process, which is a question about the
-    // process and not about the game: under a laid-out space there is no such thing to walk, and
-    // the regions a test did not hand over are the ones it chose not to. What `self_check` is for
-    // — naming game state a snapshot is missing — needs the real process to mean anything.
+    // process and not about the game: under a laid-out simulated Windows there is no such thing to
+    // walk, and the regions a test did not hand over are the ones it chose not to. What
+    // `self_check` is for — naming game state a snapshot is missing — needs the real process to
+    // mean anything.
     #[cfg(test)]
-    if crate::mem::space::installed().is_some() {
+    if orb_api::installed().is_some() {
         return Vec::new();
     }
     let ours = OURS.lock().map(|ours| ours.clone()).unwrap_or_default();
@@ -581,8 +582,9 @@ mod tests {
 
     use super::{Audio, Music, Snapshot};
     use crate::game::th06::Th06;
-    use crate::mem::space::{self, Kind, Space};
     use crate::memtrack::Region;
+    use orb_api::Kind;
+    use orb_sim::Sim;
 
     /// The game's static data, and a second region standing for a block of its heap.
     const DATA: usize = 0x0069_b000;
@@ -614,11 +616,11 @@ mod tests {
         ]
     }
 
-    fn laid_out() -> Arc<Space> {
-        let space = Arc::new(Space::new());
-        space.map(DATA, LEN, Kind::Private);
-        space.map(HEAP, LEN, Kind::Private);
-        space
+    fn laid_out() -> Arc<Sim> {
+        let sim = Arc::new(Sim::new());
+        sim.space().map(DATA, LEN, Kind::Private);
+        sim.space().map(HEAP, LEN, Kind::Private);
+        sim
     }
 
     /// What a chapter is: every byte of what the game had, back the way it was. Not a summary of it
@@ -626,8 +628,9 @@ mod tests {
     /// which is what keeps the pointers in it pointing at what they pointed at.
     #[test]
     fn a_restore_puts_every_byte_back() {
-        let space = laid_out();
-        let _installed = space::install(&space);
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
         space.fill_bytes(DATA, 0xa1, LEN);
         space.fill_bytes(HEAP, 0xb2, LEN);
 
@@ -654,8 +657,9 @@ mod tests {
     /// inside the copy's own memcpy.
     #[test]
     fn a_region_that_has_gone_is_put_back_before_the_copy() {
-        let space = laid_out();
-        let _installed = space::install(&space);
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
         space.fill_bytes(HEAP, 0xb2, LEN);
 
         let snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };
@@ -674,8 +678,9 @@ mod tests {
     /// part worth pinning: a restore that skipped the whole region instead would lose the chapter.
     #[test]
     fn a_live_handle_is_left_where_the_restore_finds_it() {
-        let space = laid_out();
-        let _installed = space::install(&space);
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
         space.fill_bytes(DATA, 0xa1, LEN);
         let handles = std::slice::from_ref(&(DATA + 0x100..DATA + 0x110));
 
@@ -711,8 +716,9 @@ mod tests {
     /// costs more than the copy does. What it must not do is keep the bytes from last time.
     #[test]
     fn a_snapshot_taken_again_holds_the_second_one() {
-        let space = laid_out();
-        let _installed = space::install(&space);
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
         space.fill_bytes(DATA, 0xa1, LEN);
 
         let mut snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };

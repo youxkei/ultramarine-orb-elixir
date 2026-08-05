@@ -1,0 +1,23 @@
+[package]
+name = "orb-sim"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# A simulated Windows: implements `orb_api::Win` over state laid out by hand, with no
+# `windows-sys` anywhere in it. The `sim` feature is on here rather than left to whoever depends
+# on this crate, because a simulated Windows that cannot be installed is one nothing can reach.
+[dependencies]
+orb-api = { workspace = true, features = ["sim"] }
+
+# The scenarios in `tests/` drive the *real* `orb-core` with this simulated Windows installed,
+# composed the way the DLL composes it. A dev-dependency rather than a dependency because nothing
+# in the simulator itself knows about orb's logic — and because that keeps the cycle out of the
+# normal build graph, where cargo would refuse it.
+#
+# They live here rather than in `orb-core` because `orb-core`'s own `#[cfg(test)]` is false when it
+# is compiled as a dependency, which is what these are: the seam's install point is reached through
+# the `sim` feature, and a crate under test cannot turn a feature on for itself.
+[dev-dependencies]
+orb-config = { workspace = true }
+orb-core = { workspace = true, features = ["sim"] }

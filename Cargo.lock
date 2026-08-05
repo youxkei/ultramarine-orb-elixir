@@ -206,10 +206,20 @@ name = "orb"
 version = "0.1.0"
 dependencies = [
  "miniz_oxide",
+ "orb-api",
  "orb-config",
+ "orb-core",
+ "orb-sim",
  "rmp-serde",
  "rmpv",
  "serde",
+ "windows-sys",
+]
+
+[[package]]
+name = "orb-api"
+version = "0.1.0"
+dependencies = [
  "windows-sys",
 ]
 
@@ -223,6 +233,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "orb-core"
+version = "0.1.0"
+dependencies = [
+ "orb-api",
+ "orb-config",
+ "orb-sim",
+]
+
+[[package]]
 name = "orb-launcher"
 version = "0.1.0"
 dependencies = [
@@ -232,6 +251,15 @@ dependencies = [
  "orb",
  "orb-config",
  "windows-sys",
+]
+
+[[package]]
+name = "orb-sim"
+version = "0.1.0"
+dependencies = [
+ "orb-api",
+ "orb-config",
+ "orb-core",
 ]
 
 [[package]]

@@ -40,7 +40,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 
 use crate::hook;
-use crate::log::log;
+use crate::log;
 
 /// The game's file, as the game asks for it.
 const THEIRS: &[u8] = b"score.dat";

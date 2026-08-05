@@ -192,10 +192,10 @@ fn aside(asked: Menu, mode: Mode) -> &'static [&'static str] {
 #[cfg(test)]
 mod tests {
     use super::{ASIDE_LINES, Mode, ModeMenu, aside, title};
-    use crate::d3d8::recording::{Quad, Screen};
     use crate::game::Menu;
     use crate::menu_ui::{ASIDE, DIM_SCREEN};
     use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
+    use crate::recording::{Quad, Screen};
 
     fn said(asked: Menu, mode: Mode) -> String {
         aside(asked, mode).join("\n")

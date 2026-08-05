@@ -822,7 +822,7 @@ Three kinds of miss are counted and only one of them climbs:
 | | |
 | --- | --- |
 | overshoot beyond a whole turn | a stage load, or an update that ran long |
-| the frame after one of those | still picking itself up, and not the compositor's to answer for |
+| the frame after one of those, and one frame only | still picking itself up, and not the compositor's to answer for |
 | a frame whose own drawing outgrew its budget | late whatever the compositor had been given |
 
 The middle one was measured: of three climbs over a 37,800-frame replay, two happened in the
@@ -1765,11 +1765,76 @@ around them rather than without it.
 and then moving on, so a replay walks through the midstage, the midboss and every boss attack
 restoring as it goes.
 
+## The seam between orb and its host
+
+Some of what orb asks of Windows goes through `orb-api`. Each area of it — the game's memory, the
+clock, which thread is running, the log file, the modules the process has loaded — is a facade of
+free functions with two answers behind it: the real Win32 call, under `#[cfg(windows)]`, and whatever
+`Win` implementation a test has installed.
+
+What is behind the seam is what a test could not otherwise get at. The game's memory is behind it so
+that `Th06` can be read with no game running. The log's deferral turns on which thread is asking and
+its lines are stamped with the host's clock, so a test that cannot be two threads or say what time it
+is cannot reach the mechanism at all. The display and its compositor are behind it because the pacing
+decides from two numbers they answer — the monitor's rate and the compositor's own — and the case
+that matters is the two disagreeing, which otherwise wants two monitors of different rates and the
+game's window on the wrong one.
+
+A Win32 call with nothing like that behind it stays where it is: orb ships for Windows and only for
+Windows, so being able to build without a call buys nothing on its own — what buys something is being
+able to *decide* what the call answers.
+
+Two things the simulated host is deliberately as unhelpful about as the real one, because a kinder
+simulation would let a test come to rely on something false: `cRefresh` counts compositions rather
+than refreshes of the display, and `cFramesLate` reads zero through a broken cadence as much as an
+even one. And one thing it must model that looks like an implementation detail and is not: reading the
+counter costs time. `sleep_until` spins the last stretch to its deadline, and a spin is a loop whose
+only host call is that read — a clock that moved only on a wait would never arrive.
+
+**The simulated host is not a metronome, and that is deliberate.** Windows is not one from an
+application's side: it wakes a thread when it gets round to it, and its compositor now and then takes
+far longer over a frame than it usually does. Both are modelled, from measured distributions rather
+than chosen ranges — the blanks are an exact grid and it is the *return* of a flush that is delayed,
+because that is the shape the measurement has. The delays come from a seeded stream, each scenario runs
+over several seeds, and the seed goes in every assertion so a failure replays exactly. A scenario that
+holds for one seed and not another has found something a real machine can do, which makes it a defect
+rather than a flake.
+
+So what the pacing scenarios assert is a rate and not a schedule: **what share of the seconds ran at
+sixty frames a second, within half a frame, once a few seconds of grace have passed.** That is the
+question somebody playing has — the music and every timer in the game are counted in its own frames, so
+a second at the wrong rate is a second of the game at the wrong speed however the average over the run
+reads. A display the pacing accepts holds every second of the run; a desktop whose compositor is timing
+another monitor's rate holds none.
+
+The call sites keep their shape: `mem::read(address)` is what it was before the seam went in.
+Making every caller carry a `&dyn Win` instead would have rewritten two thousand lines of structure
+walking to say nothing new. What a test installs is a thread-local, because the harness runs tests
+side by side in one process and a simulated Windows in a static would be two tests writing each
+other's game; it comes off again when the installation is dropped, since the harness hands its
+threads out to whatever runs there next.
+
+`orb-sim` is the other implementation, and the scenarios in its own `tests/` drive the real
+`orb-core` against it — orb's code, composed as the DLL composes it, with the host answered by hand.
+They live there rather than in `orb-core` because a crate compiled as a *dependency* of a test binary
+has `cfg(test)` false, so the install point is reached through a cargo feature instead, and a crate
+cannot turn a feature on for itself.
+
+That feature is why the DLL the game loads pays nothing for any of this: with `sim` off the install
+point does not exist, and `mem::read` — called thousands of times a frame — compiles to the volatile
+read and nothing else.
+
+`orb-core` carries no `windows-sys` and it is not portable all the same: `Th06` calls the game's own
+functions through transmuted pointers, by the conventions MSVC6 compiled them with — `thiscall` and
+`fastcall` — and those exist on 32-bit x86 and nowhere else. What is on the far side of that is the
+game's code rather than the host's, which is why no seam over Windows reaches it, and why the crate
+being free of Windows is a boundary kept by hand rather than one a build proves.
+
 ## Reaching the game's memory with no game there
 
-Every read and write of the game's memory goes through `mem`, and a test can put an address
-space of its own in front of the real one: regions at the game's own bases, holding bytes, with
-`Th06` reading them through the same four functions it reads a running game through. So the
+Every read and write of the game's memory goes through `orb_api::mem`, and a test can put an
+address space of its own in front of the real one: regions at the game's own bases, holding bytes,
+with `Th06` reading them through the same four functions it reads a running game through. So the
 offsets, the structure walks and the patching are all exercised, rather than a second
 implementation of `Game` standing in for them.
 
@@ -1780,17 +1845,14 @@ died — and it can be an image or an allocation, which is how a live COM object
 from the stale pointer left in a block the allocator did not scrub. A restore that finds a region
 gone commits it again, as it does when the game has handed a few megabytes back to the OS.
 
-Installed per thread and taken off again when the test ends. The harness runs tests side by side
-in one process and hands its threads out again, so a space in a static would be two tests
-writing each other's game, and one left installed would be the next test reading a game it did
-not lay out.
+Installed per thread and taken off again when the test ends, as the rest of the seam is.
 
 What this cannot catch is an offset that is wrong: the space is written from the same constants
 the reads use, so a wrong one is wrong on both sides at once. Offsets are settled against the
 real game, which is what the measurements in `DONE.md` are for. Everything built on top of them
 is what the space is for.
 
-In a build that is not a test the space does not exist and none of `mem`'s functions branch.
+In a build without the `sim` feature the space does not exist and none of `mem`'s functions branch.
 
 ## Holding the game still, checked against real threads
 
@@ -1833,13 +1895,21 @@ game's entry point and the memory hooks see the first allocation.
 | `launcher/settings.rs` | the dialog that asks for the five settings before the game starts |
 | `launcher/pad.rs` | reading a pad on the launcher's side, so that dialog answers to one |
 | `crates/orb-config` | `orb.yaml` — read by both halves, written by the launcher — and the command line |
+| `crates/orb-api` | the seam: the `Win` trait, the neutral types, and the facades every host call goes through |
+| `orb-api/real/` | the Windows behind it — `#[cfg(windows)]`, and the only part of the crate that is |
+| `crates/orb-core` | orb's logic over that seam, with no `windows-sys` anywhere in it — 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions |
+| `orb-core/frame.rs` | the frame loop's pacing and its measurements |
+| `crates/orb-sim` | the simulated Windows, and in its `tests/` the scenarios that drive `orb-core` against it |
+| `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
+| `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
+| `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
+| `orb-sim/tests/pacing/` | the harness the frame-loop scenarios share: a display they declare, a run they drive a frame at a time, and the rate each second of it came out at |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |
 | `orb/snapshot.rs` | save and restore of `.data`, those regions, and the music |
 | `orb/threads.rs` | finding and suspending the game's other threads, leaving the audio one alone |
 | `orb/audio.rs` | the sound buffer and file position, which live outside the game's memory |
-| `orb/frame.rs` | the frame loop's pacing and its measurements |
 | `orb/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb/resume.rs` | the buttons a run has pressed, and the file that lets its chapter be played to again |
 | `orb/retry_ui.rs` | the menu shown where the chapter was lost |
@@ -1849,19 +1919,18 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
 | `orb/menu_ui.rs` | what those three have in common — the keys they read for themselves, and the list they draw |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
-| `orb/mem/mod.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
-| `orb/mem/real.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
-| `orb/mem/space.rs` | an address space laid out by hand, which is how a test has a game to read |
+| `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
+| `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
 | `orb/overlay.rs`, `text.rs`, `d3d8/mod.rs` | drawing over the game's frame |
 | `orb/d3d8/recording.rs` | a device that keeps what it was asked to draw, so a test can say what is on the screen |
-| `orb/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
+| `orb-core/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
 | `orb/crash.rs` | the handler that names the module and offset a fault happened at |
 | `orb/game/mod.rs` | `Game` and `State`: everything above is written against these |
 | `orb/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
-| `orb/game/th06/image.rs` | those addresses laid out in a space, so the real `Th06` has something to read |
+| `orb/game/th06/image.rs` | those addresses laid out in a simulated Windows, so the real `Th06` has something to read |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.

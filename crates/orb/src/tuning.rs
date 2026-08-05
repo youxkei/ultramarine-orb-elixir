@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::game::{Game, State};
-use crate::log::{detail, log};
+use crate::{detail, log};
 
 /// How long with nothing left to shoot at before the stage counts as being between
 /// waves.

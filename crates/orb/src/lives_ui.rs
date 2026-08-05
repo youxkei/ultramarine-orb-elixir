@@ -227,8 +227,8 @@ unsafe fn paint_strip(frame: &Frame, area: Rect, panel: Option<&PanelTile>) {
 mod tests {
     use super::{LivesMark, brush_area, strips, word_at};
     use crate::brush;
-    use crate::d3d8::recording::{Drawn, Quad, Screen};
     use crate::game::Rect;
+    use crate::recording::{Drawn, Quad, Screen};
 
     /// 紅魔郷's own row: the bar the game erases the count with, which is where the mark goes.
     const ROW: Rect = Rect {

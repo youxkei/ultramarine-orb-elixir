@@ -114,7 +114,7 @@ pub unsafe fn install(target: usize, prologue: &[u8], hook: usize) -> Result<usi
         }
         write_jmp(target, hook);
         for offset in JMP_LENGTH..prologue.len() {
-            crate::mem::write(target + offset, NOP);
+            orb_api::mem::write(target + offset, NOP);
         }
         VirtualProtect(
             target as *const c_void,
@@ -159,8 +159,8 @@ pub unsafe fn install_import(
         {
             return Err(Error::Protect);
         }
-        let original = crate::mem::read::<usize>(slot);
-        crate::mem::write(slot, replacement);
+        let original = orb_api::mem::read::<usize>(slot);
+        orb_api::mem::write(slot, replacement);
         VirtualProtect(
             slot as *const c_void,
             size_of::<usize>(),
@@ -189,8 +189,8 @@ pub unsafe fn replace_pointer(slot: usize, replacement: usize) -> Result<usize, 
         {
             return Err(Error::Protect);
         }
-        let original = crate::mem::read::<usize>(slot);
-        crate::mem::write(slot, replacement);
+        let original = orb_api::mem::read::<usize>(slot);
+        orb_api::mem::write(slot, replacement);
         VirtualProtect(
             slot as *const c_void,
             size_of::<usize>(),
@@ -203,8 +203,8 @@ pub unsafe fn replace_pointer(slot: usize, replacement: usize) -> Result<usize, 
 
 unsafe fn write_jmp(at: usize, to: usize) {
     unsafe {
-        crate::mem::write(at, JMP_REL32);
-        crate::mem::write(at + 1, (to.wrapping_sub(at + JMP_LENGTH)) as u32);
+        orb_api::mem::write(at, JMP_REL32);
+        orb_api::mem::write(at + 1, (to.wrapping_sub(at + JMP_LENGTH)) as u32);
     }
 }
 

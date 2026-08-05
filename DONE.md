@@ -600,7 +600,9 @@ settled by measurement rather than by looking at the screen, the measurement is 
 
 Settled by measurement.
 
-- **Exactly 60fps, locked to the game's monitor, whether or not its rate divides into 60.**
+- **Exactly 60fps, locked to the game's monitor, whether or not its rate divides into 60 — on a
+  desktop whose compositor is timing that monitor.** Which is every desktop of one monitor, and the
+  three rows below. It is not every desktop: see *A mixed-rate desktop* under this heading.
 
   | | |
   | --- | --- |
@@ -623,6 +625,118 @@ Settled by measurement.
 
   The compositor wanted 2500–2600µs on all three, which is what says the 144Hz trouble was never
   its: the share was raised to 5208µs chasing it and the misses did not move.
+- **A mixed-rate desktop: the compositor is not timing the monitor the game is on, and the flush
+  follows the compositor.** Measured with `scripts/compositor-probe.c` on three monitors — DISPLAY1
+  the primary at 120Hz, DISPLAY2 at 120Hz, DISPLAY3 at 144Hz:
+
+  | | |
+  | --- | --- |
+  | what the compositor says | `qpcRefreshPeriod=6944.4us`, 144.00Hz, `rateRefresh=10000000/69444` — the 144Hz monitor's rate, **not the primary's** |
+  | what `DwmFlush` waits for | 119 gaps, mean 6946.1µs = 143.97Hz |
+  | with a window on DISPLAY2 (120Hz) | `monitor_refresh=120Hz`, flush mean 6946.0µs = 143.97Hz |
+  | with a window on DISPLAY3 (144Hz) | `monitor_refresh=144Hz`, flush mean 6946.1µs = 143.96Hz |
+  | with a window on DISPLAY1 (120Hz, primary) | `monitor_refresh=120Hz`, flush mean 6945.5µs = 143.98Hz |
+
+  So the two numbers `settle` compares really can disagree, and which monitor the window is on
+  changes only the first of them: 119 flushes apiece put all three windows on the same 143.97Hz.
+  `EnumDisplaySettingsW` answers about the window's monitor and the compositor answers about its
+  own, and a flush waits on the compositor's whatever the window is doing.
+
+  **The compositor followed neither the primary nor the game's window but the fastest monitor**,
+  which is what makes this ordinary rather than exotic: a 120Hz primary to play on and a 144Hz
+  monitor beside it is the configuration, and it is the one this machine was already in.
+
+  The gaps are a grid with jitter, not a metronome: least 5724–5878µs and most 8020–8593µs about a
+  6946µs mean, so ±1.1–1.4ms. And the shape of it is not spread over that range — in 200µs bands about
+  the mean, 96 of the 119 gaps are within 100µs and the rest are single excursions, one long gap
+  followed by a short one summing back to twice the refresh. So it is one late *wake* rather than a
+  drifting clock, which is how `orb-sim` models it now: an exact grid of blanks with the flush's return
+  delayed off that distribution. See the note at the top of `orb-sim/src/display.rs`.
+
+  **And the game on such a desktop runs a fifth too fast.** Measured: `orb.exe --log=quiet --pacing`
+  with the game fullscreen on the 120Hz primary and the 144Hz monitor attached, four periods of 600
+  frames —
+
+  | | |
+  | --- | --- |
+  | what `settle` decided | `frame: 120Hz monitor but the compositor is timing 144Hz; pacing by the clock` |
+  | what it actually did | `0 frame(s) paced by the clock` in the same run, every period |
+  | the rate | `13966us apart`, `14090us`, `13897us`, `13894us` — **71.0 to 72.0 frames a second**, where sixty was asked for |
+  | the cadence | `off the cadence by under -1500us:552` of 599: almost every frame short by more than a millisecond and a half |
+  | the misses | `refreshes past the blank aimed at 0x580 1x18 3+x1` |
+  | the compositor's share | climbed 2800 → 3400 → 3600 → 3900µs, chasing misses more time could not fix |
+
+  13888µs is two refreshes of 144Hz exactly, and that is what the frames are landing on: the blanks
+  are the compositor's and the cadence is counted in the monitor's. **72 frames a second is the
+  number `frame::settle`'s own comment recorded years ago** — "144 read for a 120Hz display ran the
+  game at 72 frames a second" — so this reproduces it rather than finding something new. What is new
+  is that it happens with the game on the *primary*, and that the log names the wrong mechanism while
+  it does.
+
+  Two lines of the same run contradicting each other is the defect to fix: `adopt` sets
+  `BLANK_PACED` from the whole multiple alone, so the `agrees` check changes what is written and not
+  what is done. See *Put Windows behind a seam* in [TODO.md](TODO.md).
+
+  **`orb-sim` predicted 48 frames a second for this and was wrong**, which is worth keeping because of
+  what was wrong with it. It modelled the host as a metronome: without jitter no frame overshoots far
+  enough to be filed as late, so the compositor's share never climbs, the handover stays late and the
+  frames take the *third* refresh. On the machine the ±1.4ms files misses, the share climbs to 3900µs,
+  the handover moves early and they take the *second*. Modelling the wake delays the host really has
+  moved the simulator to 69–70 frames a second, the same direction and near the number — but the
+  remaining gap is the compose time, which nothing reports, so the scenario asserts the direction and
+  this table keeps the number.
+- **The loop itself is driven in tests now, against a simulated Windows.** `frame.rs` is in `orb-core`
+  with its host calls behind `orb_api`, and twenty-one scenarios in `orb-sim/tests` run the real
+  `pacing`/`settle`/`wait` over a display a test declares: the counter, `Sleep`, `timeBeginPeriod`, the
+  monitor's reported rate, `DwmGetCompositionTimingInfo` and `DwmFlush`. Its own thirteen tests were all
+  arithmetic and not one of them drove the loop.
+
+  What they establish, none of which had a test before: the rate each reported refresh rate gets (60,
+  120, 144, 165, 240 all hold sixty; 59 and 119 get the display's own rate, which is right), the
+  fractional 2-2-3-2-3 pattern, the budget rising after a frame overran, the allowance climbing to
+  cover a compositor that has slowed, the clock path when no rate is available, a host that refuses the
+  millisecond timer, and the mixed-rate desktop above.
+
+  How they judge it is the same question somebody playing would ask — **what share of the seconds were
+  sixty frames a second, within half a frame, from three seconds in.** Not the exact turn: the simulated
+  host is deliberately not a metronome, since a scenario that only holds against one is a scenario about
+  arithmetic. It draws its wake delays and its compositor's spikes from a seeded stream, each scenario
+  runs over several seeds, and the seed is in every assertion so a failure replays. A display the pacing
+  accepts holds every second of the run; a mixed-rate one holds none.
+
+  **A spike costs its own second and never the run, and how much it costs turns on the rate.** Measured
+  with the spike rate deliberately three hundred times the one half an hour of play suggests, so that
+  several land in every fifteen-second run: at 144Hz and 165Hz not one second is off sixty, at 120Hz and
+  240Hz the worst reads 59.03 and 59.52, and **at 60Hz the worst reads 58.07 and one seed lost four of
+  its twelve seconds.** 60Hz is the rate with no room — a missed blank there costs a whole refresh, which
+  is a whole frame, and the frame after it cannot come early enough to make the second back. The
+  allowance climbs and nothing cascades at any of them.
+
+  **And asking for the promise rather than for the behaviour found a deadlock.** The scenario asserts
+  sixty frames a second for *any* compose time the pacing has room to cover, and seven of forty (rate,
+  compose) pairs failed it: a compositor taking 3200µs or more *persistently* — not spiking to it — locked
+  a 60Hz display at 30.00 frames a second, over 20,000 frames, with the allowance frozen at 2800µs and
+  10,121 of the misses charged to a stage load long over. 144Hz and 165Hz did the same from 3800µs, at
+  52.37 and 49.16.
+
+  **The cause was one word of state.** `measure_compose` excuses the frame after a stage load, and it did
+  that by setting a flag that only a frame *landing where it was aimed* cleared. A compositor slow enough
+  that no frame lands is then a compositor no frame ever climbs for: the flag stays set, every miss is
+  charged to the load, and the climb that would fix the rate never runs. Taking the flag instead of
+  reading it — one frame's grace, which is what its own comment always said — fixes every one of the seven.
+
+  What set the flag in those runs was not a load at all. A cadence is a whole game turn however fast the
+  display is, so at 60Hz one refresh *is* one turn and the smallest miss there is lands on the guard's
+  boundary, with jitter deciding which of the two it gets called. Measured: at 60Hz a run of one-refresh
+  misses never moved the allowance off its 2500µs start, where at 120Hz the same miss climbed it to 6249µs.
+  A real load is nowhere near that branch — measured at 60, 120 and 144Hz, a quarter-second frame costs
+  exactly one frame its blank and the frame after it lands, so nothing is charged there — and three loads
+  in a run leave the allowance exactly where it was, which `pacing_load.rs` now holds it to.
+
+  **What is left is a limit and not a defect**: the allowance cannot pass one refresh without showing the
+  frame a refresh early, so a 240Hz display cannot cover a compositor wanting more than 3124µs and settles
+  at 48.00 instead. That is asserted as what it is, with nothing ignored — see *A 240Hz display leaves the
+  compositor less room* in [TODO.md](TODO.md).
 - **Neither of the two rounded rate numbers decides anything on its own**, which 119.88Hz is the
   reason for. `dmDisplayFrequency` reported 119 and the compositor's period put the same display
   at 120, and the two faults that came of it were both live: an equality test between them refused

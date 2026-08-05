@@ -48,8 +48,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::game::{Game, RunStart, RunState};
-use crate::log::{detail, log};
 use crate::sync::MainThread;
+use crate::{detail, log};
 
 /// A directory beside the game, and one file in it per run there is a chapter of — named for that
 /// run, so a listing of it reads as the runs somebody has left unfinished.

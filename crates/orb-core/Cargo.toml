@@ -1,0 +1,35 @@
+[package]
+name = "orb-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# orb's logic, with no `windows-sys` in it. Everything it asks of the host goes through
+# `orb-api`, which is what lets it be built and tested on a Linux runner — and a build that
+# stops working there is a build that has taken a dependency on the host, which is worth
+# finding out about when it happens rather than at the end of the work.
+[features]
+# The test support other crates' tests reach for — `game::th06::image`, the game laid out by hand.
+# A feature as well as `cfg(test)` because `cfg(test)` is false in a crate compiled as a
+# *dependency* of a test binary, which is what this crate is when `orb`'s tests or `orb-sim`'s
+# scenarios drive it. Same reason as `orb-api`'s feature of the same name, and it turns that one on.
+sim = ["orb-api/sim", "dep:orb-sim"]
+
+[dependencies]
+orb-api = { workspace = true }
+orb-config = { workspace = true }
+
+# Only under `sim`, and only for `game::th06::image` — th06's own addresses laid out in a simulated
+# Windows, which is kept beside the offsets it is written from rather than in the simulator, where it
+# would be the one piece of game knowledge in a crate that knows nothing else about the game.
+#
+# `orb-sim`'s own `tests/` depend back on this crate, which cargo allows: that direction is a
+# dev-dependency, so it is outside the normal build graph and the two do not form a cycle in it.
+orb-sim = { workspace = true, optional = true }
+
+# And again here, unconditionally, so that this crate's *own* tests reach the simulator without
+# anyone having to remember `--features sim`: `cargo test -p orb-core` is then enough. The optional
+# dependency above is for when another crate's tests drive this one, where `cfg(test)` is false and
+# the feature is what carries `image` in.
+[dev-dependencies]
+orb-sim = { workspace = true }

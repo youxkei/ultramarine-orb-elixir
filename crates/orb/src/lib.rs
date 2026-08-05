@@ -6,30 +6,27 @@
 // the DLL's entry point work, and there is no spelling of the export that avoids it.
 #![allow(linker_messages)]
 
-mod audio;
 mod chapter;
 mod crash;
-mod d3d8;
-mod frame;
-mod game;
 mod hook;
 mod input;
 mod joystick;
 mod lives_ui;
-mod log;
-mod mem;
 mod memtrack;
 mod menu_ui;
 mod mode_ui;
 mod overlay;
 mod pe;
-mod profile;
+/// A device that keeps what it was asked to draw, so a test can say what is on the screen. Beside
+/// the drawing it stands in for rather than in `orb-core` with the vtable declarations, because its
+/// `Screen` fixture builds a real `Overlay` — and that reaches `text.rs` and the GDI.
+#[cfg(test)]
+mod recording;
 mod resume;
 mod resume_ui;
 mod retry_ui;
 mod score;
 mod snapshot;
-mod sync;
 mod text;
 mod threads;
 mod tuning;
@@ -40,12 +37,41 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 
 use orb_config::Config;
+
+// What has gone behind the seam, under the names the rest of this crate already calls it by.
+// `log` carries both the module and the macro of that name — they are in different namespaces —
+// which is why every call site can say `use crate::{detail, log}` whether it lives here or in
+// `orb-core`, and go on saying it as it moves between them.
+pub(crate) use orb_core::{audio, d3d8, detail, frame, game, log, pacing, profile, summary, sync};
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
-use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+/// The frame loop's state, made on the first ask.
+///
+/// Self-initialising rather than set up in `attach`, so that there is no order in which a caller
+/// can reach it before it exists — it reads the counter's frequency when it is made, and a pacing
+/// that does not know that yet can answer nothing.
+///
+/// # Safety
+/// Must run on the game's main thread, and the caller must not already hold a reference this
+/// returned.
+#[allow(clippy::mut_from_ref)]
+unsafe fn pacing() -> &'static mut frame::Pacing {
+    unsafe { PACING.get() }.get_or_insert_with(frame::Pacing::new)
+}
+
+/// The game's window as Win32 wants it.
+///
+/// `Game` traffics in `orb_api::Hwnd` so that nothing in `orb-core` names a Windows type; the window
+/// is handed back to Win32 here, which is the one place in orb that both sides meet. The mapping is
+/// the identity — orb never asks what is inside a window handle, only that the number it read out of
+/// the game's memory is the number Windows gets back.
+fn hwnd(window: orb_api::Hwnd) -> windows_sys::Win32::Foundation::HWND {
+    window.0 as windows_sys::Win32::Foundation::HWND
+}
 
 /// One brush stroke, as coverage: what the mark over the lives is drawn from, baked out of
 /// `brush.png` by `build.rs` rather than kept here as four thousand numbers.
@@ -58,7 +84,6 @@ use game::th06::Th06;
 use game::{Game, Pad, RunStart, State};
 use input::Keyboard;
 use lives_ui::LivesMark;
-use log::{detail, log, pacing, summary};
 use menu_ui::By;
 use mode_ui::{Answer, Mode, ModeMenu};
 use overlay::Overlay;
@@ -331,6 +356,11 @@ struct Started {
 static GAME: Th06 = Th06;
 
 static RUNTIME: MainThread<Option<Runtime>> = MainThread::new(None);
+/// Everything the frame loop keeps between frames.
+///
+/// Beside the runtime rather than inside it, because the pacing is configured out of `DllMain` and
+/// the runtime does not exist until the game has a device.
+static PACING: MainThread<Option<frame::Pacing>> = MainThread::new(None);
 /// Set while orb's own per-frame work is running.
 ///
 /// Win32 calls that move a window dispatch messages synchronously, and the game
@@ -427,9 +457,9 @@ fn attach() {
         data.end,
         data.len()
     );
-    frame::configure();
+    unsafe { pacing() }.configure();
 
-    let mut config = match log::host_exe().map(|path| Config::load_beside(&path)) {
+    let mut config = match orb_api::module::host_exe().map(|path| Config::load_beside(&path)) {
         Some(Ok(config)) => config,
         Some(Err(error)) => return log!("config: {error}; orb is doing nothing this run"),
         None => return log!("cannot locate the game exe; orb is doing nothing this run"),
@@ -474,7 +504,7 @@ fn attach() {
     // is then written at.
     log::set_level(config.log_level);
     log::set_pacing(config.pacing_log);
-    frame::pin_compose(config.compose_us);
+    unsafe { pacing() }.pin_compose(config.compose_us);
 
     if config.track_memory {
         match unsafe { memtrack::install(exe) } {
@@ -777,7 +807,7 @@ impl Runtime {
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn pad(game: &dyn Game) -> Pad {
-    unsafe { game.pad() }
+    unsafe { game.pad(joystick::reading()) }
 }
 
 /// Takes the answer to the mode question: what a run does, and which of the two files the
@@ -957,13 +987,13 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     // not by stopping. `always_draw: false` is for somebody who wants the game's own behaviour
     // back, and below is where they get it.
     let window = unsafe { game.window() };
-    if !runtime.config.always_draw && unsafe { GetForegroundWindow() } != window {
+    if !runtime.config.always_draw && orb_api::window::foreground() != window {
         // Paced even with nothing drawn. The wait this frame loop runs on is inside this
         // function, and the game's own loop calls it straight back, so a return that waits for
         // nothing spins a core for as long as the window stays behind. Not being in front is
         // exactly the case `wait_for_slot` paces by the clock, which is what is wanted here:
         // the cadence without a blank to count against.
-        frame::wait_for_slot(window);
+        unsafe { pacing() }.wait_for_slot(window);
         return RENDER_KEEP_RUNNING;
     }
 
@@ -995,7 +1025,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     let cleared = frame::now();
     // The frame's turn. What follows runs in one go, so the input the update reads is
     // as recent as the frame it appears in.
-    frame::wait_for_slot(window);
+    unsafe { pacing() }.wait_for_slot(window);
     let waited = frame::now();
     let updated = update(chain);
     let ran = frame::now();
@@ -1018,7 +1048,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
         game.present();
         drawn
     };
-    frame::finished(frame::Marks {
+    unsafe { pacing() }.finished(frame::Marks {
         started,
         cleared,
         waited,
@@ -1073,7 +1103,7 @@ extern "system" fn get_input() -> u16 {
     // flag, which only says what the game was last told; this is the same question
     // orb asks for its own keys, so the two cannot disagree.
     let window = unsafe { GAME.window() };
-    let active = !window.is_null() && unsafe { GetForegroundWindow() } == window;
+    let active = !window.is_null() && orb_api::window::foreground() == window;
     if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
         log!(
             "input: window {}",
@@ -1322,7 +1352,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
-    runtime.keyboard.poll(unsafe { runtime.game.window() });
+    runtime
+        .keyboard
+        .poll(hwnd(unsafe { runtime.game.window() }));
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.
@@ -1759,11 +1791,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             // has nothing else to write them, and this runs inside the frame's work — the
             // one place a write costs the frame it is describing.
             if log::pacing_wanted() {
-                pacing!("{}", frame::report());
-                pacing!("{}", frame::worst());
-                pacing!("{}", frame::shown());
+                pacing!("{}", pacing().report());
+                pacing!("{}", pacing().worst());
+                pacing!("{}", pacing().shown());
             } else {
-                summary!("{}", frame::report());
+                summary!("{}", pacing().report());
             }
             summary!(
                 "audio: behind {}..{} bytes",
@@ -2834,7 +2866,7 @@ unsafe fn write_status(runtime: &mut Runtime) {
     //
     // Held still between refreshes so the numbers can be read at all.
     if runtime.frames.is_multiple_of(HUD_NUMBER_INTERVAL) {
-        runtime.shown = frame::status();
+        runtime.shown = unsafe { pacing() }.status();
     }
     let (lag, interval, compose) = runtime.shown;
     // A line each, because the black is usually bars down the sides of a widescreen

@@ -73,7 +73,7 @@ fn module_of(address: usize) -> Option<String> {
     if found == 0 || module.is_null() {
         return None;
     }
-    let path = crate::log::module_path(module)?;
+    let path = orb_api::module::path(Some(module as usize))?;
     let name = path.file_name()?.to_string_lossy().into_owned();
     Some(format!("{name}+{:#x}", address - module as usize))
 }

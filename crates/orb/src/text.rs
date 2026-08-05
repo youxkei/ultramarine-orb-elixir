@@ -20,7 +20,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     SetBkMode, SetTextColor, TextOutW,
 };
 
-use crate::log::log;
+use crate::log;
 
 /// The bundled font's family name, as GDI reports it. Verified after loading, so
 /// a different `font.ttf` shows up in the log rather than silently substituting

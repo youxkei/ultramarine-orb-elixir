@@ -16,39 +16,13 @@ env:
   # touched something it was not asked to.
   NO_HUSKY_HOOKS: 1
 
+# One job, on Windows. orb is a DLL injected into a Windows game and there is no host it will ever run
+# on that is not Windows, so nothing here asks whether it builds for one — and it could not be asked
+# of all of it anyway: `orb-core` calls the game's own functions by the conventions MSVC6 compiled
+# them with, `thiscall` and `fastcall`, which exist on 32-bit x86 and nowhere else. A crate above the
+# seam that names `windows-sys` is then a design boundary crossed rather than a build broken, and
+# nothing here catches it. See *Put Windows behind a seam* in TODO.md.
 jobs:
-  # The half of the tree that names no Windows at all, on the runner it costs least to run on.
-  #
-  # `orb-config` is the whole of that half today: it reads `orb.yaml` and the command line, and
-  # depends on nothing but clap and serde. Its twenty-three tests pass on x86_64-unknown-linux-gnu
-  # as they stand.
-  #
-  # Here as a job of its own rather than folded into the Windows one because it is the path the rest
-  # of the suite is meant to move onto — see *Put Windows itself behind a seam* in TODO.md. A crate
-  # that stops building here is a crate that has taken a dependency on the host, which is worth
-  # finding out about when it happens rather than at the end of that work.
-  host-independent:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # `rust-toolchain.toml` asks for the Windows target too, which is not needed here and would
-      # be a download of a standard library to no purpose.
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Test
-        run: cargo test -p orb-config --target x86_64-unknown-linux-gnu
-
-      - name: Clippy
-        run: >-
-          cargo clippy -p orb-config --all-targets
-          --target x86_64-unknown-linux-gnu -- -D warnings
-
   test:
     # Windows rather than a cross-compile run under Wine. The tests are
     # i686-pc-windows-gnu binaries and some of them ask Windows about the process's

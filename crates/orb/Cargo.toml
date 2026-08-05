@@ -9,7 +9,9 @@ name = "orb"
 crate-type = ["cdylib"]
 
 [dependencies]
+orb-api.workspace = true
 orb-config.workspace = true
+orb-core.workspace = true
 serde = { version = "1", features = ["derive"] }
 
 # MessagePack through serde: the file a run is left in is the same derived structs as everything
@@ -27,7 +29,15 @@ miniz_oxide = "0.8"
 # For the tests over the file a run is left in, which build a MessagePack map by hand: what has to be
 # refused is a *file* of the wrong shape, however it came to be one, and that is not something the
 # derived writer can be asked to produce.
+#
+# `orb-sim` is here rather than in `[dependencies]` so that the `sim` feature it turns on reaches
+# only the test build. In the DLL the game loads the install point does not exist, and `mem::read`
+# — called thousands of times a frame — compiles to the volatile read and nothing else.
 [dev-dependencies]
+# `sim` here rather than above for the same reason `orb-sim` is: it is what makes
+# `game::th06::image` — the game laid out by hand — reachable, and only a test wants it.
+orb-core = { workspace = true, features = ["sim"] }
+orb-sim.workspace = true
 rmpv = "1.3"
 
 [dependencies.windows-sys]

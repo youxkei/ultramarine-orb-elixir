@@ -11,7 +11,7 @@ use std::ffi::c_void;
 use std::path::Path;
 
 use crate::d3d8::*;
-use crate::log::log;
+use crate::log;
 use crate::text::{Font, Mask};
 
 pub const SCREEN_WIDTH: f32 = 640.0;

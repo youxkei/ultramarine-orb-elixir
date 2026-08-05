@@ -1,0 +1,235 @@
+//! The seam between orb and the host it runs on.
+//!
+//! Everything orb asks of Windows goes through one of the modules here. Each of them is a
+//! facade of free functions with two answers behind it: the real Win32 call, under
+//! `#[cfg(windows)]`, and whatever [`Win`] implementation a test has installed. Nothing in
+//! any signature is a `windows-sys` type, which is what lets the crates over this seam —
+//! `orb-core`, `orb-sim` — be built and tested on a host that is not Windows.
+//!
+//! The call sites keep their shape. `mem::read(address)` is what it was before the seam went
+//! in, and the alternative — making every caller carry a `&dyn Win` — would have rewritten
+//! two thousand lines of structure walking to say nothing new. The install point is a
+//! thread-local instead, because the test harness runs tests side by side in one process and
+//! a simulated Windows in a static would be two tests writing each other's game.
+
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+
+pub mod clock;
+pub mod display;
+pub mod logfile;
+pub mod mem;
+pub mod module;
+pub mod thread;
+pub mod window;
+
+#[cfg(windows)]
+mod real;
+
+#[cfg(feature = "sim")]
+mod install;
+#[cfg(feature = "sim")]
+pub use install::{Installed, install, installed};
+
+/// An opaque OS window handle. On Windows it is the `HWND` reinterpreted as a `usize`; plain
+/// data so that the types the seam traffics in build on any host.
+///
+/// orb never asks what is inside one. It reads the game's window out of the game's memory and
+/// hands it back to Windows, so the only thing it has to be is the same number coming out as
+/// went in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Hwnd(pub usize);
+
+impl Hwnd {
+    pub const NULL: Self = Self(0);
+
+    pub fn is_null(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// What a region of the address space is, as far as anything reading it can tell.
+///
+/// [`Win::vtable_in_image`] is the one question orb asks that tells them apart: a live COM
+/// object's vtable pointer lands in a mapped image, and the stale pointer left in a block the
+/// game's allocator did not scrub does not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind {
+    /// A mapped executable — the game's own image, or a DLL it loaded.
+    Image,
+    /// Anything the game allocated.
+    Private,
+}
+
+/// A simulated Windows, for the tests that run with no Windows under them.
+///
+/// Taken `&self` and `Send + Sync` so that the threads a simulated game runs on can be handed
+/// the same one: an audio thread reading its own copy of the game would agree with nothing.
+///
+/// Byte-level throughout, with no method generic over what is being read. The facades over it
+/// are generic — `mem::read::<T>` — and do the marshalling on this side of the trait, because
+/// a trait with a generic method is not one that can be installed as a `dyn Win`.
+pub trait Win: Send + Sync + 'static {
+    // --- reads and writes of the game's memory -------------------------------
+    //
+    // # Panics
+    // Where no region holds the whole of the range asked for, or the one that does is not
+    // readable. A real read there takes the process down, so a test reaching one has a wrong
+    // address in it and saying which is the whole of the help there is to give. Falling
+    // through to the real address space instead is the failure the seam exists to remove: it
+    // would read the test binary's own image and call it the game's.
+
+    fn read_bytes(&self, address: usize, len: usize) -> Vec<u8>;
+    fn write_bytes(&self, address: usize, source: &[u8]);
+    fn fill_bytes(&self, address: usize, byte: u8, len: usize);
+
+    /// Reads only where the whole range can be read at all, for chasing pointers out of the
+    /// game's structures that may not be valid yet or any more. `None` where the range is
+    /// unmapped, reserved without being committed, or guarded.
+    ///
+    /// Alignment is the facade's to refuse, not this: it is a property of the type being read
+    /// and not of the address space.
+    fn read_committed_bytes(&self, address: usize, len: usize) -> Option<Vec<u8>>;
+
+    /// Puts back any page of `address..address + len` that has gone since a snapshot, so a
+    /// restore has somewhere to write, and says whether the whole of it is now there.
+    fn commit(&self, address: usize, len: usize) -> bool;
+
+    /// Whether `address` holds a pointer into a mapped image, which is what a live COM
+    /// object's vtable pointer looks like.
+    fn vtable_in_image(&self, address: usize) -> bool;
+
+    /// The committed regions the game owns, as `(base, len)` — what a snapshot walks. The
+    /// data range comes first, as a real game's does; a region of the game's code is left out,
+    /// since a chapter is a copy of the game's state and not of itself.
+    fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)>;
+
+    // --- the clock ------------------------------------------------------------
+
+    /// `QueryPerformanceCounter`. Monotonic; the unit is [`frequency`](Win::frequency) ticks a
+    /// second.
+    fn counter(&self) -> i64;
+    /// `QueryPerformanceFrequency` — ticks a second, and zero where there is no counter.
+    fn frequency(&self) -> i64;
+    /// `GetTickCount` — milliseconds since the host started, which is what every log line is
+    /// stamped with.
+    fn ticks(&self) -> u32;
+    /// `Sleep`. Accurate only to the timer resolution, which is what
+    /// [`begin_period`](Win::begin_period) is for.
+    fn sleep_millis(&self, millis: u32);
+    /// `timeBeginPeriod` — asks for a timer resolution, in milliseconds. Zero is
+    /// `TIMERR_NOERROR`; anything else goes in the log and leaves the waits coarse.
+    fn begin_period(&self, millis: u32) -> u32;
+    /// `timeEndPeriod`, which must be given back what `begin_period` was asked for.
+    fn end_period(&self, millis: u32);
+
+    // --- the display and the compositor ---------------------------------------
+
+    /// The refresh rate of the monitor the window is on, in whole Hz — `MonitorFromWindow`, then
+    /// `EnumDisplaySettingsW`. `None` for a window that is not there or a rate that will not be
+    /// given.
+    ///
+    /// Whole Hz, so the NTSC-derived rates come back short: 119.88 reports as 119.
+    fn monitor_refresh(&self, window: Hwnd) -> Option<u32>;
+    /// The desktop's refresh rate, in whole Hz — `GetDC` and `GetDeviceCaps(VREFRESH)`. What the
+    /// pacing starts from, before there is a window to ask about.
+    fn desktop_refresh(&self) -> Option<u32>;
+    /// `DwmGetCompositionTimingInfo`, for the desktop. `None` when the compositor will not say.
+    ///
+    /// The rate this describes is the compositor's own, which follows one monitor of the desktop
+    /// and need not be the one being drawn to. The pacing checks the two against each other
+    /// rather than assuming, so a simulated one must be able to disagree with
+    /// [`monitor_refresh`](Win::monitor_refresh).
+    fn composition(&self) -> Option<Composition>;
+    /// `DwmFlush`, and `false` where it failed — the compositor turned off, or a session change.
+    ///
+    /// Waits for the compositor to compose the next frame rather than for the next blank as such,
+    /// so it returns at the blank *the frame just handed over* reached. That is the whole of how
+    /// the pacing knows whether a frame made its blank, so a simulated compositor has to model it
+    /// that way and not as "wait for the next blank".
+    fn flush(&self) -> bool;
+
+    // --- threads --------------------------------------------------------------
+
+    /// `GetCurrentThreadId`. Never zero, which is what lets the log tell the frame's own thread
+    /// from every other one without a lock.
+    fn current_thread_id(&self) -> u32;
+
+    // --- the log --------------------------------------------------------------
+
+    /// Opens the log for appending, starting it over rather than appending where it has already
+    /// grown past `max_bytes`. `None` where it could not be opened at all, which orb carries on
+    /// without.
+    fn open_log(&self, path: &Path, max_bytes: u64) -> Option<LogFile>;
+    /// Appends bytes to a log opened by [`open_log`](Win::open_log). Bytes rather than a `&str`
+    /// because the line endings orb writes are the file's, not the platform's.
+    fn write_log(&self, file: LogFile, bytes: &[u8]);
+    fn close_log(&self, file: LogFile);
+
+    // --- loaded modules -------------------------------------------------------
+
+    /// Where a loaded module's file is; `None` for the exe of this process, which is the game's.
+    fn module_path(&self, module: Option<usize>) -> Option<PathBuf>;
+    /// Whether a module is loaded into this process at all — asked apart from
+    /// [`proc_address`](Win::proc_address) because the log tells the two failures apart.
+    fn module_loaded(&self, module: &str) -> bool;
+    // --- windows ---------------------------------------------------------------
+
+    /// `GetForegroundWindow`. The pacing asks it because counting refreshes against a window that
+    /// is not in front comes out wrong.
+    fn foreground_window(&self) -> Hwnd;
+
+    // --- loaded modules --------------------------------------------------------
+
+    /// The address of a function exported by an already-loaded module — `mmioSeek` out of the
+    /// winmm the game has loaded — or `None` where either is not there.
+    ///
+    /// Named rather than handed a handle because a handle is the thing that does not survive the
+    /// seam: what the caller knows is `"winmm.dll"` and `"mmioSeek"`, and the lookup of both
+    /// belongs on the far side.
+    fn proc_address(&self, module: &str, name: &str) -> Option<usize>;
+}
+
+/// What the compositor says about the blanks, all of it out of one `DwmGetCompositionTimingInfo`
+/// as the real one answers it.
+///
+/// One value rather than a call per field because that is what the call is: asking it three times
+/// for three fields is three trips through the compositor, and the pacing asks it before a flush,
+/// out of the millisecond the frame has to reach that flush in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Composition {
+    /// How far apart the blanks are, in performance-counter ticks — `qpcRefreshPeriod`.
+    pub refresh_period: i64,
+    /// Which composition was the last, counted from when the compositor started — `cRefresh`.
+    /// Compositions of this window rather than refreshes of the display, which is why the pacing
+    /// does not count cadence with it.
+    pub refresh: i64,
+    /// When the last blank was, on the performance counter — `qpcVBlank`. Zero when it will not
+    /// say.
+    pub vblank: i64,
+    /// How many frames the compositor could not show at the refresh they were aimed at —
+    /// `cFramesLate`. Reported and not acted on: it read zero through every run whose cadence was
+    /// broken.
+    pub frames_late: i64,
+}
+
+/// An open log, as far as anything writing to one can tell.
+///
+/// On Windows it is the `HANDLE` reinterpreted; under a simulated Windows it is an index into the
+/// lines a test can read back. Opaque either way — orb only ever hands one back to the seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogFile(pub usize);
+
+/// What a seam function does on a host with no Windows and no simulated Windows installed.
+///
+/// Reached only by a test that forgot to install one: there is no third answer to give, and
+/// answering zero would let the test pass on a read that never happened.
+#[cfg(not(windows))]
+#[cold]
+#[track_caller]
+fn no_windows(what: &str) -> ! {
+    panic!(
+        "{what}: no simulated Windows is installed, and this host has no real one. \
+         A test reaching here has not called orb_api::install."
+    )
+}

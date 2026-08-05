@@ -30,7 +30,8 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, Sleep, THREAD_PRIORITY_BELOW_NORMAL,
 };
 
-use crate::log::{detail, log};
+use crate::game::Reading;
+use crate::{detail, log};
 use crate::{hook, profile};
 
 /// The joystick the game asks about. It only ever asks about this one.
@@ -190,18 +191,6 @@ unsafe fn calibrate(caps: &JOYCAPSA) {
 
 fn latest() -> Option<Sample> {
     *SAMPLE.lock().ok()?
-}
-
-/// What the pad is doing, in the numbers `joyGetPosEx` reports it in — which are the numbers the
-/// game's own menus are driven from.
-/// No `x`: the menus orb puts up are lists, so up and down are the whole of what a stick has to
-/// say to them, and a field nothing reads is a field somebody will one day trust.
-#[derive(Clone, Copy)]
-pub struct Reading {
-    pub buttons: u32,
-    pub y: u32,
-    /// Where the hat — the d-pad — points, which is its own field and not the axes.
-    pub pov: u32,
 }
 
 /// The pad as it was last sampled, and `None` while none is answering.

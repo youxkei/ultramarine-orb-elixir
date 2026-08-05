@@ -13,11 +13,11 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use crate::game::{Game, State};
-use crate::log::{detail, log};
 use crate::memtrack;
 use crate::profile;
 use crate::snapshot::{Audio, Music, Snapshot};
 use crate::tuning::{Judged, Tuning, Verdict};
+use crate::{detail, log};
 
 /// Which way a boundary is being judged.
 pub enum Judgement {
