@@ -15,11 +15,10 @@
 use std::ffi::c_void;
 use std::sync::Mutex;
 
-use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Memory::{
     GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_PRIVATE, MEM_RELEASE,
-    MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
-    PROCESS_HEAP_ENTRY, VirtualAlloc, VirtualFree, VirtualProtect, VirtualQuery,
+    MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE, PROCESS_HEAP_ENTRY, VirtualAlloc,
+    VirtualFree, VirtualQuery,
 };
 use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
@@ -28,6 +27,7 @@ use std::ops::Range;
 
 use crate::audio;
 use crate::log::log;
+use crate::mem;
 use crate::memtrack::Region;
 use crate::threads;
 
@@ -254,13 +254,7 @@ impl Snapshot {
             {
                 let _suspended = suspend(audio.thread);
                 for entry in &mut self.saved {
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            entry.region.base as *const u8,
-                            entry.data.base,
-                            entry.region.len,
-                        )
-                    };
+                    unsafe { mem::copy_out(entry.region.base, entry.data.base, entry.region.len) };
                 }
             }
             match &saved_music {
@@ -345,7 +339,7 @@ impl Snapshot {
         // never give back is a hang with the game's threads frozen.
         let mut writable = Vec::with_capacity(self.saved.len());
         for entry in &self.saved {
-            if unsafe { commit(entry.region) } {
+            if unsafe { mem::commit(entry.region.base, entry.region.len) } {
                 writable.push(entry);
             } else {
                 failed.push(entry.region);
@@ -406,9 +400,7 @@ impl Snapshot {
         };
         let _suspended = suspend(self.audio_thread);
         for entry in &self.saved {
-            let live = unsafe {
-                std::slice::from_raw_parts(entry.region.base as *const u8, entry.region.len)
-            };
+            let live = unsafe { mem::read_bytes(entry.region.base, entry.region.len) };
             if live != entry.data.as_slice() {
                 check.unrestored.push(entry.region);
             }
@@ -435,15 +427,7 @@ impl Snapshot {
 /// writing a value it had already moved past.
 unsafe fn restore_region(entry: &Saved, holes: &[Region]) {
     let region = entry.region;
-    let mut previous: PAGE_PROTECTION_FLAGS = 0;
-    let unprotected = unsafe {
-        VirtualProtect(
-            region.base as *const c_void,
-            region.len,
-            PAGE_READWRITE,
-            &mut previous,
-        )
-    } != FALSE;
+    let previous = unsafe { mem::unprotect(region.base, region.len) };
 
     let mut cursor = region.base;
     for hole in holes {
@@ -458,86 +442,28 @@ unsafe fn restore_region(entry: &Saved, holes: &[Region]) {
         unsafe { write_back(entry, cursor..region.end()) };
     }
 
-    if unprotected {
-        unsafe {
-            VirtualProtect(
-                region.base as *const c_void,
-                region.len,
-                previous,
-                &mut previous,
-            );
-        }
+    if let Some(previous) = previous {
+        unsafe { mem::reprotect(region.base, region.len, previous) };
     }
-}
-
-/// Puts back any page of `region` that has gone since the snapshot, so that the copy
-/// has somewhere to write. The game will reach every one of them again through a
-/// restored pointer, so they have to exist at the same addresses.
-///
-/// Allocates, so it runs before anything is suspended — see [`Snapshot::restore`].
-///
-/// Walked run by run rather than tested at the region's first page. `VirtualQuery`
-/// describes only the run of pages that begins where it is asked, so a region whose
-/// head is still committed answers "committed" while a hole further in has been handed
-/// back to the OS — which the game freeing a few megabytes does. That hole was a fault
-/// inside the copy's own `memcpy`, and `VirtualProtect` over the whole region had
-/// quietly failed for the same reason.
-unsafe fn commit(region: Region) -> bool {
-    let mut at = region.base;
-    while at < region.end() {
-        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
-        let queried = unsafe {
-            VirtualQuery(
-                at as *const c_void,
-                &mut info,
-                size_of::<MEMORY_BASIC_INFORMATION>(),
-            )
-        };
-        if queried == 0 {
-            return false;
-        }
-        let run = (info.BaseAddress as usize + info.RegionSize).min(region.end());
-        if run <= at {
-            return false;
-        }
-        if info.State != MEM_COMMIT {
-            let len = run - at;
-            let committed =
-                unsafe { VirtualAlloc(at as *const c_void, len, MEM_COMMIT, PAGE_READWRITE) };
-            if committed.is_null() {
-                let reserved = unsafe {
-                    VirtualAlloc(
-                        at as *const c_void,
-                        len,
-                        MEM_COMMIT | MEM_RESERVE,
-                        PAGE_READWRITE,
-                    )
-                };
-                if reserved.is_null() {
-                    return false;
-                }
-            }
-        }
-        at = run;
-    }
-    true
 }
 
 /// Copies one span of a saved region back over the live memory.
 unsafe fn write_back(entry: &Saved, span: Range<usize>) {
     let offset = span.start - entry.region.base;
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            entry.data.base.add(offset),
-            span.start as *mut u8,
-            span.len(),
-        )
-    };
+    unsafe { mem::copy_in(span.start, entry.data.base.add(offset), span.len()) };
 }
 
 /// Fingerprints every private committed range that `regions` does not cover, so
 /// a later `check` can name game state the snapshot is missing.
 unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
+    // The inventory is a walk of every private page in the process, which is a question about the
+    // process and not about the game: under a laid-out space there is no such thing to walk, and
+    // the regions a test did not hand over are the ones it chose not to. What `self_check` is for
+    // — naming game state a snapshot is missing — needs the real process to mean anything.
+    #[cfg(test)]
+    if crate::mem::space::installed().is_some() {
+        return Vec::new();
+    }
     let ours = OURS.lock().map(|ours| ours.clone()).unwrap_or_default();
     let process_heap = unsafe { process_heap_regions() };
 
@@ -647,4 +573,155 @@ fn suspend(audio: Option<u32>) -> threads::Suspended {
     let suspended = threads::Suspended::all_but(unsafe { GetCurrentThreadId() }, audio);
     unsafe { crate::profile::record(crate::profile::Phase::Threads, started) };
     suspended
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{Audio, Music, Snapshot};
+    use crate::game::th06::Th06;
+    use crate::mem::space::{self, Kind, Space};
+    use crate::memtrack::Region;
+
+    /// The game's static data, and a second region standing for a block of its heap.
+    const DATA: usize = 0x0069_b000;
+    const HEAP: usize = 0x03a0_0000;
+    const LEN: usize = 0x1000;
+
+    /// No sound at all, which is what a space with the game's audio structures left zeroed reads
+    /// as: `music_still_playing` then finds nothing to have changed and the restore leaves the
+    /// sound paths alone.
+    fn silent() -> Audio {
+        Audio {
+            policy: Music::Rewind(None),
+            identity: None,
+            state: Vec::new(),
+            thread: None,
+        }
+    }
+
+    fn regions() -> Vec<Region> {
+        vec![
+            Region {
+                base: DATA,
+                len: LEN,
+            },
+            Region {
+                base: HEAP,
+                len: LEN,
+            },
+        ]
+    }
+
+    fn laid_out() -> Arc<Space> {
+        let space = Arc::new(Space::new());
+        space.map(DATA, LEN, Kind::Private);
+        space.map(HEAP, LEN, Kind::Private);
+        space
+    }
+
+    /// What a chapter is: every byte of what the game had, back the way it was. Not a summary of it
+    /// and not the fields orb knows the names of — the allocator's own bookkeeping comes back too,
+    /// which is what keeps the pointers in it pointing at what they pointed at.
+    #[test]
+    fn a_restore_puts_every_byte_back() {
+        let space = laid_out();
+        let _installed = space::install(&space);
+        space.fill_bytes(DATA, 0xa1, LEN);
+        space.fill_bytes(HEAP, 0xb2, LEN);
+
+        let snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };
+
+        // A stage's worth of the game running: a value here, a value there, and a range of it
+        // rewritten altogether.
+        space.write::<u32>(DATA + 0x40, 0xdead_beef);
+        space.fill_bytes(DATA + 0x800, 0x00, 0x100);
+        space.write::<u32>(HEAP + 4, 1886);
+
+        unsafe { snapshot.restore(&Th06) };
+
+        assert!(space.read_bytes(DATA, LEN).iter().all(|byte| *byte == 0xa1));
+        assert!(space.read_bytes(HEAP, LEN).iter().all(|byte| *byte == 0xb2));
+        assert!(unsafe { snapshot.check() }.unrestored.is_empty());
+    }
+
+    /// Memory the game handed back to the OS between the snapshot and the restore of it. The game
+    /// will reach every one of those addresses again through a restored pointer, so the pages have
+    /// to exist again at the same addresses — which is what the commit before the copy is for.
+    ///
+    /// Freeing a few megabytes mid-stage is what does this, and the hole it leaves was a fault
+    /// inside the copy's own memcpy.
+    #[test]
+    fn a_region_that_has_gone_is_put_back_before_the_copy() {
+        let space = laid_out();
+        let _installed = space::install(&space);
+        space.fill_bytes(HEAP, 0xb2, LEN);
+
+        let snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };
+        space.unmap(HEAP);
+
+        unsafe { snapshot.restore(&Th06) };
+
+        assert!(space.read_bytes(HEAP, LEN).iter().all(|byte| *byte == 0xb2));
+    }
+
+    /// Handles to things that are not the game's own memory — Direct3D's objects. A snapshot cannot
+    /// copy what they name, so a restore must not put them back: one names something released long
+    /// ago, and the game releasing it a second time faults inside itself.
+    ///
+    /// The hole is left at its current value while everything around it comes back, which is the
+    /// part worth pinning: a restore that skipped the whole region instead would lose the chapter.
+    #[test]
+    fn a_live_handle_is_left_where_the_restore_finds_it() {
+        let space = laid_out();
+        let _installed = space::install(&space);
+        space.fill_bytes(DATA, 0xa1, LEN);
+        let handles = std::slice::from_ref(&(DATA + 0x100..DATA + 0x110));
+
+        let snapshot = unsafe { Snapshot::capture(&regions(), silent(), handles, false) };
+
+        space.fill_bytes(DATA, 0xc3, LEN);
+        unsafe { snapshot.restore(&Th06) };
+
+        // The handle is the device the game has now, not the one it had then.
+        assert!(
+            space
+                .read_bytes(DATA + 0x100, 0x10)
+                .iter()
+                .all(|byte| *byte == 0xc3)
+        );
+        // And the bytes either side of it are the chapter's.
+        assert!(
+            space
+                .read_bytes(DATA, 0x100)
+                .iter()
+                .all(|byte| *byte == 0xa1)
+        );
+        assert!(
+            space
+                .read_bytes(DATA + 0x110, 0x100)
+                .iter()
+                .all(|byte| *byte == 0xa1)
+        );
+    }
+
+    /// A snapshot taken over the same regions again writes into the buffers it already owns: a
+    /// boundary comes around every few seconds, and several megabytes of fresh pages each time
+    /// costs more than the copy does. What it must not do is keep the bytes from last time.
+    #[test]
+    fn a_snapshot_taken_again_holds_the_second_one() {
+        let space = laid_out();
+        let _installed = space::install(&space);
+        space.fill_bytes(DATA, 0xa1, LEN);
+
+        let mut snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };
+        space.fill_bytes(DATA, 0xb2, LEN);
+        unsafe { snapshot.update(&regions(), silent(), &[], false) };
+
+        space.fill_bytes(DATA, 0xc3, LEN);
+        unsafe { snapshot.restore(&Th06) };
+
+        assert!(space.read_bytes(DATA, LEN).iter().all(|byte| *byte == 0xb2));
+    }
 }

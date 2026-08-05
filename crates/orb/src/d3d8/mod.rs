@@ -9,6 +9,9 @@
 use std::ffi::c_void;
 use std::mem::offset_of;
 
+#[cfg(test)]
+pub mod recording;
+
 pub type Hresult = i32;
 
 pub const D3DRS_ZENABLE: u32 = 7;

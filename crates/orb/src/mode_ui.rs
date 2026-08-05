@@ -191,8 +191,11 @@ fn aside(asked: Menu, mode: Mode) -> &'static [&'static str] {
 
 #[cfg(test)]
 mod tests {
-    use super::{ASIDE_LINES, Mode, aside, title};
+    use super::{ASIDE_LINES, Mode, ModeMenu, aside, title};
+    use crate::d3d8::recording::{Quad, Screen};
     use crate::game::Menu;
+    use crate::menu_ui::{ASIDE, DIM_SCREEN};
+    use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
     fn said(asked: Menu, mode: Mode) -> String {
         aside(asked, mode).join("\n")
@@ -237,5 +240,51 @@ mod tests {
                 assert!(aside(asked, mode).len() <= ASIDE_LINES);
             }
         }
+    }
+
+    fn frame(screen: &Screen, menu: &mut ModeMenu) -> Vec<Quad> {
+        screen.frame(|overlay| unsafe { menu.draw(overlay) })
+    }
+
+    /// The whole screen is washed, not the play field: this question goes over the game's own title
+    /// menu, and a wash the size of the play field would leave the menu readable around it.
+    #[test]
+    fn the_whole_screen_is_dimmed_under_the_question() {
+        let screen = Screen::new();
+        let quads = frame(&screen, &mut ModeMenu::new(Menu::Run, Mode::Normal));
+
+        let wash = *quads.first().expect("something was drawn first");
+        assert_eq!((wash.x, wash.y), (0.0, 0.0));
+        assert_eq!((wash.width, wash.height), (SCREEN_WIDTH, SCREEN_HEIGHT));
+        assert_eq!(wash.color, DIM_SCREEN);
+    }
+
+    /// The description under the choices is drawn in the aside's own colour, and there is as much of
+    /// it as the choice has lines to say. A ranking has none, and the labels holding the run's lines
+    /// must not be drawn there — they still hold whatever was said last.
+    #[test]
+    fn only_the_lines_this_choice_has_are_drawn() {
+        let screen = Screen::new();
+
+        // The cursor starts on the mode the run is already in, so what is described is that one's.
+        // One quad a line: a label's drop shadow is drawn in the shadow's colour, not the aside's.
+        let run = frame(&screen, &mut ModeMenu::new(Menu::Run, Mode::Normal));
+        let described = run.iter().filter(|quad| quad.color == ASIDE).count();
+        assert_eq!(described, aside(Menu::Run, Mode::Normal).len());
+
+        let scores = frame(&screen, &mut ModeMenu::new(Menu::Scores, Mode::Normal));
+        assert!(
+            !scores.iter().any(|quad| quad.color == ASIDE),
+            "a ranking is asked with nothing under either choice",
+        );
+        // And it is a shorter screen for it.
+        let lowest = |quads: &[Quad]| {
+            quads
+                .iter()
+                .map(|quad| quad.y)
+                .max_by(f32::total_cmp)
+                .expect("something was drawn")
+        };
+        assert!(lowest(&scores) < lowest(&run));
     }
 }

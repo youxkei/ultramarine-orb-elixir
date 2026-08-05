@@ -225,8 +225,9 @@ unsafe fn paint_strip(frame: &Frame, area: Rect, panel: Option<&PanelTile>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{brush_area, strips, word_at};
+    use super::{LivesMark, brush_area, strips, word_at};
     use crate::brush;
+    use crate::d3d8::recording::{Drawn, Quad, Screen};
     use crate::game::Rect;
 
     /// 紅魔郷's own row: the bar the game erases the count with, which is where the mark goes.
@@ -301,5 +302,92 @@ mod tests {
             brush::COVERAGE.len(),
             (brush::WIDTH * brush::HEIGHT) as usize
         );
+    }
+
+    /// The mark, drawn through the real overlay onto a device that keeps what it was asked for.
+    ///
+    /// The row is 紅魔郷's own. No panel tile, which is the case the log warns about — the strips
+    /// either side of the stroke are painted flat — and it is the one a test can set up without a
+    /// game's sprite sheet.
+    fn drawn_mark(row: Rect) -> Drawn {
+        let screen = Screen::new();
+        let mut mark = LivesMark::new();
+        screen.drawn(|overlay| unsafe { mark.draw(overlay, row, None) })
+    }
+
+    fn as_quad(rect: Rect) -> Quad {
+        Quad {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+            color: 0,
+            texture: 0,
+        }
+    }
+
+    /// What the mark is for, asked of the frame rather than of the arithmetic: something is drawn
+    /// over every part of the count's row, and nothing is drawn over the rows either side.
+    ///
+    /// The rows either side are the assertion that matters. The stroke is taller than the row it
+    /// goes over — a stroke is not the shape of a row — so the one thing that can go wrong is it
+    /// reaching the bombs eight pixels below or the score above, and neither row is repainted by the
+    /// game often enough to recover.
+    #[test]
+    fn the_mark_covers_the_count_and_reaches_neither_row_beside_it() {
+        let quads = drawn_mark(ROW).quads;
+        assert!(!quads.is_empty(), "the mark drew something");
+
+        let row = as_quad(ROW);
+        assert!(
+            quads.iter().any(|quad| quad.covers(&row)),
+            "the count's row is covered: {quads:?}",
+        );
+
+        let bombs = Quad {
+            y: BOMB_ROW_TOP,
+            ..row
+        };
+        let score = Quad {
+            y: SCORE_ROW_BOTTOM - ROW.height,
+            ..row
+        };
+        for (name, beside) in [("the bombs", bombs), ("the score", score)] {
+            assert!(
+                !quads.iter().any(|quad| quad.overlaps(&beside)),
+                "{name} is left alone: {quads:?}",
+            );
+        }
+    }
+
+    /// The count is drawn again underneath the mark and the stroke is blended over it, so the stars
+    /// show through where the ink is dry. What carries that is the picture, not the colour: the ink
+    /// is opaque and the brush's own coverage is the alpha it is modulated by.
+    ///
+    /// So what is worth pinning is that the quad over the row goes through a texture of its own
+    /// rather than the overlay's white texel. Through the white one the same opaque ink would be a
+    /// flat patch over the row, which is the one thing this mark must not look like — and it is a
+    /// one-line mistake away, since every solid fill in the overlay is drawn that way.
+    #[test]
+    fn the_stroke_over_the_row_is_a_picture_and_not_a_flat_fill() {
+        let drawn = drawn_mark(ROW);
+        let row = as_quad(ROW);
+
+        let over_the_row: Vec<_> = drawn
+            .quads
+            .iter()
+            .filter(|quad| quad.covers(&row))
+            .collect();
+        assert!(!over_the_row.is_empty(), "something covers the row");
+
+        let pictured = drawn.pictured();
+        for quad in over_the_row {
+            assert!(
+                pictured.contains(quad),
+                "what covers the row is a picture: {quad:?}",
+            );
+            // And it is the ink, so that a stroke drawn in the wrong colour is not read as one.
+            assert_eq!(quad.color, super::INK);
+        }
     }
 }

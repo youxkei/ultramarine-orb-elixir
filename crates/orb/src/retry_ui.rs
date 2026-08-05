@@ -243,7 +243,9 @@ mod tests {
     use super::{
         ANSWERS, CHOICES, CONFIRM_GRACE_FRAMES, Choice, NO, Pressed, RetryMenu, Showing, question,
     };
-    use crate::menu_ui::By;
+    use crate::d3d8::recording::{Quad, Screen};
+    use crate::game::Rect;
+    use crate::menu_ui::{By, DIM_FIELD, LINE_HEIGHT, SELECTED};
 
     /// A frame nothing was pressed on.
     fn nothing() -> Pressed {
@@ -386,5 +388,121 @@ mod tests {
             None
         );
         assert!(!ANSWERS[menu.answer].0, "back on no");
+    }
+
+    /// The play field, as the game's own output measures it.
+    const FIELD: Rect = Rect {
+        left: 32.0,
+        top: 16.0,
+        width: 384.0,
+        height: 448.0,
+    };
+
+    /// One frame of the menu, on a screen of its own.
+    fn frame(screen: &Screen, menu: &mut RetryMenu) -> Vec<Quad> {
+        screen.frame(|overlay| unsafe { menu.draw(overlay, FIELD, "MIDSTAGE 2", 3) })
+    }
+
+    /// Every line something was written on, whichever order the writing came in. Lines rather than
+    /// quads, because there are more quads than lines: a label is drawn twice for its drop shadow,
+    /// and the cursor is a label of its own beside the item it marks.
+    fn lines(quads: &[Quad]) -> Vec<f32> {
+        let mut lines: Vec<f32> = quads.iter().map(|quad| quad.y).collect();
+        lines.sort_by(f32::total_cmp);
+        lines.dedup();
+        lines
+    }
+
+    /// The lines drawn in the lit colour: the item under the cursor, and the cursor beside it.
+    fn lit(quads: &[Quad]) -> Vec<f32> {
+        quads
+            .iter()
+            .filter(|quad| quad.color == SELECTED)
+            .map(|quad| quad.y)
+            .collect()
+    }
+
+    /// The field is washed before anything is written on it, over the whole of it and no further:
+    /// the menu is a screen of its own inside the play area, and a wash that missed a corner would
+    /// leave the run's own bullets showing through it.
+    #[test]
+    fn the_field_is_dimmed_under_the_menu() {
+        let screen = Screen::new();
+        let quads = frame(&screen, &mut open());
+
+        let wash = *quads.first().expect("something was drawn first");
+        assert_eq!((wash.x, wash.y), (FIELD.left, FIELD.top));
+        assert_eq!((wash.width, wash.height), (FIELD.width, FIELD.height));
+        assert_eq!(wash.color, DIM_FIELD);
+        // And it is under the writing rather than over it: everything else comes after.
+        assert!(quads.len() > 1);
+    }
+
+    /// One line lit at a time. Two would be two things to read as chosen.
+    #[test]
+    fn one_choice_is_lit_and_the_others_are_not() {
+        let screen = Screen::new();
+        let quads = frame(&screen, &mut open());
+
+        let on = lit(&quads);
+        assert_eq!(on.len(), 2, "the item and its cursor: {on:?}");
+        assert_eq!(on[0], on[1], "on the same line");
+    }
+
+    /// The items stay where they are and the highlight moves down one line.
+    ///
+    /// The selection tests above would read the same if the drawing moved the items under a fixed
+    /// cursor instead, and that would be wrong on the screen: what somebody reads is which line is
+    /// lit.
+    #[test]
+    fn moving_the_cursor_moves_the_highlight_down_one_line() {
+        let screen = Screen::new();
+        let mut menu = open();
+        let first = frame(&screen, &mut menu);
+        assert_eq!(menu.step(&down()), None);
+        let second = frame(&screen, &mut menu);
+
+        assert_eq!(first.len(), second.len(), "the same things are drawn");
+        assert_eq!(
+            lines(&first),
+            lines(&second),
+            "nothing moved to another line"
+        );
+        // The topmost lit quad is the item's own; the cursor beside it shares the line.
+        let top = |quads: &[Quad]| lit(quads).into_iter().min_by(f32::total_cmp).unwrap();
+        assert_eq!(top(&second) - top(&first), LINE_HEIGHT);
+    }
+
+    /// A confirmation is a different screen in the same room: a question with its two answers under
+    /// it rather than the three choices, and the field washed under that just the same.
+    ///
+    /// The answers sit a line lower than the choices did, the blank line between them and the
+    /// question being what makes it read as a question rather than as a fourth item. Which is the
+    /// thing to hold it to, since both screens draw the same number of labels and a count would say
+    /// nothing.
+    #[test]
+    fn a_confirmation_puts_its_answers_below_where_the_choices_were() {
+        let screen = Screen::new();
+        let mut menu = open();
+        let choices = frame(&screen, &mut menu);
+
+        assert_eq!(choose(&mut menu, Choice::Stage), None);
+        assert!(matches!(menu.showing, Showing::Confirming(_)));
+        let confirming = frame(&screen, &mut menu);
+
+        assert_eq!(confirming[0].color, DIM_FIELD, "still washed");
+
+        let lowest = |quads: &[Quad]| {
+            quads
+                .iter()
+                .map(|quad| quad.y)
+                .max_by(f32::total_cmp)
+                .expect("something was drawn")
+        };
+        assert_eq!(lowest(&confirming) - lowest(&choices), LINE_HEIGHT);
+
+        let on = lit(&confirming);
+        assert_eq!(on.len(), 2, "the answer and its cursor: {on:?}");
+        assert_eq!(on[0], on[1]);
     }
 }

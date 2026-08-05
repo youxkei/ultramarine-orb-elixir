@@ -403,6 +403,185 @@ What is left:
   happen. A whole multiple is *not* refused there, which is the older hazard the code comments
   describe and which nothing has re-checked since.
 
+## Move the rest of the suite onto the space
+
+The mechanism is in — see *Reaching the game's memory with no game there* in [SPEC.md](SPEC.md) —
+and `chapter.rs`'s tests are through it: every one drives the real `observe`, over a laid-out
+game, with the snapshot really taken and `retry_chapter` really putting the memory back. The six
+helpers that used to set `mark` and insert into `starts` in their own words are gone, and with
+them the reason none of those tests could fail when `observe` changed. Breaking the production
+`starts` insert now fails four of them; before, it failed none.
+
+**What the space does not answer yet.** `State` is still built by hand rather than read by
+`Th06::read_state()` out of a laid-out image, so the parse of the game's structures is exercised
+only as far as the accessors the chapter path calls — `music`, `music_identity`, `audio_state`,
+`audio_thread`, `live_handles`, `captures`, `count_card_attempt`. Reading a whole `State` out of
+the image is the next piece, and it is what would let the tests hand over a stage rather than a
+struct.
+
+**No track plays in a laid-out game, and that is a limit rather than a choice.** With the sound
+structures zeroed, `music()` reads as nothing, so a stage takes `STAGE_SETTLE_FRAMES` *plus*
+`MUSIC_WAIT_FRAMES` to begin — the 248 frames `STAGE_BEGINS` names, in front of every test.
+Laying out a stream instead would bring it down to the settle alone, but `Music::capture` reaches
+into DirectSound through the buffer's vtable, so it needs the COM calls simulated first. Until
+then nothing about the music in a snapshot is covered here, and the frames a chapter's music is
+judged by are the real game's to answer for.
+
+**`self_check`'s inventory is skipped under a space** — see `fingerprint_untracked`. It is a walk
+of every private page in the process, which is a question about the process and not about the
+game.
+
+## Put Windows itself behind a seam, and run the suite on any host
+
+The memory seam took the game out of the tests. What is left holding them to Windows is Windows:
+the suite is a set of `i686-pc-windows-gnu` binaries because the crate cannot be built without
+`windows-sys`, so CI needs a Windows runner and a 32-bit mingw to get anything run at all.
+
+**Measured, so the size of it is not a guess.** Twenty of the thirty-nine files under
+`crates/orb/src` name `windows_sys`, and between them they call **sixty-four** distinct Win32
+functions: the memory ones the seam already covers, and then `QueryPerformanceCounter`,
+`DwmGetCompositionTimingInfo` and `DwmFlush` for the pacing; `SuspendThread`, `ResumeThread`,
+`OpenThread` and `GetThreadId` for holding the game still; twenty-odd GDI calls for the status
+line; `GetKeyboardState` and DirectInput's `EnumDevices` for the input; `MonitorFromWindow`,
+`EnumDisplaySettingsW` and `AdjustWindowRect` for the window. On top of the functions there are
+three surfaces that are not functions at all: Direct3D 8 and DirectSound reached through COM
+vtables, the window procedure and its message pump, and the game's own code called through
+transmuted pointers.
+
+**There is no small first slice.** Only six of `Game`'s sixty-three methods name a Win32 or COM
+type — `window`, `d3d_device`, `set_play_viewport`, `chain`, `prepare_frame`, `forget_captures` —
+so making the trait traffic in plain data is a morning's work. It buys nothing on its own: an
+opaque device handle is still handed to `overlay.rs` and `d3d8.rs`, which make the real calls, so
+the host requirement does not move until those calls go behind the seam too. The value arrives
+whole or not at all.
+
+**The shape to build, when it is built.** `orb-core` for the logic with no `windows-sys` in it;
+`orb-api` for the seam traits and the `#[cfg(windows)]` real implementations; `orb-sim` for the
+simulated Windows, with the scenarios in its own `tests/` — a cdylib cannot host them, and the
+sim is where they belong anyway. The simulated game becomes a client of the simulated Windows
+rather than part of it: it takes its memory, its audio thread and its device from the sim, so that
+a snapshot walks the sim's pages the way it walks the real ones and the failures that only happen
+around a free or a suspended thread stay reachable. The seam traffics in plain data — no
+`windows-sys` types in any signature — which is the whole reason the result builds on a Linux
+runner.
+
+**Three things looked like they needed a seam and none of them did.** The drawing, because a
+Direct3D device is a pointer to a vtable and a vtable of Rust functions is a device. Holding the
+game still, because the threads it stops are ones a test can make and register itself. And the
+clock, because every decision the pacing makes is already a function of numbers — `grid_aim`,
+`next_budget`, `whole_multiple`, `on_cadence`, `refreshes_this_frame`, the three ceilings — so what
+a seam would add is the order the waiting calls come in, and what matters about the waiting is
+whether frames land on blanks, which is a measurement of real hardware. `DONE.md` keeps those.
+
+So the lesson for the crate split is that the seam is worth cutting where the *host* is in the way,
+not where a call is: what is left needing one is Windows itself, for a suite that runs anywhere.
+
+**The Linux runner is already there, with the host-independent half of the tree on it.** `orb-config`
+names no Windows at all — it reads `orb.yaml` and the command line and depends on nothing but clap
+and serde — so its twenty-three tests pass on `x86_64-unknown-linux-gnu` as they stand, and CI has a
+job that runs them and clippy there. That is the path the rest is meant to move onto, and a crate
+that stops building on it is a crate that has taken a dependency on the host — worth finding out
+about when it happens rather than at the end of the work.
+
+What is left is the moving: `orb`'s twenty files that name `windows_sys` and the sixty-four Win32
+functions behind them, which is the weeks and not the wiring.
+
+**And the one place a simulated Windows is still the answer** is the window and its message pump:
+`IN_HOOK` exists because a Win32 call that moves a window dispatches messages synchronously and the
+game draws from its window proc, so a hook can be entered again from inside itself. Nothing tests
+that, and nothing can until there is a message pump to drive.
+
+## Draw a frame in a test and say what is on it
+
+**The device is done** — `d3d8/recording.rs` — and it needed none of the above. A `Device` is a
+pointer to a vtable, so a vtable of Rust functions *is* a device: nothing in the drawing code
+branches on anything, because the COM ABI is already the seam. It keeps the quads with their
+rectangles, colours and which texture each went through, the clears, and the viewports, and
+`Quad::covers`/`overlaps` are how "the mark covers the row" and "it leaves the row below alone" get
+asked. Five tests hold it to that.
+
+**The font is answered.** `Overlay::new` loads the game's own `font.ttf` through
+`AddFontResourceExW`, which wants a real file — but it does not want *that* file. Windows has fonts
+of its own, `AddFontResourceExW` takes any of their paths, and `Font::load` already survives GDI
+substituting a face, which is what its own log line is about. `GetWindowsDirectoryW` joined with
+`Fonts\arial.ttf` builds an overlay in a test, and Arial is not machine-specific in the way a game
+directory is: it has shipped with every Windows there has been. What it costs is the glyph metrics —
+they are Arial's, not the game's — so a test may ask where the drawing put things and not how wide
+a word came out.
+
+`lives_ui` is through it. Two tests over the recorded frame say that something covers every part of
+the count's row and that nothing reaches the bombs eight pixels below or the score above, and that
+what covers the row is a picture rather than a flat fill — through the white texel the same opaque
+ink would be a patch over the row, which is the one thing the mark must not look like. Shifting the
+stroke by 24 pixels in `draw` fails both; the five geometry tests beside them do not notice, because
+`brush_area` is right in all of them and it is `draw` that is wrong.
+
+**Still to move:** `retry_ui` (6), `mode_ui` (4), `resume_ui` (8), and what `overlay` and `text` do
+with a label. The pattern is the one in `lives_ui`'s tests — a `Recording`, an overlay on a system
+font, `clear()` so the assertion is about one frame, then the real drawing call.
+
+**`retry_ui` was tried and taken back out, and what stopped it is not understood yet.** Drawing the
+menu across two frames on one device kills the process, with no panic and no message — exit 5, part
+way through the test. What is *not* the cause, each ruled out by a probe: the overlay itself builds
+on a system font; a label of Japanese renders in Arial (110x14) as does the cursor's arrow (8x14);
+and one `RetryMenu::draw` against a fresh device and a fresh menu is fine. It is the second frame,
+or the harness around it, and finding out means bisecting inside `Frame`'s own drawing rather than
+around it.
+
+Two things were learnt on the way and both are traps worth keeping:
+
+- **A `Label` keeps the texture it baked** and hands it to the next frame asking for the same text.
+  So a menu drawn against a *second* device draws the first device's textures — a use-after-free
+  rather than a wrong picture. In a run there is one device and the overlay is rebuilt with it when
+  it is lost, so only a test can arrange this. A harness for these should make one device per test
+  and draw every frame of that test on it.
+- **A recording and a guard beside it is the wrong shape.** The guard has to be a field of the
+  recording, dropped after everything it protects: returned as a second value it drops first, and
+  the next test then clears the textures this one is still releasing.
+
+**One thing found while looking for a way to gate a mutation check, worth writing down before
+anything else is designed around it:** the tests are Windows binaries run through WSL interop, and
+**an environment variable set for `cargo test` does not reach them**. So a test cannot be
+switched by the environment here, however natural that is everywhere else in this repository.
+
+## What only the real game can still answer
+
+The suite went from 138 tests to 182 without a game, and most of what it now covers used to need a
+session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
+to, and therefore what a session is for.
+
+**Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
+by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The
+prologue bytes a hook is installed over, the exe's md5, and that the jmp lands where it should are
+the same kind of claim. Only the real image says.
+
+**That the hooks hold.** Installing a trampoline over a prologue and having the game carry on
+through it is a property of that image and that compiler's code, not of the installation logic.
+
+**The pacing, as frames on a screen.** The arithmetic is covered; what is not, and cannot be, is
+whether frames land on blanks. The 120Hz and 144Hz numbers in [DONE.md](DONE.md) are the record and
+they stay measurements.
+
+**The sound.** No track plays in a laid-out game — `Music::capture` reaches into DirectSound through
+the buffer's vtable — so nothing about the music in a snapshot, the streaming margin, or what a
+restore does to a stream is covered here. Whether a chapter comes back with its music is a thing to
+hear.
+
+**Anything the screen is the judge of.** The drawing tests say where a quad went and in what colour;
+they do not say it looks right. The brush stroke reading as a stroke, the panel's own tile showing
+through the strips either side of it, the wash being dark enough to read a menu over and light enough
+to see the run under — those are looked at.
+
+**And the front end's own answers.** Which items the game's menu lights after a run, what its spell
+card history shows in each mode, whether `Extra Start` is offered — the log cannot see a menu.
+
+**The driver for such a session is not in the tree, on purpose.** `.gitignore` keeps `/scripts` out
+because what wraps the build and the copy is one person's workflow and the last one carried that
+person's machine in it. A session driver is the same shape — it needs a game directory, and it would
+be asserting against a log nobody else's run produces. `--take-sent-keys` exists so that one can be
+written outside the tree: it makes the game read its keyboard the way it does when DirectInput has no
+device, which is the only way keys sent with `SendInput` are seen at all.
+
 ## Confirm `self_check`
 
 It should report zero saved regions failing to restore, and no untracked region changing outside

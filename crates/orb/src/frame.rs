@@ -1331,7 +1331,11 @@ fn sleep_until(deadline: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{grid_aim, next_budget, on_cadence, same_rate, whole_multiple};
+    use super::{
+        BLANKS_PER_FRAME, COMPOSE_FLOOR_US, LOGIC_HZ, Ordering, PINNED_COMPOSE_US, PROVEN_SHORT_US,
+        budget_ceiling, compose_ceiling, compose_floor, grid_aim, micros, next_budget, on_cadence,
+        refreshes_this_frame, same_rate, ticks, whole_multiple,
+    };
 
     /// A 144Hz refresh and a sixtieth of a second, in microseconds standing in for the
     /// performance counter's ticks. 2.4 refreshes to the frame, so the count has to vary.
@@ -1457,5 +1461,72 @@ mod tests {
         let next = next_budget(3700, 2900, CEILING);
         assert!((2900..3700).contains(&next), "{next}");
         assert!(3700 - next < (3700 - 2900) / 8, "{next} is most of the way");
+    }
+
+    /// The whole budget is the game's own frame's, and does not shrink as the display gets faster.
+    ///
+    /// Which is the fix, and the thing that broke: tied to a *refresh* instead, at 144Hz it came out
+    /// the same 5208µs as the compositor's share, so the drawing had no allowance inside it, every
+    /// frame reached the compositor late, and the input lag and the compositor's share read as the
+    /// same number on screen — which is what gave it away, the one being the other plus the drawing.
+    /// See `budget_ceiling`.
+    #[test]
+    fn the_whole_budget_is_the_games_frame_and_not_the_displays() {
+        let whole = budget_ceiling();
+        // The rates a display reports itself as, over the range anyone plays at.
+        for hz in [60u32, 75, 90, 100, 120, 144, 165, 240, 360] {
+            let period = ticks(1_000_000 / i64::from(hz));
+            assert_eq!(budget_ceiling(), whole, "{hz}Hz moved the whole budget");
+            // And a display faster than the game leaves the drawing an allowance inside it.
+            if hz > LOGIC_HZ {
+                assert!(
+                    compose_ceiling(period) < whole,
+                    "{hz}Hz leaves the drawing nothing",
+                );
+            }
+        }
+    }
+
+    /// The compositor's share is three quarters of a *refresh*, since what it is being given is time
+    /// inside the refresh the frame is aimed at. A faster display gives it less, which is the whole
+    /// reason it is not a constant.
+    #[test]
+    fn the_compositors_share_is_measured_against_a_refresh() {
+        let refresh = ticks(REFRESH);
+        assert_eq!(compose_ceiling(refresh), micros(refresh) * 3 / 4);
+        assert!(compose_ceiling(refresh / 2) < compose_ceiling(refresh));
+    }
+
+    /// A pinned drawing time is the whole of the answer, floor and all: pinning is for measuring one
+    /// value, and a floor that overrode it would make every reading below the floor the same
+    /// reading — which is exactly the range a sweep starts in.
+    #[test]
+    fn a_pinned_drawing_time_is_not_raised_to_the_floor() {
+        let under = COMPOSE_FLOOR_US / 2;
+        PROVEN_SHORT_US.store(COMPOSE_FLOOR_US * 4, Ordering::Relaxed);
+        PINNED_COMPOSE_US.store(under, Ordering::Relaxed);
+        assert_eq!(compose_floor(), under);
+
+        // Unpinned, the floor is the greater of the constant and what a run has shown to be short.
+        PINNED_COMPOSE_US.store(0, Ordering::Relaxed);
+        assert_eq!(compose_floor(), COMPOSE_FLOOR_US * 4);
+        PROVEN_SHORT_US.store(0, Ordering::Relaxed);
+        assert_eq!(compose_floor(), COMPOSE_FLOOR_US);
+    }
+
+    /// A rate that divides into 60 is told how many refreshes a frame gets and never chases a grid:
+    /// the same number every time, whatever the blank in hand is.
+    ///
+    /// Which is the deliberate part — a display sold as 120Hz is often 119.88, and following an
+    /// exact sixtieth there would spend a third refresh every few minutes to make up the difference.
+    #[test]
+    fn a_rate_that_divides_gets_the_same_count_every_frame() {
+        BLANKS_PER_FRAME.store(2, Ordering::Relaxed);
+        let counts: Vec<i64> = [0, 1, 7, 12_345, -9]
+            .into_iter()
+            .map(|blank| refreshes_this_frame(ticks(REFRESH), blank))
+            .collect();
+        BLANKS_PER_FRAME.store(0, Ordering::Relaxed);
+        assert_eq!(counts, [2, 2, 2, 2, 2]);
     }
 }

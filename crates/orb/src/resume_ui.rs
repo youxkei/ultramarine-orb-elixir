@@ -222,8 +222,10 @@ impl Mark {
 
 #[cfg(test)]
 mod tests {
-    use super::{Answer, Cancels, Mark, Pressed, ResumeMenu};
-    use crate::menu_ui::By;
+    use super::{Answer, Cancels, MARK_LEFT, Mark, Pressed, ResumeMenu};
+    use crate::d3d8::recording::Screen;
+    use crate::menu_ui::{By, LINE_HEIGHT};
+    use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.
@@ -355,5 +357,61 @@ mod tests {
     #[test]
     fn it_holds_its_keys_off_first() {
         assert!(ResumeMenu::new(String::new(), Cancels::TheRun).keys.held() > 0);
+    }
+
+    /// The mark on the shot type select is a line in the bottom-left corner, which is the one part of
+    /// that screen nothing else uses: the two shots and the description of the one under the cursor
+    /// are all above the middle. Drawn over the game's own screen rather than on a washed one, so a
+    /// line that wandered would be a line over the game's writing.
+    #[test]
+    fn the_mark_sits_in_the_corner_the_screen_leaves_free() {
+        let screen = Screen::new();
+        let mut mark = Mark::new();
+        mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
+        let quads = screen.frame(|overlay| unsafe { mark.draw(overlay) });
+
+        assert!(!quads.is_empty(), "a run with a chapter says so");
+        // Nothing is washed: this goes over the front end, which is still being read.
+        assert!(
+            !quads.iter().any(|quad| quad.width >= SCREEN_WIDTH),
+            "the screen is not dimmed under it",
+        );
+        for quad in &quads {
+            assert!(quad.x >= MARK_LEFT - 1.0, "{quad:?}");
+            assert!(quad.y > SCREEN_HEIGHT / 2.0, "below the middle: {quad:?}");
+            assert!(quad.bottom() <= SCREEN_HEIGHT, "on the screen: {quad:?}");
+        }
+    }
+
+    /// And a run with nothing written down draws nothing at all, rather than an empty line where a
+    /// line would be: the corner is the game's own screen when there is nothing to say about it.
+    #[test]
+    fn a_run_with_no_chapter_draws_nothing() {
+        let screen = Screen::new();
+        let mut mark = Mark::new();
+        mark.pointing(Some("normal-reimu-b"), |_| None);
+        assert!(
+            screen
+                .frame(|overlay| unsafe { mark.draw(overlay) })
+                .is_empty()
+        );
+    }
+
+    /// The two lines are the title above and what it says below, one line apart — read as one thing
+    /// in the corner rather than as two.
+    #[test]
+    fn the_marks_two_lines_are_a_line_apart() {
+        let screen = Screen::new();
+        let mut mark = Mark::new();
+        mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
+        let quads = screen.frame(|overlay| unsafe { mark.draw(overlay) });
+
+        let mut lines: Vec<f32> = quads.iter().map(|quad| quad.y).collect();
+        lines.sort_by(f32::total_cmp);
+        lines.dedup();
+        // Two lines, each drawn twice for its drop shadow, and the shadow a pixel down — so four
+        // distinct ys a pixel and a line apart.
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines[2] - lines[0], LINE_HEIGHT);
     }
 }

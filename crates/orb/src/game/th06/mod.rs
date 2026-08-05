@@ -7,6 +7,8 @@
 //! (`Player` alone is 0x98f0 bytes) would be far more to get wrong.
 
 pub mod chapters;
+#[cfg(test)]
+pub mod image;
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1555,8 +1557,7 @@ impl Game for Th06 {
     }
 
     unsafe fn captures(&self) -> Vec<u8> {
-        unsafe { std::slice::from_raw_parts(CARD_HISTORY as *const u8, CARD_HISTORY_BYTES) }
-            .to_vec()
+        unsafe { mem::read_bytes(CARD_HISTORY, CARD_HISTORY_BYTES) }
     }
 
     unsafe fn set_captures(&self, saved: &[u8]) {
@@ -1566,9 +1567,7 @@ impl Game for Th06 {
                 saved.len()
             );
         }
-        unsafe {
-            std::ptr::copy_nonoverlapping(saved.as_ptr(), CARD_HISTORY as *mut u8, saved.len())
-        };
+        unsafe { mem::write_bytes(CARD_HISTORY, saved) };
     }
 
     unsafe fn show_ranking(&self) {
@@ -1634,7 +1633,7 @@ impl Game for Th06 {
         // Written as bytes rather than record by record: what the game holds here is 64 of a
         // structure orb has no use for the shape of, and all that is being said is that it holds
         // none of them.
-        unsafe { std::ptr::write_bytes(CARD_HISTORY as *mut u8, 0, CARD_HISTORY_BYTES) };
+        unsafe { mem::fill_bytes(CARD_HISTORY, 0, CARD_HISTORY_BYTES) };
         log!("score: the captures in memory cleared for the ranking about to be read");
     }
 
@@ -2073,8 +2072,142 @@ unsafe fn dialogue_msg_idx() -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::ending_script;
+    use std::sync::Arc;
+
+    use super::{
+        CARD_HISTORY, CARD_HISTORY_BYTES, G_GAME_MANAGER, G_REPLAY_MANAGER, G_SUPERVISOR,
+        RANKING_STATE, RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER,
+        STATE_GAMEMANAGER_REINIT, STATE_MAINMENU, ending_script, game_manager, replay_manager,
+        supervisor,
+    };
     use crate::game::{Game, RunStart, th06::Th06};
+    use crate::mem::space::{self, Kind, Space};
+
+    /// Somewhere the game's allocator would have put a structure — outside its static data, so
+    /// that a pointer into it is a pointer and not an offset from a global.
+    const ALLOCATED: usize = 0x03a0_0000;
+
+    /// The globals these tests read, with nothing in them. One region over the game manager,
+    /// which is also where the spell card history sits 0x30 into it, and one over the
+    /// supervisor; the replay manager is a pointer, so only the pointer is laid out here and
+    /// what it points at is each test's business.
+    fn image() -> Arc<Space> {
+        let space = Arc::new(Space::new());
+        space.map(G_GAME_MANAGER, 0x2000, Kind::Private);
+        space.map(G_SUPERVISOR, 0x1000, Kind::Private);
+        space.map(G_REPLAY_MANAGER, size_of::<usize>(), Kind::Private);
+        space
+    }
+
+    /// The frame a stage is on is the game manager's own count, and it is only that while a stage
+    /// is the scene: the manager is a global that keeps whatever it was left holding, so the count
+    /// reads as a number at every moment of a run and as a stale one at every moment that is not.
+    #[test]
+    fn the_stage_frame_is_read_only_while_a_stage_is_the_scene() {
+        let space = image();
+        let _installed = space::install(&space);
+        space.write::<u32>(G_GAME_MANAGER + game_manager::GAME_FRAMES, 1886);
+
+        for scene in [STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT] {
+            space.write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, scene);
+            assert_eq!(unsafe { Th06.stage_frame() }, Some(1886));
+        }
+
+        // The front end, where the count left over from the run before it is not this run's.
+        space.write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, STATE_MAINMENU);
+        assert_eq!(unsafe { Th06.stage_frame() }, None);
+    }
+
+    /// A replay being watched is reached by chasing a pointer the game may not have written yet,
+    /// and each step of the chase is a read that has to come back rather than fault: no manager,
+    /// a manager the game has not allocated, and a manager that is there and says it is not a
+    /// demo, all read as a run somebody is playing.
+    #[test]
+    fn a_replay_is_read_through_a_pointer_that_may_not_be_there_yet() {
+        let space = image();
+        let _installed = space::install(&space);
+
+        // Never written, which is the zero a global starts at.
+        assert!(!unsafe { Th06.replaying() });
+
+        // Written, and pointing at memory the game has not allocated. This is the read that takes
+        // the process down if it is not asked for as `read_committed`.
+        space.write::<usize>(G_REPLAY_MANAGER, ALLOCATED);
+        assert!(!unsafe { Th06.replaying() });
+
+        space.map(ALLOCATED, 0x100, Kind::Private);
+        assert!(!unsafe { Th06.replaying() });
+
+        space.write::<i32>(ALLOCATED + replay_manager::IS_DEMO, 1);
+        assert!(unsafe { Th06.replaying() });
+    }
+
+    /// The game is asked to make a window rather than take the display by writing its own option,
+    /// which is a byte it reads back the same way.
+    #[test]
+    fn forcing_a_window_is_read_back_as_windowed() {
+        let space = image();
+        let _installed = space::install(&space);
+
+        assert!(!Th06.windowed());
+        unsafe { Th06.force_windowed() };
+        assert!(Th06.windowed());
+    }
+
+    /// The spell card record is taken and put back as the bytes the game keeps it in, so what
+    /// comes back is what went in — the whole of it, byte for byte, with orb having no use for the
+    /// shape of the sixty-four records inside.
+    #[test]
+    fn the_captures_that_are_put_back_are_the_ones_that_were_taken() {
+        let space = image();
+        let _installed = space::install(&space);
+        space.write::<u32>(CARD_HISTORY + 0x40, 0xabcd_1234);
+
+        let saved = unsafe { Th06.captures() };
+        assert_eq!(saved.len(), CARD_HISTORY_BYTES);
+
+        space.fill_bytes(CARD_HISTORY, 0xff, CARD_HISTORY_BYTES);
+        assert_ne!(unsafe { Th06.captures() }, saved);
+
+        unsafe { Th06.set_captures(&saved) };
+        assert_eq!(unsafe { Th06.captures() }, saved);
+    }
+
+    /// A record of the wrong length is not this build's, and half of one written in would be worse
+    /// than none: the file is left to say what it says and memory is left alone.
+    #[test]
+    fn captures_of_another_length_are_left_alone() {
+        let space = image();
+        let _installed = space::install(&space);
+        space.fill_bytes(CARD_HISTORY, 0x5a, CARD_HISTORY_BYTES);
+        let before = unsafe { Th06.captures() };
+
+        unsafe { Th06.set_captures(&[0u8; 8]) };
+        assert_eq!(unsafe { Th06.captures() }, before);
+    }
+
+    /// The record in memory is cleared before the game reads a ranking into it, so that the read
+    /// defines the history rather than adding to what a session had already counted — except in
+    /// the states the screen is in on the way out of a run, where the record in memory *is* that
+    /// run's own and the file has not got it yet.
+    #[test]
+    fn the_captures_are_cleared_for_a_ranking_read_but_not_on_the_way_out_of_a_run() {
+        let space = image();
+        let _installed = space::install(&space);
+        space.map(ALLOCATED, 0x100, Kind::Private);
+        let screen = ALLOCATED as *mut std::ffi::c_void;
+
+        for state in RANKING_STATES_KEEPING_THE_RECORD {
+            space.fill_bytes(CARD_HISTORY, 0x5a, CARD_HISTORY_BYTES);
+            space.write::<i32>(ALLOCATED + RANKING_STATE, state);
+            unsafe { Th06.forget_captures(screen) };
+            assert!(unsafe { Th06.captures() }.iter().all(|byte| *byte == 0x5a));
+        }
+
+        space.write::<i32>(ALLOCATED + RANKING_STATE, 0);
+        unsafe { Th06.forget_captures(screen) };
+        assert!(unsafe { Th06.captures() }.iter().all(|byte| *byte == 0));
+    }
 
     /// Which runs a chapter can be picked up in, as the name of the file it is kept in: the
     /// difficulty, the character and the shot, and the stage not among them — a full run's stage is

@@ -1765,6 +1765,63 @@ around them rather than without it.
 and then moving on, so a replay walks through the midstage, the midboss and every boss attack
 restoring as it goes.
 
+## Reaching the game's memory with no game there
+
+Every read and write of the game's memory goes through `mem`, and a test can put an address
+space of its own in front of the real one: regions at the game's own bases, holding bytes, with
+`Th06` reading them through the same four functions it reads a running game through. So the
+offsets, the structure walks and the patching are all exercised, rather than a second
+implementation of `Game` standing in for them.
+
+The space answers more than bytes, because that is what the code asks. A region can be
+committed, reserved without being committed, or a guard page — which is how a pointer into a
+structure the game has not built yet comes back as nothing rather than as a process that has
+died — and it can be an image or an allocation, which is how a live COM object's vtable is told
+from the stale pointer left in a block the allocator did not scrub. A restore that finds a region
+gone commits it again, as it does when the game has handed a few megabytes back to the OS.
+
+Installed per thread and taken off again when the test ends. The harness runs tests side by side
+in one process and hands its threads out again, so a space in a static would be two tests
+writing each other's game, and one left installed would be the next test reading a game it did
+not lay out.
+
+What this cannot catch is an offset that is wrong: the space is written from the same constants
+the reads use, so a wrong one is wrong on both sides at once. Offsets are settled against the
+real game, which is what the measurements in `DONE.md` are for. Everything built on top of them
+is what the space is for.
+
+In a build that is not a test the space does not exist and none of `mem`'s functions branch.
+
+## Holding the game still, checked against real threads
+
+The rule `threads` exists for — every thread the game made stops while its memory is copied, and
+the one playing the music does not — is checked with real threads rather than a model of them, since
+what is being relied on is what `SuspendThread` does. A test registers threads of its own as the
+game's and reads whether each is still counting.
+
+Counted turns rather than elapsed time: what says a thread is running is that it got somewhere
+while another one was getting somewhere, and a wall-clock window is the flaky way to ask. The
+exception is the case where nothing is left running to count against, which has to wait.
+
+`SuspendThread` returns before the thread it names has stopped — measured as a dozen more counts
+after the call came back. So what a test reads is the count once that window has passed, not the one
+from before the call.
+
+## Drawing into something that keeps it
+
+The overlay needs no seam at all. A Direct3D 8 device is a pointer to a vtable, so a vtable of
+Rust functions is a device as far as everything that calls one is concerned: the overlay creates
+its state block, uploads its textures and draws its quads through exactly the calls it makes
+against the game's device, and they land in a record instead of on a screen.
+
+What is kept is the request rather than pixels — each quad's rectangle and colour, which texture it
+went through, the clears, the viewports, in order. That answers the questions worth asking of a
+frame: whether the mark covers the row the lives are counted in and leaves the rows either side
+alone, whether a menu put its items where it says, which of the two flashes a boundary got. A
+rasteriser would answer the same ones at the cost of being a rasteriser, and the one thing here
+that is genuinely about pixels — the brush stroke's coverage — is baked from the picture by
+`build.rs`, which is where it is checked.
+
 ## How it fits together
 
 `orb.dll` is injected while the game is still suspended, so its `DllMain` runs before the
@@ -1792,15 +1849,19 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
 | `orb/menu_ui.rs` | what those three have in common — the keys they read for themselves, and the list they draw |
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
-| `orb/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
+| `orb/mem/mod.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
+| `orb/mem/real.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
+| `orb/mem/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
-| `orb/overlay.rs`, `text.rs`, `d3d8.rs` | drawing over the game's frame |
+| `orb/overlay.rs`, `text.rs`, `d3d8/mod.rs` | drawing over the game's frame |
+| `orb/d3d8/recording.rs` | a device that keeps what it was asked to draw, so a test can say what is on the screen |
 | `orb/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
 | `orb/crash.rs` | the handler that names the module and offset a fault happened at |
 | `orb/game/mod.rs` | `Game` and `State`: everything above is written against these |
 | `orb/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
+| `orb/game/th06/image.rs` | those addresses laid out in a space, so the real `Th06` has something to read |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.
