@@ -6,7 +6,16 @@ publish.workspace = true
 
 [lib]
 name = "orb"
-crate-type = ["cdylib"]
+# `rlib` beside the DLL the game loads, so that `tests/` can drive this crate from outside it.
+# A scenario over the whole of what a mode does to a run — the chapters, the snapshots, the retry
+# menu, the file a run is left in — reaches code that lives here and cannot move below the seam:
+# `chapter` and `resume` are orb's own, and the `orb-sim` they would have to be driven from is
+# already this crate's dev-dependency, which is a cycle the other way round.
+#
+# An integration test rather than another `#[cfg(test)]` module, and that is the point: `cfg(test)`
+# is false in `tests/`, so a scenario there reaches the simulated Windows the same way the shipped
+# DLL would reach the real one — through the `sim` feature and nothing else.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 orb-api.workspace = true

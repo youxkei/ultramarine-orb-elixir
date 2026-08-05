@@ -27,6 +27,7 @@ enough to fit some other change.
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
 | `DONE.md` | what works, and how it was checked |
 | `TODO.md` | what is left, with what is already known about each |
+| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. Context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
 
 Reasons an alternative was rejected go in a comment beside the code that would otherwise tempt
 someone back to it, not into `SPEC.md`.

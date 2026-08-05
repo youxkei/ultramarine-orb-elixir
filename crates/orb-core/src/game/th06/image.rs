@@ -21,37 +21,18 @@ use std::sync::Arc;
 use orb_api::Kind;
 use orb_sim::{Sim, Space};
 
-/// The game's static data: the game manager, the spell card history 0x30 into it, and the job
-/// chain past that. This is the range a chapter is a copy of.
-const DATA: Range<usize> = 0x0069_b000..0x0069_e000;
-
-/// The supervisor, and the window handle beside it.
-const SUPERVISOR: Range<usize> = 0x006c_6000..0x006c_7000;
-
-/// The replay manager, the sound player, the graphics manager and the front end, which sit within
-/// a couple of pages of each other.
-const MANAGERS: Range<usize> = 0x006d_3000..0x006d_5000;
-
-/// The player, which is 0x98f0 bytes of it and reaches almost to the managers above: `g_Player` is
-/// at 0x006ca628 and `g_ReplayManager` at 0x006d3f18 is what comes after it. Stopped short of
-/// [`MANAGERS`] rather than run right up to it, since two regions that touch are two regions and
-/// laying them out overlapping is refused.
-const PLAYER: Range<usize> = 0x006c_a000..0x006d_3000;
-
-/// The enemy manager, which is where the script's clock, the enemy count and the spell card flag
-/// are read from.
-const ENEMIES: Range<usize> = 0x004b_7000..0x004b_9000;
-
-/// Which spell card is up, and the head of the bullet manager beside it — `g_BulletManager` is at
-/// 0x005a5ff8, which is why this runs a page past where the cards are.
-const CARDS: Range<usize> = 0x005a_5000..0x005a_7000;
-
-/// The bullet manager's laser array, which is 0xec000 into it: 0x005a5ff8 + 0xec000 puts laser zero
-/// at 0x00691ff8, and sixty-four of them at 0x270 apiece reach 0x0069bbf8. So the tail of the array
-/// and the bullet count past it are inside [`DATA`] already, and what is missing is the run up to
-/// it. Not the whole megabyte between the manager's head and here: nothing reads the bullets
-/// themselves, only the count and the lasers' in-use flags.
-const LASERS: Range<usize> = 0x0069_1000..0x0069_b000;
+/// The game's static data, as the real one is: **one range**, `0x00476000..0x006e79fc`, which is what
+/// orb reads out of the PE and writes in the log every run — `.data 0x00476000..0x006e79fc (2562556
+/// bytes)`. This is the range a chapter is a copy of.
+///
+/// A set of windows around each global was tried and is why this is one range. Every structure the
+/// reads reach — the enemy manager at 0x004b79c8, the cards at 0x005a5ff8, the lasers, the game
+/// manager at 0x0069bca0, the supervisor, the player, the managers — is *inside* this on the machine,
+/// so a snapshot there covers all of them. Windows covering each one separately left the rest outside
+/// what `data()` reported, and a chapter restored in a scenario put back less than the same chapter
+/// restores on the machine: measured as the script's clock coming back on hardware and not in a test,
+/// which is a simulator disagreeing with the thing it stands for.
+const DATA: Range<usize> = 0x0047_6000..0x006e_79fc;
 
 /// Stands for the game's own code, so that a pointer into it reads as a live COM object's vtable
 /// and one anywhere else reads as the stale pointer left in a block the allocator did not scrub.
@@ -102,17 +83,7 @@ pub struct Image {
 impl Image {
     pub fn laid_out() -> Self {
         let sim = Arc::new(Sim::new());
-        for region in [
-            &DATA,
-            &SUPERVISOR,
-            &MANAGERS,
-            &CARDS,
-            &PLAYER,
-            &ENEMIES,
-            &LASERS,
-        ] {
-            sim.space().map(region.start, region.len(), Kind::Private);
-        }
+        sim.space().map(DATA.start, DATA.len(), Kind::Private);
         sim.space().map(CODE.start, CODE.len(), Kind::Image);
         Self { sim }
     }
@@ -184,6 +155,27 @@ impl Image {
         );
     }
 
+    /// Lays out the game's record of a spell card, with `card` the one a boss is on now.
+    ///
+    /// A record the game has written, which means the `CATK` magic at its head: `count_card_attempt`
+    /// refuses one without it, because a zeroed record is a card this build does not have rather than
+    /// a card nobody has tried. So a scenario that wants the attempt counted has to say the game had
+    /// got as far as writing the record, which is what this says.
+    pub fn spell_card(&self, card: i32, attempts: u16) {
+        let space = self.space();
+        space.write::<i32>(super::CURRENT_CARD, card);
+        let record = super::CARD_HISTORY + card as usize * 0x40;
+        space.write::<u32>(record, super::CATK_MAGIC);
+        space.write::<u16>(record + super::CATK_ATTEMPTS, attempts);
+    }
+
+    /// How many attempts the game's record holds for `card`, which is the number the 完全無欠 ranking
+    /// screen shows against it.
+    pub fn card_attempts(&self, card: i32) -> u16 {
+        self.space()
+            .read::<u16>(super::CARD_HISTORY + card as usize * 0x40 + super::CATK_ATTEMPTS)
+    }
+
     /// Says the run on screen is a replay being watched rather than one somebody is playing.
     ///
     /// Its own method rather than a field of [`Playing`], because it is not a number a stage is
@@ -196,5 +188,14 @@ impl Image {
     /// What a snapshot covers, which orb reads out of the PE in a real game.
     pub fn data(&self) -> Range<usize> {
         DATA
+    }
+
+    /// The host this game is laid out in, for a scenario that needs more of it than the memory — the
+    /// keyboard somebody presses at orb's own menus, or which window is in front.
+    ///
+    /// The same one, not another: a scenario pressing keys against one host while the chapters read
+    /// the game through a second would be two processes agreeing about nothing.
+    pub fn sim(&self) -> &Arc<Sim> {
+        &self.sim
     }
 }

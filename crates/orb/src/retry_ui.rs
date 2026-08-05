@@ -101,6 +101,14 @@ pub struct RetryMenu {
     cursor: Label,
 }
 
+/// Beside `new` because the module is public to `tests/` now, and a menu with nothing chosen yet is
+/// exactly what `new` makes.
+impl Default for RetryMenu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RetryMenu {
     pub fn new() -> Self {
         Self {

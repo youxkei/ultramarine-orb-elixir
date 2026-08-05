@@ -6,14 +6,18 @@
 // the DLL's entry point work, and there is no spelling of the export that avoids it.
 #![allow(linker_messages)]
 
-mod chapter;
+// `pub` on the ones a scenario in `tests/` drives, which is what an integration test needs of a
+// crate: `chapter` and `resume` are what a pointdevice run *is*, and `retry_ui` is how a death gets
+// to one. Nothing outside this crate and its own tests links it — the DLL exports `DllMain` and the
+// four hooks and nothing else — so what these say is which parts have a scenario over them.
+pub mod chapter;
 mod crash;
 mod hook;
 mod joystick;
 mod lives_ui;
-mod memtrack;
+pub mod memtrack;
 mod menu_ui;
-mod mode_ui;
+pub mod mode_ui;
 mod overlay;
 mod pe;
 /// A device that keeps what it was asked to draw, so a test can say what is on the screen. Beside
@@ -21,11 +25,11 @@ mod pe;
 /// `Screen` fixture builds a real `Overlay` — and that reaches `text.rs` and the GDI.
 #[cfg(test)]
 mod recording;
-mod resume;
+pub mod resume;
 mod resume_ui;
-mod retry_ui;
-mod score;
-mod snapshot;
+pub mod retry_ui;
+pub mod score;
+pub mod snapshot;
 mod text;
 mod threads;
 mod tuning;
