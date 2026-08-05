@@ -6,9 +6,13 @@ are called.
 
 ## Commit messages
 
-Subject lines start lowercase and generally begin with a bare verb. No type prefix, and not a
-noun phrase naming the feature. The verb says what the commit does to the repository, not what
-the program does once it is applied.
+Subject lines start lowercase with a bare verb. No type prefix, and not a noun phrase naming
+the feature. The verb says what the code does once the diff is applied, not what the commit
+does to the repository: the line is the predicate of an implied *"the code now"*, so `take a
+key held through an alt-tab as already held` rather than `add tests for the mode menu`.
+Somebody who never saw the diff should learn from the line what orb does differently now. A
+commit whose diff is only tests or only documents takes the same form about them — what the
+test now asserts, what the document now says.
 
 The body explains why the change was made, concretely: the problem it solves, named and with
 whatever numbers or addresses make it real, and why this way rather than the obvious
