@@ -1,4 +1,7 @@
-//! Starts 東方紅魔郷 with `orb.dll` loaded before the game's entry point runs.
+//! Starts a game orb knows with `orb.dll` loaded before the game's entry point runs.
+//!
+//! Which games those are is `orb_core::game::KNOWN`, read here as well as in the DLL so that the two
+//! cannot disagree about which games exist — see `docs/adr/0004`.
 //!
 //! The DLL is carried inside this exe and written out to be loaded, so installing orb is one
 //! file.
@@ -14,15 +17,9 @@ use std::process::ExitCode;
 use clap::Parser;
 use orb_config::Config;
 use orb_config::args::Options;
+use orb_core::game::{self, Known};
 
-/// Only 1.02h is supported: every address `orb` uses was read off this build.
-const GAME_EXE: &str = "東方紅魔郷.exe";
-const GAME_EXE_MD5: &str = "fa3d64768b1bfc50703dedc2db92f7fa";
-/// What the game keeps its own configuration in, read for one thing only: which pad button it takes
-/// as shoot and which as bomb, so that the settings dialog answers to the same two.
-const GAME_CFG: &str = "東方紅魔郷.cfg";
-
-/// Starts 東方紅魔郷 1.02h with orb loaded, and hands the options below on to it.
+/// Starts the game orb finds where it was pointed, and hands the options below on to it.
 ///
 /// Every option but the launcher's own is read twice, here and again inside the game off the
 /// command line this writes, so nothing about which pass a launch is has to be written down for
@@ -35,7 +32,7 @@ struct Launch {
     #[command(flatten)]
     options: Options,
 
-    /// where 東方紅魔郷.exe is, if it is not beside orb.exe
+    /// where the game's exe is, if it is not beside orb.exe
     #[arg(long, require_equals = true, value_name = "PATH", help_heading = MINE)]
     game_dir: Option<PathBuf>,
 
@@ -87,11 +84,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         config.game_dir = game_dir;
     }
 
+    // Which of the games orb knows this directory holds, before the settings are asked for: the pad
+    // mapping the dialog answers through is read out of that game's own configuration file, so the
+    // game has to be settled first.
+    let known = game_in(&config.game_dir)?;
+
     // Before the options are applied, so that what is written back is the settings and not one
     // launch's arguments — and before the game starts, since the DLL reads the same file from
     // inside it.
     if config.ask_at_startup || launch.settings {
-        let game_cfg = config.game_dir.join(GAME_CFG);
+        let game_cfg = config.game_dir.join(known.cfg);
         // Said before the dialog, because a pad answering it the wrong way round is this mapping and
         // there is nowhere else it is written down in a form anybody can read.
         println!("orb: pad — {}", pad::Mapping::read(&game_cfg).describe());
@@ -117,8 +119,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     config.apply(&launch.options);
     let options = to_hand_on(std::env::args().skip(1));
 
-    let game_exe = config.game_dir.join(GAME_EXE);
-    verify_game_exe(&game_exe)?;
+    let game_exe = config.game_dir.join(known.exe);
+    verify_game_exe(&game_exe, known)?;
 
     // Written out before the game starts, because a `LoadLibrary` needs a path. Kept out
     // of the game's directory: nothing there is orb's to leave behind, and this file is a
@@ -135,8 +137,35 @@ fn run() -> Result<(), Box<dyn Error>> {
     load_library(&process, &orb_dll)?;
     process.resume()?;
 
-    println!("orb: started {} (pid {})", game_exe.display(), process.id());
+    println!(
+        "orb: started {} {} (pid {})",
+        game_exe.display(),
+        known.version,
+        process.id()
+    );
     Ok(())
+}
+
+/// Which game orb knows is in the directory a launch was pointed at.
+///
+/// By the exe's own file name, which is what the DLL recognises the process by too — so the game the
+/// launcher starts and the game orb attaches to are decided from one table by one name.
+///
+/// The table's order where a directory holds two of them, there being nothing in a directory to say
+/// which was meant. Not an error: a directory with two games in it is somebody's own arrangement, and
+/// refusing it would refuse a launch that has an obvious first answer.
+fn game_in(dir: &Path) -> Result<&'static Known, Box<dyn Error>> {
+    game::KNOWN
+        .iter()
+        .find(|known| dir.join(known.exe).is_file())
+        .ok_or_else(|| {
+            format!(
+                "no game orb knows is in {}; it knows {}",
+                dir.display(),
+                game::known_named(),
+            )
+            .into()
+        })
 }
 
 /// Which `orb.yaml` a launch reads.
@@ -215,17 +244,22 @@ fn to_hand_on(arguments: impl Iterator<Item = String>) -> Vec<String> {
 
 /// `orb` reads the game's state through absolute addresses, so a different
 /// build would have it writing into unrelated memory rather than failing.
-fn verify_game_exe(path: &Path) -> Result<(), Box<dyn Error>> {
+///
+/// The refusal names every game and version orb knows rather than the one entry the name matched,
+/// because a build that is not this one is as likely to be another game's exe under a name orb reads
+/// as this game's own next release.
+fn verify_game_exe(path: &Path, known: &Known) -> Result<(), Box<dyn Error>> {
     use md5::{Digest, Md5};
 
     let bytes =
         std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let digest = Md5::digest(&bytes);
     let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    if digest != GAME_EXE_MD5 {
+    if digest != known.md5 {
         return Err(format!(
-            "{} is md5 {digest}, but orb only supports 1.02h (md5 {GAME_EXE_MD5})",
-            path.display()
+            "{} is md5 {digest}, which is no build orb knows: it knows {}",
+            path.display(),
+            game::known_named(),
         )
         .into());
     }
@@ -246,8 +280,46 @@ fn load_library(process: &inject::Process, dll: &Path) -> Result<(), Box<dyn Err
 
 #[cfg(test)]
 mod tests {
-    use super::config_path;
+    use super::{config_path, game_in};
+    use orb_core::game;
     use std::path::{Path, PathBuf};
+
+    /// Which game a directory holds is its exe being in it, and a directory holding none of them is
+    /// refused by a message that names every game and version orb knows — the launcher and the DLL
+    /// reading the one table is what makes those the same list.
+    #[test]
+    fn the_game_started_is_the_one_whose_exe_is_in_the_directory() {
+        let dir = std::env::temp_dir().join(format!("orb-game-in-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+
+        let Err(refused) = game_in(&dir) else {
+            panic!("a directory with no game in it named one");
+        };
+        let refused = refused.to_string();
+        for known in game::KNOWN {
+            assert!(
+                refused.contains(known.exe) && refused.contains(known.version),
+                "{refused:?} does not name {} {}",
+                known.exe,
+                known.version,
+            );
+        }
+
+        // The exe being there, whatever is in it: which build it is is the md5's to say, and a
+        // directory with the file in it is the directory that game is installed in.
+        for known in game::KNOWN {
+            let exe = dir.join(known.exe);
+            std::fs::write(&exe, b"not a game")
+                .unwrap_or_else(|error| panic!("{}: {error}", exe.display()));
+            let found = game_in(&dir).expect("the game whose exe is there");
+            assert_eq!(found.exe, known.exe);
+            assert_eq!(found.md5, known.md5);
+            std::fs::remove_file(&exe).expect("the exe just written");
+            assert!(game_in(&dir).is_err(), "the exe taken away again");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// The file a launch reads is the one the DLL will read, which is the one beside the game:
     /// answers written into any other file are answers the game never sees.

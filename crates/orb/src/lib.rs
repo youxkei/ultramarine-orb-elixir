@@ -88,7 +88,6 @@ mod brush {
 }
 
 use chapter::{Cause, Chapters, Judgement};
-use game::th06::Th06;
 use game::{Game, Pad, RunStart, State};
 use input::Keyboard;
 use lives_ui::LivesMark;
@@ -360,8 +359,24 @@ struct Started {
     saved: Option<resume::Saved>,
 }
 
-/// The one game orb knows how to run inside.
-static GAME: Th06 = Th06;
+/// The game this process is, as the attach settled it out of [`game::KNOWN`].
+///
+/// A static, and not something the hooks below are handed, for the reason
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md)
+/// keeps the frame loop's two calls in statics: a hook is a plain `extern` function with nothing but
+/// the ABI's arguments, so where it would be handed a game it reads one. Filled by [`attach`] before
+/// anything is patched and by [`attach_to`] from what a scenario hands it — so `None` is a process
+/// orb chose no game for, where none of the readers below was installed and each of them does
+/// nothing of orb's if it was.
+static GAME: MainThread<Option<&'static dyn Game>> = MainThread::new(None);
+
+/// The game a hook is running inside, or `None` in a process orb recognised no game in.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn chosen() -> Option<&'static dyn Game> {
+    *unsafe { GAME.get() }
+}
 
 static RUNTIME: MainThread<Option<Runtime>> = MainThread::new(None);
 /// Everything the frame loop keeps between frames.
@@ -502,12 +517,32 @@ fn attach() {
         data.end,
         data.len()
     );
+    let Some(exe_path) = orb_api::module::host_exe() else {
+        return log!("cannot locate the game exe; orb is doing nothing this run");
+    };
+    // Which game this is, before anything of the host is touched and before the config is read: a
+    // process orb has no addresses for is one it must leave exactly as it found it, and every address
+    // below this line belongs to one of these entries.
+    let name = exe_path.file_name().unwrap_or_default().to_string_lossy();
+    let Some(known) = game::known_by_exe(&name) else {
+        return log!(
+            "game: nothing orb knows is called {name}; it knows {}. orb is doing nothing this run",
+            game::known_named(),
+        );
+    };
+    log!(
+        "game: {name}, and every address orb has for it was read off {}",
+        known.version
+    );
+    // Stored before a single byte is patched, so that a hook this attach installs has a game to read
+    // however the rest of the attach goes — see [`GAME`].
+    unsafe { *GAME.get() = Some(known.game) };
+    let game = known.game;
     unsafe { pacing() }.configure();
 
-    let mut config = match orb_api::module::host_exe().map(|path| Config::load_beside(&path)) {
-        Some(Ok(config)) => config,
-        Some(Err(error)) => return log!("config: {error}; orb is doing nothing this run"),
-        None => return log!("cannot locate the game exe; orb is doing nothing this run"),
+    let mut config = match Config::load_beside(&exe_path) {
+        Ok(config) => config,
+        Err(error) => return log!("config: {error}; orb is doing nothing this run"),
     };
     // The rest comes off this process's own command line, which the launcher wrote when it
     // created the game: what belongs to building the midstage table or to looking into a fault
@@ -581,14 +616,14 @@ fn attach() {
         }
     }
 
-    let patches = GAME.hooks();
+    let patches = game.hooks();
     // Remembered before the patches are consumed: orb's own frame loop calls the
     // game's chain functions at these addresses, which is what keeps its hooks in
     // the path.
     RUN_CALC_CHAIN_TARGET.store(patches.update.target, Ordering::Relaxed);
     RUN_DRAW_CHAIN_TARGET.store(patches.draw.target, Ordering::Relaxed);
     // And the two it calls in the game rather than reaching through a hook.
-    let calls = GAME.frame_calls();
+    let calls = game.frame_calls();
     PLAY_SOUNDS.store(calls.play_sounds);
     PRESENT.store(calls.present);
 
@@ -652,7 +687,7 @@ fn attach() {
     }
     // Loud rather than fatal: what it costs is the frame paying for the read again, which is
     // what every run before this did.
-    match unsafe { joystick::install(exe, GAME.joystick_calibration()) } {
+    match unsafe { joystick::install(exe, game.joystick_calibration()) } {
         Ok(()) => log!("joystick: read on a thread of orb's, out of the game's frame"),
         Err(error) => log!("joystick: {error}; the read stays in the game's frame"),
     }
@@ -695,7 +730,7 @@ fn attach() {
     // the monitor and a size is a window of that size, and either way it is a window rather than
     // the display taken exclusively — which is what leaves orb somewhere to draw the numbers
     // beside the game, and what the letterbox is presented into.
-    match unsafe { window::install(exe, GAME.content_size(), config.screen) } {
+    match unsafe { window::install(exe, game.content_size(), config.screen) } {
         Ok(()) => log!("screen: window hooks installed"),
         Err(error) => log!("screen: {error}; the window is left as the game makes it"),
     }
@@ -755,7 +790,7 @@ fn attach() {
         }
     }
 
-    unsafe { attached(&GAME, config, data) };
+    unsafe { attached(game, config, data) };
 }
 
 /// The game's own functions orb's hooks call through, which in a real process are the trampolines
@@ -808,6 +843,10 @@ pub unsafe fn attach_to(
     );
     log::set_level(config.log_level);
     log::set_pacing(config.pacing_log);
+    // Where [`attach`] settles this off the exe's own name, a game laid out by hand is handed over as
+    // itself: there is no file to read the name of, and a scenario that had to name one would be
+    // choosing its game twice.
+    unsafe { *GAME.get() = Some(game) };
     // The flags a fresh process would have brought, since a game that is not one does not bring it: a
     // launch is the moment nothing is being held back, nobody has pressed anything, and the keyboard
     // has not been lost. Left standing, one game's would be the next game's opening state — a press
@@ -937,7 +976,7 @@ unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usize>) 
             overlay: None,
             overlay_attempts: OVERLAY_ATTEMPTS,
             shown: (0, 0, 0),
-            chapters: Chapters::new(&GAME, tuning, during_replay),
+            chapters: Chapters::new(game, tuning, during_replay),
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
@@ -1146,8 +1185,11 @@ pub unsafe extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
 /// has none to resize, and by the time anything of ours runs per frame the device
 /// already exists.
 extern "C" fn create_game_window(instance: *mut c_void) {
-    if FORCE_WINDOWED.swap(false, Ordering::Relaxed) && !GAME.windowed() {
-        unsafe { GAME.force_windowed() };
+    if FORCE_WINDOWED.swap(false, Ordering::Relaxed)
+        && let Some(game) = unsafe { chosen() }
+        && !game.windowed()
+    {
+        unsafe { game.force_windowed() };
         log!("borderless: overrode the game's fullscreen setting");
     }
     let original: extern "C" fn(*mut c_void) =
@@ -1266,9 +1308,11 @@ unsafe fn call_render(window: *mut c_void) -> i32 {
 /// Replaces the game's device setup, to redirect the device's `Present` before
 /// anything is presented through it. Runs again after every device reset.
 extern "C" fn init_d3d_device() {
-    let device = unsafe { GAME.d3d_device() };
-    if !device.is_null() {
-        unsafe { window::hook_device(device) };
+    if let Some(game) = unsafe { chosen() } {
+        let device = unsafe { game.d3d_device() };
+        if !device.is_null() {
+            unsafe { window::hook_device(device) };
+        }
     }
     let original: extern "C" fn() =
         unsafe { std::mem::transmute(INIT_D3D_DEVICE.load(Ordering::Relaxed)) };
@@ -1288,10 +1332,17 @@ extern "C" fn init_d3d_device() {
 /// where a run's own buttons are written down: against the frame of the stage about to run, since
 /// the read happens before the counter moves. See [`resume`].
 pub extern "system" fn get_input() -> u16 {
+    let original: extern "system" fn() -> u16 =
+        unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
+    // Nothing of orb's in a process the attach settled on no game in: every line below reads one, and
+    // the game's own read is what this hook stands in front of. See [`GAME`].
+    let Some(game) = (unsafe { chosen() }) else {
+        return original();
+    };
     // Which frame of the stage this read is for. Before anything else, and before the foreground
     // check: a run being played back into place is being played with the window wherever it is,
     // and the frames it runs through are not frames anybody is at the keyboard for.
-    let frame = unsafe { GAME.stage_frame() };
+    let frame = unsafe { game.stage_frame() };
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame) }) {
         return buttons;
     }
@@ -1299,7 +1350,7 @@ pub extern "system" fn get_input() -> u16 {
     // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
     // flag, which only says what the game was last told; this is the same question
     // orb asks for its own keys, so the two cannot disagree.
-    let window = unsafe { GAME.window() };
+    let window = unsafe { game.window() };
     let active = !window.is_null() && orb_api::window::foreground() == window;
     if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
         log!(
@@ -1326,28 +1377,26 @@ pub extern "system" fn get_input() -> u16 {
         // question up — the same trade the game makes across its own scene changes, and the harmless
         // way round. See [`held_back`].
         DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
-        return unsafe { noted(frame, 0) };
+        return unsafe { noted(game, frame, 0) };
     }
     // Back in front: get the device back before anyone reads it. Left to itself the
     // game would only try on the one `DIERR_INPUTLOST` that reports the loss, and
     // whether it ever sees that report depends on exactly when the frames fell —
     // which is not something to leave the whole keyboard resting on.
     if INPUT_LOST.load(Ordering::Relaxed) {
-        if !unsafe { GAME.acquire_input() } {
-            return unsafe { noted(frame, 0) };
+        if !unsafe { game.acquire_input() } {
+            return unsafe { noted(game, frame, 0) };
         }
         INPUT_LOST.store(false, Ordering::Relaxed);
         log!("input: keyboard re-acquired");
     }
 
-    let original: extern "system" fn() -> u16 =
-        unsafe { std::mem::transmute(GET_INPUT.load(Ordering::Relaxed)) };
     // Timed because it is the largest single thing in a frame — most of a refresh at
     // 120Hz — and none of it is orb's.
     let started = profile::now();
     let buttons = original();
     unsafe { profile::record(profile::Phase::Input, started) };
-    unsafe { noted(frame, held_back(buttons)) }
+    unsafe { noted(game, frame, held_back(game, buttons)) }
 }
 
 /// The word the game reads, with the front end's own decide taken out of it while orb has a question
@@ -1365,9 +1414,9 @@ pub extern "system" fn get_input() -> u16 {
 ///
 /// And with nothing new in it at all on the first read after a question came down, which is what
 /// [`SETTLE_KEYS`] asks for.
-fn held_back(buttons: u16) -> u16 {
-    let decide = GAME.menu_decide();
-    let cancel = GAME.menu_cancel();
+fn held_back(game: &dyn Game, buttons: u16) -> u16 {
+    let decide = game.menu_decide();
+    let cancel = game.menu_cancel();
 
     // The key a question was cancelled with, until it is let go: it is still down on the frame the
     // game carries on into, and going back is what the screen underneath does with it.
@@ -1431,9 +1480,9 @@ fn held_back(buttons: u16) -> u16 {
 ///
 /// # Safety
 /// Only ever called from the input hook, on the game's main thread.
-unsafe fn noted(frame: Option<u32>, buttons: u16) -> u16 {
+unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     if let Some(frame) = frame {
-        unsafe { resume::noted(frame, buttons & GAME.run_input()) };
+        unsafe { resume::noted(frame, buttons & game.run_input()) };
     }
     buttons
 }
@@ -1450,8 +1499,10 @@ pub extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
     let result = original(manager);
     // Its own answer first: anything but nothing is a stage it could not build, and the game is
     // on its way back to its menu with no stage for any of this to be about.
-    if result == 0 {
-        unsafe { resume::stage_begun(&GAME) };
+    if result == 0
+        && let Some(game) = unsafe { chosen() }
+    {
+        unsafe { resume::stage_begun(game) };
     }
     result
 }
@@ -1482,7 +1533,9 @@ pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
 pub unsafe extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
-    unsafe { GAME.forget_captures(screen) };
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { game.forget_captures(screen) };
+    }
     original(screen)
 }
 
@@ -1492,7 +1545,9 @@ pub unsafe extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
 pub extern "C" fn stage_building(stage: i32) -> i32 {
     let original: extern "C" fn(i32) -> i32 =
         unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
-    unsafe { resume::stage_building(&GAME) };
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { resume::stage_building(game) };
+    }
     original(stage)
 }
 
@@ -1533,7 +1588,9 @@ extern "C" fn save_replay(path: *const u8, name: *const u8) {
 /// 297414375ms in `orb.log`, jumping out of stage 1 around script frame 250 and
 /// straight back, three lives gone by frame 1027.
 extern "C" fn stop_recording() {
-    if unsafe { GAME.replaying() } {
+    if let Some(game) = unsafe { chosen() }
+        && unsafe { game.replaying() }
+    {
         detail!("replay: the record is being watched, not written; its terminator dropped");
         return;
     }
@@ -2850,7 +2907,7 @@ fn tune(runtime: &mut Runtime, state: &State) {
     if (add || keep || drop || write)
         && let Some(tuning) = runtime.chapters.tuning()
     {
-        tuning.write(&GAME);
+        tuning.write(runtime.game);
     }
 }
 
@@ -3151,9 +3208,11 @@ unsafe fn write_status(runtime: &mut Runtime) {
 mod tests {
     use std::sync::atomic::Ordering;
 
+    use crate::game::th06::Th06;
+
     use super::{
-        Cause, DECIDE_PRESSED, DECIDE_WAS_DOWN, FEED_DECIDE, FLASH_JUDGING, FLASH_PLAYING, GAME,
-        Game, HOLD_CANCEL, HOLD_DECIDE, SETTLE_KEYS, Watching, flash_for, held_back, moved_on,
+        Cause, DECIDE_PRESSED, DECIDE_WAS_DOWN, FEED_DECIDE, FLASH_JUDGING, FLASH_PLAYING, Game,
+        HOLD_CANCEL, HOLD_DECIDE, SETTLE_KEYS, Watching, flash_for, held_back, moved_on,
     };
 
     /// What the game reads while orb is holding a press of its own back: the buttons it does read are
@@ -3168,7 +3227,10 @@ mod tests {
     /// put where this test wants it first, for the same reason.
     #[test]
     fn a_press_held_back_is_reported_once_and_reaches_the_game_only_when_handed_over() {
-        let decide = GAME.menu_decide();
+        // 紅魔郷's own bits, this being about which of them a read hands over and which are kept: the
+        // holding is any game's and the words it is done to are one game's.
+        let game = &Th06;
+        let decide = game.menu_decide();
         let other = 0x20;
         HOLD_DECIDE.store(false, Ordering::Relaxed);
         DECIDE_PRESSED.store(false, Ordering::Relaxed);
@@ -3178,73 +3240,76 @@ mod tests {
         SETTLE_KEYS.store(false, Ordering::Relaxed);
 
         // Nothing held back: the word is the game's own, whatever is in it.
-        assert_eq!(held_back(decide | other), decide | other);
+        assert_eq!(held_back(game, decide | other), decide | other);
         assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
 
         // Held back, with the button still down from the press that got the game to this screen. Not a
         // press: nobody has asked for anything here yet, and reading it as one puts the question up on
         // the screen's own first frames.
         HOLD_DECIDE.store(true, Ordering::Relaxed);
-        assert_eq!(held_back(decide), 0);
+        assert_eq!(held_back(game, decide), 0);
         assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
 
         // Still down, and still nothing.
-        assert_eq!(held_back(decide | other), other);
+        assert_eq!(held_back(game, decide | other), other);
         assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
 
         // Let go and pressed: that is the press the question goes on.
-        assert_eq!(held_back(0), 0);
-        assert_eq!(held_back(decide), 0);
+        assert_eq!(held_back(game, 0), 0);
+        assert_eq!(held_back(game, decide), 0);
         assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
 
         // Let go and pressed again, which is a second question.
-        assert_eq!(held_back(0), 0);
-        assert_eq!(held_back(decide), 0);
+        assert_eq!(held_back(game, 0), 0);
+        assert_eq!(held_back(game, decide), 0);
         assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
 
         // Handed over on one read, and on that read only: the screen decides on the edge, and a second
         // read with the bits in would be a second decide.
         FEED_DECIDE.store(true, Ordering::Relaxed);
-        assert_eq!(held_back(other), decide | other);
-        assert_eq!(held_back(other), other);
+        assert_eq!(held_back(game, other), decide | other);
+        assert_eq!(held_back(game, other), other);
         assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
 
         // A key pushed while the question was up does not reach the read the game carries on with: the
         // game's own frame before is the frame the question went up on, so a direction still down there
         // is a direction it reads as pressed — and it moves its cursor before it reads its decide.
         let direction = 0x40;
-        assert_eq!(held_back(decide | other), other);
+        assert_eq!(held_back(game, decide | other), other);
         assert!(DECIDE_PRESSED.swap(false, Ordering::Relaxed));
         SETTLE_KEYS.store(true, Ordering::Relaxed);
-        assert_eq!(held_back(decide | other | direction), other);
+        assert_eq!(held_back(game, decide | other | direction), other);
         // And the decide is not settled with the rest of them: read as let go there, it would be a
         // press again on the read after, which is the question coming back up on its own cancel.
         assert!(!DECIDE_PRESSED.load(Ordering::Relaxed));
         // One read only. What is still down after it is down against a frame the game was given, so it
         // is the game's own to read — by which time the item it asked about has already had the press.
-        assert_eq!(held_back(decide | other | direction), other | direction);
+        assert_eq!(
+            held_back(game, decide | other | direction),
+            other | direction
+        );
 
         // And the key a question was cancelled with: kept from the screen underneath, whose own back it
         // is, for as long as it is down. One of the two buttons rather than both, that being the
         // ordinary case and the one a faked previous frame got wrong.
-        let cancel = GAME.menu_cancel();
+        let cancel = game.menu_cancel();
         let one = cancel.isolate_lowest_one();
         HOLD_CANCEL.store(true, Ordering::Relaxed);
-        assert_eq!(held_back(one | other), other);
-        assert_eq!(held_back(cancel | other), other);
+        assert_eq!(held_back(game, one | other), other);
+        assert_eq!(held_back(game, cancel | other), other);
 
         // Let go, and the next press of it is the screen's own again: cancelling a question and asking
         // to go back are two different things to ask for.
-        assert_eq!(held_back(other), other);
+        assert_eq!(held_back(game, other), other);
         assert!(!HOLD_CANCEL.load(Ordering::Relaxed));
-        assert_eq!(held_back(one | other), one | other);
+        assert_eq!(held_back(game, one | other), one | other);
 
         // And it ends with the screen it was cancelled on whether or not the key has been let go: held
         // past that, it would be taking the bomb out of whatever was started next.
         HOLD_CANCEL.store(true, Ordering::Relaxed);
-        assert_eq!(held_back(one | other), other);
+        assert_eq!(held_back(game, one | other), other);
         HOLD_DECIDE.store(false, Ordering::Relaxed);
-        assert_eq!(held_back(one | other), one | other);
+        assert_eq!(held_back(game, one | other), one | other);
         assert!(!HOLD_CANCEL.load(Ordering::Relaxed));
     }
 

@@ -29,8 +29,20 @@ themselves in `pointdevice_score.dat`, and *Score* asks which of the two to show
 orb does its own window — fullscreen or a size you pick — its own frame pacing, and removes a
 frame of input lag by updating before drawing, so nothing else has to be loaded alongside it.
 
-Only 1.02h is supported (`md5 fa3d64768b1bfc50703dedc2db92f7fa`). The launcher checks the
-exe before starting it, because every address orb uses was read off that exact build.
+## Which games
+
+**東方紅魔郷 1.02h** (`md5 fa3d64768b1bfc50703dedc2db92f7fa`) is everything above.
+
+**東方妖々夢** (`md5 0126afce1e805370d36c3482445e98da`) is a game orb starts and stays out of. It
+gets the window at the right shape and nothing else — not the frame pacing, not the frame of input lag,
+nothing drawn, and none of the chapters, the retry menu, the run picked up again or the question that
+chooses between the two modes. What has been read of that exe is a frame's worth of addresses and
+nothing about a run, and orb answers nothing it has not read. There is no reason to start 妖々夢 through
+orb yet.
+
+The launcher looks for whichever of those two exes is in the directory it was pointed at and checks
+its md5 before starting it, because every address orb uses was read off that exact build. A build it
+does not know is refused with the list of the ones it does.
 
 ## Building and installing
 
@@ -57,7 +69,7 @@ warnings and the next one to appear is about the change that made it. `NO_HUSKY_
 build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
 
-Then copy one file into the directory holding `東方紅魔郷.exe`:
+Then copy one file into the directory holding the game's exe:
 
 | | |
 | --- | --- |

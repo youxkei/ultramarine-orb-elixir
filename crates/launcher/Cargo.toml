@@ -15,6 +15,12 @@ orb-config.workspace = true
 clap.workspace = true
 md-5 = "0.10"
 
+# For one item of it: `game::KNOWN`, the table of games orb knows. Read here as well as in the DLL so
+# that the two cannot disagree about which games exist — a launcher with an exe name of its own would
+# be a second list to keep in step. Nothing else of this crate is reached; the `&'static dyn Game` in
+# each entry is the DLL's to use.
+orb-core.workspace = true
+
 # Nothing here calls it. Its build script is what points git at `.husky` for this repository's
 # hooks, and a workspace with no root package has to hang that off one of its members.
 [dev-dependencies]

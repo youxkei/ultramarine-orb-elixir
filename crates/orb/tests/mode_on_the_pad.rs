@@ -16,7 +16,8 @@
 
 mod fake;
 
-use fake::{Fake, MAPPING, READS_KEYS_AFTER, in_its_own_process};
+use fake::th06::{Fake, MAPPING};
+use fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::game::RunStart;

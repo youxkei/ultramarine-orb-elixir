@@ -19,7 +19,8 @@
 
 mod fake;
 
-use fake::{Fake, READS_KEYS_AFTER, in_its_own_process};
+use fake::th06::Fake;
+use fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb::menu_ui::{NORMAL, SELECTED};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Screen, item};

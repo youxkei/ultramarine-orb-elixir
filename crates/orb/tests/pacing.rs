@@ -464,7 +464,7 @@ fn last_said(lines: &[String]) -> String {
 /// copy to the original: the arithmetic was covered and the order it is asked for in was not.
 mod blanks {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
 
     const HZ: u32 = 120;
     /// What the game's own frame takes, read off a real run's report line: "(694us to draw + …)".
@@ -572,7 +572,7 @@ mod blanks {
 /// which the blank path never reaches.
 mod by_clock {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_core::profile;
 
     const WORK_US: i64 = 1_500;
@@ -636,7 +636,7 @@ mod by_clock {
 /// So three loads here rather than one, since the third stage is where it was noticed.
 mod load {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     const HZ: u32 = 120;
@@ -732,7 +732,7 @@ mod load {
 /// paced the way any 144Hz display is: one frame on whichever of its blanks is nearest each sixtieth.
 mod disagrees {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
 
     /// What the monitor the window is on reports, and a whole multiple of sixty — which is what used to
     /// decide the cadence and now decides nothing.
@@ -814,7 +814,7 @@ mod disagrees {
 /// doing it.
 mod budget {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     const HZ: u32 = 120;
@@ -924,7 +924,7 @@ mod budget {
 /// the rate comes out at sixty over a real one is the `converges` section.
 mod fractional {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     const HZ: u32 = 144;
@@ -1012,7 +1012,7 @@ mod fractional {
 /// test could make happen — a real one is not asked to be slow.
 mod compose {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     const HZ: u32 = 120;
@@ -1193,7 +1193,7 @@ mod compose {
 /// frames.
 mod converges {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     /// What the game's own update and draw take, read off a real run's report line: "(694us to draw + …)".
@@ -1340,7 +1340,7 @@ mod converges {
 /// there too. What these rows add is orb's own arithmetic over that.
 mod rates {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
 
     const WORK_US: i64 = 700;
     /// Fifteen seconds of play: a few for the allowance to settle in and a dozen to hold it.
@@ -1603,7 +1603,7 @@ mod rates {
 /// which is geometry and lives in the `converges` section.
 mod holds {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
     /// Fifteen seconds: three for the allowance to finish climbing and a dozen judged a second at a time.
@@ -2013,10 +2013,10 @@ mod holds {
 /// became addresses the game hands over — see `docs/adr/0002`.
 mod frame_loop {
     use super::*;
-    use crate::fake::{
-        CHAIN_FAILED, CHAIN_LEFT, DRAW, FRAME_FAILED, FRAME_KEPT_RUNNING, FRAME_LEFT, Fake,
-        PRESENT, SOUND, UPDATE, WINDOW, in_its_own_process, the_run,
+    use crate::fake::th06::{
+        CHAIN_FAILED, CHAIN_LEFT, FRAME_FAILED, FRAME_KEPT_RUNNING, FRAME_LEFT, Fake, the_run,
     };
+    use crate::fake::{DRAW, Launched, PRESENT, SOUND, UPDATE, WINDOW, in_its_own_process};
     use orb_api::Hwnd;
 
     /// A launch, run far enough in that the frames below are ordinary ones — the overlay built, the title
@@ -2174,7 +2174,7 @@ mod frame_loop {
 /// What covers the writing itself is `log_writes.rs` in `orb-sim`.
 mod log_deferral {
     use super::*;
-    use crate::fake::{Display, Fake, Work, in_its_own_process};
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_core::profile;
 
     /// A display with room for a frame that takes its time: at 60Hz a turn is 16.6ms, and the work below is

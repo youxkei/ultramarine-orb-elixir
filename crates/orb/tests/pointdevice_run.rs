@@ -20,9 +20,8 @@
 
 mod fake;
 
-use fake::{
-    ATTACK_CHANGES, CARD, CARD_STARTS, Fake, READS_KEYS_AFTER, in_its_own_process, lives_row,
-};
+use fake::th06::{ATTACK_CHANGES, CARD, CARD_STARTS, Fake, lives_row};
+use fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb::menu_ui::{LINE_HEIGHT, NORMAL, SELECTED};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen, item};

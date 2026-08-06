@@ -250,6 +250,7 @@ dependencies = [
  "md-5",
  "orb",
  "orb-config",
+ "orb-core",
  "windows-sys",
 ]
 

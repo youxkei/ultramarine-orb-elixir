@@ -9,9 +9,50 @@ reasons an alternative was rejected belong in a comment beside the code that wou
 tempt someone back to it, which is where they are. What has been checked and how is in
 [DONE.md](DONE.md); what is left is in [TODO.md](TODO.md).
 
-Only 1.02h (`md5 fa3d64768b1bfc50703dedc2db92f7fa`). Every address below was read off that
-build and cross-checked against the
+## Which game a launch is
+
+**One table names every game orb knows, and both halves read it.** `orb_core::game::KNOWN` holds,
+per game, the exe's own file name, the file the game keeps its configuration in, the md5 of the one
+build the addresses were read off, what that build is called, and the [`Game`] those addresses are
+in. The launcher finds the game by which entry's exe is in the directory it was pointed at, and
+refuses a build whose md5 is not that entry's, naming every game and version orb knows. The DLL is
+already inside the process by the time it can ask anything, so it matches on the exe's own file
+name — case-insensitively over the ASCII of it — and names in the log the build its addresses were
+read off. A process no entry names is one where orb patches nothing, says which games it knows, and
+does nothing else.
+
+The choice is made once, at the attach, and kept in a static the hooks read: a hook is a plain
+`extern` function with nothing but the ABI's arguments, so where it would be handed a game it reads
+one. The same reason the frame loop's two calls into the game are statics — see
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — and the
+shape [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) settled the
+choice of game into.
+
+One table rather than a constant apiece because two lists cannot be kept in step, and a launcher
+that starts a game the DLL does not recognise is a launch where orb is loaded and silent.
+
+Two entries, and they are not the same kind of game.
+
+`東方紅魔郷.exe`, 1.02h, `md5 fa3d64768b1bfc50703dedc2db92f7fa` — everything this document describes.
+Every address below was read off that build and cross-checked against the
 [GensokyoClub/th06](https://github.com/GensokyoClub/th06) decompilation.
+
+`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢, and **a game orb is in rather than one
+it does anything to.** What has been read of that exe is a frame's worth of addresses, each with the
+evidence in `orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the window sized to the
+4:3 its 640x480 output has, and orb's update and draw hooks inside the game's own frame. Nothing else.
+Not orb's own frame loop — replacing 妖々夢's frame took the game down, and `Hooks::render` is `None`
+until the rest of that frame has been read — so no cadence of orb's and no frame of input lag removed.
+Not anything drawn either, there being no `font.ttf` beside that exe to build an overlay from. And none
+of what the rest of this document is about: no chapters, no retry menu, no run picked up again, no card
+counted, no mode question.
+
+Every one of those is a method of `Th07` answering `None` or nothing rather than a branch anywhere above
+the seam, which is what a seam is for — and none of them answers a guess, an address written down
+because it is where 紅魔郷 keeps the same thing being the one thing that must not happen. That rule is
+what the frame loop cost: the addresses in 妖々夢's frame lined up with 紅魔郷's and the *shape* of the
+frame did not. See
+[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
 ## Chapters and retries
 

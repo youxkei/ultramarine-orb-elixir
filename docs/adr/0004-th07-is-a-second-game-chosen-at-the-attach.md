@@ -1,9 +1,14 @@
 # 4. th07 is a second `Game` chosen at the attach, and it declines what has not been measured
 
-**Status:** accepted, not built. Nothing of th07 is in the tree: `Game` has one implementation,
-`orb/src/lib.rs` holds `static GAME: Th06 = Th06` and names it in 27 places, the launcher pins
-`東方紅魔郷.exe` by md5, and the only game a scenario can attach to is a laid-out 紅魔郷. The plan at the
-end is what is left.
+**Status:** accepted and built, with one thing it claimed disproved by the run that built it.
+`orb_core::game::KNOWN` names 紅魔郷 1.02h and the `th07.exe` of md5 `0126afce`, both halves read that one
+table, `orb/src/lib.rs` chooses its game at the attach out of `host_exe()`, `orb-core/src/game/th07/`
+holds a `Th07` that declines everything about a run, and `orb/tests/th07.rs` is the one scenario. Step 6
+happened: 妖々夢 was launched with orb in it and **orb's own frame loop took it down on the first frame**,
+so `Hooks::render` is `None` and 妖々夢 keeps its own cadence. What that costs, and what reading the rest
+of that frame would take, is in `TODO.md`; the measurement is in `DONE.md` and beside the `render: None`
+itself. What stands is everything about the *shape* — the table, the choice at the attach, the split rig,
+and a stub that declines rather than panics.
 
 It stands on three decisions. [0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a game that plays the
 game's part in front of orb and ruled out a second `Game` written for tests.
@@ -92,6 +97,14 @@ attaches to is chosen once, at the attach.**
   everything declinable, run against a game laid out from what has been measured so far, says in the log
   exactly which answer it was missing next.
 
+  **The stub did find the list, and the frame loop was not on it — it was the thing that broke.** The
+  slice was chosen as the part that needs nothing about a run, and that is true of it; what is not true
+  is that a frame is a list of addresses. Composing 妖々夢's frame means doing what its own frame does
+  around the two chain walks, and that is code to be read rather than six numbers. So the first slice
+  the *next* game should take is the window and the content size, which are two answers and were both
+  right in the real image, and the frame loop should be the last thing attempted rather than the first.
+  The overlay is not a slice at all where the game ships no font.
+
 - **The game is a table read once.** Exe name, md5, and the `&'static dyn Game` — matched at the attach
   from `host_exe()`, stored in a static the hooks read, and named in the log with the version it matched.
   A process that matches nothing is a run where orb does nothing and says which games it knows, which is
@@ -109,10 +122,16 @@ attaches to is chosen once, at the attach.**
   frames — and playing 紅魔郷's part is th06's. A second game brings its own half and nothing else.
 
 - **th07's e2e stub is one scenario**, `orb/tests/th07.rs`: a laid-out 妖々夢, orb attached to `Th07`,
-  frames run through `render`, and the log holding the lines that say orb got in — the `.data` bounds it
-  found, the display it settled on, the overlay built, and a `frame:` line at sixty. Which is the smallest
-  thing that says the seam holds for a second game, and it fails loudly the day one of those addresses is
-  wrong.
+  frames run, and the log holding the lines that say orb got in. Which is the smallest thing that says the
+  seam holds for a second game, and it fails loudly the day one of those addresses is wrong.
+
+  **What it holds against is what the run showed, not what this expected.** Frames through the game's own
+  frame rather than through `render`, since that is what a launch there installs; `overlay: unavailable`
+  rather than the overlay built, 妖々夢 shipping no font; no `frame:` line at sixty, orb pacing nothing
+  there. What it asks instead is that orb did *none* of what it does to 紅魔郷 — no chapter, no retry, no
+  resume, no wash, no mode question — and wrote no `panic:` and no `crash:`. A scenario asserting the
+  four lines this paragraph originally named would have passed while the real game died, because the
+  laid-out one has a font and answers every read.
 
 ## Consequences
 
@@ -121,15 +140,27 @@ the launcher's one exe becoming a table. And every method th07 declines is a fea
 there: no chapters, no retry menu, no run picked up again, no card counted. So th07 is a game orb *paces*
 long before it is a game orb *plays*, and the log has to say which of the two this run is.
 
+**And it costs more than that, which the run found.** th07 is not a game orb paces either. Replacing
+妖々夢's frame took the game down on its first frame — see the `render: None` in `th07/mod.rs` for the
+faulting address and `DONE.md` for the two launches that separated the loop from the two patches — so
+what a launch there has is the window at the right shape and orb's update and draw hooks inside the
+game's own frame, and nothing else. No cadence of orb's, no frame of input lag removed, and nothing
+drawn, 妖々夢 having no `font.ttf` beside its exe to build an overlay from. The paragraph below about what
+this buys was written before any of that and is wrong where it says otherwise; it is left standing
+because being wrong in a particular way is the finding.
+
 **What it buys.** The seam gets its second implementation, which is the only thing that ever says it is a
 seam: `Game`'s 62 methods have been shaped by one game, and what a second one finds is where the trait
 asked for something only 紅魔郷 has. Everything 0001 claimed about a laid-out game and 0003 about judging
-values is put to a game that was not the one it was written for. And the pacing — measured over four hosts
-and eleven displays — becomes true of another game for the price of an image.
+values is put to a game that was not the one it was written for. ~~And the pacing — measured over four
+hosts and eleven displays — becomes true of another game for the price of an image.~~ **Not for the price
+of an image.** The pacing is a *frame* orb has to compose, not a rate it applies to one, and what
+composing 妖々夢's frame takes has not been read. The addresses lined up; the shape did not.
 
-**What stays as it is, deliberately.** The 46 pacing scenarios stay th06's until there is a th07 image with
-frames to run. They are about orb's loop and not about which game is under it, so running them twice buys
-one more `render` caller and costs the whole table twice over.
+**What stays as it is, deliberately.** The 46 pacing scenarios stay th06's. They were to wait for a th07
+image with frames to run, and now there is no th07 loop for them to run — they are about orb's loop and
+not about which game is under it, so running them twice would buy one more `render` caller and cost the
+whole table twice over.
 
 **What it rules out.**
 
@@ -147,20 +178,48 @@ one more `render` caller and costs the whole table twice over.
 
 ## Plan
 
-1. `GAME` becomes a static chosen at the attach, from a table of one entry — `Th06`, its exe and its md5 —
-   so no run changes and the shape is in place. The log names which game matched and on what.
-2. The launcher reads that same table: `verify_game_exe` says which games and versions orb knows, instead
-   of one.
-3. `Fake` splits into the host half and 紅魔郷's half. Nothing asserted changes; the count does not move.
-4. `orb-core/src/game/th07/mod.rs` with `Th07` declining everything the trait lets it decline, and the
-   addresses a frame needs read out of `th07.exe` (md5 above) — each written down in `DONE.md` with how it
-   was found, as th06's were.
-5. `orb-core/src/game/th07/image.rs` laying out that much of the space, and `orb/tests/th07.rs`: the one
-   scenario above.
-6. A run on the machine — `scripts/run.sh <the th07 directory>`, which already takes it as an argument —
-   with the `orb.log` written beside that exe kept in `DONE.md`: the rate over a reporting period, the gaps
-   in refreshes, and nothing claimed beyond what the log says.
+1. **Built.** `GAME` is a static chosen at the attach, from a table of one entry — `Th06`, its exe, the
+   file it keeps its own configuration in, its md5 and what that build is called — so no run changes and
+   the shape is in place. The log names the build a run's addresses were read off, and a process no entry
+   names gets the list of games orb knows and nothing done to it.
+2. **Built.** The launcher reads that same table: it finds the game by which entry's exe is in the
+   directory it was pointed at, and `verify_game_exe` says which games and versions orb knows instead of
+   one.
+3. **Built.** `Fake` is split into the host half and 紅魔郷's half, over a `Launched` trait whose four
+   required methods are the game's window, its own frame, the host its memory is in and the half of a
+   launch it holds. Nothing asserted changed; the count did not move.
+4. **Built.** `orb-core/src/game/th07/mod.rs` with `Th07` declining everything the trait lets it decline,
+   and the addresses a frame needs read out of `th07.exe` (md5 above) — each written down beside the
+   constant with how it was found rather than in `DONE.md`, since what identifies an address is the
+   reason the code holds that number and belongs where somebody changing it will read it.
+5. **Built.** `orb-core/src/game/th07/image.rs` laying out that much of the space — one range, the
+   `.data` the section header reports — and `orb/tests/th07.rs`: the one scenario above.
+6. **Done, and it sent step 4 back.** Two launches on the machine, `orb.log` beside that exe, in `DONE.md`:
+   the first with orb's own loop, which the game did not survive one frame of, and the second under
+   `--no-frame-loop`, which ran 600 frames and left cleanly. No rate over a reporting period, because
+   `Hooks::render` is `None` now and orb paces no frame there — which is the thing the step was for
+   finding out, and it could not have been found any other way.
 
 Steps 1 to 3 are orb's own shape and can land before any address of th07 exists; 4 onwards cannot start
 before the disassembly. What must not happen in between is an address written down because it is where
 紅魔郷 keeps the same thing.
+
+**What the disassembly and the run between them settled, and what each got wrong.** The addresses are
+beside their constants in `th07/mod.rs`. Three things are worth naming here rather than only there,
+because each is about this decision and not about a number.
+
+The device pointer and the window are not two globals to be hunted separately: both fall out of the one
+`IDirect3D8::CreateDevice` call, which is a better witness than either would have been alone. That is the
+shape a third game should be looked for by.
+
+th07's frame is called on a *static* window object rather than through a patched call site, with a
+frame-skip loop inside it that 紅魔郷 has not. This decision took that for a difference to watch a run for.
+It was the fault: the skip loop is not the only thing 紅魔郷's frame has not got, and the render-state
+block 妖々夢 pushes around its drawing is what orb's loop left null.
+
+And the lesson that outlives the numbers: **a `Game` can decline a method, and it cannot decline half of
+one.** Every other seam in the trait is an answer orb reads. `Hooks::render` is orb saying it will do the
+game's job instead, so it is the one seam where being *nearly* right is worse than declining — the
+addresses were all correct and the game still died. Which is why `render` should be the last thing a new
+game is given and not the first, and why the two required patches, `update` and `draw`, are the right
+place for a second game to stop.

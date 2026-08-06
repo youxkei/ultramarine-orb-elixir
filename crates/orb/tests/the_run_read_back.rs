@@ -17,7 +17,8 @@
 
 mod fake;
 
-use fake::{BOSS_ARRIVES, Fake, in_its_own_process};
+use fake::th06::{BOSS_ARRIVES, Fake};
+use fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::RunStart;
 use orb_core::game::th06::image::Screen;
@@ -145,7 +146,7 @@ fn every_number_a_stage_is_played_with_reads_back_as_the_game_put_it() {
         assert_eq!(state.deaths, 0);
         assert_eq!(
             state.enemy_count,
-            fake::waves(at as i32),
+            fake::th06::waves(at as i32),
             "the wave this stage has on at that frame",
         );
         assert!(

@@ -9,6 +9,83 @@ settled by measurement rather than by looking at the screen, the measurement is 
 - **Injection.** The launcher checks the exe's md5, starts it suspended, loads `orb.dll`
   through a remote `LoadLibraryW`, and resumes it. `DllMain` runs before the game's entry
   point, so the memory hooks see its first allocation.
+- **One table of the games orb knows, read by both halves.** `orb_core::game::KNOWN` — the exe's own
+  file name, the file the game keeps its configuration in, the md5 of the build the addresses were
+  read off, what that build is called, and the `Game` those addresses are in — where the launcher
+  used to hold `GAME_EXE`, `GAME_EXE_MD5` and an error naming 1.02h and `orb/lib.rs` a
+  `static GAME: Th06`. The game is settled once, at the attach, out of the exe's own name, and kept
+  in a static the hooks read. See
+  [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
+
+  Five tests, and nothing about a run changed by them: every entry is reachable by its own exe, an
+  exe renamed in capitals is the same game, a name no entry holds is no game, what a refusal prints
+  names the exe and the version of every entry, and the game the launcher starts is the one whose exe
+  is in the directory it was pointed at — that last one over a directory made empty and then given
+  each entry's exe in turn. The suite went from 252 tests to 257, none of the 46 pacing scenarios
+  moved, and no assertion anywhere changed.
+
+  **What no test reaches is the match itself.** `attach_to` is handed its game, as a scenario's is,
+  so the `host_exe()` lookup and the two log lines that come of it — the build a run's addresses were
+  read off, and the list of games in a process that is none of them — run only in a real launch.
+  Nobody has launched 東方紅魔郷 with the DLL since.
+- **A second game, which is the only thing that ever says the seam is a seam — and the run that said
+  what it is not.** `Game` has two implementations: `Th06`, and a `Th07` that answers what has been read
+  of `th07.exe` and declines the other fifty-odd methods, each with what the `None` costs beside it.
+  What was found and how is beside each constant in `orb-core/src/game/th07/mod.rs`; the short of it is
+  that one `IDirect3D8::CreateDevice` call at 0x434d94 fixes the device at 0x575958 and the window at
+  0x575c20 between them, and the game's own frame fixes the chain at 0x626218 with its draw between
+  `BeginScene` and `EndScene` and its update after.
+
+  **妖々夢 has been launched with orb in it, twice, and the first launch took the game down.** The exe
+  is the one the table pins, `md5 0126afce1e805370d36c3482445e98da`. What the log gave up in order:
+
+  | | |
+  | --- | --- |
+  | `.data 0x0049c000..0x01365258 (15503960 bytes)` | read out of the loaded image, six times 紅魔郷's 2562556 |
+  | `game: th07.exe, and every address orb has for it was read off the build of md5 0126afce` | the table matching, off the exe's own name |
+  | `update hook installed` / `draw hook installed` | **the two required patches are right in the real image** — a prologue that did not match is what a wrong address says first, and 0x42fd60 and 0x42fe20 matched theirs |
+  | `screen: 1280x960 — window at 1277,580 sized 1286x1000, client 1280x960` | `content_size` being (640, 480) is what the 4:3 was worked out from |
+  | `frame: 120Hz compositor, one frame every 2 blank(s)` | the cadence settled before a frame ran |
+  | `crash: code 0xc0000005 at 0x0044f6aa in th07.exe+0x4f6aa`, `writing 0x00000000` | the first frame, gone |
+
+  **What the crash is, and it is orb's own frame loop.** The faulting instruction is a `rep movsd` at
+  0x44f6aa copying 28 bytes to `[this + 0x17e534]`, which was null: a render-state block 妖々夢's own
+  frame sets up around its drawing through two calls on the object at 0x4b9e44, at 0x43472e and
+  0x434757, that orb's loop does not make. **The same launch under `--no-frame-loop` — that frame left
+  alone with orb's update and draw hooks inside it — ran 600 frames and left cleanly**, which is what
+  makes it the loop rather than either patch: `perf: frame=17220us worst=395238us over 600 frames;
+  update=8us/frame worst=1084us calls=1200 draw=3us/frame worst=341us calls=570`. `calls=1200` over 600
+  frames is 妖々夢's frame-skip loop running the update twice a frame, which 紅魔郷 has nothing of.
+
+  So `Th07::hooks` declines `render`, and **妖々夢 keeps its own cadence and its own frame of input
+  lag.** Replacing that frame wants the rest of it read — those two calls, 0x43478e on the same object,
+  0x43a207 on 0x575950, and the skip loop at `[0x575c20 + 0x10]` against `[0x575a8b]` — and not one more
+  address.
+
+  **Two more things the run said that nothing else could.** There is no `font.ttf` beside `th07.exe` —
+  紅魔郷 ships one and 妖々夢 keeps its fonts inside `th07.dat` — so `overlay: cannot load …\font.ttf`
+  eight times and then `overlay: unavailable`: **nothing orb draws is drawn there at all.** And orb
+  forked the score file of a game it declines every run feature of: `score: pointdevice_score.dat opened
+  in place of the game's own, write` on the way out, leaving a 192-byte file of its own. `score.dat`
+  came through both launches untouched — `647b08bc49eba267808df31e7f18af12`, 8467 bytes, at the mtime it
+  went in with — and `th07.cfg` too, which is the fork working; that it happens at all for this game is
+  in [TODO.md](TODO.md).
+
+  **What is checked in the suite is one scenario, `orb/tests/th07.rs`, and it asserts what that run
+  showed rather than what it was hoped to show.** A 妖々夢 laid out over that `.data`, orb attached to
+  `Th07`, and the game's own frame run with orb's two hooks inside it: the frame's calls in 妖々夢's own
+  draw-then-update order (`draw`, `update`, `sound`, `present`), `overlay: unavailable` in a directory
+  with no font in it, every frame of five seconds handed over by the game and none by orb, and no
+  `chapter`, `retry`, `resume: stage`, `died in`, `wash` or `mode: asking` line anywhere — each of those
+  a method of `Th07` answering nothing. And no `panic:` and no `crash:`, which is the one thing an
+  injected DLL must not do to somebody's session. The suite is 258 tests and the 46 pacing scenarios did
+  not move.
+
+  **What no test can check is any of the addresses.** A laid-out 妖々夢 is written from the same
+  constants `Th07` reads, so a wrong one is wrong on both sides at once — the same limit
+  `game/th06/image.rs` has, and the reason *What only the real game can still answer* below exists. Two
+  of them are now checked by something better than a test: the update and the draw were patched over
+  their real prologues in a real image.
 - **State accessors.** Stage, difficulty, script frames, deaths, lives, bombs, power, enemy
   and bullet counts, boss presence, boss attack and spellcard — checked against the screen.
   `GameManager.currentStage` counts from one while a stage is running, not from zero: stage 4
@@ -615,6 +692,17 @@ settled by measurement rather than by looking at the screen, the measurement is 
   run back with it. It presses no buttons for anybody: a scenario says which window is in front,
   presses keys, and runs frames, and reads back the game's own memory, the game's own record of a
   spell card, and what orb put in the log.
+
+  **The rig is two halves.** `orb/tests/fake/mod.rs` is the half any game's launch has — the display a
+  scenario declares, the device orb draws through, what a frame's own work costs and how unevenly it
+  comes, the frames and the presses, and `in_its_own_process`. `orb/tests/fake/th06.rs` is 紅魔郷's own:
+  the address space, the supervisor's build-then-copy order, the title menu's items, the `catk` record,
+  the shot-type screen and the bits of its input word. The vocabulary a scenario drives a game by is a
+  trait — `Launched`, whose four required methods are the game's window, its own frame, the host its
+  memory is in and the half of a launch it holds — so a second game brings a half of its own and
+  nothing of the first. Nothing asserted changed and the count did not move: the 46 pacing scenarios
+  are still 46. See
+  [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
   **`pointdevice_run.rs`, one 完全無欠 run, in the order somebody playing meets it.** `Z` at the title
   menu puts orb's question over it — `menu: Run is under the cursor, asking which mode` — and the

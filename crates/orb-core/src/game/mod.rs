@@ -2,11 +2,16 @@
 //!
 //! Everything above this module — chapters, snapshots, the retry menu, the
 //! overlay — is written against [`Game`] and [`State`] rather than against
-//! 東方紅魔郷. Only [`th06`] implements it; the point of the seam is that porting
-//! to another Touhou game means writing addresses and offsets, not reworking how
-//! chapters or retries behave.
+//! 東方紅魔郷. The point of the seam is that porting to another Touhou game means
+//! writing addresses and offsets, not reworking how chapters or retries behave.
+//!
+//! Two implement it. [`th06`] answers everything, and [`th07`] answers what has
+//! been measured of 妖々夢 — a frame, and nothing about a run — and declines the
+//! rest, which is how the list of what a second game still needs is found rather
+//! than guessed at. Which of them a process is is [`KNOWN`].
 
 pub mod th06;
+pub mod th07;
 
 use std::ffi::c_void;
 use std::fmt;
@@ -16,6 +21,80 @@ use orb_api::Hwnd;
 
 use crate::audio::Music;
 use crate::d3d8::{Device, Texture};
+
+/// A game orb knows how to run inside: what its exe is called, the build every address in it was
+/// read off, and the [`Game`] those addresses are in.
+///
+/// Here rather than a constant apiece in the DLL and in the launcher, so that the two cannot
+/// disagree about which games exist: the launcher starts nothing it finds no entry for, and orb
+/// inside a process no entry names does nothing at all. See `docs/adr/0004`.
+pub struct Known {
+    /// The exe's own file name, which is what the process orb wakes up inside is recognised by:
+    /// nothing else of a game is readable before the game it is has been settled.
+    pub exe: &'static str,
+    /// What the game keeps its own configuration in, which the launcher reads for one thing — which
+    /// pad button the game takes as shoot and which as bomb, so the settings dialog answers to the
+    /// same two.
+    pub cfg: &'static str,
+    /// The md5 of the one build every address was read off.
+    ///
+    /// Checked by the launcher and not at the attach: a run has no reason to read six hundred
+    /// kilobytes back off the disk to learn what it is already inside, and a game started some other
+    /// way is one nobody checked the exe of either.
+    pub md5: &'static str,
+    /// What that build is called where anybody says it out loud, so that a refusal and a log line
+    /// name something somebody can go and look for.
+    pub version: &'static str,
+    pub game: &'static dyn Game,
+}
+
+/// Every game orb knows, in the order a directory is searched for one.
+///
+/// A `const` rather than a `static` because a `static` of this type would want `Game: Sync`, and what
+/// this table is read for on either side is one entry copied out of it once.
+pub const KNOWN: &[Known] = &[
+    Known {
+        exe: "東方紅魔郷.exe",
+        cfg: "東方紅魔郷.cfg",
+        md5: "fa3d64768b1bfc50703dedc2db92f7fa",
+        version: "1.02h",
+        game: &th06::Th06,
+    },
+    // A game orb *paces* and does not *play*: [`th07::Th07`] answers a frame and declines everything
+    // about a run, so a launch here gets the window, the cadence and the overlay and no chapters. What
+    // version this build is the file name does not say and nothing in it has been read that does, so
+    // the md5 is the whole of what pins it — which is what the md5 is for in the other entry too.
+    Known {
+        exe: "th07.exe",
+        cfg: "th07.cfg",
+        md5: "0126afce1e805370d36c3482445e98da",
+        version: "the build of md5 0126afce",
+        game: &th07::Th07,
+    },
+];
+
+/// The game an exe of that name is, or `None` for a name no entry holds.
+///
+/// The ASCII of it case-insensitively, these being Windows file names: an exe copied out as
+/// `TH06.EXE` is the same game. The rest matches as written, a name in kanji having no case to fold.
+pub fn known_by_exe(exe: &str) -> Option<&'static Known> {
+    KNOWN
+        .iter()
+        .find(|known| known.exe.eq_ignore_ascii_case(exe))
+}
+
+/// The games orb knows, named the way a refusal has to name them: the exe to look for and the build
+/// its addresses were read off.
+///
+/// One spelling for both sides, so that what the launcher prints and what the log says of a process
+/// orb does nothing in are the same list.
+pub fn known_named() -> String {
+    KNOWN
+        .iter()
+        .map(|known| format!("{} {}", known.exe, known.version))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// A function to hook and the bytes expected at it, so a mismatch is caught
 /// rather than relocating an instruction that cannot be relocated.
@@ -997,5 +1076,59 @@ impl fmt::Display for State {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KNOWN, known_by_exe, known_named};
+
+    /// Every entry is reachable by the name its exe has, which is the whole of how a process is
+    /// recognised: an entry no name finds is a game orb carries addresses for and never uses.
+    #[test]
+    fn every_game_in_the_table_is_found_by_its_own_exe() {
+        for known in KNOWN {
+            let found = known_by_exe(known.exe).expect("an entry found by its own exe");
+            assert_eq!(found.md5, known.md5);
+            assert_eq!(found.version, known.version);
+        }
+    }
+
+    /// The ASCII of a name folds, since a copied exe is often renamed in capitals, and the kanji of
+    /// one is matched as written.
+    #[test]
+    fn an_exe_renamed_in_capitals_is_the_same_game() {
+        assert!(known_by_exe("東方紅魔郷.EXE").is_some());
+        assert!(known_by_exe("東方紅魔郷.exe").is_some());
+    }
+
+    /// And a name no entry holds is no game, which is the answer that leaves a process untouched.
+    ///
+    /// The whole name and not a part of it: a game's own data file carries the game's name, and a
+    /// process orb attached to on the strength of that would be reading the wrong memory.
+    #[test]
+    fn a_name_no_entry_holds_is_no_game() {
+        assert!(known_by_exe("notepad.exe").is_none());
+        assert!(known_by_exe("").is_none());
+        for known in KNOWN {
+            assert!(known_by_exe(&known.exe.replace(".exe", ".dat")).is_none());
+            assert!(known_by_exe(&format!("v{}", known.exe)).is_none());
+        }
+    }
+
+    /// What a refusal on either side of the table names: the exe to look for and the build its
+    /// addresses were read off, one entry apiece.
+    #[test]
+    fn the_games_are_named_by_exe_and_version() {
+        let named = known_named();
+        for known in KNOWN {
+            assert!(
+                named.contains(known.exe) && named.contains(known.version),
+                "{named:?} does not name {} {}",
+                known.exe,
+                known.version,
+            );
+        }
+        assert_eq!(named.matches(", ").count(), KNOWN.len() - 1);
     }
 }
