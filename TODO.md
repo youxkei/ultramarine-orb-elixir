@@ -485,9 +485,11 @@ could write next and none of which is in the way of the two that exist:
 - **No boundary out of the midstage table.** Stage 1's one entry is script frame 4472 and its fake
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
   `chapter.rs`'s twenty-seven.
-- **No frame loop**, for the reason in
-  [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md): `render` calls the game's own
-  code at two addresses nothing can put anything at.
+- **No frame loop yet.** `render` calls `Th06::present` and `Th06::play_sounds`, which are the game's
+  own code at two addresses nothing can put anything at — and each of those two methods is an address
+  and what to call it on, so a `Game` that answered with them instead would leave a laid-out game two
+  functions of its own to give. See
+  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 - **A pad it has, and winmm's side of one it has not.** `Th06::pad` tries the game's own DirectInput
   controller first and asks winmm only where the game's enumeration found none, and the fake game
   answers the first. The second is `Reading` — orb's own joystick thread's sample — and reaching it
@@ -587,13 +589,17 @@ game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question that c
 the keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
 reached by being played to them.
 
-The twenty-five left in `orb-sim/tests` are there for two reasons, and neither is that nobody has moved
-them. The twenty-one over the frame loop **cannot** be: `render` calls `Th06::present` and `Th06::play_sounds`, which
-are the game's own code at 0x00420b50 and 0x00431270, and a laid-out address space answers reads rather
-than execution — so they drive `pacing`, `settle` and `wait` through a harness that composes that loop
-the way `render` does. The four over the log are not scenarios at all: what `log!` formats and which
-level keeps which line is the log's own business. Both sets also want a process each, orb's log and
-profile being process-global, which is what a file in `tests/` gives and what `orb-core`'s own
+The twenty-five left in `orb-sim/tests` are two different things. The twenty-one over the frame loop are
+**waiting on one change**, not on nothing: `render` calls `Th06::present` and `Th06::play_sounds`, which
+are the game's own code at 0x00420b50 and 0x00431270 where a laid-out address space has nothing to
+execute — and each of those methods *is* an address and an argument, so a `Game` that hands them over
+rather than making the call leaves a laid-out game two functions of its own to answer with. See
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which is
+accepted and not built. Until then they drive `pacing`, `settle` and `wait` through a harness that
+composes that loop the way `render` does — 414 lines whose own comment says it is a copy, and nothing
+holds the copy to the original. The four over the log are the other thing: not scenarios at all, what
+`log!` formats and which level keeps which line being the log's own business. Both sets want a process
+each, orb's log and profile being process-global, which a file in `tests/` gives and `orb-core`'s own
 `#[cfg(test)]` — one binary for all of its tests — does not.
 
 **Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to

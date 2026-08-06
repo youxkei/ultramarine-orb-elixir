@@ -689,8 +689,10 @@ settled by measurement rather than by looking at the screen, the measurement is 
   the Direct3D device orb draws through and is the first thing to run `Th06::controller_pad` at all —
   the poll, the buttons out of the device's own array, the stick against the game's threshold, and the
   mapping that says which button is which. What stayed in `orb-sim/tests` is the frame loop, which
-  `render` reaches through the game's own code at 0x00420b50 and 0x00431270 and a laid-out address space
-  answers reads rather than execution, and the log, which is nobody's behaviour but its own.
+  `render` reaches through the game's own code at 0x00420b50 and 0x00431270 — one change away from moving
+  too, each of those being an address rather than anything else the method does; see
+  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — and the log,
+  which is nobody's behaviour but its own.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
 - **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it

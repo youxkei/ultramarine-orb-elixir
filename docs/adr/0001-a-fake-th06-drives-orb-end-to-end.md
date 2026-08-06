@@ -4,6 +4,11 @@
 `orb/tests/legacy_run.rs` — and *Where it landed* at the end says how the shape differs from the plan
 this was written with, and what building it found.
 
+**One thing it says is wrong**, and it is corrected there rather than removed: this claimed `render`
+was the one thing a game laid out by hand could not drive.
+[0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —
+`Th06::present` and `Th06::play_sounds` — and what answering with them instead would take.
+
 ## Context
 
 orb is a DLL injected into a game. Nothing in it runs because orb decided to: the game calls it —
@@ -162,16 +167,20 @@ Direct3D device orb draws through. It is the first thing to run `Th06::controlle
 poll, the buttons out of the device's array, the stick against the game's own threshold, and the
 mapping — where before a `Pad` was handed straight to the menu and none of that was reached.
 
-**What could not move, and it is not a matter of effort.** The twenty scenarios over the frame loop
-drive `pacing`, `settle` and `wait` through a harness that composes the loop the way `render` does,
-because `render` itself cannot be reached: two of the calls it makes are `Th06::present` and
-`Th06::play_sounds`, and those are the game's own code at 0x00420b50 and 0x00431270. A laid-out address
-space answers reads, not execution, and there is nothing to put at those addresses — the test binary's
-own image is already there. Making them answerable would mean a branch inside `Th06` that only a test
-takes, which is the thing this decision is against. The four over the log are not scenarios at all:
-what `log!` formats and which level keeps which line is nobody's behaviour but the log's. Both sets
-stay where they are for a second reason as well — one test to a binary, orb's log and profile being
-process-global — which `tests/` gives and a `#[cfg(test)]` module in `orb-core` cannot.
+**What has not moved, and what was wrong about why.** The twenty-one scenarios over the frame loop
+drive `pacing`, `settle` and `wait` through a harness that composes the loop the way `render` does. This
+document said they could not be driven by a game, because two of `render`'s calls are `Th06::present` and
+`Th06::play_sounds` and those are the game's own code at 0x00420b50 and 0x00431270, where a laid-out
+address space has nothing to execute. The obstacle is real and the conclusion was not: each of those two
+methods *is* an address and an argument, and a `Game` that handed them over rather than calling them
+would leave a laid-out game with two functions of its own to answer with. That is
+[0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), and it is what those scenarios are
+waiting on.
+
+The four over the log are a different matter: they are not scenarios at all, what `log!` formats and
+which level keeps which line being nobody's behaviour but the log's. Both sets also want a process each,
+orb's log and profile being process-global, which `tests/` gives and a `#[cfg(test)]` module in
+`orb-core` cannot — and that stays true of the scenarios that move under 0002.
 
 **It found the thing this was written to find.** `memtrack::regions` answered a laid-out game out of a
 `#[cfg(test)]` branch — and `cfg(test)` is false in a crate compiled as a dependency of a test binary,

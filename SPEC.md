@@ -1903,10 +1903,13 @@ test has something to look at, and nothing calls orb's own functions to move a r
 in some state, the game is played into it. See
 [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
 
-**What it cannot drive is orb's own frame loop**, which runs the game's `Present` and its sound by
-calling the exe's code at its own addresses — 0x00420b50 and 0x00431270, where a laid-out address space
-has nothing to execute. So a scenario is a `--no-frame-loop` run; the pacing is driven instead against
-a display declared in `orb-sim/tests`, through a harness that composes the loop the way `render` does.
+**What it does not drive yet is orb's own frame loop**, which runs the game's `Present` and its sound
+by calling the exe's code at 0x00420b50 and 0x00431270 — where a laid-out address space has nothing to
+execute. So a scenario is a `--no-frame-loop` run for now, and the pacing is driven against a display
+declared in `orb-sim/tests` through a harness that composes the loop the way `render` does. Each of
+those two methods — `Th06::present` and `Th06::play_sounds` — is an address and what to call it on, so a
+`Game` that answered with them rather than making the call is the one change that harness wants: see
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 
 Everything else that a game can drive is driven that way: the question that chooses a mode, on the
 keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
