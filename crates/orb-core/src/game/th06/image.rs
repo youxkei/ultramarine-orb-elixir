@@ -50,6 +50,14 @@ const CODE: Range<usize> = 0x0040_1000..0x0040_2000;
 /// and copies them beside the static data, rather than getting them for free as fields of a global.
 const BOSS: Range<usize> = 0x0300_0000..0x0300_1000;
 const RANKING_SCREEN: Range<usize> = 0x0300_1000..0x0300_2000;
+/// And a third, for the controller the game polls: the object at its foot and the vtable it is
+/// reached through above it, since a COM interface is a pointer to a pointer to functions.
+///
+/// The functions themselves are not in here — they cannot be, being code — so what goes in the vtable
+/// is the address of a real one, which is the same thing a Direct3D device made of Rust functions
+/// does: see `Image::controller`.
+const CONTROLLER: Range<usize> = 0x0300_2000..0x0300_3000;
+const CONTROLLER_VTABLE: usize = CONTROLLER.start + 0x100;
 
 /// A stage in progress, as a scenario says it.
 ///
@@ -86,6 +94,89 @@ pub struct Reproducing {
     /// How many numbers have come out of it since the stage seeded it.
     pub randoms: u32,
     pub player: (f32, f32),
+}
+
+/// What a controller reports, in the terms the game's own read of one takes it in: which of its
+/// buttons are down, where the stick's Y axis is in the ±1000 the game gave every axis, and which way
+/// the hat points in hundredths of a degree.
+///
+/// The buttons are a mask in the numbering the game's own mapping names them by, which is what
+/// `SetButtonFromDirectInputJoystate` indexes the device's array with.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Pushed {
+    pub buttons: u32,
+    pub y: i32,
+    /// A full circle is 36000; anything above it is the hat at rest, which is what a real one reports.
+    pub hat: u32,
+}
+
+impl Pushed {
+    /// Nothing pushed, with the hat where a device that has one leaves it when it is not being pushed.
+    pub fn none() -> Self {
+        Self {
+            hat: HAT_AT_REST,
+            ..Self::default()
+        }
+    }
+
+    /// That button down, and nothing else.
+    pub fn button(button: i16) -> Self {
+        Self {
+            buttons: 1 << button,
+            ..Self::none()
+        }
+    }
+}
+
+/// What a hat reports while nobody is pushing it: past a full circle, which is what the game's own
+/// read takes as no direction at all.
+pub const HAT_AT_REST: u32 = 0xffff;
+
+/// How much of a `DIJOYSTATE2` the game asks its controller for, which is the whole of one: its size
+/// is what `GetDeviceState` is told, and a device that wrote less would be one the game reads past.
+pub const JOY_STATE_BYTES: usize = 272;
+
+/// Writes `pushed` into the `DIJOYSTATE2` a controller is asked to fill.
+///
+/// The game's own struct, at the game's own offsets: six axes, two sliders, four hats, and then a byte
+/// per button with the top bit set on the ones that are down. Here rather than in whatever is standing
+/// in for the device, for the same reason every other offset in this file is here.
+///
+/// # Safety
+/// `state` must be [`JOY_STATE_BYTES`] of writable memory — which is what the game's own read hands
+/// its device, a buffer of its own on the stack.
+pub unsafe fn joy_state(state: *mut u8, pushed: Pushed) {
+    /// Where each half of it starts, in bytes: the axes lead, the two sliders and the four hats follow,
+    /// and the buttons are after those.
+    const HATS: usize = 6 * 4 + 2 * 4;
+    const BUTTONS: usize = HATS + 4 * 4;
+    unsafe {
+        std::ptr::write_bytes(state, 0, JOY_STATE_BYTES);
+        // The Y axis, which is the second of the six and is measured downwards.
+        state
+            .add(super::AXIS_Y * size_of::<i32>())
+            .cast::<i32>()
+            .write_unaligned(pushed.y);
+        state.add(HATS).cast::<u32>().write_unaligned(pushed.hat);
+        for button in 0..u32::BITS {
+            if pushed.buttons & (1 << button) != 0 {
+                state.add(BUTTONS + button as usize).write(0x80);
+            }
+        }
+    }
+}
+
+/// Which of the game's buttons is which, as its own configuration names them by number — the mapping
+/// `Controller::GetControllerInput` reads every frame and the one orb reads a pad's buttons through.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Mapping {
+    pub shoot: i16,
+    pub bomb: i16,
+    pub menu: i16,
+    pub up: i16,
+    pub down: i16,
+    /// How far the stick has to go before the game counts it as pushed, in the ±1000 it gave its axes.
+    pub y_axis: i16,
 }
 
 /// One of the game's own screens, as its front end's `gameState` names them.
@@ -216,6 +307,8 @@ impl Image {
         sim.space().map(BOSS.start, BOSS.len(), Kind::Private);
         sim.space()
             .map(RANKING_SCREEN.start, RANKING_SCREEN.len(), Kind::Private);
+        sim.space()
+            .map(CONTROLLER.start, CONTROLLER.len(), Kind::Private);
         Self { sim }
     }
 
@@ -560,6 +653,46 @@ impl Image {
             super::G_SUPERVISOR + super::supervisor::HWND_GAME_WINDOW,
             window,
         );
+    }
+
+    /// The controller the game polls, reached the way a COM interface is: a pointer to the object, and
+    /// the object's own first word pointing at the vtable.
+    ///
+    /// The three functions are the ones the game's read calls through — poll, acquire, and the read
+    /// itself — and they are addresses of real ones, because code is the one thing a laid-out address
+    /// space cannot hold. Which is the same shape as the Direct3D device orb draws through.
+    pub fn controller(&self, poll: usize, acquire: usize, read_state: usize) {
+        let space = self.space();
+        space.write::<usize>(super::G_CONTROLLER, CONTROLLER.start);
+        space.write::<usize>(CONTROLLER.start, CONTROLLER_VTABLE);
+        for (slot, function) in [
+            (super::dinput_device::POLL, poll),
+            (super::dinput_device::ACQUIRE, acquire),
+            (super::dinput_device::GET_DEVICE_STATE, read_state),
+        ] {
+            space.write::<usize>(CONTROLLER_VTABLE + slot * size_of::<usize>(), function);
+        }
+    }
+
+    /// And no controller at all, which is what the game has where its enumeration found none.
+    pub fn no_controller(&self) {
+        self.space().write::<usize>(super::G_CONTROLLER, 0);
+    }
+
+    /// The mapping that says which of its buttons the game reads as what.
+    pub fn maps_the_pad(&self, mapping: Mapping) {
+        use super::supervisor;
+        let space = self.space();
+        for (at, button) in [
+            (supervisor::CFG_SHOOT_BUTTON, mapping.shoot),
+            (supervisor::CFG_BOMB_BUTTON, mapping.bomb),
+            (supervisor::CFG_MENU_BUTTON, mapping.menu),
+            (supervisor::CFG_UP_BUTTON, mapping.up),
+            (supervisor::CFG_DOWN_BUTTON, mapping.down),
+            (supervisor::CFG_PAD_Y_AXIS, mapping.y_axis),
+        ] {
+            space.write::<i16>(super::G_SUPERVISOR + at, button);
+        }
     }
 
     /// The three objects the game's own chain hands to a callback, which is what orb's hooks over

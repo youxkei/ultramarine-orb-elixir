@@ -21,6 +21,11 @@
 //! when its boss arrives — it says that too: what a scenario is about is that the same buttons from
 //! the same seed arrive at the same place, not how fast Reimu is.
 
+// Shared by every scenario in `tests/`, and each drives the part of a game it is about — so what one
+// file does not touch is not dead code, it is another file's. Nothing can see that: `dead_code` is
+// worked out per binary, and this module is compiled into one per scenario.
+#![allow(dead_code)]
+
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -30,7 +35,8 @@ use orb_api::Hwnd;
 use orb_config::Config;
 use orb_core::game::th06::Th06;
 use orb_core::game::th06::image::{
-    Boss, FrontEnd, Image, Player, Playing, Reproducing, Scene, Screen, Supervising, item,
+    Boss, FrontEnd, Image, Mapping, Player, Playing, Pushed, Reproducing, Scene, Screen,
+    Supervising, item, joy_state,
 };
 use orb_core::game::{Game, RunStart};
 use orb_sim::{Log, keys};
@@ -161,6 +167,11 @@ pub struct Fake {
     /// places — building a run and building the ranking — and writes it where the ranking goes down.
     /// Outside the memory, so a chapter restored does not rewind it, which is true of a real file too.
     file: RefCell<Vec<u8>>,
+    /// What the pad is doing, as a scenario is pushing it.
+    ///
+    /// Beside the memory rather than in it, and that is what a device is: the game's own read asks the
+    /// controller every frame and the answer is never anywhere a snapshot could rewind.
+    pushed: Cell<Pushed>,
     /// Set by a scenario for the frame the player is hit on.
     ///
     /// The one thing about a run that a laid-out game cannot do for itself: there are no bullets
@@ -194,11 +205,15 @@ impl Fake {
     /// read from it, the runs left unfinished are kept under it, and `font.ttf` is copied into it.
     /// `settings` is where a scenario says what this launch was started with.
     ///
-    /// Leaked rather than returned by value, and that is the honest shape: this game *is* the
-    /// process. The simulated Windows it holds has to stay installed for as long as orb's hooks may
-    /// be reached, and the device has to outlive the overlay orb built on it — so nothing here is
-    /// ever dropped, and the process ending is the game closing.
-    pub fn attach(name: &str, run: RunStart, settings: impl FnOnce(&mut Config)) -> &'static Self {
+    /// Boxed and owned by whoever asked for it, so that a scenario file can hold more than one game
+    /// over its lifetime: what serialises them is the recording device's own lock, which the game
+    /// before has to be dropped to release — see [`Recording::new`](orb::recording::Recording::new).
+    ///
+    /// Boxed rather than returned by value because the hooks find it through a pointer, and a value
+    /// moved out of this function would leave that pointer behind. Its `Drop` is the game closing, in
+    /// the one order that works: the runtime first, so orb's overlay is released through a device that
+    /// is still there, then the device, then the simulated Windows it was all read through.
+    pub fn attach(name: &str, run: RunStart, settings: impl FnOnce(&mut Config)) -> Box<Self> {
         // The map above is only the game's if orb reads the same bits through its own masks.
         assert_eq!(
             Th06.menu_decide(),
@@ -233,7 +248,19 @@ impl Fake {
         let screen = Recorded::over(&dir.join("font.ttf"));
         let installed = image.enter();
         image.shows_through(screen.device(), WINDOW);
+        // Where the game is installed, which is where orb writes its log: beside the exe, because that
+        // is where `orb.yaml` and the launcher are.
+        image.sim().set_host_exe(dir.join("th06.exe"));
         image.sim().display().set_foreground(WINDOW);
+        // A controller, mapped the way this game's configuration maps one. The numbers are its own —
+        // a real one's come out of the file the game's own options screen writes — and what a scenario
+        // needs of them is that orb reads a pad's buttons through this mapping and not around it.
+        image.controller(
+            poll as *const () as usize,
+            acquire as *const () as usize,
+            read_state as *const () as usize,
+        );
+        image.maps_the_pad(MAPPING);
         // What its score file holds to begin with: a record of the card its boss is on, never tried.
         // Without the record `count_card_attempt` refuses to count, a zeroed one being a card that is
         // not there rather than a card nobody has reached.
@@ -250,15 +277,16 @@ impl Fake {
             frames: 0,
         });
 
-        let fake = Box::leak(Box::new(Self {
+        let fake = Box::new(Self {
             image,
             screen,
             run,
             dir,
             file,
+            pushed: Cell::new(Pushed::none()),
             hit: Cell::new(false),
             _installed: installed,
-        }));
+        });
         RUNNING.set(&raw const *fake);
         unsafe {
             orb::attach_to(
@@ -348,6 +376,27 @@ impl Fake {
         panic!("{what} did not happen in {PRESSES} press(es) of {key:#04x}");
     }
 
+    /// Pushes the pad, or lets it go: what the game's own read of its controller will answer with from
+    /// here on.
+    pub fn push(&self, pushed: Pushed) {
+        self.pushed.set(pushed);
+    }
+
+    /// Says the run on screen is a replay being watched rather than one somebody is playing, and asks
+    /// for it.
+    ///
+    /// A scenario saying so, the way it says the player was hit: a replay is started from the game's
+    /// own replay menu, and this game's front end has the two screens orb asks a question over and
+    /// nothing else. What it stands in for is the flag the game sets, which is what orb reads.
+    pub fn watches_a_replay(&self) {
+        self.image.watching_a_replay();
+        self.image.chose(&self.run);
+        self.image.supervising(Supervising {
+            running: Scene::Playing,
+            wanted: Scene::FrontEnd,
+        });
+    }
+
     /// Says the player was hit, for the next frame of the stage.
     pub fn hit(&self) {
         self.hit.set(true);
@@ -366,6 +415,11 @@ impl Fake {
 
     pub fn image(&self) -> &Image {
         &self.image
+    }
+
+    /// The host this game is laid out in, for a scenario that says which window is in front.
+    pub fn sim(&self) -> &orb_sim::Sim {
+        self.image.sim()
     }
 
     pub fn keyboard(&self) -> &orb_sim::Keyboard {
@@ -391,6 +445,29 @@ impl Fake {
     /// than every frame since the game started.
     pub fn forget(&self) {
         self.screen.recording().clear();
+    }
+
+    /// One frame with nothing remembered before it, so that what [`says`](Self::says) answers is the
+    /// screen as it is now rather than everything that has been on it.
+    pub fn one_frame(&self) {
+        self.forget();
+        self.frame();
+    }
+
+    /// The game at its title menu, past the frames its own screen ignores a press for and with an
+    /// overlay for orb to draw a question with — which is where every scenario about the question that
+    /// chooses a mode starts, and where one comes back to after answering.
+    ///
+    /// # Panics
+    /// If the game does not get there, naming which half was missing.
+    pub fn at_the_title_menu(&self) {
+        self.frames_until("an overlay", 8, || self.log().said("overlay: ready"));
+        self.frames_until("the title menu ready to act on a press", 120, || {
+            let front = self.image.front_end_now();
+            self.image.scene() == Scene::FrontEnd
+                && front.screen == Screen::Title
+                && front.acts_on_a_press()
+        });
     }
 
     /// The whole of what the game does in one update, in the order 紅魔郷 does it: its supervisor
@@ -523,6 +600,16 @@ impl Fake {
             // wants. The supervisor has already made its copy this frame, so this update ends with
             // the two disagreeing and nothing of the run built.
             Screen::ShotType if decide => (front, Some(Scene::Playing)),
+            // And back where it came from, which for the real screen is the character select and for
+            // this game is the title menu: the two screens between them are ones orb asks nothing at.
+            Screen::ShotType if pressed(Th06.menu_cancel()) => (
+                FrontEnd {
+                    screen: Screen::Title,
+                    cursor: item::GAME_START,
+                    frames: 0,
+                },
+                None,
+            ),
             // The ranking asked for, which orb does on the way out of a run so that what the run
             // counted is written. Its own scene, which the front end asks for the same way.
             Screen::Ranking => (front, Some(Scene::Ranking)),
@@ -755,6 +842,54 @@ impl Fake {
     }
 }
 
+impl Drop for Fake {
+    /// The game closing. The runtime goes first — orb's overlay is released through the device, which
+    /// is still here — and then the fields, in the order they are declared: the screen, and last the
+    /// installation everything was read through.
+    fn drop(&mut self) {
+        unsafe { orb::detached() };
+        RUNNING.set(std::ptr::null());
+    }
+}
+
+/// The device's own three functions, which is all of a controller the game's read calls through.
+///
+/// Real functions rather than anything in the laid-out memory, because code cannot be laid out: the
+/// vtable in that memory holds their addresses, the same way the game's own memory holds the address
+/// of the Direct3D device orb draws through.
+unsafe extern "system" fn poll(_device: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn acquire(_device: usize) -> i32 {
+    0
+}
+
+unsafe extern "system" fn read_state(_device: usize, size: u32, state: *mut u8) -> i32 {
+    // Said rather than filled: a size that is not this device's format is the game asking for
+    // something else, and writing its own idea of one into a buffer of another size is how a test
+    // scribbles on a caller's stack.
+    assert_eq!(
+        size as usize,
+        orb_core::game::th06::image::JOY_STATE_BYTES,
+        "the game asked its controller for a state of another size",
+    );
+    unsafe { joy_state(state, running().pushed.get()) };
+    0
+}
+
+/// Which of this game's buttons is which. Its own numbers, in the order the game's options screen
+/// lists them, and a scenario names them through [`MAPPING`] rather than by number.
+pub const MAPPING: Mapping = Mapping {
+    shoot: 0,
+    bomb: 1,
+    menu: 2,
+    up: 3,
+    down: 4,
+    // A quarter of the ±1000 the game gives an axis, which is far enough that the middle is not it.
+    y_axis: 250,
+};
+
 /// The one game orb is attached to here, which has to outlive the runtime that holds it.
 static TH06: Th06 = Th06;
 
@@ -815,7 +950,7 @@ pub fn lives_row() -> Quad {
 
 /// A stage's waves, in the only terms the boundary detector reads them: two hundred frames with
 /// enemies on and two hundred without.
-fn waves(script: i32) -> i32 {
+pub fn waves(script: i32) -> i32 {
     if (script / 200) % 2 == 0 { 3 } else { 0 }
 }
 

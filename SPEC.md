@@ -1898,8 +1898,15 @@ in some state, the game is played into it. See
 [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
 
 **What it cannot drive is orb's own frame loop**, which runs the game's `Present` and its sound by
-calling the exe's code at its own addresses. So a scenario is a `--no-frame-loop` run; the pacing is
-driven instead against a display declared in `orb-sim/tests`.
+calling the exe's code at its own addresses — 0x00420b50 and 0x00431270, where a laid-out address space
+has nothing to execute. So a scenario is a `--no-frame-loop` run; the pacing is driven instead against
+a display declared in `orb-sim/tests`, through a harness that composes the loop the way `render` does.
+
+Everything else that a game can drive is driven that way: the question that chooses a mode, on the
+keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
+reached by being played to them. What is left in `orb-sim/tests` beside the pacing is the log, which is
+not a scenario — what `log!` formats and which level keeps which line is the log's own business, and no
+game decides it.
 
 ## Holding the game still, checked against real threads
 

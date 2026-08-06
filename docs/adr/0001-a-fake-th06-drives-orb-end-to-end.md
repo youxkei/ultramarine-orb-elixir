@@ -143,6 +143,28 @@ the device the *game* reads, which is its own DirectInput controller or winmm's 
 is something a laid-out game has — so a scenario answers on the keyboard, and what says a pad answers
 these questions is `orb-sim/tests/mode.rs`, where a `Pad` is a value a test hands over.
 
+**What was in `orb-sim/tests` and is a scenario has moved here.** Those drove the real `orb-core`
+against a simulated host by *calling* it — `Question::update` handed a keyboard and a `Pad` — which is
+the shape this rules out: a test working the question itself plays the game's part from a script of its
+own, and cannot fail for the reasons a game supplies. The question about the mode is thirteen cases
+over a game now, and the whole `State` is read at points a game reached by being played to them. The
+pad went with them, and that took a controller: an object and a vtable in the game's own memory with
+the addresses of three real functions in the slots its read calls through, the same shape as the
+Direct3D device orb draws through. It is the first thing to run `Th06::controller_pad` at all — the
+poll, the buttons out of the device's array, the stick against the game's own threshold, and the
+mapping — where before a `Pad` was handed straight to the menu and none of that was reached.
+
+**What could not move, and it is not a matter of effort.** The twenty scenarios over the frame loop
+drive `pacing`, `settle` and `wait` through a harness that composes the loop the way `render` does,
+because `render` itself cannot be reached: two of the calls it makes are `Th06::present` and
+`Th06::play_sounds`, and those are the game's own code at 0x00420b50 and 0x00431270. A laid-out address
+space answers reads, not execution, and there is nothing to put at those addresses — the test binary's
+own image is already there. Making them answerable would mean a branch inside `Th06` that only a test
+takes, which is the thing this decision is against. The four over the log are not scenarios at all:
+what `log!` formats and which level keeps which line is nobody's behaviour but the log's. Both sets
+stay where they are for a second reason as well — one test to a binary, orb's log and profile being
+process-global — which `tests/` gives and a `#[cfg(test)]` module in `orb-core` cannot.
+
 **It found the thing this was written to find.** `memtrack::regions` answered a laid-out game out of a
 `#[cfg(test)]` branch — and `cfg(test)` is false in a crate compiled as a dependency of a test binary,
 which is the whole reason these scenarios live in `tests/`. So the first scenario reached the

@@ -680,6 +680,17 @@ settled by measurement rather than by looking at the screen, the measurement is 
   come back with the chapter, the fight's own block being outside it. It is a seam facade now,
   `orb_api::mem::game_regions`, and a chapter over a laid-out game covers **3 regions of 2570748
   bytes** where it covered one.
+
+  **And what was in `orb-sim/tests` and is a scenario is driven this way now**: 227 tests, fifteen of
+  them runs like these. The question that chooses a mode — thirteen cases, on the keyboard and on a pad
+  — and the whole of a `State` read at frames a game reached by being played to them, all of which used
+  to drive orb by *calling* it. The pad needed a controller of the game's own: an object and a vtable in
+  its memory with three real functions in the slots its read calls through, which is the same shape as
+  the Direct3D device orb draws through and is the first thing to run `Th06::controller_pad` at all —
+  the poll, the buttons out of the device's own array, the stick against the game's threshold, and the
+  mapping that says which button is which. What stayed in `orb-sim/tests` is the frame loop, which
+  `render` reaches through the game's own code at 0x00420b50 and 0x00431270 and a laid-out address space
+  answers reads rather than execution, and the log, which is nobody's behaviour but its own.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
 - **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it

@@ -760,6 +760,23 @@ pub unsafe fn attach_to(
     );
     log::set_level(config.log_level);
     log::set_pacing(config.pacing_log);
+    // The flags a fresh process would have brought, since a game that is not one does not bring it: a
+    // launch is the moment nothing is being held back, nobody has pressed anything, and the keyboard
+    // has not been lost. Left standing, one game's would be the next game's opening state — a press
+    // held back on the screen a game before ended on, and a question up over the one that follows.
+    IN_HOOK.store(false, Ordering::Relaxed);
+    INPUT_ACTIVE.store(true, Ordering::Relaxed);
+    INPUT_LOST.store(false, Ordering::Relaxed);
+    HOLD_DECIDE.store(false, Ordering::Relaxed);
+    DECIDE_PRESSED.store(false, Ordering::Relaxed);
+    DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
+    FEED_DECIDE.store(false, Ordering::Relaxed);
+    HOLD_CANCEL.store(false, Ordering::Relaxed);
+    SETTLE_KEYS.store(false, Ordering::Relaxed);
+    LAST_WORD.store(0, Ordering::Relaxed);
+    // And nothing of a run written down, which is the one piece of that state a `Runtime` does not
+    // hold: the record lives beside it, for the two hooks that reach it from inside the game's update.
+    unsafe { resume::forget() };
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -772,6 +789,20 @@ pub unsafe fn attach_to(
         slot.store(original, Ordering::Relaxed);
     }
     unsafe { attached(game, config, data) };
+}
+
+/// Takes the runtime down, which is what closing the game does to it.
+///
+/// For a scenario that plays one game and then another in the same process: a runtime left standing
+/// would hold the first game's chapters and draw its overlay through a device that has gone. Dropped
+/// here rather than left to `DllMain`'s own detach, where the process is going away and an overlay
+/// released through a device Direct3D has already torn down is a fault on the way out.
+///
+/// # Safety
+/// Must run on the game's main thread, with no frame in progress and the game it was attached to —
+/// its memory and the device it draws through — still there.
+pub unsafe fn detached() {
+    unsafe { *RUNTIME.get() = None };
 }
 
 /// Which of the two a launch starts in and what that decides, and the runtime the hooks then find.

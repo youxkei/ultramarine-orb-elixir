@@ -485,8 +485,13 @@ could write next and none of which is in the way of the two that exist:
 - **No boundary out of the midstage table.** Stage 1's one entry is script frame 4472 and its fake
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
   `chapter.rs`'s twenty-seven.
-- **No pad and no frame loop**, both for the reasons in
-  [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
+- **No frame loop**, for the reason in
+  [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md): `render` calls the game's own
+  code at two addresses nothing can put anything at.
+- **A pad it has, and winmm's side of one it has not.** `Th06::pad` tries the game's own DirectInput
+  controller first and asks winmm only where the game's enumeration found none, and the fake game
+  answers the first. The second is `Reading` — orb's own joystick thread's sample — and reaching it
+  means a game whose controller is *absent*, which is one line away and has no scenario yet.
 
 **No track plays in a laid-out game, and that is a limit rather than a choice.** With the sound
 structures zeroed, `music()` reads as nothing, so a stage takes `STAGE_SETTLE_FRAMES` *plus*
@@ -576,13 +581,20 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Forty-three of the 230 tests are scenarios.** Forty-one are in `orb-sim/tests`, driving the real
-`orb-core` against the simulated Windows: four over the log, three reading a whole `State` out of a
-game laid out by hand, twenty over the frame loop, one over the timer it asks the host for, and
-thirteen over the mode question — the keys somebody presses to choose 完全無欠モード and what orb makes
-of them. The other two are in `orb/tests`, where a 紅魔郷 that plays the game's part drives a whole run
-through orb's own hooks — see *Running the game with no game there* in [SPEC.md](SPEC.md) — one of it
-in each mode.
+**Forty of the 227 tests are scenarios, and fifteen of those are driven by a game.** In `orb/tests`
+a 紅魔郷 that plays the game's part drives them through orb's own hooks — see *Running the game with no
+game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question that chooses between them on
+the keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
+reached by being played to them.
+
+The twenty-five left in `orb-sim/tests` are there for two reasons, and neither is that nobody has moved
+them. The twenty-one over the frame loop **cannot** be: `render` calls `Th06::present` and `Th06::play_sounds`, which
+are the game's own code at 0x00420b50 and 0x00431270, and a laid-out address space answers reads rather
+than execution — so they drive `pacing`, `settle` and `wait` through a harness that composes that loop
+the way `render` does. The four over the log are not scenarios at all: what `log!` formats and which
+level keeps which line is the log's own business. Both sets also want a process each, orb's log and
+profile being process-global, which is what a file in `tests/` gives and what `orb-core`'s own
+`#[cfg(test)]` — one binary for all of its tests — does not.
 
 **Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to
 `orb-core` compiles and nobody is told. What would make it a check is one step rather than a second job:
