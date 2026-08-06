@@ -498,6 +498,23 @@ judged by are the real game's to answer for.
 of every private page in the process, which is a question about the process and not about the
 game.
 
+## The frame loop's scenarios want to be one file
+
+Twelve files in `orb/tests` share `fake/mod.rs` and `pacing/mod.rs` — 1361 lines and 509 — and compile
+both into a binary apiece. The reason a file was a binary has gone: `in_its_own_process` spawns one per
+`#[test]`, so a scenario owns its process wherever it is written.
+
+What the split costs is not only the compiling. `dead_code` is worked out per binary, so both modules
+*need* `#![allow(dead_code)]` — and that allow hid four dead assertions through the whole of
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md)'s work. It also
+put six identical `the_run()` in six files, and had a scenario re-declare `A_SECOND = 60` where
+`frame::LOGIC_HZ` is the game's own rate.
+
+The plan, with what is decided and what it rules out, is
+[docs/adr/0003](docs/adr/0003-the-frame-loops-scenarios-are-one-file.md), which is accepted and not
+built. Nothing in it changes what is asserted — the count is 252 before and after — so a step that
+moves it is a step that can be checked.
+
 ## A 240Hz display leaves the compositor less room than it may want
 
 **Not a defect, and the reason it is here is that nothing says it is happening.** The allowance cannot

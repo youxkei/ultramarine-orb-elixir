@@ -15,6 +15,15 @@ words the code uses for those things, without abbreviating them and without a me
 for one: `hand Th06::present and Th06::play_sounds over as addresses` rather than `hand the frame
 loop's two calls over`.
 
+**A line names everything the code now does differently, and not the largest of them.** Where the diff
+does three things the line says three, joined with `and`: `count the cadence in the compositor's
+refresh period, flush for a window that is behind, and hand Th06::present and Th06::play_sounds over as
+addresses`. **There is no limit on the number of clauses and none on the length** — the log already runs
+past a hundred characters, and `take the mode from a menu over the game's title menu and the settings
+from a dialog, not from orb.yaml` is one line. Picking the most consequential change and leaving the
+rest to the body fails the condition above: a reader of that line comes away not knowing the others
+happened, which is exactly what the line exists to prevent.
+
 **The subject is a thing and never somebody** — the implied `the code`, or a test or a file where the
 diff is only those — so the verb is one a thing does. A thing performs no speech act: nothing in orb
 says, tells, asks, answers, reports, refuses, offers, claims, requires or plans anything, every one of
@@ -39,6 +48,10 @@ take: it does not say, plan or require anything, it *has* a rule, it *lists* an 
 `CLAUDE.md now has a rule that every docs/adr file starts with a status line`, `TODO.md now lists
 window::write_beside instead of retry_ui`, `docs/adr/0002 is the plan for Game to hand Th06::present
 and Th06::play_sounds over as addresses`.
+
+A diff that is code *and* tests is the code's, however much of it is the tests: the implied subject is
+`the code`, and a scenario is how the change is known rather than something the program does
+differently. What the scenarios now cover goes in the body.
 
 The body is why the change was made, concretely: the problem it solves, named and with
 whatever numbers or addresses make it real, and why this way rather than the obvious
