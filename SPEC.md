@@ -1890,6 +1890,12 @@ it take the run back: there is nothing else for the run to be. Where each thing 
 `orb-core`'s `th06::image`, beside the offsets it is written from; what the game does over time is the
 fake game's.
 
+**Each scenario is a process of its own**, which is what lets them all run at once: a launch is a
+process — the runtime, the record of what a run pressed, the score's file and the device are one apiece,
+and the runtime cannot be per-thread because `DllMain` writes it on the injector's thread and the frame
+hook reads it on the game's — so a scenario spawns the test binary again, told to run that one test, and
+reports what the child made of it.
+
 **A scenario says which window is in front, presses keys, and runs frames.** Everything it asserts on
 it reads back: the game's own memory through `read_state`, the game's own records — the count of
 attempts against a spell card — the quads orb drew, and orb's log. Nothing is added to orb so that a

@@ -108,11 +108,19 @@ split is the one the plan had between the two halves anyway: **where each thing 
 lives is `orb-core`'s `th06::image`, beside the offsets it is written from, and what the game *does*
 over time is the fake game's.** A scenario names no address.
 
-**One game per process, and the process is the game.** `RUNTIME`, the record of what a run has
-pressed, and which file its score goes to are one apiece in orb, the way they are in the game — so a
-scenario is one `#[test]` in a file of its own, and the fake game is leaked rather than dropped: its
-simulated Windows has to stay installed for as long as a hook may be reached, and its device has to
-outlive the overlay orb built on it.
+**One game per process, and the process is the game.** `RUNTIME`, the record of what a run has pressed,
+which file its score goes to and the device it draws through are one apiece in orb, the way they are in
+the game — and the runtime cannot be made one per thread even for a test: `DllMain` writes it on the
+thread the launcher's remote `LoadLibraryW` runs on, and the frame hook reads it on the game's main
+thread. So **a scenario spawns the test binary again for itself**, told to run that one test and nothing
+else, and reports what the child made of it. Which is what lets several scenarios share a file and none
+of them wait for another — the child is the launch, and this side is the harness. Where the harness is
+not naming its threads there is nothing to tell a child to run, so the scenario runs in place, serially,
+which is what `--test-threads=1` asked for.
+
+The game is dropped rather than leaked, in the one order that works: the runtime first, so orb's overlay
+is released through a device that is still there, then the device, then the simulated Windows it was all
+read through.
 
 **Both halves of a run in one launch, rather than a second fake game.** The plan had the run picked up
 by a second game; a second one in the same process would want a second recording device while the

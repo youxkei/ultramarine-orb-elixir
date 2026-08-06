@@ -17,6 +17,9 @@
 //! there to call. So a scenario is a `--no-frame-loop` run: the game's own draw-then-update order,
 //! with orb's update and draw hooks in the middle of it, which is a configuration orb ships.
 //!
+//! **Each scenario runs in a process of its own**, which is what lets every one of them run at once —
+//! see [`in_its_own_process`]. A launch is a process, and orb is written that way.
+//!
 //! Where a number here is 紅魔郷's it says so. Where it is this game's own — how far the player moves,
 //! when its boss arrives — it says that too: what a scenario is about is that the same buttons from
 //! the same seed arrive at the same place, not how fast Reimu is.
@@ -189,6 +192,58 @@ thread_local! {
     /// `recording.rs` keeps its record in a static — so where the real game would reach its own
     /// globals, this reaches the game.
     static RUNNING: Cell<*const Fake> = const { Cell::new(std::ptr::null()) };
+}
+
+/// What names the process a scenario runs in as the one that is *being* the launch, and which scenario
+/// it is: read by the child, set by the parent.
+const SCENARIO: &str = "ORB_SCENARIO";
+
+/// Runs `scenario` in a process of its own, so that every one of these can run beside every other.
+///
+/// **A launch is a process, and orb is written that way.** Its runtime, the record of what a run has
+/// pressed, which of the two files a score goes to and the device it draws through are one apiece, the
+/// way they are in the game — and the runtime cannot be made one per thread even for a test's sake:
+/// `DllMain` writes it on the thread the launcher's remote `LoadLibraryW` runs on, and the frame hook
+/// reads it on the game's main thread. So two scenarios in one process have to take turns, which they
+/// did on the recording device's lock. Taking turns is not being able to run at once.
+///
+/// So a scenario spawns this same binary again, told to run this one test and nothing else, and reports
+/// what the child made of it. The child is the launch and this side is the harness, which is also what
+/// makes a scenario that hangs or takes its process down name itself.
+///
+/// Where the harness is not naming its threads — `--test-threads=1`, which puts every test on `main` —
+/// there is nothing to tell the child to run, so the scenario runs here. Serially, which is what asking
+/// for one thread asked for.
+pub fn in_its_own_process(scenario: impl FnOnce()) {
+    if std::env::var_os(SCENARIO).is_some() {
+        return scenario();
+    }
+    let named = std::thread::current().name().map(str::to_owned);
+    let Some(name) = named.filter(|name| name != "main") else {
+        return scenario();
+    };
+    let exe = std::env::current_exe().expect("the binary this scenario is in");
+    let run = std::process::Command::new(&exe)
+        // One thread in the child, so the test it runs is the whole of what that process does.
+        .args(["--exact", &name, "--nocapture", "--test-threads=1"])
+        .env(SCENARIO, &name)
+        .output()
+        .unwrap_or_else(|error| panic!("running {name} in a process of its own: {error}"));
+    let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    // Said out loud rather than trusted: a filter that matched nothing is a child that passes without
+    // running anything, which would be a scenario reported as green for never having happened.
+    assert!(
+        said(&run.stdout).contains("1 passed"),
+        "{name} did not run in the process it was given:\n{}{}",
+        said(&run.stdout),
+        said(&run.stderr),
+    );
+    assert!(
+        run.status.success(),
+        "{name} failed in its own process:\n{}{}",
+        said(&run.stdout),
+        said(&run.stderr),
+    );
 }
 
 /// The game this thread is running.

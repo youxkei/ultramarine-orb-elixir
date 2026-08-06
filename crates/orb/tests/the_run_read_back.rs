@@ -17,7 +17,7 @@
 
 mod fake;
 
-use fake::{BOSS_ARRIVES, Fake};
+use fake::{BOSS_ARRIVES, Fake, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::RunStart;
 use orb_core::game::th06::image::Screen;
@@ -61,17 +61,19 @@ fn start_a_run(game: &Fake) {
 /// launcher are there, so that is where somebody looks for what a run did.
 #[test]
 fn the_log_is_written_beside_the_game() {
-    let game = game("read-back-log");
-    assert_eq!(
-        game.log().path(),
-        Some(game.dir().join("orb.log")),
-        "the log is not beside the exe orb was injected into",
-    );
-    // The line every run opens with. A log without it cannot say whether the run even happened.
-    assert!(game.log().said("---- new run ----"));
-    // Appended to rather than started over: a run worth looking at is often over by the time anybody
-    // looks.
-    assert!(!game.log().restarted());
+    in_its_own_process(|| {
+        let game = game("read-back-log");
+        assert_eq!(
+            game.log().path(),
+            Some(game.dir().join("orb.log")),
+            "the log is not beside the exe orb was injected into",
+        );
+        // The line every run opens with. A log without it cannot say whether the run even happened.
+        assert!(game.log().said("---- new run ----"));
+        // Appended to rather than started over: a run worth looking at is often over by the time anybody
+        // looks.
+        assert!(!game.log().restarted());
+    });
 }
 
 /// Before a run is started, nothing in the game reads as one — and the chases that have nothing to
@@ -82,25 +84,27 @@ fn the_log_is_written_beside_the_game() {
 /// ones the game has not built.
 #[test]
 fn nothing_is_a_run_before_one_is_started() {
-    let game = game("read-back-title");
-    let state = game.state();
-    assert!(!state.playing, "the title menu reads as a stage running");
-    assert!(!state.in_run);
-    assert!(!state.in_game);
-    assert!(!state.replay);
-    assert!(!state.demo);
-    assert!(!state.practice);
-    assert!(!state.paused);
-    assert!(!state.in_ending);
-    assert_eq!(state.ending_script, None);
-    // The bosses pointer, the `GuiImpl` on the heap, the laser array and the boss's own fields: four
-    // chases with nothing at the end of them.
-    assert!(!state.boss_present);
-    assert_eq!(state.boss_life, None);
-    assert_eq!(state.boss_attack_frames, None);
-    assert_eq!(state.spellcard, None);
-    assert!(!state.in_dialogue);
-    assert_eq!(state.laser_count, 0);
+    in_its_own_process(|| {
+        let game = game("read-back-title");
+        let state = game.state();
+        assert!(!state.playing, "the title menu reads as a stage running");
+        assert!(!state.in_run);
+        assert!(!state.in_game);
+        assert!(!state.replay);
+        assert!(!state.demo);
+        assert!(!state.practice);
+        assert!(!state.paused);
+        assert!(!state.in_ending);
+        assert_eq!(state.ending_script, None);
+        // The bosses pointer, the `GuiImpl` on the heap, the laser array and the boss's own fields: four
+        // chases with nothing at the end of them.
+        assert!(!state.boss_present);
+        assert_eq!(state.boss_life, None);
+        assert_eq!(state.boss_attack_frames, None);
+        assert_eq!(state.spellcard, None);
+        assert!(!state.in_dialogue);
+        assert_eq!(state.laser_count, 0);
+    });
 }
 
 /// Every number a stage is played with reads back as the game put it there, at a frame the game
@@ -111,50 +115,52 @@ fn nothing_is_a_run_before_one_is_started() {
 /// one is running and orb counts from zero, which is the one place the two disagree on purpose.
 #[test]
 fn every_number_a_stage_is_played_with_reads_back_as_the_game_put_it() {
-    let game = game("read-back-stage");
-    start_a_run(&game);
-    // Far enough in that the stage is running and no fight has arrived, so what is read is a stage and
-    // nothing else.
-    let at = BOSS_ARRIVES - 100;
-    game.frames_until("the frame to read", at + 60, || {
-        game.state().stage_frames == at
+    in_its_own_process(|| {
+        let game = game("read-back-stage");
+        start_a_run(&game);
+        // Far enough in that the stage is running and no fight has arrived, so what is read is a stage and
+        // nothing else.
+        let at = BOSS_ARRIVES - 100;
+        game.frames_until("the frame to read", at + 60, || {
+            game.state().stage_frames == at
+        });
+
+        let state = game.state();
+        assert!(state.playing && state.in_run && state.in_game);
+        assert!(!state.replay && !state.demo && !state.practice);
+        assert_eq!(
+            state.stage,
+            the_run().stage,
+            "counted from zero above `Game`"
+        );
+        assert_eq!(state.difficulty, the_run().difficulty);
+        assert_eq!(state.stage_frames, at);
+        assert_eq!(
+            state.script_frames, at as i32,
+            "the clock the enemy script runs on is not the stage's own",
+        );
+        assert_eq!(state.lives, 2, "the lives a run starts with");
+        assert_eq!(state.bombs, 3);
+        assert_eq!(state.power, 0);
+        assert_eq!(state.deaths, 0);
+        assert_eq!(
+            state.enemy_count,
+            fake::waves(at as i32),
+            "the wave this stage has on at that frame",
+        );
+        assert!(
+            !state.unsettled,
+            "the player is neither dying nor coming back"
+        );
+        assert!(!state.bombing);
+        // And the fight has not arrived, which is what the frame was chosen for.
+        assert!(!state.boss_present);
+        assert_eq!(state.spellcard, None);
+
+        // The whole of it read again is the same answer: a `State` is read at one instant, so two reads of
+        // a game that has not been updated between them cannot differ.
+        assert_eq!(game.state(), state, "reading it twice gave two answers");
     });
-
-    let state = game.state();
-    assert!(state.playing && state.in_run && state.in_game);
-    assert!(!state.replay && !state.demo && !state.practice);
-    assert_eq!(
-        state.stage,
-        the_run().stage,
-        "counted from zero above `Game`"
-    );
-    assert_eq!(state.difficulty, the_run().difficulty);
-    assert_eq!(state.stage_frames, at);
-    assert_eq!(
-        state.script_frames, at as i32,
-        "the clock the enemy script runs on is not the stage's own",
-    );
-    assert_eq!(state.lives, 2, "the lives a run starts with");
-    assert_eq!(state.bombs, 3);
-    assert_eq!(state.power, 0);
-    assert_eq!(state.deaths, 0);
-    assert_eq!(
-        state.enemy_count,
-        fake::waves(at as i32),
-        "the wave this stage has on at that frame",
-    );
-    assert!(
-        !state.unsettled,
-        "the player is neither dying nor coming back"
-    );
-    assert!(!state.bombing);
-    // And the fight has not arrived, which is what the frame was chosen for.
-    assert!(!state.boss_present);
-    assert_eq!(state.spellcard, None);
-
-    // The whole of it read again is the same answer: a `State` is read at one instant, so two reads of
-    // a game that has not been updated between them cannot differ.
-    assert_eq!(game.state(), state, "reading it twice gave two answers");
 }
 
 /// A replay being watched is a run — it has stages and chapters — and it is not one orb acts on: no
@@ -164,40 +170,42 @@ fn every_number_a_stage_is_played_with_reads_back_as_the_game_put_it() {
 /// flag: a replay looks exactly like play from every other field.
 #[test]
 fn a_replay_is_a_run_but_not_one_orb_acts_on() {
-    let game = game("read-back-replay");
-    game.watches_a_replay();
-    game.frames_until("the stage built", 8, || game.state().playing);
-    game.frames(400);
+    in_its_own_process(|| {
+        let game = game("read-back-replay");
+        game.watches_a_replay();
+        game.frames_until("the stage built", 8, || game.state().playing);
+        game.frames(400);
 
-    let state = game.state();
-    assert!(state.replay, "the run is not a replay being watched");
-    assert!(
-        state.in_run,
-        "a replay is a run: it has stages, and chapters could be taken over it",
-    );
-    assert!(
-        !state.in_game,
-        "a replay is not a run somebody is playing, which is what decides whether orb acts on it",
-    );
-    assert!(
-        !game.log().said("chapter 1 (stage start)"),
-        "a chapter was kept over a replay nobody asked to be tracked: {:?}",
-        game.log().lines(),
-    );
+        let state = game.state();
+        assert!(state.replay, "the run is not a replay being watched");
+        assert!(
+            state.in_run,
+            "a replay is a run: it has stages, and chapters could be taken over it",
+        );
+        assert!(
+            !state.in_game,
+            "a replay is not a run somebody is playing, which is what decides whether orb acts on it",
+        );
+        assert!(
+            !game.log().said("chapter 1 (stage start)"),
+            "a chapter was kept over a replay nobody asked to be tracked: {:?}",
+            game.log().lines(),
+        );
 
-    // And the player being hit is the recording being watched, not a chapter to go back to.
-    game.hit();
-    game.frame();
-    assert_eq!(game.state().deaths, 1, "the death is the replay's own");
-    assert!(
-        !game.log().said("died in chapter"),
-        "a replay was offered the retry menu: {:?}",
-        game.log().lines(),
-    );
-    let died_at = game.state().stage_frames;
-    game.frames(10);
-    assert!(
-        game.state().stage_frames > died_at,
-        "the replay stopped, which is what a retry menu would do to it",
-    );
+        // And the player being hit is the recording being watched, not a chapter to go back to.
+        game.hit();
+        game.frame();
+        assert_eq!(game.state().deaths, 1, "the death is the replay's own");
+        assert!(
+            !game.log().said("died in chapter"),
+            "a replay was offered the retry menu: {:?}",
+            game.log().lines(),
+        );
+        let died_at = game.state().stage_frames;
+        game.frames(10);
+        assert!(
+            game.state().stage_frames > died_at,
+            "the replay stopped, which is what a retry menu would do to it",
+        );
+    });
 }

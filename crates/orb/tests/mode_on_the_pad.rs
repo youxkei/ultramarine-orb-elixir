@@ -16,7 +16,7 @@
 
 mod fake;
 
-use fake::{Fake, MAPPING, READS_KEYS_AFTER};
+use fake::{Fake, MAPPING, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::game::RunStart;
@@ -72,23 +72,25 @@ fn outcomes(game: &Fake) -> usize {
 /// all here while working perfectly on the game's own menu a keypress earlier.
 #[test]
 fn the_pad_answers_and_is_named_as_the_hand_that_did() {
-    let game = asking("pad-answers");
-    game.push(Pushed::button(MAPPING.shoot));
-    game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
-    assert!(
-        game.log()
-            .said(&format!("mode: answered on the {}", By::Pad)),
-        "the answer was not named as the pad's: {:?}",
-        game.log().lines(),
-    );
-    assert!(
-        game.log().said("mode: pointdevice, was pointdevice"),
-        "the pad chose no mode: {:?}",
-        game.log().lines(),
-    );
-    // And the press it stands in for reaches the game's own menu, which is what starts the run.
-    game.frames_until("the run being asked for", 90, || {
-        game.image().front_end_now().screen == Screen::ShotType
+    in_its_own_process(|| {
+        let game = asking("pad-answers");
+        game.push(Pushed::button(MAPPING.shoot));
+        game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
+        assert!(
+            game.log()
+                .said(&format!("mode: answered on the {}", By::Pad)),
+            "the answer was not named as the pad's: {:?}",
+            game.log().lines(),
+        );
+        assert!(
+            game.log().said("mode: pointdevice, was pointdevice"),
+            "the pad chose no mode: {:?}",
+            game.log().lines(),
+        );
+        // And the press it stands in for reaches the game's own menu, which is what starts the run.
+        game.frames_until("the run being asked for", 90, || {
+            game.image().front_end_now().screen == Screen::ShotType
+        });
     });
 }
 
@@ -97,75 +99,79 @@ fn the_pad_answers_and_is_named_as_the_hand_that_did() {
 /// out right — the shot button was held to choose the item this is asked over.
 #[test]
 fn a_button_held_from_before_the_question_does_not_answer_it() {
-    let game = Fake::attach("pad-held", the_run(), |config| {
-        config.log_level = LogLevel::Verbose;
-    });
-    game.at_the_title_menu();
-    // Held before the question is even asked for, and never let go.
-    game.push(Pushed::button(MAPPING.shoot));
-    game.press(keys::Z);
-    game.frames_until("the question", 8, || {
-        !game.says(title(Menu::Run)).is_empty()
-    });
-    for _ in 0..READS_KEYS_AFTER + 60 {
-        game.frame();
-        assert_eq!(
-            outcomes(&game),
-            0,
-            "a pad button held from before the question answered it: {:?}",
-            game.log().lines(),
-        );
-    }
+    in_its_own_process(|| {
+        let game = Fake::attach("pad-held", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.at_the_title_menu();
+        // Held before the question is even asked for, and never let go.
+        game.push(Pushed::button(MAPPING.shoot));
+        game.press(keys::Z);
+        game.frames_until("the question", 8, || {
+            !game.says(title(Menu::Run)).is_empty()
+        });
+        for _ in 0..READS_KEYS_AFTER + 60 {
+            game.frame();
+            assert_eq!(
+                outcomes(&game),
+                0,
+                "a pad button held from before the question answered it: {:?}",
+                game.log().lines(),
+            );
+        }
 
-    // Let it go and push it again, which is what somebody actually does.
-    game.push(Pushed::none());
-    game.frame();
-    game.push(Pushed::button(MAPPING.shoot));
-    game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
+        // Let it go and push it again, which is what somebody actually does.
+        game.push(Pushed::none());
+        game.frame();
+        game.push(Pushed::button(MAPPING.shoot));
+        game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
+    });
 }
 
 /// The pad moves the cursor too, so 完全無欠モード is reachable without touching the keyboard — on the
 /// stick and on the hat, which the game reads out of different fields of its device.
 #[test]
 fn the_stick_and_the_hat_both_move_the_cursor() {
-    let game = asking("pad-moves");
-    // Down to レガシーモード on the stick: past the threshold the game keeps beside its mapping, since
-    // the middle of an axis is not a direction.
-    game.push(Pushed {
-        y: i32::from(MAPPING.y_axis) + 1,
-        ..Pushed::none()
-    });
-    game.frames(2);
-    game.push(Pushed::none());
-    game.frames(2);
-    assert_eq!(
-        under_the_cursor(&game),
-        Mode::Normal,
-        "the stick did not move the cursor",
-    );
+    in_its_own_process(|| {
+        let game = asking("pad-moves");
+        // Down to レガシーモード on the stick: past the threshold the game keeps beside its mapping, since
+        // the middle of an axis is not a direction.
+        game.push(Pushed {
+            y: i32::from(MAPPING.y_axis) + 1,
+            ..Pushed::none()
+        });
+        game.frames(2);
+        game.push(Pushed::none());
+        game.frames(2);
+        assert_eq!(
+            under_the_cursor(&game),
+            Mode::Normal,
+            "the stick did not move the cursor",
+        );
 
-    // And back up on the hat, which reports a direction rather than a distance.
-    game.push(Pushed {
-        hat: 0,
-        ..Pushed::none()
-    });
-    game.frames(2);
-    game.push(Pushed::none());
-    game.frames(2);
-    assert_eq!(
-        under_the_cursor(&game),
-        Mode::Pointdevice,
-        "the hat did not move the cursor",
-    );
+        // And back up on the hat, which reports a direction rather than a distance.
+        game.push(Pushed {
+            hat: 0,
+            ..Pushed::none()
+        });
+        game.frames(2);
+        game.push(Pushed::none());
+        game.frames(2);
+        assert_eq!(
+            under_the_cursor(&game),
+            Mode::Pointdevice,
+            "the hat did not move the cursor",
+        );
 
-    // Chosen there, on the pad's own decide.
-    game.push(Pushed::button(MAPPING.shoot));
-    game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
-    assert!(
-        game.log().said("mode: pointdevice, was pointdevice"),
-        "the pad chose the mode the cursor had left: {:?}",
-        game.log().lines(),
-    );
+        // Chosen there, on the pad's own decide.
+        game.push(Pushed::button(MAPPING.shoot));
+        game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
+        assert!(
+            game.log().said("mode: pointdevice, was pointdevice"),
+            "the pad chose the mode the cursor had left: {:?}",
+            game.log().lines(),
+        );
+    });
 }
 
 /// Which mode the question would answer with now — the one drawn in `SELECTED`.
