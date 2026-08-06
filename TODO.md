@@ -774,17 +774,22 @@ ink would be a patch over the row, which is the one thing the mark must not look
 stroke by 24 pixels in `draw` fails both; the five geometry tests beside them do not notice, because
 `brush_area` is right in all of them and it is `draw` that is wrong.
 
-**Still to move:** `retry_ui` (6), `mode_ui` (4), `resume_ui` (8), and what `overlay` and `text` do
-with a label. The pattern is the one in `lives_ui`'s tests — a `Recording`, an overlay on a system
-font, `clear()` so the assertion is about one frame, then the real drawing call.
+**The three menus are through it too**, and so is reading text back: `retry_ui` has ten tests over the
+recorded frame, `resume_ui` eleven, `mode_ui` three, and the scenarios over a whole run ask what a quad
+*says* — `Screen::says` bakes the string again through the same font and holds it against what the
+texture was uploaded with, so the retry menu naming the chapter it is offering is something a test can
+read. What is left of the drawing is the rasterising itself: the glyph boxes are the GDI's, so `says`
+tells one string from another and not one metric from a wrong one.
 
-**`retry_ui` was tried and taken back out, and what stopped it is not understood yet.** Drawing the
-menu across two frames on one device kills the process, with no panic and no message — exit 5, part
-way through the test. What is *not* the cause, each ruled out by a probe: the overlay itself builds
-on a system font; a label of Japanese renders in Arial (110x14) as does the cursor's arrow (8x14);
-and one `RetryMenu::draw` against a fresh device and a fresh menu is fine. It is the second frame,
-or the harness around it, and finding out means bisecting inside `Frame`'s own drawing rather than
-around it.
+**What nothing has ever read is the status line.** The chapter's name, `RETRY n`, `INPUT LAG`, `COMPOSE`
+and the frame rate, in the black beside the game — and every pacing measurement in `DONE.md` was read
+off that `fps` and the log's own line. It cannot be reached in a test: `window::write_beside` wants a
+window it can `GetClientRect` and returns without one. The seam that would open it is at the level of
+the *lines* rather than the GDI — orb tells the host to put these lines beside the game, and a simulated
+host keeps them — which is small, and would leave the placement arithmetic where it is. Worth knowing
+what it is not: `interval_us` is an average over 32 frames held for 30 more, so the number on screen
+says a run settled at sixty and cannot see the second that lost four frames. The rate is the clock's to
+answer — see [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 
 Two things were learnt on the way and both are traps worth keeping:
 
