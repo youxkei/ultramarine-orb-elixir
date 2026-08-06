@@ -215,13 +215,24 @@ The th06-specific things that live outside `game/th06/` and would each become a 
 | --- | --- |
 | `launcher/main.rs` | `GAME_EXE` and `GAME_EXE_MD5`, and the error text naming 1.02h |
 | `orb/lib.rs` | `static GAME: Th06`, chosen rather than fixed |
-| `orb/lib.rs` | the `vpatch_th06.dll` name in the "vpatch loaded" line |
 | `orb/game/th06/chapters.rs` | `MIDSTAGE` is seven stages because 紅魔郷 has seven |
 
-Two things to settle before the second game rather than after: whether `State` says everything
-a chapter needs for a game whose scoring or resources work differently, and whether the
-midstage table's shape — script frame numbers per stage — holds where stages are not one
-script on one clock.
+And the test rig, which no table covers: `game/th06/image.rs` lays out 紅魔郷's own address space
+and `orb/tests/fake/mod.rs` plays 紅魔郷's part, so a second game needs an image and a half of
+`fake` of its own. What it does *not* need is the frame loop's 46 scenarios rewritten — since
+[docs/adr/0003](docs/adr/0003-the-frame-loops-scenarios-are-one-file.md) they judge microseconds
+and log lines and nothing else.
+
+Two things to settle before the second game is *played* rather than merely paced: whether `State`
+says everything a chapter needs for a game whose scoring or resources work differently, and whether
+the midstage table's shape — script frame numbers per stage — holds where stages are not one
+script on one clock. A game that declines chapters has neither in its way.
+
+The plan for th07 — the `Game` that declines what has not been measured, the game chosen at the
+attach, and the one e2e scenario that says the seam holds — is
+[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md), which is accepted and
+not built. Its first three steps are orb's own shape and need no address of th07; the rest come out of
+`th07.exe` itself, 650752 bytes, md5 `0126afce1e805370d36c3482445e98da`.
 
 ## What a clear left open
 
