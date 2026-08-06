@@ -482,12 +482,23 @@ impl Pacing {
     /// The grid the frames are put on, as a rate in whole Hz and the spacing of its blanks in ticks.
     ///
     /// **The compositor's whenever there is one**, because that is the only grid a frame can be put on:
-    /// `DwmFlush` returns at its blanks and at nobody else's. Both halves of that are measured. On a
-    /// desktop of a 120Hz primary with a 144Hz monitor beside it, a window on any of the three flushed
-    /// at 143.97Hz while `EnumDisplaySettingsW` answered about its own panel —
-    /// `scripts/compositor-probe.c`, numbers in `DONE.md`. And the frames really are composed against
-    /// that grid: handed over 250µs before a blank, every one of sixty missed it and took the refresh
-    /// after; handed over 2000µs before, not one did — `scripts/background-flush-probe.c`.
+    /// `DwmFlush` returns at its blanks and at nobody else's. Both halves of that are measured.
+    ///
+    /// `scripts/compositor-probe.c` on a desktop of DISPLAY1 the primary at 120Hz, DISPLAY2 at 120Hz and
+    /// DISPLAY3 at 144Hz: the compositor reported `qpcRefreshPeriod=6944.4us`,
+    /// `rateRefresh=10000000/69444` — the **fastest** monitor's rate, neither the primary's nor the
+    /// window's — and 119 flushes apiece put a window on each of the three at 143.97Hz (means 6946.0,
+    /// 6946.1 and 6945.5µs) while `EnumDisplaySettingsW` answered 120, 144 and 120 about their own
+    /// panels. So the two numbers `adopt` compares really can disagree, and only the first of them moves
+    /// with the window.
+    ///
+    /// And the frames really are composed against that grid, from `scripts/background-flush-probe.c`
+    /// handing a frame over a chosen lead before a blank, sixty frames a lead:
+    ///
+    /// | lead | 250µs | 500µs | 1000µs | 1500µs | 2000µs and up |
+    /// | --- | --- | --- | --- | --- | --- |
+    /// | made the blank, in front | 0 of 60 | 11 | 54 | 58 | 60 |
+    /// | made it while covered | 0 of 60 | 12 | 57 | 53 | 60 |
     ///
     /// So `fallback`, which is what a monitor or the desktop reports for itself, is only the rate to
     /// count in where the compositor will not say. Counting in it while flushing on the compositor's

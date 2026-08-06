@@ -212,7 +212,7 @@ picks by the exe it finds itself inside, since none of the work is per-game code
 **Three of the four things that used to hardcode 紅魔郷 are tables now** — see [DONE.md](DONE.md).
 `orb_core::game::KNOWN` is the one table both halves read, the launcher's `GAME_EXE`, `GAME_EXE_MD5`
 and its error naming 1.02h read out of it, `orb/lib.rs` chooses its game at the attach instead of
-holding a `static GAME: Th06`, and `orb/tests/fake` is a host half and a 紅魔郷 half. What is left of
+holding a `static GAME: Th06`, and `orb-sim/tests/fake` is a host half and a 紅魔郷 half. What is left of
 that list is `game/th06/chapters.rs`, where `MIDSTAGE` is seven stages because 紅魔郷 has seven — and
 a game that declines chapters does not reach it.
 
@@ -477,7 +477,7 @@ means five frames of every six shown for one refresh and one for two — judder 
 game at its own speed and every frame on a blank rather than on a clock that lands anywhere.
 
 Nobody has a 50Hz desktop to want this on, which is why it is here and not done. The `rates` section of
-`orb/tests/pacing.rs` could reach it in a line.
+`orb-sim/tests/scenario_pacing.rs` could reach it in a line.
 
 ## Move the rest of the suite onto the space
 
@@ -489,14 +489,15 @@ them the reason none of those tests could fail when `observe` changed. Breaking 
 `starts` insert now fails four of them; before, it failed none.
 
 **`read_state` is read out of an image now, and `chapter.rs` still is not handed one.** The parse
-itself is covered: `orb-sim/tests/game_state.rs` writes a stage in progress through `Image::playing`
-— the game's own terms, over the same offset constants `Th06` reads through — and asserts the whole
-`State` that comes back, plus the two chases that have to come back as nothing rather than fault
-(the bosses pointer, and the dialogue index through `GuiImpl` on the heap). What is left is the
+itself is covered: `orb-sim/tests/scenario_the_run_read_back.rs` reads the whole `State` back off a game
+that got where it is by being played — the game's own terms, over the same offset constants `Th06` reads
+through — plus the four chases that have to come back as nothing rather than fault (the bosses pointer
+before a fight, the dialogue index through a `GuiImpl` on the heap, the laser array, and the ending's
+script). What is left is the
 handover: `chapter.rs`'s scenarios still build a `State` by hand and step the detector with it, so
 what they cannot catch is `observe` reading a different stage from the one the image holds.
 
-That handover is covered now, once: `orb/tests/pointdevice_run.rs` drives a run in which nothing hands
+That handover is covered now, once: `orb-sim/tests/scenario_pointdevice_run.rs` drives a run in which nothing hands
 orb a `State` at all — the game advances its own memory and `read_state` is how orb learns it, as in
 production — so a chapter beginning on the wrong frame, or on a card the memory does not hold, fails
 there. What is left is that `chapter.rs`'s own twenty-seven still cannot fail for that reason, which
@@ -524,7 +525,7 @@ could write next and none of which is in the way of the two that exist:
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
   `chapter.rs`'s twenty-seven.
 - **One of the frame loop's four ways out.** The other three and the loop's order are the `frame_loop`
-  section of `orb/tests/pacing.rs`;
+  section of `orb-sim/tests/scenario_pacing.rs`;
   a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
   and nothing outside orb can empty them. See
   [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
@@ -560,7 +561,7 @@ anyone plays at except the fastest, and outside it there.
 
 Measured, 240Hz with the compositor held at 3200µs over 20,000 frames: the allowance climbs to exactly
 3124µs and stops, no miss is charged to anything, and the rate settles at **48.00** for the rest of the
-run — every fifth frame taking an extra refresh. The `converges` section of `orb/tests/pacing.rs` asserts
+run — every fifth frame taking an extra refresh. The `converges` section of `orb-sim/tests/scenario_pacing.rs` asserts
 that shape, so a run reading 48 with the allowance *below* the ceiling would be a different fault and
 would be caught.
 
@@ -622,7 +623,8 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Forty-two of the 233 tests are scenarios, and every one of them is driven by a game.** In `orb/tests`
+**Sixty-two of the 258 tests are scenarios, and every one of them is driven by a game.** In
+`orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
 that chooses between them on the keyboard and on a controller the game answers with, the whole of a
@@ -637,8 +639,9 @@ argument, so a `Game` that hands them over rather than making the call leaves a 
 functions of its own to answer with. The 414-line harness that composed a copy of that loop, and whose
 own comment said it was a copy, is gone with them.
 
-The four tests left in `orb-sim/tests` are not scenarios. Three are the log's own business — what `log!`
-formats and which level keeps which line — and the fourth is `Pacing::configure` against a host that
+The four files in `orb-sim/tests` whose names do not begin `scenario_` are not scenarios. Three are the
+log's own business — what `log!` formats and which level keeps which line — and the fourth is
+`Pacing::configure` against a host that
 refuses the millisecond timer, which is a startup and no frame. They want a process each, orb's log and
 profile being process-global, which a file in `tests/` gives and `orb-core`'s own `#[cfg(test)]` — one
 binary for all of its tests — does not.
@@ -755,7 +758,7 @@ which is a better check than the one there now, since today nothing says the two
 **`recording.rs` stayed in `orb`** while the vtable declarations went to `orb-core`, and that is where
 it belongs until the drawing seam is cut: its `Screen` fixture builds a real `Overlay`, which reaches
 `text.rs` and the GDI. The split is what let `game/` move without taking the whole of the drawing on at
-once. It is `pub` rather than `#[cfg(test)]` now, since the scenarios in `tests/` need a device as
+once. It is `pub` rather than `#[cfg(test)]` now, since the scenarios in `orb-sim/tests/` need a device as
 well — a game laid out by hand hands orb one of these, and orb's overlay is built and drawn through the
 calls it makes against a real one.
 

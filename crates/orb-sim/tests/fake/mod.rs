@@ -14,9 +14,9 @@
 //! own half and nothing of the other's; what they share is here. See
 //! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
-// Shared by every scenario in `tests/`, and each drives the part of a game it is about — so what one
-// file does not touch is not dead code, it is another file's. Nothing can see that: `dead_code` is
-// worked out per binary, and this module is compiled into one per file in `tests/`.
+// Shared by every `scenario_*.rs` beside this module, and each drives the part of a game it is about —
+// so what one file does not touch is not dead code, it is another file's. Nothing can see that:
+// `dead_code` is worked out per binary, and this module is compiled into one per `scenario_*.rs`.
 #![allow(dead_code)]
 
 pub mod th06;
@@ -113,7 +113,7 @@ impl Work {
     /// And one that now and then costs a quarter of a second, which is a stage load.
     ///
     /// `one_in` rather than a count, so a scenario says how many its length will see. What the load
-    /// must *not* do is buy the compositor anything — the `load` section of `pacing.rs` is that claim;
+    /// must *not* do is buy the compositor anything — `scenario_pacing.rs`'s `load` section is that claim;
     /// this is the other half of it, which is that the rate comes back.
     pub fn loading(us: i64, one_in: i64) -> Self {
         Self {

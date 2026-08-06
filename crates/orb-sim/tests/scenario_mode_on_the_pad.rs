@@ -1,9 +1,10 @@
 //! The pad answering the question orb puts over the game's own title menu.
 //!
-//! Its own file rather than a case in `mode_question.rs`, because what it reaches is a different half
+//! Its own file rather than a case in `scenario_mode_question.rs`, because what it reaches is a different half
 //! of orb: those press keys, which orb reads for itself, and this pushes a *controller*, which orb
 //! does not read at all. `Game::pad` asks the game — the device the game polls, through the mapping
-//! the game keeps — and the reason is measured on this machine and in `DONE.md`: a pad in XInput's
+//! the game keeps — and the reason is measured on this machine, beside `orb`'s
+//! `joystick::Sample::is_a_pad`: a pad in XInput's
 //! second slot is one DirectInput has and winmm's joystick 0 does not, so a menu of orb's driven from
 //! orb's own sample answers to a pad the game has not got. Which looked exactly like orb's menus
 //! ignoring a pad that plainly worked.

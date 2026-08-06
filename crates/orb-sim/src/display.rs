@@ -21,10 +21,11 @@
 //! decided by when `DwmFlush` returns, which is the compositor's grid — and it is why nothing here
 //! can say anything about how those frames land on the other panel.
 //!
-//! **The split case is measured, not assumed** — `scripts/compositor-probe.c`, and the numbers are in
-//! `DONE.md`. On a desktop of a 120Hz primary and a 144Hz monitor beside it, the compositor reports
-//! 144.00Hz and a flush waits 143.97Hz, and a window on any of the three monitors gets the same
-//! 143.97Hz while `EnumDisplaySettingsW` answers about its own. So both of the things this simulates
+//! **The split case is measured, not assumed** — `scripts/compositor-probe.c` on a desktop of a 120Hz
+//! primary, a second 120Hz monitor and a 144Hz one beside them. The compositor reported
+//! `qpcRefreshPeriod=6944.4us` — 144.00Hz, the fastest monitor's rate — and 119 flushes apiece put a
+//! window on each of the three at 143.97Hz, means of 6946.0, 6946.1 and 6945.5µs, while
+//! `EnumDisplaySettingsW` answered 120, 144 and 120 about their own. So both of the things this simulates
 //! hold: the flushes fall at the compositor's rate, and the window's monitor changes nothing about
 //! them.
 //!
@@ -37,7 +38,8 @@
 //! **The compose time is a distribution too, and it is inferred rather than read** — see [`Compose`].
 //! Nothing on the machine reports what the compositor takes over a frame; orb knows only what it
 //! *allows* it, which is its own estimate and climbs on a miss. So [`Compose::measured`] is pinned
-//! from three sides — the value that reproduces `DONE.md`'s real 120Hz run, the 3.5ms a session was
+//! from three sides — the value that reproduces the real 120Hz run's `600 frames, 16650us apart, gaps
+//! in refreshes 2x600`, the 3.5ms a session was
 //! seen reaching, and how rare half an hour of play makes that — and remains the number to vary
 //! rather than the number to trust. A scenario asking what the ratchet does sets its own rate, since
 //! at the measured rarity a scenario sees no spike at all.
@@ -330,8 +332,8 @@ impl Display {
 /// Two numbers and a rate rather than one, because a compositor is not a constant and orb's allowance
 /// exists for the times it is not. A fixed compose time makes every frame expensive, which costs
 /// refreshes a real machine does not lose — measured: with a fixed 2000µs a simulated 120Hz display
-/// lost 35 refreshes in 1592 frames, where `DONE.md`'s real 120Hz measurement is `gaps in refreshes
-/// 2x600` over seven periods, none lost at all.
+/// lost 35 refreshes in 1592 frames, where the real 120Hz run is `600 frames, 16650us apart, gaps in
+/// refreshes 2x600` over seven periods in a row, none lost at all.
 /// Three sources of unevenness rather than two, and the third is what a scenario about the *rate* wants:
 /// the usual cost is not one number either, it wanders. `jitter_us` is how far above `usual_us` it may
 /// wander, drawn per frame from the same seeded stream the wake delays come from, so a scenario declares
@@ -351,9 +353,12 @@ pub struct Compose {
 impl Compose {
     /// What this machine appears to do, from three observations rather than one:
     ///
-    /// - `usual_us` — anything up to about 1200µs reproduces `DONE.md`'s real 120Hz run exactly:
-    ///   `gaps in refreshes 2x600` with the allowance never climbing off its 2500µs start. Above it the
-    ///   simulated allowance climbs where the real one did not.
+    /// - `usual_us` — anything up to about 1200µs reproduces the real 120Hz run exactly:
+    ///   `600 frames, 16650us apart, gaps in refreshes 2x600` with the allowance never climbing off its
+    ///   2500µs start. Above it the simulated allowance climbs where the real one did not. And
+    ///   `scripts/background-flush-probe.c` puts this machine's compose time between 1000 and 2000µs
+    ///   from the other side: a frame handed over 1000µs before a blank made it 54 times in 60, and one
+    ///   handed over 2000µs before made it 60 times in 60.
     /// - `spike_us` — the compositor is reported to reach about this in **half an hour** of play.
     /// - `spike_one_in` — which is what half an hour says about how rare it is: thirty minutes at sixty
     ///   frames a second is 108,000 frames, and reaching 3500µs about once in that is one frame in a
@@ -363,8 +368,8 @@ impl Compose {
     ///   were the pacing's and not the compositor's. Three orders of magnitude too often, and it cost
     ///   the simulated 60Hz display two seconds in five that a real one holds.
     ///
-    /// So a scenario of a few thousand frames sees no spike at all, which is what `DONE.md`'s real
-    /// 600-frame runs show — `gaps in refreshes 2x600`, none lost. The spike is what the allowance's
+    /// So a scenario of a few thousand frames sees no spike at all, which is what the real 600-frame
+    /// runs show — `gaps in refreshes 2x600`, none lost. The spike is what the allowance's
     /// ratchet exists for over a *session*, and a scenario about it says so and sets its own.
     /// `jitter_us` is what is left over from the same reasoning: the 1200µs that still reproduces the
     /// real run is the ceiling of the ordinary cost, not its middle, so an ordinary frame is put between

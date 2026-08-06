@@ -39,9 +39,10 @@ use super::{DRAW, Display, Launch, Launched, PRESENT, SOUND, UPDATE, WINDOW, Wor
 
 /// What the game's own chain walk answers while the game is running.
 ///
-/// Neither of the two below, which orb reads as the game leaving. A run whose resume played 7476
-/// updates in inside one frame (`DONE.md`) is measured proof that the real walk does not answer zero
-/// while a stage is running, since orb's playback stops on that.
+/// Neither of the two below, which orb reads as the game leaving. A real run whose resume played 7476
+/// updates in inside one frame is measured proof that the real walk does not answer zero
+/// while a stage is running, since orb's playback stops on that — and
+/// `scenario_pointdevice_run.rs` plays 700 in one frame the same way.
 const CHAIN_CARRIED_ON: i32 = 1;
 
 /// And what it answers when the game is leaving: zero, which orb reads as the game having asked to stop,
@@ -348,7 +349,7 @@ impl Fake {
     }
 
     /// And the same with orb's own account of the pacing being written where a scenario can read it
-    /// back, which is every scenario about the frame loop — see `tests/pacing.rs`.
+    /// back, which is every scenario about the frame loop — see `scenario_pacing.rs`.
     ///
     /// `work` is what the game's own frame costs, since that is the whole of what the pacing has to put a
     /// wait around — see [`Work`]. The run is [`the_run`] and the game sits on its title menu throughout:

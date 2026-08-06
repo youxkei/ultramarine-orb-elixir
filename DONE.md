@@ -71,7 +71,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
   went in with — and `th07.cfg` too, which is the fork working; that it happens at all for this game is
   in [TODO.md](TODO.md).
 
-  **What is checked in the suite is one scenario, `orb/tests/th07.rs`, and it asserts what that run
+  **What is checked in the suite is one scenario, `orb-sim/tests/scenario_th07.rs`, and it asserts what that run
   showed rather than what it was hoped to show.** A 妖々夢 laid out over that `.data`, orb attached to
   `Th07`, and the game's own frame run with orb's two hooks inside it: the frame's calls in 妖々夢's own
   draw-then-update order (`draw`, `update`, `sound`, `present`), `overlay: unavailable` in a directory
@@ -359,7 +359,8 @@ settled by measurement rather than by looking at the screen, the measurement is 
     says which hand answered.
   - **And it is driven in tests now, keys and all.** `GetKeyboardState` went behind the seam and what
     the question decides — the two modes, the cursor, which key answers — went into `orb-core` beside
-    it, apart from the labels it draws them with. Thirteen scenarios in `orb-sim/tests/mode.rs` press
+    it, apart from the labels it draws them with. Thirteen cases — `orb-sim/tests/scenario_mode_question.rs`
+    and `scenario_mode_on_the_pad.rs` now — press
     the keys somebody would: the cursor starting on the mode orb is in, so 完全無欠モード is one press
     away from a run that was one; either of the two keys the game decides with deciding here; the bomb
     key and escape cancelling and choosing neither; the ten frames of grace with the key that put the
@@ -693,9 +694,9 @@ settled by measurement rather than by looking at the screen, the measurement is 
   presses keys, and runs frames, and reads back the game's own memory, the game's own record of a
   spell card, and what orb put in the log.
 
-  **The rig is two halves.** `orb/tests/fake/mod.rs` is the half any game's launch has — the display a
+  **The rig is two halves.** `orb-sim/tests/fake/mod.rs` is the half any game's launch has — the display a
   scenario declares, the device orb draws through, what a frame's own work costs and how unevenly it
-  comes, the frames and the presses, and `in_its_own_process`. `orb/tests/fake/th06.rs` is 紅魔郷's own:
+  comes, the frames and the presses, and `in_its_own_process`. `orb-sim/tests/fake/th06.rs` is 紅魔郷's own:
   the address space, the supervisor's build-then-copy order, the title menu's items, the `catk` record,
   the shot-type screen and the bits of its input word. The vocabulary a scenario drives a game by is a
   trait — `Launched`, whose four required methods are the game's window, its own frame, the host its
@@ -704,7 +705,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
   are still 46. See
   [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
-  **`pointdevice_run.rs`, one 完全無欠 run, in the order somebody playing meets it.** `Z` at the title
+  **`scenario_pointdevice_run.rs`, one 完全無欠 run, in the order somebody playing meets it.** `Z` at the title
   menu puts orb's question over it — `menu: Run is under the cursor, asking which mode` — and the
   game's own cursor has not moved, the press having been held back. Answered, the press is handed over,
   the shot type select takes it, and `resume: nothing was left of normal-reimu-a` says the file was
@@ -751,7 +752,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
   playback would otherwise have counted its own way through (`4096 byte(s) of captures put back`) and
   counts one attempt for the landing itself: `resume: attempt 3 at this spell card`.
 
-  **`legacy_run.rs`, the same game answered the other way**, which is every one of those things orb has
+  **`scenario_legacy_run.rs`, the same game answered the other way**, which is every one of those things orb has
   to *not* do. レガシーモード chosen — `mode: normal, was pointdevice` — and then: no chapter over the
   frames where the other run took three, nothing drawn over the count of lives, `resume: stage 1 of a
   run orb is not keeping; nothing of it is written down`, and a death that costs a life with no menu
@@ -769,7 +770,7 @@ settled by measurement rather than by looking at the screen, the measurement is 
   `orb_api::mem::game_regions`, and a chapter over a laid-out game covers **3 regions of 2570748
   bytes** where it covered one.
 
-  **And what was in `orb-sim/tests` and is a scenario is driven this way now**: 233 tests, forty-two of
+  **And the tests that used to drive orb by calling it are driven this way now**: 233 tests then, forty-two of
   them runs like these. The question that chooses a mode — thirteen cases, on the keyboard and on a pad
   — and the whole of a `State` read at frames a game reached by being played to them, all of which used
   to drive orb by *calling* it. The pad needed a controller of the game's own: an object and a vtable in
@@ -783,9 +784,11 @@ settled by measurement rather than by looking at the screen, the measurement is 
   game with two functions of its own — so `render` is a scenario like anything else and a laid-out game's
   loop calls it per frame, which is what a shipped run has on. The 414-line harness that composed a copy
   of that loop is gone; see
-  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). What stayed in
-  `orb-sim/tests` is the log, which is nobody's behaviour but its own, and one `Pacing` handed a host that
-  refuses the millisecond timer.
+  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). What no game
+  drives is the log, which is nobody's behaviour but its own, and one `Pacing` handed a host that
+  refuses the millisecond timer — four files whose names do not begin `scenario_`, which is where that is
+  written down now that the whole suite is one directory. See
+  [docs/adr/0005](docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
 - **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it
@@ -892,7 +895,7 @@ Settled by measurement.
 
   **Nine compositor rates that were never sixty are sixty in every second now** — 70, 75, 90, 100, 110,
   144, 150, 165 and 200Hz against a 120Hz monitor, four hosts apiece, judged a second at a time within
-  half a frame. The `rates` section of `orb/tests/pacing.rs` is that table, and it was written the other
+  half a frame. The `rates` section of `orb-sim/tests/scenario_pacing.rs` is that table, and it was written the other
   way round before: `assert_never_sixty`, nine rows of it.
 
   What the simulator cannot speak for is the other half of this desktop, which is why the run on the
@@ -907,7 +910,7 @@ Settled by measurement.
   remaining gap is the compose time, which nothing reports, so the scenario asserts the direction and
   this table keeps the number.
 - **Sixty frames a second in every situation, as one table.** The `holds` section of
-  `orb/tests/pacing.rs` is the claim the
+  `orb-sim/tests/scenario_pacing.rs` is the claim the
   pacing exists to make, in one place: eighteen rows over the four things that vary — the monitor's rate,
   the compositor's rate, how unevenly the compositor takes its time, and how unevenly the game's own frame
   takes its — one `#[test]` apiece so the harness runs them at once, six seconds for the table where a
@@ -1046,7 +1049,7 @@ Settled by measurement.
   misses never moved the allowance off its 2500µs start, where at 120Hz the same miss climbed it to 6249µs.
   A real load is nowhere near that branch — measured at 60, 120 and 144Hz, a quarter-second frame costs
   exactly one frame its blank and the frame after it lands, so nothing is charged there — and three loads
-  in a run leave the allowance exactly where it was, which the `load` section of `orb/tests/pacing.rs` now
+  in a run leave the allowance exactly where it was, which the `load` section of `orb-sim/tests/scenario_pacing.rs` now
   holds it to.
 
   **What is left is a limit and not a defect**: the allowance cannot pass one refresh without showing the

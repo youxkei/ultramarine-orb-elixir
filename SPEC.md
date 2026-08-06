@@ -1886,11 +1886,15 @@ side by side in one process and a simulated Windows in a static would be two tes
 other's game; it comes off again when the installation is dropped, since the harness hands its
 threads out to whatever runs there next.
 
-`orb-sim` is the other implementation, and the scenarios in its own `tests/` drive the real
+`orb-sim` is the other implementation, and every test in its own `tests/` drives the real `orb` and
 `orb-core` against it — orb's code, composed as the DLL composes it, with the host answered by hand.
-They live there rather than in `orb-core` because a crate compiled as a *dependency* of a test binary
-has `cfg(test)` false, so the install point is reached through a cargo feature instead, and a crate
-cannot turn a feature on for itself.
+They live there rather than in either of those crates because a crate compiled as a *dependency* of a test
+binary has `cfg(test)` false, so the install point is reached through a cargo feature instead, and a crate
+cannot turn a feature on for itself. Which crate's `tests/` is then free, and it is the simulator's because
+that is where the thing every one of them installs lives. `orb-sim` reaching `orb` closes a cycle —
+`orb-sim` → `orb` → `orb-core` → `orb-sim` — which cargo allows because the edge into `orb` is a
+dev-dependency and so outside the normal build graph. See
+[docs/adr/0005](docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
 
 That feature is why the DLL the game loads pays nothing for any of this: with `sim` off the install
 point does not exist, and `mem::read` — called thousands of times a frame — compiles to the volatile
@@ -1927,15 +1931,14 @@ is what the space is for.
 It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took
 from the OS, which needs the import hooks that watched it take them; a laid-out space *is* the game's
 memory, so it says which regions those are and `memtrack` asks it — through `mem::game_regions` like
-every other host call, since a branch on `cfg(test)` there is a branch a scenario in `tests/` does not
-reach.
+every other host call, since a branch on `cfg(test)` there is a branch a scenario does not reach.
 
 In a build without the `sim` feature the space does not exist and none of `mem`'s functions branch.
 
 ## Running the game with no game there
 
 Above the memory there is a 東方紅魔郷 that plays the game's part rather than the address space's:
-`orb/tests/fake`. It owns a laid-out image, has a front end and a stage of its own, and calls orb's
+`orb-sim/tests/fake`. It owns a laid-out image, has a front end and a stage of its own, and calls orb's
 hooks where the real game's code calls them — the draw chain and then the update, with the input read
 inside the update, which is the game's own order. `orb::attach_to` puts a runtime in place with its
 functions where the trampolines `hook::install` leaves behind would be, so nothing is patched and
@@ -1975,9 +1978,11 @@ it. See [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-ar
 
 Everything a game can drive is driven that way: the question that chooses a mode, on the keyboard and on
 a controller the game answers with, the whole of a `State` read at frames a game reached by being played
-to them, and the frame loop. What is left in `orb-sim/tests` is the log and one `Pacing` that is handed
-numbers rather than run, neither of which is a scenario — what `log!` formats and which level keeps which
-line is the log's own business, and no game decides it.
+to them, and the frame loop. **Every one of them is a `scenario_*.rs` in `orb-sim/tests/`**, and the four
+files beside them that do not begin that way are the ones no game drives — the log, and one `Pacing` that
+is handed numbers rather than run. What `log!` formats and which level keeps which line is the log's own
+business, and no game decides it. See
+[docs/adr/0005](docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
 
 ## Holding the game still, checked against real threads
 
@@ -2031,13 +2036,11 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/input.rs` | the keyboard orb reads for itself, and what it does when the game is not the window in front |
 | `orb-core/menu.rs` | the keys the three questions read, whose press each is, and where a cursor over them goes |
 | `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
-| `crates/orb-sim` | the simulated Windows, and in its `tests/` the scenarios that drive `orb-core` against it |
+| `crates/orb-sim` | the simulated Windows, and in its `tests/` every test that drives `orb` and `orb-core` against it |
 | `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
 | `orb-sim/keyboard.rs` | the keys a test holds down, and a host that refuses to say what is down at all |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
-| `orb/tests/fake/` | the 東方紅魔郷 that plays the game's part: its own memory, its own front end and stage, the display its window is on, and its own loop calling orb's |
-| `orb/tests/pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |
@@ -2065,8 +2068,13 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/game/mod.rs` | `Game` and `State`: everything above is written against these |
 | `orb-core/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
 | `orb-core/game/th06/image.rs` | those addresses laid out in a simulated Windows, so the real `Th06` has something to read — and where each thing a game does to its own memory is written |
-| `orb/tests/fake/` | a 紅魔郷 that plays the game's part: its own memory, its own front end and stage, and orb's hooks called where the real game's code calls them |
-| `orb/tests/pointdevice_run.rs`, `legacy_run.rs` | the two scenarios over a whole run, which press keys and read back the game's memory, its records and orb's log |
+| `orb-sim/tests/fake/` | the games that play the game's part. `mod.rs` is the half any launch has — the display, the device orb draws through, what a frame's own work costs, and `in_its_own_process`; `th06.rs` is 紅魔郷's own memory, front end and stage, with orb's hooks called where the real game's code calls them, and `th07.rs` is as much of 妖々夢 as `Th07` reads |
+| `orb-sim/tests/scenario_pointdevice_run.rs`, `scenario_legacy_run.rs` | the two scenarios over a whole run, which press keys and read back the game's memory, its records and orb's log |
+| `orb-sim/tests/scenario_pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
+| `orb-sim/tests/scenario_mode_question.rs`, `scenario_mode_on_the_pad.rs` | the question over the game's title menu answered on the keyboard, and answered on a controller the game owns |
+| `orb-sim/tests/scenario_the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
+| `orb-sim/tests/scenario_th07.rs` | a laid-out 妖々夢 with orb attached to `Th07`, which asks that orb got in and did none of what it does to 紅魔郷 |
+| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their names not beginning `scenario_` says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.

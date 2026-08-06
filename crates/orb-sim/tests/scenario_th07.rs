@@ -13,7 +13,8 @@
 //!
 //! What it cannot say is that the addresses *are* right: a laid-out 妖々夢 is written from the same
 //! constants `Th07` reads, so a wrong one is wrong on both sides at once. Only the real image says, and
-//! [DONE.md](../../../DONE.md) is where the run that asked it is kept.
+//! the two launches that asked it are in
+//! [docs/adr/0004](../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
 mod fake;
 

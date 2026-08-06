@@ -3,8 +3,9 @@
 //! Only the reading of it is behind the seam. Every decision orb's pacing makes is already a
 //! function of the numbers that come out — `grid_aim`, `next_budget`, `whole_multiple`,
 //! `on_cadence` — so those are tested by handing them numbers, and what a seam adds is the order
-//! the waiting calls come in. What matters about the waiting is whether frames land on blanks,
-//! which is a measurement of real hardware; `DONE.md` keeps those.
+//! the waiting calls come in. What matters about the waiting is whether frames land on blanks, which
+//! is a measurement of real hardware rather than anything a simulated clock can answer; it is beside
+//! `frame::Pacing::grid`, with the probe that took it.
 
 /// `QueryPerformanceCounter`, for measuring how long something took.
 pub fn counter() -> i64 {

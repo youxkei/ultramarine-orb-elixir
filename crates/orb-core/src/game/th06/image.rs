@@ -7,8 +7,9 @@
 //!
 //! The regions are the game's own, at the game's own addresses, and they are laid out from the
 //! same constants the reads use — so what this cannot catch is a constant that is wrong. A wrong
-//! offset makes the writer and the reader wrong together, and only the real game says otherwise;
-//! that is what the measurements in `DONE.md` are for. What it does catch is everything built on
+//! offset makes the writer and the reader wrong together, and only the real game says otherwise —
+//! every one of these was read against 東方紅魔郷 1.02h running, with what the screen showed held
+//! against what came back. What this does catch is everything built on
 //! top of the offsets, which is where the code is.
 //!
 //! Zeroed, not filled with plausible values. A field the game has not written is zero in a

@@ -152,12 +152,13 @@ fn worst_second(handovers_us: &[i64], warm_up: usize) -> (usize, f64) {
 ///
 /// `wanted` is sixty for every display that has a blank on a sixtieth of a second, which is every
 /// whole multiple and every fractional rate the grid can chase. It is *not* sixty for the
-/// NTSC-derived ones: a display reporting 59 gets one blank a frame and runs at its own rate, which
-/// `DONE.md` records for the real 119.88Hz case — "59.94fps, the display's own rate halved". That is
-/// the pacing working; a tenth of a percent slow is a clock nobody can see.
+/// NTSC-derived ones: a display reporting 59 gets one blank a frame and runs at its own rate, which the
+/// real 119.88Hz machine did — `600 frames, 16652us apart, gaps in refreshes 2x600`, 59.94fps, the
+/// display's own rate halved, with the compositor's share never once climbing off its 2500µs start.
+/// That is the pacing working; a tenth of a percent slow is a clock nobody can see.
 ///
 /// All of the seconds, not most: measured over four hosts and thirty seconds apiece, every display
-/// the pacing accepts holds every second — which is what `DONE.md`'s real runs show too, `gaps in
+/// the pacing accepts holds every second — which is what the real runs show too, `gaps in
 /// refreshes 2x600` with none lost. So a shortfall here is a finding rather than a flake, and the
 /// seed in the message is how to go back to it.
 fn assert_every_second_at(handovers_us: &[i64], wanted: f64, seed: u64, said: &str) {
@@ -720,8 +721,10 @@ mod load {
 ///
 /// *What the fixed stutter costs* in `TODO.md` named this case and said of it that "that refusal has
 /// not been seen happen", and that the hazard beside it is one "nothing has re-checked since". It was
-/// both: the refusal never fired, and what happened instead ran the game **fast** — 71 to 72 frames a
-/// second on the machine (`DONE.md`), because the frames went on the compositor's blanks while the
+/// both: the refusal never fired, and what happened instead ran the game **fast** — measured on the
+/// machine at `13966us apart`, `14090us`, `13897us` and `13894us` over four periods of 600, which is 71
+/// to 72 frames a second, with `0 frame(s) paced by the clock` in the same run — because the frames went
+/// on the compositor's blanks while the
 /// cadence was counted in the monitor's. Music and every timer in the game are counted in its own
 /// frames, so a run like that is a run at the wrong speed.
 ///
@@ -769,7 +772,8 @@ mod disagrees {
 
                 // And the desktop it is happening on is said once, because a frame shown on the
                 // compositor's blank still has the window's own panel to reach — which is the part of this
-                // that no simulator can speak for and `DONE.md` keeps.
+                // no simulator can speak for, and the reason a run on the machine is still wanted. See
+                // *What the fixed stutter costs* in `TODO.md`.
                 assert!(
                     game.log().said(
                         "the window's own monitor is 120Hz, which is not what the compositor is timing"
@@ -1205,8 +1209,8 @@ mod converges {
     const RATES: [u32; 5] = [60, 120, 144, 165, 240];
 
     /// What a compositor might take over a frame, in microseconds. The upper end is not invented: a real
-    /// session was seen reaching about 3.5ms, and `DONE.md`'s mixed-rate run had orb's own allowance climb
-    /// to 3900µs chasing it.
+    /// session was seen reaching about 3.5ms, and the mixed-rate run on the machine had orb's own
+    /// allowance climb 2800 → 3400 → 3600 → 3900µs chasing misses more time could not fix.
     const COMPOSE_US: [i64; 8] = [400, 1_000, 2_000, 2_500, 3_000, 3_200, 3_800, 4_000];
 
     fn settled(hz: u32, compose: Compose, name: &str, seed: u64) -> (Box<Fake>, f64) {
@@ -1336,8 +1340,8 @@ mod converges {
 ///
 /// **What the split rows do and do not establish.** That a compositor can be timing a rate the game's
 /// monitor is not, and that a flush follows the compositor whatever monitor the window is on, are measured
-/// on real hardware — `scripts/compositor-probe.c`, numbers in `DONE.md`, and the game itself measured
-/// there too. What these rows add is orb's own arithmetic over that.
+/// on real hardware — `scripts/compositor-probe.c`, whose numbers are beside `frame::Pacing::grid`, and
+/// the game itself measured there too. What these rows add is orb's own arithmetic over that.
 mod rates {
     use super::*;
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
@@ -1394,8 +1398,8 @@ mod rates {
     ///
     /// `dmDisplayFrequency` is whole Hz, so a 59.94Hz display reports 59 and a 119.88Hz one reports 119.
     /// `whole_multiple` reads those as one blank a frame and two, which is right — and the rate that comes
-    /// out is then the display's, not sixty. `DONE.md` has the real 119.88Hz case at 59.94fps, "the
-    /// display's own rate halved", which is the same thing.
+    /// out is then the display's, not sixty. The real 119.88Hz machine came out at 59.94fps — its own rate
+    /// halved, `600 frames, 16652us apart` — which is the same thing.
     ///
     /// Here the compositor really is 59 and 119 rather than 59.94 and 119.88, since those are the numbers
     /// the scenario declares, so the rates to expect are 59 and 59.5.
@@ -1477,9 +1481,9 @@ mod rates {
 
     /// **The ones that used to be broken.** A monitor that *is* a whole multiple used to keep the cadence in
     /// its own refreshes while the frames went on the compositor's blanks, and the rate came out wrong at
-    /// every one of these — measured on the machine at 71 to 72 frames a second for the 144 row (`DONE.md`),
-    /// the game running *fast*, with music and every timer in it counted in frames that were coming too
-    /// quickly.
+    /// every one of these — measured on the machine at `13966us apart` for the 144 row, which is 71 to 72
+    /// frames a second, the game running *fast*, with music and every timer in it counted in frames that
+    /// were coming too quickly.
     ///
     /// The cadence is counted in the compositor's spacing now, so each of these is the same fractional grid a
     /// display of that rate would get: one frame on whichever blank is nearest each sixtieth. Every second of
@@ -1788,8 +1792,8 @@ mod holds {
     }
 
     /// The NTSC-derived rates, whose target is the display's own and not sixty. A 119.88Hz panel reports a
-    /// period that rounds to 119, which is two blanks a frame and 59.5 frames a second — and `DONE.md` has
-    /// the real one at 59.94, "the display's own rate halved". A tenth of a per cent is a clock nobody sees.
+    /// period that rounds to 119, which is two blanks a frame and 59.5 frames a second — and the real one
+    /// came out at 59.94, its own rate halved. A tenth of a per cent is a clock nobody sees.
     #[test]
     fn an_ntsc_rate_at_rest_gets_the_displays_own() {
         holds(

@@ -1674,8 +1674,9 @@ impl Game for Th06 {
     /// found no game controller; where it found one it polls that through DirectInput and never
     /// asks winmm at all. So a menu of orb's has to read the same device, or it answers to a pad
     /// the game has not got — which is what a pad in XInput's second slot does here: DirectInput
-    /// has it, and winmm's joystick 0 is a phantom reporting no buttons and no axes. Measured; see
-    /// [DONE.md](../../../../DONE.md).
+    /// has it, and winmm's joystick 0 is a phantom reporting no buttons and no axes — `mid=413d
+    /// pid=2104`, every field zero. Measured on this machine with all three interfaces asked; the numbers
+    /// are beside `orb`'s `joystick::Sample::is_a_pad`.
     unsafe fn pad(&self, winmm: Option<Reading>) -> Pad {
         unsafe { self.controller_pad() }
             .or_else(|| winmm.map(|reading| self.winmm_pad(reading)))

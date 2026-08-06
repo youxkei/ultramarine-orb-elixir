@@ -11,9 +11,12 @@
 //! three things: the game's own memory, the game's own record of the card, and what orb put in the
 //! log.
 //!
-//! In `tests/` rather than in a `#[cfg(test)]` module, and that is the point. `cfg(test)` is false
+//! In a `tests/` rather than in a `#[cfg(test)]` module, and that is the point. `cfg(test)` is false
 //! here, so this reaches the simulated Windows the only way the shipped DLL would reach the real
-//! one — through the `sim` feature — and nothing it drives can have a test-only path in it.
+//! one — through the `sim` feature — and nothing it drives can have a test-only path in it. Which
+//! crate's `tests/` is then free, and it is this one's because that is where the simulated Windows
+//! lives — see
+//! [docs/adr/0005](../../../docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
 //!
 //! One `#[test]` in the file because there is one game in a process: orb's runtime, the record of what
 //! a run has pressed and which file its score goes to are one apiece, the way they are in the game.
@@ -102,9 +105,9 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             "the choice under the cursor does not say what it means",
         );
 
-        // Answered on the keyboard, which is the hand a laid-out game has: a pad answers these too, and
-        // what says so is `orb-sim/tests/mode.rs`, where a `Pad` is a value a test hands over — here it
-        // would have to come from a winmm device this host has not got.
+        // Answered on the keyboard, which is the hand this run has: a pad answers these too, and what
+        // says so is `scenario_mode_on_the_pad.rs`, where the game owns a controller and orb asks the
+        // game for it — here it would have to come from a winmm device this host has not got.
         game.press_until(keys::Z, "the mode question answered", || {
             log.said("mode: answered on the keyboard")
         });

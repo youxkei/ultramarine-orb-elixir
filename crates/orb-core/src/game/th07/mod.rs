@@ -147,7 +147,14 @@ impl Game for Th07 {
             // 妖々夢's frame sets up around its own drawing through two calls on 0x4b9e44 at 0x43472e
             // and 0x434757 that orb's loop does not make. The same launch under `--no-frame-loop`, which
             // leaves that frame alone with orb's update and draw hooks inside it, ran 600 frames and
-            // left cleanly. So it is the loop and not the two patches above. See DONE.md.
+            // left cleanly, `perf: frame=17220us worst=395238us over 600 frames; update=8us/frame
+            // worst=1084us calls=1200 draw=3us/frame worst=341us calls=570` — `calls=1200` over 600
+            // frames being 妖々夢's frame-skip loop running the update twice a frame, which 紅魔郷 has
+            // nothing of. So it is the loop and not the two patches above. The launch that crashed
+            // faulted at `crash: code 0xc0000005 at 0x0044f6aa in th07.exe+0x4f6aa`, `writing
+            // 0x00000000`: a `rep movsd` copying 28 bytes to `[this + 0x17e534]`, the render-state block
+            // those two calls set up. See
+            // [docs/adr/0004](../../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
             //
             // What replacing it would take is reading the rest of that frame rather than one more
             // address: those two calls, 0x43478e on the same object, 0x43a207 on 0x575950, and the

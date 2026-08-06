@@ -10,14 +10,20 @@ publish.workspace = true
 [dependencies]
 orb-api = { workspace = true, features = ["sim"] }
 
-# The scenarios in `tests/` drive the *real* `orb-core` with this simulated Windows installed,
-# composed the way the DLL composes it. A dev-dependency rather than a dependency because nothing
-# in the simulator itself knows about orb's logic — and because that keeps the cycle out of the
-# normal build graph, where cargo would refuse it.
+# The `scenario_*.rs` in `tests/` drive the *real* `orb` and `orb-core` with this simulated Windows
+# installed, composed the way the DLL composes it. Dev-dependencies rather than dependencies because
+# nothing in the simulator itself knows about orb's logic — and because that is what makes the cycle
+# legal: `orb-sim` → `orb` → `orb-core` → `orb-sim` closes, and cargo accepts a cycle whose edges are
+# not all in the normal build graph. `orb-core`'s own `sim` feature depends back on this crate the
+# same way, and `crates/orb-core/Cargo.toml` says so.
 #
-# They live here rather than in `orb-core` because `orb-core`'s own `#[cfg(test)]` is false when it
-# is compiled as a dependency, which is what these are: the seam's install point is reached through
-# the `sim` feature, and a crate under test cannot turn a feature on for itself.
+# They live here rather than in `orb-core` or in `orb` because `#[cfg(test)]` is false in a crate
+# compiled as a dependency, which is what both are here: the seam's install point is reached through
+# the `sim` feature, and a crate under test cannot turn a feature on for itself. Which crate's
+# `tests/` they sit in is then free, and this is the crate the simulated Windows they all install is
+# in — see
+# [docs/adr/0005](../../docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
 [dev-dependencies]
+orb = { path = "../orb" }
 orb-config = { workspace = true }
 orb-core = { workspace = true, features = ["sim"] }

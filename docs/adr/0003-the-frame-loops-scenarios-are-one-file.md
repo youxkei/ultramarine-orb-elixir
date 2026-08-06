@@ -1,14 +1,18 @@
 # 3. The frame loop's scenarios are one file, and what judges a rate is functions in it
 
-**Status:** accepted and built. `orb/tests/pacing.rs` is 2249 lines: the functions that judge a rate at
+**Status:** accepted and built. That file is 2249 lines: the functions that judge a rate at
 its top level, and under them twelve sections holding the 46 scenarios about orb's own frame loop. The
-ten `pacing_*.rs`, `frame_loop.rs`, `log_deferral.rs` and `orb/tests/pacing/mod.rs` are gone; `Fake` has
+ten `pacing_*.rs`, `frame_loop.rs`, `log_deferral.rs` and `pacing/mod.rs` are gone; `Fake` has
 the launch, the hand-overs, the refresh period and the wait for a line that those scenarios used to reach
 the host for; and `frame::LOGIC_HZ` is `pub`. What the built shape does differently from the decision
 below is at the end.
 
-It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which moved those
-scenarios into `orb/tests` and left them in the shape the harness they replaced had: a file apiece.
+It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which put those
+scenarios in front of a laid-out 紅魔郷 and left them in the shape the harness they replaced had: a file
+apiece. It was `orb/tests/pacing.rs` when this was decided;
+[0005](0005-every-scenario-lives-in-orb-sims-tests.md) moved it to
+`orb-sim/tests/scenario_pacing.rs` without changing a line of it, so the paths below are this decision's
+and not the tree's.
 
 ## Context
 

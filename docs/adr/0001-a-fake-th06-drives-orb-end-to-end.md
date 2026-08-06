@@ -5,10 +5,13 @@ that chooses between them on the keyboard and on a pad, and a `State` read at fr
 to — and *Where it landed* at the end says how the shape differs from the plan this was written with,
 and what building it found.
 
-**One thing it says is wrong**, and it is corrected there rather than removed: this claimed `render`
-was the one thing a game laid out by hand could not drive.
-[0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —
-`Th06::present` and `Th06::play_sounds` — and what answering with them instead would take.
+**Two things it says are wrong.** This claimed `render` was the one thing a game laid out by hand could
+not drive; [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —
+`Th06::present` and `Th06::play_sounds` — and what answering with them instead would take. And *Where it
+landed* claimed the game playing the game's part cannot live in `orb-sim`, the cycle being one cargo would
+refuse; [0005](0005-every-scenario-lives-in-orb-sims-tests.md) measured that it is not, and every scenario
+is in `orb-sim/tests/` now, named `scenario_*.rs`. Both are corrected there rather than removed, and the
+paths below are the ones those files had when this was written.
 
 ## Context
 

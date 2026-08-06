@@ -6,8 +6,9 @@
 //! disagree, which needs two monitors of different rates and the game's window on the one the
 //! compositor is not timing. A simulated display says so in a line.
 //!
-//! What is *not* behind the seam is whether a frame landed on a real blank. That is a measurement
-//! of real hardware and `DONE.md` keeps those.
+//! What is *not* behind the seam is whether a frame landed on a real blank. That is a measurement of
+//! real hardware, and it is beside `frame::Pacing::grid` with the probe that took it —
+//! `scripts/compositor-probe.c` and `scripts/background-flush-probe.c`.
 
 use crate::{Composition, Hwnd};
 

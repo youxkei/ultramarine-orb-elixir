@@ -6,10 +6,11 @@
 // the DLL's entry point work, and there is no spelling of the export that avoids it.
 #![allow(linker_messages)]
 
-// `pub` on the ones a scenario in `tests/` drives, which is what an integration test needs of a
-// crate: `chapter` and `resume` are what a pointdevice run *is*, and `retry_ui` is how a death gets
-// to one. Nothing outside this crate and its own tests links it — the DLL exports `DllMain` and the
-// four hooks and nothing else — so what these say is which parts have a scenario over them.
+// `pub` on the ones a scenario in `orb-sim/tests/` drives, which is what an integration test needs of
+// a crate: `chapter` and `resume` are what a pointdevice run *is*, and `retry_ui` is how a death gets
+// to one. Nothing but this crate's own `#[cfg(test)]` and those scenarios links it — the DLL exports
+// `DllMain` and the four hooks and nothing else — so what these say is which parts have a scenario
+// over them.
 //
 // The hooks below are `pub` for the same reason, and that is the whole of what a scenario needs of
 // this file: a game laid out by hand calls them where the real game's own code would, and
@@ -33,7 +34,7 @@ mod pe;
 /// the drawing it stands in for rather than in `orb-core` with the vtable declarations, because its
 /// `Screen` fixture builds a real `Overlay` — and that reaches `text.rs` and the GDI.
 ///
-/// `pub` rather than `#[cfg(test)]` because a scenario in `tests/` needs one as well, and for the
+/// `pub` rather than `#[cfg(test)]` because a scenario in `orb-sim/tests/` needs one as well, and for the
 /// same reason the drawing itself needs no seam: a device is a pointer to a vtable, so a game laid
 /// out by hand hands orb one of these and orb's overlay is built and drawn through the calls it
 /// makes against a real one.

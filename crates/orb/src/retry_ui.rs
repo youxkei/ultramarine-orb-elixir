@@ -101,7 +101,7 @@ pub struct RetryMenu {
     cursor: Label,
 }
 
-/// Beside `new` because the module is public to `tests/` now, and a menu with nothing chosen yet is
+/// Beside `new` because the module is public to `orb-sim/tests/` now, and a menu with nothing chosen yet is
 /// exactly what `new` makes.
 impl Default for RetryMenu {
     fn default() -> Self {
