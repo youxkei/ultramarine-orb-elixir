@@ -681,18 +681,23 @@ settled by measurement rather than by looking at the screen, the measurement is 
   `orb_api::mem::game_regions`, and a chapter over a laid-out game covers **3 regions of 2570748
   bytes** where it covered one.
 
-  **And what was in `orb-sim/tests` and is a scenario is driven this way now**: 227 tests, fifteen of
+  **And what was in `orb-sim/tests` and is a scenario is driven this way now**: 233 tests, forty-two of
   them runs like these. The question that chooses a mode — thirteen cases, on the keyboard and on a pad
   — and the whole of a `State` read at frames a game reached by being played to them, all of which used
   to drive orb by *calling* it. The pad needed a controller of the game's own: an object and a vtable in
   its memory with three real functions in the slots its read calls through, which is the same shape as
   the Direct3D device orb draws through and is the first thing to run `Th06::controller_pad` at all —
   the poll, the buttons out of the device's own array, the stick against the game's threshold, and the
-  mapping that says which button is which. What stayed in `orb-sim/tests` is the frame loop, which
-  `render` reaches through the game's own code at 0x00420b50 and 0x00431270 — one change away from moving
-  too, each of those being an address rather than anything else the method does; see
-  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — and the log,
-  which is nobody's behaviour but its own.
+  mapping that says which button is which.
+
+  **The frame loop came last, and its two calls into the game are addresses now.** `Game::frame_calls`
+  answers with the game's own `Present` and its sound — `Th06` with 0x00420b50 and 0x00431270, a laid-out
+  game with two functions of its own — so `render` is a scenario like anything else and a laid-out game's
+  loop calls it per frame, which is what a shipped run has on. The 414-line harness that composed a copy
+  of that loop is gone; see
+  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). What stayed in
+  `orb-sim/tests` is the log, which is nobody's behaviour but its own, and one `Pacing` handed a host that
+  refuses the millisecond timer.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
 - **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it
@@ -779,9 +784,31 @@ Settled by measurement.
   is that it happens with the game on the *primary*, and that the log names the wrong mechanism while
   it does.
 
-  Two lines of the same run contradicting each other is the defect to fix: `adopt` sets
-  `BLANK_PACED` from the whole multiple alone, so the `agrees` check changes what is written and not
-  what is done. See *Put Windows behind a seam* in [TODO.md](TODO.md).
+  Two lines of the same run contradicting each other was the defect: `adopt` set `blank_paced` from the
+  whole multiple alone, so the `agrees` check changed what was written and not what was done.
+
+  **Fixed by counting the cadence in the grid the frames are actually on.** `DwmFlush` returns at the
+  compositor's blanks and at nobody else's — measured above, on any monitor of this desktop — so that
+  spacing is the only one a frame can be put on, and the monitor's reported rate now says what the
+  desktop is like rather than how long a frame is. A 144Hz compositor is then paced the way any 144Hz
+  display is: one frame on whichever of its blanks is nearest each sixtieth. Two more cases came right
+  with it, both of which had been going to the clock while a compositor sat there timing them — a monitor
+  that will not report its rate at all, and a monitor whose own rate is fractional where the compositor's
+  is not.
+
+  What the log says now, over the simulated desktop: `144Hz compositor is not a multiple of 60Hz; one
+  frame on whichever blank is nearest each sixtieth`, then `the window's own monitor is 120Hz, which is
+  not what the compositor is timing` — the disagreement said once, since it decides nothing — and
+  `16607us apart` with `gaps in refreshes 2x359 3x238`, which is 2.4 refreshes a frame and 60.2 frames a
+  second where it used to be 13888µs and 72.
+
+  **Nine compositor rates that were never sixty are sixty in every second now** — 70, 75, 90, 100, 110,
+  144, 150, 165 and 200Hz against a 120Hz monitor, four hosts apiece, judged a second at a time within
+  half a frame. `orb/tests/pacing_rates.rs` is that table, and it was written the other way round before:
+  `assert_never_sixty`, nine rows of it.
+
+  What the simulator cannot speak for is the other half of this desktop, which is why the run on the
+  machine is still wanted — see *What the fixed stutter costs* in [TODO.md](TODO.md).
 
   **`orb-sim` predicted 48 frames a second for this and was wrong**, which is worth keeping because of
   what was wrong with it. It modelled the host as a metronome: without jitter no frame overshoots far
@@ -791,17 +818,110 @@ Settled by measurement.
   moved the simulator to 69–70 frames a second, the same direction and near the number — but the
   remaining gap is the compose time, which nothing reports, so the scenario asserts the direction and
   this table keeps the number.
-- **The loop itself is driven in tests now, against a simulated Windows.** `frame.rs` is in `orb-core`
-  with its host calls behind `orb_api`, and twenty-one of the forty-one scenarios in `orb-sim/tests` run the real
-  `pacing`/`settle`/`wait` over a display a test declares: the counter, `Sleep`, `timeBeginPeriod`, the
-  monitor's reported rate, `DwmGetCompositionTimingInfo` and `DwmFlush`. Its own thirteen tests were all
-  arithmetic and not one of them drove the loop.
+- **Sixty frames a second in every situation, as one table.** `orb/tests/pacing_holds.rs` is the claim the
+  pacing exists to make, in one place: eighteen rows over the four things that vary — the monitor's rate,
+  the compositor's rate, how unevenly the compositor takes its time, and how unevenly the game's own frame
+  takes its — one `#[test]` apiece so the harness runs them at once, six seconds for the table where a
+  loop over the rows would take a minute and a half.
+
+  **A table and not a cross product**, because only the first two decide which path the code takes:
+  `adopt` chooses among no compositor to ask, a whole multiple of sixty, a rate that rounds to one, a rate
+  that is not a multiple, and a rate under sixty. The other two widen what the allowance has to cover and
+  nothing else. So the rows are those paths at rest and with everything uneven at once, then the
+  unevenness taken apart one source at a time on 60Hz, which is the rate with no room in it. A row that
+  fails names the condition, where a crossing would only name a combination.
+
+  **The at-rest rows are deterministic** — the host a metronome, one run — and every other row is the
+  measured wake distribution over four seeded hosts. What each is held to is a column of the table rather
+  than one tolerance for all of it:
+
+  | | |
+  | --- | --- |
+  | at rest | **every** second within half a frame of the rate asked for |
+  | anything uneven | the seconds it left alone averaging that rate, at least the row's own share of them left alone, and no second below 47 |
+
+  Both of the last two are arithmetic rather than slack. A quarter-second stage load spends its quarter
+  second whatever the pacing does, so the second it lands in holds sixty frames in 1.25 seconds, which is
+  48 — and a fifteen-second run with two of them takes 15.5 seconds of wall clock, which is why the rate
+  over the whole run is not the thing asserted and the seconds it left alone are. The shares are measured
+  per row over the four hosts and the floor set below the worst of them; the worst row is 60Hz with
+  everything uneven, at 55%, and the best is the game's own frame wandering, at 100%. What a floor is for
+  is a *stretch* of bad seconds — the mixed-rate defect above left 0% of them — and not one more second
+  than last time.
+- **A window behind is paced on the blanks like any other, and that was a guess before.** The loop used
+  to stop flushing the moment the game's window was not the foreground one, on the strength of a comment
+  that said so itself: "counting refreshes against it comes out wrong, and the clock will do until that
+  is understood rather than guessed at". Not a corner — `always_draw` is on by default, so every alt-tab
+  away from the game ran that path.
+
+  `scripts/background-flush-probe.c` measured it. 120Hz desktop, 601 flushes a state, 599 gaps each,
+  a windowed `D3DSWAPEFFECT_COPY` swap chain handing a frame over per flush, and every state's foreground
+  and rectangles read back rather than assumed:
+
+  | the window is | mean | | gaps in refreshes | handed over to the flush returning | `Present` |
+  | --- | --- | --- | --- | --- | --- |
+  | in front | 8338.2µs | 119.93Hz | `1x599` | 8114.3µs (0.974 refreshes) | 601 shown |
+  | in front, nothing handed over | 8334.3µs | 119.99Hz | `1x599` | — | — |
+  | behind | 8333.7µs | 119.99Hz | `1x599` | 8122.6µs (0.975) | 601 shown |
+  | covered by a full-screen window | 8332.2µs | 120.02Hz | `1x599` | 8116.7µs (0.974) | 601 shown |
+  | minimised | 8333.4µs | 120.00Hz | `1x599` | 8180.2µs (0.982) | 601 shown |
+
+  **Nothing about a window behind comes out wrong.** Every gap in every state is one refresh, `Present`
+  never answers `S_PRESENT_OCCLUDED` — not even minimised — and the reason it was expected to fail is
+  gone too: DWM presents when something is dirty, so an idle desktop looked like one where a flush would
+  stall, and the second row is that desktop with nothing handed over for five seconds and the tightest
+  mean in the table.
+
+  **And the flush really is waiting for our frame, in front and hidden alike.** Handing a frame over a
+  chosen lead before the blank and counting whether the flush came back one refresh later or two, sixty
+  frames a lead:
+
+  | lead | in front | covered |
+  | --- | --- | --- |
+  | 250µs | 0 of 60 made it | 0 of 60 |
+  | 500µs | 11 | 12 |
+  | 1000µs | 54 | 57 |
+  | 1500µs | 58 | 53 |
+  | 2000µs and up | 60 | 60 |
+
+  So there is a threshold, it is the same whether anybody can see the window, and it puts this machine's
+  compose time between 1000 and 2000µs — which is what `Compose::measured`'s 1000µs was pinned at from
+  the other side and comfortably inside the 2500µs orb starts by allowing. `measure_compose` reads a real
+  moment in every state, so nothing about it needed holding while behind, which was the other thing this
+  was going to have to do.
+
+  Two counters say nothing and are worth writing down as such: `cFramesLate` stayed at 0 throughout, as
+  everything else has measured it doing, and `cRefresh` advanced by exactly one per state whether 601
+  frames were handed over or none — so it is neither refreshes nor our compositions, and the first
+  version of this probe read it twice per state and got "+2" out of its own calls.
+
+  The probe hands frames over through D3D9 where the game is D3D8, mingw shipping no import library for
+  the older one. It is the same redirection into DWM, and the rows either side of the question — nothing
+  handed over at all, and nothing of ours composable — bracket it.
+- **The loop itself is driven in tests now, by a game whose own loop calls it.** `frame.rs` is in
+  `orb-core` with its host calls behind `orb_api`, and twenty-eight scenarios run the real
+  `render` — `pacing`/`settle`/`wait` in the order that function asks for them — over a display the
+  scenario declares: the counter, `Sleep`, `timeBeginPeriod`, the monitor's reported rate,
+  `DwmGetCompositionTimingInfo` and `DwmFlush`. Its own thirteen tests were all arithmetic and not one of
+  them drove the loop; the twenty-one that came first drove a copy of it, written in a harness, and
+  nothing held the copy to the original.
 
   What they establish, none of which had a test before: the rate each reported refresh rate gets (60,
   120, 144, 165, 240 all hold sixty; 59 and 119 get the display's own rate, which is right), the
   fractional 2-2-3-2-3 pattern, the budget rising after a frame overran, the allowance climbing to
   cover a compositor that has slowed, the clock path when no rate is available, a host that refuses the
-  millisecond timer, and the mixed-rate desktop above.
+  millisecond timer, and the mixed-rate desktop above. Then the loop's own shape, which only the real one
+  can say: the update before the draw and the sounds between them — the frame of input lag removed — the
+  chain's two exits becoming the frame's two, the frame handed back to the game's own loop where there is
+  no runtime and where there is no device, and the window behind taking its turn on the blanks with
+  nothing asked of the game at all.
+
+  **And orb's own account of the rate is held against the rate.** Every number a scenario reads of the
+  pacing it reads off the `frame:` line: the frames of the period, how far apart they were handed over,
+  how many the compositor could not show when it meant to, the histogram of gaps in refreshes, and what
+  the compositor is being given. Which is what somebody reading a real run's log has — every measurement
+  in this section was read off that line and the status line beside the game — so a run whose rate was
+  right and whose account of it was wrong used to pass.
 
   How they judge it is the same question somebody playing would ask — **what share of the seconds were
   sixty frames a second, within half a frame, from three seconds in.** Not the exact turn: the simulated

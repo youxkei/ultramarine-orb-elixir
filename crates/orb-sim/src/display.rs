@@ -87,6 +87,8 @@ struct Compositor {
     origin: i64,
     /// How long composing one frame usually takes, in ticks.
     compose: i64,
+    /// How far above that an ordinary frame may cost, drawn per frame.
+    compose_jitter: i64,
     /// And how long it takes when it does not, in ticks.
     ///
     /// A compositor is not a constant: it shares a GPU with the rest of the desktop and now and then
@@ -198,6 +200,7 @@ impl Display {
             period,
             origin: now,
             compose: crate::Clock::ticks_for_micros(compose.usual_us),
+            compose_jitter: crate::Clock::ticks_for_micros(compose.jitter_us),
             compose_spike: crate::Clock::ticks_for_micros(compose.spike_us),
             spike_one_in: compose.spike_one_in,
             presented: None,
@@ -215,6 +218,7 @@ impl Display {
     pub fn set_compose(&self, compose: Compose) {
         if let Some(compositor) = self.compositor.lock().unwrap().as_mut() {
             compositor.compose = crate::Clock::ticks_for_micros(compose.usual_us);
+            compositor.compose_jitter = crate::Clock::ticks_for_micros(compose.jitter_us);
             compositor.compose_spike = crate::Clock::ticks_for_micros(compose.spike_us);
             compositor.spike_one_in = compose.spike_one_in;
         }
@@ -278,6 +282,8 @@ impl Display {
             let (_, noise) = &mut *self.wake.lock().unwrap();
             if compositor.spike_one_in > 0 && noise.up_to(compositor.spike_one_in - 1) == 0 {
                 compositor.compose_spike
+            } else if compositor.compose_jitter > 0 {
+                compositor.compose + noise.up_to(compositor.compose_jitter)
             } else {
                 compositor.compose
             }
@@ -326,9 +332,17 @@ impl Display {
 /// refreshes a real machine does not lose — measured: with a fixed 2000µs a simulated 120Hz display
 /// lost 35 refreshes in 1592 frames, where `DONE.md`'s real 120Hz measurement is `gaps in refreshes
 /// 2x600` over seven periods, none lost at all.
+/// Three sources of unevenness rather than two, and the third is what a scenario about the *rate* wants:
+/// the usual cost is not one number either, it wanders. `jitter_us` is how far above `usual_us` it may
+/// wander, drawn per frame from the same seeded stream the wake delays come from, so a scenario declares
+/// how uneven this compositor is and a deterministic one is that spread set to nothing.
 #[derive(Clone, Copy)]
 pub struct Compose {
     pub usual_us: i64,
+    /// How far over `usual_us` an ordinary frame may cost, drawn per frame. Zero is a compositor that
+    /// takes exactly `usual_us` every time, which no machine does and every claim about arithmetic
+    /// wants.
+    pub jitter_us: i64,
     pub spike_us: i64,
     /// One frame in this many. Zero for a compositor that never spikes.
     pub spike_one_in: i64,
@@ -352,11 +366,28 @@ impl Compose {
     /// So a scenario of a few thousand frames sees no spike at all, which is what `DONE.md`'s real
     /// 600-frame runs show — `gaps in refreshes 2x600`, none lost. The spike is what the allowance's
     /// ratchet exists for over a *session*, and a scenario about it says so and sets its own.
+    /// `jitter_us` is what is left over from the same reasoning: the 1200µs that still reproduces the
+    /// real run is the ceiling of the ordinary cost, not its middle, so an ordinary frame is put between
+    /// 1000 and 1200µs rather than at either end.
     pub fn measured() -> Self {
         Self {
             usual_us: 1_000,
+            jitter_us: 200,
             spike_us: 3_500,
             spike_one_in: 100_000,
+        }
+    }
+
+    /// As [`measured`](Self::measured), with the ordinary cost wandering as far as a scenario says.
+    ///
+    /// For the rows of a decision table that vary the compositor's unevenness on its own, since what the
+    /// spike answers for and what a restless ordinary cost answers for are not the same thing: the
+    /// allowance ratchets past a spike once and stays there, where a cost that wanders has to be covered
+    /// every frame.
+    pub fn wandering(jitter_us: i64) -> Self {
+        Self {
+            jitter_us,
+            ..Self::measured()
         }
     }
 
@@ -371,8 +402,14 @@ impl Compose {
     /// Deliberately not the default. What the default is for is asking whether a display holds sixty on
     /// the machine this was measured from, and a compositor spiking three hundred times as often is not
     /// that machine.
+    ///
+    /// And with the ordinary cost held still, unlike [`measured`](Self::measured): the allowance answers
+    /// a spike and a restless ordinary cost with the same ratchet, so a scenario that moved both could not
+    /// say which of them moved it. A row about the wander says so with
+    /// [`wandering`](Self::wandering).
     pub fn spiking() -> Self {
         Self {
+            jitter_us: 0,
             spike_one_in: 300,
             ..Self::measured()
         }
@@ -382,6 +419,7 @@ impl Compose {
     pub fn flat(us: i64) -> Self {
         Self {
             usual_us: us,
+            jitter_us: 0,
             spike_us: us,
             spike_one_in: 0,
         }

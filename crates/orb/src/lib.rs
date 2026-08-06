@@ -394,6 +394,14 @@ static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
 /// frame loop still runs everything orb does per frame.
 static RUN_CALC_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
 static RUN_DRAW_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
+/// The two functions of the game's own that orb's frame loop calls rather than reaching through a
+/// hook, as [`Game::frame_calls`] answered: the sounds handed over after the update, and the present.
+///
+/// Stored beside the chain targets and for the same reason — a frame reads them rather than asking the
+/// game again, and a game that is not a real process fills them with functions of its own. See
+/// [`attach_to`].
+static PLAY_SOUNDS: FrameCall = FrameCall::none();
+static PRESENT: FrameCall = FrameCall::none();
 /// Whether the window-creation hook should override the game's display setting.
 static FORCE_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// Whether the game was last given the keys, so the change can be logged once
@@ -426,6 +434,35 @@ static SETTLE_KEYS: AtomicBool = AtomicBool::new(false);
 /// before still says while a question of orb's is up: no frame of one runs its chain, so nothing
 /// assigns `g_LastFrameInput`.
 static LAST_WORD: AtomicU16 = AtomicU16::new(0);
+
+/// One of the frame loop's two calls into the game, as a static: the address, and what to call it on.
+struct FrameCall {
+    function: AtomicUsize,
+    this: AtomicUsize,
+}
+
+impl FrameCall {
+    const fn none() -> Self {
+        Self {
+            function: AtomicUsize::new(0),
+            this: AtomicUsize::new(0),
+        }
+    }
+
+    fn store(&self, call: game::Call) {
+        self.function.store(call.function, Ordering::Relaxed);
+        self.this.store(call.this, Ordering::Relaxed);
+    }
+
+    /// # Safety
+    /// Must run on the game's main thread with whatever that call itself wants of the frame — see
+    /// [`game::FrameCalls`] — and after the attach that filled this one.
+    unsafe fn call(&self) {
+        let function: unsafe extern "fastcall" fn(usize) =
+            unsafe { std::mem::transmute(self.function.load(Ordering::Relaxed)) };
+        unsafe { function(self.this.load(Ordering::Relaxed)) };
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_void) -> BOOL {
@@ -550,6 +587,10 @@ fn attach() {
     // the path.
     RUN_CALC_CHAIN_TARGET.store(patches.update.target, Ordering::Relaxed);
     RUN_DRAW_CHAIN_TARGET.store(patches.draw.target, Ordering::Relaxed);
+    // And the two it calls in the game rather than reaching through a hook.
+    let calls = GAME.frame_calls();
+    PLAY_SOUNDS.store(calls.play_sounds);
+    PRESENT.store(calls.present);
 
     let mut hooks = Vec::new();
     if config.frame_hooks {
@@ -722,10 +763,10 @@ fn attach() {
 ///
 /// One per hook a game reaches orb through, which is what a frame of one is made of: its update and
 /// its draw, the read every key it acts on passes through, the two moments a stage's numbers are put
-/// in place, and the two reads of the score file orb has something to say about. Not the frame loop:
-/// orb's own runs the game's `Present` and its sound by calling the exe's code at its own addresses,
-/// so a game that is not a real process has nothing there to call — such a run is
-/// `--no-frame-loop`, with the update and the draw still hooked, which is what these are.
+/// in place, and the two reads of the score file orb has something to say about. Then the frame loop:
+/// the loop of the game's own that [`render`] replaced and hands the frame back to, and the two calls
+/// [`Game::frame_calls`] answers with, which in a real process are the exe's code at its own addresses
+/// and here are functions a laid-out game brings.
 pub struct Originals {
     pub update: extern "fastcall" fn(*mut c_void) -> i32,
     pub draw: extern "fastcall" fn(*mut c_void) -> i32,
@@ -734,6 +775,13 @@ pub struct Originals {
     pub stage_begun: extern "C" fn(*mut c_void) -> i32,
     pub unlocks_read: extern "C" fn(*mut c_void) -> i32,
     pub ranking_read: extern "C" fn(*mut c_void) -> i32,
+    /// The game's own whole frame, which is what [`render`] hands one back to on the three ways out
+    /// of it that return: no runtime, no device, and a chain target that is null.
+    pub render: extern "fastcall" fn(*mut c_void) -> i32,
+    /// Its sound and its present. Called on nothing, a function of a laid-out game's own reaching
+    /// that game the way the hooks above it do rather than through a `this` it was handed.
+    pub play_sounds: unsafe extern "fastcall" fn(usize),
+    pub present: unsafe extern "fastcall" fn(usize),
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -785,9 +833,34 @@ pub unsafe fn attach_to(
         (&STAGE_BEGUN, originals.stage_begun as usize),
         (&UNLOCKS_READ, originals.unlocks_read as usize),
         (&RANKING_READ, originals.ranking_read as usize),
+        (&RENDER, originals.render as usize),
+        // What the patched call sites would be. In a real process these are the game's own two chain
+        // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
+        // the address it was handed runs everything orb does per frame; here the hooks are what there
+        // is, and calling them straight is the same path.
+        (&RUN_CALC_CHAIN_TARGET, hook::address(run_calc_chain as _)),
+        (&RUN_DRAW_CHAIN_TARGET, hook::address(run_draw_chain as _)),
     ] {
         slot.store(original, Ordering::Relaxed);
     }
+    // And the two the frame loop calls in the game rather than reaching through a hook. Nothing to
+    // call them on: see [`Originals`].
+    PLAY_SOUNDS.store(game::Call {
+        function: originals.play_sounds as usize,
+        this: 0,
+    });
+    PRESENT.store(game::Call {
+        function: originals.present as usize,
+        this: 0,
+    });
+    // The frame loop from nothing, and set up as [`attach`] sets it up: the cadence off the desktop's
+    // own rate before there is a window to ask about, and the compositor's drawing time pinned where
+    // the launch pinned it. Thrown away first rather than configured again, because what a `Pacing`
+    // carries is a run's own — the frames it has counted and the gaps it has put them in are what the
+    // `frame:` line is written from, and a game before this one's would be added to this one's.
+    unsafe { *PACING.get() = None };
+    unsafe { pacing() }.configure();
+    unsafe { pacing() }.pin_compose(config.compose_us);
     unsafe { attached(game, config, data) };
 }
 
@@ -1088,16 +1161,21 @@ extern "C" fn create_game_window(instance: *mut c_void) {
 /// The game's own order is draw-then-update, which puts everything on screen one
 /// update behind the input that produced it. Doing the update first is the whole of
 /// that fix; the pacing around it is what keeps the result smooth.
-extern "fastcall" fn render(_window: *mut c_void) -> i32 {
+///
+/// # Safety
+/// Must run on the game's main thread, and `game_window` must be the object the game calls its own
+/// whole frame on: the three ways out of this that return hand the frame back to that frame, which
+/// reads it.
+pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let runtime = unsafe { RUNTIME.get() }.as_mut();
     let Some(runtime) = runtime else {
-        return unsafe { call_render(_window) };
+        return unsafe { call_render(game_window) };
     };
     let game = runtime.game;
     let device = unsafe { game.d3d_device() };
     // Nothing to pace or draw with; let the game have its own loop back.
     if device.is_null() {
-        return unsafe { call_render(_window) };
+        return unsafe { call_render(game_window) };
     }
     // The game does nothing at all while its window is behind, and orb carries on: that is what
     // makes coming back to it instant instead of a stale frame, and what keeps a replay or a
@@ -1108,9 +1186,10 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     if !runtime.config.always_draw && orb_api::window::foreground() != window {
         // Paced even with nothing drawn. The wait this frame loop runs on is inside this
         // function, and the game's own loop calls it straight back, so a return that waits for
-        // nothing spins a core for as long as the window stays behind. Not being in front is
-        // exactly the case `wait_for_slot` paces by the clock, which is what is wanted here:
-        // the cadence without a blank to count against.
+        // nothing spins a core for as long as the window stays behind. On the compositor's blanks
+        // like any other frame — a window behind, one covered and one minimised all flush at the
+        // compositor's own rate with every gap one refresh, measured in
+        // `scripts/background-flush-probe.c`.
         unsafe { pacing() }.wait_for_slot(window);
         return RENDER_KEEP_RUNNING;
     }
@@ -1123,7 +1202,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     // Calling a null function pointer is undefined, and the compiler turns it into
     // an instruction that only crashes. Handing the frame back is the honest answer.
     if update == 0 || draw == 0 {
-        return unsafe { call_render(_window) };
+        return unsafe { call_render(game_window) };
     }
     let update: extern "fastcall" fn(*mut c_void) -> i32 = unsafe { std::mem::transmute(update) };
     let draw: extern "fastcall" fn(*mut c_void) -> i32 = unsafe { std::mem::transmute(draw) };
@@ -1147,7 +1226,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
     let waited = frame::now();
     let updated = update(chain);
     let ran = frame::now();
-    unsafe { game.play_sounds() };
+    unsafe { PLAY_SOUNDS.call() };
     if updated == CHAIN_EXIT_SUCCESS {
         return RENDER_EXIT_SUCCESS;
     }
@@ -1163,7 +1242,7 @@ extern "fastcall" fn render(_window: *mut c_void) -> i32 {
         (vtable.end_scene)(device);
         (vtable.set_texture)(device, 0, std::ptr::null_mut());
         let drawn = frame::now();
-        game.present();
+        PRESENT.call();
         drawn
     };
     unsafe { pacing() }.finished(frame::Marks {

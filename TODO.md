@@ -406,40 +406,32 @@ What is left:
   on the wrong monitor" is not what it takes: a 120Hz primary to play on and a 144Hz monitor attached
   is enough, and it is the configuration this machine was already in.
 
-  **And the game on it runs a fifth too fast.** Measured — the game fullscreen on the 120Hz primary
-  with the 144Hz monitor attached, `--log=quiet --pacing`, four periods of 600 frames. The numbers are
-  in [DONE.md](DONE.md); the shape of it:
+  **The game on it ran a fifth too fast, and that is fixed** — the cadence is counted in the
+  compositor's own spacing now. The measurement, the fault and the fix are in [DONE.md](DONE.md).
 
-  - **71 to 72 frames a second** where sixty was asked for, with the music to match. 13888µs is two
-    refreshes of 144Hz exactly, and that is what the frames are landing on: the blanks are the
-    compositor's and the cadence is counted in the monitor's. `adopt` sets `BLANK_PACED` from the whole
-    multiple alone, so a 120Hz monitor stays paced by the blanks whatever the compositor says.
-  - **The same number `frame::settle`'s own comment recorded years ago** — "144 read for a 120Hz
-    display ran the game at 72 frames a second" — so this reproduces it. What is new is that it happens
-    with the game on the *primary*, and that nobody has to have put it on the wrong monitor.
-  - **And the log says the wrong mechanism.** The same run says `120Hz monitor but the compositor is
-    timing 144Hz; pacing by the clock` and then `0 frame(s) paced by the clock`. Two lines of one run
-    contradicting each other: the `agrees` check only guards the `blanks == 0` branch, so it changes
-    what is written and not what is done.
+  What is left is a run on the machine to confirm it there. The simulator holds every second of every
+  compositor rate at sixty, but it models one blank grid, so the thing it cannot speak for is the half
+  this desktop actually has: a frame shown on the compositor's blank still has the window's own 120Hz
+  panel to reach. What to watch in a `--log=quiet --pacing` run is `144Hz compositor is not a multiple
+  of 60Hz`, the interval at 16666µs rather than 13888, and the buckets alternating `2x` and `3x`.
 
-  Which of the two to change is the decision that was missing a measurement: refuse the blanks for a
-  whole multiple the compositor disagrees with, as the line already claims, or keep the pacing and fix
-  the line. Refusing is what the fractional path already does and what 72 frames a second says is
-  needed.
+  Also still unmeasured is the rest of that bullet's table — the rates themselves, 240Hz and
+  under-60Hz.
 
-  **The rate is never sixty for any of them** — `orb-sim/tests/pacing_rates.rs` is the table. A
-  compositor on a whole multiple of sixty is harmless however far it disagrees (a 120Hz monitor with a
-  240Hz compositor still holds sixty every second); one that is not never does, over 70, 75, 90, 100,
-  110, 144, 150, 165 and 200Hz.
+## A display under 60Hz is still paced by the clock
 
-  What the *simulator* is not for is which way it is wrong. Asked for this display it first said 48
-  frames a second — slow, where the machine runs fast — because it modelled the host as a metronome;
-  modelling the wake delays it really has turned that into 69 to 70. The number turns on how long the
-  compositor takes over a frame, and nothing reports that. So the scenarios assert the direction and
-  `DONE.md` keeps the number.
+`adopt` takes the blanks only at or above 60Hz, and below it goes to the clock: there is no blank to put
+a sixtieth of a second on, so one frame per blank would run a 50Hz display's game at 50 — seventeen per
+cent slow, with the music to match — and the clock at least keeps the game's own speed.
 
-  What is still unmeasured is the rest of that bullet's table — the rates themselves, 240Hz and
-  under-60Hz — which the scenarios could now reach the same way.
+Which is a choice rather than a limit, and the alternative has never been tried: a 50Hz grid could take
+*two* blanks for some frames and one for others, the way the fractional path does above 60, and land
+every frame on a blank at an average of 1.2. That would be 60 frames a second on a 50Hz panel, which
+means five frames of every six shown for one refresh and one for two — judder by construction, but the
+game at its own speed and every frame on a blank rather than on a clock that lands anywhere.
+
+Nobody has a 50Hz desktop to want this on, which is why it is here and not done. `orb/tests/pacing_rates.rs`
+could reach it in a line.
 
 ## Move the rest of the suite onto the space
 
@@ -485,10 +477,9 @@ could write next and none of which is in the way of the two that exist:
 - **No boundary out of the midstage table.** Stage 1's one entry is script frame 4472 and its fake
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
   `chapter.rs`'s twenty-seven.
-- **No frame loop yet.** `render` calls `Th06::present` and `Th06::play_sounds`, which are the game's
-  own code at two addresses nothing can put anything at — and each of those two methods is an address
-  and what to call it on, so a `Game` that answered with them instead would leave a laid-out game two
-  functions of its own to give. See
+- **One of the frame loop's four ways out.** The other three and the loop's order are `frame_loop.rs`;
+  a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
+  and nothing outside orb can empty them. See
   [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 - **A pad it has, and winmm's side of one it has not.** `Th06::pad` tries the game's own DirectInput
   controller first and asks winmm only where the game's enumeration found none, and the fake game
@@ -583,24 +574,26 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Forty of the 227 tests are scenarios, and fifteen of those are driven by a game.** In `orb/tests`
-a 紅魔郷 that plays the game's part drives them through orb's own hooks — see *Running the game with no
-game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question that chooses between them on
-the keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
-reached by being played to them.
+**Forty-two of the 233 tests are scenarios, and every one of them is driven by a game.** In `orb/tests`
+a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
+see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
+that chooses between them on the keyboard and on a controller the game answers with, the whole of a
+`State` read at frames a game reached by being played to them, and the pacing over a display the scenario
+declares.
 
-The twenty-five left in `orb-sim/tests` are two different things. The twenty-one over the frame loop are
-**waiting on one change**, not on nothing: `render` calls `Th06::present` and `Th06::play_sounds`, which
-are the game's own code at 0x00420b50 and 0x00431270 where a laid-out address space has nothing to
-execute — and each of those methods *is* an address and an argument, so a `Game` that hands them over
-rather than making the call leaves a laid-out game two functions of its own to answer with. See
-[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which is
-accepted and not built. Until then they drive `pacing`, `settle` and `wait` through a harness that
-composes that loop the way `render` does — 414 lines whose own comment says it is a copy, and nothing
-holds the copy to the original. The four over the log are the other thing: not scenarios at all, what
-`log!` formats and which level keeps which line being the log's own business. Both sets want a process
-each, orb's log and profile being process-global, which a file in `tests/` gives and `orb-core`'s own
-`#[cfg(test)]` — one binary for all of its tests — does not.
+The frame loop was the last of those to arrive and cost one change, which
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) is: `render`
+called `Th06::present` and `Th06::play_sounds`, the game's own code at 0x00420b50 and 0x00431270 where a
+laid-out address space has nothing to execute — and each of those methods *was* an address and an
+argument, so a `Game` that hands them over rather than making the call leaves a laid-out game two
+functions of its own to answer with. The 414-line harness that composed a copy of that loop, and whose
+own comment said it was a copy, is gone with them.
+
+The four tests left in `orb-sim/tests` are not scenarios. Three are the log's own business — what `log!`
+formats and which level keeps which line — and the fourth is `Pacing::configure` against a host that
+refuses the millisecond timer, which is a startup and no frame. They want a process each, orb's log and
+profile being process-global, which a file in `tests/` gives and `orb-core`'s own `#[cfg(test)]` — one
+binary for all of its tests — does not.
 
 **Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to
 `orb-core` compiles and nobody is told. What would make it a check is one step rather than a second job:
@@ -620,13 +613,23 @@ period, a compose time a test may change mid-run, and a `DwmFlush` that returns 
 frame just handed over reached — modelled that way because that is what the real one does and the
 whole of how the pacing knows whether a frame made its blank.
 
-Twenty-one scenarios drive the loop, where its own thirteen tests were all arithmetic and **not one of
-them drove it**: the whole-multiple cadence, the rates a display reports and the rate each gets, the
-fractional 2-2-3-2-3 pattern, the budget rising after a frame overran, a compositor that spikes and the
-allowance following it, what that spike costs at each rate, three stage loads and what they must not buy
-the compositor, the clock path, a refused millisecond timer, the mixed-rate desktop, and sixty frames a
-second for every compose time the pacing has room to cover — which is the one that found the deadlock in
-`measure_compose`, now fixed.
+Twenty-eight scenarios drive the loop — `render` itself, called by a game's own loop — where its own
+thirteen tests were all arithmetic and **not one of them drove it**: the whole-multiple cadence, the rates
+a display reports and the rate each gets, the fractional 2-2-3-2-3 pattern, the budget rising after a frame
+overran, a compositor that spikes and the allowance following it, what that spike costs at each rate, three
+stage loads and what they must not buy the compositor, the clock path, a refused millisecond timer, the
+mixed-rate desktop, sixty frames a second for every compose time the pacing has room to cover — which is
+the one that found the deadlock in `measure_compose`, now fixed — and the loop's own shape: the update
+before the draw, the sounds between them, the chain's two exits becoming the frame's two, and the ways out
+that hand the frame back to the game's own loop.
+
+**And what orb says about the rate is held against it, which is the half nothing asserted before.** Every
+number a scenario reads of the pacing it reads out of the log: the `frame:` line's count of frames, the
+interval, how many the compositor could not show when it meant to and the histogram of gaps in refreshes,
+and beside them what the compositor is being given. That line is what somebody reading a real run's log
+has, so a run whose rate was right and whose account of it was wrong used to pass. It cost the scenarios
+one thing — the lines are written once per `profile::INTERVAL` frames and drained on the far side of the
+*next* frame's flush, so a scenario that wants one runs frames until it is there.
 
 **The simulator is deliberately non-deterministic, and that is the point.** The OS is, from the
 application's side: it wakes a thread when it gets round to it and its compositor is slow now and then.

@@ -20,8 +20,8 @@ use orb_api::Hwnd;
 use crate::audio::{Music, SoundBuffer};
 use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Texture, Viewport};
 use crate::game::{
-    Boundary, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect, Reproduction, RunStart,
-    RunState, State,
+    Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
+    Reproduction, RunStart, RunState, State,
 };
 use crate::log;
 
@@ -1175,14 +1175,17 @@ impl Game for Th06 {
         }
     }
 
-    unsafe fn play_sounds(&self) {
-        let play: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(PLAY_SOUNDS) };
-        unsafe { play(G_SOUND_PLAYER) };
-    }
-
-    unsafe fn present(&self) {
-        let present: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(PRESENT) };
-        unsafe { present(G_GAME_WINDOW) };
+    fn frame_calls(&self) -> FrameCalls {
+        FrameCalls {
+            play_sounds: Call {
+                function: PLAY_SOUNDS,
+                this: G_SOUND_PLAYER,
+            },
+            present: Call {
+                function: PRESENT,
+                this: G_GAME_WINDOW,
+            },
+        }
     }
 
     unsafe fn jump_to_stage(&self, stage: i32) -> bool {

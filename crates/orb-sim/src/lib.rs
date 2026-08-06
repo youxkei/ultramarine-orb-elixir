@@ -28,6 +28,10 @@ pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
+/// The seeded stream the host's own unevenness is drawn from, for a scenario that has unevenness of its
+/// own to declare: how long the game's frame takes is the game's business rather than the host's, and a
+/// run whose every draw comes from one seed is a run that replays.
+pub use noise::Noise;
 pub use space::Space;
 
 /// Where a test's laid-out game is installed. The log and `orb.yaml` are read as siblings of the

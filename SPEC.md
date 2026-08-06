@@ -732,25 +732,31 @@ and that is where input-to-screen is measured from and to. It is also what says 
 frame made the blank it was aimed at, since what the flush waits for is that frame being
 composed: see *The compositor's drawing time*.
 
-**Cadence.** One game frame is a whole number of refreshes of the monitor the game's window
-is on, taken from `MonitorFromWindow` and `EnumDisplaySettingsW`: two at 120Hz, one at 60Hz.
-The compositor's `qpcRefreshPeriod` follows one monitor of the desktop, which on a mixed-rate
-desktop need not be this one, so it is used only when it agrees with that rate.
+**Cadence.** One game frame is a whole number of the compositor's refreshes, counted in the
+period `DwmGetCompositionTimingInfo` reports: two at 120Hz, one at 60Hz.
 
-**Both of those numbers are rounded, and neither rounding may decide anything.**
-`dmDisplayFrequency` is whole Hz, so the NTSC-derived rates report short — 119.88Hz says 119, and
-59.94Hz says 59 — while the compositor's period in whole microseconds puts the same display at
-120. Two consequences, and both were live faults until a 119.88Hz display was actually run:
+**The compositor's, because that is the grid a frame can be put on.** `DwmFlush` returns at its
+blanks and at nobody else's, whatever monitor the window is on — measured on a desktop of a 120Hz
+primary with a 144Hz monitor beside it, where a window on any of the three flushed at 143.97Hz while
+`EnumDisplaySettingsW` answered about its own panel. And the frames really are composed against that
+grid: handed over 250µs before a blank, every one of sixty missed it; handed over 2000µs before, none
+did, and the threshold is the same for a window covered by a full-screen one as for a window in front.
+`MonitorFromWindow` and `EnumDisplaySettingsW` are then only the rate to count in where the compositor
+will not say, and otherwise what the log calls the desktop: a frame shown on the compositor's blank
+still has the window's own panel to reach, which is worth a line and decides nothing.
 
-- A rate within two per cent of a multiple of 60 *is* that multiple, and gets its constant count.
-  Read as fractional instead, 119 sends the grid chasing an exact sixtieth against a rate 0.8%
-  away from one, which it settles by putting a one-refresh frame in about once a second. The
-  period is taken from the nominal multiple as well, that being the nearer of the two: a 119.88Hz
-  refresh is 8341µs, which 120 puts at 8333 and 119 at 8403.
-- Agreement between the two is within two per cent, not equality. At 119 against 120 an equality
-  test refused the blanks altogether and paced a 119.88Hz display by the clock. What the test is
-  for is the compositor timing a different monitor — 144 against 120, which ran the game at 72
-  frames a second — and that is not a rounding apart.
+Counting in the monitor's rate while flushing on the compositor's blanks is what ran a 120Hz window at
+72 frames a second on a desktop the compositor timed at 144 — the frames went on 6944µs blanks while
+the cadence asked for two of the monitor's 8333µs ones. It is not a case to refuse: it is the ordinary
+fractional cadence at the compositor's rate.
+
+**The rate is rounded and the rounding may not decide anything.** A period in whole microseconds puts
+an NTSC-derived display at 119 or 59 rather than 120 or 60, and a rate within two per cent of a
+multiple of 60 *is* that multiple and gets its constant count. Read as fractional instead, 119 sends
+the grid chasing an exact sixtieth against a rate 0.8% away from one, which it settles by putting a
+one-refresh frame in about once a second — a live fault until a 119.88Hz display was actually run. The
+spacing itself is the measured one rather than the nominal multiple's, that being the truer of the two:
+a 119.88Hz refresh is 8341µs, which 120 would put at 8333 and 119 at 8403.
 
 A rate that is not a whole multiple of 60 has no one cadence to keep — 144Hz is 2.4 refreshes a
 frame — so there each frame goes on whichever blank is nearest where a sixtieth-of-a-second grid
@@ -782,10 +788,19 @@ A display sold as 120Hz is often 119.88, and chasing an exact sixtieth there wou
 refreshes on a frame every few minutes to make the difference up. Two every time is 59.94fps —
 a tenth of a percent on a clock nobody can see, against a hitch anybody can.
 
-Only a display whose refresh rate is not known at all, or one the compositor will not admit to
-timing, is paced by the clock. A replay being run fast, or a run being cleared fast, keeps
-the cadence like anything else: `--speed` is updates per drawn frame, so the frames come one per
-turn and only carry more of the game with them.
+Two things are paced by the clock and nothing else is: a desktop with no compositor to ask, where
+nothing reports a rate at all, and a display under 60Hz, which has no blank to put a sixtieth of a
+second on — one frame per blank there would run a 50Hz display's game at 50, seventeen per cent slow
+with the music to match, and the clock at least keeps the game's own speed.
+
+**The window being behind is not one of them.** It was, and measurement is what took it off the list: a
+window behind, one covered by a full-screen window and one minimised all flush at the compositor's own
+rate with every gap one refresh, `Present` never answers that there is nobody to show the frame to, and
+the lead a frame needs to make its blank is the same whether anybody can see it. `always_draw` is on by
+default, so this is every alt-tab away from the game.
+
+A replay being run fast, or a run being cleared fast, keeps the cadence like anything else: `--speed`
+is updates per drawn frame, so the frames come one per turn and only carry more of the game with them.
 
 `DWM_TIMING_INFO.cRefresh` counts compositions of the window rather than refreshes of the
 display, and is not used.
@@ -1790,9 +1805,9 @@ What is behind the seam is what a test could not otherwise get at. The game's me
 that `Th06` can be read with no game running. The log's deferral turns on which thread is asking and
 its lines are stamped with the host's clock, so a test that cannot be two threads or say what time it
 is cannot reach the mechanism at all. The display and its compositor are behind it because the pacing
-decides from two numbers they answer — the monitor's rate and the compositor's own — and the case
-that matters is the two disagreeing, which otherwise wants two monitors of different rates and the
-game's window on the wrong one. And the keyboard is behind it because orb's own questions read it
+reads two numbers they answer — the compositor's own spacing, which the cadence is counted in, and the
+monitor's rate, which says what the desktop is like — and the case that matters is the two disagreeing,
+which otherwise wants two monitors of different rates and a window on one of them. And the keyboard is behind it because orb's own questions read it
 themselves, the game being frozen on the frames they are up on: which mode a run is, and so whether it
 has chapters at all, is decided by keys nobody could press in a test.
 
@@ -1820,8 +1835,8 @@ So what the pacing scenarios assert is a rate and not a schedule: **what share o
 sixty frames a second, within half a frame, once a few seconds of grace have passed.** That is the
 question somebody playing has — the music and every timer in the game are counted in its own frames, so
 a second at the wrong rate is a second of the game at the wrong speed however the average over the run
-reads. A display the pacing accepts holds every second of the run; a desktop whose compositor is timing
-another monitor's rate holds none.
+reads. Every display the pacing accepts holds every second of the run, a desktop whose compositor is
+timing another monitor's rate included — nine such rates against a 120Hz monitor, four hosts apiece.
 
 The call sites keep their shape: `mem::read(address)` is what it was before the seam went in.
 Making every caller carry a `&dyn Win` instead would have rewritten two thousand lines of structure
@@ -1903,19 +1918,25 @@ test has something to look at, and nothing calls orb's own functions to move a r
 in some state, the game is played into it. See
 [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
 
-**What it does not drive yet is orb's own frame loop**, which runs the game's `Present` and its sound
-by calling the exe's code at 0x00420b50 and 0x00431270 — where a laid-out address space has nothing to
-execute. So a scenario is a `--no-frame-loop` run for now, and the pacing is driven against a display
-declared in `orb-sim/tests` through a harness that composes the loop the way `render` does. Each of
-those two methods — `Th06::present` and `Th06::play_sounds` — is an address and what to call it on, so a
-`Game` that answered with them rather than making the call is the one change that harness wants: see
-[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+**Its own loop calls orb's frame loop**, as the real game's does, and that is what a shipped run has on:
+the two calls the loop makes into the game are addresses `Game::frame_calls` hands over, so this game
+hands over two of its own. Its `Present` is where a scenario counts a frame handed over — the
+tick, and the host told a frame is in the compositor's hands — and its sound is nothing, a laid-out game
+having none. A launch started `--no-frame-loop` runs 紅魔郷's own draw-then-update order instead, which is
+the other configuration orb ships, and a scenario reads which of the two ran off the order the loop asked
+the game for things in.
 
-Everything else that a game can drive is driven that way: the question that chooses a mode, on the
-keyboard and on a controller the game answers with, and the whole of a `State` read at frames a game
-reached by being played to them. What is left in `orb-sim/tests` beside the pacing is the log, which is
-not a scenario — what `log!` formats and which level keeps which line is the log's own business, and no
-game decides it.
+**A scenario declares the display the window is on**: what the monitor reports, what the compositor is
+timing, what composing a frame takes, and which stream of wake delays the host has. Which is the whole of
+what the pacing is paced against, and how the frame loop's own scenarios exist at all — the rate read off
+the ticks the game was handed its frames over at, and orb's own `frame:` line read out of the log beside
+it. See [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+
+Everything a game can drive is driven that way: the question that chooses a mode, on the keyboard and on
+a controller the game answers with, the whole of a `State` read at frames a game reached by being played
+to them, and the frame loop. What is left in `orb-sim/tests` is the log and one `Pacing` that is handed
+numbers rather than run, neither of which is a scenario — what `log!` formats and which level keeps which
+line is the log's own business, and no game decides it.
 
 ## Holding the game still, checked against real threads
 
@@ -1974,7 +1995,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/keyboard.rs` | the keys a test holds down, and a host that refuses to say what is down at all |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
-| `orb-sim/tests/pacing/` | the harness the frame-loop scenarios share: a display they declare, a run they drive a frame at a time, and the rate each second of it came out at |
+| `orb/tests/fake/` | the 東方紅魔郷 that plays the game's part: its own memory, its own front end and stage, the display its window is on, and its own loop calling orb's |
+| `orb/tests/pacing/` | how a run's rate is judged: the ticks the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |

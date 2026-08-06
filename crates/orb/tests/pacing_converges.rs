@@ -12,14 +12,16 @@
 //! and read off the last thousand rather than the whole run, since the climb itself is allowed to cost
 //! frames.
 
+mod fake;
 mod pacing;
 
+use fake::{Display, Fake, in_its_own_process};
 use orb_sim::Compose;
-use pacing::{Display, NEAR_SIXTY, Run};
+use pacing::{NEAR_SIXTY, launched};
 
-/// What the game's own update and draw take, read off a real run's `report()`: "(694us to draw + …)".
+/// What the game's own update and draw take, read off a real run's report line: "(694us to draw + …)".
 const WORK_US: i64 = 700;
-const FRAMES: usize = 3_000;
+const FRAMES: u32 = 3_000;
 const SETTLED: usize = 2_000;
 
 /// The rates a display reports itself as, over the range anyone plays at.
@@ -30,30 +32,33 @@ const RATES: [u32; 5] = [60, 120, 144, 165, 240];
 /// to 3900µs chasing it.
 const COMPOSE_US: [i64; 8] = [400, 1_000, 2_000, 2_500, 3_000, 3_200, 3_800, 4_000];
 
-fn settled_rate(hz: u32, compose: Compose, seed: u64) -> (f64, String) {
+fn settled(hz: u32, compose: Compose, name: &str, seed: u64) -> (Box<Fake>, f64) {
     let mut display = Display::agreed(hz);
     display.compose = compose;
     display.seed = seed;
-    let mut run = Run::started(display);
-    let waits = run.frames(FRAMES, WORK_US);
-    let rate = run.fps(&waits, SETTLED);
-    let shown = run.pacing().shown();
-    (rate, shown)
+    let game = launched(display, name, WORK_US);
+    game.frames(FRAMES);
+    let rate = pacing::fps(&game.handovers(), SETTLED);
+    (game, rate)
 }
 
 /// The one that holds: a compositor whose cost is what this machine's appears to be — usually a
 /// millisecond, occasionally three and a half.
 #[test]
 fn a_compositor_that_spikes_still_settles_at_sixty() {
-    for hz in RATES {
-        for seed in 0..4u64 {
-            let (rate, shown) = settled_rate(hz, Compose::measured(), seed);
-            assert!(
-                (rate - 60.0).abs() < NEAR_SIXTY,
-                "{hz}Hz, seed {seed}: {rate} frames a second after {SETTLED} frames\n  {shown}"
-            );
+    in_its_own_process(|| {
+        for hz in RATES {
+            for seed in 0..pacing::SEEDS {
+                let name = format!("converges-{hz}-{seed}");
+                let (game, rate) = settled(hz, Compose::measured(), &name, seed);
+                assert!(
+                    (rate - 60.0).abs() < NEAR_SIXTY,
+                    "{hz}Hz, seed {seed}: {rate} frames a second after {SETTLED} frames\n  {}",
+                    pacing::last_said(&game)
+                );
+            }
         }
-    }
+    });
 }
 
 /// **How long the compositor may take, and it is not "anything".** The frame is handed over
@@ -78,28 +83,32 @@ fn ceiling_us(hz: u32) -> i64 {
 /// the point where answering it is geometrically impossible, and that point is the ceiling below.
 #[test]
 fn any_compositor_inside_the_ceiling_settles_at_sixty() {
-    let mut stuck = Vec::new();
-    let mut tried = 0;
-    for hz in RATES {
-        for compose_us in COMPOSE_US {
-            if compose_us > ceiling_us(hz) {
-                continue;
-            }
-            tried += 1;
-            let (rate, shown) = settled_rate(hz, Compose::flat(compose_us), 0);
-            if (rate - 60.0).abs() >= NEAR_SIXTY {
-                stuck.push(format!(
-                    "{hz}Hz at {compose_us}us: {rate:.2} fps\n    {shown}"
-                ));
+    in_its_own_process(|| {
+        let mut stuck = Vec::new();
+        let mut tried = 0;
+        for hz in RATES {
+            for compose_us in COMPOSE_US {
+                if compose_us > ceiling_us(hz) {
+                    continue;
+                }
+                tried += 1;
+                let name = format!("ceiling-{hz}-{compose_us}");
+                let (game, rate) = settled(hz, Compose::flat(compose_us), &name, 0);
+                if (rate - 60.0).abs() >= NEAR_SIXTY {
+                    stuck.push(format!(
+                        "{hz}Hz at {compose_us}us: {rate:.2} fps\n    {}",
+                        pacing::last_said(&game)
+                    ));
+                }
             }
         }
-    }
-    assert!(
-        stuck.is_empty(),
-        "{} of {tried} compose times never reach sixty:\n  {}",
-        stuck.len(),
-        stuck.join("\n  ")
-    );
+        assert!(
+            stuck.is_empty(),
+            "{} of {tried} compose times never reach sixty:\n  {}",
+            stuck.len(),
+            stuck.join("\n  ")
+        );
+    });
 }
 
 /// And past the ceiling it cannot, which is a limit rather than a defect — but nothing in orb says so.
@@ -115,28 +124,26 @@ fn any_compositor_inside_the_ceiling_settles_at_sixty() {
 #[test]
 fn past_the_ceiling_the_rate_is_not_sixty_and_the_allowance_is_out_of_room() {
     const HZ: u32 = 240;
-    for compose_us in COMPOSE_US {
-        if compose_us <= ceiling_us(HZ) {
-            continue;
-        }
-        let mut display = Display::agreed(HZ);
-        display.compose = Compose::flat(compose_us);
-        display.seed = 0;
-        let mut run = Run::started(display);
-        let waits = run.frames(FRAMES, WORK_US);
-        let rate = run.fps(&waits, SETTLED);
-        let (_, _, allowed) = run.pacing().status();
+    in_its_own_process(|| {
+        for compose_us in COMPOSE_US {
+            if compose_us <= ceiling_us(HZ) {
+                continue;
+            }
+            let name = format!("past-the-ceiling-{compose_us}");
+            let (game, rate) = settled(HZ, Compose::flat(compose_us), &name, 0);
+            let allowed = pacing::allowance_us(&game);
 
-        assert_eq!(
-            allowed,
-            ceiling_us(HZ),
-            "{HZ}Hz at {compose_us}us: the allowance stopped at {allowed}us, not at the ceiling — {}",
-            run.pacing().shown()
-        );
-        assert!(
-            (rate - 60.0).abs() >= NEAR_SIXTY,
-            "{HZ}Hz at {compose_us}us: {rate} frames a second, which is sixty — so the ceiling was room \
-             enough after all and this test is the thing that is wrong"
-        );
-    }
+            assert_eq!(
+                allowed,
+                ceiling_us(HZ),
+                "{HZ}Hz at {compose_us}us: the allowance stopped at {allowed}us, not at the ceiling — {}",
+                pacing::last_said(&game)
+            );
+            assert!(
+                (rate - 60.0).abs() >= NEAR_SIXTY,
+                "{HZ}Hz at {compose_us}us: {rate} frames a second, which is sixty — so the ceiling was room \
+                 enough after all and this test is the thing that is wrong"
+            );
+        }
+    });
 }

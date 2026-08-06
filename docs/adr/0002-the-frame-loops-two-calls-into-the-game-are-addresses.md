@@ -1,7 +1,10 @@
 # 2. The frame loop's two calls into the game are addresses it hands over
 
-**Status:** accepted, not built. The plan at the end is what is left, and until it is done the frame
-loop's scenarios are the twenty-one in `orb-sim/tests` that drive a copy of the loop.
+**Status:** accepted and built. `Game::frame_calls` answers with the two, `render` calls through them,
+and the frame loop's scenarios are eleven files in `orb/tests` that a laid-out 紅魔郷 drives through
+`render` itself: the nine `pacing_*` and `log_deferral` moved out of `orb-sim/tests`, and `frame_loop.rs`
+over the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
+does differently from the plan below is at the end of *Consequences*.
 
 It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): that a game laid out by
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and
@@ -15,17 +18,17 @@ that chooses between them on the keyboard and on a controller the game answers w
 frames a game was played to. The frame loop was written off in that document as the one thing a game
 could not drive, and that is wrong. This says why it is wrong, and what has to change.
 
-**The twenty-one scenarios over the loop drive a copy of it.** `orb-sim/tests/pacing/mod.rs` is 414
-lines and says so itself:
+**The twenty-one scenarios over the loop drove a copy of it.** `orb-sim/tests/pacing/mod.rs` was 414
+lines and said so itself:
 
 > The game's frame loop, as `orb/lib.rs` composes it, for the pacing scenarios to drive. The order here
 > is that function's order and the marks are its marks. A harness that waited and handed over in some
 > order of its own would be measuring itself.
 
-Which is honest about what it is and cannot fix it: nothing holds the copy to the original. What those
-scenarios establish is the arithmetic of `frame::Pacing` — the cadence, the rates, the allowance
-climbing, sixty frames a second for every compose time there is room for — and what they cannot
-establish is that `render` asks for any of it in the order they assume. Nothing covers:
+Which was honest about what it was and could not fix it: nothing held the copy to the original. What those
+scenarios established was the arithmetic of `frame::Pacing` — the cadence, the rates, the allowance
+climbing, sixty frames a second for every compose time there is room for — and what they could not
+establish is that `render` asks for any of it in the order they assumed. Nothing covered:
 
 - the order itself: `prepare_frame` before the wait, because it ends in a `Clear` that blocks while the
   display still holds a buffer; the update before the draw, which is the frame of input lag removed; the
@@ -37,10 +40,10 @@ establish is that `render` asks for any of it in the order they assume. Nothing 
 - what it makes of the chain's answers: `CHAIN_EXIT_SUCCESS` and `CHAIN_EXIT_ERROR` becoming the two
   `RenderResult` values the game's loop expects back.
 
-**What orb *says* about the rate is uncovered as well, and that is the cheaper half.** Every pacing
+**What orb *says* about the rate was uncovered as well, and that is the cheaper half.** Every pacing
 measurement in `DONE.md` was read off two things: the `fps` on the status line beside the game, and the
 line orb writes per reporting period — `frame: 711 frames, 16651us apart, 0 shown late, gaps in
-refreshes 2x711`. Neither is asserted anywhere. The harness even calls `report()`, but only to print it
+refreshes 2x711`. Neither was asserted anywhere. The harness even called `report()`, but only to print it
 in a failure message, so a run whose rate was right and whose report of it was wrong would pass. That
 line is already behind the seam, the log being a simulated one in these scenarios, so it costs nothing
 to hold orb to it.
@@ -53,12 +56,12 @@ second that lost four frames, which is the question these scenarios ask. So the 
 the clock, orb's own line is held against it, and the status line is its own piece of work — see
 [TODO.md](../../TODO.md).
 
-**What blocks it is two methods, and nothing else.** Every other call `render` makes is answerable by a
-laid-out game today: the device and the window come out of its memory, `prepare_frame` is a viewport
+**What blocked it was two methods, and nothing else.** Every other call `render` makes was answerable by a
+laid-out game already: the device and the window come out of its memory, `prepare_frame` is a viewport
 through the device's vtable and two writes and a read of the game's own memory, the chain's update and
-draw are already reached through `RUN_CALC_CHAIN_TARGET` and `RUN_DRAW_CHAIN_TARGET` — statics that
-`attach_to` fills with the fake game's own functions — and the clock, the display and the compositor are
-the simulated Windows the pacing scenarios already declare. The two that cannot be answered are
+draw are reached through `RUN_CALC_CHAIN_TARGET` and `RUN_DRAW_CHAIN_TARGET` — statics `attach_to` can
+fill with the fake game's own hooks — and the clock, the display and the compositor are the simulated
+Windows the pacing scenarios already declared. The two that could not be answered were
 
 ```rust
 unsafe fn play_sounds(&self) {
@@ -108,9 +111,10 @@ has on.
 - The pacing scenarios move to `orb/tests`, and `pacing/mod.rs`'s 414 lines go: the display a scenario
   declares stays, the loop it composed does not.
 
-**What it costs.** One vtable call per frame more than today, answering with four words, against a frame
-that already reads the clock seven times and walks the game's job chain. And the transmute moves out of
-`th06` into `lib.rs`, which is where the other two transmutes of the game's own functions already are.
+**What it costs.** Two vtable calls per frame fewer, and two pairs of relaxed loads in their place: the
+four words are asked for once at the attach and kept beside the chain targets, which is also what lets
+`attach_to` fill them with a laid-out game's own functions. And the transmute moves out of `th06` into
+`lib.rs`, which is where the other two transmutes of the game's own functions already are.
 
 **What it does not buy.** The host is still the simulator's: the wake jitter and the compositor's spikes
 are drawn from a seeded stream, and what a scenario asserts is the *rate* rather than a turn to the
@@ -129,7 +133,7 @@ alternatives were weighed and are rejected for that reason or a worse one.
   the exception.
 
 **What the moved scenarios then assert**, which is two things and not one. The rate from the clock, a
-second at a time, as they do now: what share of the seconds were sixty frames a second within half a
+second at a time, as they did: what share of the seconds were sixty frames a second within half a
 frame, from a few seconds in, over several seeds. And orb's own `frame:` line agreeing with it — the
 count of frames, the interval, how many were shown late, and the histogram of gaps in refreshes — since
 that line is what somebody reading a real run's log has to be able to believe.
@@ -139,17 +143,33 @@ log: what the pacing writes about itself is held and written on the far side of 
 left of the turn is slack. Driven through a copy of the loop, it says nothing about where the real one
 drains.
 
-## Plan
+**What the built shape does differently.** Four things, each found in the doing.
 
-1. The `Game` method and `render` calling through it, with `Th06` answering its two constants. Nothing
-   else changes for the shipped DLL.
-2. `Originals` and the fake game: the two functions, and a frame that calls `render` where a launch has
-   its own loop on.
-3. One pacing scenario moved first — the whole-multiple cadence, which is the simplest — to find what
-   the harness was doing that a game has to do instead.
-4. Then the rest, and `pacing/mod.rs` with them, leaving the display a scenario declares.
-5. `log_deferral` last, since it is the one that wants the drain in the real loop.
+- **The two are statics, not a call per frame.** The plan had `render` asking the game for four words
+  every frame. A game that is not a real process is `Th06` — 0001 rules out a second `Game` — so asking
+  it would get 0x00431270 and 0x00420b50 whatever else was true, and the answer has to be *overridable*
+  at the attach rather than asked for later. So `attach` stores what `Game::frame_calls` answered and
+  `attach_to` stores a laid-out game's own, which is the shape `RUN_CALC_CHAIN_TARGET` beside them
+  already had.
+- **`Originals` grew three.** The game's own `Render` is the third, because three of the four ways out of
+  `render` hand the frame back to it — and a scenario that drives one of those ways out with nothing
+  there to hand it back to calls a null pointer.
+- **Everything the moved scenarios read of the pacing, they read out of the log.** The harness held its
+  own `Pacing` and asked it for the allowance. orb holds the frame loop's, and nothing outside orb does,
+  so the allowance is read off the `frame:` line that says what the compositor is being given — which is
+  the same line somebody looking into a stutter has, and the half this ADR called the cheaper one.
+  It costs the scenarios one thing: those lines are written once per `profile::INTERVAL` frames and
+  drained on the far side of the *next* frame's flush, so a scenario that wants one waits for it.
+- **Three of the things named uncovered above still are.** A chain target that is null: `attach` and
+  `attach_to` both fill those statics and nothing outside orb can empty them, so that one of the four ways
+  out has no scenario. `prepare_frame` before the wait, and the present not being waited on: both are
+  moments *inside* a frame, and what a scenario can read of one is the spans `frame.rs` writes out of the
+  marks — which it writes only for a frame that came out off the cadence. What the marks are is held
+  otherwise: the cadence every pacing scenario asserts is read from `presented`, and the lag `pacing_budget`
+  reads off the report line is the game's own work as `waited`..`presented` measured it. The other three
+  ways out, the update before the draw, the sounds between them and the chain's two exits are
+  `frame_loop.rs`.
 
-The status line is not in that list. It is the same numbers said again in the one place a scenario
+The status line is not covered either. It is the same numbers said again in the one place a scenario
 cannot reach, and reaching it is a seam of its own — see *Draw a frame in a test and say what is on it*
 in [TODO.md](../../TODO.md).

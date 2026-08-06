@@ -24,6 +24,34 @@ pub struct Patch {
     pub prologue: &'static [u8],
 }
 
+/// A function of the game's own that orb calls, and what to call it on.
+///
+/// `__thiscall` with a single argument is `fastcall` with nothing on the stack, which is an ABI Rust
+/// can spell — the note `run_calc_chain` in the `orb` crate already carries.
+#[derive(Clone, Copy)]
+pub struct Call {
+    pub function: usize,
+    pub this: usize,
+}
+
+/// The two calls into the game that orb's own frame loop makes, the loop it replaced having made
+/// them itself.
+///
+/// Addresses rather than two methods of [`Game`], because that is what the rest of this seam is:
+/// [`Game::chain`] is an address, a [`Patch`] carries a target, and the update and draw the frame
+/// loop runs are addresses orb was handed and stored. Porting is then a number for these two as it
+/// is for everything else, instead of the transmute written again — and it is what lets a game that
+/// is not a real process be driven through the frame loop at all, an address space laid out by hand
+/// answering reads rather than execution.
+pub struct FrameCalls {
+    /// Hands queued sound effects to the sound system, as the game does once per frame after its
+    /// update. Runs on the game's main thread.
+    pub play_sounds: Call,
+    /// The game's own present, which also handles a lost device and its own screenshot key. Runs on
+    /// the game's main thread with the frame drawn.
+    pub present: Call,
+}
+
 pub struct Hooks {
     /// One call per logic frame. Not calling through freezes the game.
     pub update: Patch,
@@ -396,19 +424,9 @@ pub trait Game {
     /// Must run on the game's main thread with a live device.
     unsafe fn prepare_frame(&self, device: *mut Device);
 
-    /// Hands queued sound effects to the sound system, as the game does once per
-    /// frame after its update.
-    ///
-    /// # Safety
-    /// Must run on the game's main thread.
-    unsafe fn play_sounds(&self);
-
-    /// The game's own present, which also handles a lost device and its own
-    /// screenshot key.
-    ///
-    /// # Safety
-    /// Must run on the game's main thread, with the frame drawn.
-    unsafe fn present(&self);
+    /// The two functions of the game's own that orb's frame loop calls where the game's own loop
+    /// called them — see [`FrameCalls`].
+    fn frame_calls(&self) -> FrameCalls;
 
     /// Starts the replay being watched at another of its stages, the way the game's own
     /// replay menu does: it tears this stage down, builds that one, and the replay's

@@ -23,7 +23,7 @@
 //! refresh rate is not known at all is paced by the clock.
 
 use crate::{log, pacing};
-use orb_api::{Hwnd, clock, display, window};
+use orb_api::{Hwnd, clock, display};
 
 /// The rate the game's logic runs at, which is what its timers assume.
 const LOGIC_HZ: u32 = 60;
@@ -475,61 +475,77 @@ impl Pacing {
         if asked != 0 {
             log!("frame: the system will not give a 1ms timer ({asked}); waits will be coarse");
         }
-        self.adopt(display::desktop_refresh());
+        let (hz, measured) = self.grid(display::desktop_refresh());
+        self.adopt(hz, measured);
     }
 
-    /// Works out the cadence from the monitor the game's window is on, and says so in the
+    /// The grid the frames are put on, as a rate in whole Hz and the spacing of its blanks in ticks.
+    ///
+    /// **The compositor's whenever there is one**, because that is the only grid a frame can be put on:
+    /// `DwmFlush` returns at its blanks and at nobody else's. Both halves of that are measured. On a
+    /// desktop of a 120Hz primary with a 144Hz monitor beside it, a window on any of the three flushed
+    /// at 143.97Hz while `EnumDisplaySettingsW` answered about its own panel —
+    /// `scripts/compositor-probe.c`, numbers in `DONE.md`. And the frames really are composed against
+    /// that grid: handed over 250µs before a blank, every one of sixty missed it and took the refresh
+    /// after; handed over 2000µs before, not one did — `scripts/background-flush-probe.c`.
+    ///
+    /// So `fallback`, which is what a monitor or the desktop reports for itself, is only the rate to
+    /// count in where the compositor will not say. Counting in it while flushing on the compositor's
+    /// blanks is what ran a 120Hz window at 72 frames a second on a desktop the compositor timed at
+    /// 144: the frames went on 6944µs blanks while the cadence asked for two of the monitor's 8333µs
+    /// ones.
+    fn grid(&self, fallback: Option<u32>) -> (Option<u32>, Option<i64>) {
+        match composition() {
+            Some((period, _)) => (
+                u32::try_from(1_000_000 / self.micros(period).max(1)).ok(),
+                Some(period),
+            ),
+            None => (fallback, None),
+        }
+    }
+
+    /// Works out the cadence from the grid the frames are going on, and says so in the
     /// log. Called once a second, so a window dragged to another monitor is followed.
     fn settle(&mut self, window: Hwnd) {
-        let hz = display::monitor_refresh(window);
-        self.adopt(hz);
+        let monitor = display::monitor_refresh(window);
+        let (hz, measured) = self.grid(monitor);
+        self.adopt(hz, measured);
         let blanks = self.blanks_per_frame;
 
-        // The blanks come from the compositor, whose clock follows one monitor of the
-        // desktop. Where that is not the monitor being drawn to, waiting on it paces the
-        // game to the wrong rate — 144 read for a 120Hz display ran the game at 72 frames
-        // a second — so it is checked rather than assumed.
-        let composited = composition().map(|(period, _)| 1_000_000 / self.micros(period).max(1));
-        let agrees = match (hz, composited) {
-            (Some(hz), Some(composited)) => same_rate(composited, i64::from(hz)),
+        // Whether the monitor the window is on is the one the compositor's clock follows. It decides
+        // nothing any more — the cadence is counted in the compositor's own spacing either way — and it
+        // is worth a line of its own, because a desktop where the two disagree is one where a frame
+        // shown on the compositor's blank still has the panel's own to reach.
+        let agrees = match (monitor, hz) {
+            (Some(monitor), Some(hz)) => same_rate(i64::from(hz), i64::from(monitor)),
             _ => false,
         };
-        // A rate that does not divide into 60 can still be paced by its blanks, one frame to the
-        // nearest one — but only once the compositor has said it is timing this display, because
-        // there the count per frame is worked out from the refresh spacing and a spacing belonging
-        // to another monitor would put the frames anywhere.
-        //
-        // Only at or above 60Hz. Below it there is no blank to put a sixtieth of a second on — a
-        // 50Hz display would get one frame per blank and run the game at 50, seventeen percent slow
-        // with the music to match. The clock at least keeps the game's own speed there and leaves
-        // the unevenness to the display.
-        if blanks == 0 && agrees && hz.is_some_and(|hz| hz >= LOGIC_HZ) {
-            self.blank_paced = true;
-        }
-
         let signature =
             i64::from(hz.unwrap_or(0)) << 8 | i64::from(blanks) << 1 | i64::from(agrees);
         if std::mem::replace(&mut self.reported, signature) == signature {
             return;
         }
-        let reported = hz.map_or_else(|| "an unknown".to_string(), |hz| format!("{hz}Hz"));
-        match (blanks, agrees) {
-            (0, true) => log!(
-                "frame: {reported} monitor is not a multiple of {LOGIC_HZ}Hz; one frame on whichever blank is nearest each sixtieth"
+        let named = hz.map_or_else(|| "an unknown".to_string(), |hz| format!("{hz}Hz"));
+        let whose = if measured.is_some() {
+            "compositor"
+        } else {
+            "monitor"
+        };
+        match blanks {
+            0 if self.blank_paced => log!(
+                "frame: {named} {whose} is not a multiple of {LOGIC_HZ}Hz; one frame on whichever blank is nearest each sixtieth"
             ),
-            (0, false) => {
-                log!(
-                    "frame: {reported} monitor and the compositor will not say; pacing by the clock"
-                )
+            0 => {
+                log!("frame: {named} {whose} and the compositor will not say; pacing by the clock")
             }
-            (blanks, true) => log!("frame: {reported} monitor, one frame every {blanks} blank(s)"),
-            (_, false) => {
-                let composited =
-                    composited.map_or_else(|| "nothing".to_string(), |hz| format!("{hz}Hz"));
-                log!(
-                    "frame: {reported} monitor but the compositor is timing {composited}; pacing by the clock"
-                );
-            }
+            blanks => log!("frame: {named} {whose}, one frame every {blanks} blank(s)"),
+        }
+        // And the desktop it is happening on, once, where the panel is not what is being timed.
+        if !agrees {
+            let panel = monitor.map_or_else(|| "an unknown".to_string(), |hz| format!("{hz}Hz"));
+            log!(
+                "frame: the window's own monitor is {panel}, which is not what the compositor is timing"
+            );
         }
     }
 
@@ -539,21 +555,30 @@ impl Pacing {
     /// sixtieth — the count per frame is not a constant there, so it is worked out per frame
     /// rather than settled here. Only a display whose rate is not known at all falls back to the
     /// clock.
-    fn adopt(&mut self, hz: Option<u32>) {
+    fn adopt(&mut self, hz: Option<u32>, measured: Option<i64>) {
         let (blanks, period) = match hz {
-            // The nominal multiple's period rather than the reported rate's, because for a rate that
-            // reports short the nominal is the nearer of the two: a 119.88Hz refresh is 8341µs, which
-            // 120 puts at 8333 and 119 at 8403.
+            // The measured spacing where there is one, and the nominal multiple's where there is not:
+            // for a rate that reports short the nominal is the nearer of the two, a 119.88Hz refresh
+            // being 8341µs, which 120 puts at 8333 and 119 at 8403.
             Some(hz) => match whole_multiple(hz) {
-                Some(multiple) => (multiple, self.frequency / i64::from(multiple * LOGIC_HZ)),
-                None => (0, self.frequency / i64::from(hz)),
+                Some(multiple) => (
+                    multiple,
+                    measured.unwrap_or(self.frequency / i64::from(multiple * LOGIC_HZ)),
+                ),
+                None => (0, measured.unwrap_or(self.frequency / i64::from(hz))),
             },
             None => (0, self.frame_ticks()),
         };
-        // A whole multiple is paced by the blanks on that alone, as it always was. A rate that is
-        // not takes one more thing — see `settle`, which is the only caller that can ask the
-        // compositor whether it is timing this display at all.
-        self.blank_paced = blanks > 0;
+        // A whole multiple is paced by the blanks on that alone, as it always was. A rate that is not
+        // one is too, where the compositor measured the spacing rather than it being derived from a
+        // rounded rate: the count per frame is then worked out per frame against a real period.
+        //
+        // Only at or above 60Hz. Below it there is no blank to put a sixtieth of a second on — a 50Hz
+        // display would get one frame per blank and run the game at 50, seventeen percent slow with the
+        // music to match. The clock at least keeps the game's own speed there and leaves the unevenness
+        // to the display.
+        self.blank_paced =
+            blanks > 0 || (measured.is_some() && hz.is_some_and(|hz| hz >= LOGIC_HZ));
         // A compose time shown to be short is shown so of the display it was measured on. The window
         // moving to another monitor, or the mode changing under it, makes it a claim about
         // something else — and since it only ever ratchets upward, carrying it over would hold
@@ -612,15 +637,19 @@ impl Pacing {
         }
 
         let blanks = i64::from(self.blanks_per_frame);
-        let in_front = !window.is_null() && window::foreground() == window;
-        // A window that is not in front has a cadence to keep, but counting refreshes
-        // against it comes out wrong, and the clock will do until that is understood
-        // rather than guessed at.
+        // The window being behind is not one of the reasons. It was: "counting refreshes against it
+        // comes out wrong, and the clock will do until that is understood rather than guessed at" — and
+        // measuring it says nothing about a window behind comes out wrong.
+        // `scripts/background-flush-probe.c`, 120Hz, 599 gaps a state: in front, behind, covered by a
+        // full-screen window and minimised all flush at 120.00Hz with every gap one refresh, `Present`
+        // never answers `S_PRESENT_OCCLUDED`, and the lead a frame needs to make its blank is the same
+        // 2000µs whether anybody can see it or not. So a background frame is paced on the blanks like
+        // any other, which is what `always_draw` — on by default — asked for all along.
         //
         // A replay being run fast keeps the cadence like anything else: `speed` is
         // updates per drawn frame, so the frames still come one per turn and only carry
         // more of the game with them.
-        if !self.blank_paced || !in_front {
+        if !self.blank_paced {
             self.last_blank = 0;
             // So that a frame paced this way says so rather than reporting spans off the last
             // blank there was, which is somewhere in the past and belongs to another frame.

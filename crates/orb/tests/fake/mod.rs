@@ -12,10 +12,11 @@
 //! presses keys, and runs frames. Everything else it reads back: the game's own memory, the game's
 //! own records, and what orb put in the log.
 //!
-//! **What it does not do is orb's own frame loop.** That one runs the game's `Present` and its sound
-//! by calling the exe's code at its own addresses, and a game that is not a real process has nothing
-//! there to call. So a scenario is a `--no-frame-loop` run: the game's own draw-then-update order,
-//! with orb's update and draw hooks in the middle of it, which is a configuration orb ships.
+//! **Its own loop calls orb's frame loop, as the real game's does.** The `Present` and the sound that
+//! loop makes are addresses the game hands over — see `Game::frame_calls` — so this game hands over two
+//! of its own, and its `present` is where a scenario counts a frame handed over. A launch started
+//! `--no-frame-loop` is the game's own draw-then-update order instead, with orb's update and draw hooks
+//! in the middle of it, which is the other configuration orb ships.
 //!
 //! **Each scenario runs in a process of its own**, which is what lets every one of them run at once —
 //! see [`in_its_own_process`]. A launch is a process, and orb is written that way.
@@ -42,7 +43,7 @@ use orb_core::game::th06::image::{
     Supervising, item, joy_state,
 };
 use orb_core::game::{Game, RunStart};
-use orb_sim::{Log, keys};
+use orb_sim::{Compose, Log, keys};
 
 /// The game's window. Any handle: what it is for is that the host says it is the one in front, which
 /// is what makes a key down a key the game and orb both read.
@@ -50,10 +51,28 @@ pub const WINDOW: Hwnd = Hwnd(0x1234);
 
 /// What the game's own chain walk answers while the game is running.
 ///
-/// Not zero, which orb reads as the game wanting to stop — see `CHAIN_EXIT_SUCCESS` — and not `-1`.
-/// A run whose resume played 7476 updates in inside one frame (`DONE.md`) is measured proof that the
-/// real walk does not answer zero while a stage is running, since orb's playback stops on that.
+/// Neither of the two below, which orb reads as the game leaving. A run whose resume played 7476
+/// updates in inside one frame (`DONE.md`) is measured proof that the real walk does not answer zero
+/// while a stage is running, since orb's playback stops on that.
 const CHAIN_CARRIED_ON: i32 = 1;
+
+/// And what it answers when the game is leaving: zero, which orb reads as the game having asked to stop,
+/// and `-1`, which is the walk having failed. Both of 紅魔郷's own.
+pub const CHAIN_LEFT: i32 = 0;
+pub const CHAIN_FAILED: i32 = -1;
+
+/// What a whole frame answers while the game is running, which is 紅魔郷's own `Render` answering that
+/// the loop above it should call it again. Zero, and the two above zero are the game leaving — which is
+/// what orb's frame loop turns the chain's two exits into.
+pub const FRAME_KEPT_RUNNING: i32 = 0;
+pub const FRAME_LEFT: i32 = 1;
+pub const FRAME_FAILED: i32 = 2;
+
+/// The names a frame's own record uses for the calls a loop makes into the game — see [`Fake::asked`].
+pub const UPDATE: &str = "update";
+pub const SOUND: &str = "sound";
+pub const DRAW: &str = "draw";
+pub const PRESENT: &str = "present";
 
 /// The bits of the word the game's own input read hands back, which are 紅魔郷's own: the three masks
 /// orb reads them through are made of these — `menu_decide` is `SHOOT | ENTER`, `menu_cancel` is
@@ -148,6 +167,123 @@ const PRESSES: u32 = 30;
 /// play area and the speed this game's.
 const SPEED: f32 = 4.0;
 
+/// How long the game's own work takes in a frame, as a scenario declares it.
+///
+/// The same shape as [`Compose`], and for the same reason: a frame's own update and draw are not one
+/// number either. What is on screen decides them — a title menu and a stage 3 boss fight with 524
+/// bullets up are not the same work — and now and then one frame costs far more than any of them, a
+/// stage load being a quarter of a second of it. So a scenario says the middle, how far above it an
+/// ordinary frame wanders, and what the occasional one costs.
+///
+/// A `usual_us` of nothing is a laid-out game left to itself: its update walks a few writes and no
+/// simulated time passes at all, which is what every scenario that is not about the pacing wants.
+#[derive(Clone, Copy)]
+pub struct Work {
+    pub usual_us: i64,
+    /// How far over `usual_us` an ordinary frame may take, drawn per frame from the host's own stream.
+    pub jitter_us: i64,
+    pub spike_us: i64,
+    /// One frame in this many. Zero for a game whose frames never cost more than the usual.
+    pub spike_one_in: i64,
+}
+
+impl Work {
+    /// The same every frame, for a scenario about the arithmetic around it.
+    ///
+    /// 694µs is what a real run's report line said the game's own drawing took — "(694us to draw + …)"
+    /// — which is where the 700 every pacing scenario uses comes from.
+    pub fn flat(us: i64) -> Self {
+        Self {
+            usual_us: us,
+            jitter_us: 0,
+            spike_us: us,
+            spike_one_in: 0,
+        }
+    }
+
+    /// A frame whose own work wanders, which is what one really does: half as much again over the
+    /// quiet frames, which is about what a stage full of bullets is against a menu.
+    pub fn wandering(us: i64) -> Self {
+        Self {
+            jitter_us: us / 2,
+            ..Self::flat(us)
+        }
+    }
+
+    /// And one that now and then costs a quarter of a second, which is a stage load.
+    ///
+    /// `one_in` rather than a count, so a scenario says how many its length will see. What the load
+    /// must *not* do is buy the compositor anything — `pacing_load.rs` is that claim; this is the
+    /// other half of it, which is that the rate comes back.
+    pub fn loading(us: i64, one_in: i64) -> Self {
+        Self {
+            spike_us: 250_000,
+            spike_one_in: one_in,
+            ..Self::wandering(us)
+        }
+    }
+}
+
+/// The display the game's window is on, as a scenario declares it.
+///
+/// What the pacing is paced against, and the whole of what a scenario says about the host it is
+/// running on: everything else the frame loop reads it reads through orb's own code.
+pub struct Display {
+    /// What the monitor the window is on reports, in whole Hz. `None` is one that will not say.
+    pub monitor_hz: Option<u32>,
+    /// What the compositor is timing, which need not be the same monitor. `None` is no compositor.
+    pub compositor_hz: Option<u32>,
+    /// What the compositor takes over a frame.
+    pub compose: Compose,
+    /// Which stream of wake delays the host has. Named in a failure so the run can be replayed.
+    pub seed: u64,
+    /// Whether to take the host's non-determinism away, leaving a metronome. Only for a scenario
+    /// making a claim about arithmetic — no machine is one.
+    pub metronome: bool,
+}
+
+impl Display {
+    /// One display, with the compositor timing it — what almost every machine has.
+    pub fn agreed(hz: u32) -> Self {
+        Self {
+            monitor_hz: Some(hz),
+            compositor_hz: Some(hz),
+            compose: Compose::measured(),
+            seed: 0,
+            metronome: false,
+        }
+    }
+
+    /// The game's window on one monitor while the compositor times another.
+    pub fn split(monitor_hz: u32, compositor_hz: u32) -> Self {
+        Self {
+            monitor_hz: Some(monitor_hz),
+            compositor_hz: Some(compositor_hz),
+            compose: Compose::measured(),
+            seed: 0,
+            metronome: false,
+        }
+    }
+
+    /// Nothing will say the rate, which is the one case paced by the clock.
+    pub fn unknown() -> Self {
+        Self {
+            monitor_hz: None,
+            compositor_hz: None,
+            compose: Compose::measured(),
+            seed: 0,
+            metronome: false,
+        }
+    }
+
+    /// The display every scenario that is not about the pacing runs on: one monitor at the rate the
+    /// game was written for, with the compositor timing it. A whole multiple of sixty, so the frames
+    /// go on its blanks and the loop paces the way a shipped run paces.
+    pub fn ordinary() -> Self {
+        Self::agreed(60)
+    }
+}
+
 /// A game laid out, with orb attached to it.
 ///
 /// Its own memory is the `Image`; everything else here is what a process has and an address space
@@ -180,6 +316,24 @@ pub struct Fake {
     /// The one thing about a run that a laid-out game cannot do for itself: there are no bullets
     /// here, so being hit is a scenario saying so where in a real run it is a scenario dodging badly.
     hit: Cell<bool>,
+    /// Whether this launch has orb's own frame loop on, which is what decides whether [`Fake::frame`]
+    /// calls that loop or the game's own.
+    own_frame_loop: bool,
+    /// How long the game's own work takes in a frame — see [`Fake::frame_takes`].
+    work: Cell<Work>,
+    /// The stream the frame's own unevenness is drawn from, which is the host's: a scenario names one
+    /// seed and everything drawn in the run follows from it.
+    noise: RefCell<orb_sim::Noise>,
+    /// The tick each frame was handed over at, as this game's own `Present` records it.
+    ///
+    /// Beside the memory for the same reason the pad's own state is: a hand-over is not a fact about
+    /// the run, it is one about the display, and no chapter restored underneath it rewinds what the
+    /// screen has already been shown.
+    handovers: RefCell<Vec<i64>>,
+    /// What the loop running this game has asked of it, in the order it asked — see [`Fake::asked`].
+    asked: RefCell<Vec<&'static str>>,
+    /// What this game's chain walk answers, which a scenario changes to say the game is leaving.
+    answers: Cell<i32>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory. Last,
     /// and never dropped: see [`Fake::attach`].
     _installed: orb_api::Installed,
@@ -269,6 +423,16 @@ impl Fake {
     /// the one order that works: the runtime first, so orb's overlay is released through a device that
     /// is still there, then the device, then the simulated Windows it was all read through.
     pub fn attach(name: &str, run: RunStart, settings: impl FnOnce(&mut Config)) -> Box<Self> {
+        Self::attach_to_display(Display::ordinary(), name, run, settings)
+    }
+
+    /// And on a display a scenario says the whole of, for the ones the frame loop's pacing is about.
+    pub fn attach_to_display(
+        display: Display,
+        name: &str,
+        run: RunStart,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
         // The map above is only the game's if orb reads the same bits through its own masks.
         assert_eq!(
             Th06.menu_decide(),
@@ -293,20 +457,34 @@ impl Fake {
         let dir = scratch(name);
         let mut config =
             Config::load_beside(&dir.join("th06.exe")).expect("a directory with no orb.yaml in it");
-        // Orb's own frame loop is what this game cannot answer — see the module comment — and the
-        // memory hooks patch an import table there is none of.
-        config.own_frame_loop = false;
+        // The memory hooks patch an import table there is none of.
         config.track_memory = false;
         settings(&mut config);
 
-        let image = Image::laid_out();
+        let image = Image::laid_out_seeded(display.seed);
         let screen = Recorded::over(&dir.join("font.ttf"));
         let installed = image.enter();
         image.shows_through(screen.device(), WINDOW);
         // Where the game is installed, which is where orb writes its log: beside the exe, because that
         // is where `orb.yaml` and the launcher are.
         image.sim().set_host_exe(dir.join("th06.exe"));
-        image.sim().display().set_foreground(WINDOW);
+        // The display, in front of orb being attached: `configure` reads the desktop's own rate before
+        // there is a window to ask about, and a rate written down after that would be read a second
+        // late — the first second of the run paced against nothing.
+        let sim = image.sim();
+        sim.display().set_monitor_hz(display.monitor_hz);
+        sim.display().set_desktop_hz(display.monitor_hz);
+        sim.display().set_foreground(WINDOW);
+        if let Some(hz) = display.compositor_hz {
+            sim.display().attach_compositor(
+                sim.clock().peek(),
+                sim.clock().frequency() / i64::from(hz),
+                display.compose,
+            );
+        }
+        if display.metronome {
+            sim.display().as_a_metronome();
+        }
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what a scenario
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
@@ -340,6 +518,13 @@ impl Fake {
             file,
             pushed: Cell::new(Pushed::none()),
             hit: Cell::new(false),
+            own_frame_loop: config.own_frame_loop,
+            work: Cell::new(Work::flat(0)),
+            // The host's own seed, so a failure names one number and everything the run drew follows.
+            noise: RefCell::new(orb_sim::Noise::seeded(display.seed)),
+            handovers: RefCell::new(Vec::new()),
+            asked: RefCell::new(Vec::new()),
+            answers: Cell::new(CHAIN_CARRIED_ON),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -356,25 +541,83 @@ impl Fake {
                     stage_begun,
                     unlocks_read,
                     ranking_read,
+                    render: own_render,
+                    play_sounds,
+                    present,
                 },
             )
         };
         fake
     }
 
-    /// One frame of the game, as its own loop runs one: the drawing, then the update.
+    /// One frame of the game, as its own loop runs one, and what that frame answered.
     ///
-    /// Draw before update, which is 紅魔郷's own order — orb's own frame loop is what turns that round,
-    /// and this game does not run one.
-    pub fn frame(&self) {
-        unsafe { orb::run_draw_chain(Th06.chain()) };
-        unsafe { orb::run_calc_chain(Th06.chain()) };
+    /// Where orb's own frame loop is on, that loop *is* the frame: the game's loop calls it and it runs
+    /// the update before the draw, which is the frame of input lag removed. Where the launch turned it
+    /// off, the game's own draw-then-update order is what runs — see [`own_render`].
+    pub fn frame(&self) -> i32 {
+        let window = self.image.game_window_object() as *mut c_void;
+        if self.own_frame_loop {
+            unsafe { orb::render(window) }
+        } else {
+            own_render(window)
+        }
     }
 
     pub fn frames(&self, count: u32) {
         for _ in 0..count {
             self.frame();
         }
+    }
+
+    /// How long the game's own work takes in a frame: its update, its sounds and its draw, as one span.
+    ///
+    /// A scenario saying so, the way it says the player was hit. A laid-out game's update walks a few
+    /// writes and would take no time at all, and what a rate is judged against is a frame whose work
+    /// takes as long as 紅魔郷's does — the whole question the pacing answers is where the wait goes
+    /// around work of that size, and how unevenly it comes.
+    pub fn frame_takes(&self, work: Work) {
+        self.work.set(work);
+    }
+
+    /// What this frame's own work costs, drawn: the usual, or now and then the spike.
+    fn work_this_frame(&self) -> i64 {
+        let work = self.work.get();
+        let mut noise = self.noise.borrow_mut();
+        if work.spike_one_in > 0 && noise.up_to(work.spike_one_in - 1) == 0 {
+            return work.spike_us;
+        }
+        if work.jitter_us > 0 {
+            return work.usual_us + noise.up_to(work.jitter_us);
+        }
+        work.usual_us
+    }
+
+    /// The tick each frame so far was handed over at, which is what a rate is read off.
+    pub fn handovers(&self) -> Vec<i64> {
+        self.handovers.borrow().clone()
+    }
+
+    /// What the loop running this game has asked of it since the last [`forget_asked`](Self::forget_asked),
+    /// in the order it asked: one of [`UPDATE`], [`SOUND`], [`DRAW`] or [`PRESENT`] per call it made in.
+    ///
+    /// Which is the difference between the two loops rather than a detail of either. 紅魔郷's own order is
+    /// the draw before the update, so everything on screen is one update behind the input that produced
+    /// it; orb's is the other way round, and that is the frame of input lag removed.
+    pub fn asked(&self) -> Vec<&'static str> {
+        self.asked.borrow().clone()
+    }
+
+    /// Forgets it, so that what a scenario reads is the frame it means rather than every frame since the
+    /// game started.
+    pub fn forget_asked(&self) {
+        self.asked.borrow_mut().clear();
+    }
+
+    /// What this game's chain walk answers from here on: [`CHAIN_CARRIED_ON`] until a scenario says
+    /// otherwise, and [`CHAIN_LEFT`] or [`CHAIN_FAILED`] to say the game is going.
+    pub fn chain_answers(&self, result: i32) {
+        self.answers.set(result);
     }
 
     /// Runs frames until `done`.
@@ -528,6 +771,12 @@ impl Fake {
     /// The whole of what the game does in one update, in the order 紅魔郷 does it: its supervisor
     /// first, which is the only reader of the keyboard, and then the jobs that supervisor registered.
     fn update(&self) {
+        // What the frame's own work costs, which is the game's and not orb's: the update, the sounds
+        // handed over after it and the draw, as one span, since what the pacing is judged on is how long
+        // a frame took between its turn and being handed over. Nothing by default — a laid-out game
+        // walks a few writes — and a scenario about the rate says the size and its unevenness. See
+        // `frame_takes`.
+        self.sim().clock().advance_micros(self.work_this_frame());
         // `Supervisor::OnUpdate`'s first act: `g_LastFrameInput = g_CurFrameInput; g_CurFrameInput =
         // GetInput()`. Through orb's hook, which is where a run's buttons are written down and where
         // a run being played back into place is handed the ones it pressed.
@@ -949,12 +1198,64 @@ pub const MAPPING: Mapping = Mapping {
 static TH06: Th06 = Th06;
 
 extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
-    running().update();
-    CHAIN_CARRIED_ON
+    let fake = running();
+    fake.asked.borrow_mut().push(UPDATE);
+    fake.update();
+    fake.answers.get()
+}
+
+/// `GameWindow::Render`: the game's own whole frame, in 紅魔郷's own draw-then-update order.
+///
+/// What orb's frame loop replaced — doing the update first is the frame of input lag removed — and what
+/// that loop hands a frame back to on each of the three ways out of it that return: no runtime, no
+/// device, and a chain target that is null.
+///
+/// The chain's two exits become the frame's own two here as they do in orb's loop, since that mapping is
+/// 紅魔郷's and not orb's: a walk that answered nothing is the game asking to stop, and the frame above it
+/// says so to the loop above that.
+///
+/// No wait in it. The real one paces itself and this one is called a frame at a time by whatever is
+/// driving the game, so there is nothing here for a scenario to be held up by.
+extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
+    unsafe { orb::run_draw_chain(Th06.chain()) };
+    let walked = unsafe { orb::run_calc_chain(Th06.chain()) };
+    unsafe { play_sounds(0) };
+    if walked == CHAIN_LEFT {
+        return FRAME_LEFT;
+    }
+    if walked == CHAIN_FAILED {
+        return FRAME_FAILED;
+    }
+    unsafe { present(0) };
+    FRAME_KEPT_RUNNING
+}
+
+/// `SoundPlayer::PlaySounds`: nothing, a laid-out game having no sound system.
+///
+/// Here rather than left out because the frame loop calls it where the game's own loop did, and a frame
+/// that skipped it would be one span of the pacing's breakdown short.
+unsafe extern "fastcall" fn play_sounds(_player: usize) {
+    running().asked.borrow_mut().push(SOUND);
+}
+
+/// `GameWindow::Present`: the frame handed over, which from here is the compositor's.
+///
+/// Where a scenario counts a frame — the tick it was handed over at, which is what a rate is read off —
+/// and where the host is told, since the next flush is what waits for this frame to be composed.
+///
+/// The tick is peeked rather than read: a scenario writing down when something happened should not be
+/// what moves the clock on, and every other read of this counter in a frame is orb's own.
+unsafe extern "fastcall" fn present(_window: usize) {
+    let fake = running();
+    fake.asked.borrow_mut().push(PRESENT);
+    fake.handovers.borrow_mut().push(fake.sim().clock().peek());
+    fake.sim().presented();
 }
 
 extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
-    running().draw();
+    let fake = running();
+    fake.asked.borrow_mut().push(DRAW);
+    fake.draw();
     CHAIN_CARRIED_ON
 }
 

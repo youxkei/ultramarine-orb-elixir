@@ -301,7 +301,17 @@ pub struct Image {
 
 impl Image {
     pub fn laid_out() -> Self {
-        let sim = Arc::new(Sim::new());
+        Self::mapped(Arc::new(Sim::new()))
+    }
+
+    /// And in a host whose non-determinism is drawn from `seed` — the wake delays and the
+    /// compositor's spikes — for a scenario that names the seed in its assertions so that a failure
+    /// can be replayed.
+    pub fn laid_out_seeded(seed: u64) -> Self {
+        Self::mapped(Arc::new(Sim::seeded(seed)))
+    }
+
+    fn mapped(sim: Arc<Sim>) -> Self {
         sim.space().map(DATA.start, DATA.len(), Kind::Private);
         sim.space().map(CODE.start, CODE.len(), Kind::Image);
         sim.space().map(BOSS.start, BOSS.len(), Kind::Private);
@@ -711,6 +721,12 @@ impl Image {
 
     pub fn ranking_screen(&self) -> usize {
         RANKING_SCREEN.start
+    }
+
+    /// The window object the game's whole frame is a method on, which is what a frame loop — the
+    /// game's own or orb's in its place — is called on.
+    pub fn game_window_object(&self) -> usize {
+        super::G_GAME_WINDOW
     }
 
     /// Says that screen is up with its records read in, which is the state orb waits for before it
