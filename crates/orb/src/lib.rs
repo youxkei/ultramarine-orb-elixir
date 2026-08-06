@@ -10,21 +10,34 @@
 // crate: `chapter` and `resume` are what a pointdevice run *is*, and `retry_ui` is how a death gets
 // to one. Nothing outside this crate and its own tests links it — the DLL exports `DllMain` and the
 // four hooks and nothing else — so what these say is which parts have a scenario over them.
+//
+// The hooks below are `pub` for the same reason, and that is the whole of what a scenario needs of
+// this file: a game laid out by hand calls them where the real game's own code would, and
+// [`attach_to`] is how it is attached to with no process to patch.
 pub mod chapter;
 mod crash;
 mod hook;
 mod joystick;
 mod lives_ui;
 pub mod memtrack;
-mod menu_ui;
+/// The list the three questions draw and the colours they draw it in.
+///
+/// `pub` for a scenario that reads the screen: which item a menu's cursor is on is a colour rather
+/// than a position — `menu_ui::list` draws the chosen one in `SELECTED` and the rest in `NORMAL` —
+/// so a test cannot say what a frame shows without naming those.
+pub mod menu_ui;
 pub mod mode_ui;
 mod overlay;
 mod pe;
 /// A device that keeps what it was asked to draw, so a test can say what is on the screen. Beside
 /// the drawing it stands in for rather than in `orb-core` with the vtable declarations, because its
 /// `Screen` fixture builds a real `Overlay` — and that reaches `text.rs` and the GDI.
-#[cfg(test)]
-mod recording;
+///
+/// `pub` rather than `#[cfg(test)]` because a scenario in `tests/` needs one as well, and for the
+/// same reason the drawing itself needs no seam: a device is a pointer to a vtable, so a game laid
+/// out by hand hands orb one of these and orb's overlay is built and drawn through the calls it
+/// makes against a real one.
+pub mod recording;
 pub mod resume;
 mod resume_ui;
 pub mod retry_ui;
@@ -512,40 +525,6 @@ fn attach() {
         }
     }
 
-    // Which mode a launch starts in, before anybody has been asked: pointdevice, since that is
-    // what orb is for, and normal where `--no-chapters` has left it nothing to be.
-    let mode = if config.chapters {
-        Mode::Pointdevice
-    } else {
-        Mode::Normal
-    };
-    // The question is only put to somebody who is there to answer it. A pass over a replay has
-    // nobody at the keyboard, and neither has a clear: those take the mode they are given.
-    let asks_mode =
-        config.chapters && !config.during_replay && !config.chapter_tuning && !config.fast_clear;
-    log!(
-        "mode: {mode} to start with; {}",
-        if asks_mode {
-            "the menu asks which"
-        } else {
-            "nobody is asked"
-        }
-    );
-
-    // Whether this launch keeps what it plays, and which runs an earlier one left unfinished. The
-    // names only: which of them is offered depends on what is chosen at the character select, and
-    // this is the line that says whether there was anything there to offer at all.
-    resume::keep(config.chapters && config.resume && mode == Mode::Pointdevice);
-    if config.resume {
-        let left = resume::left(&config.base_dir);
-        log!(
-            "resume: {} run(s) left unfinished{}{}",
-            left.len(),
-            if left.is_empty() { "" } else { ": " },
-            left.join(", "),
-        );
-    }
-
     // Only where the score file might have to be somewhere other than the game's own: with
     // `--no-chapters` nothing can rewind, so every run belongs in the game's own ranking and
     // there is nothing to fork. Loud rather than fatal if the import is not there, since what it
@@ -558,7 +537,6 @@ fn attach() {
         if config.fast_clear {
             score::refuse_writes();
         }
-        score::fork(mode == Mode::Pointdevice);
         match unsafe { score::install(exe) } {
             Ok(()) if config.fast_clear => log!("score: no file is written this run"),
             Ok(()) => log!("score: score.dat is forked while orb is in pointdevice mode"),
@@ -736,11 +714,117 @@ fn attach() {
         }
     }
 
+    unsafe { attached(&GAME, config, data) };
+}
+
+/// The game's own functions orb's hooks call through, which in a real process are the trampolines
+/// [`hook::install`] leaves behind and for a game that is not one are its own.
+///
+/// One per hook a game reaches orb through, which is what a frame of one is made of: its update and
+/// its draw, the read every key it acts on passes through, the two moments a stage's numbers are put
+/// in place, and the two reads of the score file orb has something to say about. Not the frame loop:
+/// orb's own runs the game's `Present` and its sound by calling the exe's code at its own addresses,
+/// so a game that is not a real process has nothing there to call — such a run is
+/// `--no-frame-loop`, with the update and the draw still hooked, which is what these are.
+pub struct Originals {
+    pub update: extern "fastcall" fn(*mut c_void) -> i32,
+    pub draw: extern "fastcall" fn(*mut c_void) -> i32,
+    pub input: extern "system" fn() -> u16,
+    pub stage_building: extern "C" fn(i32) -> i32,
+    pub stage_begun: extern "C" fn(*mut c_void) -> i32,
+    pub unlocks_read: extern "C" fn(*mut c_void) -> i32,
+    pub ranking_read: extern "C" fn(*mut c_void) -> i32,
+}
+
+/// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
+/// then the same runtime [`attach`] leaves behind.
+///
+/// What [`attach`] does above this and a scenario cannot: read a `.data` section out of the PE, load
+/// `orb.yaml` from beside an exe, and patch a call site in the game's code. A game laid out by hand
+/// has none of those — it hands over its own memory's bounds, a `Config` written in the open, and its
+/// own functions where the patches would have pointed.
+///
+/// # Safety
+/// Must run on the thread the game's frames will run on, with a simulated Windows installed there,
+/// and every function in `originals` must outlive the last frame orb's hooks are reached on.
+pub unsafe fn attach_to(
+    game: &'static dyn Game,
+    config: Config,
+    data: Range<usize>,
+    originals: Originals,
+) {
+    log::open();
+    log!(
+        "orb {} attached to a game laid out in this process",
+        env!("CARGO_PKG_VERSION")
+    );
+    log::set_level(config.log_level);
+    log::set_pacing(config.pacing_log);
+    for (slot, original) in [
+        (&RUN_CALC_CHAIN, originals.update as usize),
+        (&RUN_DRAW_CHAIN, originals.draw as usize),
+        (&GET_INPUT, originals.input as usize),
+        (&STAGE_BUILDING, originals.stage_building as usize),
+        (&STAGE_BEGUN, originals.stage_begun as usize),
+        (&UNLOCKS_READ, originals.unlocks_read as usize),
+        (&RANKING_READ, originals.ranking_read as usize),
+    ] {
+        slot.store(original, Ordering::Relaxed);
+    }
+    unsafe { attached(game, config, data) };
+}
+
+/// Which of the two a launch starts in and what that decides, and the runtime the hooks then find.
+///
+/// Apart from [`attach`] because it is the whole of what a game has to have done to it, with nothing
+/// in it about a process: see [`attach_to`].
+///
+/// # Safety
+/// Must run on the game's main thread, before any of orb's hooks are reached.
+unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usize>) {
+    // Which mode a launch starts in, before anybody has been asked: pointdevice, since that is
+    // what orb is for, and normal where `--no-chapters` has left it nothing to be.
+    let mode = if config.chapters {
+        Mode::Pointdevice
+    } else {
+        Mode::Normal
+    };
+    // The question is only put to somebody who is there to answer it. A pass over a replay has
+    // nobody at the keyboard, and neither has a clear: those take the mode they are given.
+    let asks_mode =
+        config.chapters && !config.during_replay && !config.chapter_tuning && !config.fast_clear;
+    log!(
+        "mode: {mode} to start with; {}",
+        if asks_mode {
+            "the menu asks which"
+        } else {
+            "nobody is asked"
+        }
+    );
+
+    // Whether this launch keeps what it plays, and which runs an earlier one left unfinished. The
+    // names only: which of them is offered depends on what is chosen at the character select, and
+    // this is the line that says whether there was anything there to offer at all.
+    resume::keep(config.chapters && config.resume && mode == Mode::Pointdevice);
+    if config.resume {
+        let left = resume::left(&config.base_dir);
+        log!(
+            "resume: {} run(s) left unfinished{}{}",
+            left.len(),
+            if left.is_empty() { "" } else { ": " },
+            left.join(", "),
+        );
+    }
+    // Which of the two rankings this run is headed for, said whether or not the hook that acts on it
+    // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
+    // is where it was anyway.
+    score::fork(mode == Mode::Pointdevice);
+
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
     unsafe {
         *RUNTIME.get() = Some(Runtime {
-            game: &GAME,
+            game,
             config,
             data,
             frames: 0,
@@ -913,7 +997,11 @@ unsafe fn give_up(game: &dyn Game) -> bool {
 
 /// Replaces `th06::Chain::RunCalcChain`. `__thiscall` with a single argument is
 /// `fastcall` with nothing on the stack, which is an ABI Rust can spell.
-extern "fastcall" fn run_calc_chain(chain: *mut c_void) -> i32 {
+///
+/// # Safety
+/// Must run on the game's main thread, and `chain` must be the chain object the game calls this on:
+/// it is handed to the game's own update, which reads the frame's jobs out of it.
+pub unsafe extern "fastcall" fn run_calc_chain(chain: *mut c_void) -> i32 {
     if IN_HOOK.swap(true, Ordering::Relaxed) {
         note_reentry();
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
@@ -933,7 +1021,11 @@ fn note_reentry() {
 
 /// Replaces `th06::Chain::RunDrawChain`, so the overlay draws after the game's
 /// own drawing and inside the same scene.
-extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
+///
+/// # Safety
+/// As [`run_calc_chain`], and inside the scene the game draws into: what orb draws here goes through
+/// the device it is already drawing with.
+pub unsafe extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
     if IN_HOOK.swap(true, Ordering::Relaxed) {
         note_reentry();
         return unsafe { call_original(&RUN_DRAW_CHAIN, chain) };
@@ -1085,7 +1177,7 @@ extern "C" fn init_d3d_device() {
 /// This is also the one place every button the game acts on passes through, which is what makes it
 /// where a run's own buttons are written down: against the frame of the stage about to run, since
 /// the read happens before the counter moves. See [`resume`].
-extern "system" fn get_input() -> u16 {
+pub extern "system" fn get_input() -> u16 {
     // Which frame of the stage this read is for. Before anything else, and before the foreground
     // check: a run being played back into place is being played with the window wherever it is,
     // and the frames it runs through are not frames anybody is at the keyboard for.
@@ -1242,7 +1334,7 @@ unsafe fn noted(frame: Option<u32>, buttons: u16) -> u16 {
 /// Nothing of `Runtime` is touched here: this is called from inside the game's own update, where
 /// the frame hook is already holding it. What it needs to know — whether this run is being kept —
 /// is [`resume`]'s own flag.
-extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
+pub extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
     let result = original(manager);
@@ -1260,7 +1352,7 @@ extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
 /// Bracketed rather than the mode's file being chosen once: everything else the file holds is a
 /// record of runs played one way or the other, and what the front end offers is not a record —
 /// see [`score`].
-extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
+pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
     score::reading_unlocks(true);
@@ -1272,7 +1364,12 @@ extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
 /// Runs before the callback that reads a ranking out of the score file, which is where the record of
 /// captures that read is about to fill is emptied. See [`Game::forget_captures`] for why it has to be
 /// emptied at all, and why here.
-extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
+///
+/// # Safety
+/// Must run on the game's main thread, and `screen` must be the ranking screen's own object as the
+/// callback this replaces is handed it: the state of that screen is read through it, and it is what
+/// decides whether the record in memory is that read's to fill.
+pub unsafe extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
     unsafe { GAME.forget_captures(screen) };
@@ -1282,7 +1379,7 @@ extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
 /// Runs before `th06::Stage::RegisterChain`, where the stage's numbers are in place and the stage
 /// itself is about to be built out of them — including out of the generator, which is why a resumed
 /// run's seed goes in here and nowhere else.
-extern "C" fn stage_building(stage: i32) -> i32 {
+pub extern "C" fn stage_building(stage: i32) -> i32 {
     let original: extern "C" fn(i32) -> i32 =
         unsafe { std::mem::transmute(STAGE_BUILDING.load(Ordering::Relaxed)) };
     unsafe { resume::stage_building(&GAME) };

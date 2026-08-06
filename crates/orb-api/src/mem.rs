@@ -270,6 +270,27 @@ pub fn count_private_region_again(base: usize) {
     host::count_private_region_again(base);
 }
 
+/// The committed regions the game owns, where the host is one that can say — which is a simulated
+/// Windows, whose laid-out memory *is* the game's.
+///
+/// `None` in a real process, where nothing can be asked this: what the game owns there is found by
+/// walking the heaps it took from the OS, which is `memtrack`'s job and needs the hooks that watched
+/// it take them.
+///
+/// A facade like every other here rather than something reached through
+/// [`installed`](crate::installed) at the call site, and that is not a tidying: reached the other way
+/// it was behind a `cfg(test)`, which is false in a crate compiled as a dependency of a test binary —
+/// so the scenarios that drive a whole run got the heap walk with no heaps in it. See `memtrack`.
+pub fn game_regions(data: &std::ops::Range<usize>) -> Option<Vec<(usize, usize)>> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return Some(win.game_regions(data));
+    }
+    // Taken and not used in a build with no simulated Windows in it, there being nothing there to ask.
+    let _ = data;
+    None
+}
+
 /// Every committed, private, readable region in the process, as `(base, len)`, less the ones
 /// [`keep_out_of_private_regions`] named. What `self_check` fingerprints.
 pub fn private_regions() -> Vec<(usize, usize)> {

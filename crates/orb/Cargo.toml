@@ -9,12 +9,14 @@ name = "orb"
 # `rlib` beside the DLL the game loads, so that `tests/` can drive this crate from outside it.
 # A scenario over the whole of what a mode does to a run — the chapters, the snapshots, the retry
 # menu, the file a run is left in — reaches code that lives here and cannot move below the seam:
-# `chapter` and `resume` are orb's own, and the `orb-sim` they would have to be driven from is
-# already this crate's dev-dependency, which is a cycle the other way round.
+# `chapter` and `resume` are orb's own, and so are the hooks a game reaches them through. The
+# 紅魔郷 that plays the game's part in those scenarios lives in `tests/` for the same reason: it has
+# to name this crate, and the `orb-sim` it would otherwise belong in is what this crate is built on.
 #
 # An integration test rather than another `#[cfg(test)]` module, and that is the point: `cfg(test)`
 # is false in `tests/`, so a scenario there reaches the simulated Windows the same way the shipped
-# DLL would reach the real one — through the `sim` feature and nothing else.
+# DLL would reach the real one — through the `sim` feature and nothing else. It is also what one of
+# them found: a `cfg(test)` branch in `memtrack` that a scenario does not take.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

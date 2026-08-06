@@ -1,6 +1,8 @@
 # 1. A fake 紅魔郷 drives orb, and a test only sends input
 
-**Status:** accepted, not built. The plan at the end is what is left.
+**Status:** accepted and built. Two scenarios stand on it — `orb/tests/pointdevice_run.rs` and
+`orb/tests/legacy_run.rs` — and *Where it landed* at the end says how the shape differs from the plan
+this was written with, and what building it found.
 
 ## Context
 
@@ -73,8 +75,8 @@ added to production so that a test has something to look at.
 - A `FakeGame` that owns the laid-out image and has a frame: read input, advance its own state, call
   orb's hooks, present. Its state is the only truth about the run; `read_state` is how orb learns it,
   as in production.
-- The injection made reachable from a test. Today orb's `RUNTIME` is assembled by `DllMain` and the
-  hooks are installed by patching the game's imports, so nothing outside the DLL can get a runtime to
+- The injection made reachable from a test. orb's `RUNTIME` was assembled by `DllMain` alone and the
+  hooks installed by patching the game's imports, so nothing outside the DLL could get a runtime to
   call. A scenario needs the equivalent of "attached to this game" without a real process to patch.
 - Orb's hook entry points callable — `on_update`, `on_draw`, the frame loop, the input read — in the
   order the real game reaches them, which is what `SPEC.md` describes and what a `FakeGame` has to
@@ -96,13 +98,56 @@ needs orb to be in some state, the way to get there is to play the game into it.
 there — so a scenario reaches the simulated Windows the only way the shipped DLL reaches the real one,
 through the `sim` feature, and nothing it drives can have a test-only path in it.
 
-## Plan
+## Where it landed
 
-1. `FakeGame` in `orb-sim`, over the existing `Image`: its own frame, its own state, and the hook
-   calls in the real order.
-2. Whatever `orb` has to expose for a runtime to be attached to a game that is not a real process.
-3. One scenario first, the whole of a pointdevice run, replacing the one that got the shape wrong:
-   mode chosen, stage, spell card, death, retry, the attempt count in the game's record, the run left
-   in a file and picked up by a second fake game.
-4. Then the legacy run beside it, which asserts the same things do *not* happen: no retry menu, no
-   attempt counted, the score in the game's own file.
+**The game is `orb/tests/fake`, not `orb-sim`.** The plan put it in the simulator, and it cannot go
+there: a game that calls orb's hooks has to name `orb`, and `orb-sim` is what `orb` is built *on* —
+`orb-core` depends on it. The only crate that can see both is `orb` itself, and the only place in it
+where `cfg(test)` is false is `tests/`. So the fake game is a module shared by the scenarios, and the
+split is the one the plan had between the two halves anyway: **where each thing in the game's memory
+lives is `orb-core`'s `th06::image`, beside the offsets it is written from, and what the game *does*
+over time is the fake game's.** A scenario names no address.
+
+**One game per process, and the process is the game.** `RUNTIME`, the record of what a run has
+pressed, and which file its score goes to are one apiece in orb, the way they are in the game — so a
+scenario is one `#[test]` in a file of its own, and the fake game is leaked rather than dropped: its
+simulated Windows has to stay installed for as long as a hook may be reached, and its device has to
+outlive the overlay orb built on it.
+
+**Both halves of a run in one launch, rather than a second fake game.** The plan had the run picked up
+by a second game; a second one in the same process would want a second recording device while the
+first still holds the lock. It is not a weaker scenario: the run is given up, which ends it — and
+ending a run is what drops the record of everything it pressed — so what the pickup reads is the file
+and only the file, which is the property the plan wanted a second process for.
+
+**What orb exposes:** `attach_to`, with the game's own functions in place of the trampolines
+`hook::install` would have left behind, its hook entry points `pub`, and `recording.rs` reachable from
+`tests/`. Not the frame loop: orb's own runs the game's `Present` and its sound by calling the exe's
+code at its own addresses, so a game that is not a real process has nothing there to call. A scenario
+is therefore a `--no-frame-loop` run — the game's own draw-then-update order with orb's two hooks in
+the middle of it, which is a configuration orb ships and a switch somebody can ask for.
+
+**What a scenario reads off the screen is text, not only geometry.** A device is handed a bitmap and
+never a string, so a quad says what it says only if the string is baked again through the same font and
+held against what was uploaded — which is `recording::Screen::says`, and it is why the fake game's
+overlay is built on the same `font.ttf` at the same two sizes orb builds its own with. That is what
+lets a scenario say the retry menu named the chapter it was offering, and which item the cursor was on:
+`menu_ui` draws that one in `SELECTED`, so the answer is a colour on the screen rather than a field to
+read. The fake game draws its own ranking through the same machinery, so the count against a spell card
+is a number somebody could read rather than one only the record holds.
+
+**Two thirds of the host vocabulary above is not reached, and both follow from that.** The display and
+its compositor are the frame loop's, and there is no frame loop here — the pacing's own twenty-one
+scenarios in `orb-sim/tests` are where a monitor is declared. The pad is the other: `Game::pad` reads
+the device the *game* reads, which is its own DirectInput controller or winmm's joystick 0, and neither
+is something a laid-out game has — so a scenario answers on the keyboard, and what says a pad answers
+these questions is `orb-sim/tests/mode.rs`, where a `Pad` is a value a test hands over.
+
+**It found the thing this was written to find.** `memtrack::regions` answered a laid-out game out of a
+`#[cfg(test)]` branch — and `cfg(test)` is false in a crate compiled as a dependency of a test binary,
+which is the whole reason these scenarios live in `tests/`. So the first scenario reached the
+production heap walk with no heaps tracked and got a chapter covering `.data` and nothing else: the
+fight's own block was outside it, and the clock of the attack a chapter began on did not come back
+with the chapter. The branch is a seam facade now, `orb_api::mem::game_regions`, like every other host
+call. A test-only path in the code under test is exactly what this decision was against, and one
+scenario was enough to find the one that was there.

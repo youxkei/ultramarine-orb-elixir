@@ -1868,7 +1868,38 @@ the reads use, so a wrong one is wrong on both sides at once. Offsets are settle
 real game, which is what the measurements in `DONE.md` are for. Everything built on top of them
 is what the space is for.
 
+It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took
+from the OS, which needs the import hooks that watched it take them; a laid-out space *is* the game's
+memory, so it says which regions those are and `memtrack` asks it — through `mem::game_regions` like
+every other host call, since a branch on `cfg(test)` there is a branch a scenario in `tests/` does not
+reach.
+
 In a build without the `sim` feature the space does not exist and none of `mem`'s functions branch.
+
+## Running the game with no game there
+
+Above the memory there is a 東方紅魔郷 that plays the game's part rather than the address space's:
+`orb/tests/fake`. It owns a laid-out image, has a front end and a stage of its own, and calls orb's
+hooks where the real game's code calls them — the draw chain and then the update, with the input read
+inside the update, which is the game's own order. `orb::attach_to` puts a runtime in place with its
+functions where the trampolines `hook::install` leaves behind would be, so nothing is patched and
+nothing is a real process.
+
+**Its state is that memory and nothing beside it**, which is what makes a chapter restored underneath
+it take the run back: there is nothing else for the run to be. Where each thing lives is
+`orb-core`'s `th06::image`, beside the offsets it is written from; what the game does over time is the
+fake game's.
+
+**A scenario says which window is in front, presses keys, and runs frames.** Everything it asserts on
+it reads back: the game's own memory through `read_state`, the game's own records — the count of
+attempts against a spell card — the quads orb drew, and orb's log. Nothing is added to orb so that a
+test has something to look at, and nothing calls orb's own functions to move a run along: to have orb
+in some state, the game is played into it. See
+[docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
+
+**What it cannot drive is orb's own frame loop**, which runs the game's `Present` and its sound by
+calling the exe's code at its own addresses. So a scenario is a `--no-frame-loop` run; the pacing is
+driven instead against a display declared in `orb-sim/tests`.
 
 ## Holding the game still, checked against real threads
 
@@ -1892,10 +1923,14 @@ Rust functions is a device as far as everything that calls one is concerned: the
 its state block, uploads its textures and draws its quads through exactly the calls it makes
 against the game's device, and they land in a record instead of on a screen.
 
-What is kept is the request rather than pixels — each quad's rectangle and colour, which texture it
-went through, the clears, the viewports, in order. That answers the questions worth asking of a
-frame: whether the mark covers the row the lives are counted in and leaves the rows either side
-alone, whether a menu put its items where it says, which of the two flashes a boundary got. A
+What is kept is the request — each quad's rectangle and colour, which texture it went through, the
+clears, the viewports, in order — **and what was uploaded into each texture**. That answers the
+questions worth asking of a frame: whether the mark covers the row the lives are counted in and
+leaves the rows either side alone, whether a menu put its items where it says, which of the two
+flashes a boundary got, and *which text is at which position* — a quad's texture is held against the
+same string baked again through the same font, since a device is handed a bitmap and never a string.
+The colour answers the rest: `menu_ui` draws the item under a cursor in `SELECTED` and the others in
+`NORMAL`, so which one is chosen is on the screen rather than in a field. A
 rasteriser would answer the same ones at the cost of being a rasteriser, and the one thing here
 that is genuinely about pixels — the brush stroke's coverage — is baked from the picture by
 `build.rs`, which is where it is checked.
@@ -1945,12 +1980,14 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
 | `orb/overlay.rs`, `text.rs`, `d3d8/mod.rs` | drawing over the game's frame |
-| `orb/d3d8/recording.rs` | a device that keeps what it was asked to draw, so a test can say what is on the screen |
+| `orb/recording.rs` | a device that keeps what it was asked to draw, so a test can say what is on the screen |
 | `orb-core/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
 | `orb/crash.rs` | the handler that names the module and offset a fault happened at |
-| `orb/game/mod.rs` | `Game` and `State`: everything above is written against these |
-| `orb/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
-| `orb/game/th06/image.rs` | those addresses laid out in a simulated Windows, so the real `Th06` has something to read |
+| `orb-core/game/mod.rs` | `Game` and `State`: everything above is written against these |
+| `orb-core/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
+| `orb-core/game/th06/image.rs` | those addresses laid out in a simulated Windows, so the real `Th06` has something to read — and where each thing a game does to its own memory is written |
+| `orb/tests/fake/` | a 紅魔郷 that plays the game's part: its own memory, its own front end and stage, and orb's hooks called where the real game's code calls them |
+| `orb/tests/pointdevice_run.rs`, `legacy_run.rs` | the two scenarios over a whole run, which press keys and read back the game's memory, its records and orb's log |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.

@@ -209,10 +209,14 @@ pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
     // A laid-out simulated Windows *is* the game's memory, so what it holds is the whole answer:
     // there are no heaps to walk and no reservations to have been told about. The data range still
     // leads, as it does in a real game, and the rest is whatever else the test put there.
-    #[cfg(test)]
-    if let Some(win) = orb_api::installed() {
-        return win
-            .game_regions(&data)
+    //
+    // Asked through the seam rather than behind a `cfg(test)`, which is where it was: `cfg(test)` is
+    // false in a crate compiled as a dependency of a test binary, so the scenario that drives a whole
+    // run reached the walk below with no heaps tracked — a chapter that copied `.data` and nothing
+    // else. What that lost was the fight's own block: the clock of the attack a chapter began on did
+    // not come back with the chapter.
+    if let Some(regions) = orb_api::mem::game_regions(&data) {
+        return regions
             .into_iter()
             .map(|(base, len)| Region { base, len })
             .collect();

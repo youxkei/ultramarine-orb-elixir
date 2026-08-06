@@ -6,12 +6,16 @@
 //! block, uploads its textures and draws its quads through the same calls it makes against the
 //! game's device, and they land here.
 //!
-//! What is kept is the request, not pixels — the quads with their rectangles and colours, in the
-//! order they were drawn, and which texture each went through. Enough to say that the retry menu
-//! put three items on the screen with the cursor on the second, or that the mark over the lives
-//! covers the row and nothing beside it. A rasteriser would answer the same questions at the cost
-//! of being one, and the one thing here that is genuinely about pixels — the brush stroke's
-//! coverage — is baked by `build.rs` and tested there.
+//! What is kept is the request — the quads with their rectangles and colours, in the order they were
+//! drawn, and which texture each went through. Enough to say that the retry menu put three items on
+//! the screen with the cursor on the second, or that the mark over the lives covers the row and
+//! nothing beside it.
+//!
+//! **And what was uploaded into each texture**, which is what makes [`Screen::says`] possible: a
+//! device is handed a bitmap and never a string, so the way to ask what a quad says is to bake the
+//! string again through the same font and compare. That is not a rasteriser — the glyphs are the
+//! GDI's as they are in a real run, and nothing here draws one — it is the same bake held against
+//! itself, which is the strongest thing a test can say about text without owning the font.
 
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -346,6 +350,10 @@ unsafe extern "system" fn set_vertex_shader(_device: *mut Device, _shader: u32) 
     0
 }
 
+// No `Default` for either of these, whatever clippy says about a `new` without one: making one takes
+// the recording lock and holds it until it is dropped, so it is something a test says out loud rather
+// than something that happens where a value is wanted.
+#[allow(clippy::new_without_default)]
 impl Recording {
     /// A device with nothing recorded yet, which no other test can be recording against at the same
     /// time.
@@ -419,6 +427,20 @@ impl Recording {
     pub fn clear(&self) {
         *DRAWN.lock().unwrap() = Some(Drawn::default());
     }
+
+    /// What was uploaded into a texture the device handed out, or `None` for one it did not — the
+    /// white texel included, which is the overlay's own and holds no picture.
+    ///
+    /// An associated function for the same reason [`DRAWN`] is a static: the textures are kept there
+    /// because `create_texture` has nothing but the ABI's arguments to reach a recording through.
+    pub fn pixels_of(texture: usize) -> Option<Vec<u32>> {
+        let textures = TEXTURES.lock().ok()?;
+        textures
+            .0
+            .iter()
+            .find(|head| &raw const head.texture as usize == texture)
+            .map(|head| head.pixels.clone())
+    }
 }
 
 impl Drop for Recording {
@@ -449,6 +471,7 @@ pub struct Screen {
     recording: Recording,
 }
 
+#[allow(clippy::new_without_default)]
 impl Screen {
     /// # Panics
     /// If Windows has no Arial, which it has had since 3.1.
@@ -477,6 +500,87 @@ impl Screen {
             .join("arial.ttf")
     }
 
+    /// A screen whose overlay is the one orb will build: the same font, at the same two sizes.
+    ///
+    /// For a scenario that hands orb this device and then asks what the text on it says — see
+    /// [`says`](Self::says). Both of those have to match or nothing does: a glyph baked at another
+    /// size, or out of another face, is another bitmap.
+    ///
+    /// # Panics
+    /// If the font cannot be loaded, which for the drawing itself is a run with no overlay in it and
+    /// for a scenario is a scenario that can say nothing about the screen.
+    pub fn over(font: &std::path::Path) -> Self {
+        let recording = Recording::new();
+        let overlay = unsafe {
+            crate::overlay::Overlay::new(
+                recording.device(),
+                font,
+                crate::FONT_HEIGHT,
+                crate::MARK_FONT_HEIGHT,
+            )
+        }
+        .unwrap_or_else(|| panic!("an overlay on {}", font.display()));
+        // The textures the overlay uploaded building itself are not a frame.
+        recording.clear();
+        Self { overlay, recording }
+    }
+
+    /// The pointer to hand whatever is being asked to draw.
+    pub fn device(&self) -> *mut Device {
+        self.recording.device()
+    }
+
+    /// What has been asked of the device, for a caller that reads it rather than driving one frame.
+    pub fn recording(&self) -> &Recording {
+        &self.recording
+    }
+
+    /// Writes `text` at `x, y`, which is what a game drawing a screen of its own does.
+    ///
+    /// Through the same `Label` the drawing uses, so what lands in the record is a texture
+    /// [`says`](Self::says) can read back. Baked afresh every call: a screen drawn a frame at a time
+    /// is a screen whose text may have changed, and holding the labels would mean deciding here which
+    /// of them is which.
+    pub fn writes(&self, text: &str, x: f32, y: f32, colour: u32) {
+        let mut label = crate::overlay::Label::new();
+        unsafe { label.set(&self.overlay, text) };
+        if let Some(frame) = unsafe { self.overlay.frame() } {
+            frame.label(&label, x, y, colour);
+        }
+    }
+
+    /// The quads that drew `text`, wherever on the screen it was drawn.
+    ///
+    /// A device is handed a bitmap and never a string, so the only honest way to ask what a quad says
+    /// is to bake the string again through the same font and compare what the texture holds, byte for
+    /// byte. Both of the overlay's fonts are tried, since which of them a label used is the drawing's
+    /// own business — the mark over the lives is in the larger one and every menu is in the other.
+    ///
+    /// The colour comes back with each quad, which is what says whether an item was the one under a
+    /// menu's cursor: `menu_ui` draws that one in `SELECTED` and the rest in `NORMAL`.
+    ///
+    /// **The drop shadow under each label is left out**, or every line on the screen would come back
+    /// twice: `Overlay::label` draws the same texture at one pixel down and across in the colour's own
+    /// alpha over black, and then the text itself. What that leaves out is a label drawn in black,
+    /// which nothing draws — the four colours in `menu_ui` and the word on the mark over the lives are
+    /// all lit.
+    pub fn says(&self, text: &str) -> Vec<Quad> {
+        let baked: Vec<Vec<u32>> = [self.overlay.font(), self.overlay.mark_font()]
+            .into_iter()
+            .filter_map(|font| font.render(text))
+            .map(|mask| uploaded(&mask))
+            .collect();
+        self.recording
+            .drawn()
+            .quads
+            .into_iter()
+            .filter(|quad| quad.color & 0x00ff_ffff != 0)
+            .filter(|quad| {
+                Recording::pixels_of(quad.texture).is_some_and(|pixels| baked.contains(&pixels))
+            })
+            .collect()
+    }
+
     /// Draws one frame and answers everything it was asked for.
     pub fn drawn(&self, with: impl FnOnce(&crate::overlay::Overlay)) -> Drawn {
         with(&self.overlay);
@@ -489,6 +593,25 @@ impl Screen {
     pub fn frame(&self, with: impl FnOnce(&crate::overlay::Overlay)) -> Vec<Quad> {
         self.drawn(with).quads
     }
+}
+
+/// The texture a mask is uploaded into, as the drawing writes one: rounded up to a power of two each
+/// way, with the mask in the top-left corner and the rest of it transparent.
+///
+/// Written out again here rather than shared with `overlay::upload`, for the reason [`Vertex`] is:
+/// what this has to agree with is the bytes that reached the device, so a change to the upload that
+/// this did not follow is a change it should stop recognising.
+fn uploaded(mask: &crate::text::Mask) -> Vec<u32> {
+    let width = mask.width.next_power_of_two();
+    let height = mask.height.next_power_of_two();
+    let mut pixels = vec![0; (width * height) as usize];
+    for row in 0..mask.height {
+        let from = (row * mask.width) as usize;
+        let to = (row * width) as usize;
+        pixels[to..to + mask.width as usize]
+            .copy_from_slice(&mask.pixels[from..from + mask.width as usize]);
+    }
+    pixels
 }
 
 #[cfg(test)]

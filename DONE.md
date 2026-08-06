@@ -1,6 +1,7 @@
 # Done
 
-Everything here has been run on the real game, not only compiled. Where a claim was
+Everything here has been run rather than only compiled, and each entry says on what: the game on
+this machine, or the suite driving the real code against a simulated Windows. Where a claim was
 settled by measurement rather than by looking at the screen, the measurement is named.
 
 ## Working
@@ -603,6 +604,82 @@ settled by measurement rather than by looking at the screen, the measurement is 
   — see [TODO.md](TODO.md).
 - **Replay-driven automation.** `--replay` with `--speed` lets a replay of a full run do the
   playing, for building the table and for the stress mode.
+- **A whole run driven end to end with no game and no Windows, by a 紅魔郷 that plays the game's
+  part.** In the suite rather than on the machine, and here because what it establishes is what a run
+  *does*, over the code that does it, with orb reached the way the DLL is reached: `attach_to`
+  puts a runtime in place with the fake game's own functions where `hook::install`'s trampolines would
+  be, and the game then calls `run_draw_chain` and `run_calc_chain` in its own draw-then-update order,
+  with its input read inside the update. See [docs/adr/0001](docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md).
+
+  The fake game's state is its memory and nothing else, so a chapter restored underneath it takes the
+  run back with it. It presses no buttons for anybody: a scenario says which window is in front,
+  presses keys, and runs frames, and reads back the game's own memory, the game's own record of a
+  spell card, and what orb put in the log.
+
+  **`pointdevice_run.rs`, one 完全無欠 run, in the order somebody playing meets it.** `Z` at the title
+  menu puts orb's question over it — `menu: Run is under the cursor, asking which mode` — and the
+  game's own cursor has not moved, the press having been held back. Answered, the press is handed over,
+  the shot type select takes it, and `resume: nothing was left of normal-reimu-a` says the file was
+  looked for. The stage begins and takes its first chapter at frame 248 — `STAGE_SETTLE_FRAMES` plus
+  the whole of `MUSIC_WAIT_FRAMES`, a laid-out game having no track for the snapshot to wait for — and
+  from there the count of lives is painted over: a quad covering the row the game counts them in, with
+  the word `DISABLE` over it — read off the screen as text, by baking the same string through the same
+  font and holding it against what the texture the quad went through was uploaded with.
+
+  **Which is how every one of these reads the menus.** The mode question: `モードを選ぶ` with its two
+  choices a line apart, 完全無欠モード in `SELECTED` and レガシーモード in `NORMAL` — which is what says
+  where the cursor is, since `menu_ui` draws it as a colour — the `▶` on that same line and to its left,
+  and under them the line saying what the choice means. The retry menu: the chapter it is offering by
+  the name the detector gave it, `MIDBOSS SPELL 1`, `RETRY 0` under it, and the three ways on a line
+  apart with the cursor on チャプターをやり直す.
+
+  Then a fight and its card, each a chapter of its own: `chapter 2 at frame 400 (script 400): a midboss
+  nonspell` and `chapter 3 at frame 500 (script 500): a midboss spellcard`, each written down as it
+  begins — `chapter 3 (MIDBOSS SPELL 1) at frame 500, 500 frame(s) of buttons`. A death on the card,
+  and `died in chapter 3` with the game frozen under the menu: ten frames later its own clock has not
+  moved and something is still being drawn over it. Answered チャプターをやり直す, **the whole `State`
+  read back out of the memory is the one read at the chapter, field for field**, `retry chapter 3
+  (retry 1)`, and `retry: attempt 2 at this spell card`.
+
+  **The attempt reaches the 完全無欠 ranking, and the screen shows it.** The run is given up two
+  chapters later, which is where orb walks the game through the screen that ranking is shown on with
+  nothing drawn — `score: the captures in memory cleared for the ranking about to be read`, `the
+  ranking is up`, `asked it to leave`, `taken through the ranking in 5 update(s)` — and going down is
+  what writes the file. So the scenario then opens that ranking the way anybody does: the title menu's
+  `Score`, orb's question over it (`どちらのスコアを見る`, which is not the question a run gets), and the
+  screen itself, whose row for that card reads **2** across from `CARD 3` — the game's own attempt
+  where the card started, and the one the retry was. Nothing on it says 1, which is what it would say
+  if the retry had not been counted or if the read that fills the record had lost what the session
+  counted. Cleared by that read and put back by orb, which is the mechanism rather than a coincidence.
+
+  **And the same run picked up again**, out of the file: the record of what a run pressed goes when the
+  run ends, and what the playback is fed is what `resume::load` read off the disk —
+  `resume: normal-reimu-a was left; asking where to start`, out of a file whose own line names the
+  chapter it holds. つづきから builds the stage again, seeds the generator where the file says
+  (`resume: the generator seeded 0x6a06`), plays **700 updates** of the run's own buttons in inside the
+  one frame that built it with nothing of it drawn, and lands with **`resume: the landing is the frame
+  that was written down, field for field`** — the generator, the count of numbers drawn, the player's
+  place, the score at 5250 and the run's numbers all agreeing. The record puts back the captures the
+  playback would otherwise have counted its own way through (`4096 byte(s) of captures put back`) and
+  counts one attempt for the landing itself: `resume: attempt 3 at this spell card`.
+
+  **`legacy_run.rs`, the same game answered the other way**, which is every one of those things orb has
+  to *not* do. レガシーモード chosen — `mode: normal, was pointdevice` — and then: no chapter over the
+  frames where the other run took three, nothing drawn over the count of lives, `resume: stage 1 of a
+  run orb is not keeping; nothing of it is written down`, and a death that costs a life with no menu
+  offered and the game still updating on the frame after — and no `DISABLE` anywhere on it. Nothing is
+  left to pick up. Out of lives, the run ends and goes through the same ranking screen, and that
+  screen's row for the card reads **1** and never 2 — the card's own start and nothing of orb's. Which
+  of the two files it lands in is the import hook's and stays `score.rs`'s own tests' to hold, since a
+  scenario cannot install one.
+
+  **What it found, in the code and not in itself:** `memtrack::regions` answered a laid-out game out of
+  a `#[cfg(test)]` branch, and `cfg(test)` is false in a crate compiled as a dependency of a test
+  binary. So the first run of the first scenario got the production heap walk with no heaps tracked —
+  a chapter covering `.data` and nothing else — and the clock of the attack a chapter began on did not
+  come back with the chapter, the fight's own block being outside it. It is a seam facade now,
+  `orb_api::mem::game_regions`, and a chapter over a laid-out game covers **3 regions of 2570748
+  bytes** where it covered one.
 - **Append-only log**, with `--log=quiet|normal|verbose`, and a crash line naming the
   faulting module and offset.
 - **One file to install.** `orb.exe` carries `orb.dll` inside itself and unpacks it
