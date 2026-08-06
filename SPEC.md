@@ -1996,7 +1996,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb/tests/fake/` | the 東方紅魔郷 that plays the game's part: its own memory, its own front end and stage, the display its window is on, and its own loop calling orb's |
-| `orb/tests/pacing/` | how a run's rate is judged: the ticks the game was handed its frames over at, and orb's own `frame:` line taken apart |
+| `orb/tests/pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
 | `orb/hook.rs` | trampoline and import-table hooks |
 | `orb/memtrack.rs` | import hooks recording the heaps and reservations the game takes from the OS |

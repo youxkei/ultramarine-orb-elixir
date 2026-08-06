@@ -804,8 +804,8 @@ Settled by measurement.
 
   **Nine compositor rates that were never sixty are sixty in every second now** — 70, 75, 90, 100, 110,
   144, 150, 165 and 200Hz against a 120Hz monitor, four hosts apiece, judged a second at a time within
-  half a frame. `orb/tests/pacing_rates.rs` is that table, and it was written the other way round before:
-  `assert_never_sixty`, nine rows of it.
+  half a frame. The `rates` section of `orb/tests/pacing.rs` is that table, and it was written the other
+  way round before: `assert_never_sixty`, nine rows of it.
 
   What the simulator cannot speak for is the other half of this desktop, which is why the run on the
   machine is still wanted — see *What the fixed stutter costs* in [TODO.md](TODO.md).
@@ -818,7 +818,8 @@ Settled by measurement.
   moved the simulator to 69–70 frames a second, the same direction and near the number — but the
   remaining gap is the compose time, which nothing reports, so the scenario asserts the direction and
   this table keeps the number.
-- **Sixty frames a second in every situation, as one table.** `orb/tests/pacing_holds.rs` is the claim the
+- **Sixty frames a second in every situation, as one table.** The `holds` section of
+  `orb/tests/pacing.rs` is the claim the
   pacing exists to make, in one place: eighteen rows over the four things that vary — the monitor's rate,
   the compositor's rate, how unevenly the compositor takes its time, and how unevenly the game's own frame
   takes its — one `#[test]` apiece so the harness runs them at once, six seconds for the table where a
@@ -957,7 +958,8 @@ Settled by measurement.
   misses never moved the allowance off its 2500µs start, where at 120Hz the same miss climbed it to 6249µs.
   A real load is nowhere near that branch — measured at 60, 120 and 144Hz, a quarter-second frame costs
   exactly one frame its blank and the frame after it lands, so nothing is charged there — and three loads
-  in a run leave the allowance exactly where it was, which `pacing_load.rs` now holds it to.
+  in a run leave the allowance exactly where it was, which the `load` section of `orb/tests/pacing.rs` now
+  holds it to.
 
   **What is left is a limit and not a defect**: the allowance cannot pass one refresh without showing the
   frame a refresh early, so a 240Hz display cannot cover a compositor wanting more than 3124µs and settles

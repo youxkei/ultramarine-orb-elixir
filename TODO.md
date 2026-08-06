@@ -430,8 +430,8 @@ every frame on a blank at an average of 1.2. That would be 60 frames a second on
 means five frames of every six shown for one refresh and one for two — judder by construction, but the
 game at its own speed and every frame on a blank rather than on a clock that lands anywhere.
 
-Nobody has a 50Hz desktop to want this on, which is why it is here and not done. `orb/tests/pacing_rates.rs`
-could reach it in a line.
+Nobody has a 50Hz desktop to want this on, which is why it is here and not done. The `rates` section of
+`orb/tests/pacing.rs` could reach it in a line.
 
 ## Move the rest of the suite onto the space
 
@@ -477,7 +477,8 @@ could write next and none of which is in the way of the two that exist:
 - **No boundary out of the midstage table.** Stage 1's one entry is script frame 4472 and its fake
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
   `chapter.rs`'s twenty-seven.
-- **One of the frame loop's four ways out.** The other three and the loop's order are `frame_loop.rs`;
+- **One of the frame loop's four ways out.** The other three and the loop's order are the `frame_loop`
+  section of `orb/tests/pacing.rs`;
   a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
   and nothing outside orb can empty them. See
   [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
@@ -498,23 +499,6 @@ judged by are the real game's to answer for.
 of every private page in the process, which is a question about the process and not about the
 game.
 
-## The frame loop's scenarios want to be one file
-
-Twelve files in `orb/tests` share `fake/mod.rs` and `pacing/mod.rs` — 1361 lines and 509 — and compile
-both into a binary apiece. The reason a file was a binary has gone: `in_its_own_process` spawns one per
-`#[test]`, so a scenario owns its process wherever it is written.
-
-What the split costs is not only the compiling. `dead_code` is worked out per binary, so both modules
-*need* `#![allow(dead_code)]` — and that allow hid four dead assertions through the whole of
-[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md)'s work. It also
-put six identical `the_run()` in six files, and had a scenario re-declare `A_SECOND = 60` where
-`frame::LOGIC_HZ` is the game's own rate.
-
-The plan, with what is decided and what it rules out, is
-[docs/adr/0003](docs/adr/0003-the-frame-loops-scenarios-are-one-file.md), which is accepted and not
-built. Nothing in it changes what is asserted — the count is 252 before and after — so a step that
-moves it is a step that can be checked.
-
 ## A 240Hz display leaves the compositor less room than it may want
 
 **Not a defect, and the reason it is here is that nothing says it is happening.** The allowance cannot
@@ -530,8 +514,9 @@ anyone plays at except the fastest, and outside it there.
 
 Measured, 240Hz with the compositor held at 3200µs over 20,000 frames: the allowance climbs to exactly
 3124µs and stops, no miss is charged to anything, and the rate settles at **48.00** for the rest of the
-run — every fifth frame taking an extra refresh. `pacing_converges.rs` asserts that shape, so a run
-reading 48 with the allowance *below* the ceiling would be a different fault and would be caught.
+run — every fifth frame taking an extra refresh. The `converges` section of `orb/tests/pacing.rs` asserts
+that shape, so a run reading 48 with the allowance *below* the ceiling would be a different fault and
+would be caught.
 
 What is left is the reporting. A run in this state looks, in the log, like a run whose compositor is
 merely slow: the allowance sits at a number and the misses are counted, with nothing to say the number is

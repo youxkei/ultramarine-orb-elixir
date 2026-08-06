@@ -27,7 +27,7 @@
 
 // Shared by every scenario in `tests/`, and each drives the part of a game it is about — so what one
 // file does not touch is not dead code, it is another file's. Nothing can see that: `dead_code` is
-// worked out per binary, and this module is compiled into one per scenario.
+// worked out per binary, and this module is compiled into one per file in `tests/`.
 #![allow(dead_code)]
 
 use std::cell::{Cell, RefCell};
@@ -43,7 +43,8 @@ use orb_core::game::th06::image::{
     Supervising, item, joy_state,
 };
 use orb_core::game::{Game, RunStart};
-use orb_sim::{Compose, Log, keys};
+use orb_core::profile;
+use orb_sim::{Clock, Compose, Log, keys};
 
 /// The game's window. Any handle: what it is for is that the host says it is the one in front, which
 /// is what makes a key down a key the game and orb both read.
@@ -213,8 +214,8 @@ impl Work {
     /// And one that now and then costs a quarter of a second, which is a stage load.
     ///
     /// `one_in` rather than a count, so a scenario says how many its length will see. What the load
-    /// must *not* do is buy the compositor anything — `pacing_load.rs` is that claim; this is the
-    /// other half of it, which is that the rate comes back.
+    /// must *not* do is buy the compositor anything — the `load` section of `pacing.rs` is that claim;
+    /// this is the other half of it, which is that the rate comes back.
     pub fn loading(us: i64, one_in: i64) -> Self {
         Self {
             spike_us: 250_000,
@@ -281,6 +282,20 @@ impl Display {
     /// go on its blanks and the loop paces the way a shipped run paces.
     pub fn ordinary() -> Self {
         Self::agreed(60)
+    }
+}
+
+/// The run a launch is started for: Normal, Reimu A, from stage one.
+///
+/// What a scenario that is not about a run declares, a launch having to be started for one: the game
+/// sits on its title menu and none of this is played.
+pub fn the_run() -> RunStart {
+    RunStart {
+        difficulty: 1,
+        character: 0,
+        shot_type: 0,
+        practice: false,
+        stage: 0,
     }
 }
 
@@ -550,6 +565,21 @@ impl Fake {
         fake
     }
 
+    /// And the same with orb's own account of the pacing being written where a scenario can read it
+    /// back, which is every scenario about the frame loop — see `tests/pacing.rs`.
+    ///
+    /// `work` is what the game's own frame costs, since that is the whole of what the pacing has to put a
+    /// wait around — see [`Work`]. The run is [`the_run`] and the game sits on its title menu throughout:
+    /// a stage being played is a load and a draw rather than another question about the cadence, which is
+    /// what `work` stands for.
+    pub fn attach_watching_the_pacing(display: Display, name: &str, work: Work) -> Box<Self> {
+        let game = Self::attach_to_display(display, name, the_run(), |config| {
+            config.pacing_log = true;
+        });
+        game.frame_takes(work);
+        game
+    }
+
     /// One frame of the game, as its own loop runs one, and what that frame answered.
     ///
     /// Where orb's own frame loop is on, that loop *is* the frame: the game's loop calls it and it runs
@@ -593,9 +623,29 @@ impl Fake {
         work.usual_us
     }
 
-    /// The tick each frame so far was handed over at, which is what a rate is read off.
-    pub fn handovers(&self) -> Vec<i64> {
-        self.handovers.borrow().clone()
+    /// When each frame so far was handed over, in microseconds, which is what a rate is read off.
+    ///
+    /// Microseconds rather than the counter's own ticks, because what reads these is arithmetic over
+    /// values and a tick is a fact about the host they were counted on.
+    pub fn handovers_us(&self) -> Vec<i64> {
+        self.handovers
+            .borrow()
+            .iter()
+            .map(|tick| Clock::micros_for_ticks(*tick))
+            .collect()
+    }
+
+    /// How far apart the blanks of the compositor this scenario declared are, in microseconds.
+    ///
+    /// # Panics
+    /// On a display declared without a compositor, there being no blanks to be apart.
+    pub fn refresh_period_us(&self) -> i64 {
+        let period = self
+            .sim()
+            .display()
+            .compositor_period()
+            .expect("a display this scenario declared a compositor for");
+        Clock::micros_for_ticks(period)
     }
 
     /// What the loop running this game has asked of it since the last [`forget_asked`](Self::forget_asked),
@@ -633,6 +683,37 @@ impl Fake {
             self.frame();
         }
         panic!("{what} did not happen in {limit} frame(s)");
+    }
+
+    /// Runs frames until orb has written one more line holding `what`.
+    ///
+    /// What a scenario does instead of asking the pacing for a number: the `Pacing` a run is paced by is
+    /// the frame loop's own and nothing outside orb holds it, so the line is waited for — a reporting
+    /// period at the most, and every frame of the waiting is an ordinary frame of the run.
+    ///
+    /// # Panics
+    /// After a reporting period, with the whole log: a scenario waiting for a line orb never wrote is
+    /// about to assert on a number that was never said.
+    pub fn frames_until_the_log_holds_another(&self, what: &str) {
+        let holding = || {
+            self.log()
+                .lines()
+                .iter()
+                .filter(|line| line.contains(what))
+                .count()
+        };
+        let before = holding();
+        for _ in 0..=profile::INTERVAL {
+            self.frame();
+            if holding() > before {
+                return;
+            }
+        }
+        panic!(
+            "orb wrote no {what:?} line in {} frames:\n  {}",
+            profile::INTERVAL,
+            self.log().lines().join("\n  ")
+        );
     }
 
     /// Presses a key for one frame and lets it go, which is what a press is: an edge.

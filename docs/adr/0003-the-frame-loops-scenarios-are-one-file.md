@@ -1,8 +1,11 @@
 # 3. The frame loop's scenarios are one file, and what judges a rate is functions in it
 
-**Status:** accepted, not built. The plan at the end is what is left, and until it is done the frame
-loop's scenarios are twelve files in `orb/tests` sharing two modules, and `pacing/mod.rs` is a module
-that also starts launches and runs frames.
+**Status:** accepted and built. `orb/tests/pacing.rs` is 2249 lines: the functions that judge a rate at
+its top level, and under them twelve sections holding the 46 scenarios about orb's own frame loop. The
+ten `pacing_*.rs`, `frame_loop.rs`, `log_deferral.rs` and `orb/tests/pacing/mod.rs` are gone; `Fake` has
+the launch, the hand-overs, the refresh period and the wait for a line that those scenarios used to reach
+the host for; and `frame::LOGIC_HZ` is `pub`. What the built shape does differently from the decision
+below is at the end.
 
 It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which moved those
 scenarios into `orb/tests` and left them in the shape the harness they replaced had: a file apiece.
@@ -27,9 +30,9 @@ process could only ever have paced one display."
 of them. And because `dead_code` is worked out per binary, both modules *need*
 `#![allow(dead_code)]` — what one file does not use is another file's. That allow hid four dead
 assertions: `assert_never_sixty`, `assert_settles_at_sixty`, `assert_holds_sixty` and
-`assert_never_settles_at_sixty`, 77 lines of them, dead in the harness before the move and dead after
-it, and they were nearly committed as part of 0002. A module nothing can see the dead ends of is a
-module that keeps them.
+`assert_never_settles_at_sixty`, 77 lines of them, dead in the harness for the whole of 0002's work and
+caught by hand as it landed rather than by anything that could say so. A module nothing can see the dead
+ends of is a module that keeps them.
 
 The same shape put six identical copies of `the_run()` in six files — Normal, Reimu A, stage one,
 five fields each — and had `pacing/mod.rs` re-declare `A_SECOND = 60`, which is `frame::LOGIC_HZ`
@@ -69,7 +72,7 @@ begin a run is a second place that starts a game.
 
 ## Consequences
 
-**What it costs.** One file of about 1900 lines, and `cargo test --test pacing_blanks` becomes a filter
+**What it costs.** One file of 2249 lines, and `cargo test --test pacing_blanks` becomes a filter
 on a test name instead. The names gain their section — `blanks::a_120hz_display_gets_two_blanks…` —
 which `in_its_own_process` hands to `--exact` unchanged, so nothing about the process-per-scenario
 changes.
@@ -92,20 +95,26 @@ as the *judgement* reaching around the game; closing it was tried and is not wan
   what counts as sixty and how orb's log line is spelled. Sixty is the game's; the tolerance around it
   is not, and neither is the log's format.
 
-## Plan
+**What the built shape does differently.** Six things, each found in the doing. Nothing here changed
+what is asserted: the count is 252 before and after, 46 of them in the one binary.
 
-1. The judgement made pure where it stands: every function taking values, `orb_sim` and `crate::fake`
-   out of its imports, `launched`/`launched_with`/`the_run` and `until_reported` out of it. The
-   corresponding additions to `Fake`, and `LOGIC_HZ` made `pub`.
-2. `orb/tests/pacing.rs` with those functions at its top level and one section moved in, compiling
-   before the next.
-3. The rest of the sections, one at a time and compiling between: `blanks`, `by_clock`, `load`,
-   `disagrees`, `budget`, `fractional`, `compose`, `converges`, `rates`, `holds`, then `frame_loop`
-   and `log_deferral`.
-4. The twelve files and the module directory deleted.
-5. `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. The count is 252 and
-   must not move: nothing here changes what is asserted, only where it is written and what it is
-   handed.
-
-Step 1 is where the four dead assertions go, since they are dead either way and a module without the
-allow will not compile with them in it.
+- **There were no dead assertions left to remove.** The four are in 0002's diff as deletions — they were
+  found by hand while that work landed, so `orb/tests/pacing/mod.rs` never held them. What the allow cost
+  is still what the context says: nothing in twelve binaries could have said they were dead.
+- **`launched` and `launched_with` are one function.** `Fake::attach_watching_the_pacing(display, name,
+  work)` takes the `Work` a scenario declares, and a section whose frames all cost the same says
+  `Work::flat(WORK_US)` at the launch. Two names for one launch were two names for `Work::flat`.
+- **The judgement reads the log's lines rather than the game.** `reports`, `reported`, `allowance_us` and
+  `last_said` take `&[String]`; the three assertions take the microseconds, the seed and what orb last
+  said as a `&str`. Which is what "values and nothing else" came to at the call sites.
+- **The hand-overs come back in microseconds**, so `turns` is subtraction and `refreshes` is given the
+  period as a number. `Clock::micros_for_ticks` is inside `Fake::handovers_us` and
+  `Fake::refresh_period_us` now, and the judging imports nothing of `orb_sim` at all.
+- **One spelling of the report line, and it is on the judging side.** `until_reported` became
+  `Fake::frames_until_the_log_holds_another(A_REPORT)`: the fake game runs frames until one more line
+  holds what it was handed, and what a report line is known by stays a constant beside `Reported`.
+  `"us apart"` is `Pacing::report`'s alone, so that filter wants one needle where it used to want two.
+- **`fake::the_run` replaced two of the copies and not six.** The other five are in the files this
+  decision does not touch — `legacy_run`, `mode_question`, `mode_on_the_pad`, `the_run_read_back` and
+  `pointdevice_run` — each of which starts a launch of its own. The duplication the context counts is two
+  down rather than gone.

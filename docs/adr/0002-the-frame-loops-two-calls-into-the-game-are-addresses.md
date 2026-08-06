@@ -1,10 +1,15 @@
 # 2. The frame loop's two calls into the game are addresses it hands over
 
 **Status:** accepted and built. `Game::frame_calls` answers with the two, `render` calls through them,
-and the frame loop's scenarios are eleven files in `orb/tests` that a laid-out 紅魔郷 drives through
-`render` itself: the nine `pacing_*` and `log_deferral` moved out of `orb-sim/tests`, and `frame_loop.rs`
-over the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
+and the frame loop's scenarios are in `orb/tests`, where a laid-out 紅魔郷 drives them through `render`
+itself: the `pacing_*` and `log_deferral` moved out of `orb-sim/tests`, and `frame_loop.rs` over the
+loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
 does differently from the plan below is at the end of *Consequences*.
+
+Where those scenarios are written is no longer a file apiece:
+[0003](0003-the-frame-loops-scenarios-are-one-file.md) put them in `orb/tests/pacing.rs`, a section each,
+with what judges a rate as functions in it. Nothing of what they assert changed with them, so the file
+names below are the shape this decision left and not the tree's.
 
 It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): that a game laid out by
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and

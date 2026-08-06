@@ -26,7 +26,7 @@ use crate::{log, pacing};
 use orb_api::{Hwnd, clock, display};
 
 /// The rate the game's logic runs at, which is what its timers assume.
-const LOGIC_HZ: u32 = 60;
+pub const LOGIC_HZ: u32 = 60;
 /// Spinning is only worth it for the last stretch; before that, give the CPU up so
 /// the sound and the rest of the system keep their share. Only the clock path spins;
 /// waiting for a blank does not need it.
