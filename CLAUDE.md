@@ -27,7 +27,14 @@ enough to fit some other change.
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
 | `DONE.md` | what works, and how it was checked |
 | `TODO.md` | what is left, with what is already known about each |
-| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. Context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
+| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
+
+The status is the first thing because it says which document this is: `accepted, not built` is a plan
+and the code does not look like it yet, `accepted and built` is a description of the tree. It says
+where to read the rest of the story too — what the thing that got built stands on, and which later
+decision overturned something this one said, so the reasoning can be followed from either end. A
+decision nobody took is not a file here: an alternative that was weighed and rejected is recorded
+inside the decision that rejected it, beside what was chosen instead.
 
 Reasons an alternative was rejected go in a comment beside the code that would otherwise tempt
 someone back to it, not into `SPEC.md`.

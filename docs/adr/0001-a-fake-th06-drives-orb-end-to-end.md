@@ -1,8 +1,9 @@
 # 1. A fake 紅魔郷 drives orb, and a test only sends input
 
-**Status:** accepted and built. Two scenarios stand on it — `orb/tests/pointdevice_run.rs` and
-`orb/tests/legacy_run.rs` — and *Where it landed* at the end says how the shape differs from the plan
-this was written with, and what building it found.
+**Status:** accepted and built. Five scenario files stand on it — a whole run in each mode, the question
+that chooses between them on the keyboard and on a pad, and a `State` read at frames a game was played
+to — and *Where it landed* at the end says how the shape differs from the plan this was written with,
+and what building it found.
 
 **One thing it says is wrong**, and it is corrected there rather than removed: this claimed `render`
 was the one thing a game laid out by hand could not drive.
