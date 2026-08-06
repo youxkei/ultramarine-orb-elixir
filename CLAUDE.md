@@ -6,57 +6,32 @@ are called.
 
 ## Commit messages
 
-Subject lines start lowercase with a bare verb. No type prefix, and not a noun phrase naming
-the feature. The verb is what the code does once the diff is applied, not what the commit
-does to the repository: the line is the predicate of an implied *"the code now"*, so `take a
-key held through an alt-tab as already held` rather than `add tests for the mode menu`.
-Somebody who never saw the diff should learn from the line what orb does differently now, in the
-words the code uses for those things, without abbreviating them and without a metaphor standing in
-for one: `hand Th06::present and Th06::play_sounds over as addresses` rather than `hand the frame
-loop's two calls over`.
+**The subject of the subject line is the commit**, and the line says what that commit does to this
+repository: the head verb is the editing action, lowercase and imperative, with no type prefix and no
+noun phrase naming the feature.
 
-**A line names everything the code now does differently, and not the largest of them.** Where the diff
-does three things the line says three, joined with `and`: `count the cadence in the compositor's
-refresh period, flush for a window that is behind, and hand Th06::present and Th06::play_sounds over as
-addresses`. **There is no limit on the number of clauses and none on the length** — the log already runs
-past a hundred characters, and `take the mode from a menu over the game's title menu and the settings
-from a dialog, not from orb.yaml` is one line. Picking the most consequential change and leaving the
-rest to the body fails the condition above: a reader of that line comes away not knowing the others
-happened, which is exactly what the line exists to prevent.
+**In the words the code uses for the things it touches**, unabbreviated, with no metaphor standing in
+for a name and no periphrasis where the code has a name. This is the rule that decides whether the line
+is worth reading and the one easiest to lose. Before committing, read the line back as though you had
+not seen the diff, and for every noun phrase in it ask whether the code has a name for that thing; where
+it does, a paraphrase in its place is a defect. Having seen the diff makes you the worst judge of this,
+so it is a deliberate pass and not an impression.
 
-**The subject is a thing and never somebody** — the implied `the code`, or a test or a file where the
-diff is only those — so the verb is one a thing does. A thing performs no speech act: nothing in orb
-says, tells, asks, answers, reports, refuses, offers, claims, requires or plans anything, every one of
-which wants somebody doing the speaking and somebody hearing it. Name what it does instead:
+**Name the files and the items rather than the area they are in.** An abstract gesture at what was
+touched costs the reader the diff, the same way a paraphrase does.
 
-- `draw three lines under 完全無欠モード in ですます`, not `say what a mode does to a run`
-- `put the question up before the screen has moved`, not `ask before the screen has moved`
-- `fill the game's joystick read from the last sample a thread of orb's own took`, not `answer the
-  game's joystick read`
-- `hold a tuning.txt line's stage to being a stage`, not `refuse` one
-- `take a key that moved to the command line as any other unknown key`, not `report` it
-
-A frame does not say where its time went either — the `--pacing` line breaks it down — and つづきから
-is offered *in* no launch after a `--clear` run rather than offered *to* one, a launch being nobody to
-offer anything to. **No verb is an exception for being ordinary in computing**: a menu does not ask, a
-function does not answer, a parser does not refuse.
-
-A commit whose diff is only tests or only documents takes the same form about them — what the test
-now asserts, and what a file now holds — and **there the subject is written out**, since the implied
-one is `the code` and these are not it. A file is not somebody either, so the verb is one a file can
-take: it does not say, plan or require anything, it *has* a rule, it *lists* an entry, it *is* a plan.
-`CLAUDE.md now has a rule that every docs/adr file starts with a status line`, `TODO.md now lists
-window::write_beside instead of retry_ui`, `docs/adr/0002 is the plan for Game to hand Th06::present
-and Th06::play_sounds over as addresses`.
-
-A diff that is code *and* tests is the code's, however much of it is the tests: the implied subject is
-`the code`, and a scenario is how the change is known rather than something the program does
-differently. What the scenarios now cover goes in the body.
+**A line names everything the commit does, and not the largest of them**, joined with `and`. **There is
+no limit on the number of clauses and none on the length** — the log already runs past a hundred
+characters. Picking the most consequential change and leaving the rest to the body is what this exists
+to stop: a reader of that line comes away not knowing the others happened. Where a diff really is
+unrelated changes, separate commits are better than one long line — but a line that has to be short is
+never the reason to leave a change unnamed.
 
 The body is why the change was made, concretely: the problem it solves, named and with
 whatever numbers or addresses make it real, and why this way rather than the obvious
 alternative. Not a list of what changed, which the diff carries, and not a summary abstract
-enough to fit some other change.
+enough to fit some other change. What a commit's scenarios now cover goes here rather than in the
+subject, unless the scenarios are the whole of the diff.
 
 ## The documents
 
