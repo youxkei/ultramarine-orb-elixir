@@ -101,6 +101,6 @@ half an hour by letting nothing hit the player, and the rest are for looking int
 
 | | |
 | --- | --- |
-| [SPEC.md](SPEC.md) | what orb does and the mechanisms it uses, with the measurements behind them; configuration, tuning, and how the crates fit together |
-| [DONE.md](DONE.md) | what works, and how it was checked |
-| [TODO.md](TODO.md) | what is left |
+| [SPEC.md](SPEC.md) | what orb does and the mechanisms it uses in their final form; configuration, tuning, and how the crates fit together |
+| [TODO.md](TODO.md) | what is left, and what is built and still waiting on a run against the real game |
+| [docs/adr/](docs/adr/) | one file per decision about how the code is shaped, in the order they were taken, each opening with a status that says whether the tree looks like it yet |

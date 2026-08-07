@@ -2251,3 +2251,38 @@ mod log_deferral {
         });
     }
 }
+
+// ── What the compositor's own counters are worth ─────────────────────────────────────────────────
+//
+// A stub section: `#[ignore]`d, and `todo!()` where the assertion goes. What it holds is the
+// measurement, taken on this machine, and the point of writing it as a scenario is that orb reports one
+// of these numbers and reporting it has to keep saying nothing.
+//
+// To un-stub it, `orb-sim`'s display needs `DwmGetCompositionTimingInfo`'s whole struct rather than the
+// period and the count orb reads today: a host that answers a plausible `cFramesLate` while frames are
+// plainly missing is what says nothing is judged on it.
+mod counters {
+    /// `cFramesLate` is not evidence, and neither is the family around it.
+    ///
+    /// Measured through every run of the pacing work on this machine: the compositor's own count of frames
+    /// it could not show at the refresh they were aimed at read **`0 shown late`** throughout, *including*
+    /// the runs where **57 frames of 600 missed their blank**. It is still reported, as a number whose
+    /// meaning is not what its name says.
+    ///
+    /// `qpcFrameDisplayed`, `cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed`
+    /// are worse: all zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved **1211**
+    /// over a period. So the call works and that family is not populated for the desktop query, which is
+    /// the only one `DwmGetCompositionTimingInfo` accepts.
+    ///
+    /// And `cRefresh` advanced by exactly one per state in `scripts/background-flush-probe.c` whether 601
+    /// frames were handed over or none — so it is neither refreshes nor our compositions, and the first
+    /// version of that probe read it twice per state and got "+2" out of its own calls.
+    #[test]
+    #[ignore = "orb-sim's display answers the period and the count, not the whole timing struct"]
+    fn nothing_is_judged_on_the_compositors_own_count_of_late_frames() {
+        todo!(
+            "answer cFramesLate as zero while frames miss their blanks, and assert orb reports it and \
+             decides nothing by it"
+        )
+    }
+}

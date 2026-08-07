@@ -39,8 +39,7 @@ subject, unless the scenarios are the whole of the diff.
 | --- | --- |
 | `README.md` | what orb is, how to build and install it, and where to read further |
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
-| `DONE.md` | what works, and how it was checked |
-| `TODO.md` | what is left, with what is already known about each |
+| `TODO.md` | what is left, with what is already known about each — and what is built and still waiting on a run against the real game |
 | `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
 
 The status is the first thing because a reader knows from it which document this is: `accepted, not
@@ -64,5 +63,21 @@ someone back to it, not into `SPEC.md`.
 Nothing machine-specific in anything committed. Scripts take what varies as an argument or
 from the environment, and fail with a usage line when given neither.
 
-Claims about the game's behaviour are established by measurement and the measurement is kept,
-in the log or in a test. A plausible explanation is not a finding.
+Claims about the game's behaviour are established by measurement. A plausible explanation is not a
+finding. **Every measurement is kept beside the thing it is about, and what it did says which thing
+that is:**
+
+- **It decided how the code is shaped** — the file in `docs/adr/` holding that decision, beside the
+  reasoning it settled.
+- **It is why a constant is the number it is** — beside that constant, with how it was found, so that
+  whoever changes the number reads what it was measured against first.
+- **It confirmed the code works on the real game** — a scenario asserting the same thing, which is then
+  the record. A confirmation written as a scenario is one anybody can repeat on demand, so the scenario
+  is the work and the write-up comes free.
+- **It is ahead of all three** — `TODO.md`, named and carried. A measurement still waiting for a
+  constant or a scenario to stand beside belongs there, and so does everything built that still waits
+  on a run against the real game.
+
+**A claim beside the thing it is about moves when that thing moves**, which is what the list above is
+for: the measurement goes where the reader of that thing is already standing, and a document collecting
+measurements of its own gives that up.
