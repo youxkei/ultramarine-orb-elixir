@@ -757,7 +757,7 @@ looks broken, and what is lost by not asking is the mode orb is in already.
 ```
 prepare_frame          the game's full-output viewport, and its background clear
 DwmFlush()             returns just after a blank
-sleep                  until (blank + one frame) − (our drawing + the compositor's)
+wait                   until (blank + one frame) − (our drawing + the compositor's)
 update(chain)          the game's logic; reads the keyboard as its first act
 draw(chain)            between BeginScene and EndScene
 Present()              handed over, not waited on
@@ -936,8 +936,17 @@ for the thirty frames the estimate took to decay back — after every stage load
 the log saying so, since the buckets take `max(0)` of the overshoot and a frame a refresh early read
 as one that landed exactly where it asked to. Those are counted now.
 
-`timeBeginPeriod(1)` is asked for at startup and released on detach. Without it `Sleep` is
-only accurate to the system tick, some fifteen milliseconds.
+**What the wait to a frame's own deadline is.** A waitable timer created with
+`CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, made on first use from the frame hook and kept for the run,
+with the last `SPIN_US = 1500µs` spun rather than waited out. Nothing is asked of the system timer
+resolution: the timer is not tied to the system tick, and `SPIN_US` is what the wait's own overshoot
+is measured at.
+
+A host that cannot create it is a host orb does not run on, and there is no second wait behind it. The
+launcher asks for one before it starts anything, and where it cannot it says so in a modal and prints
+a line and starts nothing; the DLL asks the same on its first wait, for the case the launcher was not
+the way in, and says so and ends the process. See
+[docs/adr/0006](docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
 
 **What a late frame says.** `--pacing` writes a line per frame whose gap was not the cadence,
 and the line accounts for the whole gap in spans that add up to it:
@@ -948,7 +957,7 @@ loop            the game's own frame loop, between orb returning and being calle
 clear           prepare_frame
 pace            the frame's turn worked out, settle's display query inside it
 flush           DwmFlush, and how far its anchor sits after the compositor's own qpcVBlank
-sleep           the rest of the turn
+wait            the rest of the turn
 update sound draw present
 ```
 
@@ -1839,11 +1848,16 @@ restoring as it goes.
 
 ## The seam between orb and its host
 
-Some of what orb asks of Windows goes through `orb-api`. Each area of it — the game's memory, the
-clock, which keys are down, which thread is running, the log file, the modules the process has loaded —
-is a facade of
-free functions with two answers behind it: the real Win32 call, under `#[cfg(windows)]`, and whatever
+Some of what orb gets from the host it runs on goes through `orb-api`. Each area of it — the game's
+memory, the clock, which keys are down, which thread is running, the log file, the modules the process
+has loaded — is a facade of
+free functions with two answers behind it: the real one, under `#[cfg(windows)]`, and whatever
 `Win` implementation a test has installed.
+
+Mostly Win32 calls, but that is not what decides membership and one member is not a call at all: the
+`pause` that finishes a spin is an instruction, and it is here because how long a spin takes is a thing
+the host does to orb and a thing no test could otherwise decide. See
+[docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
 
 What is behind the seam is what a test could not otherwise get at. The game's memory is behind it so
 that `Th06` can be read with no game running. The log's deferral turns on which thread is asking and
@@ -1853,7 +1867,10 @@ reads two numbers they answer — the compositor's own spacing, which the cadenc
 monitor's rate, which says what the desktop is like — and the case that matters is the two disagreeing,
 which otherwise wants two monitors of different rates and a window on one of them. And the keyboard is behind it because orb's own questions read it
 themselves, the game being frozen on the frames they are up on: which mode a run is, and so whether it
-has chapters at all, is decided by keys nobody could press in a test.
+has chapters at all, is decided by keys nobody could press in a test. The modal and the `ExitProcess`
+that turn away a host orb cannot pace on are behind it for the same reason at its plainest: a scenario
+that raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
+exited would take the harness's child with it.
 
 A Win32 call with nothing like that behind it stays where it is: orb ships for Windows and only for
 Windows, so being able to build without a call buys nothing on its own — what buys something is being
@@ -1862,9 +1879,12 @@ able to *decide* what the call answers.
 Two things the simulated host is deliberately as unhelpful about as the real one, because a kinder
 simulation would let a test come to rely on something false: `cRefresh` counts compositions rather
 than refreshes of the display, and `cFramesLate` reads zero through a broken cadence as much as an
-even one. And one thing it must model that looks like an implementation detail and is not: reading the
-counter costs time. `sleep_until` spins the last stretch to its deadline, and a spin is a loop whose
-only host call is that read — a clock that moved only on a wait would never arrive.
+even one. And one thing it must model that looks like an implementation detail and is not: **spinning
+costs time.** `wait_until` spins the last stretch to its deadline, so a clock that moved only on a wait
+would never arrive. Both halves of that loop are therefore behind the seam and both are charged for — the
+counter read at a tick, and the `pause` at `PAUSE_TICKS`, which is the one member of the seam that is not
+a call into Windows at all. What that number is and why it is not a faithful `pause` is
+[docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
 
 **The simulated host is not a metronome, and that is deliberate.** Windows is not one from an
 application's side: it wakes a thread when it gets round to it, and its compositor now and then takes
@@ -2063,7 +2083,9 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
-| `orb-api/window.rs` | which window is in front, and the sizes the host decides: what the monitor measures, the frame it puts round a client area, and the client a created window came out with |
+| `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — and the modal orb puts up itself |
+| `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, and the wait to a frame's own deadline |
+| `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |

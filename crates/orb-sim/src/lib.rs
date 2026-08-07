@@ -91,6 +91,12 @@ pub struct Sim {
     /// Which modules are loaded. Kept apart from `procs` because orb tells a module that is not
     /// there from one that is there without the symbol, and says so in the log.
     modules: Mutex<Vec<String>>,
+    /// What orb has put up as a modal, title and text, in the order it did.
+    dialogs: Mutex<Vec<(String, String)>>,
+    /// The code orb asked the host to end the process with, where it has. Written down instead of
+    /// happening: a suite that really exited would take the harness's child with it, so the giving
+    /// up is a thing a scenario reads back rather than a thing it survives.
+    exited: Mutex<Option<u32>>,
 }
 
 impl Default for Sim {
@@ -119,6 +125,8 @@ impl Sim {
             host_exe: Mutex::new(host_exe()),
             procs: Mutex::new(HashMap::new()),
             modules: Mutex::new(Vec::new()),
+            dialogs: Mutex::new(Vec::new()),
+            exited: Mutex::new(None),
         }
     }
 
@@ -170,6 +178,16 @@ impl Sim {
     /// The threads orb has said the game created.
     pub fn threads(&self) -> Vec<u32> {
         self.threads.lock().unwrap().clone()
+    }
+
+    /// The modals orb has put up, as title and text.
+    pub fn dialogs(&self) -> Vec<(String, String)> {
+        self.dialogs.lock().unwrap().clone()
+    }
+
+    /// The code orb asked the host to end the process with, and `None` where it has not asked.
+    pub fn exited(&self) -> Option<u32> {
+        *self.exited.lock().unwrap()
     }
 
     /// Puts a compositor there timing `hz`, with the monitor reporting the same, and the window in
@@ -282,23 +300,23 @@ impl Win for Sim {
         self.clock.frequency()
     }
 
-    fn ticks(&self) -> u32 {
-        self.clock.ticks()
+    fn wait(&self, ticks: i64) -> bool {
+        self.clock.wait(ticks)
     }
 
-    fn sleep_millis(&self, millis: u32) {
-        // Exactly as long as it was asked for. A real `Sleep` overshoots by whatever the timer
-        // resolution is, and modelling that would make every assertion about a wait a statement
-        // about the overshoot instead of about the pacing's arithmetic.
-        self.clock.advance_micros(i64::from(millis) * 1_000);
+    fn spin_once(&self) {
+        self.clock.spin_once();
     }
 
-    fn begin_period(&self, millis: u32) -> u32 {
-        self.display.begin_period(millis)
+    fn message_box(&self, title: &str, text: &str) {
+        self.dialogs
+            .lock()
+            .unwrap()
+            .push((title.to_string(), text.to_string()));
     }
 
-    fn end_period(&self, millis: u32) {
-        self.display.end_period(millis);
+    fn exit_process(&self, code: u32) {
+        *self.exited.lock().unwrap() = Some(code);
     }
 
     fn monitor_refresh(&self, window: Hwnd) -> Option<u32> {

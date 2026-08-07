@@ -490,10 +490,7 @@ impl FrameCall {
 pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_void) -> BOOL {
     match reason {
         DLL_PROCESS_ATTACH => attach(),
-        DLL_PROCESS_DETACH => {
-            frame::release();
-            log::close();
-        }
+        DLL_PROCESS_DETACH => log::close(),
         _ => {}
     }
     TRUE

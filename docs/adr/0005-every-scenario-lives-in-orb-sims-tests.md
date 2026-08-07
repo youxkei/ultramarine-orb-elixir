@@ -26,7 +26,7 @@ and carry the new ones.
 `tests/` is cargo's word for an integration test and says nothing beyond that, so which level a file
 holds was in neither its directory nor its name. `orb/tests/th07.rs` reads as a unit test of
 `game::th07` and is a whole launch. `orb/tests/pacing.rs` — 46 scenarios over orb's own frame loop — and
-`orb-sim/tests/pacing_no_timer.rs` — one `Pacing::configure` against a host refusing a millisecond timer
+`orb-sim/tests/pacing_no_timer.rs` — a wait or two against a host that cannot make the timer they are on
 — share a word and differ by a level. The only place the distinction was written down at all is
 `log_writes.rs`'s own header, in prose:
 

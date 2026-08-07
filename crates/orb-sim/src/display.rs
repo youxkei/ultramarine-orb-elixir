@@ -136,11 +136,6 @@ pub struct Display {
     desktop_hz: Mutex<Option<u32>>,
     compositor: Mutex<Option<Compositor>>,
     foreground: Mutex<Hwnd>,
-    /// The timer resolution asked for through `timeBeginPeriod` and not yet given back.
-    period_held: Mutex<Option<u32>>,
-    /// What `timeBeginPeriod` answers with. Zero is granted; anything else is the host refusing,
-    /// which orb carries on from with a line saying its waits will be coarse.
-    period_answer: Mutex<u32>,
     /// Whether the wake delay is modelled at all, and the stream of draws it comes from.
     wake: Mutex<(bool, Noise)>,
     /// Whether `cFramesLate` climbs with the compositions instead of reading zero — see
@@ -163,8 +158,6 @@ impl Display {
             desktop_hz: Mutex::new(None),
             compositor: Mutex::new(None),
             foreground: Mutex::new(Hwnd::NULL),
-            period_held: Mutex::new(None),
-            period_answer: Mutex::new(0),
             wake: Mutex::new((true, Noise::seeded(seed))),
             every_composition_late: Mutex::new(false),
         }
@@ -321,32 +314,6 @@ impl Display {
             None => now,
         };
         Some((compositor.blank_at_or_after(composed) + self.wake_delay()).max(now))
-    }
-
-    /// Makes `timeBeginPeriod` refuse with `error`, for the run where every wait is coarse to the
-    /// system's tick — which is fifteen milliseconds, nearly two refreshes at 120Hz, and the size of
-    /// the stutter that was measured whenever the pacing fell back to the clock.
-    pub fn refuse_period(&self, error: u32) {
-        *self.period_answer.lock().unwrap() = error;
-    }
-
-    pub fn begin_period(&self, millis: u32) -> u32 {
-        let answer = *self.period_answer.lock().unwrap();
-        if answer == 0 {
-            *self.period_held.lock().unwrap() = Some(millis);
-        }
-        answer
-    }
-
-    pub fn end_period(&self, _millis: u32) {
-        *self.period_held.lock().unwrap() = None;
-    }
-
-    /// The timer resolution orb asked for and has not given back, for a test that wants to know it
-    /// asked at all — without it every wait is coarse to the system's tick, which is the size of
-    /// the stutter that was measured.
-    pub fn period_held(&self) -> Option<u32> {
-        *self.period_held.lock().unwrap()
     }
 }
 

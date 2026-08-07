@@ -23,10 +23,21 @@ use orb_core::frame;
 /// Measured on this machine, sixteen cores, and it is why this exists. With the three tables below as three
 /// tests the file was **539.6 seconds of work in 126 seconds** of wall clock — the parallelism working —
 /// but one of them, forty rate-and-compose-time pairs in one process, took **121.6 seconds by itself**:
-/// 96% of that 126, and a floor no number of cores goes below. Split into a test per rate it is **591.7
-/// seconds of work in 54.8 seconds**, and the floor is now the 36.9 seconds of the rate whose ceiling
-/// admits the most compose times. Below about 37 seconds nothing but less work will help — that is 591.7
-/// over sixteen — so the rows are not split further than the reading of a failure wants.
+/// 96% of that 126, and a floor no number of cores goes below. Split into a test per rate it was **591.7
+/// seconds of work in 54.8 seconds**, and the floor became the 36.9 seconds of the rate whose ceiling
+/// admits the most compose times. Below that nothing but less work will help — the work over the cores —
+/// so the rows are not split further than the reading of a failure wants.
+///
+/// The file is **17.5 seconds** now, from the same split and the same rows, and the split is no longer
+/// what decides it. Two things moved after that measurement: the wait to a frame's deadline became exact,
+/// which took the file to 76.6 seconds because the spin then ran the whole of `SPIN_US` rather than about
+/// two thirds of it — and then the spin's `pause` went behind the seam and was charged a microsecond a
+/// turn, which took a hundredfold off its iterations. See
+/// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) and
+/// [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
+///
+/// So the spin is no longer nearly all of what this file spends its time on, and what splitting the rows
+/// further would buy is a measurement nobody has taken since.
 ///
 /// The invocation is the table, which is what the sections below want anyway: somebody with a stutter reads
 /// these to find out whether their own desktop is one of the ones that breaks, and a row that fails should
@@ -598,7 +609,7 @@ mod blanks {
 /// A display nothing will say the rate of, which is the one case paced by the clock.
 ///
 /// No compositor and no reported rate. The frames then have no blank to be put on, so the cadence is
-/// kept by sleeping to a grid — which is the path `sleep_until` and `wait_by_clock` exist for and
+/// kept by waiting to a grid — which is the path `wait_until` and `wait_by_clock` exist for and
 /// which the blank path never reaches.
 mod by_clock {
     use super::*;

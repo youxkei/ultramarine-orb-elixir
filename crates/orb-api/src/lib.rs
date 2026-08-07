@@ -1,10 +1,16 @@
 //! The seam between orb and the host it runs on.
 //!
-//! Everything orb asks of Windows goes through one of the modules here. Each of them is a
-//! facade of free functions with two answers behind it: the real Win32 call, under
+//! What orb gets from the host goes through one of the modules here. Each of them is a
+//! facade of free functions with two answers behind it: the real one, under
 //! `#[cfg(windows)]`, and whatever [`Win`] implementation a test has installed. Nothing in
 //! any signature is a `windows-sys` type, which is what lets the crates over this seam —
 //! `orb-core`, `orb-sim` — be built and tested on a host that is not Windows.
+//!
+//! **The host and not Windows**, which is a distinction with one member: [`Win::spin_once`] is the
+//! `pause` instruction and no call at all. What decides whether something belongs here is whether it
+//! is the host doing something to orb that no test could otherwise decide — see
+//! [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md) — and not whether
+//! there is a Win32 function on the other side of it.
 //!
 //! The call sites keep their shape. `mem::read(address)` is what it was before the seam went
 //! in, and the alternative — making every caller carry a `&dyn Win` — would have rewritten
@@ -21,6 +27,7 @@ pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
+pub mod process;
 pub mod thread;
 pub mod window;
 
@@ -176,17 +183,48 @@ pub trait Win: Send + Sync + 'static {
     fn counter(&self) -> i64;
     /// `QueryPerformanceFrequency` — ticks a second, and zero where there is no counter.
     fn frequency(&self) -> i64;
-    /// `GetTickCount` — milliseconds since the host started, which is what every log line is
-    /// stamped with.
-    fn ticks(&self) -> u32;
-    /// `Sleep`. Accurate only to the timer resolution, which is what
-    /// [`begin_period`](Win::begin_period) is for.
-    fn sleep_millis(&self, millis: u32);
-    /// `timeBeginPeriod` — asks for a timer resolution, in milliseconds. Zero is
-    /// `TIMERR_NOERROR`; anything else goes in the log and leaves the waits coarse.
-    fn begin_period(&self, millis: u32) -> u32;
-    /// `timeEndPeriod`, which must be given back what `begin_period` was asked for.
-    fn end_period(&self, millis: u32);
+
+    /// Waits `ticks` of the counter out on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` waitable
+    /// timer, made on first use and kept for the rest of the run — and `false` where it could not
+    /// be made at all.
+    ///
+    /// The counter's own ticks and not milliseconds, because a millisecond is the granularity being
+    /// left behind: this wait is aimed at a frame's own deadline, which is where the input lag left
+    /// to win is. See
+    /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+    ///
+    /// The handle stays behind the seam, which is the rule the thread ids and the log's token
+    /// already follow. A simulated host waits exactly as long as it was asked to: a real one
+    /// overshoots by whatever the host's own wake delay is, and modelling that would make every
+    /// assertion about a wait a statement about the overshoot instead of about the pacing's
+    /// arithmetic.
+    ///
+    /// `false` is a host orb does not run on rather than a wait to make some other way — the flag
+    /// is Windows 10 1803's and nothing older is a target — so the caller says so and stops.
+    fn wait(&self, ticks: i64) -> bool;
+
+    /// One turn of the spin that finishes the wait — the `pause` instruction on a real host.
+    ///
+    /// Behind the seam for the same reason [`counter`](Win::counter) is: it costs time, and a simulated
+    /// host that made it free would have the spin reach its deadline only through the counter's own read
+    /// cost, one tick at a time — fifteen thousand turns of a real loop per simulated frame. That it is
+    /// an instruction rather than a call is nothing to the seam, which is the host's side of orb and not
+    /// Win32's.
+    fn spin_once(&self);
+
+    // --- the one failure that ends a launch -------------------------------------
+    //
+    // Behind the seam because there is behaviour here no scenario could otherwise reach: one that
+    // raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
+    // exited would take the harness's child with it.
+
+    /// `MessageBoxW`, modal and with nothing to answer — what a host that cannot do what orb needs
+    /// is told to say, where somebody will read it.
+    fn message_box(&self, title: &str, text: &str);
+
+    /// `ExitProcess`, which does not return on a real host. A simulated one writes down that it was
+    /// asked and does return, so the caller must not carry on as though it had not been called.
+    fn exit_process(&self, code: u32);
 
     // --- the display and the compositor ---------------------------------------
 

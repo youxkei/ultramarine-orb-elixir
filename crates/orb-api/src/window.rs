@@ -1,5 +1,6 @@
-//! Which window the host has in front, and the sizes the host decides: what the monitor measures,
-//! the frame it puts round a client area, and the client a created window came out with.
+//! Which window the host has in front, the sizes the host decides — what the monitor measures, the
+//! frame it puts round a client area, and the client a created window came out with — and the one
+//! window orb puts up itself.
 //!
 //! The three sizes are behind the seam for one reason, and it is not that they are Win32 calls: what
 //! `orb::window` lays out is decided by numbers only the host knows, and a test that cannot move them
@@ -57,6 +58,22 @@ pub fn client_rect(window: Hwnd) -> Option<Rect> {
     host::client_rect(window)
 }
 
+/// Puts up a modal with nothing to answer, for the one thing orb has to say to somebody rather than
+/// to its log: that this host cannot do what orb needs of it.
+///
+/// Not to be called from `DllMain`. A `MessageBoxW` under the loader lock loads `comctl32` and
+/// `uxtheme` and pumps messages into a process that is not finished starting, which is the textbook
+/// deadlock — so this is the frame hook's to call, that being the game's main thread with a window
+/// and a pump. See
+/// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+pub fn message_box(title: &str, text: &str) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.message_box(title, text);
+    }
+    host::message_box(title, text);
+}
+
 #[cfg(windows)]
 use crate::real::window as host;
 
@@ -78,5 +95,8 @@ mod host {
     }
     pub fn client_rect(_window: Hwnd) -> Option<Rect> {
         no_windows("window::client_rect")
+    }
+    pub fn message_box(_title: &str, _text: &str) {
+        no_windows("window::message_box")
     }
 }

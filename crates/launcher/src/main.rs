@@ -18,6 +18,13 @@ use clap::Parser;
 use orb_config::Config;
 use orb_config::args::Options;
 use orb_core::game::{self, Known};
+use windows_sys::Win32::Foundation::CloseHandle;
+use windows_sys::Win32::System::Threading::{
+    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, TIMER_ALL_ACCESS,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MessageBoxW,
+};
 
 /// Starts the game orb finds where it was pointed, and hands the options below on to it.
 ///
@@ -55,6 +62,53 @@ struct Launch {
 /// moment the settings could be asked for.
 const MINE: &str = "Read here and not handed on to the game";
 
+/// What a host that cannot make the timer orb's frame loop waits on is told, and the line for a
+/// terminal.
+///
+/// Its own words rather than the DLL's, because the two are different situations: the DLL's message is
+/// a game that is being stopped, and this one is a game that was never started.
+const NO_TIMER_TEXT: &str = "This host cannot create the high-resolution timer that orb paces the \
+     game's frames on, and orb does not pace them any other way.\n\nWindows 10 version 1803 or \
+     later is needed. The game has not been started.";
+const NO_TIMER_LINE: &str = "this host cannot create a high-resolution waitable timer, which orb \
+     paces the game's frames on — Windows 10 1803 or later is needed, and the game was not started";
+
+/// Whether this host can create the timer at all, which is the whole of what orb needs of it that a
+/// host may not have.
+///
+/// The flag is Windows 10 1803's, and a creation that fails is not a configuration to carry code for:
+/// it is a machine orb does not run on. Made and given straight back — what is being asked is whether
+/// the host will, and the one the frame loop waits on is the DLL's own, made inside the game.
+fn can_make_the_timer() -> bool {
+    let timer = unsafe {
+        CreateWaitableTimerExW(
+            std::ptr::null(),
+            std::ptr::null(),
+            CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+            TIMER_ALL_ACCESS,
+        )
+    };
+    if timer.is_null() {
+        return false;
+    }
+    unsafe { CloseHandle(timer) };
+    true
+}
+
+/// Says so where a launch from Explorer will see it, which is nowhere a printed line reaches.
+fn cannot_run(text: &str) {
+    let title: Vec<u16> = "Ultramarine Orb Elixir".encode_utf16().chain([0]).collect();
+    let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+        )
+    };
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -69,6 +123,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Read here as well as in the DLL, so that anything unreadable is said before a game
     // starts rather than into a log inside one.
     let launch = Launch::parse();
+
+    // Before anything is read or started, because nothing else matters on a host orb cannot pace
+    // frames on. The DLL asks the same question of the same call and its answer is to stop the game
+    // on its first frame; asking it here is that answer with the game never started, which is the
+    // one an unsupported host should get — see `docs/adr/0006`.
+    if !can_make_the_timer() {
+        // Both, because either can be the only one seen: the line for a launch from a terminal, and
+        // the dialog for one from Explorer, where nobody ever sees a line.
+        cannot_run(NO_TIMER_TEXT);
+        return Err(NO_TIMER_LINE.into());
+    }
     let exe = std::env::current_exe()?;
     // Settled before the settings are asked for, because the pad they can be answered with is
     // described by a file in the game's directory too.

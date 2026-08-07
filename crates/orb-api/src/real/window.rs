@@ -6,7 +6,8 @@ use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRect, GetClientRect, GetForegroundWindow, SetProcessDPIAware,
+    AdjustWindowRect, GetClientRect, GetForegroundWindow, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
+    MB_SYSTEMMODAL, MessageBoxW, SetProcessDPIAware,
 };
 
 use crate::{Hwnd, Rect};
@@ -42,6 +43,22 @@ pub fn client_rect(window: Hwnd) -> Option<Rect> {
         bottom: 0,
     };
     (unsafe { GetClientRect(window.0 as _, &mut rect) } != 0).then(|| neutral(rect))
+}
+
+pub fn message_box(title: &str, text: &str) {
+    let title: Vec<u16> = title.encode_utf16().chain([0]).collect();
+    let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
+    // No owner window, and system-modal and foreground on top of that: the game this is raised from
+    // is drawing full-screen through Direct3D, and a plain application-modal box behind it is one
+    // nobody can read — which for the one message that ends a launch is the same as saying nothing.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR | MB_SYSTEMMODAL | MB_SETFOREGROUND,
+        )
+    };
 }
 
 fn neutral(rect: RECT) -> Rect {

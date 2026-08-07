@@ -574,6 +574,47 @@ judged by are the real game's to answer for.
 of every private page in the process, which is a question about the process and not about the
 game.
 
+## The wait on the high-resolution timer has not paced a real frame
+
+[docs/adr/0006](docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) is the decision and it
+is `accepted and built`: `wait_until` waits on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` waitable timer
+made behind the seam on first use, `clock::wait` takes the counter's own ticks, nothing asks
+`timeBeginPeriod` for anything and no `Sleep` is left in the tree, and every log line is stamped off
+`QueryPerformanceCounter`. A host that cannot create the timer is turned away — by the launcher's
+`can_make_the_timer` before it starts anything, and by `Pacing::no_timer` on the first wait for the case
+the launcher was not the way in. `scripts/wait-probe.c` is the probe this waited on, the ADR carries what
+it said, and `SPIN_US`'s own comment carries the histogram that keeps it at 1500.
+
+**What is left is a run.** The probe measured the wait in a process of its own and `pacing_no_timer.rs`
+covers the host that has none, but no frame has reached a screen through it. Three things a session would
+settle and no scenario can:
+
+- **that the timer can be made inside the *game's* process.** Two of the three places are covered: the
+  launcher's `can_make_the_timer` runs on every launch, and `orb-api`'s own `real::clock::tests` create
+  the timer and wait on it through the shipped code on this host. What is left is the DLL's, made from
+  the frame hook of a process that has loaded d3d8 and dsound — and the answer to a failure there is a
+  modal and an `ExitProcess` nothing has yet seen happen for real.
+- **what the cadence comes out as**, against the real runs beside `frame::Pacing::grid` — `600 frames,
+  16650us apart, gaps in refreshes 2x600` is what the wait being replaced produced at 120Hz, and it is
+  the line to compare against. The pacing log's spans are the reading, and the one that used to be called
+  `sleep` is now `wait`.
+- **that the modal is legible over the game.** It is raised with no owner window and
+  `MB_SYSTEMMODAL | MB_SETFOREGROUND` because the game is drawing through Direct3D, and whether that is
+  enough is a claim about the host.
+
+**The log's stamps changed on the real host and only there.** They were `GetTickCount`, which this
+machine advances by 15 to 16ms whether or not the millisecond is asked for, and they are now exact —
+which is what `log_deferral`'s reading of two stamps always assumed and never had. Nothing in the
+simulator moves, because the simulator has derived its stamp from the counter all along.
+
+**The suite got slower and then much faster.** The exact wait took `scenario_pacing.rs` from 54.1 seconds
+to 76.6 on its own, because the spin now runs the whole of `SPIN_US` where the old call's rounding down to
+whole milliseconds left it about 1000µs to run — the simulator's own arithmetic, not a cost a real machine
+pays, since a real wait overshoots into the spin and a real one now overshoots less. Then the spin's
+`pause` went behind the seam and was charged for, which is
+[docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md): **17.5 seconds for the file and
+30.3 for the suite**, from 76.6 and 95.0, with all 297 passing and no assertion touched.
+
 ## A 240Hz display leaves the compositor less room than it may want
 
 **Not a defect, and the reason it is here is that nothing says it is happening.** The allowance cannot
@@ -658,7 +699,7 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Ninety-eight of the 294 tests are scenarios, and every one of them is driven by a game.** In
+**Ninety-eight of the 297 tests are scenarios, and every one of them is driven by a game.** In
 `orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
@@ -678,9 +719,8 @@ functions of its own to answer with. The 414-line harness that composed a copy o
 own comment said it was a copy, is gone with them.
 
 The four files in `orb-sim/tests` whose names do not begin `scenario_` are not scenarios. Three are the
-log's own business — what `log!` formats and which level keeps which line — and the fourth is
-`Pacing::configure` against a host that
-refuses the millisecond timer, which is a startup and no frame. They want a process each, orb's log and
+log's own business — what `log!` formats and which level keeps which line — and the fourth is a host that
+cannot create the timer every wait is made on, which is one wait and no frame. They want a process each, orb's log and
 profile being process-global, which a file in `tests/` gives and `orb-core`'s own `#[cfg(test)]` — one
 binary for all of its tests — does not.
 
@@ -709,7 +749,7 @@ monitor read fell on — `orb_sim::Windows::monitor_reads` writes that down — 
 the size asked for really comes out with.
 
 **The pacing — done, and it found the thing it was predicted to find.** `frame.rs` is in `orb-core`
-and its host calls are behind the seam: the counter, `Sleep`, `timeBeginPeriod`, the monitor's rate,
+and its host calls are behind the seam: the counter, the wait to a frame's deadline, the monitor's rate,
 `DwmGetCompositionTimingInfo` as one value, and `DwmFlush`. The simulated compositor holds a refresh
 period, a compose time a test may change mid-run, and a `DwmFlush` that returns at the blank the
 frame just handed over reached — modelled that way because that is what the real one does and the
@@ -720,7 +760,8 @@ game's own loop — where its own
 thirteen tests were all arithmetic and **not one of them drove it**: the whole-multiple cadence, the rates
 a display reports and the rate each gets, the fractional 2-2-3-2-3 pattern, the budget rising after a frame
 overran, a compositor that spikes and the allowance following it, what that spike costs at each rate, three
-stage loads and what they must not buy the compositor, the clock path, a refused millisecond timer, the
+stage loads and what they must not buy the compositor, the clock path, a host that cannot make the timer
+every wait is on, the
 mixed-rate desktop, sixty frames a second for every compose time the pacing has room to cover — which is
 the one that found the deadlock in `measure_compose`, now fixed — and the loop's own shape: the update
 before the draw, the sounds between them, the chain's two exits becoming the frame's two, and the ways out
@@ -729,10 +770,16 @@ that hand the frame back to the game's own loop.
 **And a row of a table is a `#[test]`, because that is the unit the harness parallelises.** Measured on
 sixteen cores: the file is nearly ten minutes of work and came out at **126 seconds**, of which **121.6 was
 one test** looping forty rate-and-compose-time pairs in a process of its own — 96% of the wall clock, and a
-floor no number of cores goes below. A test per rate instead, through `a_test_per_rate!`, puts the same work
-in **54.8 seconds**; the whole suite went from 135 to 72. Nothing below about 37 seconds is reachable by
+floor no number of cores goes below. A test per rate instead, through `a_test_per_rate!`, put the same work
+in **54.8 seconds** and the whole suite from 135 to 72. Nothing below about 37 seconds is reachable by
 splitting further, that being the work over the cores, so the rows are split as far as the reading of a
 failure wants and no further.
+
+The file is **17.5 seconds and the suite 30.3** now, from the same rows, and the split is no longer what
+decides it: the exact wait took the file to 76.6, and then charging the spin's `pause` behind the seam —
+[docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md) — took a hundredfold off the spin's
+iterations. Which also moves where the floor is: the work is no longer nearly all spin, so what splitting
+further would buy has to be measured again before anybody does it.
 
 And one scenario that is a negative: `cFramesLate` reaches no decision. The same frames are run twice against two
 hosts that differ in that one answer and in nothing else — `orb_sim::Display::says_every_composition_was_late`
@@ -761,11 +808,12 @@ desktop holds none.
 
 Two things the simulator needed that nothing else has:
 
-- **Reading the counter has to cost time.** `sleep_until` sleeps most of the way to its deadline and
-  spins the last 1500µs, and a spin is a loop whose only host call is the counter read — so a clock
-  that moved only when something asked it to wait never reached the deadline and the frame loop hung.
-  A real one does not, because reading the counter takes time. One tick a read, which is the smallest
-  step the counter has.
+- **Spinning has to cost time.** `wait_until` waits most of the way to its deadline and spins the last
+  1500µs, so a clock that moved only when something asked it to wait never reached the deadline and the
+  frame loop hung. Both halves of that loop are charged for now: the counter read at one tick, which is
+  the smallest step it has, and the `pause` at `PAUSE_TICKS` — which is why the spin's instruction went
+  behind the seam, and it is the one thing there that is not a call into Windows. See
+  [docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
 - **The distributions have to be measured, not chosen, and the rate matters more than the range.** The
   wake delay was modelled as spread evenly over its measured range and made a tenth of the frames miss;
   the histogram says 81% of returns are within 100µs and the rest are single excursions. The compose
@@ -929,7 +977,7 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 294 tests and 12 stubs without a game, and most of what it now covers used to need a
+The suite is 297 tests and 12 stubs without a game, and most of what it now covers used to need a
 session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
 to, and therefore what a session is for. What a scenario could reach once the laid-out game grows is
 a stub instead, `#[ignore]`d and holding its own numbers; `cargo test -- --ignored` lists those.

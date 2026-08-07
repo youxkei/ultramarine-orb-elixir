@@ -23,18 +23,58 @@
 //! refresh rate is not known at all is paced by the clock.
 
 use crate::{log, pacing};
-use orb_api::{Hwnd, clock, display};
+use orb_api::{Hwnd, clock, display, process, window};
 
 /// The rate the game's logic runs at, which is what its timers assume.
 pub const LOGIC_HZ: u32 = 60;
+/// How much of the wait to a frame's own deadline is spun instead of waited out.
+///
 /// Spinning is only worth it for the last stretch; before that, give the CPU up so
-/// the sound and the rest of the system keep their share. Only the clock path spins;
-/// waiting for a blank does not need it.
+/// the sound and the rest of the system keep their share. Only the wait to the frame's
+/// own deadline spins; waiting for a blank does not need it.
+///
+/// **The number is what the wait overshoots by**, because covering that is the whole of what the spin
+/// does: a wait aimed at the deadline less this lands *on* the deadline whenever it overshoots by
+/// less than this, and hands the frame over after its blank has gone whenever it overshoots by more —
+/// one refresh lost, visibly. `scripts/wait-probe.c` on this host (Windows 10.0 build 26200, a 32-bit
+/// process, the counter at 10MHz), 1000 waits aimed at each deadline, return minus deadline:
+///
+/// | aimed at | 2000µs | 4000µs | 8000µs | 16600µs |
+/// | --- | --- | --- | --- | --- |
+/// | the high-resolution timer, p99 | +938µs | +698µs | +828µs | +781µs |
+/// | the high-resolution timer, worst of 1000 | +998µs | +933µs | +1284µs | +1416µs |
+/// | `Sleep` under `timeBeginPeriod(1)`, p99 | +1585µs | +1677µs | +1577µs | +924µs |
+/// | `Sleep` under `timeBeginPeriod(1)`, worst of 1000 | +2086µs | +2011µs | +2153µs | +1644µs |
+///
+/// Which is the measurement the wait was changed for, and it is not the one that was expected: 1500
+/// covers the timer's worst excursion of 4000 waits and does *not* cover `Sleep`'s. What margin the
+/// old call really had came from rounding its wait down to a whole millisecond — up to another
+/// millisecond of spin, gone at every exact multiple and never counted on. See
+/// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+///
+/// So the figure stays 1500 and stops being a reading of `Sleep`'s millisecond with headroom, which
+/// is all it ever was. Anything smaller drops frames on this host, and the timer is what makes 1500
+/// enough — but only just: three runs of the same 1000 waits put the timer's worst at **1216, 1416 and
+/// 1432µs**, so 1500 clears the worst seen by 68µs and the p99 by some 600. Whoever finds frames
+/// arriving late here should suspect this number before anything else, and raise it rather than shrink
+/// it: what a larger one costs is a busier core, and what a smaller one costs is refreshes.
 const SPIN_US: i64 = 1500;
 /// How often the display is asked what it is doing. Cheap, but there is no reason to
 /// ask more than once a second: it only changes when the window moves to another
 /// monitor or the mode is changed.
 const RESYNC_FRAMES: usize = 60;
+
+/// What a host that cannot make the timer is told, and what orb ends the process with.
+///
+/// Named in full, because this is orb saying which program is stopping the game to somebody who has
+/// only seen the game. The version is named too: the flag the timer needs is Windows 10 1803's, so
+/// the answer to "why here and not on the other machine" is in the message rather than in a log.
+const NO_TIMER_TITLE: &str = "Ultramarine Orb Elixir";
+const NO_TIMER_TEXT: &str = "This host cannot create the high-resolution timer that orb paces the \
+     game's frames on, and orb does not pace them any other way.\n\nWindows 10 version 1803 or \
+     later is needed. The game is being stopped.";
+/// Not zero, so that whatever started the game can tell this from a run that ended.
+const NO_TIMER_CODE: u32 = 1;
 
 /// Everything the pacing keeps between frames.
 ///
@@ -464,17 +504,14 @@ impl Pacing {
     /// window exists.
     pub fn configure(&mut self) {
         self.next_present = now();
-        // Asked for once here rather than around each wait, as the game asked for it around
-        // each of its own. Without it `Sleep` is only accurate to the system's tick, which
-        // is some fifteen milliseconds — nearly two refreshes at 120Hz, and exactly the
-        // size of the stutter measured whenever the pacing fell back to the clock.
+        // Nothing is asked of the system's timer resolution here, and nothing needs to be: the wait
+        // to a frame's deadline is a high-resolution waitable timer, which is not tied to the system
+        // tick. `timeBeginPeriod(1)` was asked for here as the game asked for it around each of its
+        // own waits, and it bought `Sleep` a millisecond it is no longer waiting through.
         //
-        // The game's own calls went with the loop that was replaced. vpatch does the same
-        // thing for the same reason, and says so in its notes.
-        let asked = clock::begin_period(1);
-        if asked != 0 {
-            log!("frame: the system will not give a 1ms timer ({asked}); waits will be coarse");
-        }
+        // The timer itself is not made here either: `configure` runs inside `DllMain`, and the one
+        // thing a host that cannot make it gets is a `MessageBoxW` — which under the loader lock is
+        // the textbook deadlock. So it is made on first use from the frame hook; see `no_timer`.
         let (hz, measured) = self.grid(display::desktop_refresh());
         self.adopt(hz, measured);
     }
@@ -774,7 +811,7 @@ impl Pacing {
         // leaves it — reads the keyboard a refresh and a half before the frame it appears
         // in. Doing it at the end reads the keyboard just before, which is as late as it can
         // be and still be that frame.
-        self.sleep_until(blank + cadence - self.ticks(self.prepare_us));
+        self.wait_until(blank + cadence - self.ticks(self.prepare_us));
     }
 
     /// Which blank the frame just gone reached, and what that says the compose time should be.
@@ -956,7 +993,7 @@ impl Pacing {
         // before the wait only shortens the wait. A frame paced this way still has a whole
         // turn of slack, and lines held for a drain that never comes are lines lost.
         crate::log::drain();
-        self.sleep_until(target);
+        self.wait_until(target);
     }
 
     /// Called once the frame has been handed over, to see what the display is getting.
@@ -1056,7 +1093,7 @@ impl Pacing {
         // know. Either it reached the flush after the blank that was its turn had gone — the
         // refresh was lost before the frame did anything, and the spans up to `flush` say what
         // spent it — or it arrived in time and something after that overran, which the spans
-        // from `sleep` on say.
+        // from `wait` on say.
         let (how, waiting) = if called == 0 {
             (
                 "paced by the clock".to_string(),
@@ -1075,7 +1112,7 @@ impl Pacing {
                     )
                 },
                 format!(
-                    "pace {}us of which settle {}us, flush {}us to an anchor {}us after the compositor's blank, sleep {}us (the frame before reached the screen {}us off its own blank)",
+                    "pace {}us of which settle {}us, flush {}us to an anchor {}us after the compositor's blank, wait {}us (the frame before reached the screen {}us off its own blank)",
                     us(marks.cleared, called),
                     self.settle_us,
                     us(called, blank),
@@ -1264,21 +1301,59 @@ impl Pacing {
         )
     }
 
-    /// Sleeps most of the way there and spins the rest, because `Sleep` is only accurate
-    /// to about a millisecond and the last millisecond is the one that decides whether the
-    /// frame makes its slot.
-    fn sleep_until(&mut self, deadline: i64) {
+    /// Waits most of the way there and spins the rest, because the wait overshoots by up to
+    /// [`SPIN_US`] and the last stretch is the one that decides whether the frame makes its slot.
+    fn wait_until(&mut self, deadline: i64) {
         loop {
-            let remaining = self.micros(deadline - now());
-            if remaining <= 0 {
+            let left = deadline - now();
+            if left <= 0 {
                 return;
             }
-            if remaining > SPIN_US {
-                clock::sleep_millis(((remaining - SPIN_US) / 1000).max(1) as u32);
+            if self.micros(left) > SPIN_US {
+                // In the counter's own ticks, so the wait is aimed exactly where the spin picks it
+                // up. The call this replaced took whole milliseconds and rounded them down, which
+                // handed the spin up to a millisecond more than it was asked to cover — margin that
+                // was never counted on and that a wait of an exact number of milliseconds did not
+                // have at all.
+                if !clock::wait(left - self.ticks(SPIN_US)) {
+                    return self.no_timer();
+                }
             } else {
-                std::hint::spin_loop();
+                // `pause`, and nothing given up. Yielding here instead — `SwitchToThread` or
+                // `Sleep(0)`, so that the sound and the rest of the system get the core back for the
+                // last stretch — is the obvious improvement and it was measured, in
+                // `scripts/spin-probe.c`: on an idle machine it saves *nothing*, the same 3.34 against
+                // 3.39 Gcycles over ten seconds of frames, because a yield with nobody waiting returns
+                // at once and the loop goes round as often. With every core loaded it made the rest of
+                // the system worse off, not better — the load threads got 0.6% less done with
+                // `SwitchToThread` and 3.6% less with `Sleep(0)` — while the landings went from 80µs
+                // past the deadline at worst to three frames in six hundred over a whole refresh.
+                clock::spin_once();
             }
         }
+    }
+
+    /// Says the host cannot make the timer the waits are made on, and ends the launch.
+    ///
+    /// There is no second wait to fall back to and that is deliberate: `Sleep` kept as a spare would
+    /// be a slow path that ships, and a launch that paced badly while its log said it was pacing
+    /// well is what the whole of this file is written against. So a host that cannot do this is a
+    /// host orb does not run on, and it is told so where somebody will read it — see
+    /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+    ///
+    /// From here rather than from [`configure`](Self::configure) because this runs on the frame
+    /// hook's thread, which is the game's main one with a window and a message pump. `configure`
+    /// runs inside `DllMain`.
+    ///
+    /// The launcher asks the same question before it injects anything, so the ordinary way an
+    /// unsupported host is turned away is with the game never started. This is for the case the
+    /// launcher was not the way in.
+    fn no_timer(&self) {
+        log!(
+            "frame: the host cannot create a high-resolution timer, which every wait is made on; stopping"
+        );
+        window::message_box(NO_TIMER_TITLE, NO_TIMER_TEXT);
+        process::exit(NO_TIMER_CODE);
     }
 }
 
@@ -1405,11 +1480,6 @@ fn grid_aim(period: i64, frame: i64, phase: i64, ideal: i64, blank: i64) -> (i64
 fn on_cadence(gap: i64, aimed: i64, period: i64) -> bool {
     let refreshes = |ticks: i64| (ticks + period / 2) / period;
     refreshes(gap) == refreshes(aimed)
-}
-
-/// Gives the 1ms timer back, as its documentation asks.
-pub fn release() {
-    clock::end_period(1);
 }
 
 #[cfg(test)]

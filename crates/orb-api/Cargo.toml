@@ -26,8 +26,6 @@ features = [
     # The compositor and the monitor, which the pacing reads its cadence from.
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
-    # `timeBeginPeriod`, without which `Sleep` is only accurate to the system's tick.
-    "Win32_Media",
     # `GetKeyboardState`, which orb's own menus read because the game's input handling is not
     # running on the frames they are up on.
     "Win32_UI_Input_KeyboardAndMouse",
@@ -43,6 +41,5 @@ features = [
     # rather than beside `HeapWalk`.
     "Win32_System_SystemServices",
     "Win32_System_Performance",
-    "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ]

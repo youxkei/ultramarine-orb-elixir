@@ -1,11 +1,16 @@
-//! The host's clock.
+//! The host's clock: reading it, the stamp divided down from it, and the wait to a frame's own
+//! deadline.
 //!
-//! Only the reading of it is behind the seam. Every decision orb's pacing makes is already a
-//! function of the numbers that come out — `grid_aim`, `next_budget`, `whole_multiple`,
-//! `on_cadence` — so those are tested by handing them numbers, and what a seam adds is the order
-//! the waiting calls come in. What matters about the waiting is whether frames land on blanks, which
-//! is a measurement of real hardware rather than anything a simulated clock can answer; it is beside
-//! `frame::Pacing::grid`, with the probe that took it.
+//! No decision of the pacing's is behind the seam. Every one of them is already a function of the
+//! numbers that come out — `grid_aim`, `next_budget`, `whole_multiple`, `on_cadence` — so those are
+//! tested by handing them numbers, and what a seam adds is the order the waiting calls come in. What
+//! matters about the waiting is whether frames land on blanks, which is a measurement of real
+//! hardware rather than anything a simulated clock can answer; it is beside `frame::Pacing::grid`,
+//! with the probe that took it.
+//!
+//! The wait's own timer is made behind here and never crosses, and how accurate it is was measured
+//! too — `scripts/wait-probe.c`, beside `frame::SPIN_US`, which is the spin that covers what it
+//! overshoots by.
 
 /// `QueryPerformanceCounter`, for measuring how long something took.
 pub fn counter() -> i64 {
@@ -27,43 +32,43 @@ pub fn frequency() -> i64 {
 }
 
 /// Milliseconds since the host started, which is what every log line is stamped with.
-pub fn ticks() -> u32 {
-    #[cfg(feature = "sim")]
-    if let Some(win) = crate::installed() {
-        return win.ticks();
-    }
-    host::ticks()
-}
-
-/// Waits, to the timer resolution [`begin_period`] asked for.
-pub fn sleep_millis(millis: u32) {
-    #[cfg(feature = "sim")]
-    if let Some(win) = crate::installed() {
-        return win.sleep_millis(millis);
-    }
-    host::sleep_millis(millis);
-}
-
-/// Asks for a timer resolution. Zero is granted; anything else is the error the caller logs.
 ///
-/// Without it `Sleep` is only accurate to the system's tick, which is some fifteen milliseconds —
-/// nearly two refreshes at 120Hz, and exactly the size of the stutter measured whenever the pacing
-/// fell back to the clock.
-pub fn begin_period(millis: u32) -> u32 {
-    #[cfg(feature = "sim")]
-    if let Some(win) = crate::installed() {
-        return win.begin_period(millis);
+/// Divided down from [`counter`] rather than read off `GetTickCount`, which follows the system timer
+/// tick and is therefore fifteen milliseconds coarse unless somebody has asked the whole system for
+/// better. Nothing asks any more — the frame loop's wait does not need it — and a stamp that could
+/// not say when anything happened would take `--pacing`'s two-stamp readings with it. Measured on
+/// this host, in `scripts/wait-probe.c`: `GetTickCount` advances by 15 or 16ms with no resolution in
+/// force, and the counter is exact to the millisecond either way.
+///
+/// Zero where the host has no counter, which is a host that cannot say when anything happened at all.
+pub fn ticks() -> u32 {
+    let frequency = frequency();
+    if frequency == 0 {
+        return 0;
     }
-    host::begin_period(millis)
+    (counter() / (frequency / 1_000)) as u32
 }
 
-/// Gives back what [`begin_period`] was asked for.
-pub fn end_period(millis: u32) {
+/// Waits `ticks` of the counter out, and answers whether the host could.
+///
+/// `false` is the high-resolution timer refusing to be created, which is a host orb does not run on:
+/// see [`Win::wait`](crate::Win::wait).
+pub fn wait(ticks: i64) -> bool {
     #[cfg(feature = "sim")]
     if let Some(win) = crate::installed() {
-        return win.end_period(millis);
+        return win.wait(ticks);
     }
-    host::end_period(millis);
+    host::wait(ticks)
+}
+
+/// One turn of the spin that finishes a wait: the `pause` instruction, and nothing else in a build
+/// with no simulated Windows in it.
+pub fn spin_once() {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.spin_once();
+    }
+    host::spin_once();
 }
 
 #[cfg(windows)]
@@ -79,16 +84,10 @@ mod host {
     pub fn frequency() -> i64 {
         no_windows("clock::frequency")
     }
-    pub fn ticks() -> u32 {
-        no_windows("clock::ticks")
+    pub fn wait(_ticks: i64) -> bool {
+        no_windows("clock::wait")
     }
-    pub fn sleep_millis(_millis: u32) {
-        no_windows("clock::sleep_millis")
-    }
-    pub fn begin_period(_millis: u32) -> u32 {
-        no_windows("clock::begin_period")
-    }
-    pub fn end_period(_millis: u32) {
-        no_windows("clock::end_period")
+    pub fn spin_once() {
+        no_windows("clock::spin_once")
     }
 }
