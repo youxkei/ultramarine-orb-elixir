@@ -77,9 +77,12 @@ fn chain_cut() -> usize {
     CHAIN_CUT
 }
 
-/// Hands over the game's own `Chain::Cut` — see [`chain_cut`].
+/// Takes the address a game laid out by hand hands over for it — see [`chain_cut`].
+///
+/// Not `install_`, which everything wearing that name in this tree does by writing over something: an
+/// import table entry or a prologue. This patches nothing and records where a function is.
 #[cfg(any(test, feature = "sim"))]
-fn install_chain_cut(address: usize) {
+fn set_chain_cut(address: usize) {
     CHAIN_CUT_AT.store(address, Ordering::Relaxed);
 }
 

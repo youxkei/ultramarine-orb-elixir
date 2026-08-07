@@ -558,10 +558,10 @@ impl Image {
         }
     }
 
-    /// The game's own `Chain::Cut`, handed over: code is the one thing an address space laid out by hand
+    /// Hands over the game's own `Chain::Cut`: code is the one thing an address space laid out by hand
     /// cannot hold, and a shake still running at a stage move is taken down through that call.
-    pub fn cuts_the_chain_through(&self, address: usize) {
-        super::install_chain_cut(address);
+    pub fn hands_over_chain_cut(&self, address: usize) {
+        super::set_chain_cut(address);
     }
 
     /// `ScreenEffect::ShakeScreen` registered as a job of the chain's, which is what a bomb leaves
@@ -597,7 +597,7 @@ impl Image {
 
     /// `Chain::Cut`: the element unlinked from the calc chain, which is what the game's own call does and
     /// what a game laid out by hand has to do in its place — see
-    /// [`cuts_the_chain_through`](Self::cuts_the_chain_through).
+    /// [`hands_over_chain_cut`](Self::hands_over_chain_cut).
     pub fn cuts_from_the_chain(&self, elem: usize) {
         let space = self.space();
         let mut at = super::G_CHAIN + super::chain_elem::NEXT;

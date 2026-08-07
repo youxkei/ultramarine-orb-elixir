@@ -581,7 +581,7 @@ impl Fake {
         image.sets_the_arcade_region((field.left, field.top), (field.width, field.height));
         // And the game's own `Chain::Cut`, which is the one call into the game orb makes that a scenario
         // reaches: a shake still running at a stage move is taken down through it.
-        image.cuts_the_chain_through(chain_cut as *const () as usize);
+        image.hands_over_chain_cut(chain_cut as *const () as usize);
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what a scenario
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
