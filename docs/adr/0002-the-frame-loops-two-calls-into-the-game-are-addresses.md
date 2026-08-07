@@ -16,6 +16,15 @@ It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): tha
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and
 `Th06::play_sounds` call the game's own code — and the conclusion drawn from it was not.
 
+**And the argument reached two more calls since.** `Originals` now carries `create_window` and
+`create_file` as well: the game's own `CreateWindowExA`, which orb's rewrite of the window arguments calls
+through, and its own `CreateFileA`, which the score file's fork calls through. A real launch reaches both
+by patching the exe's import table, and a laid-out game has no import table either — so the same answer
+applies twice over: it hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s six
+scenarios drive the first that way and `scenario_the_score_file.rs`'s three the second. Nothing about the
+reasoning below changes; what changes is that the list of calls handed over is not closed, and the test for
+adding to it is the one this document set.
+
 ## Context
 
 [0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a 紅魔郷 that plays the game's part in front of

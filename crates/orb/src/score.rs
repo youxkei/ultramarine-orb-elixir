@@ -111,10 +111,35 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
     Ok(())
 }
 
-type CreateFileA =
+/// The same, for a game laid out by hand: its own `CreateFileA` in place of the import table there is
+/// none of.
+///
+/// The same answer [`window::install_over`](crate::window::install_over) is, and for the same reason —
+/// see [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// Which file an open lands in is what every scenario about this file reads, and the path and the access
+/// are the whole of what has to cross for that: a laid-out game answers with a handle of its own and there
+/// is no file on any disk.
+///
+/// # Safety
+/// `original` must be the game's own `CreateFileA` and outlive the last open it makes.
+pub unsafe fn install_over(original: CreateFileA) {
+    CREATE_FILE_A.store(original as usize, Ordering::Relaxed);
+}
+
+/// The game's own `CreateFileA`, which [`create_file_a`] calls through with the name it decided. `pub`
+/// because a game laid out by hand hands one of these over — see [`install_over`].
+pub type CreateFileA =
     unsafe extern "system" fn(*const u8, u32, u32, *const c_void, u32, u32, HANDLE) -> HANDLE;
 
-unsafe extern "system" fn create_file_a(
+/// Creates the file the mode says, in place of the one the game asked for.
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// `CreateFileA` call lands, there being no import table to reach it through.
+///
+/// # Safety
+/// The arguments are `CreateFileA`'s own, and an [`install`] or an [`install_over`] must have run first —
+/// without one the original this calls through is null.
+pub unsafe extern "system" fn create_file_a(
     name: *const u8,
     access: u32,
     share: u32,

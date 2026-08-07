@@ -152,6 +152,8 @@ impl Fake {
                     render: own_render,
                     play_sounds,
                     present,
+                    create_window,
+                    create_file,
                 },
             )
         };
@@ -275,4 +277,41 @@ extern "C" fn unlocks_read(_menu: *mut c_void) -> i32 {
 
 extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
     0
+}
+
+/// And its `CreateFileA`, which is never called either: `Th07` declines the score file the same way it
+/// declines everything else about a run, so nothing of 妖々夢's is ever opened through orb.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn create_file(
+    _name: *const u8,
+    _access: u32,
+    _share: u32,
+    _security: *const c_void,
+    _disposition: u32,
+    _flags: u32,
+    _template: *mut c_void,
+) -> *mut c_void {
+    std::ptr::null_mut()
+}
+
+/// And its `CreateWindowExA`, which is never called for a different reason: **this game never creates a
+/// window.** `scenario_th07.rs` is a launch of 妖々夢 and nothing of its window has been read, so the ask
+/// is not here to be rewritten — orb's rewrite waits for a call that does not come, which is the same
+/// thing a launch with no window in it does.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn create_window(
+    _ex_style: u32,
+    _class_name: *const u8,
+    _window_name: *const u8,
+    _style: u32,
+    _x: i32,
+    _y: i32,
+    _width: i32,
+    _height: i32,
+    _parent: *mut c_void,
+    _menu: *mut c_void,
+    _instance: *mut c_void,
+    _param: *const c_void,
+) -> *mut c_void {
+    std::ptr::null_mut()
 }

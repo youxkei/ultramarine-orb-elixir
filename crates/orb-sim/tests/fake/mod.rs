@@ -142,6 +142,31 @@ pub struct Display {
     pub metronome: bool,
 }
 
+/// The monitor the game's window goes on, as a scenario declares it — apart from [`Display`] because
+/// this is what the *layout* reads and that is what the pacing reads.
+///
+/// Two numbers a scenario cannot otherwise move: how many pixels the panel has and will admit to, and
+/// the frame this host costs to get a client area of a given size. See [`orb_sim::Windows`].
+pub struct Panel {
+    pub monitor: orb_sim::Monitor,
+    pub frame: orb_sim::Frame,
+    /// Whether the host refuses `SetProcessDPIAware`, which leaves every size scaled behind the game's
+    /// back for the whole launch.
+    pub refuses_dpi_awareness: bool,
+}
+
+impl Panel {
+    /// This machine's: a 3840x2160 monitor that reads as 2560x1440 to a process that has not asked
+    /// otherwise, with a 6x40 frame round a window of a chosen size.
+    pub fn measured() -> Self {
+        Self {
+            monitor: orb_sim::Monitor::measured(),
+            frame: orb_sim::Frame::MEASURED,
+            refuses_dpi_awareness: false,
+        }
+    }
+}
+
 impl Display {
     /// One display, with the compositor timing it — what almost every machine has.
     pub fn agreed(hz: u32) -> Self {

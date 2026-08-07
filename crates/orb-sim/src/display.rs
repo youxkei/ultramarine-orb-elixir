@@ -11,7 +11,9 @@
 //!
 //! - `cRefresh` counts *compositions*, one per frame handed over, and not refreshes of the display.
 //!   A run where eight flushes waited out eight refreshes had it advance eight times, once a frame.
-//! - `cFramesLate` stays at zero, through a broken cadence as much as an even one.
+//! - `cFramesLate` stays at zero, through a broken cadence as much as an even one. The one test that
+//!   may move it off zero is the one asserting nothing is judged on it — see
+//!   [`says_every_composition_was_late`](Display::says_every_composition_was_late).
 //!
 //! # What this does not model, and what rests on measurement
 //!
@@ -141,6 +143,9 @@ pub struct Display {
     period_answer: Mutex<u32>,
     /// Whether the wake delay is modelled at all, and the stream of draws it comes from.
     wake: Mutex<(bool, Noise)>,
+    /// Whether `cFramesLate` climbs with the compositions instead of reading zero — see
+    /// [`says_every_composition_was_late`](Self::says_every_composition_was_late).
+    every_composition_late: Mutex<bool>,
 }
 
 impl Default for Display {
@@ -161,6 +166,7 @@ impl Display {
             period_held: Mutex::new(None),
             period_answer: Mutex::new(0),
             wake: Mutex::new((true, Noise::seeded(seed))),
+            every_composition_late: Mutex::new(false),
         }
     }
 
@@ -168,6 +174,19 @@ impl Display {
     /// about arithmetic, and one that says so.
     pub fn as_a_metronome(&self) {
         self.wake.lock().unwrap().0 = false;
+    }
+
+    /// Has `cFramesLate` climb one per composition, which is a host saying every frame it was handed
+    /// missed the refresh it was aimed at.
+    ///
+    /// The real one reads zero throughout — see the note at the top — so this is not a machine and
+    /// nothing may be asserted *from* it. What it is for is the opposite claim: a scenario runs the
+    /// same frames twice, once against a host reading zero and once against this, and holds every
+    /// number orb decided to be the same across the two. The loudest answer a compositor could give
+    /// rather than a plausible middle, because what is being shown is that no answer reaches a
+    /// decision.
+    pub fn says_every_composition_was_late(&self) {
+        *self.every_composition_late.lock().unwrap() = true;
     }
 
     /// How late this flush is woken, drawn from the measured distribution. See [`USUAL_US`].
@@ -257,8 +276,13 @@ impl Display {
             refresh_period: compositor.period,
             refresh: compositor.refresh,
             vblank: compositor.blank_at_or_before(now),
-            // Zero, as the real one reads. See the note at the top of this module.
-            frames_late: 0,
+            // Zero, as the real one reads, unless a scenario asked for the other answer. See the note
+            // at the top of this module.
+            frames_late: if *self.every_composition_late.lock().unwrap() {
+                compositor.refresh
+            } else {
+                0
+            },
         })
     }
 

@@ -1,6 +1,6 @@
 //! **orb's own frame loop: the shape it has, the rate it holds, and the log it writes about itself.**
 //!
-//! Forty-six scenarios over the one subject, each in a process of its own —
+//! Forty-seven scenarios over the one subject, each in a process of its own —
 //! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so a scenario owns a
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
@@ -2254,14 +2254,51 @@ mod log_deferral {
 
 // ── What the compositor's own counters are worth ─────────────────────────────────────────────────
 //
-// A stub section: `#[ignore]`d, and `todo!()` where the assertion goes. What it holds is the
-// measurement, taken on this machine, and the point of writing it as a scenario is that orb reports one
-// of these numbers and reporting it has to keep saying nothing.
+// What this holds is the measurement, taken on this machine, and the point of writing it as a scenario
+// is that orb reports one of these numbers and reporting it has to keep saying nothing.
 //
-// To un-stub it, `orb-sim`'s display needs `DwmGetCompositionTimingInfo`'s whole struct rather than the
-// period and the count orb reads today: a host that answers a plausible `cFramesLate` while frames are
-// plainly missing is what says nothing is judged on it.
+// The claim is a negative one, so it is asserted the only way a negative can be: the same frames are run
+// twice, against two hosts that differ in this one answer and in nothing else, and every number orb
+// decided is held to be the same across the two. A host reading zero while frames plainly miss says the
+// number is worthless; a host reading the loudest answer it could give and changing nothing says orb
+// agrees.
 mod counters {
+    use super::*;
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
+    use orb_sim::Compose;
+
+    /// The display, and a compositor wanting more of each refresh than there is room to give it: past
+    /// `ceiling_us(240)`'s 3124µs, which is the one rate anyone plays at where a plausible compositor
+    /// reaches it. See [`converges::past_the_ceiling_the_rate_is_not_sixty_and_the_allowance_is_out_of_room`],
+    /// which is the same host and asserts what it does to the rate.
+    ///
+    /// Chosen because frames have to be *plainly* missing for a count of zero to be worth anything: here
+    /// every fifth frame takes a fifth refresh for the rest of the run, and the run settles at 48fps.
+    const HZ: u32 = 240;
+    const COMPOSE_US: i64 = 4_000;
+
+    /// What the game's own update and draw take, read off a real run's report line: "(694us to draw + …)".
+    const WORK_US: i64 = 700;
+
+    /// Long enough that the allowance has finished climbing and the misses that are left are the
+    /// geometric ones, since a climb still under way is a run whose two halves are not the same run.
+    const FRAMES: u32 = 3_000;
+
+    /// How many of this display's refreshes a sixtieth of a second is, which is the gap every frame
+    /// should have and the one the missing frames are not in.
+    const GRID_REFRESHES: usize = (HZ / frame::LOGIC_HZ) as usize;
+
+    /// Runs those frames against a host `answers` has had its say about, and hands back the moments the
+    /// game was handed them over at beside the last reporting line orb wrote.
+    fn run(name: &str, answers: impl FnOnce(&Fake)) -> (Vec<i64>, Reported) {
+        let mut display = Display::agreed(HZ);
+        display.compose = Compose::flat(COMPOSE_US);
+        let game = Fake::attach_watching_the_pacing(display, name, Work::flat(WORK_US));
+        answers(&game);
+        game.frames(FRAMES);
+        (game.handovers_us(), reported(&game.log().lines()))
+    }
+
     /// `cFramesLate` is not evidence, and neither is the family around it.
     ///
     /// Measured through every run of the pacing work on this machine: the compositor's own count of frames
@@ -2272,17 +2309,69 @@ mod counters {
     /// `qpcFrameDisplayed`, `cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed`
     /// are worse: all zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved **1211**
     /// over a period. So the call works and that family is not populated for the desktop query, which is
-    /// the only one `DwmGetCompositionTimingInfo` accepts.
+    /// the only one `DwmGetCompositionTimingInfo` accepts. None of those five is in [`Composition`] at
+    /// all, which is where that measurement is kept: a field orb does not read is a field no scenario can
+    /// say anything about.
     ///
     /// And `cRefresh` advanced by exactly one per state in `scripts/background-flush-probe.c` whether 601
     /// frames were handed over or none — so it is neither refreshes nor our compositions, and the first
     /// version of that probe read it twice per state and got "+2" out of its own calls.
+    ///
+    /// [`Composition`]: orb_api::Composition
     #[test]
-    #[ignore = "orb-sim's display answers the period and the count, not the whole timing struct"]
     fn nothing_is_judged_on_the_compositors_own_count_of_late_frames() {
-        todo!(
-            "answer cFramesLate as zero while frames miss their blanks, and assert orb reports it and \
-             decides nothing by it"
-        )
+        in_its_own_process(|| {
+            let (silent_handovers, silent) = run("counters-zero", |_| {});
+            let (loud_handovers, loud) = run("counters-late", |game| {
+                game.sim().display().says_every_composition_was_late();
+            });
+
+            // The frames were plainly missing, which is what makes a count of zero worth reading: a gap
+            // that is not the grid's own is a frame that waited out a refresh it was not aimed at.
+            let missed: usize = silent
+                .gaps
+                .iter()
+                .filter(|(refreshes, _)| *refreshes != GRID_REFRESHES)
+                .map(|(_, count)| count)
+                .sum();
+            assert!(
+                missed > 0,
+                "no frame of the period missed its blank, so this host says nothing about a count of \
+                 them: {silent:?}"
+            );
+            // And the compositor said none of them had. Which is the measurement, and the whole of what
+            // the number is worth.
+            assert_eq!(
+                silent.shown_late, 0,
+                "{missed} of {} frames missed their blank and the host was asked to say none was late: \
+                 {silent:?}",
+                silent.frames,
+            );
+            // The other host said every frame it was handed was late, and orb repeated it — reported,
+            // which is the half of this that has to keep working.
+            assert_eq!(
+                loud.shown_late, loud.frames,
+                "the host said every composition was late and the line does not say so: {loud:?}"
+            );
+
+            // And decided nothing by it. The same frames went out at the same moments, to the tick, so
+            // the count reached no wait and no allowance — the two runs are one run whose host answered
+            // one question differently.
+            assert_eq!(
+                silent_handovers, loud_handovers,
+                "the frames moved when the host changed its count of late ones"
+            );
+            // Which the line agrees about in every part of itself but that count, including the
+            // allowance: it climbs on a frame *orb* saw miss, and never on one the compositor claims.
+            assert_eq!(silent.frames, loud.frames);
+            assert_eq!(silent.interval_us, loud.interval_us);
+            assert_eq!(silent.prepare_us, loud.prepare_us);
+            assert_eq!(silent.draw_us, loud.draw_us);
+            assert_eq!(
+                silent.compose_us, loud.compose_us,
+                "the allowance followed the compositor's own count: {silent:?} against {loud:?}"
+            );
+            assert_eq!(silent.gaps, loud.gaps);
+        });
     }
 }

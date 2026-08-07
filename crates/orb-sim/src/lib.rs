@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use orb_api::{Composition, Hwnd, LogFile, Win};
+use orb_api::{Composition, Hwnd, LogFile, Rect, Win};
 
 mod clock;
 mod display;
@@ -24,6 +24,7 @@ mod keyboard;
 mod log;
 mod noise;
 mod space;
+mod window;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
 pub use keyboard::{Keyboard, keys};
@@ -33,6 +34,7 @@ pub use log::Log;
 /// run whose every draw comes from one seed is a run that replays.
 pub use noise::Noise;
 pub use space::Space;
+pub use window::{Frame, Made, Monitor, Windows};
 
 /// Where a test's laid-out game is installed. The log and `orb.yaml` are read as siblings of the
 /// exe, so what matters is that it has a directory and a file name and that both come back
@@ -69,6 +71,9 @@ pub struct Sim {
     space: Space,
     clock: Clock,
     display: Display,
+    /// The panel and the frame it puts round a window, which the layout reads and the pacing does
+    /// not — see [`Windows`].
+    windows: Windows,
     keyboard: Keyboard,
     log: Log,
     /// The ranges orb has said are its own — where it keeps the copies a snapshot holds. Nothing is
@@ -106,6 +111,7 @@ impl Sim {
             space: Space::new(),
             clock: Clock::new(),
             display: Display::new(seed),
+            windows: Windows::new(),
             keyboard: Keyboard::new(),
             log: Log::new(),
             ours: Mutex::new(HashMap::new()),
@@ -142,6 +148,12 @@ impl Sim {
     /// The display and its compositor, for a test that says what the pacing is pacing against.
     pub fn display(&self) -> &Display {
         &self.display
+    }
+
+    /// The panel and the frame round a window, for a test that says what orb's layout is laid out
+    /// against — and reads back the windows it was asked to make.
+    pub fn windows(&self) -> &Windows {
+        &self.windows
     }
 
     /// The keyboard, for a test that presses a key at one of orb's own menus.
@@ -313,6 +325,22 @@ impl Win for Sim {
 
     fn foreground_window(&self) -> Hwnd {
         self.display.foreground()
+    }
+
+    fn set_process_dpi_aware(&self) -> bool {
+        self.windows.set_process_dpi_aware()
+    }
+
+    fn primary_monitor(&self) -> Option<Rect> {
+        self.windows.monitor_now()
+    }
+
+    fn adjust_window_rect(&self, area: Rect, style: u32, _menu: bool) -> Option<Rect> {
+        Some(self.windows.adjust(area, style))
+    }
+
+    fn client_rect(&self, window: Hwnd) -> Option<Rect> {
+        self.windows.client(window)
     }
 
     fn keyboard_state(&self) -> Option<[u8; 256]> {

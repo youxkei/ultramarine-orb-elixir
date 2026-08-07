@@ -51,6 +51,14 @@ const CODE: Range<usize> = 0x0040_1000..0x0040_2000;
 /// and copies them beside the static data, rather than getting them for free as fields of a global.
 const BOSS: Range<usize> = 0x0300_0000..0x0300_1000;
 const RANKING_SCREEN: Range<usize> = 0x0300_1000..0x0300_2000;
+/// And the screen a run's result is shown on, which is reached the hardest of the three ways: through
+/// the chain element it registered, by the callback that element holds. There is nothing in [`DATA`]
+/// pointing at it at all — `chain_argument` is the whole of how orb finds it — so the element goes in
+/// the chain's calc list with this block hanging off it.
+const RESULT_SCREEN: Range<usize> = 0x0300_3000..0x0300_4000;
+/// The chain element that screen registers, in a block of its own so that a snapshot has the same walk
+/// to do over it as over a real one.
+const RESULT_SCREEN_ELEM: Range<usize> = 0x0300_4000..0x0300_5000;
 /// And a third, for the controller the game polls: the object at its foot and the vtable it is
 /// reached through above it, since a COM interface is a pointer to a pointer to functions.
 ///
@@ -59,6 +67,11 @@ const RANKING_SCREEN: Range<usize> = 0x0300_1000..0x0300_2000;
 /// does: see `Image::controller`.
 const CONTROLLER: Range<usize> = 0x0300_2000..0x0300_3000;
 const CONTROLLER_VTABLE: usize = CONTROLLER.start + 0x100;
+/// And a fourth, for the keyboard device the game takes exclusively: the same shape as the controller, and
+/// the two slots orb calls to let it go are the whole of why it is here — see
+/// [`keyboard_device`](Image::keyboard_device).
+const KEYBOARD: Range<usize> = 0x0300_5000..0x0300_6000;
+const KEYBOARD_VTABLE: usize = KEYBOARD.start + 0x100;
 
 /// A stage in progress, as a scenario says it.
 ///
@@ -241,6 +254,14 @@ pub enum Scene {
     /// The ranking, which is a scene of the supervisor's as well as a state of the front end's:
     /// asking for it is one and building it is the other.
     Ranking,
+    /// The scene a stage transition passes through, which is the game rebuilding its game manager for
+    /// the stage after: one frame of it, `f44096 scene=3 stage=2` and then `f44097 scene=2 stage=3` a
+    /// quarter of a second later, because the next stage is built inside that frame.
+    Rebuilding,
+    /// The ending, which is where a cleared run goes before its result screen. Named because
+    /// [`read_state`](crate::game::Game::read_state) reads it: a frame of an ending is not a frame of a
+    /// run somebody is playing.
+    Ending,
     Other(i32),
 }
 
@@ -320,6 +341,15 @@ impl Image {
             .map(RANKING_SCREEN.start, RANKING_SCREEN.len(), Kind::Private);
         sim.space()
             .map(CONTROLLER.start, CONTROLLER.len(), Kind::Private);
+        sim.space()
+            .map(RESULT_SCREEN.start, RESULT_SCREEN.len(), Kind::Private);
+        sim.space().map(
+            RESULT_SCREEN_ELEM.start,
+            RESULT_SCREEN_ELEM.len(),
+            Kind::Private,
+        );
+        sim.space()
+            .map(KEYBOARD.start, KEYBOARD.len(), Kind::Private);
         Self { sim }
     }
 
@@ -655,6 +685,91 @@ impl Image {
         );
     }
 
+    /// What the player is doing, read back — which is how a game that models `Player::OnUpdate` knows
+    /// whether this update's hit test has a player it can kill.
+    pub fn player_now(&self) -> Player {
+        match self
+            .space()
+            .read::<i8>(super::G_PLAYER + super::player::PLAYER_STATE)
+        {
+            super::PLAYER_SPAWNING => Player::Spawning,
+            super::PLAYER_DEAD => Player::Dying,
+            super::PLAYER_INVULNERABLE => Player::Invulnerable,
+            _ => Player::Normal,
+        }
+    }
+
+    /// The frames of invulnerability left, which `Player::OnUpdate` ticks down and puts the state back
+    /// to normal at the end of.
+    ///
+    /// Apart from [`player`](Self::player) because the two are what a restore has to write *together*:
+    /// a state written with the frames left where the last respawn put them is a player whose
+    /// invulnerability expires inside the update it was written for. See
+    /// `Th06::make_invulnerable`.
+    pub fn invulnerable_frames(&self) -> i32 {
+        self.space()
+            .read(super::G_PLAYER + super::player::INVULNERABLE_FRAMES)
+    }
+
+    pub fn set_invulnerable_frames(&self, frames: i32) {
+        self.space()
+            .write::<i32>(super::G_PLAYER + super::player::INVULNERABLE_FRAMES, frames);
+    }
+
+    /// `Gui::RegisterChain`: the static element `g_Gui`'s draw job is, linked into the chain's draw
+    /// list — which is what `Th06::draws_lives_row` walks for.
+    ///
+    /// The element itself and nothing else, since that is the whole of what the walk asks: whether
+    /// 0x69bc5c is in that list. What it is *for* is that a run being left is not a run whose panel has
+    /// gone — the game paints that row once more after the run ends, and the mark has to reach it.
+    pub fn registers_gui_in_the_draw_chain(&self) {
+        let space = self.space();
+        let head = super::G_CHAIN + super::CHAIN_DRAW_LIST + super::chain_elem::NEXT;
+        let after: usize = space.read(head);
+        space.write::<usize>(super::GUI_DRAW_ELEM + super::chain_elem::NEXT, after);
+        space.write::<usize>(head, super::GUI_DRAW_ELEM);
+    }
+
+    /// And `Chain::Cut` taking it out again, which is what the front end drawing its own screen does.
+    pub fn cuts_gui_from_the_draw_chain(&self) {
+        let space = self.space();
+        let head = super::G_CHAIN + super::CHAIN_DRAW_LIST + super::chain_elem::NEXT;
+        if space.read::<usize>(head) == super::GUI_DRAW_ELEM {
+            let after: usize = space.read(super::GUI_DRAW_ELEM + super::chain_elem::NEXT);
+            space.write::<usize>(head, after);
+        }
+        space.write::<usize>(super::GUI_DRAW_ELEM + super::chain_elem::NEXT, 0);
+    }
+
+    /// Whether it is in there, for a scenario reading the same list orb reads.
+    pub fn gui_in_the_draw_chain(&self) -> bool {
+        self.space()
+            .read::<usize>(super::G_CHAIN + super::CHAIN_DRAW_LIST + super::chain_elem::NEXT)
+            == super::GUI_DRAW_ELEM
+    }
+
+    /// The panel being laid over a stage's first frames, which sets all five of `GuiFlags`' two-bit
+    /// fields to 2 itself — 0x41a2b6, inside the vm's script, until it reaches `ExitHide` 250 frames in.
+    ///
+    /// Which is why the field orb writes decides nothing over those frames, and the reason one of the
+    /// two fields in `repaint_lives_row`'s ask was tried and left: see that method.
+    pub fn repaints_the_whole_panel(&self) {
+        self.space()
+            .write::<u32>(super::G_GUI + super::gui::FLAGS, 0b10_10_10_10_10);
+    }
+
+    /// `GuiFlags` as it stands, which is what says whether the game will repaint the row the lives are
+    /// counted in — the lowest pair.
+    pub fn gui_flags(&self) -> u32 {
+        self.space().read(super::G_GUI + super::gui::FLAGS)
+    }
+
+    /// And the word after `Gui::OnDraw` has spent what it drew from it, which is one off each field.
+    pub fn sets_gui_flags(&self, flags: u32) {
+        self.space()
+            .write::<u32>(super::G_GUI + super::gui::FLAGS, flags);
+    }
+
     /// The device orb draws its overlay through and the window it reads the keyboard against, which
     /// are what the game has once it has finished setting Direct3D up.
     pub fn shows_through(&self, device: *mut Device, window: Hwnd) {
@@ -688,6 +803,49 @@ impl Image {
     /// And no controller at all, which is what the game has where its enumeration found none.
     pub fn no_controller(&self) {
         self.space().write::<usize>(super::G_CONTROLLER, 0);
+    }
+
+    /// The keyboard device the game takes `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, reached the same way the
+    /// controller is: a pointer to the object, and the object's first word pointing at the vtable.
+    ///
+    /// `unacquire` and `release` are the two slots orb calls to let it go — `Th06::take_sent_keys` — and
+    /// `acquire` the one it calls to get it back after the window has been away. Addresses of real
+    /// functions, because code is the one thing a laid-out address space cannot hold.
+    pub fn keyboard_device(&self, acquire: usize, unacquire: usize, release: usize) {
+        let space = self.space();
+        space.write::<usize>(
+            super::G_SUPERVISOR + super::supervisor::KEYBOARD,
+            KEYBOARD.start,
+        );
+        space.write::<usize>(KEYBOARD.start, KEYBOARD_VTABLE);
+        for (slot, function) in [
+            (super::dinput_device::ACQUIRE, acquire),
+            (super::dinput_device::UNACQUIRE, unacquire),
+            (super::dinput_device::RELEASE, release),
+        ] {
+            space.write::<usize>(KEYBOARD_VTABLE + slot * size_of::<usize>(), function);
+        }
+    }
+
+    /// Whether the game still holds one, which is what orb clears when it lets it go: the pointer being
+    /// nothing is what sends `Controller::GetInput` down its `GetKeyboardState` branch.
+    pub fn holds_a_keyboard_device(&self) -> bool {
+        self.space()
+            .read::<usize>(super::G_SUPERVISOR + super::supervisor::KEYBOARD)
+            != 0
+    }
+
+    /// Whether the run on screen is the attract demo, which the game starts from its title screen when
+    /// nobody has pressed anything.
+    ///
+    /// A run in every other respect — it goes through the same two states a played one does — and this flag
+    /// is the whole of what tells it apart, which is what `read_state` reads it for: a demo is not a run
+    /// somebody is playing, so nothing of the mode is offered over one.
+    pub fn demo_mode(&self, demo: bool) {
+        self.space().write::<u8>(
+            super::G_GAME_MANAGER + super::game_manager::DEMO_MODE,
+            u8::from(demo),
+        );
     }
 
     /// The mapping that says which of its buttons the game reads as what.
@@ -728,6 +886,52 @@ impl Image {
     /// game's own or orb's in its place — is called on.
     pub fn game_window_object(&self) -> usize {
         super::G_GAME_WINDOW
+    }
+
+    /// `ResultScreen::RegisterChain`: the screen's own job in the chain's *calc* list, carrying
+    /// `ResultScreen::OnUpdate` as its callback and the screen itself as what to call it on.
+    ///
+    /// Which is the only way to that screen at all — nothing in the game's static data points at it, and
+    /// `chain_argument` finding it by its callback is what orb does instead. So a game that wrote the
+    /// screen's state into a global would be answering the question orb's walk is being asked.
+    pub fn registers_the_result_screen(&self, state: i32) {
+        let space = self.space();
+        let elem = RESULT_SCREEN_ELEM.start;
+        space.write::<usize>(
+            elem + super::chain_elem::CALLBACK,
+            super::RESULT_SCREEN_ON_UPDATE,
+        );
+        space.write::<usize>(elem + super::chain_elem::ARG, RESULT_SCREEN.start);
+        let head = super::G_CHAIN + super::chain_elem::NEXT;
+        let after: usize = space.read(head);
+        space.write::<usize>(elem + super::chain_elem::NEXT, after);
+        space.write::<usize>(head, elem);
+        self.set_result_screen_state(state);
+    }
+
+    /// And `Chain::Cut` taking it out, which the screen's deleted callback does on the way to the title.
+    pub fn cuts_the_result_screen(&self) {
+        let space = self.space();
+        let elem = RESULT_SCREEN_ELEM.start;
+        let head = super::G_CHAIN + super::chain_elem::NEXT;
+        if space.read::<usize>(head) == elem {
+            let after: usize = space.read(elem + super::chain_elem::NEXT);
+            space.write::<usize>(head, after);
+        }
+        space.write::<usize>(elem + super::chain_elem::NEXT, 0);
+        space.write::<usize>(elem + super::chain_elem::CALLBACK, 0);
+    }
+
+    /// Which of its states that screen is in, and the two orb has anything to do with — the question it
+    /// asks about saving a replay, and the way out it writes in place of answering one.
+    pub fn result_screen_state(&self) -> i32 {
+        self.space()
+            .read(RESULT_SCREEN.start + super::result_screen::STATE)
+    }
+
+    pub fn set_result_screen_state(&self, state: i32) {
+        self.space()
+            .write::<i32>(RESULT_SCREEN.start + super::result_screen::STATE, state);
     }
 
     /// Says that screen is up with its records read in, which is the state orb waits for before it
@@ -796,12 +1000,25 @@ impl Image {
 /// orb reads as "showing", so a game laid out here and orb cannot disagree about which those are.
 const RANKING_SHOWN: i32 = super::RESULT_SCREEN_SHOWING[0];
 
+/// The two states of the result screen orb has anything to do with, under the names the exe's own
+/// `ResultScreenState` gives them: the question about saving a replay, and the way out the game itself
+/// puts a practice run's result screen into.
+///
+/// Named here rather than left as numbers in whatever drives the game, for the same reason every other
+/// offset is: they are th06's, and this is the one place that knows them.
+pub mod result_state {
+    pub const SAVE_REPLAY_QUESTION: i32 = super::super::RESULT_STATE_SAVE_REPLAY_QUESTION;
+    pub const EXIT: i32 = super::super::RESULT_STATE_EXIT;
+}
+
 fn scene_of(scene: Scene) -> i32 {
     match scene {
         Scene::FrontEnd => super::STATE_MAINMENU,
         Scene::Playing => super::STATE_GAMEMANAGER,
         Scene::Result => super::STATE_RESULTSCREEN_FROMGAME,
         Scene::Ranking => super::STATE_SCORE,
+        Scene::Rebuilding => super::STATE_GAMEMANAGER_REINIT,
+        Scene::Ending => super::STATE_ENDING,
         Scene::Other(state) => state,
     }
 }
@@ -812,6 +1029,8 @@ fn scene_from(state: i32) -> Scene {
         super::STATE_GAMEMANAGER => Scene::Playing,
         super::STATE_RESULTSCREEN_FROMGAME => Scene::Result,
         super::STATE_SCORE => Scene::Ranking,
+        super::STATE_GAMEMANAGER_REINIT => Scene::Rebuilding,
+        super::STATE_ENDING => Scene::Ending,
         state => Scene::Other(state),
     }
 }

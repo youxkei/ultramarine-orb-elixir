@@ -619,7 +619,7 @@ that will never be loaded by anything but Windows. CI is one job, on Windows, an
 
 **What the seam is worth is the other thing, and it is worth it one mechanism at a time.** A
 mechanism whose behaviour turns on something a test cannot make Windows do is a mechanism nothing
-tests. Three of those are covered now and none of them had a test before:
+tests. Four of those are covered now and none of them had a test before:
 
 - **The log's deferral.** Which lines are held and which are written where they stand turns on
   whether the caller is the thread the frame loop claimed. With a real `GetCurrentThreadId` a test
@@ -631,17 +631,23 @@ tests. Three of those are covered now and none of them had a test before:
   including the alt-tab that found a defect: everything reads as released while another window is in
   front, so a key held across the way back read as a fresh press and chose a mode. `input.rs` counts
   the first frame it is reading again as already held now.
+- **How much of the screen the game gets.** Which monitor a window is laid out against is a size the
+  host reports two different answers for — 2560x1440 before `SetProcessDPIAware` and 3840x2160 after —
+  and how big a window has to be to hold a client of a chosen size is this machine's frame, 6x40.
+  Neither is a number a test could move, so nothing held the layout to either. Six scenarios do now, and
+  see *The window* below.
 - **`Th06::read_state` out of a laid-out game.** Not about the host at all — see *Move the rest of
   the suite onto the space* above, which asked for it.
 
-So the question to ask of each of the fifty Win32 functions left is not whether it keeps the suite
+So the question to ask of each of the forty-five Win32 functions left is not whether it keeps the suite
 off a Linux runner. It is whether there is behaviour behind it that no test can reach today. Where
 the answer is no, leave it where it is.
 
 **Where it stands, measured.** `orb-api` holds the seam: the `Win` trait, the neutral types, and the
 facades for the game's memory, the clock and its timer, the display and its compositor, which keys are
-down, which thread is running, which window is in front, the log file and the loaded modules.
-**Twenty-seven** distinct Win32 functions are behind it, and the only files that reach `windows-sys`
+down, which thread is running, which window is in front and how big it and its monitor are, the log
+file and the loaded modules.
+**Thirty-two** distinct Win32 functions are behind it, and the only files that reach `windows-sys`
 for any of them are the eight under `orb-api/src/real/`.
 
 `orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame`, the keyboard and what orb's own
@@ -652,13 +658,16 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Sixty-two of the 258 tests are scenarios, and every one of them is driven by a game.** In
+**Eighty-two of the 278 tests are scenarios, and every one of them is driven by a game.** In
 `orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
 that chooses between them on the keyboard and on a controller the game answers with, the whole of a
-`State` read at frames a game reached by being played to them, and the pacing over a display the scenario
-declares.
+`State` read at frames a game reached by being played to them, the pacing over a display the scenario
+declares, the window orb makes on a monitor it declares, the mark over the count of lives at both edges
+of a run, a `--clear` through six stages with a bullet on the player throughout, which of the two
+score files each of the game's own opens lands in, and a key another program sent reaching the game only
+once orb has let its exclusive keyboard device go.
 
 The frame loop was the last of those to arrive and cost one change, which
 [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) is: `render`
@@ -684,7 +693,20 @@ Run by hand for now, which is a convention and not a check.
 **What is still where it was**, with the question above asked of each: `SuspendThread`,
 `ResumeThread`, `OpenThread` and `GetThreadId` for holding the game still; the heap walk for the
 regions; twenty-odd GDI calls for the status line; DirectInput's `EnumDevices` and winmm's own
-enumeration for finding a pad; `AdjustWindowRect` and the window's own size and position.
+enumeration for finding a pad; `RegisterClassA`, whose whole business is the black brush the window
+class paints the letterbox with.
+
+**The window — done, and it is the fourth mechanism the seam was worth cutting for.** What decides how
+much of the screen the game gets is two numbers only the host knows, and neither could be moved by a
+test: `SetProcessDPIAware`, `MonitorFromPoint`, `GetMonitorInfoW`, `AdjustWindowRect` and
+`GetClientRect` are behind `orb_api::window` now, and `orb_sim::Windows` is a monitor with two sizes —
+3840x2160 that reads as 2560x1440 until the process asks otherwise — and a 6x40 frame charged on the way
+in and given back on the way out. Six scenarios in `scenario_the_window.rs` drive it, through the game's
+own `CreateWindowExA` call: `Originals` gained a third handed-over function for that, the same argument
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) made about the
+frame loop's two. What they hold that the arithmetic could not is which side of `SetProcessDPIAware` each
+monitor read fell on — `orb_sim::Windows::monitor_reads` writes that down — and the client a window of
+the size asked for really comes out with.
 
 **The pacing — done, and it found the thing it was predicted to find.** `frame.rs` is in `orb-core`
 and its host calls are behind the seam: the counter, `Sleep`, `timeBeginPeriod`, the monitor's rate,
@@ -693,7 +715,7 @@ period, a compose time a test may change mid-run, and a `DwmFlush` that returns 
 frame just handed over reached — modelled that way because that is what the real one does and the
 whole of how the pacing knows whether a frame made its blank.
 
-Twenty-eight scenarios drive the loop — `render` itself, called by a game's own loop — where its own
+Twenty-nine scenarios drive the loop — `render` itself, called by a game's own loop — where its own
 thirteen tests were all arithmetic and **not one of them drove it**: the whole-multiple cadence, the rates
 a display reports and the rate each gets, the fractional 2-2-3-2-3 pattern, the budget rising after a frame
 overran, a compositor that spikes and the allowance following it, what that spike costs at each rate, three
@@ -702,6 +724,12 @@ mixed-rate desktop, sixty frames a second for every compose time the pacing has 
 the one that found the deadlock in `measure_compose`, now fixed — and the loop's own shape: the update
 before the draw, the sounds between them, the chain's two exits becoming the frame's two, and the ways out
 that hand the frame back to the game's own loop.
+
+And one that is a negative: `cFramesLate` reaches no decision. The same frames are run twice against two
+hosts that differ in that one answer and in nothing else — `orb_sim::Display::says_every_composition_was_late`
+is the second — and every number orb decided comes out the same, the allowance among them. Which is what
+the measurement needed: the real one read `0 shown late` through runs where 57 frames of 600 missed their
+blank, so the number is reported and nothing rests on it.
 
 **And what orb says about the rate is held against it, which is the half nothing asserted before.** Every
 number a scenario reads of the pacing it reads out of the log: the `frame:` line's count of frames, the
@@ -892,10 +920,31 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 258 tests and 29 stubs without a game, and most of what it now covers used to need a
+The suite is 278 tests and 12 stubs without a game, and most of what it now covers used to need a
 session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
 to, and therefore what a session is for. What a scenario could reach once the laid-out game grows is
 a stub instead, `#[ignore]`d and holding its own numbers; `cargo test -- --ignored` lists those.
+
+**The twelve stubs left, and the one thing each is waiting on.** Seventeen of the twenty-nine were
+un-stubbed by growing the laid-out game and the seam — six stages that follow one another, a bullet the
+hit test runs against after the player's own update, the result screen reached through the chain job it
+registers, `g_Gui`'s draw job in and out of the chain, a monitor with two sizes and a frame round a
+window, the game's own `CreateFileA` handed over so that which of the two score files an open lands in is
+answerable, and a keyboard device the game holds `DISCL_EXCLUSIVE | DISCL_FOREGROUND` beside a keyboard
+that tells a key a hand is holding from one another program sent. What is left needs one of four things,
+and no stub needs more than one of them:
+
+| | |
+| --- | --- |
+| **a replay record and a generator the game draws from** | `scenario_moving_between_a_replays_stages.rs`'s four. The replay manager's record, `Rng::GetRandomU16` drawn where the game draws it, the player moved by recorded input, and a screen shake taking two numbers a frame |
+| **an ending script and its staff roll** | two of `scenario_the_ending.rs`'s three. A `.end` of one-character instructions, the scene the roll plays in, and the track changing on the same update the script hands over. The scene itself is there — a cleared run passes through it and orb writes `ending skipped, N frames run, scene 10 -> 7`, which `scenario_a_clear_on_demand.rs` reads — and what is missing is a script for it to run out |
+| **a streaming sound** | `scenario_the_music_across_a_restore.rs`'s three. A `data` chunk, a loop point, and the countdown `WaveFile::Read` keeps, reached through the buffer's vtable the way `recording.rs` reaches the device's |
+| **the front end's own answers** | `scenario_the_score_file.rs`'s remaining two, and they are the one pair whose obstacle is not the laid-out game's size. What `a_missing_pointdevice_score_file_locks_the_unlocks` asserts is which items the game's menu lights, and *what the front end offers* is on the list below of what the log cannot see. The other wants the front end rebuilding itself, which is what orb's trip through the ranking rests on |
+
+And one is waiting on something no code will provide:
+`the_ending_and_the_roll_together_come_to_the_waits_in_the_script` is blocked on a measurement that has
+not been taken — the **62 frames** between 7,892 and 7,830 are unaccounted for, and a scenario that
+accounted for them would be inventing the account.
 
 **Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
 by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The

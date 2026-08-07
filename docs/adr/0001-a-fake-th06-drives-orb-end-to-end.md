@@ -1,9 +1,18 @@
 # 1. A fake 紅魔郷 drives orb, and a test only sends input
 
-**Status:** accepted and built. Five scenario files stand on it — a whole run in each mode, the question
-that chooses between them on the keyboard and on a pad, and a `State` read at frames a game was played
-to — and *Where it landed* at the end says how the shape differs from the plan this was written with,
-and what building it found.
+**Status:** accepted and built. Five scenario files stood on it to begin with — a whole run in each mode,
+the question that chooses between them on the keyboard and on a pad, and a `State` read at frames a game
+was played to — and *Where it landed* at the end says how the shape differs from the plan this was written
+with, and what building it found.
+
+**It is eleven files now, and what grew was the game.** Six stages that follow one another through the
+scene a transition rebuilds the manager in, a bullet the hit test runs against after the player's own
+update, the result screen reached through the chain job it registers, `g_Gui`'s draw job going into that
+chain and out of it, a score file the game opens for itself, and the keyboard device it holds exclusively
+until orb lets it go. Every one of those was a `#[ignore]`d stub holding a measurement, and what un-stubbed
+it was this decision's own answer: the game plays the game's part, and a scenario sends input and reads
+back. Twelve stubs are left and *What only the real game can still answer* in [TODO.md](../../TODO.md)
+says what each waits on.
 
 **Two things it says are wrong.** This claimed `render` was the one thing a game laid out by hand could
 not drive; [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —

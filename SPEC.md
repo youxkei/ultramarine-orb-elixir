@@ -1527,8 +1527,9 @@ otherwise impossible: a device held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` does no
 with `SendInput`, and every screen orb has a question over is the game's own screen answered on the
 game's own keyboard. Nothing else about a run changes — the same code turns those keys into the same
 buttons — and what it made possible is the whole of picking a run up again, watched twice through the
-front end without a hand on the keyboard. `scenario_keys_from_another_program.rs` holds what those
-sessions established about it.
+front end without a hand on the keyboard. `scenario_keys_from_another_program.rs` drives both sides of
+it: the game holding the device and refusing a sent key, and the game reading `GetKeyboardState` once orb
+has let the device go and being driven by one.
 
 `--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own
 four, and the only ones it does not hand on: each answers a question the DLL, being inside a game
@@ -2041,7 +2042,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
 | `crates/orb-sim` | the simulated Windows, and in its `tests/` every test that drives `orb` and `orb-core` against it |
 | `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
-| `orb-sim/keyboard.rs` | the keys a test holds down, and a host that refuses to say what is down at all |
+| `orb-sim/window.rs` | the panel a test declares and the window manager over it: the two sizes one monitor reports either side of `SetProcessDPIAware`, the frame it costs to get a client of a given size, and the windows it has been asked to make |
+| `orb-sim/keyboard.rs` | the keys a test holds down, the keys another program sent — which `GetKeyboardState` reports and an exclusive foreground device does not — and a host that refuses to say what is down at all |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb/lib.rs` | `DllMain`, the hooks orb installs, and the frame it runs in place of the game's |
@@ -2061,6 +2063,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb/score.rs` | the fork of the game's score file, and the refusing of a clear run's write |
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
+| `orb-api/window.rs` | which window is in front, and the sizes the host decides: what the monitor measures, the frame it puts round a client area, and the client a created window came out with |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
 | `orb/input.rs` | orb's own reading of the keyboard, for its keys rather than the game's |
@@ -2076,7 +2079,13 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/tests/scenario_pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb-sim/tests/scenario_mode_question.rs`, `scenario_mode_on_the_pad.rs` | the question over the game's title menu answered on the keyboard, and answered on a controller the game owns |
 | `orb-sim/tests/scenario_the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
+| `orb-sim/tests/scenario_the_window.rs` | the window orb makes on a monitor the scenario declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, and the black either side of a 4:3 game |
+| `orb-sim/tests/scenario_the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended |
+| `orb-sim/tests/scenario_a_clear_on_demand.rs` | `--clear` through six stages with a bullet sitting on the player, the screen that saves a replay written past rather than answered, and neither score file written |
+| `orb-sim/tests/scenario_the_score_file.rs` | which of the two files each of the game's own opens lands in: the front end's read, which is the game's own file whatever the mode, and each mode's ranking screen reading and writing its own |
 | `orb-sim/tests/scenario_th07.rs` | a laid-out 妖々夢 with orb attached to `Th07`, which asks that orb got in and did none of what it does to 紅魔郷 |
+| `orb-sim/tests/scenario_keys_from_another_program.rs` | `--sent-keys`: a key another program sent, refused by the keyboard device the game holds exclusively and seen once orb has let that device go, and the two moments in the front end that spend a press on nothing |
+| `orb-sim/tests/scenario_the_ending.rs`, `scenario_moving_between_a_replays_stages.rs`, `scenario_the_music_across_a_restore.rs` | the twelve stubs left, with two more in `scenario_the_score_file.rs`: `#[ignore]`d, each holding the measurement it has to reproduce and saying what it waits on. See *What only the real game can still answer* in [TODO.md](TODO.md) |
 | `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their names not beginning `scenario_` says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses

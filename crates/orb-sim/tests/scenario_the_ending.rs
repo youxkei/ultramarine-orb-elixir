@@ -5,9 +5,11 @@
 //! writing the scenario is a matter of making the laid-out game reach the same numbers rather than
 //! deciding what the numbers are.
 //!
-//! What it takes to un-stub them: the fake 紅魔郷 has no ending. It needs the ending's script — a `.end`
-//! of one-character instructions — the scene the roll plays in, and the two signals the boundary is read
-//! off, which are the script handing over and the track changing on the same update.
+//! What it takes to un-stub them: the fake 紅魔郷 has the ending's *scene* — a cleared run passes through
+//! it and orb writes `ending skipped, N frames run, scene 10 -> 7` about running it out, which
+//! `scenario_a_clear_on_demand.rs` reads — and no ending in it. What is missing is the script for it to run
+//! out: a `.end` of one-character instructions, the scene the roll plays in, and the two signals the
+//! boundary is read off, which are the script handing over and the track changing on the same update.
 //!
 //! **What an ending is made of**, read out of `紅魔郷ED.DAT`: 33 entries, unpacked the way the game
 //! does — a table whose every number is two bits of length and then that many bytes, and LZSS over an

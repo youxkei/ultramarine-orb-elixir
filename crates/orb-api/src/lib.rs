@@ -49,6 +49,40 @@ impl Hwnd {
     }
 }
 
+/// A rectangle in whatever coordinates the call that answered it works in: a monitor's own for the
+/// monitor, and the window's own for a client area.
+///
+/// The same four fields in the same order as Windows' `RECT`, and exclusive at the right and bottom
+/// as that one is, so the arithmetic either side of the seam is the arithmetic that was already
+/// written. Plain data, so the types the seam traffics in build on any host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Rect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+impl Rect {
+    /// One of that size at the origin, which is what a client area is measured as.
+    pub fn sized(width: i32, height: i32) -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        }
+    }
+
+    pub fn width(self) -> i32 {
+        self.right - self.left
+    }
+
+    pub fn height(self) -> i32 {
+        self.bottom - self.top
+    }
+}
+
 /// What a region of the address space is, as far as anything reading it can tell.
 ///
 /// [`Win::vtable_in_image`] is the one question orb asks that tells them apart: a live COM
@@ -231,6 +265,32 @@ pub trait Win: Send + Sync + 'static {
     /// `GetForegroundWindow`. The pacing asks it because counting refreshes against a window that
     /// is not in front comes out wrong.
     fn foreground_window(&self) -> Hwnd;
+
+    /// `SetProcessDPIAware`, and whether the host took it. Said once, before there is a window.
+    ///
+    /// Behind the seam because every size orb lays out is measured against what the host reports
+    /// *after* this, and no test can otherwise make a host report two different sizes for one
+    /// monitor. Measured on this machine: a 3840x2160 panel reads as 2560x1440 until this is called.
+    fn set_process_dpi_aware(&self) -> bool;
+
+    /// `MonitorFromPoint(0,0)` and `GetMonitorInfoW` — the primary monitor, in the desktop's own
+    /// coordinates. `None` where the host will not say, which leaves the window as the game made it.
+    fn primary_monitor(&self) -> Option<Rect>;
+
+    /// `AdjustWindowRect` — the whole window a client area of that size needs, frame included.
+    ///
+    /// Behind the seam because how thick a frame is belongs to the host and to its theme: the size in
+    /// `orb.yaml` is the size of what is *inside* the window, so the frame is what stands between the
+    /// number asked for and the window to ask for. Measured on this machine: 6x40 round the
+    /// caption-and-system-menu style `orb::window` asks for.
+    ///
+    /// `None` where the host refused, which leaves the rectangle as the client area — a window a
+    /// frame too small rather than no window.
+    fn adjust_window_rect(&self, area: Rect, style: u32, menu: bool) -> Option<Rect>;
+
+    /// `GetClientRect` — what the game draws into, which is not the size that was asked for whenever
+    /// anything between here and the screen has an opinion. `None` for a window that is not there.
+    fn client_rect(&self, window: Hwnd) -> Option<Rect>;
 
     // --- the keyboard ----------------------------------------------------------
 

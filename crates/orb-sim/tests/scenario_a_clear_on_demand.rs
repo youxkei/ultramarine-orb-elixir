@@ -1,15 +1,55 @@
 //! **`--clear`: a run to the ending in a minute, on nothing but the shot key held.**
 //!
-//! Every scenario here is a stub: `#[ignore]`d, and `todo!()` where the assertion goes. What each one
-//! holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this machine.
-//!
-//! What it takes to un-stub them: the fake 紅魔郷 has one stage and no way through six. It needs the
-//! stages to follow one another, something able to hit the player for the invulnerability to be about,
-//! and the result screen a clear ends on.
+//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! machine.
 //!
 //! What `--clear` is for is reaching a result screen without half an hour of playing well, so it is also
 //! how the ending, the replay screen and the score file's write on the way out were all reached. It
 //! fixes the mode rather than asking — `mode: pointdevice to start with; nobody is asked`.
+//!
+//! **What makes these say anything is a bullet that can really kill.** `Fake::puts_a_bullet_on_the_player`
+//! leaves one there and the hit test runs where the game runs it — after `Player::OnUpdate`, priority 7
+//! against the bullets' 11 — so a run that comes out with `deaths=0` came out that way because something
+//! stopped it, and the same bullet in a run without `--clear` kills on the frame it is put there.
+//!
+//! The wall-clock numbers in the measurements below are the real game's: 50.7 seconds of six stages, 235ms
+//! to a death, 9.5 seconds of result screen. What a laid-out game reproduces is the invariants — no death
+//! anywhere, the six stages in order, the ending after them, and the screen that saves a replay never
+//! coming up.
+
+mod fake;
+
+use fake::th06::{Fake, STAGES, the_run};
+use fake::{Launched, in_its_own_process};
+use orb_config::LogLevel;
+use orb_core::game::th06::image::{Scene, result_state};
+
+/// How long each stage of these runs is, in frames.
+///
+/// Past the 248 a stage spends settling before its first chapter, so every stage of the run is a stage
+/// that took one — a stage nothing was written down in would be a stage this says nothing about.
+const STAGE_FRAMES: u32 = 300;
+
+/// How long a whole run of six of those needs, in frames, with room for the transitions and the ending.
+const A_WHOLE_RUN: u32 = STAGE_FRAMES * STAGES as u32 * 2;
+
+/// The two names an open of the score file can land in: the one the game asks for, and orb's own beside it.
+/// Which one each open lands in is `scenario_the_score_file.rs`'s subject; what these two are for is that
+/// **neither** is written by a run nothing could hit.
+const THEIRS: &str = "score.dat";
+const OURS: &str = "pointdevice_score.dat";
+
+/// A launch of `--clear`, in a run, with a bullet sitting on the player.
+fn clearing(name: &str) -> Box<Fake> {
+    let game = Fake::attach(name, the_run(), |config| {
+        config.fast_clear = true;
+        config.log_level = LogLevel::Verbose;
+    });
+    game.stages_last(STAGE_FRAMES);
+    game.in_a_run_nobody_was_asked_about();
+    game.puts_a_bullet_on_the_player();
+    game
+}
 
 /// Six stages with nothing able to hit the player, and no death anywhere in them.
 ///
@@ -18,9 +58,68 @@
 /// one `died in chapter` line, on nothing but the shot key being held. A later run of the same thing put
 /// stages 1 to 6 in 35 seconds and went on into the ending.
 #[test]
-#[ignore = "the fake 紅魔郷 has one stage and no run through six"]
 fn a_cleared_run_reaches_the_ending_with_no_death_in_it() {
-    todo!("run six stages under --clear and assert deaths=0 and no died-in-chapter line")
+    in_its_own_process(|| {
+        let game = clearing("a-clear-through-six");
+        // Nobody was asked which mode, which is what `--clear` is: it takes the mode it is given.
+        assert!(
+            game.log()
+                .said("mode: pointdevice to start with; nobody is asked"),
+            "the launch asked which mode:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // Every stage of the run, in order, each one a stage that took a chapter of its own.
+        for stage in 1..=STAGES {
+            game.frames_until(&format!("stage {stage}"), A_WHOLE_RUN, || {
+                game.log()
+                    .said(&format!("stage {stage} chapter 1 (stage start)"))
+            });
+            assert_eq!(
+                game.state().deaths,
+                0,
+                "a death was counted before stage {stage} of a run nothing could hit",
+            );
+        }
+        // And then the ending rather than a seventh stage, which is what clearing stage six is. Run out
+        // inside the frame it began on rather than played, which is what `--clear` does with one: the
+        // scene is never a scene anybody sees, so what says the run went through it is the line orb
+        // writes about running it out. How many updates that takes and where the staff roll begins is
+        // `scenario_the_ending.rs`'s.
+        game.frames_until("the result screen", A_WHOLE_RUN, || {
+            game.image().scene() == Scene::Result
+        });
+        assert!(
+            game.log()
+                .lines()
+                .iter()
+                .any(|line| line.contains("ending skipped") && line.contains("scene 10 -> 7")),
+            "the run did not go through the ending on its way to the result screen:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        assert_eq!(
+            game.state().deaths,
+            0,
+            "a death was counted in a run nothing could hit",
+        );
+        // Not one, which is the other half: `deaths` is the game's count and this is orb's, and a run that
+        // lost the frames of invulnerability would have both.
+        assert!(
+            !game
+                .log()
+                .lines()
+                .iter()
+                .any(|line| line.contains("died in chapter")),
+            "orb noticed a death in a run nothing could hit:\n  {}",
+            game.log()
+                .lines()
+                .iter()
+                .filter(|line| line.contains("died in chapter"))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    });
 }
 
 /// The frames of invulnerability go back with the player's state, and the log said why they have to.
@@ -30,12 +129,114 @@ fn a_cleared_run_reaches_the_ending_with_no_death_in_it() {
 /// chain priority **7** and the bullets are checked at **11**, so the state expired before the hit test
 /// in the update it was written for. Writing the frames left with it fixed that.
 #[test]
-#[ignore = "the fake 紅魔郷 has nothing able to hit the player"]
 fn the_invulnerability_outlasts_the_hit_test_in_the_update_it_was_written_for() {
-    todo!(
-        "put a bullet on the player at chain priority 11 with the state written at 7, and assert no \
-         death"
-    )
+    in_its_own_process(|| {
+        // The same bullet in a run without `--clear`, first, because a bullet nothing dies to says
+        // nothing about what stopped this run dying: it kills on the frame it is put there.
+        {
+            let game = Fake::attach("a-clear-a-lethal-bullet", the_run(), |config| {
+                config.log_level = LogLevel::Verbose;
+            });
+            game.in_a_pointdevice_run();
+            game.puts_a_bullet_on_the_player();
+            game.frames_until("the death that bullet is", 8, || {
+                game.log().said("died in chapter")
+            });
+        }
+
+        // And with `--clear`, the same bullet against a player orb makes invulnerable before every update:
+        // both the state and the frames left under it, so that `Player::OnUpdate` at priority 7 does not
+        // run them out before the bullets are checked at 11.
+        let game = clearing("a-clear-the-invulnerability");
+        // One update of the stage, which is where orb writes it: `make_invulnerable` runs before the calc
+        // chain and only over a run that is in progress, so a stage's own build frame has nothing yet.
+        game.frame();
+        let frames = game.image().invulnerable_frames();
+        assert!(
+            frames > 0,
+            "orb wrote a player invulnerable with no frames left under it, which is a player the hit \
+             test in this very update can kill",
+        );
+
+        // A whole stage of it, so the claim is not about one update: every one of those runs the hit test
+        // against a live bullet, and none of them killed.
+        game.frames_until("a stage of it", A_WHOLE_RUN, || {
+            game.state().stage_frames > STAGE_FRAMES / 2
+        });
+        assert_eq!(game.state().deaths, 0);
+        assert_eq!(game.state().lives, 2, "a life went to a bullet");
+        assert!(
+            !game
+                .log()
+                .lines()
+                .iter()
+                .any(|line| line.contains("died in chapter")),
+            "the invulnerability ran out inside the update it was written for:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+    });
+}
+
+/// No replay is offered, and the screen that saves one is skipped rather than the write refused.
+///
+/// Measured over a `--clear` run to the ending:
+///
+/// ```text
+/// f5966 scene=7                                                     the result screen
+/// score: pointdevice_score.dat opened in place of the game's own     read as it was built
+/// result: no replay is offered for a run with chapters
+/// score: nothing written, this run had nothing able to hit the player
+/// f6545 scene=1                                                     the title menu
+/// score: pointdevice_score.dat opened in place of the game's own     the menu reading it again
+/// ```
+///
+/// The result screen was up for **9.5 seconds** between those two scene lines, which is the high-score
+/// name entry and the stats screen being played through as they always were — the state is written after
+/// those, not instead of them. Then the title menu, with no save-replay screen in between.
+#[test]
+fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
+    in_its_own_process(|| {
+        let game = clearing("a-clear-no-replay-offered");
+        // The screen itself, which registers its own job on the frame after the scene: orb finds it by
+        // that job's callback and by nothing else, there being nothing in the game's static data that
+        // points at it.
+        game.frames_until("the screen that saves a replay", A_WHOLE_RUN, || {
+            game.log()
+                .said("result: no replay is offered for a run with chapters")
+        });
+        assert!(
+            game.log()
+                .said("result: no replay is offered for a run with chapters"),
+            "the screen that saves a replay was left to come up:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // Skipped rather than answered: what orb writes is the state the game itself puts a practice run's
+        // result screen into, because answering the question means writing the interrupt each of its 38
+        // sprites is to run next and waiting out the fade they play.
+        assert_eq!(
+            game.image().result_screen_state(),
+            result_state::EXIT,
+            "the question was answered rather than written past",
+        );
+        // And written before the frame the question would be drawn from, so no part of that screen ever
+        // reached anybody: a state written a frame late is a question somebody has to answer.
+        game.frames_until("the title menu after it", A_WHOLE_RUN, || {
+            game.image().scene() == Scene::FrontEnd
+        });
+        assert!(
+            !game.the_replay_question_was_drawn(),
+            "the screen that saves a replay was drawn before orb wrote past it",
+        );
+
+        // The screens before it were played through as they always were, which is what the 9.5 seconds
+        // between the two scene lines is: the state is written after those and not instead of them.
+        assert!(
+            game.log().said("run ended after"),
+            "the run did not finish through the result screen:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+    });
 }
 
 /// Nothing is written to any score file, and the game's own teardown still runs.
@@ -52,31 +253,49 @@ fn the_invulnerability_outlasts_the_hit_test_in_the_update_it_was_written_for() 
 /// `pointdevice_score.dat` now and the fork follows the mode chosen in the game; the seam and the
 /// comparison are the same code.
 #[test]
-#[ignore = "the fake 紅魔郷 has no result screen for a clear to end on"]
 fn a_cleared_run_writes_no_score_and_leaves_the_games_teardown_in_the_path() {
-    todo!(
-        "reach the result screen under --clear and assert the read happened and the write did not"
-    )
-}
+    in_its_own_process(|| {
+        let game = clearing("a-clear-writes-no-score");
+        assert!(
+            game.log().said("score: no file is written this run"),
+            "the launch did not say it writes no file:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        // What the game's own file holds going in, which is what it has to hold coming out.
+        let theirs = game.score_file(THEIRS).expect("the game's own score file");
 
-/// No replay is offered, and the screen that saves one is skipped rather than the write refused.
-///
-/// Measured over the same `--clear` run to the ending:
-///
-/// ```text
-/// f5966 scene=7                                                     the result screen
-/// score: pointdevice_score.dat opened in place of the game's own     read as it was built
-/// result: no replay is offered for a run with chapters
-/// score: nothing written, this run had nothing able to hit the player
-/// f6545 scene=1                                                     the title menu
-/// score: pointdevice_score.dat opened in place of the game's own     the menu reading it again
-/// ```
-///
-/// The result screen was up for **9.5 seconds** between those two scene lines, which is the high-score
-/// name entry and the stats screen being played through as they always were — the state is written after
-/// those, not instead of them. Then the title menu, with no save-replay screen in between.
-#[test]
-#[ignore = "the fake 紅魔郷 has no result screen and no replay screen after it"]
-fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
-    todo!("reach the result screen with chapters kept and assert the replay screen never comes up")
+        // Reads are left alone, so the session still shows the ranking it had: the file was read on the way
+        // into every stage of the run.
+        game.frames_until("a read of the score file", A_WHOLE_RUN, || {
+            game.score_file_opens().iter().any(|open| !open.write)
+        });
+
+        // And the write is refused where the run ends, which orb reaches by taking it through the ranking:
+        // the file that must not be written is whichever *this* run would have written, so the refusal is
+        // before the fork and covers both names.
+        game.frames_until("the write refused", A_WHOLE_RUN, || {
+            game.log()
+                .said("score: nothing written, this run had nothing able to hit the player")
+        });
+        // Refused rather than sent somewhere else: the game asks for the file once, checks its open and
+        // drops what its write returned, so a refusal is a file that stays as it was and a game that carries
+        // on as if it had saved.
+        assert_eq!(
+            game.score_file(THEIRS).as_deref(),
+            Some(theirs.as_slice()),
+            "the game's own file was written by a run nothing could hit",
+        );
+        assert!(
+            game.score_file(OURS).is_none(),
+            "orb's own file was written by a run nothing could hit",
+        );
+
+        // And the game carried on past it, scene 7 to 1: the run reached its title menu, which is
+        // `WriteDataToFile` checking its open rather than the game stopping on it.
+        game.frames_until(
+            "the title menu after the result screen",
+            A_WHOLE_RUN,
+            || game.image().scene() == Scene::FrontEnd,
+        );
+    });
 }

@@ -47,7 +47,13 @@ pub mod snapshot;
 mod text;
 mod threads;
 mod tuning;
-mod window;
+/// How much of the screen the game gets: the window created for it, and the black beside it.
+///
+/// `pub` for the same reason the hooks below are — a game laid out by hand calls
+/// [`window::create_window_ex_a`] where the real game's own `CreateWindowExA` call lands, there being
+/// no import table to reach it through — and for one thing besides: [`window::letterbox`] is where the
+/// black either side of a 4:3 game is decided, and nothing else in orb says how much of it there is.
+pub mod window;
 
 use std::ffi::c_void;
 use std::ops::Range;
@@ -818,6 +824,13 @@ pub struct Originals {
     /// that game the way the hooks above it do rather than through a `this` it was handed.
     pub play_sounds: unsafe extern "fastcall" fn(usize),
     pub present: unsafe extern "fastcall" fn(usize),
+    /// Its own `CreateWindowExA`, which the rewrite calls through with the arguments it decided —
+    /// where a real launch reaches the exe's import table for it. A laid-out game hands it over for
+    /// the same reason it hands over the two above: there is no import table to patch.
+    pub create_window: window::CreateWindowExA,
+    /// And its own `CreateFileA`, which the score file's fork calls through with the name it decided.
+    /// The same story, at the same import table there is none of.
+    pub create_file: score::CreateFileA,
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -893,6 +906,23 @@ pub unsafe fn attach_to(
         function: originals.present as usize,
         this: 0,
     });
+    // And the window, which is the same story: what the game gets is decided by orb either way, and a
+    // laid-out game reaches the rewrite by calling it rather than by having its imports patched. Always,
+    // as [`attach`] installs it always — the answer is orb's whichever of the two the settings say.
+    unsafe { window::install_over(originals.create_window, game.content_size(), config.screen) };
+    // The score file's fork, on the same gate [`attach`] puts it behind: only where a run can be rewound,
+    // and always for a clear — there the fork is not what it is for, and being in the path of the write is.
+    if config.chapters || config.fast_clear {
+        if config.fast_clear {
+            score::refuse_writes();
+        }
+        unsafe { score::install_over(originals.create_file) };
+        if config.fast_clear {
+            log!("score: no file is written this run");
+        } else {
+            log!("score: score.dat is forked while orb is in pointdevice mode");
+        }
+    }
     // The frame loop from nothing, and set up as [`attach`] sets it up: the cadence off the desktop's
     // own rate before there is a window to ask about, and the compositor's drawing time pinned where
     // the launch pinned it. Thrown away first rather than configured again, because what a `Pacing`

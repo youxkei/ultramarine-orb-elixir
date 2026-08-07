@@ -19,19 +19,18 @@
 use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
+use orb_api::Rect;
 use orb_config::Screen;
-use windows_sys::Win32::Foundation::{COLORREF, HWND, POINT, RECT};
+use windows_sys::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, BLACKNESS, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap,
     CreateCompatibleDC, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC,
-    DeleteObject, ExtTextOutW, FW_NORMAL, GetDC, GetMonitorInfoW, GetTextExtentPoint32W, HBRUSH,
-    HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
-    OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextAlign,
+    DeleteObject, ExtTextOutW, FW_NORMAL, GetDC, GetTextExtentPoint32W, HBRUSH, HDC, HFONT,
+    HGDIOBJ, OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextAlign,
     SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRect, GetClientRect, HMENU, SetProcessDPIAware, WNDCLASSA, WS_CAPTION,
-    WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_VISIBLE,
+    HMENU, WNDCLASSA, WS_CAPTION, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_VISIBLE,
 };
 
 use crate::d3d8::{Device, Hresult};
@@ -74,15 +73,18 @@ static SCREEN: MainThread<Screen> = MainThread::new(Screen::Fullscreen);
 /// The window created for the game, which is the device's window.
 static GAME_WINDOW: AtomicIsize = AtomicIsize::new(0);
 /// Worked out from the client area on the first present and kept until it changes.
-static DESTINATION: MainThread<Option<(RECT, RECT)>> = MainThread::new(None);
+static DESTINATION: MainThread<Option<(Rect, Rect)>> = MainThread::new(None);
 
 static REGISTER_CLASS_A: AtomicUsize = AtomicUsize::new(0);
 static CREATE_WINDOW_EX_A: AtomicUsize = AtomicUsize::new(0);
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
 
 type RegisterClassA = unsafe extern "system" fn(*const WNDCLASSA) -> u16;
+/// The game's own `CreateWindowExA`, which [`create_window_ex_a`] calls through with the arguments it
+/// decided. `pub` because a game laid out by hand hands one of these over — see
+/// [`install_over`].
 #[allow(clippy::type_complexity)]
-type CreateWindowExA = unsafe extern "system" fn(
+pub type CreateWindowExA = unsafe extern "system" fn(
     u32,
     *const u8,
     *const u8,
@@ -111,23 +113,8 @@ pub unsafe fn install(
     content: (u32, u32),
     screen: Screen,
 ) -> Result<(), hook::Error> {
-    // Before the window exists, which is the only moment this can be said. Without it every
-    // size below is a size Windows scales behind the game's back: a 1280x720 window asked for on
-    // a monitor at 150% is 1920x1080 of screen, and the monitor a fullscreen window is measured
-    // against reads as two thirds of itself. The game never asked to be told about scaling, so
-    // orb asks for it.
-    let told = unsafe { SetProcessDPIAware() };
-    log!(
-        "screen: display scaling {}",
-        if told != 0 {
-            "is being ignored, sizes are real pixels"
-        } else {
-            "could not be turned off; sizes are whatever Windows scales them to"
-        }
-    );
+    unsafe { settle(content, screen) };
     unsafe {
-        *CONTENT.get() = content;
-        *SCREEN.get() = screen;
         for (function, replacement, original) in [
             (
                 "RegisterClassA",
@@ -148,6 +135,54 @@ pub unsafe fn install(
     Ok(())
 }
 
+/// The same, for a game laid out by hand: the window it is to get, and its own `CreateWindowExA` in
+/// place of the import table there is none of.
+///
+/// What [`install`] does above this and a laid-out game cannot is patch an import table — so the
+/// original is handed over the way every other call into such a game is, and the rewrite below is
+/// reached by that game calling [`create_window_ex_a`] itself. See
+/// [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md),
+/// which is the same argument about the frame loop's own two calls.
+///
+/// # Safety
+/// `original` must be the game's own `CreateWindowExA` and outlive the last window it makes.
+pub unsafe fn install_over(original: CreateWindowExA, content: (u32, u32), screen: Screen) {
+    unsafe { settle(content, screen) };
+    CREATE_WINDOW_EX_A.store(original as usize, Ordering::Relaxed);
+    ENABLED.store(true, Ordering::Relaxed);
+}
+
+/// What both installations say before any window exists: the ratio to keep, how much of the screen
+/// the game gets, and that this process reads sizes as the monitor's own pixels.
+///
+/// # Safety
+/// Must run on the thread the game's frames will run on, and before the game creates its window.
+unsafe fn settle(content: (u32, u32), screen: Screen) {
+    // Before the window exists, which is the only moment this can be said. Without it every
+    // size below is a size Windows scales behind the game's back: a 1280x720 window asked for on
+    // a monitor at 150% is 1920x1080 of screen, and the monitor a fullscreen window is measured
+    // against reads as two thirds of itself. The game never asked to be told about scaling, so
+    // orb asks for it.
+    //
+    // And before the monitor is read rather than merely before the window is made, which is the part a
+    // scenario holds: `orb_sim::Windows::monitor_reads` writes down whether the process had said this
+    // when each read was answered, and a read on the wrong side of it lays the window out against
+    // two thirds of the panel.
+    let told = orb_api::window::set_process_dpi_aware();
+    log!(
+        "screen: display scaling {}",
+        if told {
+            "is being ignored, sizes are real pixels"
+        } else {
+            "could not be turned off; sizes are whatever Windows scales them to"
+        }
+    );
+    unsafe {
+        *CONTENT.get() = content;
+        *SCREEN.get() = screen;
+    }
+}
+
 /// Redirects the device's `Present` so the back buffer lands in a rectangle of
 /// the game's aspect ratio rather than being stretched over the whole window.
 ///
@@ -165,7 +200,7 @@ pub unsafe fn hook_device(device: *mut Device) {
             // the other thing that can resize a window out from under whoever asked for it.
             log!(
                 "screen: presenting through a letterbox, client {}",
-                match unsafe { client_size(GAME_WINDOW.load(Ordering::Relaxed) as HWND) } {
+                match client_size(GAME_WINDOW.load(Ordering::Relaxed) as HWND) {
                     Some((width, height)) => format!("{width}x{height}"),
                     None => "unknown".to_owned(),
                 }
@@ -190,8 +225,15 @@ unsafe extern "system" fn register_class_a(class: *const WNDCLASSA) -> u16 {
 
 /// Creates the game's window the size the settings say, in place of the size the game asked
 /// for.
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where the
+/// real game's own `CreateWindowExA` call lands, and there is no import table to reach it through.
+///
+/// # Safety
+/// The arguments are `CreateWindowExA`'s own, and an [`install`] or an [`install_over`] must have run
+/// first — without one the original this calls through is null.
 #[allow(clippy::too_many_arguments)]
-unsafe extern "system" fn create_window_ex_a(
+pub unsafe extern "system" fn create_window_ex_a(
     ex_style: u32,
     class_name: *const u8,
     window_name: *const u8,
@@ -207,8 +249,12 @@ unsafe extern "system" fn create_window_ex_a(
 ) -> HWND {
     let original: CreateWindowExA =
         unsafe { std::mem::transmute(CREATE_WINDOW_EX_A.load(Ordering::Relaxed)) };
-    let monitor = primary_monitor();
-    let Some(monitor) = monitor.filter(|_| unsafe { is_game_class(class_name) }) else {
+    // The class first, so a window that is not the game's is not the reason the monitor was read: the
+    // game makes others, and orb leaves those the size they asked for.
+    let monitor = unsafe { is_game_class(class_name) }
+        .then(orb_api::window::primary_monitor)
+        .flatten();
+    let Some(monitor) = monitor else {
         return unsafe {
             original(
                 ex_style,
@@ -236,8 +282,8 @@ unsafe extern "system" fn create_window_ex_a(
             wanted.style,
             wanted.area.left,
             wanted.area.top,
-            wanted.area.right - wanted.area.left,
-            wanted.area.bottom - wanted.area.top,
+            wanted.area.width(),
+            wanted.area.height(),
             parent,
             menu,
             instance,
@@ -250,14 +296,14 @@ unsafe extern "system" fn create_window_ex_a(
         // two different numbers whenever anything between here and the screen has an opinion —
         // display scaling, a shell that remembers window sizes — and the client is the one the
         // letterbox and the bar beside it are worked out from.
-        let client = unsafe { client_size(window) };
+        let client = client_size(window);
         log!(
             "screen: {} — window at {},{} sized {}x{}, client {}",
             unsafe { *SCREEN.get() },
             wanted.area.left,
             wanted.area.top,
-            wanted.area.right - wanted.area.left,
-            wanted.area.bottom - wanted.area.top,
+            wanted.area.width(),
+            wanted.area.height(),
             match client {
                 Some((width, height)) => format!("{width}x{height}"),
                 None => "unknown".to_owned(),
@@ -269,22 +315,19 @@ unsafe extern "system" fn create_window_ex_a(
 
 /// The client area of `window`, which is what the game draws into and what orb works its
 /// letterbox out from.
-unsafe fn client_size(window: HWND) -> Option<(i32, i32)> {
-    let mut client = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    (unsafe { GetClientRect(window, &mut client) } != 0)
-        .then(|| (client.right - client.left, client.bottom - client.top))
+fn client_size(window: HWND) -> Option<(i32, i32)> {
+    client_area(window).map(|client| (client.width(), client.height()))
+}
+
+fn client_area(window: HWND) -> Option<Rect> {
+    orb_api::window::client_rect(orb_api::Hwnd(window as usize))
 }
 
 /// A window to create: what kind it is, and the whole of it — frame included — in the monitor's
 /// own coordinates.
 struct Placed {
     style: u32,
-    area: RECT,
+    area: Rect,
 }
 
 /// Where the game's window goes.
@@ -292,22 +335,17 @@ struct Placed {
 /// The size in the settings is the size of what is *inside* the window, so that `1280x720` is
 /// 1280x720 of game however thick this machine's window frames are; `AdjustWindowRect` is what
 /// turns that into the window to ask for.
-fn placed(monitor: RECT, screen: Screen) -> Placed {
+fn placed(monitor: Rect, screen: Screen) -> Placed {
     let Screen::Window { width, height } = screen else {
         return Placed {
             style: BORDERLESS_STYLE,
             area: monitor,
         };
     };
-    let mut area = RECT {
-        left: 0,
-        top: 0,
-        right: width as i32,
-        bottom: height as i32,
-    };
+    let client = Rect::sized(width as i32, height as i32);
     // A failure leaves the rectangle as the client area, which is a window a frame too small
     // rather than no window at all.
-    unsafe { AdjustWindowRect(&mut area, WINDOWED_STYLE, 0) };
+    let area = orb_api::window::adjust_window_rect(client, WINDOWED_STYLE, false).unwrap_or(client);
     Placed {
         style: WINDOWED_STYLE,
         area: centred(monitor, area),
@@ -317,11 +355,11 @@ fn placed(monitor: RECT, screen: Screen) -> Placed {
 /// A rectangle of that size in the middle of the monitor, and against its top-left corner if it
 /// is too big to be in the middle of it — a window whose caption is off the top of the screen
 /// cannot be moved back on.
-fn centred(monitor: RECT, area: RECT) -> RECT {
-    let (width, height) = (area.right - area.left, area.bottom - area.top);
-    let left = monitor.left + ((monitor.right - monitor.left - width) / 2).max(0);
-    let top = monitor.top + ((monitor.bottom - monitor.top - height) / 2).max(0);
-    RECT {
+fn centred(monitor: Rect, area: Rect) -> Rect {
+    let (width, height) = (area.width(), area.height());
+    let left = monitor.left + ((monitor.width() - width) / 2).max(0);
+    let top = monitor.top + ((monitor.height() - height) / 2).max(0);
+    Rect {
         left,
         top,
         right: left + width,
@@ -338,7 +376,7 @@ unsafe extern "system" fn present(
 ) -> Hresult {
     let original: Present = unsafe { std::mem::transmute(PRESENT.load(Ordering::Relaxed)) };
     let letterbox = unsafe { letterbox() };
-    let Some(letterbox) = letterbox else {
+    let Some(letterbox) = letterbox.map(windows_rect) else {
         return unsafe { original(device, source, destination, window_override, dirty) };
     };
 
@@ -352,6 +390,17 @@ unsafe extern "system" fn present(
         return unsafe { original(device, source, destination, window_override, dirty) };
     }
     result
+}
+
+/// The one place a rectangle has to be spelled Windows' way: `Present`'s destination is Direct3D's
+/// argument, and the ratio it holds was worked out either side of the seam.
+fn windows_rect(rect: Rect) -> RECT {
+    RECT {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    }
 }
 
 fn report_letterbox_failure(result: Hresult) {
@@ -383,19 +432,16 @@ pub unsafe fn write_beside(lines: &[String]) {
     static SHOWN: MainThread<Vec<String>> = MainThread::new(Vec::new());
     /// The rows the last call painted, so this one can clear them whether or not it writes
     /// anything there itself.
-    static PAINTED: MainThread<Option<RECT>> = MainThread::new(None);
+    static PAINTED: MainThread<Option<Rect>> = MainThread::new(None);
     let window = GAME_WINDOW.load(Ordering::Relaxed) as HWND;
     let letterbox = unsafe { letterbox() };
     let Some(letterbox) = letterbox else { return };
-    let mut client = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    if window.is_null() || unsafe { GetClientRect(window, &mut client) } == 0 {
+    if window.is_null() {
         return;
     }
+    let Some(client) = client_area(window) else {
+        return;
+    };
 
     // Whichever bar is wider, and in it the corner nearest the game: lined up with the
     // game's own edge rather than the monitor's, so the numbers read as belonging to what
@@ -408,7 +454,7 @@ pub unsafe fn write_beside(lines: &[String]) {
     // this is here to avoid.
     let (strip, x, align) = if beside >= below {
         (
-            RECT {
+            Rect {
                 left: letterbox.right,
                 top: 0,
                 right: client.right,
@@ -419,7 +465,7 @@ pub unsafe fn write_beside(lines: &[String]) {
         )
     } else {
         (
-            RECT {
+            Rect {
                 left: client.left,
                 top: 0,
                 right: client.right,
@@ -461,7 +507,7 @@ pub unsafe fn write_beside(lines: &[String]) {
         return;
     }
     let (font, height) = unsafe { fitting_font(dc, lines, room) };
-    let block = RECT {
+    let block = Rect {
         left: strip.left,
         top: (bottom - height * lines.len() as i32).max(limit),
         right: strip.right,
@@ -495,7 +541,7 @@ pub unsafe fn write_beside(lines: &[String]) {
 /// Where a stack of lines goes: the rows to repaint, and where in them the text starts.
 struct Bar {
     /// Everything to clear and put on the screen, in client coordinates.
-    area: RECT,
+    area: Rect,
     /// The x the text is aligned from, in client coordinates.
     x: i32,
     /// The bottom of the lowest line.
@@ -517,8 +563,8 @@ struct Bar {
 /// `dc` must be the window's device context and `font` a live font, both the caller's to
 /// release.
 unsafe fn paint(dc: HDC, bar: &Bar, font: HFONT, lines: &[String]) -> bool {
-    let width = bar.area.right - bar.area.left;
-    let height = bar.area.bottom - bar.area.top;
+    let width = bar.area.width();
+    let height = bar.area.height();
     if width <= 0 || height <= 0 {
         return false;
     }
@@ -577,8 +623,8 @@ unsafe fn paint(dc: HDC, bar: &Bar, font: HFONT, lines: &[String]) -> bool {
     }
 }
 
-fn union(a: RECT, b: RECT) -> RECT {
-    RECT {
+fn union(a: Rect, b: Rect) -> Rect {
+    Rect {
         left: a.left.min(b.left),
         top: a.top.min(b.top),
         right: a.right.max(b.right),
@@ -652,15 +698,15 @@ unsafe fn fitting_font(dc: HDC, lines: &[String], room: i32) -> (HFONT, i32) {
 
 /// Said once: with the game filling the window there is nowhere beside it to write, and
 /// that is a fact about the monitor rather than a fault.
-fn report_no_bar(client: RECT, letterbox: RECT) {
+fn report_no_bar(client: Rect, letterbox: Rect) {
     static REPORTED: AtomicBool = AtomicBool::new(false);
     if !REPORTED.swap(true, Ordering::Relaxed) {
         log!(
             "screen: client {}x{}, game {}x{} at {},{} — no black to write in",
-            client.right - client.left,
-            client.bottom - client.top,
-            letterbox.right - letterbox.left,
-            letterbox.bottom - letterbox.top,
+            client.width(),
+            client.height(),
+            letterbox.width(),
+            letterbox.height(),
             letterbox.left,
             letterbox.top,
         );
@@ -669,24 +715,24 @@ fn report_no_bar(client: RECT, letterbox: RECT) {
 
 /// The rectangle inside the client area that the game's output belongs in,
 /// recomputed only when the client area changes.
-unsafe fn letterbox() -> Option<RECT> {
+///
+/// `pub` for a scenario that says how much black there is beside the game: this is where the 320
+/// pixels either side of a 4:3 game on a 2560x1440 client are decided, and nothing else in orb says
+/// so — `present` hands the rectangle straight to Direct3D and the bar beside it is drawn through
+/// the GDI.
+///
+/// # Safety
+/// Must run on the thread the game's frames run on.
+pub unsafe fn letterbox() -> Option<Rect> {
     let window = GAME_WINDOW.load(Ordering::Relaxed) as HWND;
     if window.is_null() {
         return None;
     }
-    let mut client = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    if unsafe { GetClientRect(window, &mut client) } == 0 {
-        return None;
-    }
+    let client = client_area(window)?;
 
     let cached = unsafe { DESTINATION.get() };
     if let Some((known_client, destination)) = cached
-        && same(known_client, &client)
+        && *known_client == client
     {
         return Some(*destination);
     }
@@ -696,9 +742,9 @@ unsafe fn letterbox() -> Option<RECT> {
 }
 
 /// The largest rectangle with `content`'s aspect ratio that fits `client`, centred.
-fn fit(client: RECT, content: (u32, u32)) -> RECT {
-    let available_width = i64::from(client.right - client.left);
-    let available_height = i64::from(client.bottom - client.top);
+fn fit(client: Rect, content: (u32, u32)) -> Rect {
+    let available_width = i64::from(client.width());
+    let available_height = i64::from(client.height());
     let wanted_width = i64::from(content.0.max(1));
     let wanted_height = i64::from(content.1.max(1));
 
@@ -718,22 +764,12 @@ fn fit(client: RECT, content: (u32, u32)) -> RECT {
 
     let left = client.left + ((available_width - width) / 2) as i32;
     let top = client.top + ((available_height - height) / 2) as i32;
-    RECT {
+    Rect {
         left,
         top,
         right: left + width as i32,
         bottom: top + height as i32,
     }
-}
-
-fn primary_monitor() -> Option<RECT> {
-    let monitor = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
-    if monitor.is_null() {
-        return None;
-    }
-    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-    info.cbSize = size_of::<MONITORINFO>() as u32;
-    (unsafe { GetMonitorInfoW(monitor, &mut info) } != 0).then_some(info.rcMonitor)
 }
 
 unsafe fn is_game_class(name: *const u8) -> bool {
@@ -744,22 +780,13 @@ unsafe fn is_game_class(name: *const u8) -> bool {
     unsafe { CStr::from_ptr(name.cast()) == GAME_WINDOW_CLASS }
 }
 
-fn same(a: &RECT, b: &RECT) -> bool {
-    (a.left, a.top, a.right, a.bottom) == (b.left, b.top, b.right, b.bottom)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{centred, fit};
-    use windows_sys::Win32::Foundation::RECT;
+    use orb_api::Rect;
 
-    fn client(width: i32, height: i32) -> RECT {
-        RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-        }
+    fn client(width: i32, height: i32) -> Rect {
+        Rect::sized(width, height)
     }
 
     /// A window goes in the middle of the monitor it is on, which for a second monitor is not
@@ -771,7 +798,7 @@ mod tests {
             (placed.left, placed.top, placed.right, placed.bottom),
             (320, 160, 1600, 920)
         );
-        let second = RECT {
+        let second = Rect {
             left: 1920,
             top: 0,
             right: 3840,
