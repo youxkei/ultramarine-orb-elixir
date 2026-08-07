@@ -658,7 +658,7 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Eighty-two of the 278 tests are scenarios, and every one of them is driven by a game.** In
+**Ninety-eight of the 294 tests are scenarios, and every one of them is driven by a game.** In
 `orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
@@ -715,7 +715,8 @@ period, a compose time a test may change mid-run, and a `DwmFlush` that returns 
 frame just handed over reached — modelled that way because that is what the real one does and the
 whole of how the pacing knows whether a frame made its blank.
 
-Twenty-nine scenarios drive the loop — `render` itself, called by a game's own loop — where its own
+Every one of `scenario_pacing.rs`'s sixty-three scenarios drives the loop — `render` itself, called by a
+game's own loop — where its own
 thirteen tests were all arithmetic and **not one of them drove it**: the whole-multiple cadence, the rates
 a display reports and the rate each gets, the fractional 2-2-3-2-3 pattern, the budget rising after a frame
 overran, a compositor that spikes and the allowance following it, what that spike costs at each rate, three
@@ -725,7 +726,15 @@ the one that found the deadlock in `measure_compose`, now fixed — and the loop
 before the draw, the sounds between them, the chain's two exits becoming the frame's two, and the ways out
 that hand the frame back to the game's own loop.
 
-And one that is a negative: `cFramesLate` reaches no decision. The same frames are run twice against two
+**And a row of a table is a `#[test]`, because that is the unit the harness parallelises.** Measured on
+sixteen cores: the file is nearly ten minutes of work and came out at **126 seconds**, of which **121.6 was
+one test** looping forty rate-and-compose-time pairs in a process of its own — 96% of the wall clock, and a
+floor no number of cores goes below. A test per rate instead, through `a_test_per_rate!`, puts the same work
+in **54.8 seconds**; the whole suite went from 135 to 72. Nothing below about 37 seconds is reachable by
+splitting further, that being the work over the cores, so the rows are split as far as the reading of a
+failure wants and no further.
+
+And one scenario that is a negative: `cFramesLate` reaches no decision. The same frames are run twice against two
 hosts that differ in that one answer and in nothing else — `orb_sim::Display::says_every_composition_was_late`
 is the second — and every number orb decided comes out the same, the allowance among them. Which is what
 the measurement needed: the real one read `0 shown late` through runs where 57 frames of 600 missed their
@@ -920,7 +929,7 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 278 tests and 12 stubs without a game, and most of what it now covers used to need a
+The suite is 294 tests and 12 stubs without a game, and most of what it now covers used to need a
 session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
 to, and therefore what a session is for. What a scenario could reach once the laid-out game grows is
 a stub instead, `#[ignore]`d and holding its own numbers; `cargo test -- --ignored` lists those.

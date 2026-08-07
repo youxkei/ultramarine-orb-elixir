@@ -1,6 +1,6 @@
 //! **orb's own frame loop: the shape it has, the rate it holds, and the log it writes about itself.**
 //!
-//! Forty-seven scenarios over the one subject, each in a process of its own —
+//! Sixty-three scenarios over the one subject, each in a process of its own —
 //! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so a scenario owns a
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
@@ -13,6 +13,35 @@
 mod fake;
 
 use orb_core::frame;
+
+/// One `#[test]` per row of a table, each in a process of its own.
+///
+/// **A row is the unit of work, because `#[test]` is.** `fake::in_its_own_process` spawns a process per
+/// test and the harness runs tests across the cores, so rows looped over *inside* one test are rows nothing
+/// runs in parallel.
+///
+/// Measured on this machine, sixteen cores, and it is why this exists. With the three tables below as three
+/// tests the file was **539.6 seconds of work in 126 seconds** of wall clock — the parallelism working —
+/// but one of them, forty rate-and-compose-time pairs in one process, took **121.6 seconds by itself**:
+/// 96% of that 126, and a floor no number of cores goes below. Split into a test per rate it is **591.7
+/// seconds of work in 54.8 seconds**, and the floor is now the 36.9 seconds of the rate whose ceiling
+/// admits the most compose times. Below about 37 seconds nothing but less work will help — that is 591.7
+/// over sixteen — so the rows are not split further than the reading of a failure wants.
+///
+/// The invocation is the table, which is what the sections below want anyway: somebody with a stutter reads
+/// these to find out whether their own desktop is one of the ones that breaks, and a row that fails should
+/// name itself. Where the rows of one row genuinely have to be read together they stay a loop inside it —
+/// see [`converges::inside_the_ceiling`], whose failure has to say which compose times are stuck.
+macro_rules! a_test_per_rate {
+    ($($name:ident => $body:expr,)+) => {
+        $(
+            #[test]
+            fn $name() {
+                in_its_own_process(|| $body);
+            }
+        )+
+    };
+}
 
 // ── How a run's rate is judged ───────────────────────────────────────────────────────────────────
 //
@@ -1205,9 +1234,6 @@ mod converges {
     const FRAMES: u32 = 3_000;
     const SETTLED: usize = 2_000;
 
-    /// The rates a display reports itself as, over the range anyone plays at.
-    const RATES: [u32; 5] = [60, 120, 144, 165, 240];
-
     /// What a compositor might take over a frame, in microseconds. The upper end is not invented: a real
     /// session was seen reaching about 3.5ms, and the mixed-rate run on the machine had orb's own
     /// allowance climb 2800 → 3400 → 3600 → 3900µs chasing misses more time could not fix.
@@ -1224,22 +1250,29 @@ mod converges {
     }
 
     /// The one that holds: a compositor whose cost is what this machine's appears to be — usually a
-    /// millisecond, occasionally three and a half.
-    #[test]
-    fn a_compositor_that_spikes_still_settles_at_sixty() {
-        in_its_own_process(|| {
-            for hz in RATES {
-                for seed in 0..SEEDS {
-                    let name = format!("converges-{hz}-{seed}");
-                    let (game, rate) = settled(hz, Compose::measured(), &name, seed);
-                    assert!(
-                        (rate - 60.0).abs() < NEAR_SIXTY,
-                        "{hz}Hz, seed {seed}: {rate} frames a second after {SETTLED} frames\n  {}",
-                        last_said(&game.log().lines())
-                    );
-                }
-            }
-        });
+    /// millisecond, occasionally three and a half. Every host, at each rate a display reports.
+    fn spikes_and_settles(hz: u32) {
+        for seed in 0..SEEDS {
+            let name = format!("converges-{hz}-{seed}");
+            let (game, rate) = settled(hz, Compose::measured(), &name, seed);
+            assert!(
+                (rate - 60.0).abs() < NEAR_SIXTY,
+                "{hz}Hz, seed {seed}: {rate} frames a second after {SETTLED} frames\n  {}",
+                last_said(&game.log().lines())
+            );
+        }
+    }
+
+    // The rates a display reports itself as, over the range anyone plays at, are the rows of both tables
+    // here and are written out in each: a `const RATES` read by two loops was what these were before, and a
+    // rate cannot be a `#[test]`'s name and come out of an array at the same time. So the five are spelled
+    // twice, and a rate added to one list and not the other is the thing to watch for.
+    a_test_per_rate! {
+        a_compositor_that_spikes_still_settles_at_sixty_on_a_60hz_display => spikes_and_settles(60),
+        a_compositor_that_spikes_still_settles_at_sixty_on_a_120hz_display => spikes_and_settles(120),
+        a_compositor_that_spikes_still_settles_at_sixty_on_a_144hz_display => spikes_and_settles(144),
+        a_compositor_that_spikes_still_settles_at_sixty_on_a_165hz_display => spikes_and_settles(165),
+        a_compositor_that_spikes_still_settles_at_sixty_on_a_240hz_display => spikes_and_settles(240),
     }
 
     /// **How long the compositor may take, and it is not "anything".** The frame is handed over
@@ -1262,34 +1295,44 @@ mod converges {
     /// above — with the allowance frozen and every miss charged to a stage load long over. It is not
     /// `#[ignore]`d and the bound is not the behaviour's: what a compositor takes has to be answerable up to
     /// the point where answering it is geometrically impossible, and that point is the ceiling below.
-    #[test]
-    fn any_compositor_inside_the_ceiling_settles_at_sixty() {
-        in_its_own_process(|| {
-            let mut stuck = Vec::new();
-            let mut tried = 0;
-            for hz in RATES {
-                for compose_us in COMPOSE_US {
-                    if compose_us > ceiling_us(hz) {
-                        continue;
-                    }
-                    tried += 1;
-                    let name = format!("ceiling-{hz}-{compose_us}");
-                    let (game, rate) = settled(hz, Compose::flat(compose_us), &name, 0);
-                    if (rate - 60.0).abs() >= NEAR_SIXTY {
-                        stuck.push(format!(
-                            "{hz}Hz at {compose_us}us: {rate:.2} fps\n    {}",
-                            last_said(&game.log().lines())
-                        ));
-                    }
-                }
+    ///
+    /// The compose times of one rate are collected rather than asserted one at a time, so a failure says
+    /// *which* of them are stuck and not merely that one is: the pattern above — everything from 3200µs up
+    /// at 60Hz — is what named the cause, and a run that stopped at the first would have shown one pair.
+    /// `tried` with it, because a ceiling that filtered every compose time out would leave nothing stuck
+    /// and pass.
+    fn inside_the_ceiling(hz: u32) {
+        let mut stuck = Vec::new();
+        let mut tried = 0;
+        for compose_us in COMPOSE_US {
+            if compose_us > ceiling_us(hz) {
+                continue;
             }
-            assert!(
-                stuck.is_empty(),
-                "{} of {tried} compose times never reach sixty:\n  {}",
-                stuck.len(),
-                stuck.join("\n  ")
-            );
-        });
+            tried += 1;
+            let name = format!("ceiling-{hz}-{compose_us}");
+            let (game, rate) = settled(hz, Compose::flat(compose_us), &name, 0);
+            if (rate - 60.0).abs() >= NEAR_SIXTY {
+                stuck.push(format!(
+                    "{hz}Hz at {compose_us}us: {rate:.2} fps\n    {}",
+                    last_said(&game.log().lines())
+                ));
+            }
+        }
+        assert!(tried > 0, "{hz}Hz has no compose time inside its ceiling");
+        assert!(
+            stuck.is_empty(),
+            "{} of {tried} compose times never reach sixty at {hz}Hz:\n  {}",
+            stuck.len(),
+            stuck.join("\n  ")
+        );
+    }
+
+    a_test_per_rate! {
+        any_compositor_inside_a_60hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(60),
+        any_compositor_inside_a_120hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(120),
+        any_compositor_inside_a_144hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(144),
+        any_compositor_inside_a_165hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(165),
+        any_compositor_inside_a_240hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(240),
     }
 
     /// And past the ceiling it cannot, which is a limit rather than a defect — but nothing in orb says so.
@@ -1488,26 +1531,33 @@ mod rates {
     /// The cadence is counted in the compositor's spacing now, so each of these is the same fractional grid a
     /// display of that rate would get: one frame on whichever blank is nearest each sixtieth. Every second of
     /// every one of them is sixty.
-    #[test]
-    fn a_fractional_compositor_gets_sixty_whatever_the_monitor_says() {
-        in_its_own_process(|| {
-            for compositor_hz in [70u32, 75, 90, 100, 110, 144, 150, 165, 200] {
-                for_each_seed(|seed| {
-                    let game = Fake::attach_watching_the_pacing(
-                        split(120, compositor_hz, seed),
-                        &format!("was-broken-{compositor_hz}-{seed}"),
-                        Work::flat(WORK_US),
-                    );
-                    game.frames(FRAMES);
-                    assert_every_second_at(
-                        &game.handovers_us(),
-                        60.0,
-                        seed,
-                        &last_said(&game.log().lines()),
-                    );
-                });
-            }
+    fn a_fractional_compositor(compositor_hz: u32) {
+        for_each_seed(|seed| {
+            let game = Fake::attach_watching_the_pacing(
+                split(120, compositor_hz, seed),
+                &format!("was-broken-{compositor_hz}-{seed}"),
+                Work::flat(WORK_US),
+            );
+            game.frames(FRAMES);
+            assert_every_second_at(
+                &game.handovers_us(),
+                60.0,
+                seed,
+                &last_said(&game.log().lines()),
+            );
         });
+    }
+
+    a_test_per_rate! {
+        a_fractional_70hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(70),
+        a_fractional_75hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(75),
+        a_fractional_90hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(90),
+        a_fractional_100hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(100),
+        a_fractional_110hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(110),
+        a_fractional_144hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(144),
+        a_fractional_150hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(150),
+        a_fractional_165hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(165),
+        a_fractional_200hz_compositor_gets_sixty_whatever_the_monitor_says => a_fractional_compositor(200),
     }
 
     /// A monitor that will not say its rate, on a desktop whose compositor will.
