@@ -97,7 +97,8 @@ added to production so that a test has something to look at.
 **What it costs.** The fake game is a second implementation of a small part of 紅魔郷, and it can be
 wrong in the same direction as the reads it feeds — a wrong offset makes the writer and the reader
 wrong together. That is already true of the laid-out image and is answered the same way: the offsets
-are the real game's to confirm, and `DONE.md` keeps the measurements that do it. What the fake game
+are the real game's to confirm, and each is written down beside the offset it was read at, in
+`orb_core::game::th06::image`. What the fake game
 buys is everything built on top of the offsets, which is where orb's code is.
 
 **What it rules out.** Scenarios that call orb's own functions to move a run along. If a scenario

@@ -6,8 +6,9 @@ README is the guide to using it; this describes the thing itself.
 **This document describes the final form only.** No history of what was tried and rejected,
 and no record of what a mechanism used to be — only what it is, and the facts it rests on. The
 reasons an alternative was rejected belong in a comment beside the code that would otherwise
-tempt someone back to it, which is where they are. What has been checked and how is in
-[DONE.md](DONE.md); what is left is in [TODO.md](TODO.md).
+tempt someone back to it, which is where they are. What was measured to settle something is beside the
+thing it settled — the decision in [docs/adr/](docs/adr/), the constant it is the reason for, or the
+scenario that asserts it; what is left is in [TODO.md](TODO.md).
 
 ## Which game a launch is
 
@@ -1019,8 +1020,8 @@ table. The DirectInput branch beside it is only entered where the game's `EnumDe
 an attached game controller at startup — where none was, `g_Supervisor.controller` (0x6c6d2c)
 stays null and every frame goes to winmm.
 
-Where nothing answers, that call takes 8.7ms and spends nearly all of it on the CPU — see
-[DONE.md](DONE.md) — which is half a 16.67ms frame, and being work rather than waiting there
+Where nothing answers, that call takes 8.7ms and spends nearly all of it on the CPU — the numbers are
+beside `joystick.rs`'s own header — which is half a 16.67ms frame, and being work rather than waiting there
 is nowhere cheap in the frame to put it. Where a joystick does answer it costs under a
 microsecond, so what it charges for is the looking and not the reading. orb
 redirects the exe's import of it and answers the game out of the last sample a thread of its
@@ -1038,9 +1039,9 @@ machine, with the pad in XInput's second slot, winmm has no pad at all. `joyGetN
 index 0 answers `joyGetPosEx` with `JOYERR_NOERROR` and every field zero — `mid=413d pid=2104`,
 no buttons and no axes, which is what Windows leaves there while the slot the pad is in is not
 the first — and 1 to 15 are all `JOYERR_UNPLUGGED`. DirectInput has the pad, the game therefore
-has it, and orb's own menus had nothing. Those numbers are the measurement and they are in
-[DONE.md](DONE.md); what took them is a probe of the same shape as the one the joystick read's own
-figures came from, which lives outside the tree like that one.
+has it, and orb's own menus had nothing. Those numbers are the measurement and they are beside
+`joystick.rs`'s `Sample::is_a_pad`; what took them is a probe of the same shape as the one the joystick
+read's own figures came from, which lives outside the tree like that one.
 
 So a menu of orb's asks the game, and 紅魔郷 answers by trying its own controller first: `Poll`,
 then `GetDeviceState` into the `DIJOYSTATE2` the format it set fills, and the buttons and the Y
@@ -1525,8 +1526,9 @@ takes its `GetKeyboardState` branch. What that buys is a session another program
 otherwise impossible: a device held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` does not see keys injected
 with `SendInput`, and every screen orb has a question over is the game's own screen answered on the
 game's own keyboard. Nothing else about a run changes — the same code turns those keys into the same
-buttons — and what it made possible is in [DONE.md](DONE.md): the whole of picking a run up again,
-watched twice through the front end without a hand on the keyboard.
+buttons — and what it made possible is the whole of picking a run up again, watched twice through the
+front end without a hand on the keyboard. `scenario_keys_from_another_program.rs` holds what those
+sessions established about it.
 
 `--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own
 four, and the only ones it does not hand on: each answers a question the DLL, being inside a game
@@ -1924,8 +1926,9 @@ gone commits it again, as it does when the game has handed a few megabytes back 
 Installed per thread and taken off again when the test ends, as the rest of the seam is.
 
 What this cannot catch is an offset that is wrong: the space is written from the same constants
-the reads use, so a wrong one is wrong on both sides at once. Offsets are settled against the
-real game, which is what the measurements in `DONE.md` are for. Everything built on top of them
+the reads use, so a wrong one is wrong on both sides at once. Offsets are settled against
+東方紅魔郷 1.02h running, each read held against what the screen showed, and each is written down beside
+the offset it was read at — see `orb_core::game::th06::image`. Everything built on top of them
 is what the space is for.
 
 It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took

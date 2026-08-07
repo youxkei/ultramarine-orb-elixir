@@ -83,8 +83,8 @@ is named for its subject, and not beginning `scenario_` is what says which it is
 ## Consequences
 
 **What it costs.** `cargo test --test pacing` is `--test scenario_pacing`, and the same for the other six.
-`cargo test -p orb-sim` now builds the `orb` crate, so the simulator's own four tests wait on it. The
-references to these paths across `SPEC.md`, `DONE.md`, `TODO.md` and the four earlier decisions all move.
+`cargo test -p orb-sim` now builds the `orb` crate, so the simulator's own four tests wait on it. And
+every path naming one of these files moves with it, in the documents and in the four earlier decisions.
 
 **What it buys.** One directory, and `ls` of it answers the question that used to need `SPEC.md`: eleven
 files beside the `fake/` they share, seven of them saying which level they are in the first nine
@@ -101,7 +101,7 @@ documented.
 - **Two letters rather than the word.** The arrangement is borrowed from another project of this author's,
   where the full-stack suite lives in the simulator crate and the layer is two letters in the file name
   (`lb.rs` for the backend alone, `lf.rs` for the whole runtime). `scenario` is this repository's own word
-  for the same thing — `SPEC.md`, `DONE.md`, every decision here and `fake/mod.rs` all use it, and
+  for the same thing — `SPEC.md`, every decision here and `fake/mod.rs` all use it, and
   `log_writes.rs` draws the contrast in it — and `CLAUDE.md` asks for the code's own words unabbreviated.
 - **Renaming and not moving.** It would have answered the names and left two `tests/` directories split
   along a boundary that is not a boundary: the same simulated Windows installed from both, and the reason

@@ -47,7 +47,7 @@ establish is that `render` asks for any of it in the order they assumed. Nothing
   `RenderResult` values the game's loop expects back.
 
 **What orb *says* about the rate was uncovered as well, and that is the cheaper half.** Every pacing
-measurement in `DONE.md` was read off two things: the `fps` on the status line beside the game, and the
+measurement on the machine was read off two things: the `fps` on the status line beside the game, and the
 line orb writes per reporting period — `frame: 711 frames, 16651us apart, 0 shown late, gaps in
 refreshes 2x711`. Neither was asserted anywhere. The harness even called `report()`, but only to print it
 in a failure message, so a run whose rate was right and whose report of it was wrong would pass. That
@@ -125,7 +125,7 @@ four words are asked for once at the attach and kept beside the chain targets, w
 **What it does not buy.** The host is still the simulator's: the wake jitter and the compositor's spikes
 are drawn from a seeded stream, and what a scenario asserts is the *rate* rather than a turn to the
 microsecond — see `orb-sim/src/display.rs`. Nothing here makes a laid-out game a machine, and the
-measurements in `DONE.md` stay what says the pacing works on one.
+measurements beside `frame::Pacing::grid` stay what says the pacing works on one.
 
 **What it rules out.** The same thing 0001 does: a branch inside `Th06` that only a test takes. Two
 alternatives were weighed and are rejected for that reason or a worse one.

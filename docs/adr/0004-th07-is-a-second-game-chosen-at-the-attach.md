@@ -9,9 +9,38 @@ scenario — `orb/tests/th07.rs` when this was written, moved by
 in it went. Step 6
 happened: 妖々夢 was launched with orb in it and **orb's own frame loop took it down on the first frame**,
 so `Hooks::render` is `None` and 妖々夢 keeps its own cadence. What that costs, and what reading the rest
-of that frame would take, is in `TODO.md`; the measurement is in `DONE.md` and beside the `render: None`
+of that frame would take, is in `TODO.md`; the measurement is *What the two launches said* below and
+beside the `render: None`
 itself. What stands is everything about the *shape* — the table, the choice at the attach, the split rig,
 and a stub that declines rather than panics.
+
+## What the two launches said
+
+**妖々夢 has been launched with orb in it, twice, and the first launch took the game down.** The exe is
+the one the table pins, `md5 0126afce1e805370d36c3482445e98da`. What the log gave up in order:
+
+| | |
+| --- | --- |
+| `.data 0x0049c000..0x01365258 (15503960 bytes)` | read out of the loaded image, six times 紅魔郷's 2562556 |
+| `game: th07.exe, and every address orb has for it was read off the build of md5 0126afce` | the table matching, off the exe's own name |
+| `update hook installed` / `draw hook installed` | **the two required patches are right in the real image** — a prologue that did not match is what a wrong address says first, and 0x42fd60 and 0x42fe20 matched theirs |
+| `screen: 1280x960 — window at 1277,580 sized 1286x1000, client 1280x960` | `content_size` being (640, 480) is what the 4:3 was worked out from |
+| `frame: 120Hz compositor, one frame every 2 blank(s)` | the cadence settled before a frame ran |
+| `crash: code 0xc0000005 at 0x0044f6aa in th07.exe+0x4f6aa`, `writing 0x00000000` | the first frame, gone |
+
+**The same launch under `--no-frame-loop` — that frame left alone with orb's update and draw hooks inside
+it — ran 600 frames and left cleanly**, which is what makes it the loop rather than either patch: `perf:
+frame=17220us worst=395238us over 600 frames; update=8us/frame worst=1084us calls=1200 draw=3us/frame
+worst=341us calls=570`. `calls=1200` over 600 frames is 妖々夢's frame-skip loop running the update twice a
+frame, which 紅魔郷 has nothing of.
+
+**Two more things the run said that nothing else could.** There is no `font.ttf` beside `th07.exe` —
+紅魔郷 ships one and 妖々夢 keeps its fonts inside `th07.dat` — so `overlay: cannot load …\font.ttf` eight
+times and then `overlay: unavailable`: **nothing orb draws is drawn there at all.** And orb forked the
+score file of a game it declines every run feature of: `score: pointdevice_score.dat opened in place of
+the game's own, write` on the way out, leaving a 192-byte file of its own. `score.dat` came through both
+launches untouched — `647b08bc49eba267808df31e7f18af12`, 8467 bytes, at the mtime it went in with — and
+`th07.cfg` too, which is the fork working; that it happens at all for this game is in `TODO.md`.
 
 It stands on three decisions. [0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a game that plays the
 game's part in front of orb and ruled out a second `Game` written for tests.
@@ -145,7 +174,8 @@ long before it is a game orb *plays*, and the log has to say which of the two th
 
 **And it costs more than that, which the run found.** th07 is not a game orb paces either. Replacing
 妖々夢's frame took the game down on its first frame — see the `render: None` in `th07/mod.rs` for the
-faulting address and `DONE.md` for the two launches that separated the loop from the two patches — so
+faulting address and *What the two launches said* above for the pair that separated the loop from the two
+patches — so
 what a launch there has is the window at the right shape and orb's update and draw hooks inside the
 game's own frame, and nothing else. No cadence of orb's, no frame of input lag removed, and nothing
 drawn, 妖々夢 having no `font.ttf` beside its exe to build an overlay from. The paragraph below about what
@@ -193,11 +223,12 @@ whole table twice over.
    launch it holds. Nothing asserted changed; the count did not move.
 4. **Built.** `orb-core/src/game/th07/mod.rs` with `Th07` declining everything the trait lets it decline,
    and the addresses a frame needs read out of `th07.exe` (md5 above) — each written down beside the
-   constant with how it was found rather than in `DONE.md`, since what identifies an address is the
-   reason the code holds that number and belongs where somebody changing it will read it.
+   constant with how it was found rather than in a document of its own, since what identifies an address
+   is the reason the code holds that number and belongs where somebody changing it will read it.
 5. **Built.** `orb-core/src/game/th07/image.rs` laying out that much of the space — one range, the
    `.data` the section header reports — and `orb/tests/th07.rs`: the one scenario above.
-6. **Done, and it sent step 4 back.** Two launches on the machine, `orb.log` beside that exe, in `DONE.md`:
+6. **Done, and it sent step 4 back.** Two launches on the machine, `orb.log` beside that exe — *What the
+   two launches said* above:
    the first with orb's own loop, which the game did not survive one frame of, and the second under
    `--no-frame-loop`, which ran 600 frames and left cleanly. No rate over a reporting period, because
    `Hooks::render` is `None` now and orb paces no frame there — which is the thing the step was for

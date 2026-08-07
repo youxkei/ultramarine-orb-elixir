@@ -3,11 +3,12 @@
 ## What a played run still has to show
 
 A `--clear` run has been through stages 1 to 6, the ending and the result screen with chapters
-taken and no replay offered — see [DONE.md](DONE.md). What that run cannot show is anything that
-needs somebody to be hittable, or a mode nobody chose.
+taken and no replay offered — `scenario_a_clear_on_demand.rs` holds what that run measured. What it
+cannot show is anything that needs somebody to be hittable, or a mode nobody chose.
 
 **The retry menu on the keyboard.** Every item of it, both confirmations, and both ways of refusing
-one are measured — see [DONE.md](DONE.md) — and every one of them was answered on the pad. The
+one are measured, and every one of them was answered on the pad — `retry_ui.rs`'s
+`a_confirmation_holds_its_keys_off_before_it_answers` and the five beside it are the shape. The
 keyboard goes through the same `Pressed`, so what is left is watching it: `z` or return decides, `x`
 or escape cancels, and the graces are the same frames.
 
@@ -23,10 +24,13 @@ be read at all. Worth looking at once: the question, and the two answers under i
 on いいえ.
 
 **What a question asked on the press has left unwatched.** Both questions going up on the press and both
-being cancelled without the screen moving are in [DONE.md](DONE.md), on the pad. What that sitting did
-not reach:
+being cancelled without the screen moving were watched on the pad — the presses 334506843, 334508187,
+334509156 and 334510156, each cancelled within 600ms with the file still there after all four, and the
+screen's own back going to the character select at 0x436c49 is what says it never moved. What that
+sitting did not reach:
 
-- **`はじめから` through this path.** `つづきから` is in [DONE.md](DONE.md) — the press handed back, the
+- **`はじめから` through this path.** `つづきから` was answered from the same screen ten seconds later —
+  7476 updates played in and the landing the frame written down, field for field — the press handed back, the
   screen choosing its own item, the chapter going in on the frame the run was registered. The other item
   is the one that writes over a chapter, and what it has to show is the fresh run starting and the file
   going only when that run reaches a chapter of its own.
@@ -44,17 +48,18 @@ output, so roughly 400 pixels and inside the screen by arithmetic rather than by
 Worth one glance, with the cursor on each of the two modes, since the two now draw a different number of
 lines.
 
-**The rest of what the pad now reaches.** The mode question answers on it — see
-[DONE.md](DONE.md) — which leaves three things that go through the same reading and have not been
-pushed. The retry menu: up and down on the stick and on the d-pad, shoot deciding, bomb or the menu
+**The rest of what the pad now reaches.** The mode question answers on it —
+`scenario_mode_on_the_pad.rs` is that, over a controller the game owns — which leaves three things that
+go through the same reading and have not been pushed. The retry menu: up and down on the stick and on the d-pad, shoot deciding, bomb or the menu
 button cancelling. The settings dialog, which is the launcher's own reading and not the game's — its
 line should say `a pad on XInput, pushed N time(s)` rather than `no pad answered`, and that is where
 XInput's buttons being put into the order the game's mapping names them gets tested. And a pad that
 winmm *does* have, which is the path that used to work and the one that must not have been broken by
 this.
 
-**A life gained under the brush over the lives.** The mark itself is on the screen — see
-[DONE.md](DONE.md) — and what it has not been through is the count changing under it: an extend at
+**A life gained under the brush over the lives.** The mark itself is on the screen —
+`scenario_the_mark_over_the_lives.rs` holds what that showed — and what it has not been through is the
+count changing under it: an extend at
 10,000,000 or a 1UP item, where the star should appear under the ink rather than nowhere. That is
 also the one moment the game would have repainted that row without being asked, so it is where orb
 asking every frame and the game doing it anyway could disagree.
@@ -87,7 +92,7 @@ those reaches an ending or a game over, which is the case still open: what settl
 own mtime, or its md5, after a run that reaches one.
 
 **The stick moving a cursor on a menu of orb's.** Both of orb's menus have now been answered on the
-pad — see [DONE.md](DONE.md) — but nothing says which part of it moved the cursor, and a d-pad and
+pad — `scenario_mode_on_the_pad.rs` — but nothing says which part of it moved the cursor, and a d-pad and
 a stick are read from different fields. What is left is watching the axis: the dead zone is a
 quarter of the travel either side of centre, taken from `g_JoyCaps`, and this pad's caps had to be
 written there by orb before the game would have believed them.
@@ -100,8 +105,9 @@ written there by orb before the game would have believed them.
   button so that no edge exists on the frame the game carries on into: the cursor should not move,
   and a direction genuinely held across the answer should still move it on the frame after.
 
-**What the front end offers with the bracket in.** Which file each open goes to is measured — see
-[DONE.md](DONE.md) — and what is left is the half no log can show: `Extra Start` and the practice
+**What the front end offers with the bracket in.** Which file each open goes to is measured —
+`scenario_the_score_file.rs`'s `the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode`
+holds that session — and what is left is the half no log can show: `Extra Start` and the practice
 stages lit in pointdevice mode where a `score.dat` has earned them, which is the whole point of the
 bracket and has been read off the addresses rather than seen. One glance at the title menu with
 pointdevice answered says it.
@@ -116,8 +122,9 @@ it.
 
 ## What is left of the spell card record
 
-Both halves work and are measured — see [DONE.md](DONE.md): a session that stops keeps what it counted,
-and a chapter retried counts an attempt.
+Both halves work and are measured —
+`scenario_the_score_file.rs`'s `a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write`
+holds that session: a session that stops keeps what it counted, and a chapter retried counts an attempt.
 
 **Who counts an attempt.** orb does it, at the chapter retry and at a resumed run's landing, by writing
 `Catk::numAttempts`. The cleaner shape is the game counting it, which needs the chapter's snapshot to
@@ -152,7 +159,7 @@ has one has its old scores in a file nothing opens, and whether that is worth a 
 nobody has been asked.
 
 **A window of a chosen size, with nothing else resizing it.** The window comes out exactly the size
-asked for — see [DONE.md](DONE.md) — but on the machine it was run on a borderless tool then took
+asked for — `scenario_the_window.rs` holds the numbers — but on the machine it was run on a borderless tool then took
 it to 4:3 filling the screen, so what a window of orb's own actually looks like has not been seen.
 The game has to be left out of such a tool for the run. What is still to watch: the game
 letterboxed inside a 16:9 window with the status line in the black beside it, that the 16x40 the
@@ -190,8 +197,11 @@ places it offers now.
 
 ## What a restore across a graphics load looks like
 
-The crash it used to cause is gone — see [DONE.md](DONE.md) — because the memory holding
-Direct3D's texture handles is left as a restore finds it. What is left is cosmetic and has not
+The crash it used to cause is gone — `0xc0000005` reading `0x313d616d`, the bytes of `ma=1`, inside
+`AnmManager::ReleaseTexture`, checked by stepping back into stage 6's midstage again where it had
+crashed twice — because the memory holding
+Direct3D's texture handles is left as a restore finds it, which `snapshot.rs`'s
+`a_live_handle_is_left_where_the_restore_finds_it` holds. What is left is cosmetic and has not
 been looked at: for the frames between such a restore and the game loading those graphics again,
 the sprite tables the snapshot put back describe one set of graphics while the slots hold
 another, so something may be drawn from the wrong texture. Stepping back into stage 6's midstage
@@ -209,7 +219,8 @@ implementation: a table of addresses and a handful of accessors. One DLL carries
 picks by the exe it finds itself inside, since none of the work is per-game code — see
 [SPEC.md](SPEC.md) for why that is not split the way vpatch's is.
 
-**Three of the four things that used to hardcode 紅魔郷 are tables now** — see [DONE.md](DONE.md).
+**Three of the four things that used to hardcode 紅魔郷 are tables now** — see
+[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 `orb_core::game::KNOWN` is the one table both halves read, the launcher's `GAME_EXE`, `GAME_EXE_MD5`
 and its error naming 1.02h read out of it, `orb/lib.rs` chooses its game at the attach instead of
 holding a `static GAME: Th06`, and `orb-sim/tests/fake` is a host half and a 紅魔郷 half. What is left of
@@ -228,7 +239,8 @@ built; step 6 is below.
 
 ### What 妖々夢 does not get, and what each one would take
 
-Two launches on the machine settled what orb does there — see [DONE.md](DONE.md) for the log. It
+Two launches on the machine settled what orb does there — see
+[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) for the log. It
 attaches, matches the table, patches the update and the draw over their real prologues, sizes the
 window, and **does nothing else at all**. What it does not do, in the order the effort goes:
 
@@ -271,8 +283,9 @@ calls, the viewport and the play area were not reached at all once `render` went
 
 ## What a clear left open
 
-The skip stopping at the staff roll and `--clear` reaching one are both measured — see
-[DONE.md](DONE.md). Three numbers that clear did not settle:
+The skip stopping at the staff roll and `--clear` reaching one are both measured —
+`scenario_the_ending.rs` and `scenario_a_clear_on_demand.rs` hold what those runs showed. Three numbers
+that clear did not settle:
 
 - **What the skip's frame costs.** All the log will say is `gaps in refreshes 5+x1`: one frame of
   the 600 took five refreshes or more, which is where the buckets stop, and the average interval
@@ -293,15 +306,21 @@ The skip stopping at the staff roll and `--clear` reaching one are both measured
 ## What picking a run up has not been through
 
 A chapter has been written down, the game closed, and the chapter played back into place — the
-landing agreeing with what was written down field for field. See [DONE.md](DONE.md) for that session
-and for the fault it caught on the way. What it was, though, is one chapter of stage 1 nine frames
+landing agreeing with what was written down field for field, over two launches at 200740000ms and
+200755453ms in the log. That two-process case is in *What only the real game can still answer* below,
+and the check itself is `resume.rs`'s `a_landing_that_differs_says_which_field_it_was`. What it was,
+though, is one chapter of stage 1 nine frames
 in, driven by keys sent from another program. What is left is everything that is more than that.
 
 **A chapter worth grinding, landing on every field — including the seed.** Chapters of 2009, 4597 and
 3394 frames have been picked up now, and the landing check has moved the seed's write twice: out of the
 frame before the stage, and out of the callback's own entry, which turned out to be 2048 draws early
-because that callback fills a key table from the generator first. See [DONE.md](DONE.md) for both and
-for the arithmetic. The check itself now carries `rng=`, having once agreed field for field with a seed
+because that callback fills a key table from the generator first — `GameManager::AddedCallback` draws
+2048 times before it copies the seed, 0x41bc4f filling 64 records of 32 `u16` through
+`Rng::GetRandomU16` (0x41e780), whose `seed = rotl16(((seed ^ 0x9630) - 0x6553), 2)` rewrites it every
+draw, and 2048 draws from `0xc381` are `0x789c`. It is written on the way into `Stage::RegisterChain`
+(0x4044c0) now; `resume.rs` carries the rest beside the write. The check itself now carries `rng=`,
+having once agreed field for field with a seed
 2048 draws out. **Nothing has been resumed since either fix**, so what is owed is one landing that
 agrees with `rng=` among the fields it agrees on. The song's position, ignored in that same session and now decided by the song
 rather than by the chapter's kind, is unwatched for the same reason: the chapter to hear it on is a
@@ -310,8 +329,9 @@ track's first bar.
 
 **The track's loop, on a resumed stage.** Putting the song back where the chapter had it worked and
 then looped a section of itself near the end of the stage, which was the countdown the loop is taken
-on being left where the file's old position had put it — moved with the file now, see
-[DONE.md](DONE.md). What is left is to hear a resumed stage's track run past that point and take its
+on being left where the file's old position had put it — moved with the file now, and
+`scenario_the_music_across_a_restore.rs`'s `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop`
+holds what was heard and the addresses it was read off. What is left is to hear a resumed stage's track run past that point and take its
 loop where it should: the loop is minutes in, so it is the end of a resumed 道中 that shows it, and
 `music: the track loops at …, so … byte(s) left from …` is the line to hold against how it sounds.
 
@@ -376,8 +396,9 @@ the same stage and watching what each plays back as.
 
 ## What a pointdevice score is
 
-The scores of runs orb could rewind are kept apart from the game's now — see
-[DONE.md](DONE.md) — but that only keeps them from being compared with runs somebody played. It
+The scores of runs orb could rewind are kept apart from the game's now — `score.rs`'s
+`the_game_score_file_is_forked_where_the_game_asked_for_it` and `scenario_the_score_file.rs` — but that
+only keeps them from being compared with runs somebody played. It
 does not make them comparable with each other: a miss costs a rewind rather than a life, so the
 number rewards grinding a chapter until it goes perfectly, which is a different game from the
 one the ranking was built for.
@@ -390,7 +411,8 @@ the game's, and with it the game's ranking screen no longer being where these ar
 ## What the fixed stutter costs
 
 Three to five frames of every six hundred used to come out three refreshes apart instead of two,
-once every two or three seconds. The cause and the fix are in [DONE.md](DONE.md), and a replay
+once every two or three seconds. The cause and the fix are beside `frame::Pacing::grid` and in
+`scenario_pacing.rs`'s `compose` section, and a replay
 played back through stages 0 to 3 under `--log=quiet --pacing` settled what was still open about
 them: 37,800 frames, three that missed their blank, 49 of 63 periods with nothing off the cadence
 at all, and the compositor's drawing time converging to 2550µs and staying.
@@ -420,15 +442,17 @@ What is left:
   toward giving the compositor longer, which is the safe direction, but it means the floor can end
   up a step above what it needs to be, and three steps of that is 150µs of lag.
 - **Whether the grid's own way of running the game fast is gone**, which only a display that is
-  not a whole multiple of 60 can reach — see [DONE.md](DONE.md) for the same fault in the work
-  estimate, which is the one that was found and measured. A grid moment left behind the blank in
+  not a whole multiple of 60 can reach — the same fault in the work estimate is the one that was found
+  and measured, a 252ms `RunCalcChain` pinning the estimate to its ceiling and leaving `gaps in refreshes
+  1x29 2x569` behind it. A grid moment left behind the blank in
   hand made the aim come out at one refresh a frame until the difference had been made up, and
   each of those frames is an update. It is dropped now and the arithmetic has a test, but no
   144Hz session has been through a stall shorter than four game frames, which is the only way
   in: beyond that the phase guard was already resetting the grid. What to watch is the same `1x`
   bucket, in a session whose log says `144Hz monitor is not a multiple of 60Hz`.
 - **Which refresh rates have actually been run.** Three: 120Hz, 119.88Hz and 144Hz, all on the
-  same machine and the same monitor at three settings — see [DONE.md](DONE.md). The third one
+  same machine and the same monitor at three settings — `600 frames, 16650us apart, gaps in refreshes
+  2x600`, `16652us apart` at 59.94fps, and `16695us apart, gaps in refreshes 2x360 3x240` for 60.00. The third one
   earned its place by breaking both branches it touched, neither of which had been run before, so
   the list below is not a formality. The rates that would each exercise a different part of the
   arithmetic:
@@ -446,14 +470,18 @@ What is left:
   is the ordinary one rather than an exotic one.** `scripts/compositor-probe.c` on a 120Hz primary
   with a 144Hz monitor beside it: the compositor reports 144.00Hz and its flushes come at 143.97Hz,
   and a window on any monitor gets that same 143.97Hz while `EnumDisplaySettingsW` answers about the
-  monitor the window is on. The numbers are in [DONE.md](DONE.md).
+  monitor the window is on. The numbers are beside `frame::Pacing::grid` and at the top of
+  `orb-sim/src/display.rs`.
 
   **The compositor followed the fastest monitor, not the primary and not the game's**, so "the game
   on the wrong monitor" is not what it takes: a 120Hz primary to play on and a 144Hz monitor attached
   is enough, and it is the configuration this machine was already in.
 
   **The game on it ran a fifth too fast, and that is fixed** — the cadence is counted in the
-  compositor's own spacing now. The measurement, the fault and the fix are in [DONE.md](DONE.md).
+  compositor's own spacing now. The run that showed it is `13966us apart`, `14090us`, `13897us` and
+  `13894us` over four periods of 600, 71 to 72 frames a second with `0 frame(s) paced by the clock`;
+  `scenario_pacing.rs`'s `disagrees` section is the fix asserted, and the fault is beside
+  `frame::Pacing::grid`.
 
   What is left is a run on the machine to confirm it there. The simulator holds every second of every
   compositor rate at sixty, but it models one blank grid, so the thing it cannot speak for is the half
@@ -556,7 +584,8 @@ three quarters of a refresh, and `frame.rs` has the 144Hz measurement of what go
 `gaps in refreshes 1x418 2x179`, a hundred frames a second.
 
 Three quarters of a refresh is 12500µs at 60Hz and **3124µs at 240Hz**. A compositor wanting 3200µs — the
-figure `DONE.md`'s mixed-rate run had orb's own allowance chasing — is inside the geometry at every rate
+figure the mixed-rate run on the machine had orb's own allowance chasing, on its way 2800 → 3400 → 3600 →
+3900µs — is inside the geometry at every rate
 anyone plays at except the fastest, and outside it there.
 
 Measured, 240Hz with the compositor held at 3200µs over 20,000 frames: the allowance climbs to exactly
@@ -772,7 +801,7 @@ Holding the game still needed none, because the threads it stops are ones a test
 itself. The third was the clock, and the argument for leaving it — that every decision the pacing
 makes is already a function of numbers, so a seam would only add the order the waiting calls come in —
 does not survive being checked: the order *is* what is untested, `agrees` is decided from two numbers
-a sim can declare, and `DONE.md`'s measurements are of frames landing on blanks, which is a different
+a sim can declare, and the measurements beside `frame::Pacing::grid` are of frames landing on blanks, which is a different
 question. Reading the clock went behind the seam for the log's sake in any case, since a test that
 cannot say what time it is cannot assert on a stamped line.
 
@@ -836,7 +865,7 @@ read. What is left of the drawing is the rasterising itself: the glyph boxes are
 tells one string from another and not one metric from a wrong one.
 
 **What nothing has ever read is the status line.** The chapter's name, `RETRY n`, `INPUT LAG`, `COMPOSE`
-and the frame rate, in the black beside the game — and every pacing measurement in `DONE.md` was read
+and the frame rate, in the black beside the game — and every pacing measurement on the machine was read
 off that `fps` and the log's own line. It cannot be reached in a test: `window::write_beside` wants a
 window it can `GetClientRect` and returns without one. The seam that would open it is at the level of
 the *lines* rather than the GDI — orb tells the host to put these lines beside the game, and a simulated
@@ -863,9 +892,10 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite went from 138 tests to 182 without a game, and most of what it now covers used to need a
+The suite is 258 tests and 29 stubs without a game, and most of what it now covers used to need a
 session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
-to, and therefore what a session is for.
+to, and therefore what a session is for. What a scenario could reach once the laid-out game grows is
+a stub instead, `#[ignore]`d and holding its own numbers; `cargo test -- --ignored` lists those.
 
 **Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
 by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The
@@ -875,9 +905,27 @@ the same kind of claim. Only the real image says.
 **That the hooks hold.** Installing a trampoline over a prologue and having the game carry on
 through it is a property of that image and that compiler's code, not of the installation logic.
 
+**Which game a launch matched, and the two log lines that come of it.** `attach_to` is handed its
+game, as a scenario's is, so `host_exe()`'s lookup against `orb_core::game::KNOWN` — the build a run's
+addresses were read off, and the list of games in a process that is none of them — runs only in a real
+launch. **東方紅魔郷 has not been launched with the DLL since that table went in.** The table's own
+arithmetic has five tests; the match has none and cannot.
+
+**A chapter picked up in a second process.** One launch writes the file and another reads it, which
+is two processes of the game — a scenario is one, and `scenario_pointdevice_run.rs` gives the run up
+inside its own launch instead, so what it reads is the file and only the file. That the file survives
+the game being gone, and that a launch finds and names it, are the real thing's to show.
+
 **The pacing, as frames on a screen.** The arithmetic is covered; what is not, and cannot be, is
-whether frames land on blanks. The 120Hz and 144Hz numbers in [DONE.md](DONE.md) are the record and
-they stay measurements.
+whether frames land on blanks. The 120Hz, 119.88Hz and 144Hz runs are beside `frame::Pacing::grid`
+with the probes that took them, and they stay measurements.
+
+**What else on the desktop does to the window.** A borderless tool on this machine acted on
+`東方紅魔郷.exe`'s window creation and resized the client to 2880x2160 three and a half seconds after
+orb's last say in it. Nothing in the suite has another program in it.
+
+**The launcher's dialog answered on a pad.** `launcher/pad.rs` has the reading and `settings.rs` the
+dialog's own arithmetic; a Win32 dialog with a real pad pushed at it is neither.
 
 **The sound.** No track plays in a laid-out game — `Music::capture` reaches into DirectSound through
 the buffer's vtable — so nothing about the music in a snapshot, the streaming margin, or what a
@@ -908,7 +956,8 @@ which is why running it is a deliberate session rather than something left on.
 ## Play a stage with a pad
 
 The read is orb's thread's now and the frame pays a copy, and a pad that turned up mid-run drove
-the menus — see [DONE.md](DONE.md). What no run has been through is a stage: shot and bomb under
+the menus — `joystick.rs` carries both, the timings and the run that watched a pad wake mid-run. What no
+run has been through is a stage: shot and bomb under
 a pattern, the four directions at the speed they are used at, and the auto-repeat behind holding
 one, none of which a menu asks for. Worth doing once by somebody who plays with a pad.
 
