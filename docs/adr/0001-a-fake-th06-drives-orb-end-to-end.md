@@ -5,14 +5,23 @@ the question that chooses between them on the keyboard and on a pad, and a `Stat
 was played to — and *Where it landed* at the end says how the shape differs from the plan this was written
 with, and what building it found.
 
-**It is eleven files now, and what grew was the game.** Six stages that follow one another through the
+**It is fifteen files now, and what grew was the game.** Six stages that follow one another through the
 scene a transition rebuilds the manager in, a bullet the hit test runs against after the player's own
 update, the result screen reached through the chain job it registers, `g_Gui`'s draw job going into that
 chain and out of it, a score file the game opens for itself, and the keyboard device it holds exclusively
 until orb lets it go. Every one of those was a `#[ignore]`d stub holding a measurement, and what un-stubbed
 it was this decision's own answer: the game plays the game's part, and a scenario sends input and reads
-back. Twelve stubs are left and *What only the real game can still answer* in [TODO.md](../../TODO.md)
-says what each waits on.
+back.
+
+**And the last twelve went the same way.** An ending whose `.end` script hands over to its staff roll with
+the track changing on the same update, a replay manager whose per-stage records a teardown would write over
+and whose seed a stage is drawn from, a screen shake registered as a job of the chain's, the front end's
+own items lit from the score file's `clrd`, and a track streamed through a real DirectSound buffer and a
+real `mmioSeek`/`mmioRead` pair — see [`orb_sim::Sound`](../../crates/orb-sim/src/sound.rs), which is where
+this decision's answer runs out: orb *calls* a buffer's vtable rather than reading it, so what stands in for
+one is a real object and the address space is only told where it is. **No stub is left.** What a run on the
+real game is still the only witness to is *What only the real game can still answer* in
+[TODO.md](../../TODO.md), and none of it is a test that could be written.
 
 **Two things it says are wrong.** This claimed `render` was the one thing a game laid out by hand could
 not drive; [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —

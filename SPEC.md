@@ -1989,10 +1989,26 @@ in some state, the game is played into it. See
 **Its own loop calls orb's frame loop**, as the real game's does, and that is what a shipped run has on:
 the two calls the loop makes into the game are addresses `Game::frame_calls` hands over, so this game
 hands over two of its own. Its `Present` is where a scenario counts a frame handed over — the
-tick, and the host told a frame is in the compositor's hands — and its sound is nothing, a laid-out game
-having none. A launch started `--no-frame-loop` runs 紅魔郷's own draw-then-update order instead, which is
-the other configuration orb ships, and a scenario reads which of the two ran off the order the loop asked
-the game for things in.
+tick, and the host told a frame is in the compositor's hands — and its `PlaySounds` is nothing, a laid-out
+game having no sound system to hand a frame's sounds to. A launch started `--no-frame-loop` runs 紅魔郷's
+own draw-then-update order instead, which is the other configuration orb ships, and a scenario reads which
+of the two ran off the order the loop asked the game for things in.
+
+**And four more of the game's own functions are handed over the same way**, because they are calls orb
+makes into the game rather than reads of it: `CreateWindowExA`, which the window's rewrite calls through;
+`CreateFileA`, which the score file's fork calls through; `ReplayManager::StopRecording`, which is held
+back while a replay is being watched; and `Chain::Cut`, which takes a screen shake down at a stage move.
+The first three are `Originals`', the last is `Th06`'s own — see
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+
+**A track is streamed through a sound of the host's**, which is the one part of a laid-out game that is a
+real object rather than laid-out memory: orb *calls* a DirectSound buffer's vtable and asks winmm for
+`mmioSeek` and `mmioRead`, so `orb_sim::Sound` is a buffer of its own behind a vtable of Rust functions and
+a wave file kept in a `Vec` — the same answer the Direct3D device orb draws through is. What the address
+space is told is only where that object is, so that orb's check of the pointer at its head answers what it
+answers in a real process. Which is what makes the music across a chapter answerable: the position a
+chapter is written down with, which chapters put their song back, and where the countdown the track's loop
+is taken on lands after a seek.
 
 **A scenario declares the display the window is on**: what the monitor reports, what the compositor is
 timing, what composing a frame takes, and which stream of wake delays the host has. Which is the whole of
@@ -2107,7 +2123,9 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/tests/scenario_the_score_file.rs` | which of the two files each of the game's own opens lands in: the front end's read, which is the game's own file whatever the mode, and each mode's ranking screen reading and writing its own |
 | `orb-sim/tests/scenario_th07.rs` | a laid-out 妖々夢 with orb attached to `Th07`, which asks that orb got in and did none of what it does to 紅魔郷 |
 | `orb-sim/tests/scenario_keys_from_another_program.rs` | `--sent-keys`: a key another program sent, refused by the keyboard device the game holds exclusively and seen once orb has let that device go, and the two moments in the front end that spend a press on nothing |
-| `orb-sim/tests/scenario_the_ending.rs`, `scenario_moving_between_a_replays_stages.rs`, `scenario_the_music_across_a_restore.rs` | the twelve stubs left, with two more in `scenario_the_score_file.rs`: `#[ignore]`d, each holding the measurement it has to reproduce and saying what it waits on. See *What only the real game can still answer* in [TODO.md](TODO.md) |
+| `orb-sim/tests/scenario_the_ending.rs` | the ending run out inside the frame it begins on, stopping where its script hands over to the staff roll and the track changes on the same update, and the roll left to play at sixty |
+| `orb-sim/tests/scenario_moving_between_a_replays_stages.rs` | a replay moved between its stages: the teardown's write into the record held back, the score and the extra lives put back to nothing, a screen shake taken down before it reaches the next stage, and two passes over one stage agreeing to the last digit |
+| `orb-sim/tests/scenario_the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind, and a seek that moves the countdown with the file so the track loops where it did |
 | `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their names not beginning `scenario_` says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses

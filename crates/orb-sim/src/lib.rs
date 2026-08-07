@@ -23,6 +23,7 @@ mod display;
 mod keyboard;
 mod log;
 mod noise;
+mod sound;
 mod space;
 mod window;
 pub use clock::{Clock, FREQUENCY};
@@ -33,6 +34,7 @@ pub use log::Log;
 /// own to declare: how long the game's frame takes is the game's business rather than the host's, and a
 /// run whose every draw comes from one seed is a run that replays.
 pub use noise::Noise;
+pub use sound::Sound;
 pub use space::Space;
 pub use window::{Frame, Made, Monitor, Windows};
 

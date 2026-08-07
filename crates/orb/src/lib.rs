@@ -828,6 +828,10 @@ pub struct Originals {
     /// And its own `CreateFileA`, which the score file's fork calls through with the name it decided.
     /// The same story, at the same import table there is none of.
     pub create_file: score::CreateFileA,
+    /// And its own `ReplayManager::StopRecording`, which [`stop_recording`] calls through where the
+    /// record being written is a run's own rather than a replay's. Reached in a real launch by a patch
+    /// over that function's prologue, and here by the game calling it where its own teardown does.
+    pub stop_recording: extern "C" fn(),
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -884,6 +888,7 @@ pub unsafe fn attach_to(
         (&UNLOCKS_READ, originals.unlocks_read as usize),
         (&RANKING_READ, originals.ranking_read as usize),
         (&RENDER, originals.render as usize),
+        (&STOP_RECORDING, originals.stop_recording as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -1615,7 +1620,11 @@ extern "C" fn save_replay(path: *const u8, name: *const u8) {
 /// the player takes no input from there: it stands still and is hit. Measured at
 /// 297414375ms in `orb.log`, jumping out of stage 1 around script frame 250 and
 /// straight back, three lives gone by frame 1027.
-extern "C" fn stop_recording() {
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its
+/// own teardown calls that function, there being no prologue to patch — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+pub extern "C" fn stop_recording() {
     if let Some(game) = unsafe { chosen() }
         && unsafe { game.replaying() }
     {

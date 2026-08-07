@@ -154,6 +154,7 @@ impl Fake {
                     present,
                     create_window,
                     create_file,
+                    stop_recording,
                 },
             )
         };
@@ -260,9 +261,9 @@ extern "system" fn input() -> u16 {
 
 /// The four seams `Th07` declines, as functions that exist so [`orb::Originals`] can be filled.
 ///
-/// Every one of them is `None` in `Th07::hooks`, so nothing patches them and nothing calls them. They
-/// answer what the real callbacks answer for success, which is what makes them harmless rather than
-/// merely unreached.
+/// Every one of them is `None` in `Th07::hooks`, so nothing patches them and nothing calls them — the
+/// recording's own teardown among them, this game having no record to end. They answer what the real
+/// callbacks answer for success, which is what makes them harmless rather than merely unreached.
 extern "C" fn stage_building(_stage: i32) -> i32 {
     0
 }
@@ -278,6 +279,8 @@ extern "C" fn unlocks_read(_menu: *mut c_void) -> i32 {
 extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
     0
 }
+
+extern "C" fn stop_recording() {}
 
 /// And its `CreateFileA`, which is never called either: `Th07` declines the score file the same way it
 /// declines everything else about a run, so nothing of 妖々夢's is ever opened through orb.

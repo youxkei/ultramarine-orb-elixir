@@ -31,13 +31,14 @@ use orb_config::Config;
 use orb_core::game::th06::Th06;
 use orb_core::game::th06::image::{
     Boss, FrontEnd, Image, Mapping, Player, Playing, Pushed, Reproducing, Scene, Screen,
-    Supervising, item, joy_state, result_state,
+    Supervising, Track, item, joy_state, result_state,
 };
 use orb_core::game::{Game, RunStart};
 use orb_sim::keys;
 
 use super::{
-    DRAW, Display, Launch, Launched, PRESENT, Panel, SOUND, UPDATE, WINDOW, Work, scratch,
+    DRAW, Display, Launch, Launched, PRESENT, Panel, READS_KEYS_AFTER, SOUND, UPDATE, WINDOW, Work,
+    scratch,
 };
 
 /// What the game's own chain walk answers while the game is running.
@@ -94,6 +95,15 @@ const GENERIC_WRITE: u32 = 0x4000_0000;
 /// orb's own refusal of a write answers with and what this game reads as a first launch.
 const NO_HANDLE: isize = -1;
 
+/// What this game's score file holds in its `clrd` chunk where the game has been cleared, and the whole
+/// of what its front end reads out of one: `Extra Start` is offered where the chunk is there and left
+/// off the menu where it is not.
+///
+/// This game's own bytes. What a real record holds per shot is not something orb reads, and what a
+/// scenario asks of them is only whether the read left the menu anything to light — see
+/// `Image::parses_the_unlocks`, which is where the clear that makes a failed read cost something is.
+const CLEARED: &[u8] = b"CLRD";
+
 /// One open of the score file: the name it landed in, and whether it was for writing.
 ///
 /// Which is the whole of what crosses `CreateFileA` and the whole of what a scenario about that file reads
@@ -102,6 +112,20 @@ const NO_HANDLE: isize = -1;
 pub struct Open {
     pub path: String,
     pub write: bool,
+}
+
+/// What one of this game's score files holds: the record about spell cards, and beside it what has
+/// been cleared.
+///
+/// Two of the four chunks a real one holds, and they are here because the three reads of the file are
+/// told apart by which chunks each parses: the front end's own takes the unlocks and nothing else,
+/// and the stage's and the ranking's take both. `hscr`, the ranking itself, is not modelled — nothing
+/// above the game reads it.
+#[derive(Clone, Default)]
+struct ScoreFile {
+    /// The bytes `Game::captures` and `Game::set_captures` are the two halves of.
+    captures: Vec<u8>,
+    unlocks: Vec<u8>,
 }
 
 /// What the game asks `CreateWindowExA` for, and every one of these is replaced.
@@ -149,6 +173,15 @@ pub const CARD_STARTS: u32 = 500;
 /// 4472 and nothing before it.
 pub const ATTACK_CHANGES: u32 = 700;
 
+/// And when the fight the stage *ends* with arrives, which is where the second of the two songs a stage's
+/// data names begins to play.
+///
+/// This game's own number, past the midboss and its card so that the two fights are two. What it is for is
+/// the one thing that tells them apart: **the music**, since an STD names the stage's song and the boss's
+/// and the game plays the second for the boss it ends with — what the timeline is doing says nothing,
+/// stage 3 parking on the same wait for its *midboss*.
+pub const STAGE_BOSS_ARRIVES: u32 = 900;
+
 /// Which of the game's 64 spell card records its boss's card is. Any of them; what a scenario reads
 /// back is the count of attempts against this one.
 pub const CARD: i32 = 3;
@@ -170,15 +203,98 @@ pub const DEMO_AFTER: i32 = 90;
 /// nothing.
 pub const PANEL_FRAMES: u32 = 250;
 
-/// How long the ending stands before the result screen follows it.
+/// How long the ending stands before the result screen follows it, where no scenario has laid an ending
+/// out.
 ///
-/// This game's own, and a placeholder for what an ending is: the script that runs out inside one frame
-/// and the staff roll after it are `scenario_the_ending.rs`'s, and until they are here this is the scene
-/// a cleared run passes through on the way to its result.
+/// This game's own. An ending is a script and a staff roll — see [`Fake::lays_out_an_ending`] — and this
+/// is the scene with nothing in it, which is what every scenario that only has to pass a cleared run
+/// through the ending wants.
 const ENDING_FRAMES: i32 = 10;
+
+/// What an ending is, as a scenario lays one out.
+///
+/// Two scripts and two tracks: the ending's own, which runs out and hands over to `@Fdata/staff00.end`,
+/// and the roll's, which plays on afterwards. Both are the game's — see [`Fake::lays_out_an_ending`] for
+/// where the frames come from — and the tracks are this game's own numbers, since what a scenario reads
+/// of them is that the boundary changed both.
+#[derive(Clone, Copy)]
+struct Ending {
+    /// The frames of waits in the ending's own script, and in the roll's after it.
+    waits: i32,
+    roll_waits: i32,
+    /// Whether orb can find the script at all: an ending whose job is not in the chain is one
+    /// `chain_argument` answers nothing for, which is what an ending already torn down looks like.
+    found: bool,
+}
+
+/// The tracks this game plays, as the numbers orb tells one track from another by.
+///
+/// Two for an ending: `@mbgm/th06_16.mid` is the one an ending plays, and `staff00.end` starts
+/// `bgm/th06_17` for the roll — what a scenario reads off those two is that the script handing over and
+/// the track changing happen on the same update. And two for a stage, which is what an STD names: the
+/// stage's own song, which plays through the midstage and the midboss alike, and the boss's, which is the
+/// second one and begins with the fight the stage ends with.
+///
+/// This game's own numbers, and their lengths are what a position inside one is measured against.
+const ENDING_TRACK: Track = Track {
+    length: 4_200_000,
+    loop_start: 44,
+    loop_end: 4_100_000,
+};
+const ROLL_TRACK: Track = Track {
+    length: 2_600_000,
+    loop_start: 44,
+    loop_end: 2_500_000,
+};
+const STAGE_TRACK: Track = Track {
+    length: 8_000_000,
+    loop_start: 44,
+    loop_end: 7_900_000,
+};
+/// And one more for a scenario about the stream *itself* rather than about which chapters rewind: the same
+/// shape and small enough to hold the sound of in memory, since what is read of it is arithmetic over its
+/// own numbers. See [`streams_its_song`](Fake::streams_its_song).
+const STREAMED_TRACK: Track = Track {
+    length: 400_000,
+    loop_start: 44,
+    loop_end: 380_000,
+};
+/// How big the buffer that track is streamed into is, and how much the streaming thread writes each time it
+/// is woken. This game's own numbers: a buffer holds a fraction of a second of sound and is topped up in
+/// chunks, which is the shape the arithmetic is over.
+const STREAM_BUFFER: usize = 32_768;
+const STREAM_NOTIFY: u32 = 8_192;
+const BOSS_TRACK: Track = Track {
+    length: 6_400_000,
+    loop_start: 44,
+    loop_end: 6_300_000,
+};
 
 /// How many items the title menu's cursor walks, which is the eight the game bounds it to.
 const TITLE_ITEMS: i32 = 8;
+
+/// What those eight are, in the order the cursor counts them — `image::item` names the three that
+/// anything above has a question about.
+///
+/// Drawn, because **what a menu offers is the one thing about the front end no log can see**: `Extra
+/// Start` is on it where the score file's `clrd` chunk is there and off it where the read that fills
+/// that chunk found nothing, and reading that off the screen is the only way to ask.
+const TITLE_MENU: [&str; TITLE_ITEMS as usize] = [
+    "Game Start",
+    "Extra Start",
+    "Practice Start",
+    "Replay",
+    "Score",
+    "Music Room",
+    "Option",
+    "Quit",
+];
+
+/// Where this game's title menu puts them. Its own layout, the way the ranking's rows are its own:
+/// what a scenario reads off it is which of the items are there at all.
+const TITLE_TOP: f32 = 152.0;
+const TITLE_LINE: f32 = 20.0;
+const TITLE_LEFT: f32 = 224.0;
 
 /// Where this game's ranking screen puts its rows, and the colour it writes them in. Its own layout:
 /// what a scenario reads off it is which text is at which of these, and the numbers themselves are
@@ -207,6 +323,21 @@ const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 /// play area and the speed this game's.
 const SPEED: f32 = 4.0;
 
+/// How long a bomb's screen shake runs, which is 紅魔郷's own **80 frames**.
+const SHAKE_FRAMES: i32 = 80;
+
+/// How far it moves the arcade region, in pixels. This game's own: what a scenario reads of it is that
+/// the region is not where a stage left it, not how violent a bomb looks.
+const SHAKE_PIXELS: u16 = 8;
+
+/// How far above the arcade region's foot a stage puts the player, which is 紅魔郷's own:
+/// `Player::AddedCallback` measures `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down.
+///
+/// Measured from the *arcade region* and not from the box the player is held inside, which is the whole
+/// reason a screen shake can reach the stage after the one that started it: a shake writes that region
+/// from the generator every frame, and nothing on the way into a stage puts it back.
+const PLAYER_STARTS_ABOVE: f32 = 64.0;
+
 /// The run a launch is started for: Normal, Reimu A, from stage one.
 ///
 /// What a scenario that is not about a run declares, a launch having to be started for one: the game
@@ -230,9 +361,8 @@ pub struct Fake {
     image: Image,
     launch: Launch,
     run: RunStart,
-    /// The score files this game keeps, by the name each open landed in, as the bytes of the record they
-    /// hold about spell cards — which is what `Game::captures` and `Game::set_captures` are the two
-    /// halves of.
+    /// The score files this game keeps, by the name each open landed in — see [`ScoreFile`] for the
+    /// chunks one holds.
     ///
     /// A map rather than files on disk: what a scenario reads is which name an open landed in and the
     /// number behind it, and both of those cross `CreateFileA` — the path and the access. Outside the
@@ -240,7 +370,7 @@ pub struct Fake {
     ///
     /// A name with no entry is a file that is not there, and its open fails: which is what orb's own file
     /// is before a ranking has ever written it.
-    files: RefCell<HashMap<String, Vec<u8>>>,
+    files: RefCell<HashMap<String, ScoreFile>>,
     /// Every open of the score file, in the order they happened — see [`Open`].
     opens: RefCell<Vec<Open>>,
     /// What the pad is doing, as a scenario is pushing it.
@@ -262,6 +392,23 @@ pub struct Fake {
     /// How long each of this game's stages runs before the next begins. `None` is a stage that never
     /// ends — see [`stages_last`](Fake::stages_last).
     stage_frames: Cell<Option<u32>>,
+    /// The ending a cleared run reaches, or `None` for the scene with nothing in it — see
+    /// [`lays_out_an_ending`](Fake::lays_out_an_ending).
+    ending: Cell<Option<Ending>>,
+    /// Whether the front end draws its own items — see
+    /// [`draws_its_title_menu`](Fake::draws_its_title_menu).
+    draws_the_menu: Cell<bool>,
+    /// How many frames of a bomb's screen shake are left to run — see [`bombs`](Fake::bombs).
+    shake_frames: Cell<i32>,
+    /// Whether its stages stream the two songs their data names — see
+    /// [`plays_its_songs`](Fake::plays_its_songs).
+    plays_songs: Cell<bool>,
+    /// The sound a track is streamed through, where a scenario asked for one — see
+    /// [`streams_its_song`](Fake::streams_its_song).
+    ///
+    /// Held here because orb reaches it by dereferencing the pointer the game's memory holds: the object
+    /// has to outlive the last frame that reads the music, which is the game closing.
+    sound: RefCell<Option<Box<orb_sim::Sound>>>,
     /// Set by a scenario for the run to be given up at the game's own pause — see
     /// [`gives_the_run_up_at_its_own_pause`](Fake::gives_the_run_up_at_its_own_pause).
     given_up: Cell<bool>,
@@ -427,6 +574,14 @@ impl Fake {
                 sim.windows().refuse_dpi_awareness();
             }
         }
+        // The arcade region, which the game writes where it sets its screen up and nothing writes again
+        // per stage: a stage's first position for the player is measured from it, and a screen shake is
+        // what moves it. Its own numbers rather than the play field's, as the game's are.
+        let field = Th06.play_area();
+        image.sets_the_arcade_region((field.left, field.top), (field.width, field.height));
+        // And the game's own `Chain::Cut`, which is the one call into the game orb makes that a scenario
+        // reaches: a shake still running at a stage move is taken down through it.
+        image.cuts_the_chain_through(chain_cut as *const () as usize);
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what a scenario
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
@@ -448,12 +603,20 @@ impl Fake {
         // Without the record `count_card_attempt` refuses to count, a zeroed one being a card that is
         // not there rather than a card nobody has reached.
         image.card_record(CARD, 0);
-        // And the file it is in, under the name the game asks for. Only that one: orb's own is a file that
-        // is not there until a ranking screen has written it, which is what makes its first open fail the
-        // way a first launch's does.
+        // And what its front end lights `Extra Start` from: a game that has been cleared, which is what an
+        // installation somebody has played is. In memory as well as in the file, because the read that
+        // fills it is one the front end makes for itself — a menu built before any read would otherwise
+        // be lit from a destination nothing had written.
+        image.parses_the_unlocks(CLEARED);
+        // And the file both are in, under the name the game asks for. Only that one: orb's own is a file
+        // that is not there until a ranking screen has written it, which is what makes its first open fail
+        // the way a first launch's does.
         let files = RefCell::new(HashMap::from([(
             SCORE_FILE.to_string_lossy().into_owned(),
-            unsafe { Th06.captures() },
+            ScoreFile {
+                captures: unsafe { Th06.captures() },
+                unlocks: CLEARED.to_vec(),
+            },
         )]));
         // Where the game starts: its front end, on the title menu, on the item that starts a run — and not
         // built yet, which is the supervisor's own first frame. What that buys is the front end's own read
@@ -480,6 +643,11 @@ impl Fake {
             hit: Cell::new(false),
             bullet: Cell::new(false),
             stage_frames: Cell::new(None),
+            ending: Cell::new(None),
+            draws_the_menu: Cell::new(false),
+            shake_frames: Cell::new(0),
+            plays_songs: Cell::new(false),
+            sound: RefCell::new(None),
             given_up: Cell::new(false),
             demos: Cell::new(false),
             replay_question_drawn: Cell::new(false),
@@ -505,6 +673,7 @@ impl Fake {
                     present,
                     create_window,
                     create_file,
+                    stop_recording,
                 },
             )
         };
@@ -553,9 +722,40 @@ impl Fake {
         });
     }
 
+    /// And the same with the replay's own record under it: a manager with a replay loaded, and one
+    /// record of inputs per stage of this game's six.
+    ///
+    /// Which is what makes the run play *itself*: the manager's own job overwrites the word the input
+    /// read handed back, so the player moves on the buttons that were recorded rather than on the ones a
+    /// scenario is pressing — and the stepping keys a scenario does press move between the stages the
+    /// replay covers instead.
+    ///
+    /// Apart from [`watches_a_replay`](Fake::watches_a_replay) because a record is what a teardown can
+    /// write over and a stage move needs: a scenario about neither wants a replay that plays nothing.
+    pub fn watches_a_replay_of_its_stages(&self) {
+        let stages: Vec<i32> = (0..STAGES).collect();
+        self.image.loads_a_replay(&stages);
+        for stage in &stages {
+            self.image
+                .records_the_inputs(*stage, RECORDED_SEED, &recorded());
+        }
+        self.watches_a_replay();
+    }
+
     /// Says the player was hit, for the next frame of the stage.
     pub fn hit(&self) {
         self.hit.set(true);
+    }
+
+    /// A bomb, which is here for the one thing about one that outlives the stage it went off in: the
+    /// screen shake it starts.
+    ///
+    /// A scenario saying so, the way it says the player was hit — the four bombs are the player's own code
+    /// and none of it is here. What is here is `ScreenEffect::ShakeScreen` registered as a job of the
+    /// chain's, and the [`SHAKE_FRAMES`] it writes the arcade region from the generator over.
+    pub fn bombs(&self) {
+        self.shake_frames.set(SHAKE_FRAMES);
+        self.image.shakes_the_screen();
     }
 
     /// Puts a bullet where the player is and leaves it there, so that every update from here on runs its
@@ -576,6 +776,95 @@ impl Fake {
     /// the ending rather than to a seventh.
     pub fn stages_last(&self, frames: u32) {
         self.stage_frames.set(Some(frames));
+    }
+
+    /// Has its stages stream the two songs their data names: the stage's own from the frame the stage is
+    /// built, and the boss's from [`STAGE_BOSS_ARRIVES`].
+    ///
+    /// Nothing by default, which is what every scenario that is not about the music wants and is why
+    /// `scenario_pointdevice_run.rs` takes its first chapter at frame 248 — the whole of `MUSIC_WAIT_FRAMES`
+    /// spent waiting for a track that is never coming. A stage with a song under it is also a stage whose
+    /// chapters have sound to put back, which is work on every one of them.
+    pub fn plays_its_songs(&self) {
+        self.plays_songs.set(true);
+        self.image.plays_a_track(STAGE_TRACK);
+    }
+
+    /// Has its stage stream a track through a sound of the host's, with the sound now audible beginning
+    /// `heard_at` bytes into the file.
+    ///
+    /// Which is more of one than [`plays_its_songs`](Fake::plays_its_songs) lays out, and a different
+    /// question: that one is about *which* chapters put their music back, and needs nothing but the numbers
+    /// a track is told apart by. This is about the seek itself — the buffer the game plays and the file
+    /// handle it reads — and orb reaches those by calling them rather than by reading them, so they are a
+    /// real object and a real pair of functions. See [`orb_sim::Sound`].
+    ///
+    /// The countdown goes in with the position, because they are the pair a loop is taken on: the track
+    /// loops where the countdown runs out, so what is left before it from here is the loop point less where
+    /// the file is.
+    pub fn streams_its_song(&self, heard_at: i32) {
+        let sound = orb_sim::Sound::of(
+            vec![0; STREAMED_TRACK.length as usize],
+            STREAM_BUFFER,
+            STREAM_NOTIFY,
+        );
+        sound.heard_at(heard_at);
+        let left = STREAMED_TRACK.loop_end - heard_at as u32;
+        self.image.streams_a_track(STREAMED_TRACK, &sound, left);
+        *self.sound.borrow_mut() = Some(sound);
+    }
+
+    /// Where the track loops, as the pair the game reads it off: where the file is now, plus what the
+    /// countdown says is left before it.
+    ///
+    /// Which is the number a seek must not move — the loop is taken in the same place afterwards — and the
+    /// one the countdown being left behind would have moved.
+    ///
+    /// # Panics
+    /// Where no scenario asked for a sound, there being no file to have a position in.
+    pub fn loop_point(&self) -> u32 {
+        let sound = self.sound.borrow();
+        let sound = sound.as_ref().expect("a sound this scenario asked for");
+        sound.position() as u32 + self.image.bytes_left()
+    }
+
+    /// Has the front end draw its own items, which is how a scenario reads back what the score file
+    /// unlocked: `Extra Start` is on the menu or it is not, and no log can see a menu.
+    ///
+    /// Off unless a scenario asks, and that is not tidiness. Baking eight labels a frame is real work, and
+    /// the runs that sit on the title menu for thousands of frames are the ones measuring what a frame
+    /// costs: with the menu drawn on every one of them, `scenario_pacing.rs` went from 18 seconds to 616.
+    pub fn draws_its_title_menu(&self) {
+        self.draws_the_menu.set(true);
+    }
+
+    /// Gives the run an ending to reach: a `.end` script of that many frames of waits, the staff roll's
+    /// own after it, and the track each of them plays.
+    ///
+    /// Nothing by default, which is the scene with nothing in it — and that is not tidiness. An ending orb
+    /// can find a script in is one its skip stops at the roll of, and an ending with none is one it runs
+    /// the whole scene out of: the two are different lines in the log and different numbers, so which of
+    /// them a scenario is about is the scenario's to say. See
+    /// [`lays_out_an_ending_orb_cannot_find`](Fake::lays_out_an_ending_orb_cannot_find).
+    pub fn lays_out_an_ending(&self, waits: i32, roll_waits: i32) {
+        self.ending.set(Some(Ending {
+            waits,
+            roll_waits,
+            found: true,
+        }));
+    }
+
+    /// And the same ending with its job left out of the chain, which is an ending orb has no script to
+    /// read: `chain_argument` walks that chain for the object and there is nothing in it to find.
+    ///
+    /// What an ending already torn down looks like, and the case the skip runs the whole scene out for —
+    /// which is how the ending and its roll come to be measured together.
+    pub fn lays_out_an_ending_orb_cannot_find(&self, waits: i32, roll_waits: i32) {
+        self.ending.set(Some(Ending {
+            waits,
+            roll_waits,
+            found: false,
+        }));
     }
 
     /// Has the title screen fall into its attract demo after [`DEMO_AFTER`] frames with nothing pressed at
@@ -623,10 +912,13 @@ impl Fake {
         self.opens.borrow_mut().clear();
     }
 
-    /// What the file of that name holds, or `None` for one that is not there — which is orb's own file
-    /// until a ranking screen has written it.
+    /// The record of spell cards the file of that name holds, or `None` for a file that is not there —
+    /// which is orb's own until a ranking screen has written it.
     pub fn score_file(&self, path: &str) -> Option<Vec<u8>> {
-        self.files.borrow().get(path).cloned()
+        self.files
+            .borrow()
+            .get(path)
+            .map(|file| file.captures.clone())
     }
 
     /// Whether the result screen ever got as far as drawing the question about saving a replay.
@@ -660,6 +952,26 @@ impl Fake {
         self.frames_until("the stage's first chapter", 400, || {
             log.said("stage 1 chapter 1 (stage start)")
         });
+    }
+
+    /// And in a レガシーモード run, which is the same walk with the question answered the other way: the
+    /// item the cursor starts on is 完全無欠モード, so the other mode is one press down — after the frames
+    /// the question reads nothing over, a direction being a key that cannot be pressed again for nothing.
+    ///
+    /// No chapter to wait for at the end of it, which is the whole of what answering this way costs.
+    ///
+    /// # Panics
+    /// Naming whichever step the run did not get past.
+    pub fn in_a_legacy_run(&self) {
+        let log = self.log();
+        self.at_the_title_menu();
+        self.press(keys::Z);
+        self.frames(READS_KEYS_AFTER);
+        self.press(keys::DOWN);
+        self.press_until(keys::Z, "the mode question answered", || {
+            log.said("mode: answered on the keyboard")
+        });
+        self.started_at_the_games_own_screens();
     }
 
     /// And in a run nobody was asked about, which is what a launch that fixes the mode is: `--clear` and
@@ -750,6 +1062,12 @@ impl Fake {
         // a run being played back into place is handed the ones it pressed.
         let last = self.image.input_now();
         let word = orb::get_input();
+        // And the replay manager's own job over the top of it, where one is playing back: the read still
+        // happened and orb's hook over it is still in the path, and what the update acts on is the record.
+        let word = match self.replayed_input() {
+            Some(recorded) => recorded,
+            None => word,
+        };
         self.image.input(word);
         let pressed = |mask: u16| word & mask != 0 && word & mask != last & mask;
 
@@ -757,6 +1075,11 @@ impl Fake {
         let supervisor = self.image.supervising_now();
         let building = supervisor.wanted != supervisor.running;
         if building {
+            // `GameManager::DeletedCallback` first, where what is being replaced is a stage: whatever
+            // scene comes next, the stage's own jobs are cut and the run's recording is ended.
+            if supervisor.wanted == Scene::Playing {
+                self.tears_the_stage_down();
+            }
             self.build(supervisor.running);
         }
         // And its last act, before any other job runs: the copy that makes a scene written by one of
@@ -822,12 +1145,9 @@ impl Fake {
                     wanted: Scene::Playing,
                 });
             }
-            // `Ending::RegisterChain`, whose own frame timer starts at nothing.
-            Scene::Ending => {
-                let front = self.image.front_end_now();
-                self.image.front_end(FrontEnd { frames: 0, ..front });
-                self.image.cuts_gui_from_the_draw_chain();
-            }
+            // Not the ending, which this game enters in one act rather than asking for it and building it
+            // a frame later — see [`enters_the_ending`](Fake::enters_the_ending).
+            Scene::Ending => {}
             // `ResultScreen::RegisterChain`: the screen's own job in the chain, and its frame timer at
             // nothing. It comes up on the question about saving a replay, which is what the screen does
             // with a run that finished — and the state orb writes over for a run that has chapters.
@@ -969,6 +1289,8 @@ impl Fake {
         // The clock the enemy script runs on, which advances with the stage however the player is
         // doing — which is why the midstage table is written in it.
         run.script_frames += 1;
+        // And the replay's own, which is the field orb reads a playback's position out of.
+        self.image.set_replay_clock(run.frames as i32);
         run.enemies = waves(run.script_frames);
         // One number a frame out of the generator, which is the whole of why a stage played again
         // from a different seed is a different stage.
@@ -982,6 +1304,10 @@ impl Fake {
         if run.frames <= PANEL_FRAMES {
             self.image.repaints_the_whole_panel();
         }
+
+        // `ScreenEffect::ShakeScreen`, which is a job of the chain's like any other and draws from the
+        // generator to do its work — which is why it cannot be left running across a stage move.
+        moving = self.shakes_the_screen(moving);
 
         // `Player::OnUpdate`, at chain priority 7.
         self.update_the_player();
@@ -1020,6 +1346,15 @@ impl Fake {
                 }));
                 self.image.card(None);
             }
+            // And the fight the stage ends with, which brings the second of the two songs its data names:
+            // the track changing is the only thing that tells this fight from the midboss.
+            STAGE_BOSS_ARRIVES if self.plays_songs.get() => {
+                self.image.plays_a_track(BOSS_TRACK);
+                self.image.boss(Some(Boss {
+                    life: 2400,
+                    attack_frames: 0,
+                }));
+            }
             // The attack's own clock, which the two frames above put back to nothing: a reset is what
             // says the fight has moved on, so it must not be reset by anything else.
             _ => self.advance_the_attack(),
@@ -1052,16 +1387,73 @@ impl Fake {
         // game rebuilds its manager in and the last stage hands over to the ending instead — never to a
         // seventh stage.
         if Some(run.frames) == self.stage_frames.get() {
-            let next = if run.stage + 1 < STAGES {
-                Scene::Rebuilding
+            if run.stage + 1 < STAGES {
+                self.image.supervising(Supervising {
+                    running: Scene::Rebuilding,
+                    wanted: Scene::Playing,
+                });
             } else {
-                Scene::Ending
-            };
-            self.image.supervising(Supervising {
-                running: next,
-                wanted: Scene::Playing,
-            });
+                self.enters_the_ending();
+            }
         }
+    }
+
+    /// What the replay's own record says was held on the frame this update is about to play, or `None`
+    /// where no replay is playing back and the keyboard is what the run is played on.
+    ///
+    /// Asked of the record by the stage's own frame counter, which is what the recording was written
+    /// against: a replay started at a stage begins that stage at frame nothing, so the same entries are
+    /// fed however the stage was reached.
+    fn replayed_input(&self) -> Option<u16> {
+        let playing_back = unsafe { Th06.replaying() } && self.image.scene() == Scene::Playing;
+        playing_back.then(|| {
+            let run = self.image.playing_now();
+            self.image
+                .plays_back_the_inputs(run.stage, run.frames as i32)
+        })
+    }
+
+    /// `GameManager::DeletedCallback`: the stage taken down, and with it `ReplayManager::StopRecording`
+    /// ending the run's recording.
+    ///
+    /// Through orb's hook over that function, which is what holds the write back while a replay is being
+    /// watched — the record it would land in during playback is the replay's own, at the entry playback
+    /// has reached.
+    fn tears_the_stage_down(&self) {
+        orb::stop_recording();
+    }
+
+    /// `ScreenEffect::ShakeScreen`: the arcade region written from **two numbers out of the generator
+    /// every frame**, for as long as the shake has frames left.
+    ///
+    /// Which is the whole of what makes a shake more than drawing: those two numbers come out of the
+    /// stream a replay has to match, and the region they land in is what a stage's first position for the
+    /// player is measured from. The region goes back where it belongs on the frame the shake takes itself
+    /// down — which is exactly what a shake removed early has not done yet.
+    fn shakes_the_screen(&self, mut moving: Reproducing) -> Reproducing {
+        let left = self.shake_frames.get();
+        if left <= 0 {
+            return moving;
+        }
+        self.shake_frames.set(left - 1);
+        let field = Th06.play_area();
+        let mut shaken = [0.0; 2];
+        for at in &mut shaken {
+            moving.seed = drawn_from(moving.seed);
+            moving.randoms += 1;
+            *at = f32::from(moving.seed % SHAKE_PIXELS);
+        }
+        if left == 1 {
+            self.image
+                .sets_the_arcade_region((field.left, field.top), (field.width, field.height));
+            self.image.cuts_the_shake_from_the_chain();
+            return moving;
+        }
+        self.image.sets_the_arcade_region(
+            (field.left + shaken[0], field.top + shaken[1]),
+            (field.width - shaken[0], field.height - shaken[1]),
+        );
+        moving
     }
 
     /// `Player::OnUpdate`, at chain priority 7: the player's state moved on one frame.
@@ -1087,23 +1479,79 @@ impl Fake {
         }
     }
 
-    /// The ending, which walks itself out and hands over to the result screen.
+    /// The ending entered, which this game does in one act: the scene, the job the ending is found
+    /// through, the script that job's object holds, and the track it plays, all on the frame the last
+    /// stage ends.
     ///
-    /// What an ending *is* — the script that runs out inside one frame and the staff roll after it — is
-    /// `scenario_the_ending.rs`'s and is not here yet. What is here is the scene, so that a cleared run
-    /// goes the way a cleared run goes: six stages, the ending, and then the result.
+    /// **The measurement is what fixes that.** A stage 6 clear ran the ending out in 29,040 updates and
+    /// stopped where the script handed over, which means orb had a script to compare on the very first
+    /// read — the frame the scene became the ending's. An ending whose job went into the chain a frame
+    /// later would have left that read with nothing, and the skip would have run the roll out too, which
+    /// is the case [`lays_out_an_ending_orb_cannot_find`](Fake::lays_out_an_ending_orb_cannot_find) is
+    /// here for.
+    ///
+    /// So the scene is written settled rather than asked for, and there is no `Scene::Ending` for the
+    /// supervisor to build.
+    fn enters_the_ending(&self) {
+        let front = self.image.front_end_now();
+        self.image.front_end(FrontEnd { frames: 0, ..front });
+        // The gameplay scene's draw jobs go with it, `g_Gui`'s among them, which is the panel off the
+        // screen.
+        self.image.cuts_gui_from_the_draw_chain();
+        if let Some(ending) = self.ending.get() {
+            if ending.found {
+                self.image.registers_the_ending();
+            }
+            self.image.plays_a_track(ENDING_TRACK);
+        }
+        self.image.supervising(Supervising {
+            running: Scene::Ending,
+            wanted: Scene::Ending,
+        });
+    }
+
+    /// The ending, which walks its script out, hands over to the staff roll, and leaves for the result
+    /// screen when the roll is done.
+    ///
+    /// **One update per frame of waits**, which is what makes the count a scenario reads off the log the
+    /// script's own: an `.end` is one-character instructions and waits between them, and every frame of
+    /// those waits is an update of this scene whether anything is drawn on it or not.
+    ///
+    /// Where no ending has been laid out, the scene and nothing in it: a cleared run passes through in
+    /// [`ENDING_FRAMES`] frames on the way to its result.
     fn ending(&self) {
         let front = self.image.front_end_now();
-        self.image.front_end(FrontEnd {
-            frames: front.frames + 1,
-            ..front
-        });
-        if front.frames >= ENDING_FRAMES {
-            self.image.supervising(Supervising {
-                running: Scene::Result,
-                wanted: Scene::Ending,
-            });
+        let frames = front.frames + 1;
+        self.image.front_end(FrontEnd { frames, ..front });
+        let Some(ending) = self.ending.get() else {
+            if frames >= ENDING_FRAMES {
+                self.leaves_the_ending();
+            }
+            return;
+        };
+        // The ending's last act: `@Fdata/staff00.end` read over the script that was running, with the
+        // roll's own track started on the same update. Both on one update because that is where they are
+        // in the game — the `F` instruction at 0x40fc06 reads the file and carries straight on into it —
+        // and the two agreeing is the whole of what says the roll begins here.
+        if frames == ending.waits {
+            if ending.found {
+                self.image.hands_over_to_the_roll();
+            }
+            self.image.plays_a_track(ROLL_TRACK);
         }
+        if frames >= ending.waits + ending.roll_waits {
+            self.leaves_the_ending();
+        }
+    }
+
+    /// The scene taken down and the result screen asked for, which is what follows an ending either way.
+    fn leaves_the_ending(&self) {
+        self.image.cuts_the_ending();
+        self.image.takes_the_music_down();
+        self.image.supervising(Supervising {
+            running: Scene::Result,
+            wanted: Scene::Ending,
+        });
     }
 
     /// The result screen, which walks itself out and leaves for the title.
@@ -1176,9 +1624,10 @@ impl Fake {
     /// What the game draws of its own.
     ///
     /// Nothing of a stage: a laid-out game has no sprites and a scenario reads a run out of its memory
-    /// rather than off the screen. The ranking is the one screen worth drawing, because what it shows
-    /// is the record orb has been writing into — one row per spell card the game holds a record of,
-    /// with the attempts against it, which is the number 完全無欠 counts.
+    /// rather than off the screen. Its two screens whose *contents* are a fact about what the game read
+    /// are drawn, because for those the memory is not where the answer is — the ranking, which shows the
+    /// record orb has been writing into, and the title menu, whose items are what the read that lights
+    /// them found.
     ///
     /// One thing of the panel, and it is not drawing: `Gui::OnDraw` takes one off each of `GuiFlags`'
     /// five two-bit fields at the end of the draw it repainted that row in — 0x41acdb. Which is what
@@ -1189,9 +1638,37 @@ impl Fake {
         if self.image.gui_in_the_draw_chain() {
             self.spends_the_panels_flags();
         }
-        if self.image.scene() != Scene::Ranking {
+        match self.image.scene() {
+            Scene::FrontEnd => self.draws_the_title_menu(),
+            Scene::Ranking => self.draws_the_ranking(),
+            _ => {}
+        }
+    }
+
+    /// The title menu's own items, each on a row of its own, where a scenario asked for them — see
+    /// [`draws_its_title_menu`](Fake::draws_its_title_menu).
+    ///
+    /// `Extra Start` among them only where the score file's `clrd` chunk left the front end something to
+    /// light it from, which is what makes a read that failed cost something a scenario can see: the
+    /// destination is cleared before the chunk is looked for, so a menu built after one offers a stage
+    /// nobody can reach.
+    fn draws_the_title_menu(&self) {
+        if !self.draws_the_menu.get() || self.image.front_end_now().screen != Screen::Title {
             return;
         }
+        let unlocked = self.image.unlocks().iter().any(|byte| *byte != 0);
+        for (row, name) in TITLE_MENU.iter().enumerate() {
+            if row as i32 == item::EXTRA && !unlocked {
+                continue;
+            }
+            let y = TITLE_TOP + row as f32 * TITLE_LINE;
+            self.launch.writes(name, TITLE_LEFT, y, INK);
+        }
+    }
+
+    /// The ranking's own rows: one per spell card the game holds a record of, with the attempts against
+    /// it, which is the number 完全無欠 counts.
+    fn draws_the_ranking(&self) {
         for (row, (card, attempts)) in self.image.card_records().into_iter().enumerate() {
             let y = RANKING_TOP + row as f32 * RANKING_LINE;
             self.launch
@@ -1227,17 +1704,30 @@ impl Fake {
         opens.get(handle as usize - 1).map(|open| open.path.clone())
     }
 
-    /// The game's read of that file, at each of the three places the exe does it.
+    /// The game's read of that file at `GameManager::AddedCallback` and at the ranking screen's, which
+    /// are the two that parse every chunk of it.
     ///
-    /// A failed open is not a no-op: `clrd`'s parse at 0x42b502 clears its destination before it looks for
-    /// the chunk — four records memset at 0x42b535 — so what the game is left with is an empty record and
-    /// not the one it had.
+    /// A failed open is not a no-op for all of them alike: `clrd`'s parse at 0x42b502 clears its
+    /// destination before it looks for the chunk, so what the front end is left with is an empty record
+    /// and not the one it had, while `catk`'s at 0x42b466 has no clear of its own and leaves the record
+    /// in memory standing.
     fn reads_the_score_file(&self) {
-        let bytes = self
+        let read = self.reads_the_unlocks();
+        unsafe { Th06.set_captures(&read.captures) };
+    }
+
+    /// And its read at `MainMenu::AddedCallback`, which parses `clrd` and `pscr` and nothing else: this
+    /// is the one read the front end's own items are lit from, and the record of spell cards is not what
+    /// it is for.
+    ///
+    /// Answers what the open found, so that the read above can take the captures out of the same one.
+    fn reads_the_unlocks(&self) -> ScoreFile {
+        let read = self
             .opens_the_score_file(false)
             .and_then(|path| self.files.borrow().get(&path).cloned())
             .unwrap_or_default();
-        unsafe { Th06.set_captures(&bytes) };
+        self.image.parses_the_unlocks(&read.unlocks);
+        read
     }
 
     /// And its write, which has one caller in the whole exe: 0x42f5cd, in the ranking screen's deleted
@@ -1247,9 +1737,12 @@ impl Fake {
     /// and its caller drops the answer — which is what makes refusing the write a run that is not written
     /// rather than a game that stops.
     fn writes_the_score_file(&self) {
-        let taken = unsafe { Th06.captures() };
+        let written = ScoreFile {
+            captures: unsafe { Th06.captures() },
+            unlocks: self.image.unlocks(),
+        };
         if let Some(path) = self.opens_the_score_file(true) {
-            self.files.borrow_mut().insert(path, taken);
+            self.files.borrow_mut().insert(path, written);
         }
     }
 
@@ -1272,9 +1765,21 @@ impl Fake {
     /// otherwise be left with. See `resume::hold_captures`.
     fn stage_numbers_in_place(&self) {
         self.reads_the_score_file();
+        // The stage's own song, which its data names first and which plays through the midstage and the
+        // midboss alike. Per stage, as the game loads it per stage.
+        if self.plays_songs.get() {
+            self.image.plays_a_track(STAGE_TRACK);
+        }
         let stage = self.image.stage_built();
         let previous = self.image.playing_now();
-        let moving = self.image.reproducing_now();
+        let mut moving = self.image.reproducing_now();
+        // `ReplayManager::AddedCallbackDemo`, where one is playing back: the stage's seed comes out of the
+        // replay's record rather than out of wherever the generator was left. Which is what makes a stage
+        // reached by moving the same stage as one reached by playing into it — the seed is the one number
+        // a wrong stage start can be wrong in while every other field is right.
+        if unsafe { Th06.replaying() } {
+            moving.seed = self.image.recorded_seed(stage);
+        }
         self.image.playing(Playing {
             stage,
             difficulty: self.run.difficulty,
@@ -1298,11 +1803,15 @@ impl Fake {
         self.image.player(Player::Normal);
         let field = Th06.play_area();
         self.image.play_field(field.top, field.height);
+        // `Player::AddedCallback`, which measures where the player starts from the *arcade region* and not
+        // from the box it is held inside — see [`PLAYER_STARTS_ABOVE`]. Which is what a screen shake left
+        // running reaches: nothing here puts that region back.
+        let (across, down) = self.image.arcade_region_size();
         self.image.reproducing(Reproducing {
             // The count of numbers drawn zeroed as the callback zeroes it, before the stage's own
             // build draws the two that follow.
             randoms: 0,
-            player: (field.center_x(), field.top + field.height * 0.75),
+            player: (across / 2.0, down - PLAYER_STARTS_ABOVE),
             ..moving
         });
         // `Gui::RegisterChain`, which puts `g_Gui`'s own draw job in the chain: the panel is on the
@@ -1515,6 +2024,26 @@ extern "system" fn input() -> u16 {
     running().read_the_keyboard()
 }
 
+/// `Chain::Cut` (0x41cde0): the element unlinked, which is the one call into the game orb makes that a
+/// scenario reaches — a screen shake still running at a stage move is taken down through it.
+///
+/// A real function rather than anything in the laid-out memory, for the same reason the controller's three
+/// are: code cannot be laid out.
+unsafe extern "thiscall" fn chain_cut(_chain: usize, elem: usize) {
+    running().image.cuts_from_the_chain(elem);
+}
+
+/// `ReplayManager::StopRecording` (0x42aab0): the two entries that finish an input record off, written
+/// into it at the entry playback has reached.
+///
+/// Which is right for a recording and wrong for a replay, and orb's hook over it is what tells the two
+/// apart — so a scenario reads the record back to find out whether this ran.
+extern "C" fn stop_recording() {
+    let fake = running();
+    let run = fake.image.playing_now();
+    fake.image.stops_recording(run.stage, run.frames as i32);
+}
+
 extern "C" fn stage_building(_stage: i32) -> i32 {
     running().stage_built();
     0
@@ -1534,7 +2063,7 @@ extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
 /// read is for and nothing of it is put back here. What it *is* for is the open: this is the one read of
 /// the file whose answer is the game's own file whichever mode orb is in.
 extern "C" fn unlocks_read(_menu: *mut c_void) -> i32 {
-    running().opens_the_score_file(false);
+    running().reads_the_unlocks();
     0
 }
 
@@ -1601,6 +2130,31 @@ pub fn lives_row() -> Quad {
         color: 0,
         texture: 0,
     }
+}
+
+/// The record a replay of one of this game's stages holds: a change of what was held every
+/// [`RECORDED_EVERY`] frames, cycling through the directions with the shot key down throughout.
+///
+/// This game's own — what a scenario is about is that the same record played twice puts the player in the
+/// same place to the last digit, not which buttons Reimu was pressing. Entries rather than a word per
+/// frame because that is what a recording is: the frame each change happened on, and what was held from
+/// then on.
+const RECORDED_EVERY: i32 = 7;
+const RECORDED_ENTRIES: usize = 512;
+const RECORDED_DIRECTIONS: [u16; 4] = [button::LEFT, button::DOWN, button::RIGHT, button::UP];
+
+/// And the seed each of those stages was drawn with, which the record carries too: a stage reached by
+/// moving is seeded from the record and not from wherever the generator was left, which is the whole of
+/// why two passes over one stage can agree at all.
+const RECORDED_SEED: u16 = 0x1234;
+
+fn recorded() -> Vec<(i32, u16)> {
+    (0..RECORDED_ENTRIES)
+        .map(|entry| {
+            let direction = RECORDED_DIRECTIONS[entry % RECORDED_DIRECTIONS.len()];
+            (entry as i32 * RECORDED_EVERY, direction | button::SHOOT)
+        })
+        .collect()
 }
 
 /// A stage's waves, in the only terms the boundary detector reads them: two hundred frames with

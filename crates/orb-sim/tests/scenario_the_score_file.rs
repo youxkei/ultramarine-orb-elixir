@@ -20,10 +20,10 @@
 
 mod fake;
 
-use fake::th06::{CARD, Fake, Open, the_run};
+use fake::th06::{CARD, CARD_STARTS, Fake, Open, the_run};
 use fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
-use orb_core::game::th06::image::{Scene, Screen, item};
+use orb_core::game::th06::image::{Scene, Screen, attempts_in, item};
 use orb_core::mode::Mode;
 use orb_sim::keys;
 
@@ -31,6 +31,10 @@ use orb_sim::keys;
 /// it, named for the mode whose runs are in it.
 const THEIRS: &str = "score.dat";
 const OURS: &str = "pointdevice_score.dat";
+
+/// The item of the title menu the score file's `clrd` chunk decides, read off the screen because a menu
+/// is what no log can see — see `TITLE_MENU` for the eight the game draws.
+const EXTRA_START: &str = "Extra Start";
 
 /// A launch at its title menu, with the front end's own read of the file already behind it.
 fn launched(name: &str) -> Box<Fake> {
@@ -267,33 +271,80 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
     });
 }
 
-/// A missing `pointdevice_score.dat` locks the unlocks rather than leaving them as they were.
-///
-/// A stub: `#[ignore]`d, and `todo!()` where the assertion goes.
+/// A missing `pointdevice_score.dat` locks the unlocks rather than leaving them as they were, and the
+/// front end's own read is what keeps them.
 ///
 /// Measured on a launch with no such file — `score.dat` beside it untouched, mtime
 /// `2026-08-02_18:47:50`: `Extra Start` came up **locked** on the title menu with pointdevice chosen, and
 /// the log's only score line for that menu was `score: pointdevice_score.dat opened in place of the
-/// game's own` at 338359890ms.
+/// game's own` at 338359890ms. Which is the session that put the bracket over
+/// `MainMenu::AddedCallback` there: the menu was being lit from the mode's file, and a mode whose file is
+/// new has nothing in it.
 ///
 /// So a failed read is not a no-op: `clrd`'s parse at **0x42b502** clears its destination before it looks
 /// for the chunk — four records memset at **0x42b535**.
 ///
-/// What it takes to un-stub it: the failed open is reachable now — orb's file is not there until a ranking
-/// screen has written it, and `Fake::reads_the_score_file` puts an empty record back where one fails, which
-/// is what 0x42b535 does. What is not reachable is the half the assertion is about: which items the game's
-/// own menu lights, and whether `Extra Start` is among them. The laid-out front end has eight items and no
-/// unlocks in it, and *what the front end offers* is on the list of things the log cannot see — see
-/// *And the front end's own answers* in [TODO.md](../../../TODO.md).
+/// Both halves are here, because the second is what makes the first worth anything: the read that
+/// *follows the mode* still lands in the file that is not there and still clears what the menu is lit
+/// from — once per stage, `GameManager::AddedCallback` — and what puts it back is the front end's own
+/// read of the game's own file.
 #[test]
-#[ignore = "the laid-out front end has no unlocks for a failed read to lock"]
 fn a_missing_pointdevice_score_file_locks_the_unlocks() {
-    todo!("give the front end no pointdevice file and assert Extra Start comes up locked")
+    in_its_own_process(|| {
+        let game = Fake::attach("the-score-file-the-unlocks", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        // The items themselves, which is what this one reads and no other scenario does.
+        game.draws_its_title_menu();
+        game.at_the_title_menu();
+        // Not there, which is what a first pointdevice session is looking at: the file arrives when a
+        // ranking screen writes one, and nothing seeds it from the game's own.
+        assert!(
+            game.score_file(OURS).is_none(),
+            "orb's file was there before any ranking screen had written it",
+        );
+        // And the menu is lit all the same, `Extra Start` among its items: the read that lights them is
+        // the game's own file whichever mode orb is in.
+        game.one_frame();
+        assert_eq!(
+            game.says(EXTRA_START).len(),
+            1,
+            "the front end offered no Extra Start with the game's own file there to light it from",
+        );
+
+        // The run, which is where the read that follows the mode happens: once per stage, and the file it
+        // asks for is not there.
+        game.in_a_pointdevice_run();
+        assert!(
+            game.log()
+                .said("score: pointdevice_score.dat opened in place of the game's own, read"),
+            "the stage's own read did not follow the mode:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        // What that failed read cost: the destination is cleared before the chunk is looked for, so what
+        // the menu would be lit from is gone — nothing was *left as it was*.
+        assert!(
+            game.image().unlocks().iter().all(|byte| *byte == 0),
+            "the read that failed left the unlocks standing, which is not what 0x42b535 does",
+        );
+
+        // And the front end's own read putting them back, which is the whole of what the bracket buys: the
+        // run ends, the menu is built, and the item is on it again.
+        game.gives_the_run_up_at_its_own_pause();
+        game.frames_until("the title menu after the run", 300, || {
+            game.image().scene() == Scene::FrontEnd
+                && game.image().front_end_now().screen == Screen::Title
+        });
+        game.one_frame();
+        assert_eq!(
+            game.says(EXTRA_START).len(),
+            1,
+            "the menu after the run was lit from the mode's own file, which has nothing in it",
+        );
+    });
 }
 
 /// What a session counted about spell cards survives a run that ended anywhere but the result screen.
-///
-/// A stub: `#[ignore]`d, and `todo!()` where the assertion goes.
 ///
 /// Watched on 2026-08-05 in play. A run ended elsewhere is taken through the game's own ranking, which is
 /// where it writes: `score: a run ended; what it counted waits for the trip through the ranking` at
@@ -310,10 +361,165 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
 /// chain answer, ended them after one update; and the front end's cursor was written into the menu object
 /// being discarded rather than the one built on the way back. `ResultScreen.cpp:1527-1535` is how that
 /// screen leaves, `MainMenu.cpp:848` the request being a reservation the front end acts on 60 frames later.
+///
+/// The three ways out a run has that are not the result screen, each in the mode it can be reached in: two
+/// in 完全無欠モード, where orb's own menu is one of them, and the game's own in レガシーモード, where it is
+/// the only one.
 #[test]
-#[ignore = "the walk through the ranking needs the front end rebuilding itself, which the laid-out 紅魔郷 does not do"]
 fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write() {
-    todo!(
-        "end a run through the retry menu and assert the trip through the ranking wrote the counts"
-    )
+    in_its_own_process(|| {
+        // ── タイトルに戻る, the retry menu's third item, which is the way out orb's own menu has. The
+        // count it leaves is one only orb can have made: the game counts an attempt where a card
+        // *starts*, and a chapter that begins inside one never starts it.
+        {
+            let game = launched("the-score-file-out-through-orbs-menu");
+            game.in_a_pointdevice_run();
+            at_the_cards_chapter(&game);
+            retries_the_chapter(&game);
+            assert_eq!(
+                game.image().card_attempts(CARD),
+                2,
+                "the retry was not counted against the card",
+            );
+            // The run goes on to the chapter after, and the death that ends it is in that one: a death on
+            // the very frame a chapter was put back on is not one orb notices, the frame it froze on
+            // having been dropped along with everything else about it.
+            game.frames_until("the chapter after the card", 900, || {
+                game.log().said("chapter 4")
+            });
+            gives_the_run_up_at_orbs_menu(&game);
+            wrote_what_the_run_counted(&game, OURS, 2);
+            // And the trip was asked for at the menu rather than by the run's own end: the choice is where
+            // the flag goes in, and the frame it was acted on is one orb has deliberately dropped
+            // everything it knew about — so there is no run of the frame before to notice ending.
+            assert!(
+                !game.log().said(WAITS_FOR_THE_TRIP),
+                "a run given up at orb's own menu was noticed ending as well:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+        }
+
+        // ── `esc` and then やめる, which is the game's own way out and the one a run in either mode has.
+        // Here the run's own end is what asks for the trip, orb having nothing to do with the way out.
+        {
+            let game = launched("the-score-file-out-through-the-games-own");
+            game.in_a_pointdevice_run();
+            at_the_cards_chapter(&game);
+            game.gives_the_run_up_at_its_own_pause();
+            wrote_what_the_run_counted(&game, OURS, 1);
+            assert!(
+                game.log().said(WAITS_FOR_THE_TRIP),
+                "the run's own end is not what asked for the trip:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+        }
+
+        // ── And the same run in レガシーモード, whose file is the game's own: nothing of orb's is kept in
+        // one, and what it counted about spell cards is still a session's work to lose.
+        {
+            let game = launched("the-score-file-out-of-a-legacy-run");
+            game.in_a_legacy_run();
+            game.frames_until("the card its boss puts up", 900, || {
+                game.state().stage_frames > CARD_STARTS
+            });
+            game.gives_the_run_up_at_its_own_pause();
+            wrote_what_the_run_counted(&game, THEIRS, 1);
+            assert!(
+                game.log().said(WAITS_FOR_THE_TRIP),
+                "the run's own end is not what asked for the trip:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+        }
+    });
+}
+
+/// What orb says where a run's own end is what asked for the trip, which is every way out of one but
+/// orb's own menu: that one sets the flag at the choice, on a frame whose run orb has already stopped
+/// comparing anything against.
+const WAITS_FOR_THE_TRIP: &str =
+    "score: a run ended; what it counted waits for the trip through the ranking";
+
+/// The run played as far as the chapter its boss's spell card is, which is where the game counts an
+/// attempt at that card: a chapter beginning inside one never starts it, so this is the number orb's own
+/// count is added to.
+fn at_the_cards_chapter(game: &Fake) {
+    let log = game.log();
+    game.frames_until("the chapter the card is", 900, || {
+        log.said(&format!(
+            "at frame {CARD_STARTS}, {CARD_STARTS} frame(s) of buttons"
+        ))
+    });
+    assert_eq!(
+        game.image().card_attempts(CARD),
+        1,
+        "the game counted no attempt where the card started",
+    );
+}
+
+/// 被弾 and then チャプターをやり直す, which is the retry menu's first item and the attempt orb counts.
+fn retries_the_chapter(game: &Fake) {
+    let log = game.log();
+    game.hit();
+    game.frame();
+    assert!(
+        log.said("died in chapter"),
+        "the death was not noticed:\n  {}",
+        log.lines().join("\n  ")
+    );
+    game.press_until(keys::Z, "the retry menu answered", || {
+        log.said("retry: the chapter again on the keyboard")
+    });
+}
+
+/// 被弾 and then タイトルに戻る, which is up once from the item the cursor starts on, and the question
+/// that item asks, whose own cursor starts on いいえ.
+///
+/// The frames each holds its keys off for are waited out first: a direction pressed inside those is one
+/// nothing moved on — see `READS_KEYS_AFTER`.
+fn gives_the_run_up_at_orbs_menu(game: &Fake) {
+    let log = game.log();
+    game.hit();
+    game.frame();
+    game.frames(READS_KEYS_AFTER);
+    game.press(keys::UP);
+    game.press_until(keys::Z, "the give-up asking", || {
+        log.said("retry: asking about the run given up")
+    });
+    game.frames(READS_KEYS_AFTER);
+    game.press(keys::UP);
+    game.press_until(keys::Z, "the run given up", || {
+        log.said("retry: the run is given up")
+    });
+}
+
+/// The trip through the ranking that follows, and the file it wrote: which name the write landed in, and
+/// the count in it.
+///
+/// The opens are forgotten first, so what is read back is the trip's own: the reads the run itself made
+/// are behind it, and the front end's read when the menu comes back is the game's own file either way.
+fn wrote_what_the_run_counted(game: &Fake, name: &str, attempts: u16) {
+    let log = game.log();
+    game.forget_score_file_opens();
+    game.frames_until("the trip through the ranking", 300, || {
+        log.said("score: taken through the ranking")
+    });
+    let (_, writes) = reads_and_writes(&game.score_file_opens());
+    assert_eq!(
+        writes,
+        vec![name.to_owned()],
+        "the trip wrote something other than the file this run's mode is in, or wrote it twice",
+    );
+    // And what is in it: the record as the memory held it when the screen went down, which is this
+    // session's count and not the one the file was read with.
+    let written = game.score_file(name).expect("the file the trip wrote");
+    assert_eq!(
+        attempts_in(&written, CARD),
+        attempts,
+        "the file the trip wrote holds a count this session did not make",
+    );
+    assert_eq!(
+        game.image().card_attempts(CARD),
+        attempts,
+        "the trip left the record in memory holding something else",
+    );
 }

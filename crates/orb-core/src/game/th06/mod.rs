@@ -53,6 +53,36 @@ const SAVE_REPLAY_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x81, 0xec, 0xa8, 0x00, 
 /// the first from `this` and the second from `this + 0x20`: the calc chain's root and the
 /// draw chain's, which also fixes `Chain`'s layout.
 const CHAIN_CUT: usize = 0x0041cde0;
+
+/// Where to call it, which is the address above in a real process and whatever a game laid out by hand
+/// hands over in its place.
+///
+/// **Code is the one thing an address space laid out by hand cannot hold**, and this is the only call
+/// this file makes into the game that a scenario ever reaches: a shake still running at a stage move is
+/// taken down through it, and a scenario about that would otherwise be jumping into memory nothing has
+/// mapped. The same answer `window::install_over` and `score::install_over` are — see
+/// [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+///
+/// Behind the same gate `image` is, so the shipped DLL has the constant and no atomic in the path.
+#[cfg(any(test, feature = "sim"))]
+static CHAIN_CUT_AT: AtomicUsize = AtomicUsize::new(CHAIN_CUT);
+
+#[cfg(any(test, feature = "sim"))]
+fn chain_cut() -> usize {
+    CHAIN_CUT_AT.load(Ordering::Relaxed)
+}
+
+#[cfg(not(any(test, feature = "sim")))]
+fn chain_cut() -> usize {
+    CHAIN_CUT
+}
+
+/// Hands over the game's own `Chain::Cut` — see [`chain_cut`].
+#[cfg(any(test, feature = "sim"))]
+fn install_chain_cut(address: usize) {
+    CHAIN_CUT_AT.store(address, Ordering::Relaxed);
+}
+
 /// `th06::ScreenEffect::ShakeScreen`, matched against a job's callback rather than called.
 /// Its `isTimeStopped` branch writes 32.0, 16.0, 384.0 and 448.0 to 0x69d6dc onwards — the
 /// arcade region — which is what says this is the right function.
@@ -1876,7 +1906,7 @@ impl Th06 {
     /// Must run on the game's main thread, between frames.
     unsafe fn cut_screen_shake(&self) {
         let cut: unsafe extern "thiscall" fn(usize, usize) =
-            unsafe { std::mem::transmute(CHAIN_CUT) };
+            unsafe { std::mem::transmute(chain_cut()) };
         let mut elem = unsafe { mem::read::<usize>(G_CHAIN + chain_elem::NEXT) };
         while elem != 0 {
             // Read before the cut: the element is freed by it.

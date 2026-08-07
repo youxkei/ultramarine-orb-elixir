@@ -699,7 +699,7 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**Ninety-eight of the 297 tests are scenarios, and every one of them is driven by a game.** In
+**A hundred and ten of the 309 tests are scenarios, and every one of them is driven by a game.** In
 `orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
@@ -977,31 +977,40 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 297 tests and 12 stubs without a game, and most of what it now covers used to need a
-session. So this is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness
-to, and therefore what a session is for. What a scenario could reach once the laid-out game grows is
-a stub instead, `#[ignore]`d and holding its own numbers; `cargo test -- --ignored` lists those.
+The suite is 309 tests and **no stubs**, and most of what it now covers used to need a session. So this
+is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
+what a session is for. Nothing here is a test somebody could write.
 
-**The twelve stubs left, and the one thing each is waiting on.** Seventeen of the twenty-nine were
-un-stubbed by growing the laid-out game and the seam — six stages that follow one another, a bullet the
-hit test runs against after the player's own update, the result screen reached through the chain job it
-registers, `g_Gui`'s draw job in and out of the chain, a monitor with two sizes and a frame round a
-window, the game's own `CreateFileA` handed over so that which of the two score files an open lands in is
-answerable, and a keyboard device the game holds `DISCL_EXCLUSIVE | DISCL_FOREGROUND` beside a keyboard
-that tells a key a hand is holding from one another program sent. What is left needs one of four things,
-and no stub needs more than one of them:
+**The last twelve stubs were un-stubbed by growing the laid-out game and the seam**, the way the
+seventeen before them were: an ending object reached through the chain job it registers, with a `.end`
+whose waits run out inside one frame and a staff roll it hands over to as the track changes; a replay
+manager whose per-stage records a teardown would write over, whose entries the player moves on, and whose
+seed a stage reached by moving is drawn from; a screen shake registered as a job of the chain's, with the
+game's own `Chain::Cut` handed over to take it down; the front end's own eight items, drawn, with `Extra
+Start` among them only where the score file's `clrd` left something to light it from; and a track
+streamed through a real DirectSound buffer and a real `mmioSeek`/`mmioRead` pair —
+[`orb_sim::Sound`](crates/orb-sim/src/sound.rs).
 
-| | |
-| --- | --- |
-| **a replay record and a generator the game draws from** | `scenario_moving_between_a_replays_stages.rs`'s four. The replay manager's record, `Rng::GetRandomU16` drawn where the game draws it, the player moved by recorded input, and a screen shake taking two numbers a frame |
-| **an ending script and its staff roll** | two of `scenario_the_ending.rs`'s three. A `.end` of one-character instructions, the scene the roll plays in, and the track changing on the same update the script hands over. The scene itself is there — a cleared run passes through it and orb writes `ending skipped, N frames run, scene 10 -> 7`, which `scenario_a_clear_on_demand.rs` reads — and what is missing is a script for it to run out |
-| **a streaming sound** | `scenario_the_music_across_a_restore.rs`'s three. A `data` chunk, a loop point, and the countdown `WaveFile::Read` keeps, reached through the buffer's vtable the way `recording.rs` reaches the device's |
-| **the front end's own answers** | `scenario_the_score_file.rs`'s remaining two, and they are the one pair whose obstacle is not the laid-out game's size. What `a_missing_pointdevice_score_file_locks_the_unlocks` asserts is which items the game's menu lights, and *what the front end offers* is on the list below of what the log cannot see. The other wants the front end rebuilding itself, which is what orb's trip through the ranking rests on |
+**Two of those carry a claim the laid-out game narrows**, and both say so where they are written:
 
-And one is waiting on something no code will provide:
-`the_ending_and_the_roll_together_come_to_the_waits_in_the_script` is blocked on a measurement that has
-not been taken — the **62 frames** between 7,892 and 7,830 are unaccounted for, and a scenario that
-accounted for them would be inventing the account.
+- `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` asserts the arithmetic over an
+  ending whose waits are known — an ending orb can find no script in is run out to the scene change,
+  roll and all, and the difference between that and stopping at the roll is the roll's own script. The
+  **62 frames** between the real run's 7,892 and `staff00.end`'s 7,830 are still unaccounted for, and a
+  scenario that accounted for them would be inventing the account.
+- `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop` asserts that the file's position and the
+  countdown still name the same loop point after a seek, which is the arithmetic the episode was the
+  failure of. **The track has not been re-heard** since the countdown was moved with the file.
+
+And two more things a laid-out game reaches the edge of, which the scenarios name rather than assert:
+
+- **The roll's drawn frames are fewer than its own script's waits**, because a run that ended waits for
+  the trip through the ranking and a trip that finds no front end up spends its whole allowance of
+  updates inside one frame. Whether that is part of what left the real roll **544 frames short** of its
+  7,830 is not settled.
+- **A track taken down and started again** is `StopBGM` and `PlayAudio` at their own addresses, and there
+  is no code at either in a game laid out by hand. So `restore: the track has changed since this
+  snapshot` and the two lines after it stay the real game's.
 
 **Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
 by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The
@@ -1033,18 +1042,20 @@ orb's last say in it. Nothing in the suite has another program in it.
 **The launcher's dialog answered on a pad.** `launcher/pad.rs` has the reading and `settings.rs` the
 dialog's own arithmetic; a Win32 dialog with a real pad pushed at it is neither.
 
-**The sound.** No track plays in a laid-out game — `Music::capture` reaches into DirectSound through
-the buffer's vtable — so nothing about the music in a snapshot, the streaming margin, or what a
-restore does to a stream is covered here. Whether a chapter comes back with its music is a thing to
-hear.
+**The sound, as sound.** A track does play in a laid-out game now — `orb_sim::Sound` is the buffer
+`Music::capture` locks and the winmm it seeks through — so which chapters put their music back, the
+position a chapter is written down with, and where the countdown lands after a seek are all covered. What
+is not, and cannot be, is what any of it sounds like: whether a chapter comes back with its music is a
+thing to hear, and the streaming margin is a real thread topping up a real buffer against a real card.
 
 **Anything the screen is the judge of.** The drawing tests say where a quad went and in what colour;
 they do not say it looks right. The brush stroke reading as a stroke, the panel's own tile showing
 through the strips either side of it, the wash being dark enough to read a menu over and light enough
 to see the run under — those are looked at.
 
-**And the front end's own answers.** Which items the game's menu lights after a run, what its spell
-card history shows in each mode, whether `Extra Start` is offered — the log cannot see a menu.
+**And the front end's own answers.** What its spell card history shows in each mode, and which items the
+game's menu lights beyond the one the score file's `clrd` decides — the log cannot see a menu, so what a
+scenario reads is what the laid-out front end draws, and it draws eight names and no artwork.
 
 **The driver for such a session is not in the tree, on purpose.** `.gitignore` keeps `/scripts` out
 because what wraps the build and the copy is one person's workflow and the last one carried that

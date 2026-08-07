@@ -16,14 +16,27 @@ It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): tha
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and
 `Th06::play_sounds` call the game's own code — and the conclusion drawn from it was not.
 
-**And the argument reached two more calls since.** `Originals` now carries `create_window` and
-`create_file` as well: the game's own `CreateWindowExA`, which orb's rewrite of the window arguments calls
-through, and its own `CreateFileA`, which the score file's fork calls through. A real launch reaches both
-by patching the exe's import table, and a laid-out game has no import table either — so the same answer
-applies twice over: it hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s six
-scenarios drive the first that way and `scenario_the_score_file.rs`'s three the second. Nothing about the
-reasoning below changes; what changes is that the list of calls handed over is not closed, and the test for
-adding to it is the one this document set.
+**And the argument reached four more calls since.** `Originals` now carries `create_window`,
+`create_file` and `stop_recording`: the game's own `CreateWindowExA`, which orb's rewrite of the window
+arguments calls through; its own `CreateFileA`, which the score file's fork calls through; and its own
+`ReplayManager::StopRecording`, which orb's hook over it calls through where the record being finished off
+is a run's own rather than a replay's. A real launch reaches the first two by patching the exe's import
+table and the third by patching a prologue, and a laid-out game has neither — so the same answer applies
+three times over: it hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s six
+scenarios drive the first that way, `scenario_the_score_file.rs`'s five the second, and
+`scenario_moving_between_a_replays_stages.rs`'s four the third.
+
+**The fourth is not a hook, and it is `Th06`'s rather than `Originals`'.** `Chain::Cut` at 0x41cde0 is a
+call *out* of `orb-core` into the game — `cut_screen_shake` takes a shake still running at a stage move
+down through it — so there is no trampoline to fill and nothing to call through: what a laid-out game hands
+over is the address itself, kept in a static behind the same `cfg(any(test, feature = "sim"))` the laid-out
+image is behind, so the shipped DLL has the constant and no atomic in the path. Which is the one place the
+list has crossed out of `orb` into `orb-core`, and the reason is the one this document set: code is the one
+thing an address space laid out by hand cannot hold, and a scenario that reached that call would be jumping
+into memory nothing has mapped.
+
+Nothing about the reasoning below changes; what changes is that the list of calls handed over is not
+closed, and the test for adding to it is the one this document set.
 
 ## Context
 

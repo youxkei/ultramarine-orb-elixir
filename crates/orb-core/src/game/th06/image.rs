@@ -20,7 +20,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use orb_api::{Hwnd, Kind};
-use orb_sim::{Sim, Space};
+use orb_sim::{Sim, Sound, Space};
 
 use crate::d3d8::Device;
 use crate::game::RunStart;
@@ -72,6 +72,85 @@ const CONTROLLER_VTABLE: usize = CONTROLLER.start + 0x100;
 /// [`keyboard_device`](Image::keyboard_device).
 const KEYBOARD: Range<usize> = 0x0300_5000..0x0300_6000;
 const KEYBOARD_VTABLE: usize = KEYBOARD.start + 0x100;
+
+/// The ending's own object and the chain element it registers, in blocks of their own and for the same
+/// reason the result screen's two are: the object is nowhere in the game's static data, and
+/// `chain_argument` finding it by the callback of the element it registered is the whole of how orb
+/// reaches it.
+const ENDING: Range<usize> = 0x0300_6000..0x0300_7000;
+const ENDING_ELEM: Range<usize> = 0x0300_7000..0x0300_8000;
+/// The two `.end` scripts an ending reads, as the addresses `Ending::LoadEndingFile` (0x4106d0) leaves
+/// in the object: its own, and the staff roll's, which it reads over the one running.
+///
+/// Two addresses is the whole of what tells the ending from the roll — the scene stays 10 across both
+/// and `isInEnding` stays set through both — and they differ because that function reads the new file
+/// before it frees the one it replaces.
+const ENDING_SCRIPT: usize = ENDING.start + 0x400;
+const ROLL_SCRIPT: usize = ENDING.start + 0x800;
+
+/// The two heap objects a track is streamed through: the streaming sound the sound player keeps, and
+/// the wave file under it.
+const MUSIC: Range<usize> = 0x0300_8000..0x0300_9000;
+const STREAM: usize = MUSIC.start;
+const WAVE: usize = MUSIC.start + 0x100;
+/// And the array of buffer pointers the stream keeps, which is one long: the game's own is an array
+/// however many buffers there are, and orb refuses a stream that says it has any number but one.
+const BUFFERS: usize = MUSIC.start + 0x200;
+/// And the vtable the streaming sound is reached through, which has to be inside [`CODE`]: a pointer
+/// into the image is what orb takes for the difference between a live COM object and the stale one left
+/// in a block the allocator did not scrub, and it asks that of the stream before it reads anything
+/// through it.
+const AUDIO_VTABLE: usize = CODE.start + 0x100;
+
+/// The chain element a screen shake registers, in a block of its own so that orb's walk for it has the
+/// same work to do as over a real one. The shake has no object of its own worth laying out: what orb
+/// matches on is the element's callback, and what it does with the element is cut it.
+const SHAKE_ELEM: Range<usize> = 0x0300_a000..0x0300_b000;
+
+/// The replay manager, the replay it has loaded, and one record of inputs per stage of that replay:
+/// three more blocks off the heap, reached through the pointer at `g_ReplayManager`.
+const REPLAY_MANAGER: Range<usize> = 0x0300_9000..0x0300_a000;
+const REPLAY: usize = REPLAY_MANAGER.start + 0x100;
+const RECORDS: Range<usize> = 0x0301_0000..0x0302_0000;
+/// How much of that block each stage's record gets, and how many entries fit in one.
+const RECORD_BYTES: usize = (RECORDS.end - RECORDS.start) / super::replay_data::STAGES as usize;
+
+/// A record of inputs as this file lays one out: how many entries it holds, how far playback has got
+/// through it, and then the entries — the frame each change of what was held happened on, and what was
+/// held from then on.
+///
+/// **This layout is not the game's**, and it is here rather than in whatever drives the game for the same
+/// reason everything else is: orb reads none of it. What it reads is the *pointers* — the manager, the
+/// replay, the per-stage entry — and what it does about the record is refuse to let a teardown write one
+/// while it is being played back. So what a record has to be is something a write of that shape can be
+/// seen in.
+mod record {
+    pub const ENTRIES: usize = 0x0;
+    pub const PLAYBACK_AT: usize = 0x4;
+    /// The seed the stage was drawn with, which is one of the eight fields
+    /// `ReplayManager::AddedCallbackDemo` writes out of a stage's record — and the one two passes over
+    /// one stage could not agree without: it goes in where a played stage would have had whatever the
+    /// generator was left on.
+    pub const SEED: usize = 0x8;
+    pub const FIRST: usize = 0x10;
+    /// A frame and a word, padded to keep the frames aligned.
+    pub const STRIDE: usize = 0x8;
+}
+
+/// The frame number `ReplayManager::StopRecording` terminates a record at, which is 紅魔郷's own: no run
+/// reaches it, so playback that walked into it would stand still for ever rather than end.
+pub const RECORD_ENDS_AT: i32 = 9_999_999;
+
+/// Where `clrd` is parsed into, as an offset in the game manager: 0x69ccd0, which is what the front
+/// end lights `Extra Start` and its practice stages from. `pscr`'s destination is the 0x69cd30 after
+/// it, so what lies between the two is `clrd`'s four records at 0x18 apiece.
+///
+/// Here rather than beside the offsets [`Th06`](super::Th06) reads through, because orb reads
+/// neither of them: what reads them is the game's own front end, and this file is where the game's
+/// part is laid out. Which of the three reads of the score file fills them is `MAIN_MENU_ADDED`'s
+/// table.
+const CLEARED: usize = 0x1030;
+const CLEARED_BYTES: usize = 0x60;
 
 /// A stage in progress, as a scenario says it.
 ///
@@ -208,9 +287,11 @@ pub enum Screen {
     Other(i32),
 }
 
-/// Which item of the title menu a cursor is on, for the two orb has a question about.
+/// Which item of the title menu a cursor is on, for the two orb has a question about — and for the
+/// one the score file decides, which is [`EXTRA`].
 pub mod item {
     pub const GAME_START: i32 = super::super::TITLE_ITEM_START;
+    pub const EXTRA: i32 = super::super::TITLE_ITEM_EXTRA;
     pub const SCORE: i32 = super::super::TITLE_ITEM_SCORE;
 }
 
@@ -286,6 +367,19 @@ pub struct Boss {
     pub attack_frames: i32,
 }
 
+/// A track, as the three numbers of its header that tell one from another: how long its wave file is,
+/// and where it loops — see `Th06::music_identity`, which is what reads them.
+///
+/// A scenario's own numbers. Which they are does not matter and what matters is that two tracks are two
+/// sets of them: a snapshot's music belongs to the track that was playing, and a track that has changed
+/// under it is one to start again rather than copy back.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Track {
+    pub length: u32,
+    pub loop_start: u32,
+    pub loop_end: u32,
+}
+
 /// What the player is doing, which is what says whether a frame is one a chapter may begin on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Player {
@@ -350,6 +444,15 @@ impl Image {
         );
         sim.space()
             .map(KEYBOARD.start, KEYBOARD.len(), Kind::Private);
+        sim.space().map(ENDING.start, ENDING.len(), Kind::Private);
+        sim.space()
+            .map(ENDING_ELEM.start, ENDING_ELEM.len(), Kind::Private);
+        sim.space().map(MUSIC.start, MUSIC.len(), Kind::Private);
+        sim.space()
+            .map(REPLAY_MANAGER.start, REPLAY_MANAGER.len(), Kind::Private);
+        sim.space().map(RECORDS.start, RECORDS.len(), Kind::Private);
+        sim.space()
+            .map(SHAKE_ELEM.start, SHAKE_ELEM.len(), Kind::Private);
         Self { sim }
     }
 
@@ -453,6 +556,106 @@ impl Image {
                 space.read(super::G_PLAYER + super::player::POSITION_CENTER + size_of::<f32>()),
             ),
         }
+    }
+
+    /// The game's own `Chain::Cut`, handed over: code is the one thing an address space laid out by hand
+    /// cannot hold, and a shake still running at a stage move is taken down through that call.
+    pub fn cuts_the_chain_through(&self, address: usize) {
+        super::install_chain_cut(address);
+    }
+
+    /// `ScreenEffect::ShakeScreen` registered as a job of the chain's, which is what a bomb leaves
+    /// running: what orb matches on is the callback, and what it does with the element is cut it.
+    pub fn shakes_the_screen(&self) {
+        let space = self.space();
+        let elem = SHAKE_ELEM.start;
+        space.write::<usize>(elem + super::chain_elem::CALLBACK, super::SHAKE_SCREEN);
+        space.write::<usize>(elem + super::chain_elem::ARG, elem);
+        let head = super::G_CHAIN + super::chain_elem::NEXT;
+        let after: usize = space.read(head);
+        space.write::<usize>(elem + super::chain_elem::NEXT, after);
+        space.write::<usize>(head, elem);
+    }
+
+    /// Whether that job is still in the chain, which is what says a shake is still running.
+    pub fn shaking_the_screen(&self) -> bool {
+        let mut at: usize = self.space().read(super::G_CHAIN + super::chain_elem::NEXT);
+        while at != 0 {
+            if at == SHAKE_ELEM.start {
+                return true;
+            }
+            at = self.space().read(at + super::chain_elem::NEXT);
+        }
+        false
+    }
+
+    /// And the shake taking itself down, which it does on the frame its own frames run out — the frame a
+    /// shake cut early never reaches.
+    pub fn cuts_the_shake_from_the_chain(&self) {
+        self.cuts_from_the_chain(SHAKE_ELEM.start);
+    }
+
+    /// `Chain::Cut`: the element unlinked from the calc chain, which is what the game's own call does and
+    /// what a game laid out by hand has to do in its place — see
+    /// [`cuts_the_chain_through`](Self::cuts_the_chain_through).
+    pub fn cuts_from_the_chain(&self, elem: usize) {
+        let space = self.space();
+        let mut at = super::G_CHAIN + super::chain_elem::NEXT;
+        loop {
+            let next: usize = space.read(at);
+            if next == 0 {
+                return;
+            }
+            if next == elem {
+                space.write::<usize>(at, space.read::<usize>(elem + super::chain_elem::NEXT));
+                space.write::<usize>(elem + super::chain_elem::NEXT, 0);
+                space.write::<usize>(elem + super::chain_elem::CALLBACK, 0);
+                return;
+            }
+            at = next + super::chain_elem::NEXT;
+        }
+    }
+
+    /// The arcade region, which is not the box the player is held inside: it is what a screen shake
+    /// writes every frame from the generator, and what `Player::AddedCallback` measures a stage's first
+    /// position from.
+    ///
+    /// Written once where the game sets its screen up and by nothing per stage, which is the whole reason
+    /// a shake can reach the stage after the one that started it: nothing on the way into a stage puts it
+    /// back.
+    pub fn sets_the_arcade_region(&self, top_left: (f32, f32), size: (f32, f32)) {
+        let space = self.space();
+        space.write::<[f32; 2]>(
+            super::G_GAME_MANAGER + super::game_manager::ARCADE_REGION_TOP_LEFT,
+            [top_left.0, top_left.1],
+        );
+        space.write::<[f32; 2]>(
+            super::G_GAME_MANAGER + super::game_manager::ARCADE_REGION_SIZE,
+            [size.0, size.1],
+        );
+    }
+
+    /// How big it is now, which is what a stage's first position comes out of.
+    pub fn arcade_region_size(&self) -> (f32, f32) {
+        let size: [f32; 2] = self
+            .space()
+            .read(super::G_GAME_MANAGER + super::game_manager::ARCADE_REGION_SIZE);
+        (size[0], size[1])
+    }
+
+    /// How many extra lives the run's score has paid for, which is the count a stage's own loop only
+    /// ever raises: it can bring the number up to what the score has earned and cannot bring it down
+    /// from what a later stage reached, which is why starting a replay at a stage writes it.
+    pub fn extra_lives(&self) -> i8 {
+        self.space()
+            .read(super::G_GAME_MANAGER + super::game_manager::EXTRA_LIVES)
+    }
+
+    pub fn set_extra_lives(&self, lives: i8) {
+        self.space().write::<i8>(
+            super::G_GAME_MANAGER + super::game_manager::EXTRA_LIVES,
+            lives,
+        );
     }
 
     /// The box the player is held inside, which a stage's build puts in place and nothing else moves.
@@ -670,6 +873,30 @@ impl Image {
         let record = super::CARD_HISTORY + card as usize * 0x40;
         space.write::<u32>(record, super::CATK_MAGIC);
         space.write::<u16>(record + super::CATK_ATTEMPTS, attempts);
+    }
+
+    /// `clrd`'s parse at 0x42b502: the destination cleared before the chunk is looked for — four
+    /// records memset at 0x42b535 — and then whatever the read found written into it.
+    ///
+    /// **The clear is the half worth laying out.** A read that failed leaves the front end nothing to
+    /// light, so a file that is not there locks what an earlier one had earned rather than leaving it
+    /// as it was — which is why the one read the menu's items come out of has to be pointed at the
+    /// game's own file whichever mode orb is in. `catk`'s parse at 0x42b466 has no clear of its own,
+    /// which is the difference [`set_captures`](crate::game::Game::set_captures) is read against.
+    pub fn parses_the_unlocks(&self, chunk: &[u8]) {
+        let space = self.space();
+        let at = super::G_GAME_MANAGER + CLEARED;
+        space.fill_bytes(at, 0, CLEARED_BYTES);
+        space.write_bytes(at, &chunk[..chunk.len().min(CLEARED_BYTES)]);
+    }
+
+    /// What that parse left the front end to light its items from.
+    ///
+    /// Bytes rather than records: what one holds per shot is not something orb reads, and the whole of
+    /// what anything above asks is whether the read left the menu anything at all.
+    pub fn unlocks(&self) -> Vec<u8> {
+        self.space()
+            .read_bytes(super::G_GAME_MANAGER + CLEARED, CLEARED_BYTES)
     }
 
     /// What the player is doing.
@@ -934,6 +1161,104 @@ impl Image {
             .write::<i32>(RESULT_SCREEN.start + super::result_screen::STATE, state);
     }
 
+    /// `Ending::RegisterChain` (0x4107b0): the ending's own job in the chain's calc list, carrying
+    /// `Ending::OnUpdate` as its callback and the ending itself as what to call it on, with the `.end`
+    /// script it has read in the object.
+    pub fn registers_the_ending(&self) {
+        let space = self.space();
+        let elem = ENDING_ELEM.start;
+        space.write::<usize>(elem + super::chain_elem::CALLBACK, super::ENDING_ON_UPDATE);
+        space.write::<usize>(elem + super::chain_elem::ARG, ENDING.start);
+        let head = super::G_CHAIN + super::chain_elem::NEXT;
+        let after: usize = space.read(head);
+        space.write::<usize>(elem + super::chain_elem::NEXT, after);
+        space.write::<usize>(head, elem);
+        space.write::<usize>(ENDING.start + super::ending::SCRIPT, ENDING_SCRIPT);
+    }
+
+    /// `Ending::LoadEndingFile` reading the staff roll's script over the one running, which is every
+    /// ending's last act: all six of 紅魔郷's finish on `@Fdata/staff00.end`, so the script changing is
+    /// where the ending itself ends and the roll begins.
+    pub fn hands_over_to_the_roll(&self) {
+        self.space()
+            .write::<usize>(ENDING.start + super::ending::SCRIPT, ROLL_SCRIPT);
+    }
+
+    /// And `Chain::Cut` taking that job out, which is the scene being taken down.
+    pub fn cuts_the_ending(&self) {
+        let space = self.space();
+        let elem = ENDING_ELEM.start;
+        let head = super::G_CHAIN + super::chain_elem::NEXT;
+        if space.read::<usize>(head) == elem {
+            let after: usize = space.read(elem + super::chain_elem::NEXT);
+            space.write::<usize>(head, after);
+        }
+        space.write::<usize>(elem + super::chain_elem::NEXT, 0);
+        space.write::<usize>(elem + super::chain_elem::CALLBACK, 0);
+    }
+
+    /// The track the sound player is streaming, through the two objects it is reached by: the streaming
+    /// sound the player keeps, and the wave file under it holding [`Track`]'s three numbers.
+    ///
+    /// A vtable in the image at the head of the stream, because that is what orb asks before it reads
+    /// anything through the pointer — see [`AUDIO_VTABLE`].
+    pub fn plays_a_track(&self, track: Track) {
+        let space = self.space();
+        space.write::<usize>(STREAM, AUDIO_VTABLE);
+        space.write::<usize>(STREAM + super::streaming_sound::WAVE_FILE, WAVE);
+        space.write::<u32>(WAVE + super::wave_file::SIZE_OF_FILE, track.length);
+        space.write::<u32>(WAVE + super::wave_file::LOOP_START, track.loop_start);
+        space.write::<u32>(WAVE + super::wave_file::LOOP_END, track.loop_end);
+        space.write::<usize>(
+            super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
+            STREAM,
+        );
+    }
+
+    /// And the whole of the sound that track is streamed through, for a scenario about the stream itself:
+    /// the buffer the game plays and the file handle it reads it out of, beside the wave file's own
+    /// numbers.
+    ///
+    /// `left` is the countdown the track's loop is taken on — how many bytes of sound the stream believes
+    /// are left before it — which with the file's position is the pair a loop is decided by: the game
+    /// subtracts every byte it reads from it and starts the track over when a read comes up short against
+    /// it. So the two are put in together, and a scenario that moved one without the other would be laying
+    /// out the very fault this is about.
+    pub fn streams_a_track(&self, track: Track, sound: &Sound, left: u32) {
+        self.plays_a_track(track);
+        sound.install(&self.sim);
+        let space = self.space();
+        space.write::<usize>(STREAM + super::streaming_sound::BUFFERS, BUFFERS);
+        space.write::<usize>(BUFFERS, sound.buffer_object());
+        space.write::<u32>(
+            STREAM + super::streaming_sound::BUFFER_SIZE,
+            sound.buffer_size(),
+        );
+        space.write::<u32>(STREAM + super::streaming_sound::BUFFER_COUNT, 1);
+        space.write::<u32>(
+            STREAM + super::streaming_sound::NOTIFY_SIZE,
+            sound.notify_size(),
+        );
+        space.write::<u32>(STREAM + super::streaming_sound::NEXT_WRITE_OFFSET, 0);
+        space.write::<usize>(WAVE + super::wave_file::MMIO, sound.mmio());
+        space.write::<u32>(WAVE + super::wave_file::BYTES_LEFT, left);
+    }
+
+    /// How many bytes of sound the stream believes are left before the track loops, which is what a seek
+    /// has to move with the file.
+    pub fn bytes_left(&self) -> u32 {
+        self.space().read(WAVE + super::wave_file::BYTES_LEFT)
+    }
+
+    /// And no track at all, which is what a game with nothing playing has: the pointer the sound player
+    /// keeps is what `StopBGM` clears, and every read of the music goes through it.
+    pub fn takes_the_music_down(&self) {
+        self.space().write::<usize>(
+            super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
+            0,
+        );
+    }
+
     /// Says that screen is up with its records read in, which is the state orb waits for before it
     /// puts back what this session counted.
     pub fn ranking_screen_shown(&self) {
@@ -981,6 +1306,111 @@ impl Image {
             .write::<u32>(super::G_GAME_MANAGER + super::game_manager::IS_IN_REPLAY, 1);
     }
 
+    /// `ReplayManager::RegisterChain` with a replay loaded: the manager, the replay under it, and a
+    /// record for each of the stages that replay covers.
+    ///
+    /// A stage the replay does not cover keeps the null pointer it was laid out with, which is what
+    /// `jump_to_stage` asks the replay about before it moves anywhere.
+    pub fn loads_a_replay(&self, stages: &[i32]) {
+        let space = self.space();
+        space.write::<usize>(super::G_REPLAY_MANAGER, REPLAY_MANAGER.start);
+        space.write::<usize>(
+            REPLAY_MANAGER.start + super::replay_manager::REPLAY_DATA,
+            REPLAY,
+        );
+        // `isDemo`, which is the game's own name for playback: the attract demo and a replay somebody
+        // chose are the same thing to it, and it is what orb reads to know the record is being watched
+        // rather than written.
+        space.write::<i32>(REPLAY_MANAGER.start + super::replay_manager::IS_DEMO, 1);
+        for stage in stages {
+            space.write::<usize>(self.stage_entry(*stage), record_of(*stage));
+        }
+    }
+
+    /// The inputs one of those stages holds, as the pairs a recording is made of: the frame each change
+    /// of what was held happened on, and what was held from then on — and the seed that stage was drawn
+    /// with, since a replay puts that back too.
+    pub fn records_the_inputs(&self, stage: i32, seed: u16, entries: &[(i32, u16)]) {
+        let space = self.space();
+        let record = record_of(stage);
+        space.write::<i32>(record + record::ENTRIES, entries.len() as i32);
+        space.write::<i32>(record + record::PLAYBACK_AT, 0);
+        space.write::<u16>(record + record::SEED, seed);
+        for (index, (frame, input)) in entries.iter().enumerate() {
+            let at = record + record::FIRST + index * record::STRIDE;
+            space.write::<i32>(at, *frame);
+            space.write::<u16>(at + size_of::<i32>(), *input);
+        }
+    }
+
+    /// And what it holds now, which is what says whether a teardown wrote over it.
+    pub fn recorded_inputs(&self, stage: i32) -> Vec<(i32, u16)> {
+        let space = self.space();
+        let record = record_of(stage);
+        let entries: i32 = space.read(record + record::ENTRIES);
+        (0..entries.max(0) as usize)
+            .map(|index| {
+                let at = record + record::FIRST + index * record::STRIDE;
+                (space.read(at), space.read(at + size_of::<i32>()))
+            })
+            .collect()
+    }
+
+    /// What the record says was held on `frame`, and how far playback has reached in saying so.
+    ///
+    /// The entries are walked from the start, as playback walks them: nothing else says which entry is
+    /// current, and the count is what a teardown writing over the record moves.
+    pub fn plays_back_the_inputs(&self, stage: i32, frame: i32) -> u16 {
+        let entries = self.recorded_inputs(stage);
+        let reached = entries
+            .iter()
+            .rposition(|(at, _)| *at <= frame)
+            .unwrap_or(0);
+        self.space()
+            .write::<i32>(record_of(stage) + record::PLAYBACK_AT, reached as i32);
+        entries.get(reached).map_or(0, |(_, input)| *input)
+    }
+
+    /// `ReplayManager::StopRecording`: a blank input at the frame the run stopped, and a terminator
+    /// after it, written into the record at the entry playback has reached.
+    ///
+    /// Which is right for a recording and wrong for a replay — the record it lands in during playback is
+    /// the replay's own — and that is the whole of what `orb::stop_recording` holds back.
+    pub fn stops_recording(&self, stage: i32, frame: i32) {
+        let space = self.space();
+        let record = record_of(stage);
+        let at: i32 = space.read(record + record::PLAYBACK_AT);
+        for (index, entry) in [(at, (frame, 0)), (at + 1, (RECORD_ENDS_AT, 0))] {
+            let index = index.max(0) as usize;
+            if record::FIRST + (index + 1) * record::STRIDE > RECORD_BYTES {
+                continue;
+            }
+            let (frame, input) = entry;
+            let written = record + record::FIRST + index * record::STRIDE;
+            space.write::<i32>(written, frame);
+            space.write::<u16>(written + size_of::<i32>(), input);
+        }
+        let entries: i32 = space.read(record + record::ENTRIES);
+        space.write::<i32>(record + record::ENTRIES, entries.max(at + 2));
+    }
+
+    /// The seed a stage's record says that stage was drawn with, which is what a replay writes where a
+    /// played stage would have had whatever the generator was left on.
+    pub fn recorded_seed(&self, stage: i32) -> u16 {
+        self.space().read(record_of(stage) + record::SEED)
+    }
+
+    /// The clock the replay is at, which is the first field of the manager and what
+    /// [`Reproduction`](crate::game::Reproduction) reads as `replay_frame`.
+    pub fn set_replay_clock(&self, frame: i32) {
+        self.space().write::<i32>(REPLAY_MANAGER.start, frame);
+    }
+
+    /// Where the pointer to `stage`'s record goes in the replay it belongs to.
+    fn stage_entry(&self, stage: i32) -> usize {
+        REPLAY + super::replay_data::STAGE_DATA + stage as usize * size_of::<usize>()
+    }
+
     /// What a snapshot covers, which orb reads out of the PE in a real game.
     pub fn data(&self) -> Range<usize> {
         DATA
@@ -994,6 +1424,23 @@ impl Image {
     pub fn sim(&self) -> &Arc<Sim> {
         &self.sim
     }
+}
+
+/// Where a stage's record of inputs is laid out, one block of [`RECORD_BYTES`] per stage.
+fn record_of(stage: i32) -> usize {
+    RECORDS.start + stage.max(0) as usize * RECORD_BYTES
+}
+
+/// How many attempts a saved record of captures holds against `card`.
+///
+/// The same 0x40-byte records [`Image::card_attempts`] reads in memory, read out of the bytes a score
+/// file was written from instead: what the file holds is what the memory held when the ranking screen
+/// went down, so this is what says the trip through that screen wrote what a session counted.
+pub fn attempts_in(saved: &[u8], card: i32) -> u16 {
+    let at = card as usize * 0x40 + super::CATK_ATTEMPTS;
+    saved
+        .get(at..at + size_of::<u16>())
+        .map_or(0, |bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
 /// The state the ranking screen is in once it is up with its records read in. The first of the states
