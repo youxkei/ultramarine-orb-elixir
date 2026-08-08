@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 pub mod clock;
 pub mod display;
+pub mod joystick;
 pub mod keyboard;
 pub mod logfile;
 pub mod mem;
@@ -340,6 +341,19 @@ pub trait Win: Send + Sync + 'static {
     /// read six keys a frame.
     fn keyboard_state(&self) -> Option<[u8; 256]>;
 
+    // --- the joystick ----------------------------------------------------------
+
+    /// `joyGetPosEx` — where the joystick is, and what the call answered.
+    ///
+    /// The result as well as the position, because which of the failures it is is what orb reports
+    /// and how often it asks again: no such joystick is one to look for once a second, and one
+    /// answering is one to sample four times a frame.
+    fn joystick_position(&self, device: u32, flags: u32) -> (u32, JoyInfo);
+
+    /// `joyGetDevCapsA` — what the device is and what its axes' bounds are. `None` where the call
+    /// failed, which orb reads as a device it cannot describe.
+    fn joystick_caps(&self, device: u32) -> Option<JoyCaps>;
+
     // --- loaded modules --------------------------------------------------------
 
     /// The address of a function exported by an already-loaded module — `mmioSeek` out of the
@@ -349,6 +363,106 @@ pub trait Win: Send + Sync + 'static {
     /// seam: what the caller knows is `"winmm.dll"` and `"mmioSeek"`, and the lookup of both
     /// belongs on the far side.
     fn proc_address(&self, module: &str, name: &str) -> Option<usize>;
+}
+
+/// Where a joystick is, as winmm reports it: `JOYINFOEX`, field for field and in the same order.
+///
+/// **The same layout and not a subset**, which is the one type across this seam that has to be: orb
+/// stands in front of the game's own `joyGetPosEx` and hands the game whatever the last sample held,
+/// so what crosses here is the struct the game asked to be filled. Plain data all the same — there is
+/// no `windows-sys` type in any signature — and the real side asserts the two are the same size.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JoyInfo {
+    pub size: u32,
+    pub flags: u32,
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+    pub r: u32,
+    pub u: u32,
+    pub v: u32,
+    pub buttons: u32,
+    pub button_number: u32,
+    pub pov: u32,
+    pub reserved1: u32,
+    pub reserved2: u32,
+}
+
+/// And what a joystick *is* — `JOYCAPSA`, the same way and for a harder reason.
+///
+/// 紅魔郷 keeps one of these at 0x69d760 and measures every axis against it, and it only ever reads
+/// one where a joystick answered at startup — so a pad that turns up later is measured against zeros.
+/// orb writes the answering device's caps in there, byte for byte, which is why this has to be the
+/// same 0x194 bytes rather than the four fields orb reads for itself.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JoyCaps {
+    pub manufacturer: u16,
+    pub product: u16,
+    /// The device's name in the machine's own code page, which is what winmm answers with.
+    pub name: [u8; 32],
+    pub x_min: u32,
+    pub x_max: u32,
+    pub y_min: u32,
+    pub y_max: u32,
+    pub z_min: u32,
+    pub z_max: u32,
+    pub buttons: u32,
+    pub period_min: u32,
+    pub period_max: u32,
+    pub r_min: u32,
+    pub r_max: u32,
+    pub u_min: u32,
+    pub u_max: u32,
+    pub v_min: u32,
+    pub v_max: u32,
+    pub caps: u32,
+    pub max_axes: u32,
+    pub axes: u32,
+    pub max_buttons: u32,
+    pub registry_key: [u8; 32],
+    pub oem_driver: [u8; 260],
+}
+
+impl Default for JoyCaps {
+    fn default() -> Self {
+        Self {
+            manufacturer: 0,
+            product: 0,
+            name: [0; 32],
+            x_min: 0,
+            x_max: 0,
+            y_min: 0,
+            y_max: 0,
+            z_min: 0,
+            z_max: 0,
+            buttons: 0,
+            period_min: 0,
+            period_max: 0,
+            r_min: 0,
+            r_max: 0,
+            u_min: 0,
+            u_max: 0,
+            v_min: 0,
+            v_max: 0,
+            caps: 0,
+            max_axes: 0,
+            axes: 0,
+            max_buttons: 0,
+            registry_key: [0; 32],
+            oem_driver: [0; 260],
+        }
+    }
+}
+
+/// What the two calls above answer where they worked, and the two failures orb tells apart: no such
+/// joystick, and one that is not plugged in. `JOYERR_NOERROR`, `JOYERR_PARMS` and `JOYERR_UNPLUGGED`,
+/// which are winmm's own numbers.
+pub mod joyerr {
+    pub const NOERROR: u32 = 0;
+    pub const PARMS: u32 = 165;
+    pub const UNPLUGGED: u32 = 167;
 }
 
 /// What the compositor says about the blanks, all of it out of one `DwmGetCompositionTimingInfo`

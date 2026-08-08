@@ -1039,6 +1039,12 @@ than the read itself took, so no device can hold a core of its own. What a sampl
 which button is shot, where an axis becomes a direction, the auto-repeat behind holding one —
 is left to the game's function, all of it downstream of the call orb replaced.
 
+Both of those reads — the position and the caps behind it — go through `orb_api::joystick`, and the thread
+is spawned through `orb_api::thread::spawn`, which carries onto it whatever host the caller reads through:
+the installation is per thread, so a thread spawned any other way would read the machine's own winmm
+whatever was installed. Which is what lets a scenario plug a pad in — see *Running the game with no game
+there*.
+
 Where a controller was enumerated the frame's read is that other branch's `Poll` and
 `GetDeviceState`, which orb leaves alone, and the sample answers only the startup check that
 asks whether a pad exists at all.
@@ -1994,11 +2000,15 @@ game having no sound system to hand a frame's sounds to. A launch started `--no-
 own draw-then-update order instead, which is the other configuration orb ships, and a scenario reads which
 of the two ran off the order the loop asked the game for things in.
 
-**And four more of the game's own functions are handed over the same way**, because they are calls orb
+**And eight more of the game's own functions are handed over the same way**, because they are calls orb
 makes into the game rather than reads of it: `CreateWindowExA`, which the window's rewrite calls through;
 `CreateFileA`, which the score file's fork calls through; `ReplayManager::StopRecording`, which is held
-back while a replay is being watched; and `Chain::Cut`, which takes a screen shake down at a stage move.
-The first three are `Originals`', the last is `Th06`'s own — see
+back while a replay is being watched; `GameWindow::Create`, which the hook that overrules the display
+setting calls through; `joyGetPosEx` as the import table held it, which the replacement of that entry calls
+through where it has no sample of its own; `Chain::Cut`, which takes a screen shake down at a stage move;
+and `SoundPlayer::StopBGM` and `Supervisor::PlayAudio`, which a restore puts the sound down and starts it
+again through where the track has been replaced since the chapter was taken. The first five are
+`Originals`', the last three are `Th06`'s own — see
 [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 
 **A track is streamed through a sound of the host's**, which is the one part of a laid-out game that is a
@@ -2007,8 +2017,15 @@ real object rather than laid-out memory: orb *calls* a DirectSound buffer's vtab
 a wave file kept in a `Vec` — the same answer the Direct3D device orb draws through is. What the address
 space is told is only where that object is, so that orb's check of the pointer at its head answers what it
 answers in a real process. Which is what makes the music across a chapter answerable: the position a
-chapter is written down with, which chapters put their song back, and where the countdown the track's loop
-is taken on lands after a seek.
+chapter is written down with, which chapters put their song back, where the countdown the track's loop is
+taken on lands after a seek, the buffer and the play cursor and the file position coming back byte for
+byte with a chapter, and the distance to the next write that a listener hears the music break up once it
+runs out.
+
+**And the pad winmm has is the host's too.** Which is the other of the two devices the game's own read has:
+`Controller::GetControllerInput` asks winmm for joystick 0 only where its own enumeration found no game
+controller, so `orb_sim::Joystick` is that device — plugged in, pushed and taken out by a scenario — behind
+`orb_api::joystick`, and the game's own read reaches it through orb's replacement of that import entry.
 
 **A scenario declares the display the window is on**: what the monitor reports, what the compositor is
 timing, what composing a frame takes, and which stream of wake delays the host has. Which is the whole of
@@ -2101,6 +2118,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
 | `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — and the modal orb puts up itself |
 | `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, and the wait to a frame's own deadline |
+| `orb-api/joystick.rs` | the joystick winmm has, which is the branch the game reads a pad on where its own enumeration found no controller |
 | `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
 | `orb/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the window and how big it is, the letterbox, the status line |
@@ -2115,17 +2133,20 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/tests/fake/` | the games that play the game's part. `mod.rs` is the half any launch has — the display, the device orb draws through, what a frame's own work costs, and `in_its_own_process`; `th06.rs` is 紅魔郷's own memory, front end and stage, with orb's hooks called where the real game's code calls them, and `th07.rs` is as much of 妖々夢 as `Th07` reads |
 | `orb-sim/tests/scenario_pointdevice_run.rs`, `scenario_legacy_run.rs` | the two scenarios over a whole run, which press keys and read back the game's memory, its records and orb's log |
 | `orb-sim/tests/scenario_pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
-| `orb-sim/tests/scenario_mode_question.rs`, `scenario_mode_on_the_pad.rs` | the question over the game's title menu answered on the keyboard, and answered on a controller the game owns |
+| `orb-sim/tests/scenario_mode_question.rs`, `scenario_mode_on_the_pad.rs`, `scenario_mode_on_a_winmm_pad.rs` | the question over the game's title menu answered on the keyboard, answered on a controller the game owns, and answered on a pad winmm has where the game owns none — with the empty socket and the pad that turns up in it later beside it |
 | `orb-sim/tests/scenario_the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
 | `orb-sim/tests/scenario_the_window.rs` | the window orb makes on a monitor the scenario declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, and the black either side of a 4:3 game |
-| `orb-sim/tests/scenario_the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended |
+| `orb-sim/tests/scenario_the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended — and the panel's own tile the strips beside the count are painted with |
 | `orb-sim/tests/scenario_a_clear_on_demand.rs` | `--clear` through six stages with a bullet sitting on the player, the screen that saves a replay written past rather than answered, and neither score file written |
 | `orb-sim/tests/scenario_the_score_file.rs` | which of the two files each of the game's own opens lands in: the front end's read, which is the game's own file whatever the mode, and each mode's ranking screen reading and writing its own |
 | `orb-sim/tests/scenario_th07.rs` | a laid-out 妖々夢 with orb attached to `Th07`, which asks that orb got in and did none of what it does to 紅魔郷 |
 | `orb-sim/tests/scenario_keys_from_another_program.rs` | `--sent-keys`: a key another program sent, refused by the keyboard device the game holds exclusively and seen once orb has let that device go, and the two moments in the front end that spend a press on nothing |
 | `orb-sim/tests/scenario_the_ending.rs` | the ending run out inside the frame it begins on, stopping where its script hands over to the staff roll and the track changes on the same update, and the roll left to play at sixty |
 | `orb-sim/tests/scenario_moving_between_a_replays_stages.rs` | a replay moved between its stages: the teardown's write into the record held back, the score and the extra lives put back to nothing, a screen shake taken down before it reaches the next stage, and two passes over one stage agreeing to the last digit |
-| `orb-sim/tests/scenario_the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind, and a seek that moves the countdown with the file so the track loops where it did |
+| `orb-sim/tests/scenario_the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind; a seek that moves the countdown with the file so the track loops where it did; the buffer, the play cursor and the file position coming back byte for byte with a chapter; the track that has gone since taken down and started again through the game; and a file handle orb cannot read, where the buffer comes back and the file is left where it is |
+| `orb-sim/tests/scenario_a_chapter_table_collected.rs` | `--collect` and `--judge`: the gap in a stage's waves proposed, the boundary judged out and stepped back to and back into the table, one placed by hand and taken away again, both files written, what one sitting decided read back by the next, and a hand-edited state file whose unreadable lines are named by path and line |
+| `orb-sim/tests/scenario_the_handles_a_restore_leaves_alone.rs` | a texture handle the game holds left where a restore finds it, and the rest of the block it is in put back |
+| `orb-sim/tests/scenario_the_window_going_behind.rs` | the keys dropped while the game's window is behind, and the keyboard device taken again — as many times as it takes — when it comes forward |
 | `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their names not beginning `scenario_` says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses

@@ -1,6 +1,6 @@
 //! The real host's clock, and the timer the frame loop waits on.
 
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{FALSE, HANDLE, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
@@ -27,14 +27,22 @@ pub fn spin_once() {
     std::hint::spin_loop();
 }
 
-/// The timer, made on first use and kept for the rest of the run: not asked for yet, refused, or
-/// the handle.
+/// The timer, made on first use and kept for the rest of the run: the handle, or [`REFUSED`].
 ///
 /// A static rather than anything a caller holds, because nothing about a handle crosses the seam —
 /// and made once rather than per wait, which would be a kernel object created and closed sixty
-/// times a second. Written from the frame's own thread, which is the only one that waits.
-static TIMER: AtomicIsize = AtomicIsize::new(UNASKED);
-const UNASKED: isize = 0;
+/// times a second.
+///
+/// **A `OnceLock` and not an atomic loaded and then stored**, which is what this was. Two threads both
+/// find it unasked, both call `CreateWaitableTimerExW`, and both store: one handle is leaked, and the two
+/// callers are left holding different timers. Measured rather than argued —
+/// `this_host_can_create_the_timer_the_waits_are_made_on` and
+/// `a_wait_takes_at_least_as_long_as_it_asked_for_and_nothing_like_ten_times_it` run side by side in this
+/// crate's test binary and race exactly there, and the assertion that a timer is made once failed with
+/// **324 against 284**, two handles forty apart. In a shipped launch only the frame's own thread waits, so
+/// nothing there reaches it — but a kernel handle is not a thing to leave resting on a rule about who
+/// calls, and the suite is a caller too.
+static TIMER: OnceLock<isize> = OnceLock::new();
 const REFUSED: isize = -1;
 
 /// A wait aimed at a deadline, in the counter's own ticks.
@@ -64,25 +72,21 @@ pub fn wait(ticks: i64) -> bool {
 }
 
 pub(crate) fn timer() -> isize {
-    let held = TIMER.load(Ordering::Relaxed);
-    if held != UNASKED {
-        return held;
-    }
-    let made = unsafe {
-        CreateWaitableTimerExW(
-            std::ptr::null(),
-            std::ptr::null(),
-            CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-            TIMER_ALL_ACCESS,
-        )
-    };
-    let answer = if made.is_null() {
-        REFUSED
-    } else {
-        made as isize
-    };
-    TIMER.store(answer, Ordering::Relaxed);
-    answer
+    *TIMER.get_or_init(|| {
+        let made = unsafe {
+            CreateWaitableTimerExW(
+                std::ptr::null(),
+                std::ptr::null(),
+                CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                TIMER_ALL_ACCESS,
+            )
+        };
+        if made.is_null() {
+            REFUSED
+        } else {
+            made as isize
+        }
+    })
 }
 
 #[cfg(test)]

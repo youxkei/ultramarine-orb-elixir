@@ -51,6 +51,19 @@ either end. A
 decision nobody took is not a file here: an alternative that was weighed and rejected is recorded
 inside the decision that rejected it, beside what was chosen instead.
 
+**A file in `docs/todo/` is deleted when its work is done**, and that deletion is the last step of the work
+rather than tidying afterwards. It is one piece of work and not a permanent document, and a worklist with
+nothing left on it costs whoever finds it a read to learn that.
+
+It is not a plain `rm`, though. Everything in the file that has to survive goes first, and where each thing
+goes is what the rules below already say — the reason a scenario or a check *cannot* be written to a comment
+beside the code that would otherwise tempt somebody to write it, the recipe for a measurement to the code
+that implements it, a decision still to be taken to `docs/adr/`. **Not to `TODO.md`**, which is going the
+other way: what is in there belongs in files here, one per piece of work, and moving anything back into it
+is work to undo later. What needs no home at all is the measurement itself, wherever the recipe it went with
+can be run again — a number in a document is stale the moment the tree moves, and the command that produces
+it is not.
+
 Reasons an alternative was rejected go in a comment beside the code that would otherwise tempt
 someone back to it, not into `SPEC.md`.
 

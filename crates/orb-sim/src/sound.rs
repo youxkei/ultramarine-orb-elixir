@@ -128,9 +128,14 @@ impl Sound {
     ///
     /// # Panics
     /// Through `Space::map`, where this process's heap put either of those two inside an address the game
-    /// is laid out at — which is the one way this can go wrong, and the panic names both addresses. The
-    /// game's own ranges are its 0x476000 data and the blocks from 0x3000000 up; a small allocation in a
-    /// binary based at 0x400000 with a 10MB image is nowhere near either.
+    /// is laid out at — which is the one way this can go wrong, and the panic names both addresses.
+    ///
+    /// **Which has happened, so it is a hazard rather than a theory.** The game's own ranges are its
+    /// 0x476000 data and the blocks from 0x3000000 up, and the heap of a binary based at 0x400000 with a
+    /// 10MB image reaches the second of those: a run of `scenario_the_music_across_a_restore.rs` panicked
+    /// here once, on a day when the laid-out blocks had been extended to 0x3050000. So the rule for
+    /// anything laid out from 0x3000000 up is to map the *pages orb reads* and no more — see
+    /// `ANM_TEXTURES` in `orb_core::game::th06::image`, which is the one that found this out.
     pub fn install(&self, sim: &Sim) {
         sim.load_module(WINMM);
         sim.set_proc_address(WINMM, "mmioSeek", mmio_seek as *const () as usize);
@@ -164,6 +169,56 @@ impl Sound {
     /// Where the file handle is now, which is half of the pair a loop is taken on.
     pub fn position(&self) -> i32 {
         self.at.get()
+    }
+
+    /// Where the play cursor is in the buffer, which is the other thing a restore has to put back:
+    /// the bytes alone would be the same sound starting in the wrong place.
+    pub fn play_cursor(&self) -> u32 {
+        self.play.get()
+    }
+
+    /// The bytes in the buffer, which is what a chapter's music mostly *is*: reading these back either
+    /// side of a restore is the whole of the question whether the sound came back byte for byte.
+    pub fn buffered(&self) -> Vec<u8> {
+        unsafe { (*self.buffer.get()).to_vec() }
+    }
+
+    /// The play cursor moved on by `bytes`, wrapping at the buffer's end, which is the mixer playing
+    /// what is in there.
+    ///
+    /// A scenario saying so, the way [`heard_at`](Sound::heard_at) is: what puts a distance between the
+    /// cursor and the offset the next chunk goes at is a mixer running on its own clock, and that
+    /// distance is the whole of what a margin measures.
+    pub fn plays_on(&self, bytes: u32) {
+        self.play.set((self.play.get() + bytes) % self.size);
+    }
+
+    /// `StreamingSound::ServiceBuffer`: the next chunk of the file written into the buffer at `at`,
+    /// wrapping at its end, and how many bytes that was.
+    ///
+    /// The offset is handed in rather than kept here because it is the *game's* — the field
+    /// `orb_core::audio::Music::write_offset` names, in the game's own memory — and the same is true of
+    /// the countdown this read moves: what a scenario has to move with the position is the game's to
+    /// move. See `Fake::services_the_buffer`.
+    pub fn tops_the_buffer_up(&self, at: u32) -> u32 {
+        let mut chunk = vec![0u8; self.notify as usize];
+        let read = self.reads(&mut chunk);
+        let buffer = unsafe { &mut *self.buffer.get() };
+        let size = buffer.len();
+        for (offset, byte) in chunk[..read].iter().enumerate() {
+            buffer[(at as usize + offset) % size] = *byte;
+        }
+        read as u32
+    }
+
+    /// What follows the file handle, copied out and the handle moved on: short at the file's end, which
+    /// is the case a stream that has been sought past its own sound runs into.
+    fn reads(&self, into: &mut [u8]) -> usize {
+        let at = self.at.get().max(0) as usize;
+        let read = self.wave.len().saturating_sub(at).min(into.len());
+        into[..read].copy_from_slice(&self.wave[at..at + read]);
+        self.at.set((at + read) as i32);
+        read
     }
 
     /// Puts the stream where a track that has been playing for a while is: the file that far in, and the
@@ -320,9 +375,6 @@ unsafe extern "system" fn mmio_read(mmio: usize, into: *mut u8, bytes: i32) -> i
     if mmio != sound.mmio() || into.is_null() || bytes < 0 {
         return REFUSED;
     }
-    let at = sound.at.get().max(0) as usize;
-    let read = sound.wave.len().saturating_sub(at).min(bytes as usize);
-    unsafe { std::ptr::copy_nonoverlapping(sound.wave[at..].as_ptr(), into, read) };
-    sound.at.set((at + read) as i32);
-    read as i32
+    let into = unsafe { std::slice::from_raw_parts_mut(into, bytes as usize) };
+    sound.reads(into) as i32
 }

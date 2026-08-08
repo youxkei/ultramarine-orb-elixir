@@ -29,6 +29,10 @@ pub enum Judgement {
     /// `Chapters::judge` still knowing how to do it — `Tuning::reject` — and the tests that hold
     /// it to that. Kept rather than deleted because taking a boundary out of the table is a thing
     /// a judging pass has to be able to do, and the missing half is a key to bind, not this.
+    ///
+    /// So `Tuning::reject` is the one function of that file no scenario enters, and it stays that way
+    /// until there is a key: `scenario_a_chapter_table_collected.rs` takes a boundary out with `DROP`
+    /// twice, which is the way a judging pass has.
     #[allow(dead_code)]
     Out,
 }
@@ -1317,7 +1321,9 @@ mod tests {
         fn laid_out(tuning: Option<PathBuf>, during_replay: bool) -> Self {
             Self {
                 chapters: Chapters::new(&Th06, tuning, during_replay),
-                image: Image::laid_out(),
+                // Nothing here reads the host's own unevenness, so any seed will do and this one says
+                // so.
+                image: Image::laid_out_seeded(0),
             }
         }
 

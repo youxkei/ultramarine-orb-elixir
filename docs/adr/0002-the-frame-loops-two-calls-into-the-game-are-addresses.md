@@ -16,24 +16,35 @@ It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): tha
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and
 `Th06::play_sounds` call the game's own code — and the conclusion drawn from it was not.
 
-**And the argument reached four more calls since.** `Originals` now carries `create_window`,
-`create_file` and `stop_recording`: the game's own `CreateWindowExA`, which orb's rewrite of the window
-arguments calls through; its own `CreateFileA`, which the score file's fork calls through; and its own
-`ReplayManager::StopRecording`, which orb's hook over it calls through where the record being finished off
-is a run's own rather than a replay's. A real launch reaches the first two by patching the exe's import
-table and the third by patching a prologue, and a laid-out game has neither — so the same answer applies
-three times over: it hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s six
-scenarios drive the first that way, `scenario_the_score_file.rs`'s five the second, and
-`scenario_moving_between_a_replays_stages.rs`'s four the third.
+**And the argument reached eight more calls since**, five through `Originals` and three out of `orb-core`.
 
-**The fourth is not a hook, and it is `Th06`'s rather than `Originals`'.** `Chain::Cut` at 0x41cde0 is a
-call *out* of `orb-core` into the game — `cut_screen_shake` takes a shake still running at a stage move
-down through it — so there is no trampoline to fill and nothing to call through: what a laid-out game hands
-over is the address itself, kept in a static behind the same `cfg(any(test, feature = "sim"))` the laid-out
-image is behind, so the shipped DLL has the constant and no atomic in the path. Which is the one place the
-list has crossed out of `orb` into `orb-core`, and the reason is the one this document set: code is the one
-thing an address space laid out by hand cannot hold, and a scenario that reached that call would be jumping
-into memory nothing has mapped.
+`Originals` now carries `create_window`, `create_file`, `stop_recording`, `create_game_window` and
+`joystick_position`: the game's own `CreateWindowExA`, which orb's rewrite of the window arguments calls
+through; its own `CreateFileA`, which the score file's fork calls through; its own
+`ReplayManager::StopRecording`, which orb's hook over it calls through where the record being finished off
+is a run's own rather than a replay's; its own `GameWindow::Create`, which the hook that overrules the
+display setting calls through once that setting has been written; and its own `joyGetPosEx` as its import
+table held it, which the replacement of that entry calls through on the reads it has no sample of its own
+to answer with. A real launch reaches three of those by patching the exe's import table and two by
+patching a prologue, and a laid-out game has neither — so the same answer applies five times over: it
+hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s eight scenarios drive the
+first and the fourth that way, `scenario_the_score_file.rs`'s five the second,
+`scenario_moving_between_a_replays_stages.rs`'s five the third, and
+`scenario_mode_on_a_winmm_pad.rs`'s two the fifth.
+
+**The other three are not hooks, and they are `Th06`'s rather than `Originals`'.** `Chain::Cut` at
+0x41cde0, `SoundPlayer::StopBGM` at 0x430f80 and `Supervisor::PlayAudio` at 0x424b5d are calls *out* of
+`orb-core` into the game — `cut_screen_shake` takes a shake still running at a stage move down through the
+first, and a restore whose track has been replaced since the chapter was taken puts the sound down through
+the second and starts it again through the third — so there is no trampoline to fill and nothing to call
+through: what a laid-out game hands over is the address itself. Each is kept in a static behind the same
+`cfg(any(test, feature = "sim"))` the laid-out image is behind, so the shipped DLL has the constant and no
+atomic in the path, and the three are written by one `handed_over!` macro rather than three times over.
+Which is the one place the list has crossed out of `orb` into `orb-core`, and the reason is the one this
+document set: code is the one thing an address space laid out by hand cannot hold, and a scenario that
+reached one of those calls would be jumping into memory nothing has mapped.
+`scenario_moving_between_a_replays_stages.rs` drives the first and
+`scenario_the_music_across_a_restore.rs` the other two.
 
 Nothing about the reasoning below changes; what changes is that the list of calls handed over is not
 closed, and the test for adding to it is the one this document set.

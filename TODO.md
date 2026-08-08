@@ -48,14 +48,22 @@ output, so roughly 400 pixels and inside the screen by arithmetic rather than by
 Worth one glance, with the cursor on each of the two modes, since the two now draw a different number of
 lines.
 
-**The rest of what the pad now reaches.** The mode question answers on it —
-`scenario_mode_on_the_pad.rs` is that, over a controller the game owns — which leaves three things that
-go through the same reading and have not been pushed. The retry menu: up and down on the stick and on the d-pad, shoot deciding, bomb or the menu
-button cancelling. The settings dialog, which is the launcher's own reading and not the game's — its
-line should say `a pad on XInput, pushed N time(s)` rather than `no pad answered`, and that is where
-XInput's buttons being put into the order the game's mapping names them gets tested. And a pad that
-winmm *does* have, which is the path that used to work and the one that must not have been broken by
-this.
+**The rest of what the pad now reaches.** The mode question answers on it, on both of the two devices
+the game's own read has — `scenario_mode_on_the_pad.rs` over a controller the game owns, and
+`scenario_mode_on_a_winmm_pad.rs` over a pad winmm has where the game owns none, which is the path that
+used to work and the one that must not have been broken. Which leaves two things that go through the same
+reading and have not been pushed. The retry menu: up and down on the stick and on the d-pad, shoot
+deciding, bomb or the menu button cancelling. And the settings dialog, which is the launcher's own reading
+and not the game's — its line should say `a pad on XInput, pushed N time(s)` rather than `no pad
+answered`, and that is where XInput's buttons being put into the order the game's mapping names them gets
+tested.
+
+**What a run with a real pad is now the only witness to** is that the two winmm reads still read: they went
+behind the seam — `orb_api::joystick::position` and `caps` over `JOYINFOEX`'s and `JOYCAPSA`'s own
+layouts — and the thread they happen on is spawned through `orb_api::thread::spawn` so that a scenario's
+simulated host reaches it. Nothing about either is different in a shipped launch, and nothing but a launch
+says so. The line to look for is the one the thread writes: `mid=045e pid=02ff … 16 buttons, 5 axes, X
+0..65535, read in Nus`, and then `joystick: 250 reads, Nus each`.
 
 **A life gained under the brush over the lives.** The mark itself is on the screen —
 `scenario_the_mark_over_the_lives.rs` holds what that showed — and what it has not been through is the
@@ -543,32 +551,40 @@ could write next and none of which is in the way of the two that exist:
 - **One stage, and never a second.** So the state between two of them — where the game tears one down
   and builds the next, and where a run's own numbers are put back from the stage before — is unvisited,
   and with it `jump_to_stage` and the terminator `stop_recording` drops during playback.
-- **No sound.** Which costs the 248 frames in front of every stage, and leaves the whole of what a
-  chapter does to the music unreached: the rewind, the position a chapter is resumed with, and the
-  track a restore has to start again. Laying a `CStreamingSound` out is what closes that.
-- **No replay and no demo**, so nothing reaches the tuning passes, the stepping keys, or the rule that
-  a replay is a run orb tracks but does not offer a retry to.
+- ~~**No sound.**~~ Laid out now — [`orb_sim::Sound`](crates/orb-sim/src/sound.rs), a real buffer behind a
+  vtable and a real `mmioSeek`/`mmioRead` pair — so a stage that streams one takes its first chapter at
+  frame 8 rather than after the 248 `STAGE_BEGINS` names, and the whole of what a chapter does to the music
+  is reached: the rewind byte for byte, the position a resume is picked up at, and the track a restore has
+  to take down and start again. Which is `scenario_the_music_across_a_restore.rs`'s six. A stage with
+  *no* song is still the default, and still costs those 248 frames, because that is what every scenario
+  which is not about the music wants.
+- ~~**No replay and no demo**~~, so nothing reaches the tuning passes, the stepping keys, or the rule that
+  a replay is a run orb tracks but does not offer a retry to. All three are reached now:
+  `Fake::watches_a_replay_of_its_stages` is the record,
+  `scenario_moving_between_a_replays_stages.rs` moves between its stages, and
+  `scenario_a_chapter_table_collected.rs` runs a `--collect` and a `--judge` pass over one.
 - **No ending, no practice run and no Extra**, and no `--clear`.
-- **No boundary out of the midstage table.** Stage 1's one entry is script frame 4472 and its fake
-  stage is over by 700, so what those runs exercise is the fight's own boundaries; the table's path is
-  `chapter.rs`'s twenty-seven.
+- **No boundary out of the *baked* midstage table.** Stage 1's one entry is script frame 4472 and its fake
+  stage is over by 700, so what those runs exercise is the fight's own boundaries; the baked table's path
+  is `chapter.rs`'s twenty-seven. A boundary a *pass* proposes is reached —
+  `scenario_a_chapter_table_collected.rs`, whose gap is at script 259 — since a proposal goes into the
+  same list the baked one is read from.
 - **One of the frame loop's four ways out.** The other three and the loop's order are the `frame_loop`
   section of `orb-sim/tests/scenario_pacing.rs`;
   a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
   and nothing outside orb can empty them. See
   [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
-- **A pad it has, and winmm's side of one it has not.** `Th06::pad` tries the game's own DirectInput
-  controller first and asks winmm only where the game's enumeration found none, and the fake game
-  answers the first. The second is `Reading` — orb's own joystick thread's sample — and reaching it
-  means a game whose controller is *absent*, which is one line away and has no scenario yet.
+- ~~**A pad it has, and winmm's side of one it has not.**~~ Both now: `Image::no_controller` is the game
+  whose enumeration found none, `orb_sim::Joystick` is the device winmm has, and
+  `scenario_mode_on_a_winmm_pad.rs` pushes it — over a seam of its own, `orb_api::joystick`, and a thread
+  that carries the installation with it.
 
-**No track plays in a laid-out game, and that is a limit rather than a choice.** With the sound
-structures zeroed, `music()` reads as nothing, so a stage takes `STAGE_SETTLE_FRAMES` *plus*
-`MUSIC_WAIT_FRAMES` to begin — the 248 frames `STAGE_BEGINS` names, in front of every test.
-Laying out a stream instead would bring it down to the settle alone, but `Music::capture` reaches
-into DirectSound through the buffer's vtable, so it needs the COM calls simulated first. Until
-then nothing about the music in a snapshot is covered here, and the frames a chapter's music is
-judged by are the real game's to answer for.
+**No track plays in a laid-out game unless a scenario asks for one**, and a stage with none takes
+`STAGE_SETTLE_FRAMES` *plus* `MUSIC_WAIT_FRAMES` to begin — the 248 frames `STAGE_BEGINS` names, in front
+of every test that is not about the music. `Fake::plays_its_songs` is the numbers a track is told apart by
+and `Fake::streams_its_song` is the whole of one, buffer and file handle included, which brings that down
+to the settle alone. What the real game is still the only witness to is the *frames*: how long a chapter's
+music takes to come up in a real launch, and what a listener hears across a restore.
 
 **`self_check`'s inventory is skipped under a simulated Windows** — see `fingerprint_untracked`. It is a walk
 of every private page in the process, which is a question about the process and not about the
@@ -688,8 +704,9 @@ the answer is no, leave it where it is.
 facades for the game's memory, the clock and its timer, the display and its compositor, which keys are
 down, which thread is running, which window is in front and how big it and its monitor are, the log
 file and the loaded modules.
-**Thirty-two** distinct Win32 functions are behind it, and the only files that reach `windows-sys`
-for any of them are the eight under `orb-api/src/real/`.
+**Thirty-four** distinct Win32 functions are behind it — `joyGetPosEx` and `joyGetDevCapsA` are the two
+most recent — and the only files that reach `windows-sys` for any of them are the ten under
+`orb-api/src/real/`.
 
 `orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame`, the keyboard and what orb's own
 menus decide from it, and the whole of `game/` — `Game`, `State`, and the two thousand three hundred
@@ -699,7 +716,7 @@ a clock a test moves itself, a display and compositor it declares, a keyboard it
 reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
 four.
 
-**A hundred and ten of the 309 tests are scenarios, and every one of them is driven by a game.** In
+**A hundred and twenty-eight of the 327 tests are scenarios, and every one of them is driven by a game.** In
 `orb-sim/tests`, where each is a `scenario_*.rs`,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
@@ -977,7 +994,7 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 309 tests and **no stubs**, and most of what it now covers used to need a session. So this
+The suite is 327 tests and **no stubs**, and most of what it now covers used to need a session. So this
 is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
 what a session is for. Nothing here is a test somebody could write.
 
@@ -1008,9 +1025,24 @@ And two more things a laid-out game reaches the edge of, which the scenarios nam
   the trip through the ranking and a trip that finds no front end up spends its whole allowance of
   updates inside one frame. Whether that is part of what left the real roll **544 frames short** of its
   7,830 is not settled.
-- **A track taken down and started again** is `StopBGM` and `PlayAudio` at their own addresses, and there
-  is no code at either in a game laid out by hand. So `restore: the track has changed since this
-  snapshot` and the two lines after it stay the real game's.
+- ~~**A track taken down and started again** is `StopBGM` and `PlayAudio` at their own addresses, and
+  there is no code at either in a game laid out by hand.~~ Both are handed over now, the way `Chain::Cut`
+  is — see [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — so
+  `restore: the track has changed since this snapshot` and the two lines after it are
+  `a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_starting_it_again`. What is
+  still the real game's is what the *game* does inside those two calls: its allocator seeing the stream
+  freed, and `PlayAudio` finding the `.wav` and the `.pos` beside the path it was handed.
+
+**What the calls handed over do inside the game.** Nine of them now — see
+[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — and every one is
+a constant in the shipped build with the handover behind the `sim` feature, so what a scenario drives is
+the path and never the code at the far end of it. Three are new since the last launch and worth watching
+on the next: `GameWindow::Create`, where the display setting orb overrules is read a few instructions
+later; `StopBGM` and `PlayAudio`, where a restore's `music: stopped through the game` and `music:
+restarting …` are the lines to look for; and the game's own `joyGetPosEx`, whose entry orb still patches
+for real. The `JOYCAPSA` orb writes into 0x69d760 goes through `orb_api::mem` rather than a raw
+`copy_nonoverlapping` now, which is the same volatile write in a shipped launch and a different one only
+under a simulated host.
 
 **Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
 by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The

@@ -50,11 +50,8 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use orb_api::{JoyCaps, JoyInfo, joyerr};
 use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
-use windows_sys::Win32::Media::Multimedia::{
-    JOYCAPSA, JOYERR_NOERROR, JOYERR_PARMS, JOYERR_UNPLUGGED, JOYINFOEX, joyGetDevCapsA,
-    joyGetPosEx,
-};
 use windows_sys::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, Sleep, THREAD_PRIORITY_BELOW_NORMAL,
 };
@@ -78,6 +75,10 @@ const ATTACHED_MS: u32 = 4;
 const DETACHED_MS: u32 = 1000;
 /// How many reads a `verbose` line covers: a second's worth while a joystick answers, and
 /// far rarer than that while none does, which is when there is least to say about it.
+///
+/// **Which is why no scenario reaches that line.** The reads happen on a thread of orb's own at a real
+/// four milliseconds, so a scenario waiting for one waits a second of wall clock — for a line about what
+/// the reads cost. Reachable, and not worth a second of the suite.
 const REPORT_READS: u32 = 250;
 
 /// The last read, and what the call that took it returned. `None` until the thread has
@@ -99,15 +100,15 @@ static POLLING: AtomicBool = AtomicBool::new(false);
 /// nothing yet.
 static REPORTED_DIFFERENCE: AtomicUsize = AtomicUsize::new(0);
 
-type JoyGetPosEx = unsafe extern "system" fn(u32, *mut JOYINFOEX) -> u32;
-
-/// The game passes 0x194 to `joyGetDevCapsA`, so this is the struct it means by that.
-const _: () = assert!(size_of::<JOYCAPSA>() == 0x194);
+/// `joyGetPosEx`, as the game's own import table holds it. The struct it fills is
+/// [`orb_api::JoyInfo`], which is `JOYINFOEX`'s own layout — see there — so this is the signature
+/// winmm exports and not a shape of orb's.
+pub type JoyGetPosEx = unsafe extern "system" fn(u32, *mut JoyInfo) -> u32;
 
 #[derive(Clone, Copy)]
 struct Sample {
     result: u32,
-    info: JOYINFOEX,
+    info: JoyInfo,
     /// The device's own, taken when one starts answering and kept for as long as it does.
     ///
     /// Not read again beside every position: the caps belong to the device and not to the
@@ -115,7 +116,7 @@ struct Sample {
     /// — that is a write into the game's memory each time it does. A pad swapped for another
     /// without one failing read in between would keep the first one's, which at a read every
     /// four milliseconds is not a way pads are swapped.
-    caps: Option<JOYCAPSA>,
+    caps: Option<JoyCaps>,
 }
 
 impl Sample {
@@ -130,15 +131,20 @@ impl Sample {
     /// costs a line in the log claiming a pad answered, and the game's axis calibration written
     /// from a device that has no axes.
     fn is_a_pad(&self) -> bool {
-        self.result == JOYERR_NOERROR
+        self.result == joyerr::NOERROR
             && self
                 .caps
-                .is_some_and(|caps| caps.wNumButtons > 0 || caps.wNumAxes > 0)
+                .is_some_and(|caps| caps.buttons > 0 || caps.axes > 0)
     }
 }
 
 /// Points the game's `joyGetPosEx` at orb, and takes the address of the caps it measures
 /// axes against so that a device arriving mid-run can be described to it.
+///
+/// **The one thing in this module no scenario reaches**, and the write over an import table entry is why:
+/// a game laid out by hand has no import table, so it hands the entry over to [`install_over`] and calls
+/// [`answer`] itself where its own read would have gone through it. Everything past this line is covered
+/// that way — see `orb-sim/tests/scenario_mode_on_a_winmm_pad.rs`.
 ///
 /// # Safety
 /// `module` must be the game exe, and nothing may be executing its import table.
@@ -151,14 +157,30 @@ pub unsafe fn install(module: usize, calibration: Option<usize>) -> Result<(), h
             hook::address(answer as _),
         )
     }?;
-    ORIGINAL.store(previous, Ordering::Relaxed);
-    CALIBRATION.store(calibration.unwrap_or(0), Ordering::Relaxed);
+    install_over(
+        unsafe { std::mem::transmute::<usize, JoyGetPosEx>(previous) },
+        calibration,
+    );
     Ok(())
+}
+
+/// And the same for a game laid out by hand, which has no import table to patch: it hands its own
+/// `joyGetPosEx` over and calls [`answer`] where its own read would have gone through that entry.
+///
+/// The same answer `window::install_over` and `score::install_over` are — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+pub fn install_over(original: JoyGetPosEx, calibration: Option<usize>) {
+    ORIGINAL.store(original as usize, Ordering::Relaxed);
+    CALIBRATION.store(calibration.unwrap_or(0), Ordering::Relaxed);
 }
 
 /// Replaces `joyGetPosEx` for the game's three callers of it: the "is there a pad"
 /// check at startup, the caps read behind it, and the per-frame one.
-unsafe extern "system" fn answer(device: u32, into: *mut JOYINFOEX) -> u32 {
+///
+/// # Safety
+/// `into` must be null or a writable [`JoyInfo`], which is what winmm's own contract for that argument
+/// is, and this must run on the thread that reads the calibration it may write — the game's.
+pub unsafe extern "system" fn answer(device: u32, into: *mut JoyInfo) -> u32 {
     start_polling();
     if device == DEVICE
         && !into.is_null()
@@ -181,8 +203,8 @@ unsafe extern "system" fn answer(device: u32, into: *mut JOYINFOEX) -> u32 {
 }
 
 /// Whether a sample taken with `RETURN_ALL` says everything this caller asked for.
-fn describes_a_sample(asked: &JOYINFOEX) -> bool {
-    asked.dwSize as usize == size_of::<JOYINFOEX>() && asked.dwFlags & !RETURN_ALL == 0
+fn describes_a_sample(asked: &JoyInfo) -> bool {
+    asked.size as usize == size_of::<JoyInfo>() && asked.flags & !RETURN_ALL == 0
 }
 
 /// Puts the answering device's caps where the game reads them, so the axes it is about to
@@ -194,22 +216,27 @@ fn describes_a_sample(asked: &JOYINFOEX) -> bool {
 /// # Safety
 /// Must run on the thread that reads them, which is the game's: the write is not atomic and
 /// the game reads it a few instructions after this returns.
-unsafe fn calibrate(caps: &JOYCAPSA) {
+unsafe fn calibrate(caps: &JoyCaps) {
     let at = CALIBRATION.load(Ordering::Relaxed);
     if at == 0 {
         return;
     }
-    let ours = std::ptr::from_ref(caps).cast::<u8>();
-    let ours = unsafe { std::slice::from_raw_parts(ours, size_of::<JOYCAPSA>()) };
-    let theirs = unsafe { std::slice::from_raw_parts(at as *const u8, size_of::<JOYCAPSA>()) };
+    // Through the seam and not a raw pointer, which is what it was: the address is the game's — 0x69d760
+    // — and in a game laid out by hand there is nothing at that number in this process. A copy through it
+    // read the test binary's own image and wrote over it.
+    //
+    // As bytes rather than as a `JoyCaps`, which is what the copy it replaces was: what is being asked is
+    // where two of them first differ, and 0x194 bytes is not a value to read and write as one.
+    let ours = bytes_of(caps);
+    let theirs = unsafe { orb_api::mem::read_bytes(at, ours.len()) };
     let Some(differs) = ours
         .iter()
-        .zip(theirs)
+        .zip(&theirs)
         .position(|(ours, theirs)| ours != theirs)
     else {
         return;
     };
-    unsafe { std::ptr::copy_nonoverlapping(ours.as_ptr(), at as *mut u8, ours.len()) };
+    unsafe { orb_api::mem::write_bytes(at, ours) };
     // Where it differed, and only when that is somewhere new. A write that has to happen
     // again says something is putting the game's copy back — a restored chapter is the
     // expected way, anything else is a finding — and one line says it as well as a line a
@@ -219,6 +246,12 @@ unsafe fn calibrate(caps: &JOYCAPSA) {
             "joystick: the game's axis calibration was not this device's from +{differs:#x}; set from its caps"
         );
     }
+}
+
+/// One of these as the bytes it is, for the one question orb asks of a whole `JOYCAPSA`: where two of
+/// them first differ, which is what the line about the calibration reports.
+fn bytes_of(caps: &JoyCaps) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(std::ptr::from_ref(caps).cast(), size_of::<JoyCaps>()) }
 }
 
 fn latest() -> Option<Sample> {
@@ -233,9 +266,9 @@ fn latest() -> Option<Sample> {
 pub fn reading() -> Option<Reading> {
     let sample = latest().filter(Sample::is_a_pad)?;
     Some(Reading {
-        buttons: sample.info.dwButtons,
-        y: sample.info.dwYpos,
-        pov: sample.info.dwPOV,
+        buttons: sample.info.buttons,
+        y: sample.info.y,
+        pov: sample.info.pov,
     })
 }
 
@@ -250,7 +283,10 @@ fn start_polling() {
     // loader lock is held cannot run its own attach notifications, and the game is
     // suspended there, so nothing would be answered anyway. The first call the game makes
     // is the startup check, which is a fine place to start from.
-    if std::thread::Builder::new().spawn(poll).is_err() {
+    // Through the seam, which carries whatever simulated Windows this thread reads through onto the
+    // one being made: a thread spawned plainly would read the machine's own winmm — see
+    // `orb_api::thread::spawn`.
+    if orb_api::thread::spawn(|| poll()).is_err() {
         log!("joystick: cannot start a thread; the read stays in the game's frame");
     }
 }
@@ -264,19 +300,16 @@ fn poll() -> ! {
     let mut total = 0;
     let mut caps = None;
     loop {
-        let mut info: JOYINFOEX = unsafe { std::mem::zeroed() };
-        info.dwSize = size_of::<JOYINFOEX>() as u32;
-        info.dwFlags = RETURN_ALL;
         let started = profile::now();
-        // orb's own import rather than the one `install` redirected: this is winmm's, and
-        // the cost this module exists to move is right here.
-        let result = unsafe { joyGetPosEx(DEVICE, &mut info) };
+        // The host's own winmm rather than the entry `install` redirected, and the cost this module
+        // exists to move is right here.
+        let (result, info) = orb_api::joystick::position(DEVICE, RETURN_ALL);
         // Only where one answered, and only where the last read did not: the caps of a
         // device that is not there cost what its position costs, and a device that is there
         // has the caps it had a moment ago.
         caps = match (result, caps) {
-            (JOYERR_NOERROR, None) => read_caps(),
-            (JOYERR_NOERROR, known) => known,
+            (joyerr::NOERROR, None) => orb_api::joystick::caps(DEVICE),
+            (joyerr::NOERROR, known) => known,
             _ => None,
         };
         let cost = profile::since(started);
@@ -305,7 +338,7 @@ fn poll() -> ! {
             (polls, total) = (0, 0);
         }
 
-        let wait = if result == JOYERR_NOERROR {
+        let wait = if result == joyerr::NOERROR {
             ATTACHED_MS
         } else {
             DETACHED_MS
@@ -316,39 +349,31 @@ fn poll() -> ! {
     }
 }
 
-fn read_caps() -> Option<JOYCAPSA> {
-    let mut caps: JOYCAPSA = unsafe { std::mem::zeroed() };
-    let read = unsafe { joyGetDevCapsA(DEVICE as usize, &mut caps, size_of::<JOYCAPSA>() as u32) };
-    (read == JOYERR_NOERROR).then_some(caps)
-}
-
 /// What a sample says, with the device named where one answered.
 fn describe(sample: &Sample) -> String {
     match (sample.result, &sample.caps) {
         // Named all the same, since which phantom it is is the thing to look up: 413d:2104 is
         // what Windows leaves on joystick 0 while the pad it has is in XInput's second slot.
-        (JOYERR_NOERROR, Some(caps)) if !sample.is_a_pad() => {
-            let (mid, pid) = (caps.wMid, caps.wPid);
+        (joyerr::NOERROR, Some(caps)) if !sample.is_a_pad() => {
+            let (mid, pid) = (caps.manufacturer, caps.product);
             format!(
                 "joystick 0 is mid={mid:04x} pid={pid:04x} \"{}\" with no buttons and no axes, \
                  which is no pad; orb's own menus will not be driven from it",
-                name(caps.szPname),
+                name(caps.name),
             )
         }
-        (JOYERR_NOERROR, Some(caps)) => {
-            // Copied out one at a time: `JOYCAPSA` is packed, so its fields cannot be
-            // borrowed, which is what passing one to `format!` would do.
-            let (mid, pid) = (caps.wMid, caps.wPid);
-            let (buttons, axes) = (caps.wNumButtons, caps.wNumAxes);
-            let (low, high) = (caps.wXmin, caps.wXmax);
+        (joyerr::NOERROR, Some(caps)) => {
+            let (mid, pid) = (caps.manufacturer, caps.product);
+            let (buttons, axes) = (caps.buttons, caps.axes);
+            let (low, high) = (caps.x_min, caps.x_max);
             format!(
                 "mid={mid:04x} pid={pid:04x} \"{}\", {buttons} buttons, {axes} axes, X {low}..{high}",
-                name(caps.szPname),
+                name(caps.name),
             )
         }
-        (JOYERR_NOERROR, None) => "a joystick whose caps do not read".to_owned(),
-        (JOYERR_PARMS, _) => "there is no joystick 0".to_owned(),
-        (JOYERR_UNPLUGGED, _) => "joystick 0 is unplugged".to_owned(),
+        (joyerr::NOERROR, None) => "a joystick whose caps do not read".to_owned(),
+        (joyerr::PARMS, _) => "there is no joystick 0".to_owned(),
+        (joyerr::UNPLUGGED, _) => "joystick 0 is unplugged".to_owned(),
         (other, _) => format!("joyGetPosEx returns {other}"),
     }
 }
@@ -356,11 +381,11 @@ fn describe(sample: &Sample) -> String {
 /// `szPname`, which winmm gives in the machine's code page and the log is written in UTF-8:
 /// the name here read `Microsoft PC �W���C�X�e�B�b�N` before this converted it, and a line
 /// nobody can read is no answer to which device it is.
-fn name(field: [i8; 32]) -> String {
+fn name(field: [u8; 32]) -> String {
     let ansi: Vec<u8> = field
         .iter()
         .take_while(|byte| **byte != 0)
-        .map(|byte| *byte as u8)
+        .copied()
         .collect();
     let mut wide = [0u16; 32];
     let written = unsafe {
@@ -391,16 +416,18 @@ mod tests {
     fn a_calibration_write_stops_where_the_caps_do() {
         #[repr(C)]
         struct AsTheGameHasThem {
-            caps: JOYCAPSA,
+            caps: JoyCaps,
             auto_repeat: u32,
         }
         let mut theirs = AsTheGameHasThem {
-            caps: unsafe { std::mem::zeroed() },
+            caps: JoyCaps::default(),
             auto_repeat: 0x0102_0304,
         };
-        let mut ours: JOYCAPSA = unsafe { std::mem::zeroed() };
-        ours.wXmax = 65535;
-        ours.wNumButtons = 16;
+        let ours = JoyCaps {
+            x_max: 65535,
+            buttons: 16,
+            ..JoyCaps::default()
+        };
 
         CALIBRATION.store(
             std::ptr::from_mut(&mut theirs.caps) as usize,
@@ -408,20 +435,14 @@ mod tests {
         );
         unsafe { calibrate(&ours) };
 
-        let (travel, buttons, beyond) = (
-            theirs.caps.wXmax,
-            theirs.caps.wNumButtons,
-            theirs.auto_repeat,
-        );
-        assert_eq!((travel, buttons), (65535, 16));
-        assert_eq!(beyond, 0x0102_0304);
+        assert_eq!((theirs.caps.x_max, theirs.caps.buttons), (65535, 16));
+        assert_eq!(theirs.auto_repeat, 0x0102_0304);
 
         // What the caps are put back over is a restored chapter's, which is why the handover
         // happens with every read and not once when the device turned up.
-        theirs.caps.wXmax = 0;
+        theirs.caps.x_max = 0;
         unsafe { calibrate(&ours) };
-        let travel = theirs.caps.wXmax;
-        assert_eq!(travel, 65535);
+        assert_eq!(theirs.caps.x_max, 65535);
     }
 
     /// A device answering with no buttons and no axes is not a pad, and what makes that worth
@@ -429,18 +450,20 @@ mod tests {
     /// sits in XInput's second slot.
     #[test]
     fn a_device_with_nothing_on_it_is_not_a_pad() {
-        let mut caps: JOYCAPSA = unsafe { std::mem::zeroed() };
-        caps.wXmax = 65535;
+        let mut caps = JoyCaps {
+            x_max: 65535,
+            ..JoyCaps::default()
+        };
         let phantom = Sample {
-            result: JOYERR_NOERROR,
-            info: unsafe { std::mem::zeroed() },
+            result: joyerr::NOERROR,
+            info: JoyInfo::default(),
             caps: Some(caps),
         };
         assert!(!phantom.is_a_pad());
 
         // A stick with axes and no buttons is still a pad, and so is a wheel with buttons and
         // one axis: either can say something.
-        caps.wNumAxes = 2;
+        caps.axes = 2;
         let stick = Sample {
             caps: Some(caps),
             ..phantom
@@ -449,7 +472,7 @@ mod tests {
 
         // And nothing at all answering is not one either, whatever it left in the caps.
         let nothing = Sample {
-            result: JOYERR_UNPLUGGED,
+            result: joyerr::UNPLUGGED,
             ..stick
         };
         assert!(!nothing.is_a_pad());
@@ -459,18 +482,20 @@ mod tests {
     /// 紅魔郷 asks for. Anything asking for more than that has to go to winmm.
     #[test]
     fn a_sample_answers_what_the_game_asks_and_no_more() {
-        let mut asked: JOYINFOEX = unsafe { std::mem::zeroed() };
-        asked.dwSize = size_of::<JOYINFOEX>() as u32;
-        asked.dwFlags = RETURN_ALL;
+        let mut asked = JoyInfo {
+            size: size_of::<JoyInfo>() as u32,
+            flags: RETURN_ALL,
+            ..JoyInfo::default()
+        };
         assert!(describes_a_sample(&asked));
 
         // `JOY_RETURNRAWDATA`, which a sample does not carry.
-        asked.dwFlags = RETURN_ALL | 0x100;
+        asked.flags = RETURN_ALL | 0x100;
         assert!(!describes_a_sample(&asked));
 
         // The struct before `JOYINFOEX` grew, which is not the one a sample fills.
-        asked.dwFlags = RETURN_ALL;
-        asked.dwSize -= 4;
+        asked.flags = RETURN_ALL;
+        asked.size -= 4;
         assert!(!describes_a_sample(&asked));
     }
 }

@@ -28,6 +28,79 @@ const WHOLE: (i32, i32) = (1286, 760);
 const SCALED: (i32, i32) = (2560, 1440);
 const REAL: (i32, i32) = (3840, 2160);
 
+/// A game configured for full screen is put in a window before it makes one, once.
+///
+/// **Every answer below needs a window to give it.** A game that has taken the display exclusively has
+/// none to resize, and by the time anything of orb's runs per frame the device already exists — so the
+/// setting has to be written before the game reads it, which is inside the one call everything about its
+/// window is decided in: `GameWindow::Create`. That is also why nothing flashes on the screen.
+///
+/// Once, and only where the game was going to take the display: the flag is spent on the first window a
+/// launch makes, and a game already configured for a window is left as it is.
+#[test]
+fn a_game_configured_for_full_screen_is_put_in_a_window_before_it_makes_one() {
+    in_its_own_process(|| {
+        let game = Fake::attach_to_a_panel(
+            Panel::measured(),
+            "the-window-overruled",
+            the_run(),
+            |config| config.screen = Screen::Fullscreen,
+        );
+        assert!(
+            !game.image().windowed(),
+            "the game was already configured for a window, so there is nothing here to overrule",
+        );
+        game.creates_its_window();
+        assert!(
+            game.image().windowed(),
+            "the game made its window with the display still taken exclusively, which is a window \
+             orb cannot resize:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        assert!(
+            game.log()
+                .said("borderless: overrode the game's fullscreen setting"),
+            "orb did not say it had overruled the setting:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And the flag is spent: a second window is made under whatever setting the game has by then,
+        // there being nothing left of a launch's one chance to overrule it.
+        game.image().set_windowed(false);
+        game.creates_its_window();
+        assert!(
+            !game.image().windowed(),
+            "the setting was overruled again for a window that is not the launch's first",
+        );
+    });
+}
+
+/// And a game already configured for a window is left alone, which is the other side of the same read.
+#[test]
+fn a_game_already_in_a_window_is_left_as_it_is() {
+    in_its_own_process(|| {
+        let game = Fake::attach_to_a_panel(
+            Panel::measured(),
+            "the-window-left-alone",
+            the_run(),
+            |config| config.screen = Screen::Fullscreen,
+        );
+        game.image().set_windowed(true);
+        game.creates_its_window();
+        assert!(
+            game.image().windowed(),
+            "the setting orb writes is not the one it read",
+        );
+        assert!(
+            !game
+                .log()
+                .said("borderless: overrode the game's fullscreen setting"),
+            "orb overruled a setting that already said what it wanted:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+    });
+}
+
 /// A launch with that window in `orb.yaml`, with the game's window made.
 ///
 /// Nothing of a run is played: what a window is does not depend on what is on screen, and the game sits

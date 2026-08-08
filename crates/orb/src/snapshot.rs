@@ -221,6 +221,10 @@ impl Snapshot {
         // the bookkeeping the memory copy is about to record. So the two are
         // taken together and rejected if the stream ran in between, which is what
         // otherwise leaves a chapter's music very slightly wrong.
+        //
+        // **No scenario reaches the retry**, and none can: a laid-out game has no streaming thread, and
+        // what stands in for one is a scenario saying the stream ran, between frames. So the loop below
+        // goes round once there and the `continue` is the real game's alone.
         let mut saved_music = None;
         for _ in 0..AUDIO_ATTEMPTS {
             saved_music = music.and_then(|music| {

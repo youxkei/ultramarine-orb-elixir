@@ -372,6 +372,9 @@ impl Tuning {
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            // A file that is there and will not read, which no scenario reaches: what a scenario can hand
+            // a launch is *bytes* — `Fake::attach_finding` — and this arm wants something else at the path
+            // altogether. The two ways a line can be wrong below are covered.
             Err(error) => return log!("tuning: cannot read {}: {error}", path.display()),
         };
         let mut read = 0;

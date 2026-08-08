@@ -885,6 +885,11 @@ pub struct Boundary {
 }
 
 /// A boundary the detector proposed and a pass kept.
+///
+/// **`const fn` because the baked table calls it in a const initialiser**, which is also why no test can
+/// enter this or [`hand`]: what happens to them is const evaluation and not execution, so a coverage run
+/// reports both as never run however many stages are played. Nothing to fix — a run that reported them
+/// covered would be reporting something else.
 pub const fn proposed(frame: i32) -> Boundary {
     Boundary {
         frame,

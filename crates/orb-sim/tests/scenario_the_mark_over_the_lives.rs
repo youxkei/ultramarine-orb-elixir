@@ -270,6 +270,96 @@ fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
     });
 }
 
+/// The strips either side of the count are painted with the game's own panel sheet where there is one to
+/// paint with, and flat where there is not.
+///
+/// **Which matters because nothing repaints the panel after a stage's first 250 frames.** What orb leaves
+/// on the row is what stays there, so it has to be the panel and not a patch: 紅魔郷's is a noise of four
+/// shades within seven of each other, and the flat colour is their average — close enough to be worth
+/// having and not close enough to be right.
+///
+/// The sheet is `data/front.anm`'s, in slot 13 of the anm manager's own array — `ANM_FILE_FRONT` — and
+/// what orb reads is that slot through a pointer to the manager. Reading it *without* the chase was
+/// tried and is what the flat patch was: the offset added to the address of the pointer instead of to
+/// the manager reads whatever lies past the pointer, which is no texture at all.
+#[test]
+fn the_strips_are_painted_with_the_games_own_panel_tile_where_there_is_one() {
+    in_its_own_process(|| {
+        // With no sheet first, which is what a game whose anm manager orb cannot find has: the strips are
+        // a flat fill, and orb says so rather than leaving somebody to wonder why the panel has a patch
+        // in it.
+        {
+            let game = Fake::attach("the-mark-no-tile", the_run(), |config| {
+                config.log_level = LogLevel::Verbose;
+            });
+            game.in_a_pointdevice_run();
+            game.one_frame();
+            assert!(
+                game.log().said(
+                    "lives: no panel tile; the strips are painted flat and will show as a patch"
+                ),
+                "orb did not say the panel was being painted flat:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+            assert!(
+                game.drawn()
+                    .quads
+                    .iter()
+                    .all(|quad| quad.texture != FRONT_SHEET),
+                "a sheet the game has not loaded was bound to paint the panel with",
+            );
+        }
+
+        // And with the sheet where the game keeps it: the strips go through that texture, tile by tile.
+        let game = Fake::attach("the-mark-the-tile", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.image().loads_the_front_sheet(FRONT_SHEET);
+        game.in_a_pointdevice_run();
+        game.one_frame();
+        assert!(
+            game.log()
+                .said("lives: the panel's own tile is what the strips are painted with"),
+            "orb did not find the sheet the game had loaded:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        let strips: Vec<_> = game
+            .drawn()
+            .quads
+            .into_iter()
+            .filter(|quad| quad.texture == FRONT_SHEET)
+            .collect();
+        assert!(
+            !strips.is_empty(),
+            "nothing was painted with the game's own sheet",
+        );
+        // Tiles rather than one stretched piece: the sprite is 32x32 and it is laid every 32 pixels, so
+        // no piece of it is wider than that.
+        assert!(
+            strips.iter().all(|quad| quad.width <= TILE),
+            "the sheet was stretched over the panel rather than laid across it: {strips:?}",
+        );
+        // And they are beside the row and not over it: the count is the game's to paint, and painting the
+        // panel over it would take the count away — the mark is what goes on the row itself.
+        assert!(
+            strips
+                .iter()
+                .all(|quad| !lives_row().overlaps(quad) || quad.height <= 0.0),
+            "the panel was painted over the row the game repaints for orb: {strips:?}",
+        );
+    });
+}
+
+/// The sheet `data/front.anm` is loaded into, as an address.
+///
+/// A number and not an object: orb binds it and draws with it — the recording device writes down which
+/// texture each quad went through — and never reads a word out of it. Nothing else in a laid-out game is
+/// at this address, which is the whole of what it has to be.
+const FRONT_SHEET: usize = 0x0500_0000;
+
+/// How far apart the panel's own tiles go, which is 紅魔郷's sprite 5: 32x32, laid every 32 pixels.
+const TILE: f32 = 32.0;
+
 /// Two fields in the ask, and the game's own repaint of a stage's first frames is why one of them decides
 /// nothing.
 ///

@@ -29,6 +29,9 @@ features = [
     # `GetKeyboardState`, which orb's own menus read because the game's input handling is not
     # running on the frames they are up on.
     "Win32_UI_Input_KeyboardAndMouse",
+    # `joyGetPosEx` and `joyGetDevCapsA`, which are the branch the game reads a pad through where its
+    # own enumeration found no game controller.
+    "Win32_Media_Multimedia",
     "Win32_UI_WindowsAndMessaging",
     # `CreateFileW` takes a `SECURITY_ATTRIBUTES` and `WriteFile` an `OVERLAPPED`, which are
     # declared in these two rather than beside the calls that name them.

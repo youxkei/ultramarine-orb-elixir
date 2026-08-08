@@ -34,12 +34,9 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn laid_out() -> Self {
-        Self::mapped(Arc::new(Sim::new()))
-    }
-
-    /// And in a host whose non-determinism is drawn from `seed` — the wake delays and the compositor's
-    /// spikes — for a scenario that names the seed in its assertions so that a failure can be replayed.
+    /// In a host whose non-determinism is drawn from `seed` — the wake delays and the compositor's
+    /// spikes — which a scenario names in its assertions so that a failure can be replayed. The one
+    /// constructor, for the reason `th06`'s says.
     pub fn laid_out_seeded(seed: u64) -> Self {
         Self::mapped(Arc::new(Sim::seeded(seed)))
     }

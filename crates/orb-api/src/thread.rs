@@ -10,6 +10,30 @@ pub fn current_id() -> u32 {
     host::current_id()
 }
 
+/// A thread of orb's own, with whatever simulated Windows the caller reads through carried onto it.
+///
+/// **The installation is per thread**, which is why this is here rather than a plain
+/// `std::thread::spawn` at the call site: a thread spawned without it sees no simulated host and falls
+/// through to the real one, and what that costs is the joystick poller reading this machine's own winmm
+/// instead of the one a scenario laid out — a test that cannot fail. Carried at the spawn rather than
+/// installed by the body, so that the body is the same code either way; `orb-sim`'s own
+/// `log_off_thread` scenario hands the same `Arc` to the thread it makes, which is the same move from
+/// the other side.
+///
+/// Nothing to carry in a shipped launch, where `installed()` is `None` and this is
+/// `std::thread::Builder::spawn` and the handle dropped.
+pub fn spawn(body: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    #[cfg(feature = "sim")]
+    let carried = crate::installed();
+    std::thread::Builder::new()
+        .spawn(move || {
+            #[cfg(feature = "sim")]
+            let _installed = carried.as_ref().map(crate::install);
+            body();
+        })
+        .map(|_| ())
+}
+
 /// Remembers a thread the game has just created, and answers whether it can be stopped later.
 ///
 /// The id and not a handle: the noticing is orb's — an import hook on `CreateThread` — and opening a

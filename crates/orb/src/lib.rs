@@ -18,7 +18,7 @@
 pub mod chapter;
 mod crash;
 mod hook;
-mod joystick;
+pub mod joystick;
 mod lives_ui;
 pub mod memtrack;
 /// The list the three questions draw and the colours they draw it in.
@@ -832,6 +832,15 @@ pub struct Originals {
     /// record being written is a run's own rather than a replay's. Reached in a real launch by a patch
     /// over that function's prologue, and here by the game calling it where its own teardown does.
     pub stop_recording: extern "C" fn(),
+    /// And its own `GameWindow::Create`, which [`create_game_window`] calls through once the display
+    /// setting it found there has been overruled. A patch over that function's prologue in a real launch;
+    /// here the game calls the hook where it would have created its window, and this is what the hook
+    /// calls back into.
+    pub create_game_window: extern "C" fn(*mut c_void),
+    /// And its own `joyGetPosEx`, as its import table held it: what [`joystick::answer`] calls through on
+    /// the reads it has no sample for. The import entry is what a real launch patches; a laid-out game
+    /// hands the entry over and calls the replacement where its own read would have gone through it.
+    pub joystick_position: joystick::JoyGetPosEx,
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -889,6 +898,7 @@ pub unsafe fn attach_to(
         (&RANKING_READ, originals.ranking_read as usize),
         (&RENDER, originals.render as usize),
         (&STOP_RECORDING, originals.stop_recording as usize),
+        (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -912,6 +922,15 @@ pub unsafe fn attach_to(
     // laid-out game reaches the rewrite by calling it rather than by having its imports patched. Always,
     // as [`attach`] installs it always — the answer is orb's whichever of the two the settings say.
     unsafe { window::install_over(originals.create_window, game.content_size(), config.screen) };
+    // And the display setting that window is made under, which is overruled once and where [`attach`]
+    // overrules it: a game that has taken the display exclusively has no window to resize, and by the
+    // time anything of orb's runs per frame the device already exists. Set here rather than in the reset
+    // above because it is the one flag a fresh process brings *set*.
+    FORCE_WINDOWED.store(true, Ordering::Relaxed);
+    // And the joystick, which is the same story again: the read moves onto a thread of orb's own either
+    // way, and what differs is whether the entry it stands in front of was patched or handed over.
+    joystick::install_over(originals.joystick_position, game.joystick_calibration());
+    log!("joystick: read on a thread of orb's, out of the game's frame");
     // The score file's fork, on the same gate [`attach`] puts it behind: only where a run can be rewound,
     // and always for a clear — there the fork is not what it is for, and being in the path of the write is.
     if config.chapters || config.fast_clear {
@@ -1217,7 +1236,7 @@ pub unsafe extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
 /// Borderless mode needs a window; a game that has taken the display exclusively
 /// has none to resize, and by the time anything of ours runs per frame the device
 /// already exists.
-extern "C" fn create_game_window(instance: *mut c_void) {
+pub extern "C" fn create_game_window(instance: *mut c_void) {
     if FORCE_WINDOWED.swap(false, Ordering::Relaxed)
         && let Some(game) = unsafe { chosen() }
         && !game.windowed()

@@ -5,11 +5,14 @@
 //!
 //! What the laid-out game brings is a stage that streams the two songs its data names —
 //! `Fake::plays_its_songs`, the stage's own and the boss's — which is the whole of what the question
-//! *which* chapters put their music back turns on.
+//! *which* chapters put their music back turns on. And where a scenario is about the stream itself
+//! rather than about which chapters rewind, `Fake::streams_its_song` gives it a real buffer and a real
+//! pair of winmm functions to call, which is what the seek, the byte-for-byte restore and the margin are
+//! read off.
 
 mod fake;
 
-use fake::th06::{CARD_STARTS, Fake, STAGE_BOSS_ARRIVES, the_run};
+use fake::th06::{CARD_STARTS, Fake, STAGE_BOSS_ARRIVES, STREAM_BUFFER, STREAM_NOTIFY, the_run};
 use fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen};
@@ -180,6 +183,315 @@ fn a_sought_stream_keeps_its_countdown_and_still_takes_its_loop() {
 /// Well inside the file and past a buffer's worth of it, which is what the episode needed to happen: the
 /// real one was **5,900,628** bytes into `th06_02.wav`.
 const SONG: i32 = 300_000;
+
+/// A chapter's sound comes back with the chapter: the bytes in the buffer, the play cursor in them, and
+/// the file the next chunk is read out of.
+///
+/// **Three pieces of the music live outside the game's memory**, so a snapshot of that memory holds none
+/// of them: the buffer belongs to DirectSound, the cursor to its mixer, and the position to winmm's
+/// `HMMIO`. Putting the memory back without them leaves the streaming bookkeeping describing a buffer
+/// that has moved on, which is audible as a short loop repeating forever — the fault `audio.rs` exists
+/// for.
+///
+/// Verified by ear over a full 1→6 run, which is what
+/// `the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss` carries the *which* of.
+/// This is the *what*: the four values read either side of a retry, with the stream moved on in between
+/// so that coming back is something that had to happen rather than something nothing disturbed.
+#[test]
+fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-put-back", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.streams_its_song(SONG);
+        game.in_a_pointdevice_run();
+
+        // A chapter of the midboss's, which the stage's own song plays through — so one whose music is
+        // put back rather than left playing. The stream is where the chapter's snapshot found it: nothing
+        // here moves it but a scenario saying so.
+        game.frames_until("the chapter the card is", 900, || {
+            game.log().said(&format!("at frame {CARD_STARTS}"))
+        });
+        let at_the_chapter = game.stream_now();
+        let bookkeeping = (game.image().next_write_offset(), game.image().bytes_left());
+        assert!(
+            game.log().said("music=rewind"),
+            "the chapter was taken with nothing of its music in it:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And then the streaming thread runs: two chunks read out of the file into the buffer, and the
+        // mixer part way through what was already in there. Every one of the four moves.
+        game.services_the_buffer();
+        game.services_the_buffer();
+        game.plays_the_buffer_on(STREAM_NOTIFY + STREAM_NOTIFY / 2);
+        let moved_on = game.stream_now();
+        assert_ne!(
+            moved_on, at_the_chapter,
+            "the stream did not move, so nothing here says it came back",
+        );
+        assert_ne!(
+            (game.image().next_write_offset(), game.image().bytes_left()),
+            bookkeeping,
+            "the game's own streaming fields did not move with it",
+        );
+
+        // 被弾 and チャプターをやり直す.
+        game.hit();
+        game.frame();
+        let log = game.log();
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        // The stream is the one the chapter was taken with, byte for byte — and it is still the same
+        // stream through the same buffer, which is what says the sound was put back rather than taken
+        // down and started again.
+        assert_eq!(
+            game.stream_now(),
+            at_the_chapter,
+            "the sound did not come back where the chapter had it",
+        );
+        assert!(
+            !log.said("the track has changed since this snapshot"),
+            "the track the chapter was taken with was not recognised as the one playing:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // And the game's own bookkeeping came back with the rest of its memory, which is the half of the
+        // pair that has to agree with the buffer: the offset the next chunk goes at, and the countdown
+        // the track's loop is taken on.
+        assert_eq!(
+            (game.image().next_write_offset(), game.image().bytes_left()),
+            bookkeeping,
+            "the streaming fields describe a buffer that is no longer there",
+        );
+    });
+}
+
+/// The distance between the play cursor and the offset the next chunk goes at is watched, and a chapter
+/// restored on a timer leaves it where the chapter had it.
+///
+/// **What a listener hears when that distance runs out is the music breaking up**, which is why orb
+/// reports it at all — and it only asks DirectSound for it while something is being diagnosed, a poll a
+/// frame being work nothing else needs. `--stress-restore` is one of the two switches that turn it on,
+/// and it is also what puts a restore on a timer: the snapshot and the music get as many goes as a long
+/// session would with nobody playing one.
+#[test]
+fn the_distance_to_the_next_write_is_reported_and_a_restore_on_a_timer_puts_it_back() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-watched", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+            config.stress_restore_frames = RESTORED_EVERY;
+        });
+        game.streams_its_song(SONG);
+        // The mixer this far past the offset the next chunk goes at, which is what the stream is when it
+        // is keeping up: inside a chunk of it. Said before the run starts, so it is the distance every
+        // chapter is taken with and so the one every restore has to put back.
+        game.plays_the_buffer_on(BEHIND);
+        game.in_a_pointdevice_run();
+
+        // The restore on its timer, over and over: four goes at a chapter and then the run walks on.
+        game.frames_until(
+            "the chapter restored on a timer",
+            RESTORED_EVERY * 8,
+            || game.log().said("retry chapter 1 (retry 4)"),
+        );
+        // And what the frames after each of those restores said the distance was, which is the number the
+        // restore had to bring back: the cursor is put back through the buffer and the offset comes back
+        // with the game's memory, so a restore that moved either of them would read as another number.
+        assert!(
+            game.log().said(&format!(
+                "audio: behind={BEHIND} of chunk {STREAM_NOTIFY} buffer {STREAM_BUFFER}"
+            )),
+            "the distance after a restore was not the one the chapter was taken with:\n  {}",
+            game.log()
+                .lines()
+                .iter()
+                .filter(|line| line.contains("audio:"))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+        // Reported as a range once a reporting period, which is where a run's worst is read off.
+        game.frames_until_the_log_holds_another("audio: behind ");
+        assert!(
+            game.log()
+                .said(&format!("audio: behind {BEHIND}..{BEHIND} bytes")),
+            "the period's report is not the distance every frame of it measured:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+    });
+}
+
+/// Where the track has changed since the snapshot, the sound is taken down and started again through the
+/// game rather than copied back.
+///
+/// **A released COM object does not come back from a memory copy.** Once the game has changed track it has
+/// freed the stream and released its sound buffer, and neither is the memory restorable around the stream
+/// that replaced it: that one was allocated after the snapshot, so writing the snapshot back rolls its
+/// object out from under a streaming thread that is not suspended — measured as an access violation inside
+/// `DSOUND.dll` writing a buffer it no longer owned.
+///
+/// So the sound goes down through the game's own `StopBGM` before the copy — its allocator has to see the
+/// stream being freed — and comes back through its own `PlayAudio` after it, given the path read out of
+/// the memory that was just put back. Measured on a stage 6 run: `restore: the track has changed since
+/// this snapshot; taking the music down`, `music: stopped through the game`, `music: restarting
+/// bgm/th06_12.mid`.
+///
+/// Reached here the way a run reaches it: ステージをやり直す from inside the fight the stage ends with,
+/// whose own track is not the one the stage's start was snapshotted with.
+#[test]
+fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_starting_it_again() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-restarted", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        // A stage that streams its song through a real buffer *and* names the two songs its data names, so
+        // that the fight the stage ends with brings the second of them — which is the track change this is
+        // about.
+        game.streams_its_song(SONG);
+        game.plays_its_songs();
+        game.image().names_its_song(STAGE_SONG);
+        game.in_a_pointdevice_run();
+        assert_eq!(
+            game.music_stops(),
+            0,
+            "the music was taken down before anything asked for it",
+        );
+
+        // Into the fight the stage ends with, which is where the boss's own track starts: from there the
+        // stage's start is a chapter whose stream has been freed.
+        game.frames_until(
+            "the fight the stage ends with",
+            STAGE_BOSS_ARRIVES * 2,
+            || game.state().stage_frames > STAGE_BOSS_ARRIVES,
+        );
+
+        // 被弾, and then ステージをやり直す — the retry menu's second item, one press down from the first.
+        let log = game.log();
+        game.hit();
+        game.frame();
+        assert!(
+            log.said("died in chapter"),
+            "the death was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
+        game.press_until(keys::Z, "the stage asking", || {
+            log.said("retry: asking about the stage again")
+        });
+        // And the question it asks, whose cursor starts on いいえ — the answer that costs nothing.
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::UP);
+        game.press_until(keys::Z, "the stage asked for again", || {
+            log.said("retry: the stage again on the keyboard")
+        });
+
+        // The track was recognised as not the one the snapshot holds, and the sound went down through the
+        // game rather than being copied back over a buffer DirectSound has freed.
+        assert!(
+            log.said("restore: the track has changed since this snapshot; taking the music down"),
+            "the restore tried to put back a stream that had been freed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            log.said("music: stopped through the game"),
+            "the sound was not taken down through the game's own StopBGM:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.music_stops(),
+            1,
+            "the game's own StopBGM was not the call that took the music down",
+        );
+
+        // And came back through the game's own PlayAudio, by the path the restored memory names — which is
+        // the stage's own song and not whatever was playing when the chapter was left.
+        assert!(
+            log.said(&format!("music: restarting {STAGE_SONG}")),
+            "orb did not read the stage's song out of the memory it had just put back:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.music_started(),
+            vec![STAGE_SONG.to_owned()],
+            "the track was started again by some other path than the one the stage names",
+        );
+    });
+}
+
+/// The path the stage's data names its own track by, as 紅魔郷 writes one.
+const STAGE_SONG: &str = "bgm/th06_02.mid";
+
+/// A stream whose file handle orb cannot read has the buffer and the cursor put back and the file left
+/// where it is.
+///
+/// **Which is a stream that happens rather than one laid out to be awkward.** `Th06::music` takes the
+/// handle as nothing where the read of it does not come off — the whole chase to it is pointers out of
+/// structures the game rebuilds between stages — and both winmm calls refuse a handle of nothing. So what
+/// a chapter written down then holds is a file position of `-1`, which is `mmioSeek` saying it will not
+/// say, and a restore leaves the file alone rather than seeking somewhere wrong.
+///
+/// The rest still comes back, which is the point: the two pieces orb reaches by *calling* DirectSound are
+/// independent of the one it reaches through winmm, and a run that loses the third is a run whose music is
+/// a little out of place rather than one whose music breaks up.
+#[test]
+fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file_alone() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-no-handle", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.streams_its_song(SONG);
+        game.image().forgets_the_file_handle();
+        game.in_a_pointdevice_run();
+
+        game.frames_until("the chapter the card is", 900, || {
+            game.log().said(&format!("at frame {CARD_STARTS}"))
+        });
+        let at_the_chapter = game.stream_now();
+
+        // The streaming thread runs. Its own reads do not go through the game's handle — a scenario says
+        // the thread ran, and what it reads is the file itself — so the position moves even though orb
+        // cannot ask where it is.
+        game.services_the_buffer();
+        game.plays_the_buffer_on(STREAM_NOTIFY);
+        let moved_on = game.stream_now();
+        assert_ne!(moved_on, at_the_chapter, "the stream did not move");
+
+        // 被弾 and チャプターをやり直す.
+        let log = game.log();
+        game.hit();
+        game.frame();
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        // The buffer and the cursor are the chapter's, and the file is where the thread left it.
+        let back = game.stream_now();
+        assert_eq!(
+            (back.buffered, back.play_cursor, back.playing),
+            (
+                at_the_chapter.buffered,
+                at_the_chapter.play_cursor,
+                at_the_chapter.playing
+            ),
+            "the buffer and the cursor did not come back with the chapter",
+        );
+        assert_eq!(
+            back.position, moved_on.position,
+            "the file was seeked with a handle that answers nothing about where it is",
+        );
+    });
+}
+
+/// How often that scenario's restore comes round, in frames. Its own number: short enough that a chapter
+/// gets its four goes inside a scenario and long enough that the frames between them are frames.
+const RESTORED_EVERY: u32 = 20;
+
+/// And how far the play cursor is ahead of the offset the next chunk goes at. Inside a chunk, which is a
+/// stream that is keeping up — the number growing past one is the streaming falling behind.
+const BEHIND: u32 = 3_000;
 
 /// 被弾 and then タイトルに戻る, which leaves the chapter behind for the next launch to offer.
 fn gives_the_run_up(game: &Fake) {

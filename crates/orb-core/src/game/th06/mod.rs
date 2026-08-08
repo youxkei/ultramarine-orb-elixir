@@ -54,37 +54,43 @@ const SAVE_REPLAY_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x81, 0xec, 0xa8, 0x00, 
 /// draw chain's, which also fixes `Chain`'s layout.
 const CHAIN_CUT: usize = 0x0041cde0;
 
-/// Where to call it, which is the address above in a real process and whatever a game laid out by hand
-/// hands over in its place.
+/// Where to call one of the game's own functions, which is its address in a real process and whatever a
+/// game laid out by hand hands over in its place: a reader, a setter, and the slot behind them.
 ///
-/// **Code is the one thing an address space laid out by hand cannot hold**, and this is the only call
-/// this file makes into the game that a scenario ever reaches: a shake still running at a stage move is
-/// taken down through it, and a scenario about that would otherwise be jumping into memory nothing has
-/// mapped. The same answer `window::install_over` and `score::install_over` are — see
+/// **Code is the one thing an address space laid out by hand cannot hold**, so every call this file makes
+/// into the game that a scenario reaches has to be answerable — a shake still running at a stage move is
+/// taken down through one, and a track whose chapter has been left behind is stopped and started again
+/// through two more. A scenario without them would be jumping into memory nothing has mapped. The same
+/// answer `window::install_over` and `score::install_over` are — see
 /// [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 ///
-/// Behind the same gate `image` is, so the shipped DLL has the constant and no atomic in the path.
-#[cfg(any(test, feature = "sim"))]
-static CHAIN_CUT_AT: AtomicUsize = AtomicUsize::new(CHAIN_CUT);
+/// The slot is behind the same gate `image` is, so the shipped DLL has the constant and no atomic in the
+/// path. The setter is not `install_`, which everything wearing that name in this tree does by writing
+/// over something — an import table entry or a prologue: this patches nothing and records where a
+/// function is.
+macro_rules! handed_over {
+    ($slot:ident, $at:ident, $set:ident, $real:ident) => {
+        #[cfg(any(test, feature = "sim"))]
+        static $slot: AtomicUsize = AtomicUsize::new($real);
 
-#[cfg(any(test, feature = "sim"))]
-fn chain_cut() -> usize {
-    CHAIN_CUT_AT.load(Ordering::Relaxed)
+        #[cfg(any(test, feature = "sim"))]
+        fn $at() -> usize {
+            $slot.load(Ordering::Relaxed)
+        }
+
+        #[cfg(not(any(test, feature = "sim")))]
+        fn $at() -> usize {
+            $real
+        }
+
+        #[cfg(any(test, feature = "sim"))]
+        fn $set(address: usize) {
+            $slot.store(address, Ordering::Relaxed);
+        }
+    };
 }
 
-#[cfg(not(any(test, feature = "sim")))]
-fn chain_cut() -> usize {
-    CHAIN_CUT
-}
-
-/// Takes the address a game laid out by hand hands over for it — see [`chain_cut`].
-///
-/// Not `install_`, which everything wearing that name in this tree does by writing over something: an
-/// import table entry or a prologue. This patches nothing and records where a function is.
-#[cfg(any(test, feature = "sim"))]
-fn set_chain_cut(address: usize) {
-    CHAIN_CUT_AT.store(address, Ordering::Relaxed);
-}
+handed_over!(CHAIN_CUT_AT, chain_cut, set_chain_cut, CHAIN_CUT);
 
 /// `th06::ScreenEffect::ShakeScreen`, matched against a job's callback rather than called.
 /// Its `isTimeStopped` branch writes 32.0, 16.0, 384.0 and 448.0 to 0x69d6dc onwards — the
@@ -266,6 +272,13 @@ const STOP_BGM: usize = 0x00430f80;
 /// MIDI branch instead when the game is configured for MIDI, which is why this is
 /// the call to make rather than the three below it.
 const PLAY_AUDIO: usize = 0x00424b5d;
+
+// Both handed over, because both are reached from one restore: a chapter whose track has been replaced
+// since it was taken has its sound torn down through the first and started again through the second —
+// see [`Snapshot::restore`](../../../../orb/src/snapshot.rs). Which is a path a scenario walks, so it
+// cannot be two addresses in a game that has no code at them.
+handed_over!(STOP_BGM_AT, stop_bgm, set_stop_bgm, STOP_BGM);
+handed_over!(PLAY_AUDIO_AT, play_audio, set_play_audio, PLAY_AUDIO);
 
 /// `th06::Controller::GetInput`, `__stdcall`, no arguments, returns the buttons
 /// held this frame. `Supervisor::OnUpdate` calls it once a frame, so it is the one
@@ -934,7 +947,7 @@ impl Game for Th06 {
     }
 
     unsafe fn stop_music(&self) {
-        let stop: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(STOP_BGM) };
+        let stop: unsafe extern "fastcall" fn(usize) = unsafe { std::mem::transmute(stop_bgm()) };
         unsafe { stop(G_SOUND_PLAYER) };
         log!("music: stopped through the game");
     }
@@ -957,7 +970,7 @@ impl Game for Th06 {
         // `__thiscall` with an argument, which unlike the one-argument case is not
         // `fastcall`: the argument goes on the stack and the callee takes it off.
         let play: unsafe extern "thiscall" fn(usize, usize) -> i32 =
-            unsafe { std::mem::transmute(PLAY_AUDIO) };
+            unsafe { std::mem::transmute(play_audio()) };
         unsafe { play(G_SUPERVISOR, path) };
         true
     }

@@ -272,8 +272,66 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
     });
 }
 
+/// And a shake left to run its own frames out puts the arcade region back itself, so a move after it has
+/// nothing to take down.
+///
+/// **Which is what makes the scenario above say anything.** The region coming back there is orb writing
+/// it, and nothing in a scenario that only ever cuts a shake early can tell that from a shake which would
+/// have done it anyway. So this is the other half: the same bomb, the same stage move, and the shake's own
+/// 80 frames allowed to finish in between.
+#[test]
+fn a_screen_shake_left_to_run_out_puts_the_region_back_itself() {
+    in_its_own_process(|| {
+        let game = watching("a-replay-the-shake-run-out");
+        let starts_at = unsafe { Th06.reproduction() }.player;
+        let field = Th06.play_area();
+        game.frames_until("the stage played into", 600, || {
+            game.state().stage_frames > INTO_THE_STAGE
+        });
+
+        // 被弾するより先にボム, and this time the whole of the shake: it moves the region while it runs,
+        // and on its last frame it writes the region back and takes its own job out of the chain.
+        game.bombs();
+        game.frames(SHAKE_FRAMES / 2);
+        assert_ne!(
+            game.image().arcade_region_size(),
+            (field.width, field.height),
+            "the shake left the arcade region where the stage had it",
+        );
+        game.frames(SHAKE_FRAMES / 2);
+        assert!(
+            !game.image().shaking_the_screen(),
+            "the shake's own job is still in the chain after its {SHAKE_FRAMES} frames",
+        );
+        assert_eq!(
+            game.image().arcade_region_size(),
+            (field.width, field.height),
+            "the shake did not put the arcade region back on the frame it removed itself on",
+        );
+
+        // So the move has nothing to say about it, and the next stage starts its player where a stage
+        // starts one for a reason of the game's own rather than one of orb's.
+        moves_to_the_stage(&game, NEXT, 1);
+        assert!(
+            !game
+                .log()
+                .said("stage move: a screen shake was still running, and is taken down"),
+            "orb took down a shake that had already taken itself down:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        assert_eq!(
+            unsafe { Th06.reproduction() }.player,
+            starts_at,
+            "the stage after the shake began the player somewhere a stage does not",
+        );
+    });
+}
+
 /// How many frames of a shake this file waits out before the move, which has to be inside the 80 a shake
 /// runs for: a shake that had finished would have put the arcade region back itself.
+///
+/// 紅魔郷's own **80**, which is also the whole of what a shake left to run out takes — see
+/// [`a_screen_shake_left_to_run_out_puts_the_region_back_itself`].
 const SHAKE_FRAMES: u32 = 80;
 
 /// The whole of it: two passes over one stage agreeing to the last digit across a move and back.

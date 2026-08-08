@@ -77,8 +77,8 @@ build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
 
 And `cargo xtask coverage` reports what the scenarios cover, which needs a toolchain of its own —
-[docs/todo/what-the-scenarios-never-enter.md](docs/todo/what-the-scenarios-never-enter.md) says what and
-why.
+`cargo xtask` with no task says which and where to get it, and `crates/xtask/src/main.rs` says how to read
+a report of it and why it is not the toolchain everything else is built with.
 
 Then copy one file into the directory holding the game's exe:
 

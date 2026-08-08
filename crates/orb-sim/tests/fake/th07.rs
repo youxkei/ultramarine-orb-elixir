@@ -155,6 +155,8 @@ impl Fake {
                     create_window,
                     create_file,
                     stop_recording,
+                    create_game_window,
+                    joystick_position,
                 },
             )
         };
@@ -281,6 +283,16 @@ extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
 }
 
 extern "C" fn stop_recording() {}
+
+/// And its own `GameWindow::Create`, which is never called: nothing of 妖々夢 is laid out but a frame, and
+/// this game asks for no window.
+extern "C" fn create_game_window(_instance: *mut c_void) {}
+
+/// And its own `joyGetPosEx`, which is never called either: `Th07` declines the pad along with everything
+/// else about a run, so nothing here ever reads one.
+unsafe extern "system" fn joystick_position(_device: u32, _into: *mut orb_api::JoyInfo) -> u32 {
+    orb_api::joyerr::PARMS
+}
 
 /// And its `CreateFileA`, which is never called either: `Th07` declines the score file the same way it
 /// declines everything else about a run, so nothing of 妖々夢's is ever opened through orb.

@@ -20,13 +20,46 @@ const TARGET: &str = "i686-pc-windows-gnu";
 /// rustup ships `profiler_builtins` for this target and not for `i686-pc-windows-gnu`, so
 /// `-C instrument-coverage` has no runtime to link against on the one that ships. The ABI, the CRT and
 /// every `cfg` are the same — the linker and the unwinder are what differ — so what a run measures is
-/// the code that ships. See
-/// [docs/todo/what-the-scenarios-never-enter.md](../../../docs/todo/what-the-scenarios-never-enter.md).
+/// the code that ships. `.cargo/config.toml` carries the `crt-static` this one needs and says why.
+///
+/// **Measuring on [`TARGET`] itself was tried and does not work**, which is here rather than in a
+/// document because this constant is the thing that tempts somebody back to it.
+/// `-Z build-std=std,panic_abort,profiler_builtins` does build the runtime from compiler-rt's sources,
+/// and the binaries then link and run — but the profile is unreadable. compiler-rt takes the bounds of
+/// its data, names and counters from one-element sentinel variables in `$A`/`$Z` subsections, which
+/// assumes MSVC's chunk layout where the real data begins immediately after the sentinel. With mingw's
+/// gcc and lld every boundary is padded instead: measured **names +4, counters +8 and data +0x40**,
+/// against the `+1` and `+sizeof` the runtime computes. `llvm-profdata` rejects every file — `symbol
+/// name is empty`, then `counter offset is negative` — and `__attribute__((aligned(1)))` on the
+/// sentinels removes none of it. Two of the three paddings can be justified from first principles and
+/// the third cannot, which is where that road ends: numbers nobody can vouch for are worse than no
+/// numbers.
+///
+/// And with GNU ld rather than lld it does not get that far at all — `.lcovfun` and `.lcovmap` land at
+/// VMA 0, below the image base, and the PE will not load. Ubuntu's mingw gcc cannot be made to use lld:
+/// it resolves `/usr/bin/i686-w64-mingw32-ld` absolutely, and `-B`, `COMPILER_PATH` and `PATH` change
+/// none of it — `-B` does not even redirect `as`.
+///
 const COVERAGE_TARGET: &str = "i686-pc-windows-gnullvm";
 
 /// Where llvm-mingw is, as the environment names it. Not a default and not a search: where a toolchain
 /// is installed is one machine's business, which is the rule for everything else in this repository that
 /// varies.
+///
+/// **What it has to name is a directory with `bin/i686-w64-mingw32-clang` under it, out of the msvcrt
+/// release** — the CRT [`COVERAGE_TARGET`] links against. Unpacking that release somewhere is the whole of
+/// it: nothing is installed, nothing goes on `PATH`, and where it is unpacked is this machine's business
+/// like everything else here that varies.
+///
+/// One host's way of doing it, as an example and not the way: with nix,
+/// `nix-prefetch-url --unpack --print-path <the msvcrt release>` hands back a store path in that shape and
+/// leaves nothing behind — and a store path is not a GC root, so it goes at the next collection and the
+/// command is how it comes back. The trap there is worth one line, being the first thing anybody with nix
+/// finds: nixpkgs' own `llvm-mingw`, in `pkgs/applications/emulators/wine/llvm-mingw.nix`, fetches the
+/// *ucrt* release rather than the msvcrt one, and is a `let` binding inside wine's `packages.nix` rather
+/// than an attribute, so there is nothing to build by name either. What it has that the release itself has
+/// not is `autoPatchelfHook`, which a NixOS host needs to run a prebuilt binary at all and no other host
+/// does.
 const LLVM_MINGW: &str = "LLVM_MINGW";
 
 /// Which package's tests the coverage run drives, and why it is only one.
@@ -35,6 +68,22 @@ const LLVM_MINGW: &str = "LLVM_MINGW";
 /// test reaches is a line no scenario stands behind. `orb-launcher` is left out for a harder reason: its
 /// artifact dependency pins `orb`'s cdylib to `i686-pc-windows-gnu`, which has no profiler runtime, so a
 /// run that includes it does not compile.
+///
+/// **Read the zeros; ignore the percentage**, which is what a report of this is for. Coverage counts what
+/// was *executed* and not what was *asserted*, and in this suite the two come apart in one direction:
+/// `Th06::read_state` runs on every frame of every scenario, so all of it reads as covered while only some
+/// of its fields are asserted anywhere. A percentage driven upwards buys nothing. What a zero says is
+/// exact, though — nothing in the suite has ever run that line, so no scenario can be relying on it — and
+/// `--missing` is how to find them. Where that flag hands back no ranges, `cargo llvm-cov report --lcov`
+/// and the `DA:` records whose hit count is zero are the same answer.
+///
+/// **The zeros a run reports now are all accounted for beside the code they are in**, which is where a
+/// reader meets them rather than in a list of their own: `Boundary::proposed`, which is const-evaluated;
+/// `joystick::install`, the one write over an import table entry; `Music::with_locked_buffer`'s arm for a
+/// buffer DirectSound has taken away and every arm below it that gives up; the retry in
+/// `Snapshot::update`, which wants a streaming thread; `Judgement::Out`, which wants a key; and
+/// `REPORT_READS`, which wants a second of wall clock. Which is what a run is worth reading for: a zero
+/// with no such note beside it is either work or a note somebody has not written.
 const COVERED: &str = "orb-sim";
 
 fn main() -> ExitCode {
@@ -135,6 +184,11 @@ fn coverage(args: Vec<String>) -> ExitCode {
     match asked.iter().any(|arg| arg == "--missing") {
         // Every file's uncovered line ranges beside its numbers. `--summary-only` is what the flag
         // turns off, so the two cannot be asked for together.
+        //
+        // **And it may print no ranges at all**: on the `cargo-llvm-cov` the last run was made with, the
+        // report came out with exactly the columns it has without this flag. `cargo llvm-cov report
+        // --lcov` and the `DA:` records whose hit count is zero are the same answer and one step more, so
+        // a range that will not come out here is not a reason to go looking for a version of anything.
         true => report.arg("--show-missing-lines"),
         false if html => report.arg("--html"),
         false => report.arg("--summary-only"),

@@ -262,8 +262,54 @@ const STREAMED_TRACK: Track = Track {
 /// How big the buffer that track is streamed into is, and how much the streaming thread writes each time it
 /// is woken. This game's own numbers: a buffer holds a fraction of a second of sound and is topped up in
 /// chunks, which is the shape the arithmetic is over.
-const STREAM_BUFFER: usize = 32_768;
-const STREAM_NOTIFY: u32 = 8_192;
+pub const STREAM_BUFFER: usize = 32_768;
+pub const STREAM_NOTIFY: u32 = 8_192;
+
+/// The sound in that track's file: a byte per offset, and no two offsets alike.
+///
+/// A wave of zeros would say nothing. What a scenario reads off the buffer has to name *where in the
+/// file* those bytes were read from, or a restore that put back a buffer full of silence would pass the
+/// same assertion as one that put the music back — so the byte at each offset is that offset's own,
+/// Knuth's multiplicative hash of it, whose period is longer than any file laid out here.
+fn sound_of(length: u32) -> Vec<u8> {
+    (0..length)
+        .map(|at| (at.wrapping_mul(0x9e37_79b9) >> 24) as u8)
+        .collect()
+}
+
+/// What the stream a track is playing looks like from outside the game's memory: the bytes in the
+/// buffer, where the play cursor is in them, where the file handle is, and whether it is playing.
+///
+/// **Which is exactly what no snapshot of that memory holds** — the buffer is DirectSound's, the cursor
+/// is the mixer's and the position is winmm's — and so exactly what a chapter's restore has to put back
+/// by calling them. One value rather than four reads, so a scenario asks whether the *stream* came back.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Stream {
+    pub buffered: Vec<u8>,
+    pub play_cursor: u32,
+    pub position: i32,
+    pub playing: bool,
+}
+
+impl std::fmt::Debug for Stream {
+    /// The buffer as how much of it and what it adds up to, because a failure naming 32,768 bytes is a
+    /// failure nobody reads: what a scenario is asking is whether these are the same bytes, and a sum
+    /// that differs says they are not.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Stream {{ {} byte(s) adding to {}, cursor {}, file at {}, {} }}",
+            self.buffered.len(),
+            self.buffered
+                .iter()
+                .map(|byte| u64::from(*byte))
+                .sum::<u64>(),
+            self.play_cursor,
+            self.position,
+            if self.playing { "playing" } else { "stopped" },
+        )
+    }
+}
 const BOSS_TRACK: Track = Track {
     length: 6_400_000,
     loop_start: 44,
@@ -421,6 +467,26 @@ pub struct Fake {
     /// Beside the memory rather than in it, because it is not a fact about the run: it is one about what
     /// reached the screen, which no chapter restored underneath it takes back.
     replay_question_drawn: Cell<bool>,
+    /// The window this game asked the host for, as the host answered — see
+    /// [`creates_its_window`](Fake::creates_its_window). Null until it has asked.
+    window: Cell<orb_api::Hwnd>,
+    /// How many times orb has taken this game's music down through its own `StopBGM`, and the paths it
+    /// has started a track by through its own `PlayAudio` — see
+    /// [`music_stops`](Fake::music_stops) and [`music_started`](Fake::music_started).
+    ///
+    /// Beside the memory rather than in it: what the game was *called* is not a fact about the run, and
+    /// the restore these happen either side of would rewind the record of them.
+    music_stops: Cell<u32>,
+    music_starts: RefCell<Vec<String>>,
+    /// How many times orb has asked this game's keyboard device to be acquired again, which is what a
+    /// scenario reads instead of a log line — see [`keyboard_acquires`](Fake::keyboard_acquires).
+    ///
+    /// Beside the memory rather than in it: what a device was asked is not a fact about the run, and no
+    /// chapter restored underneath it takes an acquire back.
+    keyboard_acquires: Cell<u32>,
+    /// And whether that device refuses, which is what one whose window is not in front does — see
+    /// [`refuses_the_keyboard_acquire`](Fake::refuses_the_keyboard_acquire).
+    refuses_the_acquire: Cell<bool>,
     /// What this game's chain walk answers, which a scenario changes to say the game is leaving.
     answers: Cell<i32>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory. Last,
@@ -481,6 +547,22 @@ impl Fake {
         Self::attach_to_display(Display::ordinary(), name, run, settings)
     }
 
+    /// And with that directory already holding what an earlier launch left in it: `left` is a file name
+    /// and its contents, written before orb is attached.
+    ///
+    /// Before, because that is the only moment it can be: orb reads what it finds there while it is being
+    /// attached — a tuning pass reads `tuning.txt` inside `Chapters::new` — and a file written after that
+    /// is one nothing will ever look at. Which is also why the directory is emptied at every attach: a
+    /// launch finds what a scenario says it finds and nothing another scenario left behind.
+    pub fn attach_finding(
+        name: &str,
+        left: &[(&str, &str)],
+        run: RunStart,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(Display::ordinary(), None, name, left, run, settings)
+    }
+
     /// And on a display a scenario says the whole of, for the ones the frame loop's pacing is about.
     pub fn attach_to_display(
         display: Display,
@@ -488,7 +570,7 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, name, run, settings)
+        Self::attach_declaring(display, None, name, &[], run, settings)
     }
 
     /// And on a monitor a scenario says the whole of too, for the ones about the window orb makes.
@@ -501,13 +583,14 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(Display::ordinary(), Some(panel), name, run, settings)
+        Self::attach_declaring(Display::ordinary(), Some(panel), name, &[], run, settings)
     }
 
     fn attach_declaring(
         display: Display,
         panel: Option<Panel>,
         name: &str,
+        left: &[(&str, &str)],
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
@@ -533,6 +616,10 @@ impl Fake {
         );
 
         let dir = scratch(name);
+        for (file, contents) in left {
+            std::fs::write(dir.join(file), contents)
+                .unwrap_or_else(|error| panic!("{}: {error}", dir.join(file).display()));
+        }
         let mut config =
             Config::load_beside(&dir.join("th06.exe")).expect("a directory with no orb.yaml in it");
         // The memory hooks patch an import table there is none of.
@@ -579,9 +666,14 @@ impl Fake {
         // what moves it. Its own numbers rather than the play field's, as the game's are.
         let field = Th06.play_area();
         image.sets_the_arcade_region((field.left, field.top), (field.width, field.height));
-        // And the game's own `Chain::Cut`, which is the one call into the game orb makes that a scenario
-        // reaches: a shake still running at a stage move is taken down through it.
+        // And the game's own calls orb makes that a scenario reaches: a shake still running at a stage
+        // move is taken down through `Chain::Cut`, and a track whose chapter has been left behind is
+        // stopped and started again through `StopBGM` and `PlayAudio`.
         image.hands_over_chain_cut(chain_cut as *const () as usize);
+        image.hands_over_the_music_calls(
+            stop_bgm as *const () as usize,
+            play_audio as *const () as usize,
+        );
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what a scenario
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
@@ -651,6 +743,11 @@ impl Fake {
             given_up: Cell::new(false),
             demos: Cell::new(false),
             replay_question_drawn: Cell::new(false),
+            window: Cell::new(orb_api::Hwnd::NULL),
+            music_stops: Cell::new(0),
+            music_starts: RefCell::new(Vec::new()),
+            keyboard_acquires: Cell::new(0),
+            refuses_the_acquire: Cell::new(false),
             answers: Cell::new(CHAIN_CARRIED_ON),
             _installed: installed,
         });
@@ -674,6 +771,8 @@ impl Fake {
                     create_window,
                     create_file,
                     stop_recording,
+                    create_game_window: game_window_create,
+                    joystick_position,
                 },
             )
         };
@@ -747,6 +846,38 @@ impl Fake {
         self.hit.set(true);
     }
 
+    /// How many times orb has taken this game's music down through its own `StopBGM`.
+    pub fn music_stops(&self) -> u32 {
+        self.music_stops.get()
+    }
+
+    /// And the paths it has started a track by through its own `PlayAudio`, in the order it did.
+    ///
+    /// The path and not a count, because which path is the question: it is read out of the memory the
+    /// restore has just put back, so a wrong one is a chapter's music restarted from another stage's song.
+    pub fn music_started(&self) -> Vec<String> {
+        self.music_starts.borrow().clone()
+    }
+
+    /// How many times orb has asked this game's keyboard device to be acquired again.
+    ///
+    /// The device is a `DISCL_EXCLUSIVE | DISCL_FOREGROUND` one, so the system takes it away the moment
+    /// the window goes behind and every read after that fails — which is what orb asks for it back
+    /// before. A count rather than the log line, because what the claim is about is the *call*.
+    pub fn keyboard_acquires(&self) -> u32 {
+        self.keyboard_acquires.get()
+    }
+
+    /// Has that device refuse, which is what one whose window is not in front really does:
+    /// `DIERR_OTHERAPPHASPRIO`.
+    ///
+    /// A scenario saying so, the way it says which window is in front — the two are the same fact from
+    /// two sides, and a device that worked that out for itself would be answering the question orb is
+    /// being asked here.
+    pub fn refuses_the_keyboard_acquire(&self, refuses: bool) {
+        self.refuses_the_acquire.set(refuses);
+    }
+
     /// A bomb, which is here for the one thing about one that outlives the stage it went off in: the
     /// screen shake it starts.
     ///
@@ -804,7 +935,7 @@ impl Fake {
     /// the file is.
     pub fn streams_its_song(&self, heard_at: i32) {
         let sound = orb_sim::Sound::of(
-            vec![0; STREAMED_TRACK.length as usize],
+            sound_of(STREAMED_TRACK.length),
             STREAM_BUFFER,
             STREAM_NOTIFY,
         );
@@ -823,9 +954,64 @@ impl Fake {
     /// # Panics
     /// Where no scenario asked for a sound, there being no file to have a position in.
     pub fn loop_point(&self) -> u32 {
+        self.with_the_sound(|sound| sound.position() as u32) + self.image.bytes_left()
+    }
+
+    /// `StreamingSound::ServiceBuffer`: one chunk of the file into the buffer at the offset the game
+    /// keeps for it, with that offset and the countdown moved on by what was read.
+    ///
+    /// A scenario saying the streaming thread ran, the way it says the player was hit. That thread is a
+    /// thread, and what it would have done over a few seconds of a track is not something a scenario can
+    /// wait for — so a scenario that has to have the stream *somewhere else than the chapter left it*
+    /// says how far.
+    ///
+    /// The countdown goes down by what the read took, because that is what the game's own `WaveFile::Read`
+    /// does with it (0x43c1be) and it is what makes the loop point hold still while the file moves.
+    ///
+    /// # Panics
+    /// Where the read came up short, which is the end of the track's sound: taking the loop there is the
+    /// game's own answer and no scenario here needs one, so a scenario that has run its stream that far
+    /// has run further than it meant to.
+    pub fn services_the_buffer(&self) {
+        let at = self.image.next_write_offset();
+        let (read, size) =
+            self.with_the_sound(|sound| (sound.tops_the_buffer_up(at), sound.buffer_size()));
+        assert_eq!(
+            read, STREAM_NOTIFY,
+            "the stream was serviced past the end of the track's own sound",
+        );
+        self.image.set_next_write_offset((at + read) % size);
+        self.image.set_bytes_left(self.image.bytes_left() - read);
+    }
+
+    /// And the mixer playing what is in the buffer: the play cursor moved on by `bytes`.
+    ///
+    /// Apart from the servicing above because they are two clocks, and the distance between them is what
+    /// a margin *is* — see [`orb_core::audio::Margin`]. A scenario says how far apart they are for the
+    /// same reason it says the stream ran at all.
+    pub fn plays_the_buffer_on(&self, bytes: u32) {
+        self.with_the_sound(|sound| sound.plays_on(bytes));
+    }
+
+    /// The whole of what the stream a track is playing looks like from outside the game's memory, which
+    /// is what a restore has to put back and what no snapshot of that memory holds.
+    ///
+    /// # Panics
+    /// Where no scenario asked for a sound.
+    pub fn stream_now(&self) -> Stream {
+        self.with_the_sound(|sound| Stream {
+            buffered: sound.buffered(),
+            play_cursor: sound.play_cursor(),
+            position: sound.position(),
+            playing: sound.playing(),
+        })
+    }
+
+    /// # Panics
+    /// Where no scenario asked for a sound, there being nothing for any of the above to be about.
+    fn with_the_sound<T>(&self, body: impl FnOnce(&orb_sim::Sound) -> T) -> T {
         let sound = self.sound.borrow();
-        let sound = sound.as_ref().expect("a sound this scenario asked for");
-        sound.position() as u32 + self.image.bytes_left()
+        body(sound.as_ref().expect("a sound this scenario asked for"))
     }
 
     /// Has the front end draw its own items, which is how a scenario reads back what the score file
@@ -1003,23 +1189,11 @@ impl Fake {
     /// flash on the screen and nothing to resize afterwards. The handle is the host's, and it is the one
     /// orb wrote down as the game's window.
     pub fn creates_its_window(&self) -> orb_api::Hwnd {
-        let window = unsafe {
-            orb::window::create_window_ex_a(
-                0,
-                WINDOW_CLASS.as_ptr().cast(),
-                c"th06".as_ptr().cast(),
-                ASKED_STYLE,
-                ASKED_AT.0,
-                ASKED_AT.1,
-                ASKED_SIZE.0,
-                ASKED_SIZE.1,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null(),
-            )
-        };
-        orb_api::Hwnd(window as usize)
+        // Through orb's hook over `GameWindow::Create`, which is where the display setting this game was
+        // configured with is overruled: the call underneath it is this game's own, and that is what
+        // reaches the rewrite.
+        orb::create_game_window(std::ptr::null_mut());
+        self.window.get()
     }
 
     /// What the game's memory says the run is, read the way the frame hook reads it: every field
@@ -1062,6 +1236,7 @@ impl Fake {
         // a run being played back into place is handed the ones it pressed.
         let last = self.image.input_now();
         let word = orb::get_input();
+        self.reads_its_joystick();
         // And the replay manager's own job over the top of it, where one is playing back: the read still
         // happened and orb's hook over it is still in the path, and what the update acts on is the record.
         let word = match self.replayed_input() {
@@ -1835,6 +2010,30 @@ impl Fake {
         });
     }
 
+    /// `Controller::GetControllerInput`'s other branch: where the game's own enumeration found no game
+    /// controller it asks winmm for joystick 0, once a frame.
+    ///
+    /// **Through orb's replacement of that import entry**, which is the whole subject: with nothing
+    /// plugged in that one call takes 8.7ms and spends nearly all of it on the CPU, which against a
+    /// 16.67ms frame was the whole of the frame-pacing trouble — so orb answers it out of a sample taken
+    /// on a thread of its own.
+    ///
+    /// What a sample *means* is left to the game and this game does no more with one than it does with its
+    /// controller's state — see [`read_state`]: which button is shot and where an axis becomes a direction
+    /// is the game's own arithmetic, and none of it is orb's to reimplement or this game's to stand in for.
+    /// What is here is the read, because the read is what orb replaced.
+    fn reads_its_joystick(&self) {
+        if self.image.holds_a_controller() {
+            return;
+        }
+        let mut info = orb_api::JoyInfo {
+            size: size_of::<orb_api::JoyInfo>() as u32,
+            flags: RETURN_ALL,
+            ..orb_api::JoyInfo::default()
+        };
+        unsafe { orb::joystick::answer(JOYSTICK_0, &mut info) };
+    }
+
     /// The keys the game sees, as its own read hands them back — `Controller::GetInput` and both of its
     /// branches.
     ///
@@ -1885,13 +2084,26 @@ unsafe extern "system" fn acquire(_device: usize) -> i32 {
 /// And the keyboard device's own three, which is all of one orb ever calls: the acquire it makes after the
 /// window has been away, and the `Unacquire` and `Release` it makes to let the device go.
 ///
-/// Nothing to do in any of them. What being held *means* is read off the pointer the game keeps —
-/// `Image::holds_a_keyboard_device` — because that is what the game's own read branches on and what orb
-/// clears: a device object that remembered its own acquired state would be a second answer to the one
-/// question.
+/// What being held *means* is read off the pointer the game keeps — `Image::holds_a_keyboard_device` —
+/// because that is what the game's own read branches on and what orb clears: a device object that
+/// remembered its own acquired state would be a second answer to the one question.
+///
+/// So the only thing the acquire itself keeps is that it was called, which is what a scenario reads
+/// instead of a log line, and whether this device is refusing — see
+/// [`refuses_the_keyboard_acquire`](Fake::refuses_the_keyboard_acquire).
 unsafe extern "system" fn keyboard_acquire(_device: usize) -> i32 {
-    0
+    let fake = running();
+    fake.keyboard_acquires.set(fake.keyboard_acquires.get() + 1);
+    if fake.refuses_the_acquire.get() {
+        OTHER_APP_HAS_PRIORITY
+    } else {
+        0
+    }
 }
+
+/// `DIERR_OTHERAPPHASPRIO`, which is what DirectInput answers an acquire of a `DISCL_FOREGROUND` device
+/// whose window is not the one in front. Negative as an `HRESULT` is, which is what orb reads.
+const OTHER_APP_HAS_PRIORITY: i32 = 0x8007_0005u32 as i32;
 
 unsafe extern "system" fn keyboard_unacquire(_device: usize) -> i32 {
     0
@@ -1962,6 +2174,49 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
     FRAME_KEPT_RUNNING
 }
 
+/// `GameWindow::Create` (0x420c10): the one call everything about the game's window is decided inside,
+/// which is why there is nothing to flash on the screen and nothing to resize afterwards.
+///
+/// What this game does in it is ask for a window — through orb's own rewrite, which is where the ask it
+/// makes is replaced. Reached from orb's hook over this function, so the setting the game was configured
+/// with has already been overruled by the time the ask happens.
+extern "C" fn game_window_create(_instance: *mut c_void) {
+    let fake = running();
+    let window = unsafe {
+        orb::window::create_window_ex_a(
+            0,
+            WINDOW_CLASS.as_ptr().cast(),
+            c"th06".as_ptr().cast(),
+            ASKED_STYLE,
+            ASKED_AT.0,
+            ASKED_AT.1,
+            ASKED_SIZE.0,
+            ASKED_SIZE.1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
+    };
+    fake.window.set(orb_api::Hwnd(window as usize));
+}
+
+/// The game's own `joyGetPosEx`, as its import table held it before orb replaced the entry: winmm's,
+/// which behind the seam is the host's.
+///
+/// What orb calls when it has no sample of its own to answer with, which is the game's startup check and
+/// the caps read behind it.
+unsafe extern "system" fn joystick_position(device: u32, into: *mut orb_api::JoyInfo) -> u32 {
+    let flags = unsafe { (*into).flags };
+    let (result, info) = orb_api::joystick::position(device, flags);
+    unsafe { *into = info };
+    result
+}
+
+/// The joystick the game asks about, and what it asks for: `JOY_RETURNALL`, which is every field.
+const JOYSTICK_0: u32 = 0;
+const RETURN_ALL: u32 = 0xff;
+
 /// The game's own `CreateWindowExA`, which orb's rewrite calls through with the arguments it decided.
 ///
 /// The host makes the window, not this: how thick a frame is and therefore what client a window of that
@@ -2024,14 +2279,51 @@ extern "system" fn input() -> u16 {
     running().read_the_keyboard()
 }
 
-/// `Chain::Cut` (0x41cde0): the element unlinked, which is the one call into the game orb makes that a
-/// scenario reaches — a screen shake still running at a stage move is taken down through it.
+/// `Chain::Cut` (0x41cde0): the element unlinked, which is one of the three calls into the game orb makes
+/// that a scenario reaches — a screen shake still running at a stage move is taken down through it.
 ///
 /// A real function rather than anything in the laid-out memory, for the same reason the controller's three
 /// are: code cannot be laid out.
 unsafe extern "thiscall" fn chain_cut(_chain: usize, elem: usize) {
     running().image.cuts_from_the_chain(elem);
 }
+
+/// `SoundPlayer::StopBGM` (0x430f80): the whole teardown of a track — the buffer stopped, the streaming
+/// thread joined, the stream deleted and the pointer cleared.
+///
+/// The pointer cleared is the half of it anything above the game can see, and it is the half that matters:
+/// every read orb makes of the music goes through it, so a game with it cleared is a game with nothing
+/// playing.
+unsafe extern "fastcall" fn stop_bgm(_player: usize) {
+    let fake = running();
+    fake.image.takes_the_music_down();
+    fake.music_stops.set(fake.music_stops.get() + 1);
+}
+
+/// `Supervisor::PlayAudio` (0x424b5d): the path's extension swapped for `.wav`, the file loaded, and the
+/// track played.
+///
+/// The track laid out again is what the game's own load leaves behind, and it is the stage's own song —
+/// this is the call a restore makes with the path read out of the memory it has just put back.
+unsafe extern "thiscall" fn play_audio(_supervisor: usize, path: usize) -> i32 {
+    let fake = running();
+    fake.music_starts.borrow_mut().push(path_at(path));
+    fake.image.plays_a_track(STAGE_TRACK);
+    0
+}
+
+/// The path at an address in the game's own memory, as the game reads one: bytes up to the terminator.
+fn path_at(address: usize) -> String {
+    let bytes = unsafe { orb_api::mem::read::<[u8; SONG_PATH_BYTES]>(address) };
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+/// How long the game keeps a song path in: `char[128]`, which is what `Image::names_its_song` writes.
+const SONG_PATH_BYTES: usize = 128;
 
 /// `ReplayManager::StopRecording` (0x42aab0): the two entries that finish an input record off, written
 /// into it at the entry playback has reached.

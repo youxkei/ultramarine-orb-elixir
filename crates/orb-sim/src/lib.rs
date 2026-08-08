@@ -20,6 +20,7 @@ use orb_api::{Composition, Hwnd, LogFile, Rect, Win};
 
 mod clock;
 mod display;
+mod joystick;
 mod keyboard;
 mod log;
 mod noise;
@@ -28,6 +29,7 @@ mod space;
 mod window;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
+pub use joystick::{Joystick, POV_CENTERED};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
 /// The seeded stream the host's own unevenness is drawn from, for a scenario that has unevenness of its
@@ -77,6 +79,9 @@ pub struct Sim {
     /// not — see [`Windows`].
     windows: Windows,
     keyboard: Keyboard,
+    /// The joystick winmm has, which is not the controller DirectInput has: that one is laid out in the
+    /// game's own memory, and this is the device on the other branch of the game's own read.
+    joystick: Joystick,
     log: Log,
     /// The ranges orb has said are its own — where it keeps the copies a snapshot holds. Nothing is
     /// ever excluded from anything here, `private_regions` answering with none; what the list is for
@@ -121,6 +126,7 @@ impl Sim {
             display: Display::new(seed),
             windows: Windows::new(),
             keyboard: Keyboard::new(),
+            joystick: Joystick::new(),
             log: Log::new(),
             ours: Mutex::new(HashMap::new()),
             threads: Mutex::new(Vec::new()),
@@ -169,6 +175,12 @@ impl Sim {
     /// The keyboard, for a test that presses a key at one of orb's own menus.
     pub fn keyboard(&self) -> &Keyboard {
         &self.keyboard
+    }
+
+    /// And the joystick winmm has, for a test that plugs a pad in — which is the branch the game reads
+    /// a pad through where its own enumeration found no controller.
+    pub fn joystick(&self) -> &Joystick {
+        &self.joystick
     }
 
     /// How many ranges orb is holding copies of the game's memory in, for a scenario asking whether
@@ -365,6 +377,14 @@ impl Win for Sim {
 
     fn keyboard_state(&self) -> Option<[u8; 256]> {
         self.keyboard.state()
+    }
+
+    fn joystick_position(&self, device: u32, flags: u32) -> (u32, orb_api::JoyInfo) {
+        self.joystick.position(device, flags)
+    }
+
+    fn joystick_caps(&self, device: u32) -> Option<orb_api::JoyCaps> {
+        self.joystick.caps(device)
     }
 
     fn current_thread_id(&self) -> u32 {

@@ -107,6 +107,29 @@ const AUDIO_VTABLE: usize = CODE.start + 0x100;
 /// matches on is the element's callback, and what it does with the element is cut it.
 const SHAKE_ELEM: Range<usize> = 0x0300_a000..0x0300_b000;
 
+/// The one page of the anm manager orb reads: its array of 264 texture pointers, at the 0x1c110 they
+/// start at. What it reads there is the array's bounds, as handles a restore must leave alone, and the
+/// one slot the panel is painted from.
+///
+/// **A page and not the block, and the manager's own base is not mapped at all.** Nothing reads that
+/// base — orb reads the *pointer* to it out of [`DATA`] and adds the offset — and every page laid out
+/// here is a page this process's own heap cannot then be allowed to land in: `Sound::install` maps the
+/// address of a real object, and `Space::map` panics where the two meet. Which the suite has seen
+/// happen. So what is laid out is what is read, and it goes in the gap the blocks above leave rather
+/// than past them.
+const ANM_TEXTURES: Range<usize> = 0x0300_b000..0x0300_c000;
+/// Which puts the manager itself below the space's own first block, where nothing reads it.
+const ANM_MANAGER: usize = ANM_TEXTURES.start - super::anm_manager::TEXTURES;
+
+/// And one page for the head of the stage's own `.std` file, reached through the pointer `g_Stage` keeps.
+/// What orb reads out of it is one string at +0x290: the path of the track the stage names first, which
+/// is what it hands back to the game to start that track again.
+const STAGE_DATA: Range<usize> = 0x0300_c000..0x0300_d000;
+
+/// How long one of that header's `songPaths` entries is — `char[128]`, inline, so the address of the
+/// entry is the string.
+const SONG_PATH_BYTES: usize = 128;
+
 /// The replay manager, the replay it has loaded, and one record of inputs per stage of that replay:
 /// three more blocks off the heap, reached through the pointer at `g_ReplayManager`.
 const REPLAY_MANAGER: Range<usize> = 0x0300_9000..0x0300_a000;
@@ -392,37 +415,18 @@ pub enum Player {
     Invulnerable,
 }
 
-impl Default for Playing {
-    /// Stage one on Normal, on its first frame, with the lives and bombs a run starts with.
-    fn default() -> Self {
-        Self {
-            stage: 0,
-            difficulty: 1,
-            frames: 0,
-            script_frames: 0,
-            seed: 0,
-            deaths: 0,
-            lives: 2,
-            bombs: 3,
-            power: 0,
-            enemies: 0,
-        }
-    }
-}
-
 /// The game's memory, laid out. Reading it goes through [`enter`](Self::enter).
 pub struct Image {
     sim: Arc<Sim>,
 }
 
 impl Image {
-    pub fn laid_out() -> Self {
-        Self::mapped(Arc::new(Sim::new()))
-    }
-
-    /// And in a host whose non-determinism is drawn from `seed` — the wake delays and the
-    /// compositor's spikes — for a scenario that names the seed in its assertions so that a failure
-    /// can be replayed.
+    /// In a host whose non-determinism is drawn from `seed` — the wake delays and the compositor's
+    /// spikes — which a scenario names in its assertions so that a failure can be replayed.
+    ///
+    /// The seed is always said, there being no second constructor that leaves it out: one that did was
+    /// `Sim::seeded(0)` under another name, and a test which does not care what the host does still has
+    /// to be readable as having chosen.
     pub fn laid_out_seeded(seed: u64) -> Self {
         Self::mapped(Arc::new(Sim::seeded(seed)))
     }
@@ -453,6 +457,10 @@ impl Image {
         sim.space().map(RECORDS.start, RECORDS.len(), Kind::Private);
         sim.space()
             .map(SHAKE_ELEM.start, SHAKE_ELEM.len(), Kind::Private);
+        sim.space()
+            .map(ANM_TEXTURES.start, ANM_TEXTURES.len(), Kind::Private);
+        sim.space()
+            .map(STAGE_DATA.start, STAGE_DATA.len(), Kind::Private);
         Self { sim }
     }
 
@@ -562,6 +570,44 @@ impl Image {
     /// cannot hold, and a shake still running at a stage move is taken down through that call.
     pub fn hands_over_chain_cut(&self, address: usize) {
         super::set_chain_cut(address);
+    }
+
+    /// And its own `SoundPlayer::StopBGM` and `Supervisor::PlayAudio`, which are the two calls a restore
+    /// makes into the game where the track has been replaced since the chapter was taken: the sound is
+    /// torn down through the first and started again through the second.
+    ///
+    /// Both together, because neither is reached without the other on that path — a scenario that handed
+    /// over one would find the other's address under it.
+    pub fn hands_over_the_music_calls(&self, stop_bgm: usize, play_audio: usize) {
+        super::set_stop_bgm(stop_bgm);
+        super::set_play_audio(play_audio);
+    }
+
+    /// `g_Stage.stdData->songPaths[0]`: the head of the stage's own `.std` file, with the path of the
+    /// track it names first written into it.
+    ///
+    /// Which is the string orb hands back to `PlayAudio` — so what it has to be is a path that reads as
+    /// one, and `Th06::stage_song` is what decides that.
+    ///
+    /// # Panics
+    /// Where the path does not fit the `char[128]` the game keeps it in, with room for its terminator.
+    pub fn names_its_song(&self, path: &str) {
+        assert!(
+            path.len() < SONG_PATH_BYTES,
+            "{path:?} is longer than the {SONG_PATH_BYTES} bytes the game keeps a song path in",
+        );
+        let mut entry = [0u8; SONG_PATH_BYTES];
+        entry[..path.len()].copy_from_slice(path.as_bytes());
+        let space = self.space();
+        space.write::<usize>(super::G_STAGE + super::stage::STD_DATA, STAGE_DATA.start);
+        assert!(
+            super::stage_header::SONG_PATHS + SONG_PATH_BYTES <= STAGE_DATA.len(),
+            "the song path does not fit the one page the stage's data is laid out in",
+        );
+        space.write::<[u8; SONG_PATH_BYTES]>(
+            STAGE_DATA.start + super::stage_header::SONG_PATHS,
+            entry,
+        );
     }
 
     /// `ScreenEffect::ShakeScreen` registered as a job of the chain's, which is what a bomb leaves
@@ -1027,9 +1073,75 @@ impl Image {
         }
     }
 
-    /// And no controller at all, which is what the game has where its enumeration found none.
+    /// And no controller at all, which is what the game has where its enumeration found none — the
+    /// branch its own read asks winmm on.
     pub fn no_controller(&self) {
         self.space().write::<usize>(super::G_CONTROLLER, 0);
+    }
+
+    /// Whether it has one, which is what the game's own read branches on: with a controller it polls that
+    /// through DirectInput and never asks winmm at all.
+    pub fn holds_a_controller(&self) -> bool {
+        self.space().read::<usize>(super::G_CONTROLLER) != 0
+    }
+
+    /// Whether the game's own configuration says it runs in a window, which is the setting orb overrules
+    /// before the window is made: a game that has taken the display exclusively has no window to resize,
+    /// and by the time anything of orb's runs per frame the device already exists.
+    ///
+    /// Zero to begin with, which is a game configured for full screen — the case the override is for.
+    pub fn windowed(&self) -> bool {
+        self.space()
+            .read::<u8>(super::G_SUPERVISOR + super::supervisor::CFG_WINDOWED)
+            != 0
+    }
+
+    pub fn set_windowed(&self, windowed: bool) {
+        self.space().write::<u8>(
+            super::G_SUPERVISOR + super::supervisor::CFG_WINDOWED,
+            windowed.into(),
+        );
+    }
+
+    /// `AnmManager::LoadAnm` having put `data/front.anm`'s sheet in the manager's own array — slot 13,
+    /// `ANM_FILE_FRONT` — with the manager where the game keeps the pointer to it.
+    ///
+    /// **A plain address and not an object**, which is the difference from the controller and the sound
+    /// buffer: orb never reads a word through this pointer. It binds it — `SetTexture` and then a quad —
+    /// and hands the array's bounds to a snapshot as a range to leave alone, so what it has to be is a
+    /// number that comes back out as it went in.
+    pub fn loads_the_front_sheet(&self, texture: usize) {
+        let space = self.space();
+        space.write::<usize>(super::G_ANM_MANAGER, ANM_MANAGER);
+        space.write::<usize>(self.front_sheet_at(), texture);
+    }
+
+    /// What is in that slot now, which is what a restore must not have put back: a handle to a texture
+    /// the game may have released since is one the game would release a second time.
+    pub fn front_sheet(&self) -> usize {
+        self.space().read(self.front_sheet_at())
+    }
+
+    fn front_sheet_at(&self) -> usize {
+        ANM_TEXTURES.start + super::FRONT_TEXTURE * size_of::<usize>()
+    }
+
+    /// A word of that manager just past its texture array, which orb reads nothing of.
+    ///
+    /// Here for the other half of the claim about the handles: the array is the only part of the block a
+    /// restore leaves alone, so a scenario asking whether it was left alone has to be able to ask whether
+    /// anything else in the same page came back.
+    pub fn anm_manager_word(&self) -> usize {
+        self.space().read(self.beside_the_textures())
+    }
+
+    pub fn set_anm_manager_word(&self, word: usize) {
+        self.space()
+            .write::<usize>(self.beside_the_textures(), word);
+    }
+
+    fn beside_the_textures(&self) -> usize {
+        ANM_TEXTURES.start + super::anm_manager::TEXTURE_COUNT * size_of::<usize>()
     }
 
     /// The keyboard device the game takes `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, reached the same way the
@@ -1248,6 +1360,34 @@ impl Image {
     /// has to move with the file.
     pub fn bytes_left(&self) -> u32 {
         self.space().read(WAVE + super::wave_file::BYTES_LEFT)
+    }
+
+    /// And the same wave file with no handle in it, which is a stream orb cannot move the file of: both
+    /// winmm calls refuse a handle of nothing, and every read of the position answers that it will not say.
+    ///
+    /// Which is a thing that happens — `Th06::music` takes the handle as nothing where the read of it does
+    /// not come off — and what orb does about it is give up on the file and put the rest back.
+    pub fn forgets_the_file_handle(&self) {
+        self.space()
+            .write::<usize>(WAVE + super::wave_file::MMIO, 0);
+    }
+
+    pub fn set_bytes_left(&self, left: u32) {
+        self.space()
+            .write::<u32>(WAVE + super::wave_file::BYTES_LEFT, left);
+    }
+
+    /// The offset the streaming thread will write the next chunk at, which orb reads as the token for
+    /// "has the stream moved since I looked" — and which a restore puts back with the rest of the
+    /// game's memory rather than through the buffer.
+    pub fn next_write_offset(&self) -> u32 {
+        self.space()
+            .read(STREAM + super::streaming_sound::NEXT_WRITE_OFFSET)
+    }
+
+    pub fn set_next_write_offset(&self, at: u32) {
+        self.space()
+            .write::<u32>(STREAM + super::streaming_sound::NEXT_WRITE_OFFSET, at);
     }
 
     /// And no track at all, which is what a game with nothing playing has: the pointer the sound player
