@@ -15,8 +15,12 @@ cargo fmt --check
 # accumulate until the real one is somewhere in the middle of them. Where a lint is wrong about
 # this code the answer is an allow with the reason beside it, which is an argument in the source
 # rather than a warning nobody reads.
-cargo clippy --all-targets -- -D warnings
+cargo xtask clippy
 
 # The tests are Windows binaries, cross-compiled and run through WSL interop, so a run here is
 # a run on what ships rather than on a host build of the same source.
-cargo test
+cargo xtask test
+
+# Both through `xtask` because both have to name the target, and there is no `[build] target` to
+# name it for them — see `.cargo/config.toml` for why there is not. `cargo fmt --check` above needs
+# no target and so is asked for as itself.

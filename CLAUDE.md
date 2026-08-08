@@ -40,6 +40,7 @@ subject, unless the scenarios are the whole of the diff.
 | `README.md` | what orb is, how to build and install it, and where to read further |
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
 | `TODO.md` | what is left, with what is already known about each — and what is built and still waiting on a run against the real game |
+| `docs/todo/` | one file per piece of work too long to sit in `TODO.md` as a paragraph: what was measured, how to measure it again, and the order the work is worth doing in. A file belongs here rather than in `TODO.md` when the measurement behind it has to be repeatable — the recipe goes with the worklist, since a worklist nobody can re-derive is one nobody can tell is still true |
 | `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
 
 The status is the first thing because a reader knows from it which document this is: `accepted, not

@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The tasks that are not `cargo test`: today that is the coverage run, which needs a target of its own,
+# a linker that is not on any PATH, and an environment variable without which the profiles are written
+# nowhere. Written in Rust and run through the `xtask` alias in `.cargo/config.toml` so that there is
+# nothing to install and the recipe is checked by the same compiler as everything else.
+#
+# **No dependencies.** What it does is set environment variables and spawn `cargo`, which is `std`, and a
+# task runner that pulled a crate in would be a build to keep working for the sake of one binary nobody
+# ships.
+[dependencies]

@@ -51,23 +51,34 @@ The game is a 32-bit process, so both halves target `i686-pc-windows-gnu`, linke
 for artifact dependencies, which is how cargo builds the DLL first and hands its path to the
 launcher.
 
+**The target is named by `cargo xtask` and not by a `[build] target`**, so the commands are
+`cargo xtask <task>` rather than bare cargo ones. A task runner built for a 32-bit Windows target
+cannot spawn the `cargo` that built it on a host that is not Windows, and a `build.target` would apply
+to it too — see `crates/xtask/src/main.rs`. A bare `cargo check` therefore builds for the host and
+fails, `orb` being full of `windows-sys`; **point your editor at the target instead** —
+rust-analyzer's setting is `rust-analyzer.cargo.target`.
+
 ```sh
-cargo build --release
+cargo xtask build --release
 ```
 
-The tests are Windows binaries too, and `cargo test` runs them: on Windows directly, and under
-WSL through its interop, which runs an `.exe` the same way a shell there does.
+The tests are Windows binaries too, and this runs them: on Windows directly, and under WSL through
+its interop, which runs an `.exe` the same way a shell there does.
 
 ```sh
-cargo test
+cargo xtask test
 ```
 
 That is also what installs the hooks. husky-rs points git at `.husky`, whose `pre-commit` is
-`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` — a lint that is
+`cargo fmt --check`, `cargo xtask clippy` and `cargo xtask test` — a lint that is
 wrong about this code is answered with an allow and the reason beside it, so the tree stays at zero
 warnings and the next one to appear is about the change that made it. `NO_HUSKY_HOOKS=1` keeps a
 build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
+
+And `cargo xtask coverage` reports what the scenarios cover, which needs a toolchain of its own —
+[docs/todo/what-the-scenarios-never-enter.md](docs/todo/what-the-scenarios-never-enter.md) says what and
+why.
 
 Then copy one file into the directory holding the game's exe:
 
@@ -103,4 +114,5 @@ half an hour by letting nothing hit the player, and the rest are for looking int
 | --- | --- |
 | [SPEC.md](SPEC.md) | what orb does and the mechanisms it uses in their final form; configuration, tuning, and how the crates fit together |
 | [TODO.md](TODO.md) | what is left, and what is built and still waiting on a run against the real game |
+| [docs/todo/](docs/todo/) | one file per piece of work too long for a paragraph in TODO.md: what was measured, how to measure it again, and the order to work through it |
 | [docs/adr/](docs/adr/) | one file per decision about how the code is shaped, in the order they were taken, each opening with a status that says whether the tree looks like it yet |

@@ -1,6 +1,3 @@
-[build]
-target = "i686-pc-windows-gnu"
-
 # Artifact dependencies, so the launcher can depend on `orb` as a cdylib and be handed the
 # path of the built DLL to carry inside itself. Cargo then orders the two builds and
 # rebuilds the launcher when the DLL changes, neither of which it will do for a sibling
@@ -8,6 +5,28 @@ target = "i686-pc-windows-gnu"
 [unstable]
 bindeps = true
 
+# Every command that has to name a target: `cargo xtask clippy`, `test`, `build` and `coverage`. No
+# `--target` of its own, deliberately — it builds for the host on every host, which is what a task
+# runner has to do to be able to spawn `cargo` at all. See `crates/xtask/src/main.rs`.
+[alias]
+xtask = "run --quiet --package xtask --"
+
 [target.i686-pc-windows-gnu]
 linker = "i686-w64-mingw32-gcc"
 ar = "i686-w64-mingw32-ar"
+
+# The same suite built for the MinGW ABI through LLVM's own toolchain, which is what coverage is
+# measured on: **rustup ships `profiler_builtins` for this target and not for `i686-pc-windows-gnu`**,
+# so `-C instrument-coverage` has no runtime to link against on the one everything else uses. The ABI,
+# the CRT and every `cfg` are the same, so what a coverage run measures is the code that ships — the
+# linker and the unwinder are what differ.
+#
+# `crt-static` because without it the binaries import `libunwind.dll` and a run that cannot find it
+# **hangs rather than failing**, which is a long way to look for a missing file. Static linking is also
+# what makes the exes runnable from anywhere rather than only beside a copy of that DLL.
+#
+# The linker itself is not here: it is llvm-mingw's `i686-w64-mingw32-clang`, and where that is
+# installed is one person's machine. Hand it over per run —
+# `CARGO_TARGET_I686_PC_WINDOWS_GNULLVM_LINKER=<llvm-mingw>/bin/i686-w64-mingw32-clang`.
+[target.i686-pc-windows-gnullvm]
+rustflags = ["-C", "target-feature=+crt-static"]

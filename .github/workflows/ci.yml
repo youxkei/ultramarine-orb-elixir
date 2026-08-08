@@ -71,8 +71,11 @@ jobs:
       # Every warning and every target, so the tests are covered too. Where a lint is
       # wrong about this code the answer in the tree is an allow with the reason beside
       # it, so zero warnings is a state this can be held to.
+      #
+      # Through `xtask` because the target has to be named and there is no `[build] target`
+      # naming it — see `.cargo/config.toml`. `cargo fmt --check` above needs no target.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo xtask clippy
 
       - name: Test
-        run: cargo test
+        run: cargo xtask test

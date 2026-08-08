@@ -7,6 +7,7 @@ members = [
     "crates/orb-config",
     "crates/orb-core",
     "crates/orb-sim",
+    "crates/xtask",
 ]
 
 [workspace.package]
