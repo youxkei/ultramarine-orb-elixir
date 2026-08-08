@@ -10,6 +10,18 @@ are behind the seam — eighteen slots, eight slots and four calls — and the 1
 `#[cfg(test)]` modules of `crates/orb-e2e/src/`. 351 tests pass, which is the 347 this was written against
 plus four the declared metric brought.
 
+**And the title is not yet true of it**, which
+[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md) finishes. Step 6
+below splits the five mixed files "along the line between a hook and an arithmetic", and names the
+joystick's halves as the import entry *and the sampling thread* — which is a different line from the one
+this document's first section draws, *what has no meaning without a process to patch*. So a hook body that
+needs Windows and patches nothing came out on `orb`'s side: `joystick.rs`'s sampling thread and
+`window.rs`'s status line, about 250 and 330 lines, with the heap walk a third of the same kind reached
+through a handover. What the paragraph above records — that every one of the nine files names
+`windows-sys` — is true and is the weaker claim: it says the boundary is where Windows is rather than
+where the patching is. The rule this document sets holds and `cargo xtask seam` holds it; what does not
+hold is that everything a scenario *ought* to be able to drive is above the seam.
+
 **Six things the building found, each of which corrects something below.**
 
 1. **The steps were done 0, 1, 2, then the glyph seam, then the drawing seam**, which is *What follows from
@@ -25,12 +37,19 @@ plus four the declared metric brought.
    called, and it is asserted where the trait declares them.
 3. **Four of the `*_ui` modules drew through `Screen`, not five.** `menu_ui` names only `Frame` and `Label`
    and has no fixture of its own, so the four are `lives_ui`, `mode_ui`, `resume_ui` and `retry_ui`.
-4. **`orb-e2e` does not stop naming `orb`, and the `rlib` stays.** Step 6 leaves the rewrite of each patched
-   import in `orb` — `window::create_window_ex_a`, `score::create_file_a`, `joystick::answer` — and a game
-   laid out by hand has no import table, so it *calls* those where a real launch has them patched in.
-   `orb::attach_to` stays with them, being an install list. What the fake stopped naming is the eleven hook
-   bodies, which are `orb_core::runtime`'s. `crates/orb/Cargo.toml`'s `[lib]` comment says so where a reader
-   of the manifest will meet it.
+4. **`orb-e2e` does not stop naming `orb` and the `rlib` stays — because of step 6 and not because of the
+   design.** Step 6 leaves the rewrite of each patched import in `orb` —
+   `window::create_window_ex_a`, `score::create_file_a`, `joystick::answer` — and a game laid out by hand
+   has no import table, so it *calls* those where a real launch has them patched in. `orb::attach_to` stays
+   with them, being an install list. What the fake stopped naming is the eleven hook bodies, which are
+   `orb_core::runtime`'s.
+
+   **[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md) undoes this
+   one**, and step 8's prediction turns out to have been right about the design and wrong only about step
+   6. Those three are hook bodies, and this document already settled where a hook body lives —
+   `run_calc_chain` is `orb_core::runtime`'s and the install list takes its address. The one thing that
+   really had to stay was the `Present` slot's `VirtualProtect`, and 0010 puts that behind
+   `mem::replace_word`, which takes the last handover with it.
 5. **Two handovers the other way, not three.** `save_replay` and `get_controller_input` turned out to need
    none, and `render`'s bail-outs reach the seam's own `window::foreground`. What is handed over is the
    device's `Present` slot and the lines written in the black beside the game — `runtime::Patches`, set by

@@ -768,10 +768,20 @@ and nowhere else. It needs no linker for that target, never linking.
 
 **What is still where it was**, with the question above asked of each: the heap walk for the regions,
 which is `orb`'s and handed the other way to the arithmetic over it; twenty-odd GDI calls for the status
-line, handed over the same way; DirectInput's `EnumDevices` and winmm's own enumeration for finding a pad;
-`RegisterClassA`, whose whole business is the black brush the window class paints the letterbox with; and
-the two winmm functions a track is moved through, which are found by name in the game's own copy of the
+line, handed over the same way; the joystick's sampling thread, whose `Sleep` and `SetThreadPriority` are
+the two calls that keep it there; DirectInput's `EnumDevices` and winmm's own enumeration for finding a
+pad; `RegisterClassA`, whose whole business is the black brush the window class paints the letterbox with;
+and the two winmm functions a track is moved through, which are found by name in the game's own copy of the
 library and called through a transmuted address rather than through the seam.
+
+The first three of those are decided rather than pending —
+[docs/adr/0010](docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md)
+moves them and says where each goes, `orb`'s line being the patched bytes and `orb-api`'s `real` being the
+home for everything else that needs Windows. What that decision ends with is `crates/orb-e2e` naming no
+`orb` at all and the `rlib` beside the DLL going, which is what
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)'s
+step 8 expected — the one call that really had to stay in `orb` being the `Present` slot's
+`VirtualProtect`, and `mem::replace_word` is where it goes.
 
 **The window — done, and it is the fourth mechanism the seam was worth cutting for.** What decides how
 much of the screen the game gets is two numbers only the host knows, and neither could be moved by a
