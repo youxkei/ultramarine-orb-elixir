@@ -31,6 +31,16 @@ refuse; [0005](0005-every-scenario-lives-in-orb-sims-tests.md) measured that it 
 is in `orb-sim/tests/` now, named `scenario_*.rs`. Both are corrected there rather than removed, and the
 paths below are the ones those files had when this was written.
 
+**The risk *What it costs* names has been measured, and it is not where the danger was.** That section
+names one — a wrong offset making the writer and the reader wrong together — and puts its confirmation on a
+run against the real game, there being no other witness. There is one now: a decompilation of the same
+binary, held honest by the exe's own bytes. Against it not one address, prologue, struct offset or enum
+value orb holds is wrong, so on that layer this document is confirmed rather than corrected. What the same
+reading found is drift in what the fake *does over time* — the frame a scene's first update falls on, what
+a stage start puts back, how many numbers a shake draws — which is a layer nothing here names. That layer,
+the rule for which of its divergences are defects, and the order the work is worth doing in are
+[0008](0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+
 ## Context
 
 orb is a DLL injected into a game. Nothing in it runs because orb decided to: the game calls it —
