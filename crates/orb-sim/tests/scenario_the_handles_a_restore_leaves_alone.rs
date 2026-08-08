@@ -90,3 +90,66 @@ fn a_texture_handle_is_not_put_back_from_a_snapshot_and_the_rest_of_the_manager_
         );
     });
 }
+
+/// And the chain's own linked list comes back with the memory, which nothing had ever asked.
+///
+/// `g_Chain` and the static `ChainElem`s the scenes register are in `.data`, so a chapter is a copy of the
+/// list as well as of the run: the `next` pointers, the callbacks and the elements themselves are all inside
+/// the range a snapshot takes. Which means a job registered *after* the chapter is a job the restore takes
+/// out of the chain, and one that was in it at the chapter is one the restore puts back — neither of which is
+/// anything orb does on purpose.
+///
+/// A bomb's screen shake is the job to read it off: `ScreenEffect::RegisterChain` links its element into the
+/// calc chain, and the chapter this run is put back to was taken before the bomb went off. `g_Gui`'s own draw
+/// job is the other half — it *was* in the chain at the chapter — because a restore that emptied both lists
+/// would pass the first assertion and mean the opposite.
+#[test]
+fn a_chapters_restore_puts_the_chains_own_list_back() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-handles-the-chain", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        game.in_a_pointdevice_run();
+        // The chain as it stood when the chapter was taken: the panel's draw job in it, and no shake.
+        assert!(
+            game.image().gui_in_the_draw_chain(),
+            "the stage registered no draw job for its panel, so there is nothing to put back",
+        );
+        assert!(
+            !game.image().shaking_the_screen(),
+            "a shake was already running when the chapter was taken",
+        );
+
+        // ボム, which links a job of its own into the calc chain, and then 被弾 straight after it: soon
+        // enough that no boundary of the stage's own has gone by, so the chapter put back is the one taken
+        // before the bomb.
+        game.bombs();
+        game.frame();
+        assert!(
+            game.image().shaking_the_screen(),
+            "the bomb registered no job of its own, so there is nothing for the restore to take out",
+        );
+
+        // チャプターをやり直す.
+        game.hit();
+        game.frame();
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+        assert!(
+            log.said("stage 1 chapter 1"),
+            "the chapter put back is not the one taken before the bomb:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        assert!(
+            !game.image().shaking_the_screen(),
+            "the restore left a job in the chain that was not in it when the chapter was taken",
+        );
+        assert!(
+            game.image().gui_in_the_draw_chain(),
+            "the restore emptied the chain rather than putting back the list the chapter held",
+        );
+    });
+}

@@ -95,28 +95,68 @@ fn streaming() -> &'static Sound {
     unsafe { &*sound }
 }
 
+/// How many times [`Sound::of`] asks for another allocation before it says so out loud.
+///
+/// Well past what a heap that has taken one 64kB block of a laid-out range needs: the next allocation of the
+/// same size lands in the same block, and the one after it past the end of what the allocator holds. A run
+/// that reaches this is a heap sitting *inside* the game's own ranges, which is a different problem and one
+/// worth naming rather than looping over.
+const ATTEMPTS: usize = 64;
+
 impl Sound {
     /// A track of `wave` bytes, played through a buffer of `buffer` bytes topped up `notify` at a time.
     ///
     /// Boxed and owned by whoever asked for it: what goes into the game's memory is the address of the
     /// object inside this, so a value moved out of here would leave that address behind.
-    pub fn of(wave: Vec<u8>, buffer: usize, notify: u32) -> Box<Self> {
-        let vtable = Box::new(filled_vtable());
-        let sound = Box::new(Self {
-            object: UnsafeCell::new(Object {
-                vtable: vtable.as_ptr(),
-            }),
-            vtable,
-            wave,
-            at: Cell::new(0),
-            buffer: UnsafeCell::new(vec![0; buffer].into_boxed_slice()),
-            size: buffer as u32,
-            play: Cell::new(0),
-            status: Cell::new(DSBSTATUS_PLAYING | DSBSTATUS_LOOPING),
-            notify,
-        });
-        STREAMING.set(&raw const *sound);
-        sound
+    pub fn of(sim: &Sim, wave: Vec<u8>, buffer: usize, notify: u32) -> Box<Self> {
+        // Allocated again where the object or its vtable landed inside a range the game is laid out in, and
+        // the one that landed there left where it is.
+        //
+        // **Which is a hazard rather than a theory.** A laid-out game claims the addresses the real one's
+        // `.data` and heap blocks are at, and this is a 32-bit process whose own heap reaches both — so a
+        // `Box` can land at an address `Space` has already laid out, and telling the space about it is a
+        // mapping that would shadow the game's own memory. `Space::map` stops rather than shadowing, which
+        // is right and is a panic in the middle of a scenario about the music. Watched two runs in three, at
+        // 0x6ce8f0 and 0x301df98 and 0x651398.
+        //
+        // So the answer is to ask for another allocation, which lands somewhere else. The ones given up are
+        // **held until this call returns**, and that is what makes the next attempt land anywhere new: an
+        // allocation freed straight away is one the allocator hands back at the same address. They go with
+        // the call, which costs nothing — each is the struct and its vtable and no more, the wave and the
+        // buffer going in only once one has been kept.
+        // The wave and the buffer go in only once an allocation has been kept, so an attempt costs the
+        // struct and its vtable and nothing else: a `Vec` is the same three words whether it holds 400,000
+        // bytes or none, so the allocation this asks for is the same size either way.
+        let mut given_up = Vec::new();
+        for _ in 0..ATTEMPTS {
+            let vtable = Box::new(filled_vtable());
+            let mut sound = Box::new(Self {
+                object: UnsafeCell::new(Object {
+                    vtable: vtable.as_ptr(),
+                }),
+                vtable,
+                wave: Vec::new(),
+                at: Cell::new(0),
+                buffer: UnsafeCell::new(Vec::new().into_boxed_slice()),
+                size: buffer as u32,
+                play: Cell::new(0),
+                status: Cell::new(DSBSTATUS_PLAYING | DSBSTATUS_LOOPING),
+                notify,
+            });
+            let space = sim.space();
+            if space.has_room(sound.buffer_object(), size_of::<usize>())
+                && space.has_room(sound.vtable.as_ptr() as usize, 1)
+            {
+                sound.wave = wave;
+                *sound.buffer.get_mut() = vec![0; buffer].into_boxed_slice();
+                STREAMING.set(&raw const *sound);
+                return sound;
+            }
+            given_up.push(sound);
+        }
+        panic!(
+            "{ATTEMPTS} allocations of a sound all landed inside a range this game is laid out in"
+        );
     }
 
     /// Tells `sim` where this is: winmm's two functions, and the two words of it that orb reads rather

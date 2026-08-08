@@ -412,6 +412,18 @@ static INIT_D3D_DEVICE: AtomicUsize = AtomicUsize::new(0);
 static RENDER: AtomicUsize = AtomicUsize::new(0);
 static GET_INPUT: AtomicUsize = AtomicUsize::new(0);
 static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
+/// Whether the two hooks [`attach`] installs **conditionally** are to act.
+///
+/// In a real launch the installation is the gate: no `block_replay_save` and the save is not hooked at all,
+/// no Verbose and the joystick's span is not measured. A game that hands its own functions over cannot be
+/// gated that way — it has one call site whichever way the launch was configured, and a laid-out game whose
+/// saves were dropped without being asked would be orb blocking a write nobody turned off. So the gate moves
+/// here, set by [`attach_to`] where [`attach`] decides whether to install.
+///
+/// `true` to begin with, which is what leaves a real launch's behaviour exactly as it was: there the hook is
+/// only ever reached because it was installed, and being installed is the decision already taken.
+static BLOCK_REPLAY_SAVE: AtomicBool = AtomicBool::new(true);
+static TIME_JOYSTICK: AtomicBool = AtomicBool::new(true);
 /// The game's chain functions, which orb has hooked, so calling them from its own
 /// frame loop still runs everything orb does per frame.
 static RUN_CALC_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
@@ -841,6 +853,24 @@ pub struct Originals {
     /// the reads it has no sample for. The import entry is what a real launch patches; a laid-out game
     /// hands the entry over and calls the replacement where its own read would have gone through it.
     pub joystick_position: joystick::JoyGetPosEx,
+    /// And its own `Controller::GetControllerInput`, which is the tail call inside the keyboard read and
+    /// cannot be told apart from outside it. [`get_controller_input`] is hooked to time it and for nothing
+    /// else, so what a laid-out game hands over is the read the span is measured around.
+    pub get_controller_input: extern "C" fn(u32) -> u16,
+    /// And its own `ReplayManager::SaveReplay`, which [`save_replay`] drops the write of while leaving the
+    /// teardown the game does through the same function.
+    ///
+    /// Handed over always, where a real launch installs the hook only under `block_replay_save`: the gate
+    /// cannot be the installation here, since a laid-out game has one call site whichever way the launch was
+    /// configured. It is [`BLOCK_REPLAY_SAVE`] instead, set where the patch would have been installed.
+    pub save_replay: extern "C" fn(*const u8, *const u8),
+    /// And its own device setup, which [`init_d3d_device`] gets in front of to redirect `Present` before
+    /// anything is presented through it.
+    ///
+    /// Not something a real launch hands over — the hook is always installed there, and orb attaches before
+    /// the device exists — so a laid-out game that wrote its device before orb was attached would leave this
+    /// unreachable. See `Fake::attach_before_its_device`.
+    pub init_d3d_device: extern "C" fn(),
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -888,6 +918,12 @@ pub unsafe fn attach_to(
     // And nothing of a run written down, which is the one piece of that state a `Runtime` does not
     // hold: the record lives beside it, for the two hooks that reach it from inside the game's update.
     unsafe { resume::forget() };
+    // The two decisions [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
+    BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
+    TIME_JOYSTICK.store(
+        config.log_level >= orb_config::LogLevel::Verbose,
+        Ordering::Relaxed,
+    );
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -899,6 +935,12 @@ pub unsafe fn attach_to(
         (&RENDER, originals.render as usize),
         (&STOP_RECORDING, originals.stop_recording as usize),
         (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
+        (
+            &GET_CONTROLLER_INPUT,
+            originals.get_controller_input as usize,
+        ),
+        (&SAVE_REPLAY, originals.save_replay as usize),
+        (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -1359,7 +1401,13 @@ unsafe fn call_render(window: *mut c_void) -> i32 {
 
 /// Replaces the game's device setup, to redirect the device's `Present` before
 /// anything is presented through it. Runs again after every device reset.
-extern "C" fn init_d3d_device() {
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// setup would have been reached, there being no prologue to patch — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). A
+/// laid-out game that had its device before orb was attached would never reach it at all, which is what
+/// `Fake::attach_before_its_device` exists for.
+pub extern "C" fn init_d3d_device() {
     if let Some(game) = unsafe { chosen() } {
         let device = unsafe { game.d3d_device() };
         if !device.is_null() {
@@ -1607,9 +1655,17 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
 /// cannot be told apart from outside it. Hooked to time it, and for nothing else: what made
 /// it worth nine milliseconds a frame is answered from a sample of orb's own now — see
 /// [`joystick`] — and this is how the perf line says so.
-extern "C" fn get_controller_input(buttons: u32) -> u16 {
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// keyboard read tail-calls that function, there being no prologue to patch — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+pub extern "C" fn get_controller_input(buttons: u32) -> u16 {
     let original: extern "C" fn(u32) -> u16 =
         unsafe { std::mem::transmute(GET_CONTROLLER_INPUT.load(Ordering::Relaxed)) };
+    // Which a real launch decides by not installing the hook — see [`BLOCK_REPLAY_SAVE`], which the same
+    // reasoning belongs to.
+    if !TIME_JOYSTICK.load(Ordering::Relaxed) {
+        return original(buttons);
+    }
     let started = profile::now();
     let all = original(buttons);
     unsafe { profile::record(profile::Phase::Joystick, started) };
@@ -1618,8 +1674,12 @@ extern "C" fn get_controller_input(buttons: u32) -> u16 {
 
 /// Replaces `th06::ReplayManager::SaveReplay`, dropping the write while leaving
 /// the teardown the game does through the same function.
-extern "C" fn save_replay(path: *const u8, name: *const u8) {
-    if !path.is_null() {
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// code calls that function, there being no prologue to patch — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+pub extern "C" fn save_replay(path: *const u8, name: *const u8) {
+    if !path.is_null() && BLOCK_REPLAY_SAVE.load(Ordering::Relaxed) {
         log!("replay save blocked");
         return;
     }

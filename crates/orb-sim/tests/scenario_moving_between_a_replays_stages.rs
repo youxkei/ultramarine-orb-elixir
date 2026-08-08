@@ -19,7 +19,7 @@ use fake::th06::{Fake, the_run};
 use fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::Th06;
-use orb_core::game::th06::image::RECORD_ENDS_AT;
+use orb_core::game::th06::image::{RECORD_ENDS_AT, chain_job};
 use orb_core::game::{Game, Reproduction};
 
 /// The two keys a stage move is made of, as orb fixes them: the across key held, and next or back
@@ -27,6 +27,11 @@ use orb_core::game::{Game, Reproduction};
 const ACROSS: u8 = orb_config::keys::SHIFT.0;
 const NEXT: u8 = orb_config::keys::RIGHT.0;
 const BACK: u8 = orb_config::keys::LEFT.0;
+
+/// What the first extra life a run's score pays for costs, which is 紅魔郷's own **10,000,000**:
+/// `g_ExtraLivesScores`' first entry, and the threshold `GameManager::OnUpdate`'s own `while` loop raises
+/// `extraLives` past.
+const AN_EXTRA_LIFE: u32 = 10_000_000;
 
 /// How far into stage 1 these go before moving out of it.
 ///
@@ -58,18 +63,22 @@ fn watching(name: &str) -> Box<Fake> {
 }
 
 /// Whether the game is on the frame `stage` was built in: the stage the build raised the number to, with
-/// its own frame counter still at nothing.
+/// its own frame counter on the **first** of its updates.
+///
+/// One and not nothing, because a scene's first update is on the frame it was built — the supervisor is the
+/// calc chain's first job and everything it registers goes in behind the walk's own position, so the walk
+/// reaches the new stage before it returns. See `scenario_the_frame_a_scene_is_built_on.rs`.
 fn at_the_stage_built(game: &Fake, stage: i32) -> bool {
     let run = game.state();
-    run.playing && run.stage == stage && run.stage_frames == 0
+    run.playing && run.stage == stage && run.stage_frames == 1
 }
 
 /// A stage move: the across key held while next or back is pressed, and the game left on the frame that
 /// stage was built in.
 ///
 /// **On that frame and not one past it**, because that is where a pass over the stage begins: the build
-/// leaves the stage's own frame counter at nothing and its jobs not yet updated, so a scenario that ran
-/// one more frame would be comparing the stage's second update against another pass's first.
+/// frame is the stage's own first update, so a scenario that ran one more frame would be comparing the
+/// stage's second update against another pass's first.
 ///
 /// # Panics
 /// Where the game does not arrive in a stage again, naming the one that was asked for.
@@ -191,9 +200,12 @@ fn starting_a_replay_at_a_stage_puts_the_score_and_the_extra_lives_back_to_nothi
         );
 
         moves_to_the_stage(&game, NEXT, 1);
-        assert_eq!(
-            game.image().reproducing_now().score,
-            0,
+        // Below the first extra life, rather than nothing: the frame the stage was built in is a frame the
+        // stage has been updated on, so what is read here is one update's own scoring. What the claim is
+        // about is that the run's score did not survive into it — nothing this stage can have scored in one
+        // update comes near [`AN_EXTRA_LIFE`], and the score it was left on is past it.
+        assert!(
+            game.image().reproducing_now().score < AN_EXTRA_LIFE,
             "the stage began with the score the run was left on, which buys an extra life the \
              recording never had",
         );
@@ -327,12 +339,173 @@ fn a_screen_shake_left_to_run_out_puts_the_region_back_itself() {
     });
 }
 
-/// How many frames of a shake this file waits out before the move, which has to be inside the 80 a shake
+/// A shake's own frames each draw **four** numbers out of the generator, which is what makes one left running
+/// across a stage move take the stream with it.
+///
+/// `ScreenEffect::ShakeScreen` calls `g_Rng.GetRandomU32InRange(3)` once per axis, and `GetRandomU32` is two
+/// `GetRandomU16`s — each of which raises `generationCount`. So two per axis and four a frame, which is the
+/// number the measurement above recorded off the running game.
+///
+/// The frame a shake removes itself on draws none: `timer >= effectLength` returns before the offset is worked
+/// out, so that one puts the arcade region back and nothing else. Which is why this counts over frames well
+/// inside the shake's own [`SHAKE_FRAMES`] rather than over the whole of it.
+///
+/// Against a span of the same stage with no shake in it, because a stage draws from the generator itself: what
+/// the claim is about is the four the shake adds, not what a frame comes to.
+#[test]
+fn a_shakes_own_frames_each_draw_four_numbers() {
+    in_its_own_process(|| {
+        let game = watching("a-replay-the-shakes-draws");
+        game.frames_until("the stage played into", 600, || {
+            game.state().stage_frames > INTO_THE_STAGE
+        });
+
+        // The stage on its own first.
+        let before = unsafe { Th06.reproduction() }.randoms;
+        game.frames(COUNTED);
+        let quiet = unsafe { Th06.reproduction() }.randoms - before;
+
+        // And the same span with a shake running through the whole of it.
+        game.bombs();
+        let at_the_bomb = unsafe { Th06.reproduction() }.randoms;
+        game.frames(COUNTED);
+        assert!(
+            game.image().shaking_the_screen(),
+            "the shake was over before the span this counts, so what it counted is not a shake's",
+        );
+        let shaken = unsafe { Th06.reproduction() }.randoms - at_the_bomb;
+        assert_eq!(
+            shaken - quiet,
+            4 * COUNTED,
+            "a shake of {COUNTED} frame(s) drew {} numbers where the stage alone drew {quiet}",
+            shaken,
+        );
+    });
+}
+
+/// How many frames of a shake the count above runs over, which has to be inside the ones a shake runs for and
+/// far enough that a per-frame count is not one frame's rounding.
+const COUNTED: u32 = 40;
+
+/// A job that answers `CONTINUE_AND_REMOVE_JOB` is cut **by the walk**, and the walk goes on.
+///
+/// `ScreenEffect::ShakeScreen` is the one job of this game's chain that ever asks: on the frame its own
+/// frames run out it puts the arcade region back and returns that answer, and `Chain::RunCalcChain`'s switch
+/// is what reads the next element, calls `Cut` on the one that answered, and carries on from there.
+///
+/// **What no scenario could ask before the walk existed** — see
+/// [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), where this
+/// is one of the three things the last step of it makes reachable. The job cutting itself and the walk
+/// cutting it leave the same memory behind, so what this is the record of is that the answer is what does it:
+/// the job calls no `Chain::Cut` at all, and the element is gone all the same.
+#[test]
+fn a_job_that_asks_to_be_removed_is_cut_by_the_walk_and_the_walk_goes_on() {
+    in_its_own_process(|| {
+        let game = watching("a-replay-a-job-removed");
+        let field = Th06.play_area();
+        game.frames_until("the stage played into", 600, || {
+            game.state().stage_frames > INTO_THE_STAGE
+        });
+        let without_a_shake = game.image().calc_chain_jobs();
+
+        // ボム, which is one more job in the chain.
+        game.bombs();
+        assert_eq!(
+            game.image().calc_chain_jobs(),
+            [without_a_shake.clone(), vec![chain_job::SCREEN_EFFECT]].concat(),
+            "the bomb's job did not go into the chain behind the ones already in it",
+        );
+
+        // Every frame of it but the last, which is the one it asks to be removed on.
+        game.frames(SHAKE_FRAMES - 1);
+        assert!(
+            game.image().shaking_the_screen(),
+            "the shake asked to be removed before its own last frame",
+        );
+        let played = game.state().stage_frames;
+
+        // And that last frame.
+        game.frame();
+        assert_eq!(
+            game.image().calc_chain_jobs(),
+            without_a_shake,
+            "the walk did not take out the job that asked to be removed, or took out another with it",
+        );
+        // The job ran on the frame it asked on, which is what `CONTINUE_AND_REMOVE_JOB` is and not
+        // `BREAK`: the region is back where the shake found it.
+        assert_eq!(
+            game.image().arcade_region_size(),
+            (field.width, field.height),
+            "the job that asked to be removed did not run on the frame it asked on",
+        );
+        // And the walk went on rather than ending: the stage was played on that frame and on the next.
+        assert_eq!(
+            game.state().stage_frames,
+            played + 1,
+            "the frame a job asked to be removed on is a frame the stage was not played on",
+        );
+        game.frame();
+        assert_eq!(
+            game.state().stage_frames,
+            played + 2,
+            "the game stopped being played after a job asked to be removed",
+        );
+    });
+}
+
+/// And `Chain::Cut` on a job in the middle of the list takes that one out and no other.
+///
+/// Which is what orb does at a stage move: a shake still running is taken down through the game's own
+/// `Chain::Cut` — see [`a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it`], which is
+/// what that cut is *for*. This is the other half of it, and the half a list has: the shake sits at
+/// `TH_CHAIN_PRIO_CALC_SCREENEFFECT`, which is 14, with the supervisor's own job at 0 and the gameplay
+/// scene's at 4 in front of it — so cutting it is a relink of the element before it and nothing else.
+///
+/// **Also not askable before the walk**: until the jobs were a list in the game's own memory there was
+/// nothing for a cut to be in the middle of.
+#[test]
+fn a_cut_in_the_middle_of_the_chain_takes_out_that_job_and_no_other() {
+    in_its_own_process(|| {
+        let game = watching("a-replay-a-cut-in-the-middle");
+        game.frames_until("the stage played into", 600, || {
+            game.state().stage_frames > INTO_THE_STAGE
+        });
+        game.bombs();
+        game.frames(SHAKE_FRAMES / 2);
+        // The list as it stands: the supervisor, the scene, and the shake behind them both.
+        assert_eq!(
+            game.image().calc_chain_jobs(),
+            vec![
+                chain_job::SUPERVISOR,
+                chain_job::GAMEPLAY,
+                chain_job::SCREEN_EFFECT
+            ],
+            "the chain is not the three jobs this is about cutting one of",
+        );
+
+        // The move, which is where orb calls the game's own `Chain::Cut` on the shake.
+        moves_to_the_stage(&game, NEXT, 1);
+        assert!(
+            game.log()
+                .said("stage move: a screen shake was still running, and is taken down"),
+            "orb did not cut the shake, so nothing was cut at all:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().calc_chain_jobs(),
+            vec![chain_job::SUPERVISOR, chain_job::GAMEPLAY],
+            "the cut took out a job beside the one it was asked for, or left that one in",
+        );
+    });
+}
+
+/// How many frames of a shake this file waits out before the move, which has to be inside the ones a shake
 /// runs for: a shake that had finished would have put the arcade region back itself.
 ///
-/// 紅魔郷's own **80**, which is also the whole of what a shake left to run out takes — see
-/// [`a_screen_shake_left_to_run_out_puts_the_region_back_itself`].
-const SHAKE_FRAMES: u32 = 80;
+/// The game's own count, out of the fake rather than written again here, so that the number a shake runs for
+/// and the number this waits out cannot drift apart — see [`fake::th06::SHAKE_FRAMES`], which is also the
+/// whole of what a shake left to run out takes.
+const SHAKE_FRAMES: u32 = fake::th06::SHAKE_FRAMES as u32;
 
 /// The whole of it: two passes over one stage agreeing to the last digit across a move and back.
 ///
@@ -346,10 +519,13 @@ fn a_stage_played_twice_across_a_move_agrees_to_the_last_digit() {
         let pass = |over: u32| {
             assert_eq!(
                 game.state().stage_frames,
-                0,
+                1,
                 "a pass began somewhere other than the frame the stage was built in",
             );
-            let mut line = Vec::with_capacity(over as usize);
+            // That frame's own numbers first, it being the stage's first update: a pass that only recorded
+            // what the frames after it left would be a pass with the first update missing from both sides.
+            let mut line = Vec::with_capacity(over as usize + 1);
+            line.push(unsafe { Th06.reproduction() });
             for _ in 0..over {
                 game.frame();
                 line.push(unsafe { Th06.reproduction() });

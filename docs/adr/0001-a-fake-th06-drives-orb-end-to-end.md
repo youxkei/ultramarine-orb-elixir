@@ -39,7 +39,13 @@ value orb holds is wrong, so on that layer this document is confirmed rather tha
 reading found is drift in what the fake *does over time* — the frame a scene's first update falls on, what
 a stage start puts back, how many numbers a shake draws — which is a layer nothing here names. That layer,
 the rule for which of its divergences are defects, and the order the work is worth doing in are
-[0008](0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+[0008](0008-the-fake-game-copies-the-game-orb-is-injected-into.md), **and that work is done**: the fourteen
+places the drift was in are fixed or are a comment that no longer misstates why, and `Fake::update` is the
+chain's own walk over priority-ordered jobs. What this document's declared stand-ins are is unchanged by it —
+the generator, the boss's arrival and its card, the stage's length, the demo's patience, the player's speed,
+the shake's pixels, the tracks, the record's layout and the two menu layouts are still this game's own, and
+0008 added one more: the five jobs `GameManager::AddedCallback` registers are one job at the manager's own
+priority.
 
 ## Context
 

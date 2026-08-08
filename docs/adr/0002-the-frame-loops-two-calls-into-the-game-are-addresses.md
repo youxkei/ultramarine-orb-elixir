@@ -16,21 +16,36 @@ It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md): tha
 hand cannot drive `render`. The obstacle that document names is real — `Th06::present` and
 `Th06::play_sounds` call the game's own code — and the conclusion drawn from it was not.
 
-**And the argument reached eight more calls since**, five through `Originals` and three out of `orb-core`.
+**And the argument reached eleven more calls since**, eight through `Originals` and three out of `orb-core`.
 
-`Originals` now carries `create_window`, `create_file`, `stop_recording`, `create_game_window` and
-`joystick_position`: the game's own `CreateWindowExA`, which orb's rewrite of the window arguments calls
-through; its own `CreateFileA`, which the score file's fork calls through; its own
-`ReplayManager::StopRecording`, which orb's hook over it calls through where the record being finished off
-is a run's own rather than a replay's; its own `GameWindow::Create`, which the hook that overrules the
-display setting calls through once that setting has been written; and its own `joyGetPosEx` as its import
-table held it, which the replacement of that entry calls through on the reads it has no sample of its own
-to answer with. A real launch reaches three of those by patching the exe's import table and two by
-patching a prologue, and a laid-out game has neither — so the same answer applies five times over: it
-hands the functions over and calls the hooks itself. `scenario_the_window.rs`'s eight scenarios drive the
-first and the fourth that way, `scenario_the_score_file.rs`'s five the second,
-`scenario_moving_between_a_replays_stages.rs`'s five the third, and
-`scenario_mode_on_a_winmm_pad.rs`'s two the fifth.
+`Originals` now carries `create_window`, `create_file`, `stop_recording`, `create_game_window`,
+`joystick_position`, `get_controller_input`, `save_replay` and `init_d3d_device`: the game's own
+`CreateWindowExA`, which orb's rewrite of the window arguments calls through; its own `CreateFileA`, which
+the score file's fork calls through; its own `ReplayManager::StopRecording`, which orb's hook over it calls
+through where the record being finished off is a run's own rather than a replay's; its own
+`GameWindow::Create`, which the hook that overrules the display setting calls through once that setting has
+been written; its own `joyGetPosEx` as its import table held it, which the replacement of that entry calls
+through on the reads it has no sample of its own to answer with; its own
+`Controller::GetControllerInput`, the tail call inside the keyboard read that the hook exists to time and
+does nothing else to; its own `ReplayManager::SaveReplay`, whose write a cleared run's hook refuses and
+whose teardown it calls through; and its own `GameWindow::InitD3dDevice`, which orb gets in front of to
+redirect the device's `Present` before anything is presented through it. A real launch reaches four of those
+by patching the exe's import table and four by patching a prologue, and a laid-out game has neither — so
+the same answer applies eight times over: it hands the functions over and calls the hooks itself.
+`scenario_the_window.rs`'s eight scenarios drive the first and the fourth that way,
+`scenario_the_score_file.rs`'s six the second, `scenario_moving_between_a_replays_stages.rs`'s eight the
+third, `scenario_mode_on_a_winmm_pad.rs`'s three the fifth and the sixth,
+`scenario_a_clear_on_demand.rs`'s five the seventh, and
+`scenario_the_launch_before_its_device.rs`'s one the eighth.
+
+**Two of the eight moved a gate, and that is the one thing handing a function over is not neutral about.**
+A real launch decides whether to time the joystick's read and whether to refuse a replay write by
+installing the hook or not — the first only at Verbose, the second only under `--clear`. A game that hands
+its own function over has one call site whichever way the launch was configured, so the installation cannot
+be the decision there: `BLOCK_REPLAY_SAVE` and `TIME_JOYSTICK` are set where `attach` decides to install,
+and both begin `true` so that a real launch, which only ever reaches the hook because it was installed,
+behaves exactly as it did. Without that, a laid-out launch nobody asked to block a save would have had one
+blocked — which is the seam answering a question it was not asked.
 
 **The other three are not hooks, and they are `Th06`'s rather than `Originals`'.** `Chain::Cut` at
 0x41cde0, `SoundPlayer::StopBGM` at 0x430f80 and `Supervisor::PlayAudio` at 0x424b5d are calls *out* of

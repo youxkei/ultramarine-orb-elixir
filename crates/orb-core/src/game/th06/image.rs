@@ -106,6 +106,27 @@ const AUDIO_VTABLE: usize = CODE.start + 0x100;
 /// same work to do as over a real one. The shake has no object of its own worth laying out: what orb
 /// matches on is the element's callback, and what it does with the element is cut it.
 const SHAKE_ELEM: Range<usize> = 0x0300_a000..0x0300_b000;
+/// And the two the supervisor and the front end register, in blocks of their own for the same reason and
+/// one more: both come from `Chain::CreateElem`, so both are heap in the real game — a chapter's restore
+/// puts neither back, which is what a block outside the static data is.
+const SUPERVISOR_ELEM: Range<usize> = 0x0300_d000..0x0300_e000;
+const FRONT_END_ELEM: Range<usize> = 0x0300_e000..0x0300_f000;
+
+/// `ChainPriorities.hpp`'s own numbers for the jobs a laid-out game registers, which are what
+/// `AddToCalcChain` links them in the order of.
+///
+/// The gameplay scene's is the manager's own 4, and it stands in for the five jobs above it that
+/// `GameManager::AddedCallback` registers — the stage at 6, the player at 7, the enemies at 9, the effects
+/// at 10 and the bullets at 11. One job rather than five: they are one function here, and no scenario can
+/// reach the difference because the memory that comes out of them is the same either way. Which is a
+/// declared stand-in in the sense
+/// [0001](../../../../docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md) means it.
+const CALC_SUPERVISOR: i16 = 0;
+const CALC_MAINMENU: i16 = 2;
+const CALC_ENDING: i16 = 3;
+const CALC_GAMEMANAGER: i16 = 4;
+const CALC_RESULTSCREEN: i16 = 13;
+const CALC_SCREENEFFECT: i16 = 14;
 
 /// The one page of the anm manager orb reads: its array of 264 texture pointers, at the 0x1c110 they
 /// start at. What it reads there is the array's bounds, as handles a restore must leave alone, and the
@@ -173,7 +194,41 @@ pub const RECORD_ENDS_AT: i32 = 9_999_999;
 /// part is laid out. Which of the three reads of the score file fills them is `MAIN_MENU_ADDED`'s
 /// table.
 const CLEARED: usize = 0x1030;
-const CLEARED_BYTES: usize = 0x60;
+const CLEARED_BYTES: usize = CLEARED_RECORDS * CLEARED_RECORD_BYTES;
+
+/// Four records of 0x18 apiece, which is `CLRD_NUM_CHARACTERS` and the `ZUN_ASSERT_SIZE(Clrd, 0x18)` the
+/// decompilation holds the struct to. Two characters with two shots each, indexed
+/// `shotType + character * 2`.
+const CLEARED_RECORDS: usize = 4;
+const CLEARED_RECORD_BYTES: usize = 0x18;
+
+/// Inside one. `Th6k base` is the first 0xc — the magic, the two lengths and the version, then a byte of
+/// padding — and after it the two arrays of five difficulties and the shot the record is about.
+///
+/// `CLRD_MAGIC` is `'DRLC'`, which on this machine is the four bytes `CLRD` in order: a multi-character
+/// literal is big-endian and a `u32` in memory is not, so the two cancel.
+const CLRD_MAGIC: &[u8; 4] = b"CLRD";
+const TH6K_LEN: usize = 0x4;
+const TH6K_UNK_LEN: usize = 0x6;
+const TH6K_VERSION_AT: usize = 0x8;
+const TH6K_VERSION: u8 = 16;
+const CLEARED_WITH_RETRIES: usize = 0xc;
+const CLEARED_WITHOUT_RETRIES: usize = 0x11;
+const CLEARED_DIFFICULTIES: usize = 5;
+const CLEARED_SHOT_TYPE: usize = 0x16;
+
+/// What `GameManager::HasReachedMaxClears` compares a clear count against, which is `MAX_CLEARS`: 99.
+///
+/// A clear count and not a flag, and the number is what makes a failed read cost something: `ParseClrd`
+/// leaves every entry at **1** where it found no chunk, and 1 is not 99 — so the Extra is behind a gate a
+/// cleared record opens and a memset-and-fixup does not.
+const MAX_CLEARS: u8 = 99;
+
+/// The difficulties that gate goes over: Normal, Hard and Lunatic.
+///
+/// Easy is left out because the game leaves it out — `difficultyClearedWithRetries[1]`, `[2]` and `[3]` is
+/// what it compares, and clearing on Easy earns nobody an Extra.
+const CLEARS_THAT_COUNT: Range<usize> = 1..4;
 
 /// A stage in progress, as a scenario says it.
 ///
@@ -458,6 +513,10 @@ impl Image {
         sim.space()
             .map(SHAKE_ELEM.start, SHAKE_ELEM.len(), Kind::Private);
         sim.space()
+            .map(SUPERVISOR_ELEM.start, SUPERVISOR_ELEM.len(), Kind::Private);
+        sim.space()
+            .map(FRONT_END_ELEM.start, FRONT_END_ELEM.len(), Kind::Private);
+        sim.space()
             .map(ANM_TEXTURES.start, ANM_TEXTURES.len(), Kind::Private);
         sim.space()
             .map(STAGE_DATA.start, STAGE_DATA.len(), Kind::Private);
@@ -610,17 +669,132 @@ impl Image {
         );
     }
 
+    /// `Chain::AddToCalcChain`: an element's callback, argument and priority written into it, and the
+    /// element linked into the calc list **in priority order** — before the first job whose priority is
+    /// greater than its own, and at the end where there is none.
+    ///
+    /// Which is what makes the list a list rather than a set: `Supervisor::OnUpdate` goes in at 0 and
+    /// everything it registers above that, so a scene registered from inside the walk is linked *behind*
+    /// the walk's own position and reached in the same frame. See
+    /// `crates/orb-sim/tests/scenario_the_frame_a_scene_is_built_on.rs`.
+    ///
+    /// Ordered from the head by `next` alone, where the game's own walk also carries a `prev`: nothing
+    /// laid out here reads `prev`, and a second link kept in step by hand is a second thing to get wrong.
+    pub fn registers_in_the_calc_chain(
+        &self,
+        elem: usize,
+        priority: i16,
+        callback: usize,
+        arg: usize,
+    ) {
+        let space = self.space();
+        space.write::<i16>(elem + super::chain_elem::PRIORITY, priority);
+        space.write::<usize>(elem + super::chain_elem::CALLBACK, callback);
+        space.write::<usize>(elem + super::chain_elem::ARG, arg);
+        let mut link = super::G_CHAIN + super::chain_elem::NEXT;
+        loop {
+            let next: usize = space.read(link);
+            if next == 0 || space.read::<i16>(next + super::chain_elem::PRIORITY) > priority {
+                space.write::<usize>(elem + super::chain_elem::NEXT, next);
+                space.write::<usize>(link, elem);
+                return;
+            }
+            link = next + super::chain_elem::NEXT;
+        }
+    }
+
+    /// Every job the calc list holds, as the callback each element carries, in the order a walk reaches
+    /// them.
+    ///
+    /// The callbacks and not the elements, because a callback is what says which job an element *is* —
+    /// which is how orb finds a shake and how the walk over this list dispatches. See
+    /// [`chain_job`](chain_job) for the names.
+    pub fn calc_chain_jobs(&self) -> Vec<usize> {
+        let mut jobs = Vec::new();
+        let mut at: usize = self.space().read(super::G_CHAIN + super::chain_elem::NEXT);
+        while at != 0 {
+            jobs.push(self.chain_callback(at));
+            at = self.space().read(at + super::chain_elem::NEXT);
+        }
+        jobs
+    }
+
+    /// The head of that list, which is the `Chain`'s own element: its callback is null, so a walk reaches
+    /// it and runs nothing.
+    pub fn calc_chain_head(&self) -> usize {
+        super::G_CHAIN
+    }
+
+    /// What one element of it holds, as the walk reads them: which job it is, what to run it on, and the
+    /// one after it.
+    pub fn chain_callback(&self, elem: usize) -> usize {
+        self.space().read(elem + super::chain_elem::CALLBACK)
+    }
+
+    pub fn chain_argument(&self, elem: usize) -> usize {
+        self.space().read(elem + super::chain_elem::ARG)
+    }
+
+    pub fn chain_next(&self, elem: usize) -> usize {
+        self.space().read(elem + super::chain_elem::NEXT)
+    }
+
+    /// `Supervisor::RegisterChain`: the chain's first job, at `TH_CHAIN_PRIO_CALC_SUPERVISOR`.
+    ///
+    /// A heap element, as `Chain::CreateElem` gives one — which is why it is a block of its own outside the
+    /// game's static data rather than a global: a chapter's restore does not put it back, and in the real
+    /// game it would not either.
+    pub fn registers_the_supervisor(&self) {
+        self.registers_in_the_calc_chain(
+            SUPERVISOR_ELEM.start,
+            CALC_SUPERVISOR,
+            super::SUPERVISOR_ON_UPDATE,
+            super::G_SUPERVISOR,
+        );
+    }
+
+    /// `MainMenu::RegisterChain`'s own job, at `TH_CHAIN_PRIO_CALC_MAINMENU`, and the cut its deleted
+    /// callback is. A heap element too, for the same reason.
+    pub fn registers_the_front_end(&self) {
+        self.registers_in_the_calc_chain(
+            FRONT_END_ELEM.start,
+            CALC_MAINMENU,
+            super::MAIN_MENU_ON_UPDATE,
+            super::G_MAIN_MENU,
+        );
+    }
+
+    pub fn cuts_the_front_end(&self) {
+        self.cuts_from_the_chain(FRONT_END_ELEM.start);
+    }
+
+    /// `GameManager::RegisterChain`'s own job, at `TH_CHAIN_PRIO_CALC_GAMEMANAGER`, and `GameManager::CutChain`
+    /// taking it out again.
+    ///
+    /// `g_GameManagerCalcChain` at 0x69d720, which is a **static** — so this one a chapter's restore does put
+    /// back, and a second registration of it is what the element's own links check out against.
+    pub fn registers_the_gameplay_scene(&self) {
+        self.registers_in_the_calc_chain(
+            super::GAME_MANAGER_CALC_ELEM,
+            CALC_GAMEMANAGER,
+            super::GAME_MANAGER_ON_UPDATE,
+            super::G_GAME_MANAGER,
+        );
+    }
+
+    pub fn cuts_the_gameplay_scene(&self) {
+        self.cuts_from_the_chain(super::GAME_MANAGER_CALC_ELEM);
+    }
+
     /// `ScreenEffect::ShakeScreen` registered as a job of the chain's, which is what a bomb leaves
     /// running: what orb matches on is the callback, and what it does with the element is cut it.
     pub fn shakes_the_screen(&self) {
-        let space = self.space();
-        let elem = SHAKE_ELEM.start;
-        space.write::<usize>(elem + super::chain_elem::CALLBACK, super::SHAKE_SCREEN);
-        space.write::<usize>(elem + super::chain_elem::ARG, elem);
-        let head = super::G_CHAIN + super::chain_elem::NEXT;
-        let after: usize = space.read(head);
-        space.write::<usize>(elem + super::chain_elem::NEXT, after);
-        space.write::<usize>(head, elem);
+        self.registers_in_the_calc_chain(
+            SHAKE_ELEM.start,
+            CALC_SCREENEFFECT,
+            super::SHAKE_SCREEN,
+            SHAKE_ELEM.start,
+        );
     }
 
     /// Whether that job is still in the chain, which is what says a shake is still running.
@@ -666,9 +840,16 @@ impl Image {
     /// writes every frame from the generator, and what `Player::AddedCallback` measures a stage's first
     /// position from.
     ///
-    /// Written once where the game sets its screen up and by nothing per stage, which is the whole reason
-    /// a shake can reach the stage after the one that started it: nothing on the way into a stage puts it
-    /// back.
+    /// **Written once a run**, in the branch `GameManager::AddedCallback` takes only when it is not
+    /// reinitialising — `(32, 16)` and `(384, 448)`, beside the box the player is held inside and the run's
+    /// own lives and power. Which is the whole reason a shake can reach the stage *after* the one that
+    /// started it: a stage transition takes the other branch and puts none of it back, so a shake orb cut
+    /// early leaves the region moved for every stage the run has left.
+    ///
+    /// Not "once where the game sets its screen up", which is what this said before the branch was read:
+    /// `GameWindow`'s own setup writes the viewport and `ScreenEffect::SetViewport` writes it again, and
+    /// neither touches these four floats. Before a run has ever been started they are what a static is,
+    /// which is zero.
     pub fn sets_the_arcade_region(&self, top_left: (f32, f32), size: (f32, f32)) {
         let space = self.space();
         space.write::<[f32; 2]>(
@@ -701,6 +882,45 @@ impl Image {
         self.space().write::<i8>(
             super::G_GAME_MANAGER + super::game_manager::EXTRA_LIVES,
             lives,
+        );
+    }
+
+    /// The bombs the run has left, which a bomb going off spends one of.
+    ///
+    /// Apart from [`playing`](Image::playing), which writes the whole of a stage: a bomb happens in the
+    /// middle of one and the supervisor's state that call writes is not a bomb's to touch.
+    pub fn set_bombs(&self, bombs: i8) {
+        self.space().write::<i8>(
+            super::G_GAME_MANAGER + super::game_manager::BOMBS_REMAINING,
+            bombs,
+        );
+    }
+
+    /// And the power it has collected, for the same reason.
+    pub fn set_power(&self, power: u16) {
+        self.space().write::<u16>(
+            super::G_GAME_MANAGER + super::game_manager::CURRENT_POWER,
+            power,
+        );
+    }
+
+    /// The rank the run is being played at, which is what the enemies read, and the sub-rank the game moves
+    /// it by.
+    ///
+    /// Two writes rather than one because the game writes them in two places: the rank belongs to the run —
+    /// it goes in where the run starts and a stage transition carries whatever it has reached — and the
+    /// sub-rank is put back to nothing at every stage. Both are in
+    /// [`Reproduction`](crate::game::Reproduction), so a game that laid out neither left every assertion
+    /// about a restored rank comparing zero with zero.
+    pub fn set_rank(&self, rank: i32) {
+        self.space()
+            .write::<i32>(super::G_GAME_MANAGER + super::game_manager::RANK, rank);
+    }
+
+    pub fn set_sub_rank(&self, sub_rank: i32) {
+        self.space().write::<i32>(
+            super::G_GAME_MANAGER + super::game_manager::SUB_RANK,
+            sub_rank,
         );
     }
 
@@ -854,6 +1074,19 @@ impl Image {
         self.space().read(super::G_CUR_FRAME_INPUT)
     }
 
+    /// `g_LastFrameInput`, which `Supervisor::OnUpdate` copies the word into before it reads a new one.
+    ///
+    /// A global and not something kept beside the memory, because that is what it is: every job of the chain
+    /// works its own presses out against it, so a job that read a copy of its own would be reading a second
+    /// answer to the question `WAS_PRESSED` asks.
+    pub fn last_input(&self, word: u16) {
+        self.space().write::<u16>(super::G_LAST_FRAME_INPUT, word);
+    }
+
+    pub fn last_input_now(&self) -> u16 {
+        self.space().read(super::G_LAST_FRAME_INPUT)
+    }
+
     /// The boss of the fight on now, or none.
     ///
     /// Both halves of what orb reads: the pointer the enemy manager keeps, which is where the life
@@ -921,28 +1154,81 @@ impl Image {
         space.write::<u16>(record + super::CATK_ATTEMPTS, attempts);
     }
 
-    /// `clrd`'s parse at 0x42b502: the destination cleared before the chunk is looked for — four
-    /// records memset at 0x42b535 — and then whatever the read found written into it.
+    /// `clrd`'s parse at 0x42b502: every record memset and then fixed up — the magic, the two lengths, the
+    /// version, the shot it is about and **every clear count at 1** — and then whatever the read found
+    /// written over the top.
     ///
-    /// **The clear is the half worth laying out.** A read that failed leaves the front end nothing to
-    /// light, so a file that is not there locks what an earlier one had earned rather than leaving it
-    /// as it was — which is why the one read the menu's items come out of has to be pointed at the
-    /// game's own file whichever mode orb is in. `catk`'s parse at 0x42b466 has no clear of its own,
-    /// which is the difference [`set_captures`](crate::game::Game::set_captures) is read against.
+    /// **The clear is the half worth laying out**, and 1 is not zero. A read that failed leaves the front
+    /// end a record that looks like a record and says nobody has cleared anything, so a file that is not
+    /// there locks what an earlier one had earned rather than leaving it as it was — which is why the one
+    /// read the menu's items come out of has to be pointed at the game's own file whichever mode orb is in.
+    /// What makes 1 cost something is the gate: `HasReachedMaxClears` compares against
+    /// [`MAX_CLEARS`] — see [`has_reached_max_clears`](Image::has_reached_max_clears).
+    ///
+    /// `catk`'s parse at 0x42b466 has no clear of its own, which is the difference
+    /// [`set_captures`](crate::game::Game::set_captures) is read against.
     pub fn parses_the_unlocks(&self, chunk: &[u8]) {
         let space = self.space();
         let at = super::G_GAME_MANAGER + CLEARED;
-        space.fill_bytes(at, 0, CLEARED_BYTES);
+        for shot in 0..CLEARED_RECORDS {
+            let record = at + shot * CLEARED_RECORD_BYTES;
+            space.fill_bytes(record, 0, CLEARED_RECORD_BYTES);
+            space.write_bytes(record, CLRD_MAGIC);
+            space.write::<u16>(record + TH6K_LEN, CLEARED_RECORD_BYTES as u16);
+            space.write::<u16>(record + TH6K_UNK_LEN, CLEARED_RECORD_BYTES as u16);
+            space.write::<u8>(record + TH6K_VERSION_AT, TH6K_VERSION);
+            space.write::<u8>(record + CLEARED_SHOT_TYPE, shot as u8);
+            space.fill_bytes(record + CLEARED_WITH_RETRIES, 1, CLEARED_DIFFICULTIES);
+            space.fill_bytes(record + CLEARED_WITHOUT_RETRIES, 1, CLEARED_DIFFICULTIES);
+        }
         space.write_bytes(at, &chunk[..chunk.len().min(CLEARED_BYTES)]);
     }
 
     /// What that parse left the front end to light its items from.
     ///
-    /// Bytes rather than records: what one holds per shot is not something orb reads, and the whole of
-    /// what anything above asks is whether the read left the menu anything at all.
+    /// Bytes rather than records: what one holds per shot is not something orb reads, and what anything
+    /// above asks of them is either whether the read left a record at all or the one question below.
     pub fn unlocks(&self) -> Vec<u8> {
         self.space()
             .read_bytes(super::G_GAME_MANAGER + CLEARED, CLEARED_BYTES)
+    }
+
+    /// `GameManager::HasReachedMaxClears`: whether the record for a character's shot has been cleared
+    /// [`MAX_CLEARS`] times on any of [`CLEARS_THAT_COUNT`], which is what the Extra is behind.
+    ///
+    /// Here rather than in the game that draws the menu, because the layout is here: a record is
+    /// `shotType + character * 2` of the four, and which byte of one a clear count is is this file's
+    /// business.
+    pub fn has_reached_max_clears(&self, character: i32, shot_type: i32) -> bool {
+        let record = super::G_GAME_MANAGER
+            + CLEARED
+            + (shot_type + character * 2) as usize * CLEARED_RECORD_BYTES;
+        CLEARS_THAT_COUNT.clone().any(|difficulty| {
+            self.space()
+                .read::<u8>(record + CLEARED_WITH_RETRIES + difficulty)
+                == MAX_CLEARS
+        })
+    }
+
+    /// And what a score file holds for a shot that *has* cleared the game, as the bytes one of its `clrd`
+    /// records is: the same fixup with the clear counts at [`MAX_CLEARS`] instead of 1.
+    ///
+    /// Here for the same reason the read is — the layout is here — and it is what a game whose front end
+    /// offers an Extra has to have in the file it reads.
+    pub fn cleared_record(shot_type: i32) -> Vec<u8> {
+        let mut record = vec![0; CLEARED_RECORD_BYTES];
+        record[..CLRD_MAGIC.len()].copy_from_slice(CLRD_MAGIC);
+        record[TH6K_LEN..TH6K_LEN + 2]
+            .copy_from_slice(&(CLEARED_RECORD_BYTES as u16).to_le_bytes());
+        record[TH6K_UNK_LEN..TH6K_UNK_LEN + 2]
+            .copy_from_slice(&(CLEARED_RECORD_BYTES as u16).to_le_bytes());
+        record[TH6K_VERSION_AT] = TH6K_VERSION;
+        record[CLEARED_SHOT_TYPE] = shot_type as u8;
+        for difficulty in 0..CLEARED_DIFFICULTIES {
+            record[CLEARED_WITH_RETRIES + difficulty] = MAX_CLEARS;
+            record[CLEARED_WITHOUT_RETRIES + difficulty] = MAX_CLEARS;
+        }
+        record
     }
 
     /// What the player is doing.
@@ -1234,31 +1520,18 @@ impl Image {
     /// `chain_argument` finding it by its callback is what orb does instead. So a game that wrote the
     /// screen's state into a global would be answering the question orb's walk is being asked.
     pub fn registers_the_result_screen(&self, state: i32) {
-        let space = self.space();
-        let elem = RESULT_SCREEN_ELEM.start;
-        space.write::<usize>(
-            elem + super::chain_elem::CALLBACK,
+        self.registers_in_the_calc_chain(
+            RESULT_SCREEN_ELEM.start,
+            CALC_RESULTSCREEN,
             super::RESULT_SCREEN_ON_UPDATE,
+            RESULT_SCREEN.start,
         );
-        space.write::<usize>(elem + super::chain_elem::ARG, RESULT_SCREEN.start);
-        let head = super::G_CHAIN + super::chain_elem::NEXT;
-        let after: usize = space.read(head);
-        space.write::<usize>(elem + super::chain_elem::NEXT, after);
-        space.write::<usize>(head, elem);
         self.set_result_screen_state(state);
     }
 
     /// And `Chain::Cut` taking it out, which the screen's deleted callback does on the way to the title.
     pub fn cuts_the_result_screen(&self) {
-        let space = self.space();
-        let elem = RESULT_SCREEN_ELEM.start;
-        let head = super::G_CHAIN + super::chain_elem::NEXT;
-        if space.read::<usize>(head) == elem {
-            let after: usize = space.read(elem + super::chain_elem::NEXT);
-            space.write::<usize>(head, after);
-        }
-        space.write::<usize>(elem + super::chain_elem::NEXT, 0);
-        space.write::<usize>(elem + super::chain_elem::CALLBACK, 0);
+        self.cuts_from_the_chain(RESULT_SCREEN_ELEM.start);
     }
 
     /// Which of its states that screen is in, and the two orb has anything to do with — the question it
@@ -1278,14 +1551,45 @@ impl Image {
     /// script it has read in the object.
     pub fn registers_the_ending(&self) {
         let space = self.space();
-        let elem = ENDING_ELEM.start;
-        space.write::<usize>(elem + super::chain_elem::CALLBACK, super::ENDING_ON_UPDATE);
-        space.write::<usize>(elem + super::chain_elem::ARG, ENDING.start);
-        let head = super::G_CHAIN + super::chain_elem::NEXT;
-        let after: usize = space.read(head);
-        space.write::<usize>(elem + super::chain_elem::NEXT, after);
-        space.write::<usize>(head, elem);
+        self.registers_in_the_calc_chain(
+            ENDING_ELEM.start,
+            CALC_ENDING,
+            super::ENDING_ON_UPDATE,
+            ENDING.start,
+        );
         space.write::<usize>(ENDING.start + super::ending::SCRIPT, ENDING_SCRIPT);
+    }
+
+    /// And the same job with **no script in the object**, which is what an ending already torn down looks
+    /// like: `ending_script` reads the script through the argument the element carries and filters a zero, so
+    /// this is a running ending orb can find no script in.
+    ///
+    /// Its own method rather than an argument, because the two are different things a scenario says: one is
+    /// an ending with a script and one is an ending without, and a `bool` at the call site would say neither.
+    pub fn registers_the_ending_without_its_script(&self) {
+        self.registers_in_the_calc_chain(
+            ENDING_ELEM.start,
+            CALC_ENDING,
+            super::ENDING_ON_UPDATE,
+            ENDING.start,
+        );
+        self.space()
+            .write::<usize>(ENDING.start + super::ending::SCRIPT, 0);
+    }
+
+    /// `ResultScreen::RegisterChain(NULL)`, which the *Score* item reaches: the same element and the same
+    /// callback a finished run's screen registers, because in 紅魔郷 they are one screen — both the item and
+    /// a run's own end go through `SUPERVISOR_STATE_RESULTSCREEN`.
+    ///
+    /// The state is left alone, which is the difference: what a ranking being looked at is has nothing to do
+    /// with the question about saving a replay.
+    pub fn registers_the_ranking(&self) {
+        self.registers_in_the_calc_chain(
+            RESULT_SCREEN_ELEM.start,
+            CALC_RESULTSCREEN,
+            super::RESULT_SCREEN_ON_UPDATE,
+            RESULT_SCREEN.start,
+        );
     }
 
     /// `Ending::LoadEndingFile` reading the staff roll's script over the one running, which is every
@@ -1298,15 +1602,7 @@ impl Image {
 
     /// And `Chain::Cut` taking that job out, which is the scene being taken down.
     pub fn cuts_the_ending(&self) {
-        let space = self.space();
-        let elem = ENDING_ELEM.start;
-        let head = super::G_CHAIN + super::chain_elem::NEXT;
-        if space.read::<usize>(head) == elem {
-            let after: usize = space.read(elem + super::chain_elem::NEXT);
-            space.write::<usize>(head, after);
-        }
-        space.write::<usize>(elem + super::chain_elem::NEXT, 0);
-        space.write::<usize>(elem + super::chain_elem::CALLBACK, 0);
+        self.cuts_from_the_chain(ENDING_ELEM.start);
     }
 
     /// The track the sound player is streaming, through the two objects it is reached by: the streaming
@@ -1596,6 +1892,34 @@ const RANKING_SHOWN: i32 = super::RESULT_SCREEN_SHOWING[0];
 pub mod result_state {
     pub const SAVE_REPLAY_QUESTION: i32 = super::super::RESULT_STATE_SAVE_REPLAY_QUESTION;
     pub const EXIT: i32 = super::super::RESULT_STATE_EXIT;
+}
+
+/// `th06::ChainCallbackResult`: what a job of the chain answers the walk over it, and what the walk does
+/// with each answer.
+///
+/// Named here for the same reason: they are th06's own numbering — `REMOVED` is zero and `CONTINUES` one,
+/// which is `Chain::RunCalcChain`'s switch and not a choice anybody made here.
+pub mod chain_result {
+    pub const REMOVED: i32 = super::super::CHAIN_JOB_REMOVED;
+    pub const CONTINUES: i32 = super::super::CHAIN_JOB_CONTINUES;
+    pub const AGAIN: i32 = super::super::CHAIN_JOB_AGAIN;
+    pub const BREAKS: i32 = super::super::CHAIN_JOB_BREAKS;
+    pub const EXITS: i32 = super::super::CHAIN_JOB_EXITS;
+    pub const FAILED: i32 = super::super::CHAIN_JOB_FAILED;
+    pub const RESTARTS: i32 = super::super::CHAIN_JOB_RESTARTS;
+}
+
+/// And the addresses of the jobs a laid-out game registers, which is what an element's callback says it is.
+///
+/// The whole of what the walk needs: it reads the callback out of an element and runs the job that address
+/// names. orb calls none of them.
+pub mod chain_job {
+    pub const SUPERVISOR: usize = super::super::SUPERVISOR_ON_UPDATE;
+    pub const FRONT_END: usize = super::super::MAIN_MENU_ON_UPDATE;
+    pub const GAMEPLAY: usize = super::super::GAME_MANAGER_ON_UPDATE;
+    pub const ENDING: usize = super::super::ENDING_ON_UPDATE;
+    pub const RESULT_SCREEN: usize = super::super::RESULT_SCREEN_ON_UPDATE;
+    pub const SCREEN_EFFECT: usize = super::super::SHAKE_SCREEN;
 }
 
 fn scene_of(scene: Scene) -> i32 {

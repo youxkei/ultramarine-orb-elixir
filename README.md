@@ -114,5 +114,5 @@ half an hour by letting nothing hit the player, and the rest are for looking int
 | --- | --- |
 | [SPEC.md](SPEC.md) | what orb does and the mechanisms it uses in their final form; configuration, tuning, and how the crates fit together |
 | [TODO.md](TODO.md) | what is left, and what is built and still waiting on a run against the real game |
-| [docs/todo/](docs/todo/) | one file per piece of work too long for a paragraph in TODO.md: what was measured, how to measure it again, and the order to work through it |
+| `docs/todo/` | one file per piece of work too long for a paragraph in TODO.md: what was measured, how to measure it again, and the order to work through it. Deleted as the last step of the work, so the directory is there only while there is such a piece of work in flight — and there is none now |
 | [docs/adr/](docs/adr/) | one file per decision about how the code is shaped, in the order they were taken, each opening with a status that says whether the tree looks like it yet |

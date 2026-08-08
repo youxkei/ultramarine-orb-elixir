@@ -105,6 +105,43 @@ const ENDING_ON_UPDATE: usize = 0x004109c0;
 /// screen is allocated by `ResultScreen::RegisterChain` at 0x42d773, which puts it nowhere but
 /// into the element it registers.
 const RESULT_SCREEN_ON_UPDATE: usize = 0x0042d98e;
+/// The three other jobs of the calc chain a laid-out game registers, matched against a job's callback
+/// rather than called: `th06::Supervisor::OnUpdate`, `th06::MainMenu::OnUpdate` and
+/// `th06::GameManager::OnUpdate`.
+///
+/// Read out of the decompilation's `config/mapping.csv` — `awk -F, -v k=th06::Supervisor::OnUpdate
+/// '$1==k {print $2}'` and the two beside it, which is the route *Re-deriving it* in
+/// [docs/adr/0008](../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md)
+/// gives. Held against the two addresses above it, which came from a running game and agree with the
+/// same table: `ScreenEffect::ShakeScreen` is 0x42ffc0 there and `Ending::OnUpdate` 0x4109c0.
+///
+/// orb calls none of the three. What they are for is the job list a laid-out game walks: the callback
+/// in an element is what says which job it is, here as in the game.
+#[cfg(any(test, feature = "sim"))]
+const SUPERVISOR_ON_UPDATE: usize = 0x0042333b;
+#[cfg(any(test, feature = "sim"))]
+const MAIN_MENU_ON_UPDATE: usize = 0x0043579f;
+#[cfg(any(test, feature = "sim"))]
+const GAME_MANAGER_ON_UPDATE: usize = 0x0041b663;
+
+/// `th06::ChainCallbackResult`, which is what a job answers the walk over the chain.
+///
+/// `CHAIN_JOB_REMOVED` being zero and `CHAIN_JOB_CONTINUES` one is the game's own numbering and not a
+/// choice: `Chain::RunCalcChain`'s switch is over these values.
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_REMOVED: i32 = 0;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_CONTINUES: i32 = 1;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_AGAIN: i32 = 2;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_BREAKS: i32 = 3;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_EXITS: i32 = 4;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_FAILED: i32 = 5;
+#[cfg(any(test, feature = "sim"))]
+const CHAIN_JOB_RESTARTS: i32 = 6;
 
 /// `th06::ReplayManager::StopRecording`, `__cdecl`. Writes the last two entries of an
 /// input record: a blank one at the frame the run stopped, and a terminator at frame
@@ -323,6 +360,11 @@ const G_MAIN_MENU: usize = 0x006d46c0;
 /// `Supervisor::OnUpdate` and then, for a replay, overwritten with the record's buttons
 /// in place of the ones on the keyboard.
 const G_CUR_FRAME_INPUT: usize = 0x0069d904;
+/// And `u16 g_LastFrameInput` at the four bytes after it, which `Supervisor::OnUpdate` copies the word
+/// into before it reads a new one. What it is for is the edge: a button in `g_CurFrameInput` and not in
+/// this is a press, which is what `WAS_PRESSED` is.
+#[cfg(any(test, feature = "sim"))]
+const G_LAST_FRAME_INPUT: usize = 0x0069d908;
 /// The buttons a run is made of, which `ReplayManager::OnUpdate` masks `g_CurFrameInput` with
 /// before it writes an entry — and `OnUpdateDemo` puts back under the same mask, keeping the rest
 /// of the word as it was read. Every button but 0x8, which is the one `GameManager::OnUpdate`
@@ -577,6 +619,11 @@ mod anm_manager {
 }
 
 mod chain_elem {
+    /// `short priority`, the first field: which of `ChainPriorities.hpp`'s numbers the job went in at,
+    /// and so where `AddToCalcChain` links it. `u16 isHeapAllocated : 1` follows it at 0x2, which is why
+    /// the callback is at 0x4 rather than 0x2.
+    #[cfg(any(test, feature = "sim"))]
+    pub const PRIORITY: usize = 0x0;
     pub const CALLBACK: usize = 0x4;
     pub const NEXT: usize = 0x14;
     /// What the callbacks are called on, written by whoever registered the job.
@@ -595,6 +642,12 @@ const CHAIN_DRAW_LIST: usize = 0x20;
 /// `AddToDrawChain` at priority 0xb. Element + 4 and element + 0x1c, which is `chain_elem` checking
 /// out against a second registration.
 const GUI_DRAW_ELEM: usize = 0x0069bc5c;
+
+/// And `g_GameManagerCalcChain` at 0x69d720, which is the gameplay scene's own element in the *calc* list
+/// and a static for the same reason: `GameManager::RegisterChain` links this one rather than one it
+/// allocated, so a chapter's restore puts it back with the rest of `.data`.
+#[cfg(any(test, feature = "sim"))]
+const GAME_MANAGER_CALC_ELEM: usize = 0x0069d720;
 
 /// `th06::MainMenu`, whose own fields come after an `AnmVm vm[122]` of 0x110 bytes each: 122 *
 /// 0x110 is 0x81a0, and four bytes of cursor and 0x40 of padding after that lands exactly on the

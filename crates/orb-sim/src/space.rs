@@ -97,6 +97,21 @@ impl Space {
         self.add(base, len, Kind::Private, Access::Guarded);
     }
 
+    /// Whether nothing is laid out over `base..base + len`, which is what a real object of this process has
+    /// to be true of before the space can be told where it is.
+    ///
+    /// **Which is a hazard rather than a theory.** A laid-out game claims the addresses the real one's
+    /// `.data` and heap blocks are at, and this is a 32-bit process whose own heap reaches both — so an
+    /// allocation can land at an address already laid out here, and [`map`](Space::map) stops rather than
+    /// shadowing the game's own memory. Watched in `scenario_the_music_across_a_restore.rs` at 0x6ce8f0,
+    /// 0x301df98 and 0x651398. `orb_sim::Sound::of` is what asks, and asks again where the answer is no.
+    pub fn has_room(&self, base: usize, len: usize) -> bool {
+        let regions = self.regions.lock().unwrap();
+        !regions
+            .iter()
+            .any(|region| base < region.end() && region.base < base + len)
+    }
+
     fn add(&self, base: usize, len: usize, kind: Kind, access: Access) {
         let mut regions = self.regions.lock().unwrap();
         assert!(

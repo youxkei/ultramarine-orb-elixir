@@ -2000,16 +2000,34 @@ game having no sound system to hand a frame's sounds to. A launch started `--no-
 own draw-then-update order instead, which is the other configuration orb ships, and a scenario reads which
 of the two ran off the order the loop asked the game for things in.
 
-**And eight more of the game's own functions are handed over the same way**, because they are calls orb
+**And eleven more of the game's own functions are handed over the same way**, because they are calls orb
 makes into the game rather than reads of it: `CreateWindowExA`, which the window's rewrite calls through;
 `CreateFileA`, which the score file's fork calls through; `ReplayManager::StopRecording`, which is held
 back while a replay is being watched; `GameWindow::Create`, which the hook that overrules the display
 setting calls through; `joyGetPosEx` as the import table held it, which the replacement of that entry calls
-through where it has no sample of its own; `Chain::Cut`, which takes a screen shake down at a stage move;
-and `SoundPlayer::StopBGM` and `Supervisor::PlayAudio`, which a restore puts the sound down and starts it
-again through where the track has been replaced since the chapter was taken. The first five are
-`Originals`', the last three are `Th06`'s own — see
-[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+through where it has no sample of its own; `Controller::GetControllerInput`, the tail call inside the
+keyboard read that the joystick's own span is timed around; `ReplayManager::SaveReplay`, whose write a
+cleared run refuses; `GameWindow::InitD3dDevice`, which orb gets in front of to redirect the device's
+`Present`; `Chain::Cut`, which takes a screen shake down at a stage move; and `SoundPlayer::StopBGM` and
+`Supervisor::PlayAudio`, which a restore puts the sound down and starts it again through where the track has
+been replaced since the chapter was taken. The first eight are `Originals`', the last three are `Th06`'s
+own — see [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+
+**Two of those eight moved a gate.** A real launch decides whether to time the joystick's read and whether
+to refuse a replay write by *installing the hook or not* — the first only at Verbose, the second only under
+`--clear`. A game that hands its own function over has one call site whichever way the launch was
+configured, so the decision cannot be the installation there: it is a flag orb sets where `attach` decides
+to install, and a laid-out launch nobody asked to block a save writes one.
+
+**Its update is the chain's own walk.** `Fake::update` is `Chain::RunCalcChain` over the list of jobs its
+scenes have registered, in the order their priorities put them in — the supervisor at 0, the front end at 2,
+the ending at 3, the gameplay scene at 4, the result screen at 13 and a bomb's screen shake at 14 — and the
+list is walked live out of the game's own memory. Which is what makes a scene's first update fall on the
+frame it was built: the supervisor is the first job and everything it registers goes in above its own
+priority, so a job registered from inside the walk is linked behind the position the walk has reached. A job
+answers as a chain callback does, and the walk answers the count of jobs it ran. See
+[docs/adr/0008](docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), which is where what the
+fake owes the game it is standing in for, and what it deliberately does not, is settled.
 
 **A track is streamed through a sound of the host's**, which is the one part of a laid-out game that is a
 real object rather than laid-out memory: orb *calls* a DirectSound buffer's vtable and asks winmm for
@@ -2147,6 +2165,10 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/tests/scenario_a_chapter_table_collected.rs` | `--collect` and `--judge`: the gap in a stage's waves proposed, the boundary judged out and stepped back to and back into the table, one placed by hand and taken away again, both files written, what one sitting decided read back by the next, and a hand-edited state file whose unreadable lines are named by path and line |
 | `orb-sim/tests/scenario_the_handles_a_restore_leaves_alone.rs` | a texture handle the game holds left where a restore finds it, and the rest of the block it is in put back |
 | `orb-sim/tests/scenario_the_window_going_behind.rs` | the keys dropped while the game's window is behind, and the keyboard device taken again — as many times as it takes — when it comes forward |
+| `orb-sim/tests/scenario_a_stage_transition.rs` | what a stage transition carries and what only the start of a run puts in place: the lives, the bombs, the power and the deaths a run walks through six stages with, the one read of the score file a run makes, the rank its difficulty is played at, the arcade region, and the box the player is held inside |
+| `orb-sim/tests/scenario_the_frame_a_scene_is_built_on.rs` | a scene's own first update falling on the frame it was built, at a stage's transition and at the front end alike, with the input word zeroed there so a button still held reads as a fresh press on the frame after |
+| `orb-sim/tests/scenario_the_player_a_stage_starts.rs` | the player a stage starts: invulnerable with the first of 240 frames already spent, and the 240th the one a bullet sitting on them kills on |
+| `orb-sim/tests/scenario_the_launch_before_its_device.rs` | a launch orb is attached to before the game has a Direct3D device, which is every real one: nothing drawn until the game's own setup runs, and the overlay ready once it has |
 | `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their names not beginning `scenario_` says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses

@@ -46,6 +46,47 @@ const NAMED: &str = "joystick: mid=045e pid=02ff";
 /// failure naming what it was waiting for.
 const WAITS: u32 = 3000;
 
+/// And the span the game's own read costs reaches the `perf:` line, which is the whole of what orb's hook
+/// over `Controller::GetControllerInput` is for.
+///
+/// That read is a tail call inside `Controller::GetInput` and cannot be told apart from outside it, so
+/// timing it means standing in front of it — which is what the hook does and the only thing it does. The
+/// 8.7ms this file's own head records is what that line said, and a launch whose perf line has no joystick
+/// span in it is a launch where nobody could have found that out.
+///
+/// Verbose, because that is the gate: a real launch installs this hook only at Verbose and leaves the read
+/// untimed otherwise. A game that hands the function over cannot be gated by an installation — it has one
+/// call site whichever way the launch was configured — so the gate is a flag orb sets at the attach, and this
+/// is the launch that asks for it.
+#[test]
+fn the_span_the_games_own_joystick_read_costs_reaches_the_perf_line() {
+    in_its_own_process(|| {
+        let game = Fake::attach("a-winmm-pad-the-perf-line", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.image().no_controller();
+        game.sim().joystick().attach(BUTTONS, TRAVEL.0, TRAVEL.1);
+        game.frames_until_the_log_holds_another("perf:");
+        let perf = game
+            .log()
+            .lines()
+            .into_iter()
+            .rev()
+            .find(|line| line.contains("perf:"))
+            .expect("the perf line just waited for");
+        assert!(
+            perf.contains("joystick="),
+            "the perf line has no joystick span in it: {perf}",
+        );
+        // Beside the read it is *inside* and not additional to it, which is the one thing the line has to
+        // say for the number to be readable at all.
+        assert!(
+            perf.contains("input="),
+            "the perf line has a joystick span and no input span to be inside: {perf}",
+        );
+    });
+}
+
 /// A game whose own enumeration found no controller, with a pad on the host, sitting at its title menu
 /// with the question up and orb's own thread having sampled that pad at least once.
 fn asking(name: &str) -> Box<Fake> {

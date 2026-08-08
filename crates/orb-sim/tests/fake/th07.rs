@@ -157,6 +157,9 @@ impl Fake {
                     stop_recording,
                     create_game_window,
                     joystick_position,
+                    get_controller_input,
+                    save_replay,
+                    init_d3d_device,
                 },
             )
         };
@@ -293,6 +296,17 @@ extern "C" fn create_game_window(_instance: *mut c_void) {}
 unsafe extern "system" fn joystick_position(_device: u32, _into: *mut orb_api::JoyInfo) -> u32 {
     orb_api::joyerr::PARMS
 }
+
+/// And its own `Controller::GetControllerInput`, `ReplayManager::SaveReplay` and device setup, none of which
+/// is ever called: this game is a frame and nothing else — see this file's own head — so the whole of what it
+/// hands over past the frame's four calls is handed over to be a valid `Originals` and for nothing more.
+extern "C" fn get_controller_input(buttons: u32) -> u16 {
+    buttons as u16
+}
+
+extern "C" fn save_replay(_path: *const u8, _name: *const u8) {}
+
+extern "C" fn init_d3d_device() {}
 
 /// And its `CreateFileA`, which is never called either: `Th07` declines the score file the same way it
 /// declines everything else about a run, so nothing of 妖々夢's is ever opened through orb.

@@ -14,9 +14,11 @@
 //!
 //! **The three reads are told apart in the exe.** `MainMenu::AddedCallback` (0x43a5c0) is the only one the
 //! front end's own items are lit from: it fills `g_GameManager` at 0x69ccd0 and 0x69cd30 with `clrd` and
-//! `pscr` and parses nothing else. `GameManager::AddedCallback` (0x41bcdc, once per stage) and the ranking
-//! screen's added callback (0x42f47f) read all four chunks, ranking and captures included. The write has
-//! one caller in the whole exe, 0x42f5cd in that screen's deleted callback.
+//! `pscr` and parses nothing else. `GameManager::AddedCallback` (0x41bcdc, once per **run** — the read is
+//! inside the branch it takes only when it is not reinitialising, so a stage transition makes none; see
+//! `scenario_a_stage_transition.rs`) and the ranking screen's added callback (0x42f47f) read all four
+//! chunks, ranking and captures included. The write has one caller in the whole exe, 0x42f5cd in that
+//! screen's deleted callback.
 
 mod fake;
 
@@ -286,7 +288,7 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
 ///
 /// Both halves are here, because the second is what makes the first worth anything: the read that
 /// *follows the mode* still lands in the file that is not there and still clears what the menu is lit
-/// from — once per stage, `GameManager::AddedCallback` — and what puts it back is the front end's own
+/// from — once a run, `GameManager::AddedCallback` — and what puts it back is the front end's own
 /// read of the game's own file.
 #[test]
 fn a_missing_pointdevice_score_file_locks_the_unlocks() {
@@ -312,8 +314,8 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
             "the front end offered no Extra Start with the game's own file there to light it from",
         );
 
-        // The run, which is where the read that follows the mode happens: once per stage, and the file it
-        // asks for is not there.
+        // The run, which is where the read that follows the mode happens: once at its start, and the file
+        // it asks for is not there.
         game.in_a_pointdevice_run();
         assert!(
             game.log()
@@ -322,10 +324,17 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
             game.log().lines().join("\n  ")
         );
         // What that failed read cost: the destination is cleared before the chunk is looked for, so what
-        // the menu would be lit from is gone — nothing was *left as it was*.
+        // the menu would be lit from is gone — nothing was *left as it was*. What it is left with is not
+        // zeros either, which is `ParseClrd`'s own fixup: a record with the magic, the version and every
+        // clear count at 1, and 1 is not the 99 the Extra is behind.
+        assert_eq!(
+            game.image().unlocks(),
+            fixed_up_by_a_failed_read(),
+            "the read that failed left something other than its own memset and fixup",
+        );
         assert!(
-            game.image().unlocks().iter().all(|byte| *byte == 0),
-            "the read that failed left the unlocks standing, which is not what 0x42b535 does",
+            !game.image().has_reached_max_clears(0, 0),
+            "a record whose clear counts are the failed read's own says the game has been cleared",
         );
 
         // And the front end's own read putting them back, which is the whole of what the bracket buys: the
@@ -340,6 +349,69 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
             game.says(EXTRA_START).len(),
             1,
             "the menu after the run was lit from the mode's own file, which has nothing in it",
+        );
+    });
+}
+
+/// What a `clrd` parse over a file that is not there leaves: the memset, and then the fixup.
+///
+/// Written out here rather than asked of the game, because asking the game would be asking the thing under
+/// test. `ParseClrd` at 0x42b502 memsets each of the four records and then writes the magic, both lengths,
+/// the version, the shot the record is about, and **1** into every one of the ten clear counts — which is a
+/// record that looks like a record and says nobody has cleared anything.
+fn fixed_up_by_a_failed_read() -> Vec<u8> {
+    let mut records = Vec::new();
+    for shot in 0..4u8 {
+        let mut record = vec![0u8; 0x18];
+        record[..4].copy_from_slice(b"CLRD");
+        record[4..6].copy_from_slice(&0x18u16.to_le_bytes());
+        record[6..8].copy_from_slice(&0x18u16.to_le_bytes());
+        record[8] = 16;
+        record[0x16] = shot;
+        record[0xc..0x16].fill(1);
+        records.extend(record);
+    }
+    records
+}
+
+/// A launch with no score file at all offers no Extra, and the record it is left with is the failed read's
+/// own rather than zeros.
+///
+/// Which is the first launch of a fresh installation, and the one case where the front end's *own* read —
+/// the game's file whichever mode orb is in — has nothing to find either. So the whole of what the menu
+/// could be lit from is what `ParseClrd`'s fixup leaves: every clear count at 1.
+///
+/// **Both halves, because the outcome alone would pass on the wrong mechanism.** A gate on "the record holds
+/// anything at all" would light the Extra from a fixup that says nobody has cleared anything; a gate on the
+/// 99 `HasReachedMaxClears` compares against does not. So the record is read as well as the menu.
+#[test]
+fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_record() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-score-file-a-first-launch", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.draws_its_title_menu();
+        // Nothing on any disk, which is what a fresh installation is. Before any frame, because the front
+        // end is built on the launch's first one and its read is inside that build.
+        game.has_no_score_file();
+        game.at_the_title_menu();
+        game.one_frame();
+
+        assert_eq!(
+            game.says(EXTRA_START).len(),
+            0,
+            "the front end offered an Extra Start with no score file to light it from",
+        );
+        assert_eq!(
+            game.image().unlocks(),
+            fixed_up_by_a_failed_read(),
+            "the read that found nothing left something other than its own memset and fixup",
+        );
+        // And the item is off the menu for the reason the game has and not for want of a record: what is
+        // there is a whole one, and every clear count in it is 1.
+        assert!(
+            !game.image().has_reached_max_clears(0, 0),
+            "a record whose clear counts are the failed read's own says the game has been cleared",
         );
     });
 }

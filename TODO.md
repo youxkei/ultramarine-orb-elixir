@@ -994,7 +994,7 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 327 tests and **no stubs**, and most of what it now covers used to need a session. So this
+The suite is 347 tests and **no stubs**, and most of what it now covers used to need a session. So this
 is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
 what a session is for. Nothing here is a test somebody could write.
 
@@ -1043,6 +1043,37 @@ restarting …` are the lines to look for; and the game's own `joyGetPosEx`, who
 for real. The `JOYCAPSA` orb writes into 0x69d760 goes through `orb_api::mem` rather than a raw
 `copy_nonoverlapping` now, which is the same volatile write in a shipped launch and a different one only
 under a simulated host.
+
+**The frame accounting the fake's fidelity pass moved, and the fourteen fixes behind it.** The laid-out game
+is faithful to the game orb is injected into now — see
+[docs/adr/0008](docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), which is a description
+of the tree — and every one of those fixes was read out of a decompilation of the same binary rather than off
+a run. **Two of them move when a frame happens**, and only the real game says whether they moved it the right
+way:
+
+- **A scene's first update is on the frame it was built**, and the input word is zeroed there. Every
+  transition therefore lands a frame earlier than it used to — the front end's, a stage's, a stage
+  transition's, the result screen's. `scenario_the_frame_a_scene_is_built_on.rs` is the claim; what a session
+  would say is whether the game's own `f<N> scene=` lines fall where the fake now puts them.
+- **A stage begins with 240 updates nothing can kill the player in**, not 120 and not none. That is
+  `Player::OnUpdate`'s spawning branch replacing the count `Player::AddedCallback` wrote, read out of the
+  decompilation and agreeing with `PLAYER_INVULNERABLE_FRAMES`, which was measured on the real game from the
+  other end. A run that stands still into a bullet at a stage's start is what would say so directly.
+
+**And one global orb reads that has no name.** `CURRENT_CARD` at 0x005a5f98 is in no `globals.csv` row, and
+the exe touches it only from inside `EclManager::RunEcl` — the interpreter that runs a spell card
+declaration, so the provenance agrees with what orb reads it as. That it *is* the current card is not
+confirmed by name. A read of the ECL instruction or a run with a card up is what would confirm it.
+
+**A pre-existing intermittent in the suite, and it is not the fidelity pass's.** One scenario of
+`scenario_the_music_across_a_restore.rs` fails perhaps one run in eight with `no sound has been installed on
+this thread` — `orb_sim::Sound`'s `STREAMING` reading null where the sound was installed on the thread that
+asked for it. Held against `HEAD` before any of the fidelity work: it flakes there too, at about the same
+rate, so it is older than that work and nothing in it. What is *fixed* is the other one that used to sit
+beside it: an allocation landing inside a range the laid-out game claims, which failed two runs in three
+until `Sound::of` began asking `Space::has_room` and allocating again — the addresses it was watched at are
+written down there. This one is still to find; the panic crosses an `extern` frame and aborts, so what it
+needs first is a run that catches it under a debugger or a `STREAMING` that says which thread it was set on.
 
 **Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
 by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The

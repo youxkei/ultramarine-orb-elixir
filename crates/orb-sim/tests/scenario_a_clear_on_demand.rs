@@ -40,9 +40,15 @@ const THEIRS: &str = "score.dat";
 const OURS: &str = "pointdevice_score.dat";
 
 /// A launch of `--clear`, in a run, with a bullet sitting on the player.
+///
+/// Two of the four things that word sets — `fast_clear` and the refusal of a replay write — and not the other
+/// two, deliberately. `speed` stays 1 where `--clear` names 64: what these scenarios count is frames of the
+/// run, and a launch running 64 updates in each of them counts them in sixty-fourths. `resume` stays on
+/// because nothing here writes a chapter down to be offered one.
 fn clearing(name: &str) -> Box<Fake> {
     let game = Fake::attach(name, the_run(), |config| {
         config.fast_clear = true;
+        config.block_replay_save = true;
         config.log_level = LogLevel::Verbose;
     });
     game.stages_last(STAGE_FRAMES);
@@ -119,6 +125,59 @@ fn a_cleared_run_reaches_the_ending_with_no_death_in_it() {
                 .collect::<Vec<_>>()
                 .join("\n  ")
         );
+    });
+}
+
+/// And the write itself is refused, which is the other half of no replay being offered.
+///
+/// `--clear` is the one thing that sets `block_replay_save`, and the reason is in `orb_config`: a run whose
+/// player nothing could hit leaves a record that plays back as a run which dies where this one did not. So the
+/// screen being skipped is not enough — the write is refused as well, and `ReplayManager::SaveReplay`'s
+/// non-null-path half is where that happens. Its null-path half is the teardown every way out of a run goes
+/// through and is called through untouched.
+///
+/// **Both halves are here, because the first says nothing alone**: a hook that dropped every save would pass
+/// it, and a launch nobody asked to block one has to write. Which is also where the gate is — a real launch
+/// decides by not installing the hook, and a game that hands the function over has one call site whichever way
+/// the launch was configured, so orb keeps the decision beside the hook instead.
+#[test]
+fn a_cleared_runs_replay_is_refused_and_an_ordinary_launchs_is_written() {
+    in_its_own_process(|| {
+        // ── The cleared run, whose save is refused.
+        {
+            let game = clearing("a-clear-the-replay-refused");
+            game.saves_its_replay();
+            assert!(
+                game.replays_written().is_empty(),
+                "a run nothing could hit wrote {:?}",
+                game.replays_written(),
+            );
+            assert!(
+                game.log().said("replay save blocked"),
+                "orb did not say it refused the write:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+        }
+
+        // ── And an ordinary launch, whose save goes through: the same call, the same game, and nothing of
+        // orb's in the way of it.
+        {
+            let game = Fake::attach("a-clear-the-replay-written", the_run(), |config| {
+                config.log_level = LogLevel::Verbose;
+            });
+            game.saves_its_replay();
+            assert_eq!(
+                game.replays_written().len(),
+                1,
+                "a launch nobody asked to block a save wrote {:?}",
+                game.replays_written(),
+            );
+            assert!(
+                !game.log().said("replay save blocked"),
+                "orb refused a write nobody asked it to:\n  {}",
+                game.log().lines().join("\n  ")
+            );
+        }
     });
 }
 

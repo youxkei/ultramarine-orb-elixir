@@ -31,7 +31,7 @@ use orb_config::Config;
 use orb_core::game::th06::Th06;
 use orb_core::game::th06::image::{
     Boss, FrontEnd, Image, Mapping, Player, Playing, Pushed, Reproducing, Scene, Screen,
-    Supervising, Track, item, joy_state, result_state,
+    Supervising, Track, chain_job, chain_result, item, joy_state, result_state,
 };
 use orb_core::game::{Game, RunStart};
 use orb_sim::keys;
@@ -53,6 +53,16 @@ const CHAIN_CARRIED_ON: i32 = 1;
 /// and `-1`, which is the walk having failed. Both of 紅魔郷's own.
 pub const CHAIN_LEFT: i32 = 0;
 pub const CHAIN_FAILED: i32 = -1;
+/// And what a walk a job broke out of answers, which is 紅魔郷's own **1**: `Chain::RunCalcChain` returns
+/// that for `CHAIN_CALLBACK_RESULT_BREAK` and the count of jobs it ran otherwise — so a walk that ran one job
+/// and a walk a job broke are the same number to whatever is above, and both are a game carrying on.
+const CHAIN_BROKE: i32 = 1;
+
+/// More jobs than the chain has, which is what a walk that has run this many says: 紅魔郷 registers one per
+/// priority from 0 to 0x10, and this game registers six of those. A list whose links do not end is a walk
+/// that does not either, and saying so names the registration that made it — orb's own walks bound
+/// themselves the same way, at `CHAIN_LINKS`.
+const CHAIN_JOBS: i32 = 64;
 
 /// What a whole frame answers while the game is running, which is 紅魔郷's own `Render` answering that
 /// the loop above it should call it again. Zero, and the two above zero are the game leaving — which is
@@ -95,14 +105,17 @@ const GENERIC_WRITE: u32 = 0x4000_0000;
 /// orb's own refusal of a write answers with and what this game reads as a first launch.
 const NO_HANDLE: isize = -1;
 
-/// What this game's score file holds in its `clrd` chunk where the game has been cleared, and the whole
-/// of what its front end reads out of one: `Extra Start` is offered where the chunk is there and left
-/// off the menu where it is not.
+/// What this game's score file holds in its `clrd` chunk where the game has been cleared: one `Clrd` record
+/// for the shot this game's runs are played with, cleared the **99** times `HasReachedMaxClears` compares
+/// against.
 ///
-/// This game's own bytes. What a real record holds per shot is not something orb reads, and what a
-/// scenario asks of them is only whether the read left the menu anything to light — see
-/// `Image::parses_the_unlocks`, which is where the clear that makes a failed read cost something is.
-const CLEARED: &[u8] = b"CLRD";
+/// A whole record and not a magic, because the gate is a count and not a flag: a record with the right magic
+/// and its clear counts at anything else is a record the front end reads as a game nobody has cleared, which
+/// is exactly what a failed read leaves behind — see `Image::parses_the_unlocks`. What the bytes *are* is
+/// `Image::cleared_record`'s, the layout being that file's business.
+fn cleared() -> Vec<u8> {
+    Image::cleared_record(the_run().shot_type)
+}
 
 /// One open of the score file: the name it landed in, and whether it was for writing.
 ///
@@ -147,7 +160,17 @@ const ASKED_SIZE: (i32, i32) = (646, 505);
 const LEFT: u8 = 0x25;
 const RIGHT: u8 = 0x27;
 
-/// Which key is which button, as the game's own configuration maps them.
+/// Which key is which button, which in 紅魔郷 is **not configurable at all**.
+///
+/// `Controller::GetInput` names every key in its own code — `VK_UP`, `'Z'`, `'X'`, `VK_SHIFT`, `VK_ESCAPE`
+/// and the numpad beside them on the `GetKeyboardState` branch, and the `DIK_` equivalents on the
+/// DirectInput one. `GameConfiguration`'s `controllerMapping` is the **pad's**, and the options screen that
+/// writes it offers nothing about the keyboard.
+///
+/// So this is the game's own map and not a configuration of it, and the six here are the six a run is played
+/// with. What the arrangement buys is that a scenario pressing `Z` at one of orb's questions and this game
+/// reading its shot key are the same key by construction — see [`LEFT`] for the two `orb_sim::keys` does not
+/// name.
 const MAP: [(u8, u16); 6] = [
     (keys::Z, button::SHOOT),
     (keys::X, button::BOMB),
@@ -157,8 +180,18 @@ const MAP: [(u8, u16); 6] = [
     (RIGHT, button::RIGHT),
 ];
 
-/// The lives, bombs and power a run starts a stage with.
-const FRESH: (i8, i8, u16) = (2, 3, 0);
+/// The lives, bombs and power a **run** starts with, which is 紅魔郷's own: the two and the three are
+/// `g_Supervisor.defaultConfig`'s, and the power a run begins with nothing of.
+///
+/// A run and not a stage. `GameManager::AddedCallback` writes `currentPower = 0` inside the branch it takes
+/// only when it is *not* reinitialising, and writes `livesRemaining` and `bombsRemaining` nowhere at all —
+/// what puts those two in place is the front end. So a stage transition carries all three, which is what
+/// [`stage_numbers_in_place`](Fake::stage_numbers_in_place) is split on.
+pub const FRESH: (i8, i8, u16) = (2, 3, 0);
+
+/// And where the power a run collects stops, which is 紅魔郷's own **128**: `ItemManager`'s own collection
+/// raises it one at a time and clamps there.
+const FULL_POWER: u16 = 128;
 
 /// When the fight this game's stage one has arrives, and when its boss puts a card up, in the stage's
 /// own frames.
@@ -181,6 +214,19 @@ pub const ATTACK_CHANGES: u32 = 700;
 /// and the game plays the second for the boss it ends with — what the timeline is doing says nothing,
 /// stage 3 parking on the same wait for its *midboss*.
 pub const STAGE_BOSS_ARRIVES: u32 = 900;
+
+/// What rank a run is started at, which is 紅魔郷's own **16**.
+///
+/// `g_DifficultyInfo` at `src/GameManager.cpp` holds `{rank, minRank, maxRank}` per difficulty and every one
+/// of the five has 16 as its rank — Easy's bounds are `{12, 20}` and Extra's `{14, 18}` where the other three
+/// are `{10, 32}`, so the difficulty decides how far rank can move and not where it starts. One number
+/// therefore covers whichever run a scenario declares.
+///
+/// Written in the branch `GameManager::AddedCallback` takes only when it is *not* reinitialising — after an
+/// earlier `rank = 8` in the same branch, which nothing between the two reads — so a stage transition carries
+/// the rank the run had reached. `minRank` and `maxRank` are written beside it and are not laid out: nothing
+/// above the game reads either.
+pub const RANK_AT_A_RUNS_START: i32 = 16;
 
 /// Which of the game's 64 spell card records its boss's card is. Any of them; what a scenario reads
 /// back is the count of attempts against this one.
@@ -365,16 +411,47 @@ const RESULT_FRAMES: i32 = 120;
 /// part of that screen is ever drawn. See `Th06::skip_replay_prompt`.
 const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 
-/// How far the player moves in a frame, and the field it is held inside — the field being 紅魔郷's own
-/// play area and the speed this game's.
+/// How far the player moves in a frame, which is this game's own.
 const SPEED: f32 = 4.0;
 
-/// How long a bomb's screen shake runs, which is 紅魔郷's own **80 frames**.
-const SHAKE_FRAMES: i32 = 80;
+/// And the box they are held inside, which is 紅魔郷's own `(8, 16)` and `(368, 416)` —
+/// `playerMovementAreaTopLeftPos` and `playerMovementAreaSize`, written in the branch
+/// `GameManager::AddedCallback` takes only when it is not reinitialising.
+///
+/// **Not the arcade region**, whose `(32, 16)` and `(384, 448)` sit beside them in the same branch and are a
+/// different rectangle: `Player::HandlePlayerInputs` clamps `positionCenter` to this one and
+/// `Player::AddedCallback` measures a stage's first position from *that* one. Which is why a screen shake can
+/// move where a stage starts the player and cannot move where they are allowed to go.
+pub const PLAYER_AREA_TOP_LEFT: (f32, f32) = (8.0, 16.0);
+pub const PLAYER_AREA_SIZE: (f32, f32) = (368.0, 416.0);
+
+/// How long a bomb's screen shake runs here, which is **one of the six 紅魔郷 has**.
+///
+/// `ScreenEffect::RegisterChain(SCREEN_EFFECT_SHAKE, …)` is called from six places in `src/BombData.cpp`
+/// with 16, 60, 80, 120, 60 and 200 frames — one bomb registers two of them at different moments of itself —
+/// so there is no such thing as *the* length of a bomb's shake. This is 80 because 80 is one of them and a
+/// scenario has to wait out whichever it gets; which bomb went off is the player's own code and none of it is
+/// here.
+pub const SHAKE_FRAMES: i32 = 80;
 
 /// How far it moves the arcade region, in pixels. This game's own: what a scenario reads of it is that
 /// the region is not where a stage left it, not how violent a bomb looks.
 const SHAKE_PIXELS: u16 = 8;
+
+/// What `Player::AddedCallback` leaves on the invulnerability count, what the spawning state ends at, and
+/// what the update that ends it puts there instead. All three 紅魔郷's own, `src/Player.cpp`.
+///
+/// **The 120 is not how long anything lasts.** `Player::OnUpdate`'s spawning branch tests
+/// `30 <= invulnerabilityTimer.AsFrames()`, so a stage's own 120 satisfies it on the very first update and
+/// the state is flipped there — with `SetCurrent(240)` under it, which is the count a stage is really played
+/// with. What the 120 does is make that flip happen immediately rather than 30 updates later, which is what
+/// a *death* gets: the timer is zeroed on the way into spawning there and ticks up to 30 first.
+///
+/// The 240 is `PLAYER_INVULNERABLE_FRAMES` read from the other end — orb writes the same number under the
+/// same state every update of a `--clear` run, and the measurement for it is beside that constant.
+const SPAWNS_WITH: i32 = 120;
+const SPAWNING_ENDS_AT: i32 = 30;
+pub const INVULNERABLE_AFTER_SPAWNING: i32 = 240;
 
 /// How far above the arcade region's foot a stage puts the player, which is 紅魔郷's own:
 /// `Player::AddedCallback` measures `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down.
@@ -382,7 +459,7 @@ const SHAKE_PIXELS: u16 = 8;
 /// Measured from the *arcade region* and not from the box the player is held inside, which is the whole
 /// reason a screen shake can reach the stage after the one that started it: a shake writes that region
 /// from the generator every frame, and nothing on the way into a stage puts it back.
-const PLAYER_STARTS_ABOVE: f32 = 64.0;
+pub const PLAYER_STARTS_ABOVE: f32 = 64.0;
 
 /// The run a launch is started for: Normal, Reimu A, from stage one.
 ///
@@ -489,6 +566,12 @@ pub struct Fake {
     refuses_the_acquire: Cell<bool>,
     /// What this game's chain walk answers, which a scenario changes to say the game is leaving.
     answers: Cell<i32>,
+    /// Every replay this game has written, as the file name and the name inside it — see
+    /// [`saves_its_replay`](Fake::saves_its_replay).
+    ///
+    /// Beside the memory rather than in it, for the same reason the score files are: what a scenario reads
+    /// back is whether a write happened and under which name, and both of those cross the call.
+    replays_written: RefCell<Vec<(String, String)>>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory. Last,
     /// and never dropped: see [`Fake::attach`].
     _installed: orb_api::Installed,
@@ -560,7 +643,7 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(Display::ordinary(), None, name, left, run, settings)
+        Self::attach_declaring(Display::ordinary(), None, name, left, run, true, settings)
     }
 
     /// And on a display a scenario says the whole of, for the ones the frame loop's pacing is about.
@@ -570,7 +653,7 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, name, &[], run, settings)
+        Self::attach_declaring(display, None, name, &[], run, true, settings)
     }
 
     /// And on a monitor a scenario says the whole of too, for the ones about the window orb makes.
@@ -583,7 +666,27 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(Display::ordinary(), Some(panel), name, &[], run, settings)
+        Self::attach_declaring(
+            Display::ordinary(),
+            Some(panel),
+            name,
+            &[],
+            run,
+            true,
+            settings,
+        )
+    }
+
+    /// And laid out with **no device**, which is what a process is before its Direct3D setup has run: orb
+    /// attaches there in a real launch and finds the device afterwards, through its hook over
+    /// `GameWindow::InitD3dDevice`. A game that had one already is a game that hook is never reached in — see
+    /// [`finds_its_device`](Fake::finds_its_device), which is the other half of this.
+    pub fn attach_before_its_device(
+        name: &str,
+        run: RunStart,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(Display::ordinary(), None, name, &[], run, false, settings)
     }
 
     fn attach_declaring(
@@ -592,6 +695,7 @@ impl Fake {
         name: &str,
         left: &[(&str, &str)],
         run: RunStart,
+        device: bool,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
         // The map above is only the game's if orb reads the same bits through its own masks.
@@ -622,14 +726,27 @@ impl Fake {
         }
         let mut config =
             Config::load_beside(&dir.join("th06.exe")).expect("a directory with no orb.yaml in it");
-        // The memory hooks patch an import table there is none of.
+        // The memory hooks patch an import table there is none of, and no scenario can turn them on: a game
+        // laid out by hand has no PE headers for `pe::import_slot` to walk, and one that grew a synthesized
+        // set would be a game standing in for a loader. What stands behind them instead is `hook.rs`'s own
+        // `an_imports_slot_is_swapped_and_what_was_there_comes_back`, over headers written out by hand.
         config.track_memory = false;
         settings(&mut config);
 
         let image = Image::laid_out_seeded(display.seed);
         let launch = Launch::new(dir, display.seed, config.own_frame_loop);
         let installed = image.enter();
-        image.shows_through(launch.device(), WINDOW);
+        // The window the game has made, and the device it shows through where a scenario says the setup has
+        // already run. A launch that says otherwise gets the window and no device, which is what a process is
+        // between `GameWindow::Create` and `InitD3dDevice`.
+        image.shows_through(
+            if device {
+                launch.device()
+            } else {
+                std::ptr::null_mut()
+            },
+            WINDOW,
+        );
         // Where the game is installed, which is where orb writes its log: beside the exe, because that
         // is where `orb.yaml` and the launcher are.
         image.sim().set_host_exe(launch.dir().join("th06.exe"));
@@ -661,11 +778,6 @@ impl Fake {
                 sim.windows().refuse_dpi_awareness();
             }
         }
-        // The arcade region, which the game writes where it sets its screen up and nothing writes again
-        // per stage: a stage's first position for the player is measured from it, and a screen shake is
-        // what moves it. Its own numbers rather than the play field's, as the game's are.
-        let field = Th06.play_area();
-        image.sets_the_arcade_region((field.left, field.top), (field.width, field.height));
         // And the game's own calls orb makes that a scenario reaches: a shake still running at a stage
         // move is taken down through `Chain::Cut`, and a track whose chapter has been left behind is
         // stopped and started again through `StopBGM` and `PlayAudio`.
@@ -699,7 +811,7 @@ impl Fake {
         // installation somebody has played is. In memory as well as in the file, because the read that
         // fills it is one the front end makes for itself — a menu built before any read would otherwise
         // be lit from a destination nothing had written.
-        image.parses_the_unlocks(CLEARED);
+        image.parses_the_unlocks(&cleared());
         // And the file both are in, under the name the game asks for. Only that one: orb's own is a file
         // that is not there until a ranking screen has written it, which is what makes its first open fail
         // the way a first launch's does.
@@ -707,7 +819,7 @@ impl Fake {
             SCORE_FILE.to_string_lossy().into_owned(),
             ScoreFile {
                 captures: unsafe { Th06.captures() },
-                unlocks: CLEARED.to_vec(),
+                unlocks: cleared(),
             },
         )]));
         // Where the game starts: its front end, on the title menu, on the item that starts a run — and not
@@ -715,6 +827,9 @@ impl Fake {
         // of the score file: `MainMenu::AddedCallback` is where it happens and being built is what calls it,
         // so a game whose menu was there from nothing would never make the one open whose answer is the
         // game's own file whatever the mode.
+        // `Supervisor::RegisterChain`, which is the chain's first job and the one every other goes in above:
+        // a game with none of it is a game whose walk runs nothing at all.
+        image.registers_the_supervisor();
         image.supervising(Supervising {
             running: Scene::FrontEnd,
             wanted: Scene::Other(0),
@@ -749,6 +864,7 @@ impl Fake {
             keyboard_acquires: Cell::new(0),
             refuses_the_acquire: Cell::new(false),
             answers: Cell::new(CHAIN_CARRIED_ON),
+            replays_written: RefCell::new(Vec::new()),
             _installed: installed,
         });
         RUNNING.set(&raw const *fake);
@@ -773,6 +889,9 @@ impl Fake {
                     stop_recording,
                     create_game_window: game_window_create,
                     joystick_position,
+                    get_controller_input,
+                    save_replay,
+                    init_d3d_device,
                 },
             )
         };
@@ -846,6 +965,53 @@ impl Fake {
         self.hit.set(true);
     }
 
+    /// The game writing its replay out, which is what `ResultScreen`'s save screen does once somebody has
+    /// named one: `ReplayManager::SaveReplay(replayPath, this->replayName)` at `src/ResultScreen.cpp`.
+    ///
+    /// A scenario saying so, the way it says the player was hit. The screen itself is not here — orb writes
+    /// that screen's state *past* the question rather than answering it, which is
+    /// `scenario_a_clear_on_demand.rs`'s subject — so the one thing a scenario needs of it is the call, and
+    /// this is the call.
+    pub fn saves_its_replay(&self) {
+        orb::save_replay(REPLAY_FILE.as_ptr().cast(), REPLAY_NAME.as_ptr().cast());
+    }
+
+    /// Every replay this game has written, as the file name and the name inside it.
+    pub fn replays_written(&self) -> Vec<(String, String)> {
+        self.replays_written.borrow().clone()
+    }
+
+    /// The game's Direct3D setup finished: the device in its memory, and `GameWindow::InitD3dDevice` called
+    /// over it.
+    ///
+    /// Through orb's hook over that function, which is what redirects the device's `Present` before anything
+    /// is presented through it — and the device goes in *first*, because that is the order the game has:
+    /// `InitD3dDevice` only ever sets render states on a device that already exists, called from
+    /// `GameWindow::Create`'s tail and again after every `Reset`.
+    ///
+    /// Only for a launch that said it had no device to begin with — see
+    /// [`attach_before_its_device`](Fake::attach_before_its_device).
+    pub fn finds_its_device(&self) {
+        let device = self.launch.device();
+        // The device's own vtable, in this space as well as in this process. orb redirects the `Present`
+        // slot inside that hook and `hook::replace_pointer` reads and writes the slot through
+        // `orb_api::mem` — which behind the seam is this space, so a slot that was only in the process is
+        // a read of an address nothing has mapped.
+        //
+        // Its real bytes copied in, so what orb reads out of the slot is the pointer that is really there.
+        // What it writes lands in the copy and not in the process's own vtable, and nothing calls the
+        // device's `Present` here — the frame loop calls this game's own, which is an `Originals` entry.
+        let vtable = unsafe { (*device).vtable } as usize;
+        let bytes = size_of::<orb_core::d3d8::DeviceVtable>();
+        let space = self.image.space();
+        space.map(vtable, bytes, orb_api::Kind::Image);
+        space.write_bytes(vtable, unsafe {
+            std::slice::from_raw_parts(vtable as *const u8, bytes)
+        });
+        self.image.shows_through(device, WINDOW);
+        orb::init_d3d_device();
+    }
+
     /// How many times orb has taken this game's music down through its own `StopBGM`.
     pub fn music_stops(&self) -> u32 {
         self.music_stops.get()
@@ -883,10 +1049,26 @@ impl Fake {
     ///
     /// A scenario saying so, the way it says the player was hit — the four bombs are the player's own code
     /// and none of it is here. What is here is `ScreenEffect::ShakeScreen` registered as a job of the
-    /// chain's, and the [`SHAKE_FRAMES`] it writes the arcade region from the generator over.
+    /// chain's, the [`SHAKE_FRAMES`] it writes the arcade region from the generator over, and the bomb the
+    /// run has one fewer of: `Player::OnUpdate` spends one where it starts one, and only where there is one
+    /// to spend.
     pub fn bombs(&self) {
+        let left = self.image.playing_now().bombs;
+        if left > 0 {
+            self.image.set_bombs(left - 1);
+        }
         self.shake_frames.set(SHAKE_FRAMES);
         self.image.shakes_the_screen();
+    }
+
+    /// A power item collected, which raises the run's power by one and stops at the game's own
+    /// [`FULL_POWER`].
+    ///
+    /// A scenario saying so, the way it says the player was hit: there are no items here, so the
+    /// collection is a scenario's word for it where in a real run it is a scenario flying over one.
+    pub fn collects_a_power_item(&self) {
+        let power = self.image.playing_now().power;
+        self.image.set_power((power + 1).min(FULL_POWER));
     }
 
     /// Puts a bullet where the player is and leaves it there, so that every update from here on runs its
@@ -935,6 +1117,7 @@ impl Fake {
     /// the file is.
     pub fn streams_its_song(&self, heard_at: i32) {
         let sound = orb_sim::Sound::of(
+            self.sim(),
             sound_of(STREAMED_TRACK.length),
             STREAM_BUFFER,
             STREAM_NOTIFY,
@@ -1071,6 +1254,15 @@ impl Fake {
     /// panel, and with it `g_Gui`'s job in the draw chain, stands until the front end is built on the
     /// frame after: that one frame is what this exists to make reachable.
     ///
+    /// **Those two screens are refused rather than deferred**, and this is where somebody would be tempted
+    /// back to them. Having them would make `GameManager::OnUpdate`'s early `CHAIN_CALLBACK_RESULT_BREAK`
+    /// reachable — `isInGameMenu` or `isInRetryMenu` set is a walk that stops at chain priority 4, before
+    /// the stage, the player and the bullets — and that break arrives for free the day `Fake::update` is a
+    /// walk over priority-ordered jobs. Which is where it belongs: a menu of the game's own laid out here
+    /// would be two screens of cursor arithmetic standing in for two screens of cursor arithmetic, and the
+    /// one thing above the game that reads either is the pair of flags `read_state` turns into `paused`.
+    /// `docs/adr/0008`'s *What was weighed and rejected* is the whole of the reasoning.
+    ///
     /// Not a key, deliberately. The pause button is outside [`MAP`] on purpose — a resume feeding it back
     /// would open a menu instead of playing — and the cancel the front end reads is the bomb key, which
     /// during a stage is a bomb and not a way out.
@@ -1096,6 +1288,17 @@ impl Fake {
     /// game started.
     pub fn forget_score_file_opens(&self) {
         self.opens.borrow_mut().clear();
+    }
+
+    /// Takes the game's own score file away, which is what a fresh installation looks like: every read of it
+    /// fails, the front end's own among them.
+    ///
+    /// Before the launch's first frame, because that is the only moment it can be — the front end is built on
+    /// it and its read of the file is inside that build.
+    pub fn has_no_score_file(&self) {
+        self.files
+            .borrow_mut()
+            .remove(&SCORE_FILE.to_string_lossy().into_owned());
     }
 
     /// The record of spell cards the file of that name holds, or `None` for a file that is not there —
@@ -1222,40 +1425,151 @@ impl Fake {
         });
     }
 
-    /// The whole of what the game does in one update, in the order 紅魔郷 does it: its supervisor
-    /// first, which is the only reader of the keyboard, and then the jobs that supervisor registered.
-    fn update(&self) {
+    /// The whole of what the game does in one update: `Chain::RunCalcChain` over the jobs its scenes have
+    /// registered, in the order their priorities put them in.
+    fn update(&self) -> i32 {
         // What the frame's own work costs, which is the game's and not orb's: the update, the sounds
         // handed over after it and the draw, as one span, since what the pacing is judged on is how long
         // a frame took between its turn and being handed over. Nothing by default — a laid-out game
         // walks a few writes — and a scenario about the rate says the size and its unevenness. See
         // `frame_takes`.
         self.sim().clock().advance_micros(self.work_this_frame());
-        // `Supervisor::OnUpdate`'s first act: `g_LastFrameInput = g_CurFrameInput; g_CurFrameInput =
-        // GetInput()`. Through orb's hook, which is where a run's buttons are written down and where
-        // a run being played back into place is handed the ones it pressed.
-        let last = self.image.input_now();
+        self.runs_the_calc_chain()
+    }
+
+    /// `Chain::RunCalcChain`: every job of the calc list in turn, and what the walk does with each answer.
+    ///
+    /// **The list is walked live out of the game's own memory** rather than collected first, and that is the
+    /// whole of what makes a scene's first update fall on the frame it was built: the supervisor is the
+    /// first job and everything it registers goes in above its own priority, so a job registered from
+    /// inside this loop is linked behind the position the loop has reached and the loop goes on to it. See
+    /// `scenario_the_frame_a_scene_is_built_on.rs`.
+    ///
+    /// Answers the count of jobs it ran, as the game's own does, and the three ends of a walk answer what
+    /// 紅魔郷 answers: zero for a job asking the game to stop, one for a break, `-1` for a failure. Which is
+    /// the mapping orb reads — see [`CHAIN_LEFT`] and [`CHAIN_FAILED`], and [`CHAIN_CARRIED_ON`] for why a
+    /// count above zero is a walk that carried on.
+    fn runs_the_calc_chain(&self) -> i32 {
+        'restart: loop {
+            let mut ran = 0;
+            let mut at = self.image.calc_chain_head();
+            while at != 0 {
+                assert!(
+                    ran <= CHAIN_JOBS,
+                    "this game's calc chain has run {ran} job(s), which is more than it has",
+                );
+                let callback = self.image.chain_callback(at);
+                if callback == 0 {
+                    at = self.image.chain_next(at);
+                    continue;
+                }
+                // `EXECUTE_AGAIN` is answered by no job here and by none in 紅魔郷 either — only the walk's
+                // own switch names it — so this loop is here because the walk has it and not because
+                // anything needs it.
+                let answered = loop {
+                    match self.job(callback) {
+                        chain_result::AGAIN => continue,
+                        answer => break answer,
+                    }
+                };
+                match answered {
+                    chain_result::REMOVED => {
+                        // The game's own order: the one after is read before the element is cut, cutting it
+                        // being what clears its links.
+                        let next = self.image.chain_next(at);
+                        self.image.cuts_from_the_chain(at);
+                        ran += 1;
+                        at = next;
+                        continue;
+                    }
+                    chain_result::EXITS => return CHAIN_LEFT,
+                    chain_result::BREAKS => return CHAIN_BROKE,
+                    chain_result::FAILED => return CHAIN_FAILED,
+                    // `ReplayManager::OnUpdateDemo` is the one job in 紅魔郷 that answers this, and the
+                    // demo's own job is not laid out here.
+                    chain_result::RESTARTS => continue 'restart,
+                    _ => {}
+                }
+                ran += 1;
+                at = self.image.chain_next(at);
+            }
+            return ran;
+        }
+    }
+
+    /// Which job an element's callback names, and that job run.
+    ///
+    /// The callbacks are 紅魔郷's own addresses, because that is what orb matches on: `cut_screen_shake`
+    /// finds a shake by `ScreenEffect::ShakeScreen`'s address and `chain_argument` finds the ending and the
+    /// result screen by theirs. So the element holds the game's address and this is where it becomes one of
+    /// this game's own functions.
+    /// The argument the walk would hand a job is not passed on: what each of these reaches the game
+    /// through is `self`, and what the element's `arg` is *for* is orb finding the object by it.
+    fn job(&self, callback: usize) -> i32 {
+        match callback {
+            chain_job::SUPERVISOR => self.supervisor(),
+            chain_job::FRONT_END => self.front_end(),
+            chain_job::GAMEPLAY => self.stage(),
+            chain_job::ENDING => self.ending(),
+            // One job for the two, because in 紅魔郷 they are one screen: the *Score* item and a run's own
+            // end both reach `SUPERVISOR_STATE_RESULTSCREEN`, and what tells them apart here is the scene.
+            chain_job::RESULT_SCREEN => match self.image.scene() {
+                Scene::Ranking => self.ranking(),
+                _ => self.result(),
+            },
+            chain_job::SCREEN_EFFECT => self.shakes_the_screen(),
+            other => {
+                panic!(
+                    "a job of this chain has {other:#010x} as its callback, which is no job of it"
+                )
+            }
+        }
+    }
+
+    /// `Supervisor::OnUpdate` at chain priority 0: the keyboard read, the scene that has been asked for
+    /// built, and the copy that makes the next one a change nobody has acted on.
+    fn supervisor(&self) -> i32 {
+        // Its first act: `g_LastFrameInput = g_CurFrameInput; g_CurFrameInput = Controller::GetInput()`.
+        // Through orb's hook over that read, which is where a run's buttons are written down and where a
+        // run being played back into place is handed the ones it pressed.
+        self.image.last_input(self.image.input_now());
+        // The pad is read inside that, where the game reads it: `Controller::GetInput` tail-calls
+        // `GetControllerInput` and orb's hook over the read is what decides whether either happens at all —
+        // a frame whose word orb drops is a frame the joystick is not asked on, in a real launch too.
         let word = orb::get_input();
-        self.reads_its_joystick();
-        // And the replay manager's own job over the top of it, where one is playing back: the read still
-        // happened and orb's hook over it is still in the path, and what the update acts on is the record.
+        // And the replay manager's record over the top of it, where one is playing back. **Here rather than
+        // as a job of its own**, which is where 紅魔郷 has it: `ReplayManager::OnUpdate` is priority 15 and
+        // `OnUpdateDemo` 5 or 16. A declared divergence, and the reason is that nothing can tell: the word
+        // the stage acts on is the record's either way, and the stage's job is the only reader of it.
         let word = match self.replayed_input() {
             Some(recorded) => recorded,
             None => word,
         };
         self.image.input(word);
-        let pressed = |mask: u16| word & mask != 0 && word & mask != last & mask;
 
         // What has been asked for and not built yet, which the supervisor builds here.
         let supervisor = self.image.supervising_now();
-        let building = supervisor.wanted != supervisor.running;
-        if building {
+        if supervisor.wanted != supervisor.running {
             // `GameManager::DeletedCallback` first, where what is being replaced is a stage: whatever
             // scene comes next, the stage's own jobs are cut and the run's recording is ended.
             if supervisor.wanted == Scene::Playing {
                 self.tears_the_stage_down();
             }
+            // And `ReplayManager::SaveReplay(NULL, NULL)` on the way from a run to the front end, which is
+            // the teardown half of that function — the record's blocks freed and the manager's own job cut.
+            // `Supervisor::OnUpdate` has it on each of those paths and on none of the others.
+            if supervisor.running == Scene::FrontEnd
+                && matches!(supervisor.wanted, Scene::Playing | Scene::Result)
+            {
+                orb::save_replay(std::ptr::null(), std::ptr::null());
+            }
             self.build(supervisor.running);
+            // And the word the scene built on this frame is updated with: **nothing**, which is the last act
+            // of the state switch — `g_CurFrameInput = g_LastFrameInput = g_IsEigthFrameOfHeldInput = 0`, and
+            // only where a transition happened. Both halves of it, because a word zeroed with the frame
+            // before it left standing would make the same button a press already spent on the frame after.
+            self.image.input(0);
+            self.image.last_input(0);
         }
         // And its last act, before any other job runs: the copy that makes a scene written by one of
         // those jobs a change that has been asked for and not acted on. Every one-frame window orb
@@ -1264,24 +1578,24 @@ impl Fake {
             running: self.image.scene(),
             wanted: self.image.scene(),
         });
-        // The jobs the supervisor has registered — but not the ones it registered on this very frame:
-        // what it has just built has not been updated yet, which is what `resume::stage_begun` rests
-        // on and what makes that moment the one place a stage's numbers can be written over.
-        if building {
-            return;
+        // The game leaving, where a scenario said so: the two ways out of a walk are answers a *job* gives,
+        // and this is the job that gives them — `CHAIN_CALLBACK_RESULT_EXIT_GAME_SUCCESS` where the
+        // supervisor has nothing left to run, and the error beside it.
+        match self.answers.get() {
+            CHAIN_LEFT => chain_result::EXITS,
+            CHAIN_FAILED => chain_result::FAILED,
+            _ => chain_result::CONTINUES,
         }
+    }
 
-        match self.image.scene() {
-            Scene::FrontEnd => self.front_end(&pressed),
-            Scene::Playing => self.stage(word, &pressed),
-            Scene::Ending => self.ending(),
-            Scene::Result => self.result(),
-            Scene::Ranking => self.ranking(&pressed),
-            // The one frame a stage transition takes is spent building the stage after, which is the
-            // arm above this: the scene is only ever read here on a frame `build` has already returned
-            // early from.
-            Scene::Rebuilding | Scene::Other(_) => {}
-        }
+    /// `WAS_PRESSED`: a button in the word this frame was handed and not in the one before it.
+    ///
+    /// Read out of `g_CurFrameInput` and `g_LastFrameInput` rather than carried into each job, because that
+    /// is what they are — two globals every job of the chain works its own presses out against.
+    fn pressed(&self, mask: u16) -> bool {
+        let word = self.image.input_now();
+        let last = self.image.last_input_now();
+        word & mask != 0 && word & mask != last & mask
     }
 
     /// What the supervisor does with a scene that has been asked for: takes down what was running and
@@ -1290,6 +1604,11 @@ impl Fake {
         match scene {
             // `MainMenu::RegisterChain`, which starts the screen it comes up on from nothing.
             Scene::FrontEnd => {
+                // The gameplay scene's own job out of the chain — `GameManager::CutChain`, which
+                // `Supervisor::OnUpdate` calls on every path from a run back to the menu — and the menu's own
+                // in, at priority 2.
+                self.image.cuts_the_gameplay_scene();
+                self.image.registers_the_front_end();
                 let front = self.image.front_end_now();
                 self.image.front_end(FrontEnd { frames: 0, ..front });
                 // Whatever run was on screen is over, the attract demo among them: the flag that tells one
@@ -1308,12 +1627,21 @@ impl Fake {
             // `GameManager::AddedCallback`, which is where a stage's numbers are put in place and
             // inside which the stage itself is built.
             Scene::Playing => {
+                // `MainMenu::DeletedCallback` first, which is the front end's job cut, and then
+                // `GameManager::RegisterChain` linking `g_GameManagerCalcChain` at priority 4 — the added
+                // callback below runs from inside `AddToCalcChain`, which is why it is registered first.
+                self.image.cuts_the_front_end();
+                self.image.registers_the_gameplay_scene();
                 orb::stage_begun(self.image.game_manager_object() as *mut c_void);
             }
             // `GameManager::Reinit`: the same callback for the stage after this one, and the whole of
             // what a transition is — one frame, with the next stage built inside it, which is why the
             // scene goes straight back to a stage being played.
             Scene::Rebuilding => {
+                // `GameManager::CutChain` and then `GameManager::RegisterChain` again, which is the same
+                // static element registered a second time — and what its own links are checked out against.
+                self.image.cuts_the_gameplay_scene();
+                self.image.registers_the_gameplay_scene();
                 orb::stage_begun(self.image.game_manager_object() as *mut c_void);
                 self.image.supervising(Supervising {
                     running: Scene::Playing,
@@ -1327,6 +1655,7 @@ impl Fake {
             // nothing. It comes up on the question about saving a replay, which is what the screen does
             // with a run that finished — and the state orb writes over for a run that has chapters.
             Scene::Result => {
+                self.image.cuts_the_gameplay_scene();
                 let front = self.image.front_end_now();
                 self.image.front_end(FrontEnd { frames: 0, ..front });
                 self.image
@@ -1335,6 +1664,11 @@ impl Fake {
             }
             // `Ranking::AddedCallback`, whose read of the score file fills the record of captures.
             Scene::Ranking => {
+                // The front end's job out and the screen's own in, which is the same element and the same
+                // callback a finished run's result screen registers: `ResultScreen::RegisterChain(NULL)`,
+                // one screen in 紅魔郷 reached two ways.
+                self.image.cuts_the_front_end();
+                self.image.registers_the_ranking();
                 unsafe { orb::ranking_read(self.image.ranking_screen() as *mut c_void) };
                 self.image.cuts_gui_from_the_draw_chain();
             }
@@ -1347,11 +1681,12 @@ impl Fake {
     /// Only the two orb has a question over. The difficulty and the character select are between them
     /// in the real game and orb asks nothing at either, so choosing `Game Start` here arrives at the
     /// shot type select with both already answered — which is what `chose` writes.
-    fn front_end(&self, pressed: &impl Fn(u16) -> bool) {
+    fn front_end(&self) -> i32 {
         // Its cursor, which every one of its screens has and only the title menu's is walked here:
         // `image::item` names the two items orb has a question about, and the ranking is one of them.
         let stepped = |cursor: i32| {
-            let moved = cursor - i32::from(pressed(button::UP)) + i32::from(pressed(button::DOWN));
+            let moved = cursor - i32::from(self.pressed(button::UP))
+                + i32::from(self.pressed(button::DOWN));
             moved.clamp(0, TITLE_ITEMS - 1)
         };
         // Its screens draw from the generator too, which is why the seed a stage is built with is
@@ -1365,7 +1700,7 @@ impl Fake {
         });
 
         let front = self.image.front_end_now();
-        let decide = pressed(Th06.menu_decide()) && front.acts_on_a_press();
+        let decide = self.pressed(Th06.menu_decide()) && front.acts_on_a_press();
         let (front, asked) = match front.screen {
             // The three items that start a run go through the difficulty and character selects; the
             // ranking is a state of the front end's own, which is also what orb asks for on the way
@@ -1411,7 +1746,7 @@ impl Fake {
             Screen::ShotType if decide => (front, Some(Scene::Playing)),
             // And back where it came from, which for the real screen is the character select and for
             // this game is the title menu: the two screens between them are ones orb asks nothing at.
-            Screen::ShotType if pressed(Th06.menu_cancel()) => (
+            Screen::ShotType if self.pressed(Th06.menu_cancel()) => (
                 FrontEnd {
                     screen: Screen::Title,
                     cursor: item::GAME_START,
@@ -1437,6 +1772,7 @@ impl Fake {
                 wanted: Scene::FrontEnd,
             });
         }
+        chain_result::CONTINUES
     }
 
     /// One frame of a stage: its clocks, its generator, its player, and whatever its script has
@@ -1446,16 +1782,17 @@ impl Fake {
     /// nothing else can carry it: `Player::OnUpdate` is priority 7 and the bullets are checked at 11, so
     /// an invulnerability written for this update has to survive the player's own update to be there
     /// when the hit test runs. See [`update_the_player`](Fake::update_the_player).
-    fn stage(&self, word: u16, pressed: &impl Fn(u16) -> bool) {
+    fn stage(&self) -> i32 {
+        let word = self.image.input_now();
         // The attract demo, which any press leaves — and the press is spent on leaving it, never reaching
         // the menu underneath. Before anything else this update does, since a demo somebody has pressed a
         // key at is not a stage that goes on being played.
-        if self.state().demo && pressed(Th06.menu_decide() | Th06.menu_cancel()) {
+        if self.state().demo && self.pressed(Th06.menu_decide() | Th06.menu_cancel()) {
             self.image.supervising(Supervising {
                 running: Scene::FrontEnd,
                 wanted: Scene::Playing,
             });
-            return;
+            return chain_result::CONTINUES;
         }
         let mut run = self.image.playing_now();
         let mut moving = self.image.reproducing_now();
@@ -1479,10 +1816,6 @@ impl Fake {
         if run.frames <= PANEL_FRAMES {
             self.image.repaints_the_whole_panel();
         }
-
-        // `ScreenEffect::ShakeScreen`, which is a job of the chain's like any other and draws from the
-        // generator to do its work — which is why it cannot be left running across a stage move.
-        moving = self.shakes_the_screen(moving);
 
         // `Player::OnUpdate`, at chain priority 7.
         self.update_the_player();
@@ -1546,7 +1879,7 @@ impl Fake {
                 running: Scene::Result,
                 wanted: Scene::Playing,
             });
-            return;
+            return chain_result::CONTINUES;
         }
         // `esc` and then やめる, as a job of the stage's own: `StageMenu::OnUpdateGameMenu` writes the
         // scene the front end runs in, and the supervisor has already made its copy for this frame — so
@@ -1556,7 +1889,7 @@ impl Fake {
                 running: Scene::FrontEnd,
                 wanted: Scene::Playing,
             });
-            return;
+            return chain_result::CONTINUES;
         }
         // The stage over, where a scenario said how long one is. A transition goes through the scene the
         // game rebuilds its manager in and the last stage hands over to the ending instead — never to a
@@ -1571,6 +1904,7 @@ impl Fake {
                 self.enters_the_ending();
             }
         }
+        chain_result::CONTINUES
     }
 
     /// What the replay's own record says was held on the frame this update is about to play, or `None`
@@ -1605,30 +1939,57 @@ impl Fake {
     /// stream a replay has to match, and the region they land in is what a stage's first position for the
     /// player is measured from. The region goes back where it belongs on the frame the shake takes itself
     /// down — which is exactly what a shake removed early has not done yet.
-    fn shakes_the_screen(&self, mut moving: Reproducing) -> Reproducing {
+    fn shakes_the_screen(&self) -> i32 {
+        // A job of the chain reached because it is *in* the chain, which is the whole of what a shake still
+        // running is: orb takes one down at a stage move through `Chain::Cut`, and the frames it had left
+        // are not what decides whether the walk gets here.
         let left = self.shake_frames.get();
         if left <= 0 {
-            return moving;
+            return chain_result::CONTINUES;
         }
         self.shake_frames.set(left - 1);
         let field = Th06.play_area();
-        let mut shaken = [0.0; 2];
-        for at in &mut shaken {
-            moving.seed = drawn_from(moving.seed);
-            moving.randoms += 1;
-            *at = f32::from(moving.seed % SHAKE_PIXELS);
-        }
+        // The frame it removes itself on, which draws nothing: `timer >= effectLength` puts the region back
+        // and returns `CHAIN_CALLBACK_RESULT_CONTINUE_AND_REMOVE_JOB` before the offset is worked out at
+        // all. **The walk is what cuts it**, not the job — which is why nothing here calls `Chain::Cut`.
         if left == 1 {
             self.image
                 .sets_the_arcade_region((field.left, field.top), (field.width, field.height));
-            self.image.cuts_the_shake_from_the_chain();
-            return moving;
+            return chain_result::REMOVED;
         }
-        self.image.sets_the_arcade_region(
-            (field.left + shaken[0], field.top + shaken[1]),
-            (field.width - shaken[0], field.height - shaken[1]),
-        );
-        moving
+        // And every other frame: **one of three cases per axis**, chosen by `GetRandomU32InRange(3)`. Two
+        // numbers each, because `GetRandomU32` is two `GetRandomU16`s and each of those raises
+        // `generationCount` — so four a frame, which is what a replay's stream has to match.
+        let mut moving = self.image.reproducing_now();
+        let case = |moving: &mut Reproducing| {
+            let mut drawn = 0u32;
+            for _ in 0..2 {
+                moving.seed = drawn_from(moving.seed);
+                moving.randoms += 1;
+                drawn = (drawn << 16) | u32::from(moving.seed);
+            }
+            drawn % 3
+        };
+        let across = case(&mut moving);
+        let down = case(&mut moving);
+        self.image.reproducing(moving);
+        // How far each case moves it. The game ramps this from one of the effect's parameters to the other
+        // over the shake's own frames; this is a constant of this game's own — see [`SHAKE_PIXELS`] — since
+        // what a scenario reads of it is that the region is not where a stage left it.
+        let offset = f32::from(SHAKE_PIXELS);
+        let (left_edge, width) = match across {
+            0 => (field.left, field.width),
+            1 => (field.left + offset, field.width - offset),
+            _ => (field.left, field.width - offset),
+        };
+        let (top_edge, height) = match down {
+            0 => (field.top, field.height),
+            1 => (field.top + offset, field.height - offset),
+            _ => (field.top, field.height - offset),
+        };
+        self.image
+            .sets_the_arcade_region((left_edge, top_edge), (width, height));
+        chain_result::CONTINUES
     }
 
     /// `Player::OnUpdate`, at chain priority 7: the player's state moved on one frame.
@@ -1637,20 +1998,37 @@ impl Fake {
     /// update, 0x428... onwards — which is why `make_invulnerable` writes the frames left and not only
     /// the state: a state written with the frames the last respawn left under it is a player who is
     /// killable again by the time the bullets are checked at priority 11.
+    ///
+    /// **Two `if`s and not two arms of one match**, because that is what the game has and the difference is
+    /// a whole frame of the count: the spawning branch flips the state and the countdown below it runs in
+    /// the same update, so a stage's own first update ends on `INVULNERABLE_AFTER_SPAWNING - 1`.
     fn update_the_player(&self) {
-        match self.image.player_now() {
-            Player::Invulnerable => {
-                let left = self.image.invulnerable_frames() - 1;
-                self.image.set_invulnerable_frames(left.max(0));
-                if left <= 0 {
-                    self.image.player(Player::Normal);
-                }
+        // The frames after a death, which the real game spends on the animation — 30 of them dying, 30
+        // spawning, then the same count as below. Here it is one frame: orb freezes the game on the frame
+        // the death is noticed, so nothing but a retry or a run given up ever follows one — and a retry
+        // puts the player back with the rest of `.data`.
+        if self.image.player_now() == Player::Dying {
+            self.image.player(Player::Normal);
+        }
+        // The spawning branch, whose own test is `30 <= invulnerabilityTimer.AsFrames()`: a stage's start
+        // satisfies it at once, so the state lasts this one update and what it leaves under the next one is
+        // [`INVULNERABLE_AFTER_SPAWNING`] rather than the count the callback wrote.
+        if self.image.player_now() == Player::Spawning {
+            if self.image.invulnerable_frames() >= SPAWNING_ENDS_AT {
+                self.image.player(Player::Invulnerable);
+                self.image
+                    .set_invulnerable_frames(INVULNERABLE_AFTER_SPAWNING);
+            } else {
+                self.image
+                    .set_invulnerable_frames(self.image.invulnerable_frames() + 1);
             }
-            // The frames after a death, which the real game spends on the animation. Here it is one
-            // frame: orb freezes the game on the frame the death is noticed, so nothing but a retry or a
-            // run given up ever follows one — and a retry puts the player back with the rest of `.data`.
-            Player::Dying | Player::Spawning => self.image.player(Player::Normal),
-            Player::Normal => {}
+        }
+        if self.image.player_now() == Player::Invulnerable {
+            let left = self.image.invulnerable_frames() - 1;
+            self.image.set_invulnerable_frames(left.max(0));
+            if left <= 0 {
+                self.image.player(Player::Normal);
+            }
         }
     }
 
@@ -1673,11 +2051,20 @@ impl Fake {
         // The gameplay scene's draw jobs go with it, `g_Gui`'s among them, which is the panel off the
         // screen.
         self.image.cuts_gui_from_the_draw_chain();
+        // `GameManager::CutChain` and `Ending::RegisterChain`: the run's job out and the ending's in at
+        // priority 3. **Always**, an ending that is running being an ending with a job — what
+        // `lays_out_an_ending_orb_cannot_find` leaves out is the *script* in the object, which is what
+        // `ending_script` reads through and what an ending already torn down has none of.
+        self.image.cuts_the_gameplay_scene();
         if let Some(ending) = self.ending.get() {
             if ending.found {
                 self.image.registers_the_ending();
+            } else {
+                self.image.registers_the_ending_without_its_script();
             }
             self.image.plays_a_track(ENDING_TRACK);
+        } else {
+            self.image.registers_the_ending_without_its_script();
         }
         self.image.supervising(Supervising {
             running: Scene::Ending,
@@ -1694,7 +2081,7 @@ impl Fake {
     ///
     /// Where no ending has been laid out, the scene and nothing in it: a cleared run passes through in
     /// [`ENDING_FRAMES`] frames on the way to its result.
-    fn ending(&self) {
+    fn ending(&self) -> i32 {
         let front = self.image.front_end_now();
         let frames = front.frames + 1;
         self.image.front_end(FrontEnd { frames, ..front });
@@ -1702,7 +2089,7 @@ impl Fake {
             if frames >= ENDING_FRAMES {
                 self.leaves_the_ending();
             }
-            return;
+            return chain_result::CONTINUES;
         };
         // The ending's last act: `@Fdata/staff00.end` read over the script that was running, with the
         // roll's own track started on the same update. Both on one update because that is where they are
@@ -1717,6 +2104,7 @@ impl Fake {
         if frames >= ending.waits + ending.roll_waits {
             self.leaves_the_ending();
         }
+        chain_result::CONTINUES
     }
 
     /// The scene taken down and the result screen asked for, which is what follows an ending either way.
@@ -1739,7 +2127,7 @@ impl Fake {
     /// "no replay is offered" is, is this screen's state having been written past the question — orb does
     /// that rather than answering the question, because answering it means playing out a fade — and what
     /// says the question was never put to anybody is that no frame of it was ever drawn.
-    fn result(&self) {
+    fn result(&self) -> i32 {
         let front = self.image.front_end_now();
         self.image.front_end(FrontEnd {
             frames: front.frames + 1,
@@ -1760,6 +2148,7 @@ impl Fake {
                 wanted: Scene::Result,
             });
         }
+        chain_result::CONTINUES
     }
 
     fn advance_the_attack(&self) {
@@ -1775,9 +2164,9 @@ impl Fake {
     /// The ranking screen: it leaves when it is told to, or when somebody presses back, and putting
     /// the scene and the front end's own state back is its own doing. Going down is what writes the
     /// file.
-    fn ranking(&self, pressed: &impl Fn(u16) -> bool) {
-        if !self.image.ranking_screen_leaving() && !pressed(Th06.menu_cancel()) {
-            return;
+    fn ranking(&self) -> i32 {
+        if !self.image.ranking_screen_leaving() && !self.pressed(Th06.menu_cancel()) {
+            return chain_result::CONTINUES;
         }
         // Going down is what writes the file, which is the whole reason orb walks a run through this
         // screen: what the run counted is in memory and nowhere else until this happens. Written whether a
@@ -1790,10 +2179,14 @@ impl Fake {
             frames: 0,
             ..front
         });
+        // And the screen's own job out of the chain with it, which is the same element a finished run's
+        // screen registers: one screen in 紅魔郷 and so one element here.
+        self.image.cuts_the_result_screen();
         self.image.supervising(Supervising {
             running: Scene::FrontEnd,
             wanted: Scene::Ranking,
         });
+        chain_result::CONTINUES
     }
 
     /// What the game draws of its own.
@@ -1831,7 +2224,12 @@ impl Fake {
         if !self.draws_the_menu.get() || self.image.front_end_now().screen != Screen::Title {
             return;
         }
-        let unlocked = self.image.unlocks().iter().any(|byte| *byte != 0);
+        // `GameManager::HasReachedMaxClears`, asked of every record rather than of one: what the item says
+        // is that there is an Extra to reach at all, and the game's own Extra character select asks the same
+        // question of each of the two shots a character has — `MainMenu.cpp`'s
+        // `HasReachedMaxClears(character, 0) || HasReachedMaxClears(character, 1)`.
+        let unlocked = (0..2)
+            .any(|character| (0..2).any(|shot| self.image.has_reached_max_clears(character, shot)));
         for (row, name) in TITLE_MENU.iter().enumerate() {
             if row as i32 == item::EXTRA && !unlocked {
                 continue;
@@ -1934,14 +2332,24 @@ impl Fake {
 
     /// `GameManager::AddedCallback`: the stage's numbers in place, and the stage built out of them.
     ///
-    /// Its read of the score file's record of spell cards is here too, where the real one parses
+    /// **One function reached two ways**, and the whole of the difference is its own first condition:
+    /// `g_Supervisor.curState != SUPERVISOR_STATE_GAMEMANAGER_REINIT`. A run's first stage takes that
+    /// branch and a transition takes the two-line `else` the game's own is — `guiScore = score`, which is
+    /// one number here, and `nextScoreIncrement = 0`, which is not modelled — so what a transition does is
+    /// carry the run. See [`a_run_starts_here`](Fake::a_run_starts_here) for how the two are told apart.
+    ///
+    /// Its read of the score file's record of spell cards is in that branch, where the real one parses
     /// `catk` — which is why orb holds that record across a run played back into place: playing a
     /// stage in again starts every card the run had passed, and this read is what a landing would
     /// otherwise be left with. See `resume::hold_captures`.
     fn stage_numbers_in_place(&self) {
-        self.reads_the_score_file();
+        let starting = self.a_run_starts_here();
+        if starting {
+            self.reads_the_score_file();
+        }
         // The stage's own song, which its data names first and which plays through the midstage and the
-        // midboss alike. Per stage, as the game loads it per stage.
+        // midboss alike. Per stage, as the game loads it per stage — outside the condition, where the
+        // game's own two `LoadPbg3` calls and its `ReadMidiFile`/`PlayAudio` pair are.
         if self.plays_songs.get() {
             self.image.plays_a_track(STAGE_TRACK);
         }
@@ -1955,6 +2363,20 @@ impl Fake {
         if unsafe { Th06.replaying() } {
             moving.seed = self.image.recorded_seed(stage);
         }
+        // The numbers a run is played with, which are the run's and not the stage's: `livesRemaining` and
+        // `bombsRemaining` are written nowhere in this callback on either branch — the front end puts them
+        // there out of `g_Supervisor.defaultConfig` — and `currentPower = 0` and `deaths = 0` are inside
+        // the branch a transition does not take.
+        let (deaths, lives, bombs, power) = if starting {
+            (0, FRESH.0, FRESH.1, FRESH.2)
+        } else {
+            (
+                previous.deaths,
+                previous.lives,
+                previous.bombs,
+                previous.power,
+            )
+        };
         self.image.playing(Playing {
             stage,
             difficulty: self.run.difficulty,
@@ -1963,31 +2385,63 @@ impl Fake {
             // The generator's own seed, copied where the callback copies it: this is what a stage
             // written down is read back from, and it stays put once the stage draws from it.
             seed: moving.seed,
-            // The run's, not the stage's: a run carries its deaths from stage to stage and only the
-            // result screen reads them.
-            deaths: previous.deaths,
-            lives: FRESH.0,
-            bombs: FRESH.1,
-            power: FRESH.2,
+            deaths,
+            lives,
+            bombs,
+            power,
             enemies: 0,
         });
-        // Nothing of the last stage's fight is left standing, and the player is where a stage starts
-        // them: the field's own middle, which is what a resume has to arrive back at.
+        // Nothing of the last stage's fight is left standing.
         self.image.boss(None);
         self.image.card(None);
-        self.image.player(Player::Normal);
-        let field = Th06.play_area();
-        self.image.play_field(field.top, field.height);
-        // `Player::AddedCallback`, which measures where the player starts from the *arcade region* and not
-        // from the box it is held inside — see [`PLAYER_STARTS_ABOVE`]. Which is what a screen shake left
-        // running reaches: nothing here puts that region back.
-        let (across, down) = self.image.arcade_region_size();
+        // The arcade region and the box the player is held inside, both in that same branch: a run puts
+        // them where the game has them and a transition leaves them alone, which is the whole reason a
+        // bomb's screen shake can reach the stage after the one that started it.
+        if starting {
+            let field = Th06.play_area();
+            self.image
+                .sets_the_arcade_region((field.left, field.top), (field.width, field.height));
+            self.image
+                .play_field(PLAYER_AREA_TOP_LEFT.1, PLAYER_AREA_SIZE.1);
+            // `mgr->rank = g_DifficultyInfo[difficulty].rank`, which is in that branch too and so is what
+            // a transition carries rather than resets.
+            self.image.set_rank(RANK_AT_A_RUNS_START);
+        }
+        // And `mgr->subRank = 0`, which is outside the condition: every stage starts from nothing there.
+        self.image.set_sub_rank(0);
+        // `g_Rng.generationCount = 0; mgr->randomSeed = g_Rng.seed;` — the two lines immediately before
+        // `Stage::RegisterChain`, which is why the count of numbers drawn goes in *here* and not with the
+        // player's position below.
         self.image.reproducing(Reproducing {
-            // The count of numbers drawn zeroed as the callback zeroes it, before the stage's own
-            // build draws the two that follow.
             randoms: 0,
-            player: (across / 2.0, down - PLAYER_STARTS_ABOVE),
             ..moving
+        });
+        // `Stage::RegisterChain`, called from inside this callback: the one moment a resumed run's
+        // seed can go in, since building the stage is what draws from it.
+        orb::stage_building(stage);
+        // `Player::RegisterChain` and the `Player::AddedCallback` inside it, **after** the stage's own
+        // build and not before it, which is the order `GameManager::AddedCallback` has.
+        //
+        // No scenario can fail on the order today and that is the finding rather than an omission:
+        // `resume::stage_building` writes the generator's seed and nothing else, so nothing reads a player
+        // or a draw chain that was put in place too early. What it would cost is a debugging session on the
+        // day that call grows a second write — which is why the order is right here now rather than then.
+        //
+        // Spawning, with [`SPAWNS_WITH`] on the invulnerability count. Neither is what the stage is played
+        // with — the stage's own first update flips the state and replaces the count in the same frame —
+        // but they are what is written here, and the count is why that flip is immediate. See
+        // [`update_the_player`](Fake::update_the_player).
+        self.image.player(Player::Spawning);
+        self.image.set_invulnerable_frames(SPAWNS_WITH);
+        // And where the player starts, measured from the *arcade region* and not from the box they are held
+        // inside — see [`PLAYER_STARTS_ABOVE`]. Read back rather than carried in `moving`, because the
+        // stage's own build has drawn from the generator since: writing the fields that call moved would put
+        // the numbers it drew back.
+        let (across, down) = self.image.arcade_region_size();
+        let drawn = self.image.reproducing_now();
+        self.image.reproducing(Reproducing {
+            player: (across / 2.0, down - PLAYER_STARTS_ABOVE),
+            ..drawn
         });
         // `Gui::RegisterChain`, which puts `g_Gui`'s own draw job in the chain: the panel is on the
         // screen from here until the scene is taken down, and that job being in the draw list is the
@@ -1995,9 +2449,19 @@ impl Fake {
         // second registration of the same static element is what the element's own links check out
         // against.
         self.image.registers_gui_in_the_draw_chain();
-        // `Stage::RegisterChain`, called from inside this callback: the one moment a resumed run's
-        // seed can go in, since building the stage is what draws from it.
-        orb::stage_building(stage);
+    }
+
+    /// Whether the callback putting a stage's numbers in place is doing it for the **start of a run**
+    /// rather than for a transition to the next stage, which is the game's own
+    /// `g_Supervisor.curState != SUPERVISOR_STATE_GAMEMANAGER_REINIT`.
+    ///
+    /// Read out of the supervisor's own state and nothing kept beside it, which needs no new plumbing:
+    /// [`build`](Fake::build) calls `orb::stage_begun` *before* it writes the supervisor's copy, so the
+    /// scene here is still the one the supervisor is on — `Scene::Rebuilding` where the game is
+    /// reinitialising its manager for the next stage, and already `Scene::Playing` where a run is being
+    /// started.
+    fn a_run_starts_here(&self) -> bool {
+        self.image.scene() != Scene::Rebuilding
     }
 
     /// `Stage::RegisterChain`: the stage built, which draws from the generator as it goes.
@@ -2144,8 +2608,7 @@ static TH06: Th06 = Th06;
 extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
     let fake = running();
     fake.launch.asked_for(UPDATE);
-    fake.update();
-    fake.answers.get()
+    fake.update()
 }
 
 /// `GameWindow::Render`: the game's own whole frame, in 紅魔郷's own draw-then-update order.
@@ -2276,8 +2739,69 @@ extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
 }
 
 extern "system" fn input() -> u16 {
-    running().read_the_keyboard()
+    // `Controller::GetInput`'s own tail call, through orb's hook over it: the keyboard's word goes in and
+    // the pad's read happens inside. Which is why there is no joystick read anywhere else in this file —
+    // the game has one, and it is here.
+    orb::get_controller_input(u32::from(running().read_the_keyboard()))
 }
+
+/// `Controller::GetControllerInput` (0x41b6b0): the pad half of the input read, which is a tail call inside
+/// the keyboard half and cannot be told apart from outside it.
+///
+/// What is here is the winmm read — see [`reads_its_joystick`](Fake::reads_its_joystick) — and the word
+/// handed straight back. **The merge is deliberately not here**: where an axis becomes a direction is the
+/// game's own arithmetic and `docs/adr/0008` refuses to have it written twice, so a pad moves the player in a
+/// real launch and answers only orb's own menus here.
+///
+/// Reached because orb hooks this to *time* it and for nothing else, which is the whole of what it is in
+/// `Originals` for: with nothing plugged in the read took 8.7ms of a 16.67ms frame, and the perf line saying
+/// so is how anybody found out.
+extern "C" fn get_controller_input(buttons: u32) -> u16 {
+    running().reads_its_joystick();
+    buttons as u16
+}
+
+/// `ReplayManager::SaveReplay` (0x42a5c0): the record written out under the name it was given.
+///
+/// Reached through orb's hook over it, which is what drops the write — and only the write: the same function
+/// called with no path is the teardown every way out of a run goes through, and the hook calls that through.
+///
+/// **Where the path is null there is nothing here**, and that is not an omission. What the real one does
+/// there is free each stage's block of recorded inputs and cut the manager's own job out of the chain, and
+/// nothing above the game reads either — the record a scenario reads back is the one `Image::loads_a_replay`
+/// laid out, and the blocks it would free are not in it.
+extern "C" fn save_replay(path: *const u8, name: *const u8) {
+    if path.is_null() {
+        return;
+    }
+    let said = |at: *const u8| {
+        unsafe { CStr::from_ptr(at.cast()) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    running()
+        .replays_written
+        .borrow_mut()
+        .push((said(path), said(name)));
+}
+
+/// The file this game saves a replay into and the name it puts in one, which are the only two it ever passes
+/// `SaveReplay`.
+///
+/// This game's own, and pointers into this process rather than into its laid-out memory: what crosses the
+/// call is a `char *` each, and the whole of what a scenario reads back is which name a write landed under.
+const REPLAY_FILE: &CStr = c"replay/th6_ud0000.rpy";
+const REPLAY_NAME: &CStr = c"ORB";
+
+/// `GameWindow::InitD3dDevice` (0x421420): the render states the game sets on a device that has just been
+/// made, and again after every reset.
+///
+/// **Nothing**, a laid-out game having no render states — every one of them is a `SetRenderState` on
+/// `g_Supervisor.d3dDevice`. Here rather than left out because orb gets in front of this to redirect the
+/// device's `Present` before anything is presented through it, and the hook is the whole reason the call is
+/// in `Originals`: a game whose device was already there when orb attached would never reach it. See
+/// [`Fake::finds_its_device`].
+extern "C" fn init_d3d_device() {}
 
 /// `Chain::Cut` (0x41cde0): the element unlinked, which is one of the three calls into the game orb makes
 /// that a scenario reaches — a screen shake still running at a stage move is taken down through it.
@@ -2463,9 +2987,11 @@ fn drawn_from(seed: u16) -> u16 {
     seed.wrapping_mul(0x9d5d).wrapping_add(0x6f7f)
 }
 
-/// Where the buttons of a frame leave the player, held inside the play field.
+/// Where the buttons of a frame leave the player, held inside the box the game holds them in.
+///
+/// [`PLAYER_AREA_TOP_LEFT`] and [`PLAYER_AREA_SIZE`] and not the arcade region's, which is what
+/// `Player::HandlePlayerInputs` clamps `positionCenter` to.
 fn moved((x, y): (f32, f32), word: u16) -> (f32, f32) {
-    let field = Th06.play_area();
     let moved = |at: f32, less: bool, more: bool, from: f32, span: f32| {
         let at = at - if less { SPEED } else { 0.0 } + if more { SPEED } else { 0.0 };
         at.clamp(from, from + span)
@@ -2475,15 +3001,15 @@ fn moved((x, y): (f32, f32), word: u16) -> (f32, f32) {
             x,
             word & button::LEFT != 0,
             word & button::RIGHT != 0,
-            field.left,
-            field.width,
+            PLAYER_AREA_TOP_LEFT.0,
+            PLAYER_AREA_SIZE.0,
         ),
         moved(
             y,
             word & button::UP != 0,
             word & button::DOWN != 0,
-            field.top,
-            field.height,
+            PLAYER_AREA_TOP_LEFT.1,
+            PLAYER_AREA_SIZE.1,
         ),
     )
 }
