@@ -1,5 +1,7 @@
 # 6. The frame loop waits on a high-resolution timer, and the log is stamped off the performance counter
 
+**The file the measurements below are timed against is `crates/orb-e2e/src/pacing.rs` now**, moved by [0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md); it was `scenario_pacing.rs` when they were taken and they say so.
+
 **Status:** accepted and built. `frame::Pacing::wait_until` waits on a
 `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` waitable timer, made behind the seam on first use; nothing
 asks `timeBeginPeriod` for anything and there is no `Sleep` left in the tree; every log line is

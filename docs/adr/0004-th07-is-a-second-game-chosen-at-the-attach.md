@@ -3,10 +3,11 @@
 **Status:** accepted and built, with one thing it claimed disproved by the run that built it.
 `orb_core::game::KNOWN` names 紅魔郷 1.02h and the `th07.exe` of md5 `0126afce`, both halves read that one
 table, `orb/src/lib.rs` chooses its game at the attach out of `host_exe()`, `orb-core/src/game/th07/`
-holds a `Th07` that declines everything about a run, and `orb-sim/tests/scenario_th07.rs` is the one
+holds a `Th07` that declines everything about a run, and `crates/orb-e2e/src/th07.rs` is the one
 scenario — `orb/tests/th07.rs` when this was written, moved by
 [0005](0005-every-scenario-lives-in-orb-sims-tests.md), which is where every path below with `orb/tests`
-in it went. Step 6
+in it went, and again by
+[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md). Step 6
 happened: 妖々夢 was launched with orb in it and **orb's own frame loop took it down on the first frame**,
 so `Hooks::render` is `None` and 妖々夢 keeps its own cadence. What that costs, and what reading the rest
 of that frame would take, is in `TODO.md`; the measurement is *What the two launches said* below and

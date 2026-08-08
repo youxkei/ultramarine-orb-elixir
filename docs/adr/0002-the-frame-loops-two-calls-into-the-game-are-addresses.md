@@ -6,10 +6,13 @@ and a laid-out 紅魔郷 drives the frame loop's scenarios through `render` itse
 the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
 does differently from the plan below is at the end of *Consequences*.
 
-**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) overturns one thing
-this says**: `Originals` becomes `orb-core`'s along with the hook bodies, so the three calls below that
-*had already crossed out of `orb` into `orb-core`* stop being the exception this document calls them and
-become the rule.
+**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) has overturned one
+thing this says, and it is built**: `Originals` is `orb_core::runtime`'s along with the eleven hook bodies,
+so the three calls below that *had already crossed out of `orb` into `orb-core`* are no longer the
+exception this document calls them. Two of `Originals`' fields changed shape on the way — the game's own
+`CreateWindowExA` and `CreateFileA` are declared there with `*mut c_void` where Windows says `HWND`,
+`HMENU` and `HANDLE`, those being what they are — because the crate that names them may name no
+`windows-sys`.
 
 Where those scenarios are written is no longer a file apiece:
 [0003](0003-the-frame-loops-scenarios-are-one-file.md) put them in one file, a section each, with what

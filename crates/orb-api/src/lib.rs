@@ -22,13 +22,16 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 pub mod clock;
+pub mod d3d8;
 pub mod display;
+pub mod dsound;
 pub mod joystick;
 pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
 pub mod process;
+pub mod text;
 pub mod thread;
 pub mod window;
 
@@ -363,6 +366,211 @@ pub trait Win: Send + Sync + 'static {
     /// seam: what the caller knows is `"winmm.dll"` and `"mmioSeek"`, and the lookup of both
     /// belongs on the far side.
     fn proc_address(&self, module: &str, name: &str) -> Option<usize>;
+
+    // --- glyphs -----------------------------------------------------------------
+    //
+    // Behind the seam because rasterisation is the third object orb reaches that is somebody else's
+    // code — the GDI, after Direct3D and DirectSound — and the one a grep for `windows-sys` would
+    // find least, `Font::load` having been a struct of orb's own. **Coarser than the other two on
+    // purpose**: a mirror of the calls would put a device context across the seam, and the whole of
+    // what orb asks a rasteriser is *bake this string at this height*. See
+    // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+
+    /// `AddFontResourceExW` for the file, then `CreateFontIndirectW` for a face of it at `height`
+    /// pixels of em. `None` where the file is not a font that can be added, or no face could be made
+    /// of it.
+    ///
+    /// Process-private, which is the whole reason the add is here rather than left to the caller: a
+    /// font installed system-wide would outlive the run. A host that has no such file must refuse,
+    /// because a launch beside an exe with no `font.ttf` next to it is a launch with no overlay and
+    /// orb says so in the log.
+    fn load_face(&self, path: &Path, height: i32) -> Option<Face>;
+
+    /// What the host actually selected — `GetTextFaceW`. Asked so that a substituted face shows up in
+    /// the log rather than silently: `Font::load` survives one, and the glyphs are then not the
+    /// game's.
+    fn face_name(&self, face: Face) -> Option<String>;
+
+    /// Bakes `text` through `face` into a coverage mask, and `None` for a string that measures to
+    /// nothing — an empty one, or one the host would not measure at all.
+    ///
+    /// The mask is what the quad round the string is sized from, so its own width and height come
+    /// back with it.
+    fn bake(&self, face: Face, text: &str) -> Option<Mask>;
+
+    /// The face deleted and the add taken back out. The host counts the adds, and orb makes one per
+    /// size every time an overlay is built.
+    fn drop_face(&self, face: Face);
+
+    // --- the device the game shows its frames through ---------------------------
+    //
+    // Eighteen slots, which is every one `crates/orb-api/src/d3d8.rs` types — fifteen of
+    // `IDirect3DDevice8` and three of `IDirect3DTexture8`. **A mirror of them and not an abstraction
+    // over them**, which is the whole of the design and the one way it can be got wrong: what must not
+    // cross is a decision. See that module, and
+    // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+    //
+    // Behind the seam because Direct3D is somebody else's code reached through a pointer the game handed
+    // over rather than through a crate a grep would find — so a rule kept by looking for `windows-sys`
+    // passed a file that was calling Windows fifteen times.
+
+    // Eight of them, which is `CreateTexture`'s own list and the reason this is a mirror: a seam that
+    // decided the levels, the usage, the format or the pool for its caller would be one deciding what a
+    // texture is, and what orb makes them for — a managed A8R8G8B8 with one level — is a decision above
+    // this line with the drawing's reasons beside it.
+    #[allow(clippy::too_many_arguments)]
+    fn create_texture(
+        &self,
+        device: Device,
+        width: u32,
+        height: u32,
+        levels: u32,
+        usage: u32,
+        format: u32,
+        pool: u32,
+    ) -> (Hresult, Option<Texture>);
+    fn create_state_block(&self, device: Device, kind: u32) -> (Hresult, u32);
+    fn capture_state_block(&self, device: Device, token: u32) -> Hresult;
+    fn apply_state_block(&self, device: Device, token: u32);
+    fn delete_state_block(&self, device: Device, token: u32);
+    fn set_render_state(&self, device: Device, state: u32, value: u32);
+    fn set_texture_stage_state(&self, device: Device, stage: u32, kind: u32, value: u32);
+    fn set_texture(&self, device: Device, stage: u32, texture: Option<Texture>);
+    fn set_vertex_shader(&self, device: Device, shader: u32);
+    fn set_viewport(&self, device: Device, viewport: Viewport);
+    fn get_viewport(&self, device: Device) -> Viewport;
+    fn draw_primitive_up(
+        &self,
+        device: Device,
+        kind: u32,
+        count: u32,
+        vertices: &[u8],
+        stride: u32,
+    );
+    fn begin_scene(&self, device: Device);
+    fn end_scene(&self, device: Device);
+    fn clear(&self, device: Device, flags: u32, color: u32, z: f32, stencil: u32);
+
+    fn lock_rect(&self, texture: Texture, level: u32, flags: u32) -> Option<Locked>;
+    fn unlock_rect(&self, texture: Texture, level: u32);
+    fn release_texture(&self, texture: Texture);
+
+    // --- the buffer the game's music is played out of ----------------------------
+    //
+    // Eight slots, which is every one `crates/orb-api/src/dsound.rs` types. Behind the seam for the same
+    // reason the device is: DirectSound is somebody else's code reached through a pointer the game handed
+    // over, and a grep for `windows-sys` finds none of it.
+    //
+    // Named apart from the device's — `buffer_position` and not `get_current_position` — because a trait
+    // has one namespace and two COM interfaces have a `GetStatus` each. The facades keep the slots' own
+    // names, which is where a reader is looking for them.
+
+    fn buffer_position(&self, buffer: SoundBuffer) -> (Hresult, u32, u32);
+    fn buffer_status(&self, buffer: SoundBuffer) -> (Hresult, u32);
+    fn lock_buffer(
+        &self,
+        buffer: SoundBuffer,
+        offset: u32,
+        bytes: u32,
+        flags: u32,
+    ) -> (Hresult, LockedBuffer);
+    fn unlock_buffer(&self, buffer: SoundBuffer, locked: LockedBuffer);
+    fn play_buffer(&self, buffer: SoundBuffer, reserved: u32, priority: u32, flags: u32);
+    fn stop_buffer(&self, buffer: SoundBuffer);
+    fn set_buffer_position(&self, buffer: SoundBuffer, position: u32);
+    fn restore_buffer(&self, buffer: SoundBuffer);
+}
+
+/// A font face at one size, as far as anything baking a string through one can tell.
+///
+/// On Windows it is what `real::text` boxed to hold the `HFONT` and the path the add was made with;
+/// under a simulated Windows it is which of the faces a scenario declared. Opaque either way — orb
+/// only ever hands one back to the seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Face(pub usize);
+
+/// A baked string: `0x00ffffff` with the coverage in the alpha channel, row by row from the top.
+///
+/// The colour is applied by the vertex colour at draw time, so a label costs one bake however many
+/// colours it is drawn in — which is why what crosses here is coverage and not pixels.
+pub struct Mask {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u32>,
+}
+
+/// The game's `IDirect3DDevice8`, as far as anything drawing through one can tell.
+///
+/// The address the game keeps it at, which is what orb reads out of the game's memory and hands back —
+/// so the only thing it has to be is the same number coming out as went in, the way [`Hwnd`] is. What
+/// is at that address is a pointer to a vtable, and the one piece of code that follows it is
+/// [`real::d3d8`](crate::real::d3d8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Device(pub usize);
+
+impl Device {
+    pub const NULL: Self = Self(0);
+
+    pub fn is_null(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// An `IDirect3DTexture8` the device made, the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Texture(pub usize);
+
+/// What Direct3D calls an `HRESULT`: negative for a failure, and the number itself is what orb writes
+/// into the log.
+pub type Hresult = i32;
+
+/// A viewport, field for field and in the same order as `D3DVIEWPORT8`, so the arithmetic either side of
+/// the seam is the arithmetic that was already written.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Viewport {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub min_z: f32,
+    pub max_z: f32,
+}
+
+/// The buffer the game's music is played out of, as far as anything asking about one can tell.
+///
+/// The address the game's streaming sound keeps it at, the way [`Device`] is. The one word of it orb
+/// reads rather than calls is the vtable pointer at its head — through [`mem`], because whether it lands
+/// in a mapped image is how a live buffer is told from the stale one left in a freed block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundBuffer(pub usize);
+
+/// What a lock of a sound buffer hands back: two runs, because a lock that reaches the end of a looping
+/// buffer wraps and comes back in two halves.
+///
+/// Addresses rather than slices, for the reason [`Locked`] carries: what is behind them is the host's
+/// memory, and which of the two runs a caller writes is the caller's decision. The same value goes back
+/// to [`dsound::unlock`], which is what the slot takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LockedBuffer {
+    pub first: usize,
+    pub first_bytes: u32,
+    pub second: usize,
+    pub second_bytes: u32,
+}
+
+/// A texture's rows, as a lock hands them over: how far apart they are, and where the first of them is.
+///
+/// **An address and not a slice, and not a closure taking one.** What is behind it is memory the host
+/// handed back — Direct3D's own on a real device, and the simulator's own storage under one — so the
+/// caller builds the slice it wants over the rows it means. A closure would put the walk of those rows
+/// on this side of the seam, and that walk is what the drawing decides: which rows the mask fills and
+/// what the padding a power-of-two texture added is left as. `mem` would be the wrong door for it too —
+/// that one is the *game's* address space, and a locked texture is not in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Locked {
+    pub pitch: i32,
+    pub bits: usize,
 }
 
 /// Where a joystick is, as winmm reports it: `JOYINFOEX`, field for field and in the same order.

@@ -1,0 +1,32 @@
+[package]
+name = "orb-e2e"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Nothing depends on this crate and nothing ever will: the library it builds outside a test run is
+# empty, every module of it being `#[cfg(test)]`. So everything it names is a dev-dependency — see
+# `src/lib.rs` for why the scenarios are modules of a crate rather than a `tests/` directory, and
+# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
+# for the decision.
+#
+# `orb-e2e` may name `windows-sys`, and that is not a hole in the rule `cargo xtask seam` checks: that
+# rule is about `orb-core` and `orb-sim`, the code under test and the host it is tested against. A game
+# playing the game's part is allowed to be a real object where a laid-out one will not do, the way
+# `orb_sim::Sound` already is. It names it once, for one page: the device vtable orb patches the `Present`
+# slot of has to be memory this process really owns, `hook::replace_pointer` calling `VirtualProtect` over
+# the slot before it writes it — see `fake::vtable_page`.
+[dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Memory"] }
+# By path rather than through the workspace, `orb` being the one crate here that nothing else depends on.
+# The eleven hook bodies are `orb-core`'s now; what a game laid out by hand still needs of this crate is
+# the rewrite of each import a real launch patches — it has no import table, so it calls
+# `window::create_window_ex_a`, `score::create_file_a` and `joystick::answer` where a launch has the entry
+# patched — and `attach_to`, which is how it is attached to with no process to patch.
+orb = { path = "../orb" }
+orb-api = { workspace = true }
+orb-config = { workspace = true }
+# `sim` is what carries `game::th06::image` — the game laid out by hand, which is what the fake writes
+# a run into — and the seam's install point with it.
+orb-core = { workspace = true, features = ["sim"] }
+orb-sim = { workspace = true }

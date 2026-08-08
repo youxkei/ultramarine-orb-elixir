@@ -7,12 +7,14 @@ the launch, the hand-overs, the refresh period and the wait for a line that thos
 the host for; and `frame::LOGIC_HZ` is `pub`. What the built shape does differently from the decision
 below is at the end.
 
-**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) takes one of the two
-reasons below away.** Half of why these are one file is that `fake` is compiled once per test binary, so a
-helper nothing calls reads as dead only where the scenarios share a binary; a crate whose `src/` is the
-fake compiles it once and checks the whole of it. What is left after that is the other reason — the
-functions that judge a rate live beside the scenarios that read them — and whether that alone wants one
-file is then a question about what a file is for, rather than a way of buying dead-code detection back.
+**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) has taken one of the
+two reasons below away, and it is built.** Half of why these were one file is that `fake` was compiled once
+per test binary, so a helper nothing calls read as dead only where the scenarios shared one; `orb-e2e`
+compiles the fake once with every scenario as a `#[cfg(test)]` module over it, and the blanket
+`#![allow(dead_code)]` is gone — it was hiding two accessors of `fake::th07::Fake` that no scenario reached.
+What is left is the other reason — the functions that judge a rate live beside the scenarios that read
+them — and whether that alone wants one file is now a question about what a file is for rather than a way
+of buying dead-code detection back. The file is `crates/orb-e2e/src/pacing.rs`.
 
 It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which put those
 scenarios in front of a laid-out 紅魔郷 and left them in the shape the harness they replaced had: a file

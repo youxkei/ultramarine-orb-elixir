@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
-# orb's logic, with no `windows-sys` in it. Everything it asks of the host goes through
-# `orb-api`, which is what lets it be built and tested on a Linux runner — and a build that
-# stops working there is a build that has taken a dependency on the host, which is worth
-# finding out about when it happens rather than at the end of the work.
+# Everything that decides what happens to a run, with no `windows-sys` in it. Everything it asks of the
+# host goes through `orb-api`, and `cargo xtask seam` holds it to that by checking it for a host with no
+# Windows — 32-bit, because the game's own methods are called by the conventions MSVC6 compiled them with
+# and `extern "thiscall"` exists on x86 and nowhere else. So the tripwire is armed rather than described,
+# which is what the earlier version of this comment claimed and nothing checked. See
+# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 [features]
 # The test support other crates' tests reach for — `game::th06::image`, the game laid out by hand.
 # A feature as well as `cfg(test)` because `cfg(test)` is false in a crate compiled as a
@@ -18,6 +20,12 @@ sim = ["orb-api/sim", "dep:orb-sim"]
 [dependencies]
 orb-api = { workspace = true }
 orb-config = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+
+# MessagePack through serde: the file a run is left in is the same derived structs as everything
+# else, written with the field names in them so that any converter can print one back without being
+# told the format. See `resume::EXTENSION`.
+rmp-serde = "1.3"
 
 # Only under `sim`, and only for `game::th06::image` — th06's own addresses laid out in a simulated
 # Windows, which is kept beside the offsets it is written from rather than in the simulator, where it
@@ -27,9 +35,21 @@ orb-config = { workspace = true }
 # dev-dependency, so it is outside the normal build graph and the two do not form a cycle in it.
 orb-sim = { workspace = true, optional = true }
 
+# For `build.rs`, which bakes `brush.png` down to the coverage the mark over the lives is drawn
+# from. Only the inflate is taken from a crate: walking a PNG's chunks and undoing its row filters
+# is sixty lines that say what the picture is, where a decoder would be eight crates saying it for
+# every picture there has ever been.
+[build-dependencies]
+miniz_oxide = "0.8"
+
 # And again here, unconditionally, so that this crate's *own* tests reach the simulator without
 # anyone having to remember `--features sim`: `cargo test -p orb-core` is then enough. The optional
 # dependency above is for when another crate's tests drive this one, where `cfg(test)` is false and
 # the feature is what carries `image` in.
 [dev-dependencies]
 orb-sim = { workspace = true }
+
+# For the tests over the file a run is left in, which build a MessagePack map by hand: what has to be
+# refused is a *file* of the wrong shape, however it came to be one, and that is not something the
+# derived writer can be asked to produce.
+rmpv = "1.3"

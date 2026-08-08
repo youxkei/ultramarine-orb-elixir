@@ -1,9 +1,50 @@
 # 9. `orb` injects and nothing else, every COM object orb calls is behind the seam, and the scenarios drive `orb-core` from a crate of their own
 
-**Status:** accepted, not built. `crates/orb` still holds the eleven hook bodies, the `Runtime`,
-`Originals`, the chapters, the resume, the tuning and the five menus; `orb-core` still reaches Direct3D and
-DirectSound by calling a vtable itself; and the 133 scenarios are still
-`crates/orb-sim/tests/scenario_*.rs`, reaching them through the `rlib` beside the DLL. It stands on
+**Status:** accepted and built. `crates/orb` is nine files and 2728 lines — `DllMain`, `hook`, `pe`,
+`crash`, the six heap imports, the `CreateThread` import, the two window imports and the `Present` slot,
+the `CreateFileA` import, the `joyGetPosEx` entry with its sampling thread, and the install lists — and
+names `windows-sys` in every one of them. Everything else is `orb-core`, whose `runtime.rs` holds the
+eleven hook bodies, `Runtime` and `Originals`; `cargo xtask seam` checks it and `orb-sim` for a host with
+no Windows, so a `windows-sys` import there fails to compile. Direct3D, DirectSound and the GDI's glyphs
+are behind the seam — eighteen slots, eight slots and four calls — and the 133 scenarios are
+`#[cfg(test)]` modules of `crates/orb-e2e/src/`. 351 tests pass, which is the 347 this was written against
+plus four the declared metric brought.
+
+**Six things the building found, each of which corrects something below.**
+
+1. **The steps were done 0, 1, 2, then the glyph seam, then the drawing seam**, which is *What follows from
+   it*'s 4 before its 3. Step 3 as written cannot be done first: it deletes `Screen`, and `says` has no
+   baker until the glyph seam has landed — `Recording` in `orb-sim` cannot rasterise. Swapping them costs
+   nothing and throws nothing away, because with the bake behind the seam both sides of `says`'s pixel
+   comparison come from the same simulated host and are equal by construction; the string the mask carries
+   then replaces the comparison in the step after.
+2. **The drawing seam is eighteen slots and not fifteen.** Fifteen is what `overlay.rs` calls. `clear` was
+   already `orb-core`'s — `Th06::set_play_viewport` and `Th06::prepare_frame` call it, at
+   `game/th06/mod.rs:1214` and `:1259` — and `begin_scene` and `end_scene` became `orb-core`'s with the
+   frame loop. The honest count is *every slot `d3d8.rs` types*, that file having only ever typed what gets
+   called, and it is asserted where the trait declares them.
+3. **Four of the `*_ui` modules drew through `Screen`, not five.** `menu_ui` names only `Frame` and `Label`
+   and has no fixture of its own, so the four are `lives_ui`, `mode_ui`, `resume_ui` and `retry_ui`.
+4. **`orb-e2e` does not stop naming `orb`, and the `rlib` stays.** Step 6 leaves the rewrite of each patched
+   import in `orb` — `window::create_window_ex_a`, `score::create_file_a`, `joystick::answer` — and a game
+   laid out by hand has no import table, so it *calls* those where a real launch has them patched in.
+   `orb::attach_to` stays with them, being an install list. What the fake stopped naming is the eleven hook
+   bodies, which are `orb_core::runtime`'s. `crates/orb/Cargo.toml`'s `[lib]` comment says so where a reader
+   of the manifest will meet it.
+5. **Two handovers the other way, not three.** `save_replay` and `get_controller_input` turned out to need
+   none, and `render`'s bail-outs reach the seam's own `window::foreground`. What is handed over is the
+   device's `Present` slot and the lines written in the black beside the game — `runtime::Patches`, set by
+   both attaches. The region walk is a third of the same kind, in `memtrack`: the arithmetic is
+   `orb-core`'s and `HeapWalk` is `orb`'s, so `orb::memtrack::install` hands the walk over as it patches
+   the imports it walks the results of.
+6. **`orb::detached` did not close the log, and that was a defect.** A real launch closes it from
+   `DllMain`'s `DLL_PROCESS_DETACH`; `detached` is the fake's game-closing and the only way out of a
+   scenario. Left open, the next `log::line` wrote through a handle onto a game that had gone — and where
+   the next thing along was another game in the same process, that write landed in *its* log before it had
+   opened one, three counter reads at a time. Found by `pacing::counters`'s two runs coming out one
+   microsecond apart.
+
+It stands on
 [0005](0005-every-scenario-lives-in-orb-sims-tests.md), which merged the two `tests/` directories and
 chose `orb-sim` for a reason this replaces, and on
 [0008](0008-the-fake-game-copies-the-game-orb-is-injected-into.md), which is why the fake game is worth

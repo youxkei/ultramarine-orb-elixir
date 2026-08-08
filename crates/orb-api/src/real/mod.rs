@@ -5,12 +5,15 @@
 //! facades in the parent modules compile down to these calls and nothing else.
 
 pub mod clock;
+pub mod d3d8;
 pub mod display;
+pub mod dsound;
 pub mod joystick;
 pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
 pub mod process;
+pub mod text;
 pub mod thread;
 pub mod window;

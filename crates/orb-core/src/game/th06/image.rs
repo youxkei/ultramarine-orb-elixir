@@ -22,8 +22,8 @@ use std::sync::Arc;
 use orb_api::{Hwnd, Kind};
 use orb_sim::{Sim, Sound, Space};
 
-use crate::d3d8::Device;
 use crate::game::RunStart;
+use orb_api::Device;
 
 /// The game's static data, as the real one is: **one range**, `0x00476000..0x006e79fc`, which is what
 /// orb reads out of the PE and writes in the log every run — `.data 0x00476000..0x006e79fc (2562556
@@ -676,7 +676,7 @@ impl Image {
     /// Which is what makes the list a list rather than a set: `Supervisor::OnUpdate` goes in at 0 and
     /// everything it registers above that, so a scene registered from inside the walk is linked *behind*
     /// the walk's own position and reached in the same frame. See
-    /// `crates/orb-sim/tests/scenario_the_frame_a_scene_is_built_on.rs`.
+    /// `crates/orb-e2e/src/the_frame_a_scene_is_built_on.rs`.
     ///
     /// Ordered from the head by `next` alone, where the game's own walk also carries a `prev`: nothing
     /// laid out here reads `prev`, and a second link kept in step by hand is a second thing to get wrong.
@@ -1331,9 +1331,12 @@ impl Image {
 
     /// The device orb draws its overlay through and the window it reads the keyboard against, which
     /// are what the game has once it has finished setting Direct3D up.
-    pub fn shows_through(&self, device: *mut Device, window: Hwnd) {
+    pub fn shows_through(&self, device: Device, window: Hwnd) {
         let space = self.space();
-        space.write::<*mut Device>(super::G_SUPERVISOR + super::supervisor::D3D_DEVICE, device);
+        space.write::<usize>(
+            super::G_SUPERVISOR + super::supervisor::D3D_DEVICE,
+            device.0,
+        );
         space.write::<Hwnd>(
             super::G_SUPERVISOR + super::supervisor::HWND_GAME_WINDOW,
             window,

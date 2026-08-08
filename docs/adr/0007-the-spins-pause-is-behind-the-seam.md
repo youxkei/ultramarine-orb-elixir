@@ -1,5 +1,7 @@
 # 7. The spin's `pause` is behind the seam, so that a simulated spin costs simulated time
 
+**The file the measurements below are timed against is `crates/orb-e2e/src/pacing.rs` now**, moved by [0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md); it was `scenario_pacing.rs` when they were taken and they say so.
+
 **Status:** accepted and built. `frame::wait_until` ends in `clock::spin_once()` rather than
 `std::hint::spin_loop()`; the seam carries a `Win::spin_once` that is the `pause` instruction on a real
 host and `orb_sim::PAUSE_TICKS` of the counter under a simulated one.

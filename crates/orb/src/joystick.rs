@@ -47,24 +47,20 @@
 //! device's`), and was then driven through the menus with nothing drifting — reads settled at 2µs on
 //! the 4ms cadence, the frame at `input=2us/frame worst=180us calls=600`.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use orb_api::{JoyCaps, JoyInfo, joyerr};
+use orb_core::joystick::{RETURN_ALL, Sample, describes_a_sample, latest, sampled};
 use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
 use windows_sys::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, Sleep, THREAD_PRIORITY_BELOW_NORMAL,
 };
 
-use crate::game::Reading;
 use crate::{detail, log};
 use crate::{hook, profile};
 
 /// The joystick the game asks about. It only ever asks about this one.
 const DEVICE: u32 = 0;
-/// `JOY_RETURNALL`, which is what the game asks for, so a sample taken with it answers
-/// anything the game can ask. Not in `windows-sys`.
-const RETURN_ALL: u32 = 0xff;
 
 /// Between reads while a joystick is answering. Four samples a frame, so what the game
 /// is handed is never a frame behind what the stick is doing.
@@ -81,14 +77,6 @@ const DETACHED_MS: u32 = 1000;
 /// the reads cost. Reachable, and not worth a second of the suite.
 const REPORT_READS: u32 = 250;
 
-/// The last read, and what the call that took it returned. `None` until the thread has
-/// been round once.
-///
-/// A lock between orb's thread and the game's frame is only safe because a snapshot
-/// suspends the threads the game made and this is not one of them: they are remembered
-/// through the exe's `CreateThread` import, and orb's own calls do not go through it. One
-/// suspended holding this would stop the game's next read for the length of a snapshot.
-static SAMPLE: Mutex<Option<Sample>> = Mutex::new(None);
 /// winmm's own `joyGetPosEx`, which the game's import table pointed at.
 static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 /// Where the game keeps the caps it measures axes against. Zero for a game that keeps none.
@@ -100,43 +88,15 @@ static POLLING: AtomicBool = AtomicBool::new(false);
 /// nothing yet.
 static REPORTED_DIFFERENCE: AtomicUsize = AtomicUsize::new(0);
 
+/// What orb's own menus read the pad off, under the name the callers already say. What a sample means
+/// is above the seam and this is one of the answers it gives — a caller here reaches it by the same path
+/// as before the split.
+pub use orb_core::joystick::reading;
+
 /// `joyGetPosEx`, as the game's own import table holds it. The struct it fills is
 /// [`orb_api::JoyInfo`], which is `JOYINFOEX`'s own layout — see there — so this is the signature
 /// winmm exports and not a shape of orb's.
 pub type JoyGetPosEx = unsafe extern "system" fn(u32, *mut JoyInfo) -> u32;
-
-#[derive(Clone, Copy)]
-struct Sample {
-    result: u32,
-    info: JoyInfo,
-    /// The device's own, taken when one starts answering and kept for as long as it does.
-    ///
-    /// Not read again beside every position: the caps belong to the device and not to the
-    /// read, and what the game is handed must not change under it from one read to the next
-    /// — that is a write into the game's memory each time it does. A pad swapped for another
-    /// without one failing read in between would keep the first one's, which at a read every
-    /// four milliseconds is not a way pads are swapped.
-    caps: Option<JoyCaps>,
-}
-
-impl Sample {
-    /// Whether what answered is a pad, which is not the same as something having answered.
-    ///
-    /// A device with no buttons and no axes has nothing to say, and joystick 0 is one of those on
-    /// this machine whenever the pad is in XInput's second slot: `mid=413d pid=2104`, answering
-    /// `joyGetPosEx` with every field zero. Measured with all three interfaces asked at once — winmm
-    /// reports 16 devices, index 0 being that one and 1 to 15 `JOYERR_UNPLUGGED` at 13µs each;
-    /// DirectInput enumerates `Controller (Xbox 360 Controller)`; XInput has it in slot 1 with slot 0
-    /// empty. Believing it
-    /// costs a line in the log claiming a pad answered, and the game's axis calibration written
-    /// from a device that has no axes.
-    fn is_a_pad(&self) -> bool {
-        self.result == joyerr::NOERROR
-            && self
-                .caps
-                .is_some_and(|caps| caps.buttons > 0 || caps.axes > 0)
-    }
-}
 
 /// Points the game's `joyGetPosEx` at orb, and takes the address of the caps it measures
 /// axes against so that a device arriving mid-run can be described to it.
@@ -144,7 +104,7 @@ impl Sample {
 /// **The one thing in this module no scenario reaches**, and the write over an import table entry is why:
 /// a game laid out by hand has no import table, so it hands the entry over to [`install_over`] and calls
 /// [`answer`] itself where its own read would have gone through it. Everything past this line is covered
-/// that way — see `orb-sim/tests/scenario_mode_on_a_winmm_pad.rs`.
+/// that way — see `orb-e2e/src/mode_on_a_winmm_pad.rs`.
 ///
 /// # Safety
 /// `module` must be the game exe, and nothing may be executing its import table.
@@ -202,11 +162,6 @@ pub unsafe extern "system" fn answer(device: u32, into: *mut JoyInfo) -> u32 {
     unsafe { original(device, into) }
 }
 
-/// Whether a sample taken with `RETURN_ALL` says everything this caller asked for.
-fn describes_a_sample(asked: &JoyInfo) -> bool {
-    asked.size as usize == size_of::<JoyInfo>() && asked.flags & !RETURN_ALL == 0
-}
-
 /// Puts the answering device's caps where the game reads them, so the axes it is about to
 /// place the centre of are the axes it has.
 ///
@@ -254,24 +209,6 @@ fn bytes_of(caps: &JoyCaps) -> &[u8] {
     unsafe { std::slice::from_raw_parts(std::ptr::from_ref(caps).cast(), size_of::<JoyCaps>()) }
 }
 
-fn latest() -> Option<Sample> {
-    *SAMPLE.lock().ok()?
-}
-
-/// The pad as it was last sampled, and `None` while none is answering.
-///
-/// For the menus orb puts up itself. Those freeze the game, so the game's own reading of the pad
-/// is not running either and a pad would do nothing at all on them; the sample this thread already
-/// takes every few milliseconds is there to be read.
-pub fn reading() -> Option<Reading> {
-    let sample = latest().filter(Sample::is_a_pad)?;
-    Some(Reading {
-        buttons: sample.info.buttons,
-        y: sample.info.y,
-        pov: sample.info.pov,
-    })
-}
-
 fn start_polling() {
     if POLLING
         .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
@@ -314,9 +251,7 @@ fn poll() -> ! {
         };
         let cost = profile::since(started);
         let sample = Sample { result, info, caps };
-        if let Ok(mut held) = SAMPLE.lock() {
-            *held = Some(sample);
-        }
+        sampled(sample);
 
         if reported != Some(result) {
             reported = Some(result);
@@ -443,59 +378,5 @@ mod tests {
         theirs.caps.x_max = 0;
         unsafe { calibrate(&ours) };
         assert_eq!(theirs.caps.x_max, 65535);
-    }
-
-    /// A device answering with no buttons and no axes is not a pad, and what makes that worth
-    /// testing is that Windows leaves exactly one of those on joystick 0 while the pad it has
-    /// sits in XInput's second slot.
-    #[test]
-    fn a_device_with_nothing_on_it_is_not_a_pad() {
-        let mut caps = JoyCaps {
-            x_max: 65535,
-            ..JoyCaps::default()
-        };
-        let phantom = Sample {
-            result: joyerr::NOERROR,
-            info: JoyInfo::default(),
-            caps: Some(caps),
-        };
-        assert!(!phantom.is_a_pad());
-
-        // A stick with axes and no buttons is still a pad, and so is a wheel with buttons and
-        // one axis: either can say something.
-        caps.axes = 2;
-        let stick = Sample {
-            caps: Some(caps),
-            ..phantom
-        };
-        assert!(stick.is_a_pad());
-
-        // And nothing at all answering is not one either, whatever it left in the caps.
-        let nothing = Sample {
-            result: joyerr::UNPLUGGED,
-            ..stick
-        };
-        assert!(!nothing.is_a_pad());
-    }
-
-    /// A sample is taken with `JOY_RETURNALL` into the current `JOYINFOEX`, which is what
-    /// 紅魔郷 asks for. Anything asking for more than that has to go to winmm.
-    #[test]
-    fn a_sample_answers_what_the_game_asks_and_no_more() {
-        let mut asked = JoyInfo {
-            size: size_of::<JoyInfo>() as u32,
-            flags: RETURN_ALL,
-            ..JoyInfo::default()
-        };
-        assert!(describes_a_sample(&asked));
-
-        // `JOY_RETURNRAWDATA`, which a sample does not carry.
-        asked.flags = RETURN_ALL | 0x100;
-        assert!(!describes_a_sample(&asked));
-
-        // The struct before `JOYINFOEX` grew, which is not the one a sample fills.
-        asked.flags = RETURN_ALL;
-        asked.size -= 4;
-        assert!(!describes_a_sample(&asked));
     }
 }

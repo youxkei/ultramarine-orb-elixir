@@ -17,10 +17,16 @@ cargo fmt --check
 # rather than a warning nobody reads.
 cargo xtask clippy
 
+# `orb-core` and `orb-sim` checked for a host with no Windows on it, which is the one thing that can
+# say the code a scenario drives reaches Windows only through the seam: a grep for `windows-sys`
+# passes a file that is calling a COM vtable. Before the suite because it fails in seconds where the
+# suite takes minutes, and what it catches is a boundary crossed rather than a test broken.
+cargo xtask seam
+
 # The tests are Windows binaries, cross-compiled and run through WSL interop, so a run here is
 # a run on what ships rather than on a host build of the same source.
 cargo xtask test
 
-# Both through `xtask` because both have to name the target, and there is no `[build] target` to
+# All three through `xtask` because each has to name a target, and there is no `[build] target` to
 # name it for them — see `.cargo/config.toml` for why there is not. `cargo fmt --check` above needs
 # no target and so is asked for as itself.

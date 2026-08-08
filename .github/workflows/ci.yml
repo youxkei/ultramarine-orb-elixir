@@ -1,6 +1,6 @@
 name: CI
 
-# What the pre-commit hook runs, on a machine that is not the author's. The three
+# What the pre-commit hook runs, on a machine that is not the author's. The four
 # commands and their order are `.husky/pre-commit`'s; a check that holds locally and
 # not here is a check that was passing because of something untracked.
 
@@ -16,12 +16,16 @@ env:
   # touched something it was not asked to.
   NO_HUSKY_HOOKS: 1
 
-# One job, on Windows. orb is a DLL injected into a Windows game and there is no host it will ever run
-# on that is not Windows, so nothing here asks whether it builds for one — and it could not be asked
-# of all of it anyway: `orb-core` calls the game's own functions by the conventions MSVC6 compiled
-# them with, `thiscall` and `fastcall`, which exist on 32-bit x86 and nowhere else. A crate above the
-# seam that names `windows-sys` is then a design boundary crossed rather than a build broken, and
-# nothing here catches it. See *Put Windows behind a seam* in TODO.md.
+# One job, on Windows. orb is a DLL injected into a Windows game and there is no host it will ever
+# run on that is not Windows, so nothing here builds the whole of it for another one — and nothing
+# could: `orb-core` calls the game's own functions by the conventions MSVC6 compiled them with,
+# `thiscall` and `fastcall`, which exist on 32-bit x86 and nowhere else.
+#
+# What *is* asked for another host is the boundary, which is what `cargo xtask seam` is: `orb-core`
+# and `orb-sim` checked for a 32-bit Linux target, where the two ABIs still exist and Windows does
+# not. A crate above the seam that reaches past it then fails to compile rather than being caught by
+# hand — see
+# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 jobs:
   test:
     # Windows rather than a cross-compile run under Wine. The tests are
@@ -55,12 +59,15 @@ jobs:
           path-type: inherit
           install: mingw-w64-i686-gcc
 
-      # The channel and the target are `rust-toolchain.toml`'s. Naming them again here
-      # is what installs them before the first cargo call rather than during it.
+      # The channel and the targets are `rust-toolchain.toml`'s. Naming them again here
+      # is what installs them before the first cargo call rather than during it. The
+      # second is the one `cargo xtask seam` checks the crates above the seam for, and
+      # it is a std component like any other — which host it names is nothing to a
+      # `cargo check`, since there is nothing to link and nothing to run.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          targets: i686-pc-windows-gnu
+          targets: i686-pc-windows-gnu, i686-unknown-linux-gnu
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
@@ -76,6 +83,12 @@ jobs:
       # naming it — see `.cargo/config.toml`. `cargo fmt --check` above needs no target.
       - name: Clippy
         run: cargo xtask clippy
+
+      # The boundary, asked for rather than remembered. It fails the day somebody writes a
+      # `windows-sys` import into `orb-core` or `orb-sim`, or reaches a COM vtable that no
+      # grep for that name would find.
+      - name: Seam
+        run: cargo xtask seam
 
       - name: Test
         run: cargo xtask test

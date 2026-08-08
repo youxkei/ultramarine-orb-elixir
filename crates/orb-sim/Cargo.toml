@@ -10,20 +10,16 @@ publish.workspace = true
 [dependencies]
 orb-api = { workspace = true, features = ["sim"] }
 
-# The `scenario_*.rs` in `tests/` drive the *real* `orb` and `orb-core` with this simulated Windows
-# installed, composed the way the DLL composes it. Dev-dependencies rather than dependencies because
-# nothing in the simulator itself knows about orb's logic — and because that is what makes the cycle
-# legal: `orb-sim` → `orb` → `orb-core` → `orb-sim` closes, and cargo accepts a cycle whose edges are
-# not all in the normal build graph. `orb-core`'s own `sim` feature depends back on this crate the
-# same way, and `crates/orb-core/Cargo.toml` says so.
+# What is left in `tests/` is the four no game drives — `orb_core::log` and `frame::Pacing`, driven with
+# a `Sim` installed and nothing of a game anywhere in them. Every launch went to `orb-e2e`, which is
+# also where `orb` stopped being named from here: `orb-sim` → `orb` → `orb-core` → `orb-sim` closed as a
+# cycle cargo took only because a dev-dependency edge is outside the normal build graph, and it is gone.
+# See
+# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 #
-# They live here rather than in `orb-core` or in `orb` because `#[cfg(test)]` is false in a crate
-# compiled as a dependency, which is what both are here: the seam's install point is reached through
-# the `sim` feature, and a crate under test cannot turn a feature on for itself. Which crate's
-# `tests/` they sit in is then free, and this is the crate the simulated Windows they all install is
-# in — see
-# [docs/adr/0005](../../docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
+# Dev-dependencies rather than dependencies because nothing in the simulator itself knows about orb's
+# logic. `orb-core`'s own `sim` feature depends back on this crate, and `crates/orb-core/Cargo.toml`
+# says why.
 [dev-dependencies]
-orb = { path = "../orb" }
 orb-config = { workspace = true }
 orb-core = { workspace = true, features = ["sim"] }

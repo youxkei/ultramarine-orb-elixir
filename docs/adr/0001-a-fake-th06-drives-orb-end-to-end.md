@@ -173,16 +173,21 @@ ending a run is what drops the record of everything it pressed — so what the p
 and only the file, which is the property the plan wanted a second process for.
 
 **What orb exposes:** `attach_to`, with the game's own functions in place of the trampolines
-`hook::install` would have left behind, its hook entry points `pub`, and `recording.rs` reachable from
-`tests/`. Not the frame loop: orb's own runs the game's `Present` and its sound by calling the exe's
+`hook::install` would have left behind, and its hook entry points `pub`. The device a scenario reads back
+was `recording.rs` here and is `orb-sim`'s since
+[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md), along with the eleven
+hook bodies themselves, which are `orb_core::runtime`'s. Not the frame loop: orb's own runs the game's `Present` and its sound by calling the exe's
 code at its own addresses, so a game that is not a real process has nothing there to call. A scenario
 is therefore a `--no-frame-loop` run — the game's own draw-then-update order with orb's two hooks in
 the middle of it, which is a configuration orb ships and a switch somebody can ask for.
 
 **What a scenario reads off the screen is text, not only geometry.** A device is handed a bitmap and
-never a string, so a quad says what it says only if the string is baked again through the same font and
-held against what was uploaded — which is `recording::Screen::says`, and it is why the fake game's
-overlay is built on the same `font.ttf` at the same two sizes orb builds its own with. That is what
+never a string, so a quad says what it says only if the bitmap can be read back as one. It was
+`recording::Screen::says`, which baked the string a second time through the same font and held the two
+against each other; since
+[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) it is
+`orb_sim::Recording::says`, and what a mask carries is *which string it was baked from* — so nothing is
+rasterised twice and no two strings are alike by accident. That is what
 lets a scenario say the retry menu named the chapter it was offering, and which item the cursor was on:
 `menu_ui` draws that one in `SELECTED`, so the answer is a colour on the screen rather than a field to
 read. The fake game draws its own ranking through the same machinery, so the count against a spell card

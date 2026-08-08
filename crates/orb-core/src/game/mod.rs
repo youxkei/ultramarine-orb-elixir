@@ -17,10 +17,9 @@ use std::ffi::c_void;
 use std::fmt;
 use std::ops::Range;
 
-use orb_api::Hwnd;
+use orb_api::{Device, Hwnd, Texture};
 
 use crate::audio::Music;
-use crate::d3d8::{Device, Texture};
 
 /// A game orb knows how to run inside: what its exe is called, the build every address in it was
 /// read off, and the [`Game`] those addresses are in.
@@ -251,7 +250,7 @@ pub struct Pad {
 /// and so that what is left on the screen where orb stops drawing is the panel the game would
 /// have painted there anyway.
 pub struct PanelTile {
-    pub texture: *mut Texture,
+    pub texture: Texture,
     /// The piece of the sheet, as `[left, top, right, bottom]` in texture coordinates.
     pub uv: [f32; 4],
     /// Where the grid starts in the game's output, and how far apart its lines are.
@@ -333,11 +332,11 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn window(&self) -> Hwnd;
 
-    /// Null until the game has finished setting Direct3D up.
+    /// [`Device::NULL`] until the game has finished setting Direct3D up.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn d3d_device(&self) -> *mut Device;
+    unsafe fn d3d_device(&self) -> Device;
 
     /// The music stream, if one is playing and its objects look intact.
     fn music(&self) -> Option<Music>;
@@ -449,7 +448,7 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread with a live device, before the game
     /// draws.
-    unsafe fn set_play_viewport(&self, device: *mut Device);
+    unsafe fn set_play_viewport(&self, device: Device);
 
     /// The chain object the update and draw functions are called on.
     fn chain(&self) -> *mut c_void;
@@ -501,7 +500,7 @@ pub trait Game {
     ///
     /// # Safety
     /// Must run on the game's main thread with a live device.
-    unsafe fn prepare_frame(&self, device: *mut Device);
+    unsafe fn prepare_frame(&self, device: Device);
 
     /// The two functions of the game's own that orb's frame loop calls where the game's own loop
     /// called them — see [`FrameCalls`].

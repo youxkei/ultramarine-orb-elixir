@@ -28,7 +28,7 @@ const READ_TICKS: i64 = 1;
 ///
 /// A real `pause` is twenty-odd cycles — a hundredth of a microsecond — and this is a hundred times
 /// that, deliberately. What it buys is the suite's time: `frame::SPIN_US` is 1500µs, so at a faithful
-/// cost the spin is fifteen thousand turns of a real loop per simulated frame, and `scenario_pacing.rs`
+/// cost the spin is fifteen thousand turns of a real loop per simulated frame, and `orb-e2e`'s `pacing`
 /// was 76.6 seconds of almost nothing else.
 ///
 /// What it sells is how precisely a simulated frame lands on its deadline, and only that: the loop reads
@@ -38,7 +38,7 @@ const READ_TICKS: i64 = 1;
 /// median of 0.0µs and a worst of 80.3µs over 600 frames.
 ///
 /// **It is the coarsest step that leaves every scenario's answer unchanged, and the next one up does
-/// not.** Measured: at 10 ticks `scenario_pacing.rs` is 17.5 seconds and the suite 30.3, all 297
+/// not.** Measured: at 10 ticks `pacing` is 17.5 seconds and the suite 30.3, all 297
 /// passing, where they were 76.6 and 95.0. At 100 the file is 7.1 seconds and
 /// `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails — seed 3, a second at 46.83
 /// frames against a bound of 47 — which is the scenario with a 250ms stage load on a display whose

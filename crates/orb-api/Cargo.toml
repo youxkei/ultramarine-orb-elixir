@@ -11,10 +11,10 @@ publish.workspace = true
 # pay for one: `mem::read` is called thousands of times a frame, and what it compiles to
 # there is the volatile read and nothing else.
 #
-# On for anything that installs a simulated Windows, which is `orb-sim`'s tests and the
+# On for anything that installs a simulated Windows, which is `orb-e2e`'s scenarios and the
 # crates they pull in. A feature rather than `cfg(test)` because `cfg(test)` is false in a
 # crate compiled as a *dependency* of a test binary — which is what `orb-core` is when
-# `orb-sim/tests` drives it, and the whole reason those tests can exist.
+# `orb-e2e` drives it, and the whole reason those scenarios can exist.
 sim = []
 
 # Only the real implementation is target-gated. The trait and the neutral types build on any

@@ -6,12 +6,14 @@ the `fake/` they share, moved out of `crates/orb/tests/`, beside the four tests 
 `crates/orb-sim/Cargo.toml` dev-depends on `orb`, `crates/orb/tests/` is gone, and no test's code
 changed.
 
-**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) moves them again, and
-overturns the one reason this gives for the crate they landed in.** *`orb-sim` is where the thing every one
-of them installs lives* is true of every consumer of a library and is not a reason to host its users'
-tests; what it left unanswered is the cost this document records as its own — `cargo test -p orb-sim`
-building `orb` — and the `#![allow(dead_code)]` over `fake/`, which is there only because these are
-twenty-three binaries. The four tests no game drives stay here, which leaves two directories again along a
+**[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) has moved them
+again, and overturned the one reason this gives for the crate they landed in.** *`orb-sim` is where the
+thing every one of them installs lives* is true of every consumer of a library and was not a reason to host
+its users' tests; what it left unanswered is the cost this document records as its own — `cargo test -p
+orb-sim` building `orb` — and the `#![allow(dead_code)]` over `fake/`, which was there only because those
+were twenty-three binaries. Both are gone: the scenarios are `#[cfg(test)]` modules of
+`crates/orb-e2e/src/`, `crates/orb-sim/Cargo.toml` dev-depends on `orb` no longer, and the `scenario_`
+prefix went with the move. The four tests no game drives stayed here, which leaves two directories along a
 boundary that is one: *a game drives it* against *no game does*.
 
 **It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md)**: that the 紅魔郷 which

@@ -2,6 +2,9 @@
 # launcher gets orb.dll to carry inside itself. Cargo builds the cdylib first and hands
 # over its path, so the two halves cannot fall out of step and there is one file to
 # install rather than two.
+# Two targets: what ships, and the host with no Windows on it that `cargo xtask seam` checks the
+# crates above the seam against. Both here so that a fresh checkout can run the hook without being
+# told to add one — see `crates/xtask/src/main.rs` for what each is for.
 [toolchain]
 channel = "nightly"
-targets = ["i686-pc-windows-gnu"]
+targets = ["i686-pc-windows-gnu", "i686-unknown-linux-gnu"]

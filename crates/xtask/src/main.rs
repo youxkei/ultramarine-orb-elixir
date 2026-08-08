@@ -15,6 +15,36 @@ use std::process::{Command, ExitCode};
 /// What everything but this crate is built for. The game is a 32-bit process, so both halves target it.
 const TARGET: &str = "i686-pc-windows-gnu";
 
+/// The host with no Windows on it that the crates above the seam are checked against, which is what makes
+/// the boundary self-enforcing rather than kept by hand.
+///
+/// The rule is that **the code a scenario drives cannot reach Windows except through the seam** — see
+/// [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+/// A host that has no Windows is the only thing that can say so: a grep for `windows-sys` passes a file
+/// that is calling a COM vtable, and a build for [`TARGET`] passes anything at all.
+///
+/// **A 32-bit target and not a 64-bit one**, which is the part that would otherwise be read as this
+/// boundary being wrong. Measured:
+///
+/// ```text
+/// $ cargo check -p orb-core --target x86_64-unknown-linux-gnu
+/// error[E0570]: "thiscall" is not a supported ABI for the current target
+///     --> crates/orb-core/src/game/th06/mod.rs:1977:32
+/// ```
+///
+/// The three are the `handed_over!` calls, which transmute to `extern "thiscall"` — a convention MSVC6
+/// compiled the game's own methods with, and one that exists on x86 and nowhere else. So a 64-bit check
+/// would fail on arrival over the ABI while saying nothing about the host.
+const SEAM_TARGET: &str = "i686-unknown-linux-gnu";
+
+/// Which packages that check covers: orb's logic, and the simulated Windows it is tested against.
+///
+/// The two the rule is about. `orb` is the injection and may name Windows in every file of it; `orb-e2e`
+/// is a game playing the game's part, which is allowed to be a real object where a laid-out one will not
+/// do. What is left is the code under test and the host it is tested against, and neither may reach past
+/// `orb-api`.
+const ABOVE_THE_SEAM: [&str; 2] = ["orb-core", "orb-sim"];
+
 /// The target the coverage run is measured on, which is **not** the one everything else is built for.
 ///
 /// rustup ships `profiler_builtins` for this target and not for `i686-pc-windows-gnu`, so
@@ -91,9 +121,15 @@ fn main() -> ExitCode {
     let task = args.next();
     let rest: Vec<String> = args.collect();
     match task.as_deref() {
-        Some("clippy") => plain(["clippy", "--all-targets"], ["-D", "warnings"], rest),
-        Some("test") => plain(["test"], [], rest),
-        Some("build") => plain(["build"], [], rest),
+        Some("clippy") => plain(
+            ["clippy", "--all-targets"],
+            TARGET,
+            ["-D", "warnings"],
+            rest,
+        ),
+        Some("test") => plain(["test"], TARGET, [], rest),
+        Some("build") => plain(["build"], TARGET, [], rest),
+        Some("seam") => seam(rest),
         Some("coverage") => coverage(rest),
         Some(task) => {
             eprintln!("xtask: no task called {task}");
@@ -104,12 +140,15 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> ExitCode {
+    let above_the_seam = ABOVE_THE_SEAM.join(" and ");
     eprintln!(
         "usage: cargo xtask <task> [<args>]\n\
          \n\
          clippy    every target, {TARGET}, warnings denied\n\
          test      the suite, {TARGET}\n\
          build     {TARGET} — `build --release` is what installs\n\
+         seam      {above_the_seam} checked for {SEAM_TARGET}, a host with no Windows\n\
+         \x20         on it, which is what says nothing above the seam reaches past it\n\
          coverage  runs {COVERED}'s tests instrumented and reports what they cover;\n\
          \x20         --missing lists the line ranges nothing ran, which is what a\n\
          \x20         worklist is read off, and --html writes the browsable report\n\
@@ -124,21 +163,42 @@ fn usage() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// A cargo command for [`TARGET`]: `before` is what goes in front of the target, `after` what goes past
+/// A cargo command for one target: `before` is what goes in front of the target, `after` what goes past
 /// the `--` cargo forwards, and `args` is whatever the caller added.
 fn plain<const B: usize, const A: usize>(
     before: [&str; B],
+    target: &str,
     after: [&str; A],
     args: Vec<String>,
 ) -> ExitCode {
     let mut command = Command::new(cargo_bin());
     command
         .args(before)
-        .args(["--target", TARGET])
+        .args(["--target", target])
         .args(&args)
         .args(if after.is_empty() { &[][..] } else { &["--"] })
         .args(after);
     if status(command, before[0]) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// [`ABOVE_THE_SEAM`] checked for [`SEAM_TARGET`], which is the boundary asked about rather than
+/// remembered.
+///
+/// A `check` and not a `build`: what is being asked is whether the source names anything the seam does
+/// not carry, and there is nothing to run at the end of it. The two packages in one invocation because
+/// what fails is a name and not a link, so the first error is the answer wherever it is.
+fn seam(args: Vec<String>) -> ExitCode {
+    let mut command = Command::new(cargo_bin());
+    command
+        .arg("check")
+        .args(ABOVE_THE_SEAM.iter().flat_map(|package| ["-p", package]))
+        .args(["--target", SEAM_TARGET])
+        .args(&args);
+    if status(command, "the check above the seam") {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

@@ -1,4 +1,4 @@
-//! Where the game's own allocations live.
+//! Noticing where the game's own allocations are, and walking them.
 //!
 //! The game keeps most of its state in `.data`, but not all of it: `malloc` in
 //! its statically linked MSVC6 CRT goes to a private heap, and a few things come
@@ -8,6 +8,11 @@
 //!
 //! Heap contents are saved together with the allocator's own bookkeeping, which
 //! is what makes a restored snapshot hand back the identical addresses.
+//!
+//! **What a region is and how two of them are held apart is [`orb_core::memtrack`]**, which is where a
+//! snapshot reads them. Here is the noticing — six import hooks — and the walk, which is `HeapLock`,
+//! `HeapWalk` and `VirtualQuery` over a real process: [`install`] hands it over as it patches the
+//! imports, and a laid-out game answers the same question out of its own address space instead.
 
 use std::ffi::c_void;
 use std::ops::Range;
@@ -23,19 +28,7 @@ use windows_sys::Win32::System::Memory::{
 use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 
 use crate::hook;
-use crate::profile;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Region {
-    pub base: usize,
-    pub len: usize,
-}
-
-impl Region {
-    pub fn end(&self) -> usize {
-        self.base + self.len
-    }
-}
+use orb_core::memtrack::{Region, push_merged};
 
 /// Heap handles and direct reservations seen so far. Any game thread can
 /// allocate, so this is the one place in `orb` that needs a lock.
@@ -60,6 +53,10 @@ static VIRTUAL_FREE: AtomicUsize = AtomicUsize::new(0);
 /// Must run before the game's entry point, or allocations made in between go
 /// unrecorded. Patches `module`'s imports, so nothing else may be executing it.
 pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
+    // Handed over here rather than at the attach, because this is where it becomes true: nothing has been
+    // noticed until these six are in place, and a walk offered before them would answer with the data
+    // range and call it the whole set.
+    orb_core::memtrack::hands_over_the_walk(walk);
     unsafe {
         for (function, replacement, original) in [
             ("HeapCreate", hook::address(heap_create as _), &HEAP_CREATE),
@@ -197,31 +194,13 @@ fn forget_reservation(base: usize) {
     tracked.reservations.retain(|region| region.base != base);
 }
 
-/// Everything worth saving, as committed readable ranges.
-///
-/// Walking the heaps takes the heap lock, so this must be called before any
-/// thread is suspended, and its result treated as a plan rather than a fact:
-/// `snapshot` re-checks each range before touching it.
+/// The heaps and the reservations the hooks above noticed, as committed readable ranges — which is what
+/// `orb_core::memtrack::regions` is handed and calls where no simulated Windows answered first.
 ///
 /// # Safety
-/// `data` must be the exe's `.data` range.
-pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
-    // A laid-out simulated Windows *is* the game's memory, so what it holds is the whole answer:
-    // there are no heaps to walk and no reservations to have been told about. The data range still
-    // leads, as it does in a real game, and the rest is whatever else the test put there.
-    //
-    // Asked through the seam rather than behind a `cfg(test)`, which is where it was: `cfg(test)` is
-    // false in a crate compiled as a dependency of a test binary, so the scenario that drives a whole
-    // run reached the walk below with no heaps tracked — a chapter that copied `.data` and nothing
-    // else. What that lost was the fight's own block: the clock of the attack a chapter began on did
-    // not come back with the chapter.
-    if let Some(regions) = orb_api::mem::game_regions(&data) {
-        return regions
-            .into_iter()
-            .map(|(base, len)| Region { base, len })
-            .collect();
-    }
-    let started = profile::now();
+/// `data` must be the exe's `.data` range, and no thread may be suspended: the walk takes each heap's own
+/// lock.
+unsafe fn walk(data: Range<usize>) -> Vec<Region> {
     let mut regions = vec![Region {
         base: data.start,
         len: data.len(),
@@ -229,10 +208,7 @@ pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
 
     let (heaps, reservations) = match TRACKED.lock() {
         Ok(tracked) => (tracked.heaps.clone(), tracked.reservations.clone()),
-        Err(_) => {
-            unsafe { profile::record(profile::Phase::Regions, started) };
-            return regions;
-        }
+        Err(_) => return regions,
     };
     for heap in heaps {
         unsafe { collect_heap(heap, &mut regions) };
@@ -240,7 +216,6 @@ pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
     for reservation in reservations {
         unsafe { collect_committed(reservation.base..reservation.end(), &mut regions) };
     }
-    unsafe { profile::record(profile::Phase::Regions, started) };
     regions
 }
 
@@ -301,71 +276,6 @@ unsafe fn collect_committed(span: Range<usize>, out: &mut Vec<Region>) {
     }
 }
 
-pub fn is_readable(protection: u32) -> bool {
+fn is_readable(protection: u32) -> bool {
     protection & PAGE_GUARD == 0 && protection & PAGE_NOACCESS == 0
-}
-
-/// Heap regions and direct reservations can name the same pages; saving them
-/// twice would make a restore's write order decide the outcome.
-///
-/// Every entry the region touches and not the first of them: one that bridges two entries
-/// already apart — a heap region and a reservation with a gap between — would otherwise grow
-/// the first across the second and leave the pair overlapping, which is the duplicate this
-/// exists to prevent. One pass reaches them all, because no two entries here ever touch each
-/// other: this is the only thing that adds one.
-fn push_merged(out: &mut Vec<Region>, region: Region) {
-    let mut base = region.base;
-    let mut end = region.end();
-    out.retain(|existing| {
-        let touching = base <= existing.end() && existing.base <= end;
-        if touching {
-            base = base.min(existing.base);
-            end = end.max(existing.end());
-        }
-        !touching
-    });
-    out.push(Region {
-        base,
-        len: end - base,
-    });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Region, push_merged};
-
-    fn region(base: usize, end: usize) -> Region {
-        Region {
-            base,
-            len: end - base,
-        }
-    }
-
-    /// Nothing here covers the same pages as anything else, whichever order the walk found
-    /// them in — including where what arrives bridges two that were apart.
-    #[test]
-    fn a_region_bridging_two_entries_leaves_one() {
-        for mut out in [
-            vec![region(0x1000, 0x2000), region(0x3000, 0x4000)],
-            vec![region(0x3000, 0x4000), region(0x1000, 0x2000)],
-        ] {
-            push_merged(&mut out, region(0x1800, 0x3800));
-            assert_eq!(out, [region(0x1000, 0x4000)]);
-        }
-    }
-
-    /// One already covered adds nothing, one that abuts an entry extends it, and one that
-    /// touches nothing stands on its own.
-    #[test]
-    fn what_is_already_covered_is_not_saved_again() {
-        let mut out = vec![region(0x1000, 0x4000)];
-        push_merged(&mut out, region(0x2000, 0x3000));
-        assert_eq!(out, [region(0x1000, 0x4000)]);
-
-        push_merged(&mut out, region(0x4000, 0x5000));
-        assert_eq!(out, [region(0x1000, 0x5000)]);
-
-        push_merged(&mut out, region(0x8000, 0x9000));
-        assert_eq!(out, [region(0x1000, 0x5000), region(0x8000, 0x9000)]);
-    }
 }

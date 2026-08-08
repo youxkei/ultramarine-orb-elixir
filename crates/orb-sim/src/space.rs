@@ -103,8 +103,11 @@ impl Space {
     /// **Which is a hazard rather than a theory.** A laid-out game claims the addresses the real one's
     /// `.data` and heap blocks are at, and this is a 32-bit process whose own heap reaches both — so an
     /// allocation can land at an address already laid out here, and [`map`](Space::map) stops rather than
-    /// shadowing the game's own memory. Watched in `scenario_the_music_across_a_restore.rs` at 0x6ce8f0,
-    /// 0x301df98 and 0x651398. `orb_sim::Sound::of` is what asks, and asks again where the answer is no.
+    /// shadowing the game's own memory. Watched in `orb-e2e`'s `the_music_across_a_restore` at 0x6ce8f0,
+    /// 0x301df98 and 0x651398, when the sound buffer was a real object of this crate's whose address the
+    /// space was told. It is not any more — the buffer is answered through the seam — and what asks now is
+    /// `orb-e2e`'s `allocated_clear_of`, over the device vtable, which has to be a page this process really
+    /// owns because `hook::replace_pointer` calls `VirtualProtect` over the slot it patches.
     pub fn has_room(&self, base: usize, len: usize) -> bool {
         let regions = self.regions.lock().unwrap();
         !regions

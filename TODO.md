@@ -3,7 +3,7 @@
 ## What a played run still has to show
 
 A `--clear` run has been through stages 1 to 6, the ending and the result screen with chapters
-taken and no replay offered — `scenario_a_clear_on_demand.rs` holds what that run measured. What it
+taken and no replay offered — `orb-e2e`'s `a_clear_on_demand` holds what that run measured. What it
 cannot show is anything that needs somebody to be hittable, or a mode nobody chose.
 
 **The retry menu on the keyboard.** Every item of it, both confirmations, and both ways of refusing
@@ -49,8 +49,8 @@ Worth one glance, with the cursor on each of the two modes, since the two now dr
 lines.
 
 **The rest of what the pad now reaches.** The mode question answers on it, on both of the two devices
-the game's own read has — `scenario_mode_on_the_pad.rs` over a controller the game owns, and
-`scenario_mode_on_a_winmm_pad.rs` over a pad winmm has where the game owns none, which is the path that
+the game's own read has — `orb-e2e`'s `mode_on_the_pad` over a controller the game owns, and
+`orb-e2e`'s `mode_on_a_winmm_pad` over a pad winmm has where the game owns none, which is the path that
 used to work and the one that must not have been broken. Which leaves two things that go through the same
 reading and have not been pushed. The retry menu: up and down on the stick and on the d-pad, shoot
 deciding, bomb or the menu button cancelling. And the settings dialog, which is the launcher's own reading
@@ -66,7 +66,7 @@ says so. The line to look for is the one the thread writes: `mid=045e pid=02ff �
 0..65535, read in Nus`, and then `joystick: 250 reads, Nus each`.
 
 **A life gained under the brush over the lives.** The mark itself is on the screen —
-`scenario_the_mark_over_the_lives.rs` holds what that showed — and what it has not been through is the
+`orb-e2e`'s `the_mark_over_the_lives` holds what that showed — and what it has not been through is the
 count changing under it: an extend at
 10,000,000 or a 1UP item, where the star should appear under the ink rather than nowhere. That is
 also the one moment the game would have repainted that row without being asked, so it is where orb
@@ -100,7 +100,7 @@ those reaches an ending or a game over, which is the case still open: what settl
 own mtime, or its md5, after a run that reaches one.
 
 **The stick moving a cursor on a menu of orb's.** Both of orb's menus have now been answered on the
-pad — `scenario_mode_on_the_pad.rs` — but nothing says which part of it moved the cursor, and a d-pad and
+pad — `orb-e2e`'s `mode_on_the_pad` — but nothing says which part of it moved the cursor, and a d-pad and
 a stick are read from different fields. What is left is watching the axis: the dead zone is a
 quarter of the travel either side of centre, taken from `g_JoyCaps`, and this pad's caps had to be
 written there by orb before the game would have believed them.
@@ -114,7 +114,7 @@ written there by orb before the game would have believed them.
   and a direction genuinely held across the answer should still move it on the frame after.
 
 **What the front end offers with the bracket in.** Which file each open goes to is measured —
-`scenario_the_score_file.rs`'s `the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode`
+`orb-e2e`'s `the_score_file`'s `the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode`
 holds that session — and what is left is the half no log can show: `Extra Start` and the practice
 stages lit in pointdevice mode where a `score.dat` has earned them, which is the whole point of the
 bracket and has been read off the addresses rather than seen. One glance at the title menu with
@@ -131,7 +131,7 @@ it.
 ## What is left of the spell card record
 
 Both halves work and are measured —
-`scenario_the_score_file.rs`'s `a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write`
+`orb-e2e`'s `the_score_file`'s `a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write`
 holds that session: a session that stops keeps what it counted, and a chapter retried counts an attempt.
 
 **Who counts an attempt.** orb does it, at the chapter retry and at a resumed run's landing, by writing
@@ -167,7 +167,7 @@ has one has its old scores in a file nothing opens, and whether that is worth a 
 nobody has been asked.
 
 **A window of a chosen size, with nothing else resizing it.** The window comes out exactly the size
-asked for — `scenario_the_window.rs` holds the numbers — but on the machine it was run on a borderless tool then took
+asked for — `orb-e2e`'s `the_window` holds the numbers — but on the machine it was run on a borderless tool then took
 it to 4:3 filling the screen, so what a window of orb's own actually looks like has not been seen.
 The game has to be left out of such a tool for the run. What is still to watch: the game
 letterboxed inside a 16:9 window with the status line in the black beside it, that the 16x40 the
@@ -292,7 +292,7 @@ calls, the viewport and the play area were not reached at all once `render` went
 ## What a clear left open
 
 The skip stopping at the staff roll and `--clear` reaching one are both measured —
-`scenario_the_ending.rs` and `scenario_a_clear_on_demand.rs` hold what those runs showed. Three numbers
+`orb-e2e`'s `the_ending` and `orb-e2e`'s `a_clear_on_demand` hold what those runs showed. Three numbers
 that clear did not settle:
 
 - **What the skip's frame costs.** All the log will say is `gaps in refreshes 5+x1`: one frame of
@@ -338,7 +338,7 @@ track's first bar.
 **The track's loop, on a resumed stage.** Putting the song back where the chapter had it worked and
 then looped a section of itself near the end of the stage, which was the countdown the loop is taken
 on being left where the file's old position had put it — moved with the file now, and
-`scenario_the_music_across_a_restore.rs`'s `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop`
+`orb-e2e`'s `the_music_across_a_restore`'s `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop`
 holds what was heard and the addresses it was read off. What is left is to hear a resumed stage's track run past that point and take its
 loop where it should: the loop is minutes in, so it is the end of a resumed 道中 that shows it, and
 `music: the track loops at …, so … byte(s) left from …` is the line to hold against how it sounds.
@@ -405,7 +405,7 @@ the same stage and watching what each plays back as.
 ## What a pointdevice score is
 
 The scores of runs orb could rewind are kept apart from the game's now — `score.rs`'s
-`the_game_score_file_is_forked_where_the_game_asked_for_it` and `scenario_the_score_file.rs` — but that
+`the_game_score_file_is_forked_where_the_game_asked_for_it` and `orb-e2e`'s `the_score_file` — but that
 only keeps them from being compared with runs somebody played. It
 does not make them comparable with each other: a miss costs a rewind rather than a life, so the
 number rewards grinding a chapter until it goes perfectly, which is a different game from the
@@ -420,7 +420,7 @@ the game's, and with it the game's ranking screen no longer being where these ar
 
 Three to five frames of every six hundred used to come out three refreshes apart instead of two,
 once every two or three seconds. The cause and the fix are beside `frame::Pacing::grid` and in
-`scenario_pacing.rs`'s `compose` section, and a replay
+`orb-e2e`'s `pacing`'s `compose` section, and a replay
 played back through stages 0 to 3 under `--log=quiet --pacing` settled what was still open about
 them: 37,800 frames, three that missed their blank, 49 of 63 periods with nothing off the cadence
 at all, and the compositor's drawing time converging to 2550µs and staying.
@@ -488,7 +488,7 @@ What is left:
   **The game on it ran a fifth too fast, and that is fixed** — the cadence is counted in the
   compositor's own spacing now. The run that showed it is `13966us apart`, `14090us`, `13897us` and
   `13894us` over four periods of 600, 71 to 72 frames a second with `0 frame(s) paced by the clock`;
-  `scenario_pacing.rs`'s `disagrees` section is the fix asserted, and the fault is beside
+  `orb-e2e`'s `pacing`'s `disagrees` section is the fix asserted, and the fault is beside
   `frame::Pacing::grid`.
 
   What is left is a run on the machine to confirm it there. The simulator holds every second of every
@@ -513,7 +513,7 @@ means five frames of every six shown for one refresh and one for two — judder 
 game at its own speed and every frame on a blank rather than on a clock that lands anywhere.
 
 Nobody has a 50Hz desktop to want this on, which is why it is here and not done. The `rates` section of
-`orb-sim/tests/scenario_pacing.rs` could reach it in a line.
+`orb-e2e`'s `pacing` could reach it in a line.
 
 ## Move the rest of the suite onto the space
 
@@ -525,7 +525,7 @@ them the reason none of those tests could fail when `observe` changed. Breaking 
 `starts` insert now fails four of them; before, it failed none.
 
 **`read_state` is read out of an image now, and `chapter.rs` still is not handed one.** The parse
-itself is covered: `orb-sim/tests/scenario_the_run_read_back.rs` reads the whole `State` back off a game
+itself is covered: `orb-e2e`'s `the_run_read_back` reads the whole `State` back off a game
 that got where it is by being played — the game's own terms, over the same offset constants `Th06` reads
 through — plus the four chases that have to come back as nothing rather than fault (the bosses pointer
 before a fight, the dialogue index through a `GuiImpl` on the heap, the laser array, and the ending's
@@ -533,7 +533,7 @@ script). What is left is the
 handover: `chapter.rs`'s scenarios still build a `State` by hand and step the detector with it, so
 what they cannot catch is `observe` reading a different stage from the one the image holds.
 
-That handover is covered now, once: `orb-sim/tests/scenario_pointdevice_run.rs` drives a run in which nothing hands
+That handover is covered now, once: `orb-e2e`'s `pointdevice_run` drives a run in which nothing hands
 orb a `State` at all — the game advances its own memory and `read_state` is how orb learns it, as in
 production — so a chapter beginning on the wrong frame, or on a card the memory does not hold, fails
 there. What is left is that `chapter.rs`'s own twenty-seven still cannot fail for that reason, which
@@ -551,32 +551,33 @@ could write next and none of which is in the way of the two that exist:
 - **One stage, and never a second.** So the state between two of them — where the game tears one down
   and builds the next, and where a run's own numbers are put back from the stage before — is unvisited,
   and with it `jump_to_stage` and the terminator `stop_recording` drops during playback.
-- ~~**No sound.**~~ Laid out now — [`orb_sim::Sound`](crates/orb-sim/src/sound.rs), a real buffer behind a
-  vtable and a real `mmioSeek`/`mmioRead` pair — so a stage that streams one takes its first chapter at
+- ~~**No sound.**~~ Laid out now — [`orb_sim::Sound`](crates/orb-sim/src/sound.rs), the eight slots of
+  `IDirectSoundBuffer` answered through the seam and a real `mmioSeek`/`mmioRead` pair — so a stage that
+  streams one takes its first chapter at
   frame 8 rather than after the 248 `STAGE_BEGINS` names, and the whole of what a chapter does to the music
   is reached: the rewind byte for byte, the position a resume is picked up at, and the track a restore has
-  to take down and start again. Which is `scenario_the_music_across_a_restore.rs`'s six. A stage with
+  to take down and start again. Which is `orb-e2e`'s `the_music_across_a_restore`'s six. A stage with
   *no* song is still the default, and still costs those 248 frames, because that is what every scenario
   which is not about the music wants.
 - ~~**No replay and no demo**~~, so nothing reaches the tuning passes, the stepping keys, or the rule that
   a replay is a run orb tracks but does not offer a retry to. All three are reached now:
   `Fake::watches_a_replay_of_its_stages` is the record,
-  `scenario_moving_between_a_replays_stages.rs` moves between its stages, and
-  `scenario_a_chapter_table_collected.rs` runs a `--collect` and a `--judge` pass over one.
+  `orb-e2e`'s `moving_between_a_replays_stages` moves between its stages, and
+  `orb-e2e`'s `a_chapter_table_collected` runs a `--collect` and a `--judge` pass over one.
 - **No ending, no practice run and no Extra**, and no `--clear`.
 - **No boundary out of the *baked* midstage table.** Stage 1's one entry is script frame 4472 and its fake
   stage is over by 700, so what those runs exercise is the fight's own boundaries; the baked table's path
   is `chapter.rs`'s twenty-seven. A boundary a *pass* proposes is reached —
-  `scenario_a_chapter_table_collected.rs`, whose gap is at script 259 — since a proposal goes into the
+  `orb-e2e`'s `a_chapter_table_collected`, whose gap is at script 259 — since a proposal goes into the
   same list the baked one is read from.
 - **One of the frame loop's four ways out.** The other three and the loop's order are the `frame_loop`
-  section of `orb-sim/tests/scenario_pacing.rs`;
+  section of `orb-e2e`'s `pacing`;
   a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
   and nothing outside orb can empty them. See
   [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 - ~~**A pad it has, and winmm's side of one it has not.**~~ Both now: `Image::no_controller` is the game
   whose enumeration found none, `orb_sim::Joystick` is the device winmm has, and
-  `scenario_mode_on_a_winmm_pad.rs` pushes it — over a seam of its own, `orb_api::joystick`, and a thread
+  `orb-e2e`'s `mode_on_a_winmm_pad` pushes it — over a seam of its own, `orb_api::joystick`, and a thread
   that carries the installation with it.
 
 **No track plays in a laid-out game unless a scenario asks for one**, and a stage with none takes
@@ -623,7 +624,7 @@ machine advances by 15 to 16ms whether or not the millisecond is asked for, and 
 which is what `log_deferral`'s reading of two stamps always assumed and never had. Nothing in the
 simulator moves, because the simulator has derived its stamp from the counter all along.
 
-**The suite got slower and then much faster.** The exact wait took `scenario_pacing.rs` from 54.1 seconds
+**The suite got slower and then much faster.** The exact wait took `orb-e2e`'s `pacing` from 54.1 seconds
 to 76.6 on its own, because the spin now runs the whole of `SPIN_US` where the old call's rounding down to
 whole milliseconds left it about 1000µs to run — the simulator's own arithmetic, not a cost a real machine
 pays, since a real wait overshoots into the spin and a real one now overshoots less. Then the spin's
@@ -647,7 +648,7 @@ anyone plays at except the fastest, and outside it there.
 
 Measured, 240Hz with the compositor held at 3200µs over 20,000 frames: the allowance climbs to exactly
 3124µs and stops, no miss is charged to anything, and the rate settles at **48.00** for the rest of the
-run — every fifth frame taking an extra refresh. The `converges` section of `orb-sim/tests/scenario_pacing.rs` asserts
+run — every fifth frame taking an extra refresh. The `converges` section of `orb-e2e`'s `pacing` asserts
 that shape, so a run reading 48 with the allowance *below* the ceiling would be a different fault and
 would be caught.
 
@@ -704,20 +705,38 @@ the answer is no, leave it where it is.
 facades for the game's memory, the clock and its timer, the display and its compositor, which keys are
 down, which thread is running, which window is in front and how big it and its monitor are, the log
 file and the loaded modules.
-**Thirty-four** distinct Win32 functions are behind it — `joyGetPosEx` and `joyGetDevCapsA` are the two
-most recent — and the only files that reach `windows-sys` for any of them are the ten under
-`orb-api/src/real/`.
+The distinct Win32 functions behind it are what a count of the `real/` modules names, which is where they
+all are and the only place above `orb` that reaches `windows-sys` at all:
 
-`orb-core` holds `log`, `profile`, `sync`, `audio`, `d3d8`, `frame`, the keyboard and what orb's own
-menus decide from it, and the whole of `game/` — `Game`, `State`, and the two thousand three hundred
-lines of `Th06` — and **not one of its fourteen files uses `windows-sys`**; the one that mentions it is
-`lib.rs`, saying why it does not. Neither does `orb-sim`, which implements `Win` over an address space,
-a clock a test moves itself, a display and compositor it declares, a keyboard it presses, and a log it
-reads back. Twelve of `orb`'s twenty-one files still use `windows_sys`, and three of the launcher's
-four.
+```sh
+$ ls crates/orb-api/src/real/
+```
 
-**A hundred and twenty-eight of the 327 tests are scenarios, and every one of them is driven by a game.** In
-`orb-sim/tests`, where each is a `scenario_*.rs`,
+The three most recent are three COM interfaces and a rasteriser rather than functions of Win32's own — the
+eighteen slots of `IDirect3DDevice8` orb calls, the eight of `IDirectSoundBuffer`, and *bake this string at
+this height* — which is
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md):
+Windows reached through a pointer the game handed over is Windows a grep for `windows-sys` does not find.
+
+`orb-core` holds everything that decides what happens to a run: the eleven hook bodies and the `Runtime`
+they carry between frames, the chapters, the snapshots, the resume, the tuning, the drawing and the three
+menus, the frame loop, and the whole of `game/` — `Game`, `State` and the two thousand three hundred lines
+of `Th06`. **Not one of its files uses `windows-sys`, and nothing checks that by hand any more**: `cargo
+xtask seam` builds it and `orb-sim` for a 32-bit host with no Windows on it, so an import that reached past
+the seam fails to compile. `orb-sim` implements `Win` over an address space, a clock a test moves itself, a
+display and compositor it declares, a keyboard it presses, a pad, a sound, the device orb draws through and
+the strings it bakes.
+
+What is left in `orb` is the injection, and every one of its nine files names `windows_sys` — which is the
+boundary being where it says it is rather than where a grep happens to fall. Three of the launcher's four
+name it too. The counts:
+
+```sh
+$ ls crates/orb/src/ && grep -rlc windows_sys crates/orb-core/src crates/orb-sim/src
+```
+
+**A hundred and forty-six of the 351 tests are `orb-e2e`'s, and every one of them is driven by a game.** In
+`crates/orb-e2e/src/`, where each is a `#[cfg(test)]` module beside the fake it drives,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
 that chooses between them on the keyboard and on a controller the game answers with, the whole of a
@@ -735,30 +754,31 @@ argument, so a `Game` that hands them over rather than making the call leaves a 
 functions of its own to answer with. The 414-line harness that composed a copy of that loop, and whose
 own comment said it was a copy, is gone with them.
 
-The four files in `orb-sim/tests` whose names do not begin `scenario_` are not scenarios. Three are the
+The four files left in `orb-sim/tests` are not scenarios, which is what their being `orb-sim`'s rather
+than `orb-e2e`'s says. Three are the
 log's own business — what `log!` formats and which level keeps which line — and the fourth is a host that
 cannot create the timer every wait is made on, which is one wait and no frame. They want a process each, orb's log and
 profile being process-global, which a file in `tests/` gives and `orb-core`'s own `#[cfg(test)]` — one
 binary for all of its tests — does not.
 
-**Nothing enforces the boundary in CI.** With the job on Windows alone, a `use windows_sys` added to
-`orb-core` compiles and nobody is told. What would make it a check is one step rather than a second job:
-`cargo check -p orb-api -p orb-core -p orb-sim --target i686-unknown-linux-gnu` fails the moment
-anything above the seam names Windows, and needs no linker for that target because it never links.
-Run by hand for now, which is a convention and not a check.
+**The boundary is enforced in CI**, which it was not: `cargo xtask seam` is a step of the workflow and a
+line of `.husky/pre-commit`, and it checks `orb-core` and `orb-sim` for `i686-unknown-linux-gnu` — a host
+with no Windows, and 32-bit because `Th06` calls the game's own methods by conventions that exist on x86
+and nowhere else. It needs no linker for that target, never linking.
 
-**What is still where it was**, with the question above asked of each: `SuspendThread`,
-`ResumeThread`, `OpenThread` and `GetThreadId` for holding the game still; the heap walk for the
-regions; twenty-odd GDI calls for the status line; DirectInput's `EnumDevices` and winmm's own
-enumeration for finding a pad; `RegisterClassA`, whose whole business is the black brush the window
-class paints the letterbox with.
+**What is still where it was**, with the question above asked of each: the heap walk for the regions,
+which is `orb`'s and handed the other way to the arithmetic over it; twenty-odd GDI calls for the status
+line, handed over the same way; DirectInput's `EnumDevices` and winmm's own enumeration for finding a pad;
+`RegisterClassA`, whose whole business is the black brush the window class paints the letterbox with; and
+the two winmm functions a track is moved through, which are found by name in the game's own copy of the
+library and called through a transmuted address rather than through the seam.
 
 **The window — done, and it is the fourth mechanism the seam was worth cutting for.** What decides how
 much of the screen the game gets is two numbers only the host knows, and neither could be moved by a
 test: `SetProcessDPIAware`, `MonitorFromPoint`, `GetMonitorInfoW`, `AdjustWindowRect` and
 `GetClientRect` are behind `orb_api::window` now, and `orb_sim::Windows` is a monitor with two sizes —
 3840x2160 that reads as 2560x1440 until the process asks otherwise — and a 6x40 frame charged on the way
-in and given back on the way out. Six scenarios in `scenario_the_window.rs` drive it, through the game's
+in and given back on the way out. Six scenarios in `orb-e2e`'s `the_window` drive it, through the game's
 own `CreateWindowExA` call: `Originals` gained a third handed-over function for that, the same argument
 [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) made about the
 frame loop's two. What they hold that the arithmetic could not is which side of `SetProcessDPIAware` each
@@ -772,7 +792,7 @@ period, a compose time a test may change mid-run, and a `DwmFlush` that returns 
 frame just handed over reached — modelled that way because that is what the real one does and the
 whole of how the pacing knows whether a frame made its blank.
 
-Every one of `scenario_pacing.rs`'s sixty-three scenarios drives the loop — `render` itself, called by a
+Every one of `orb-e2e`'s `pacing`'s sixty-three scenarios drives the loop — `render` itself, called by a
 game's own loop — where its own
 thirteen tests were all arithmetic and **not one of them drove it**: the whole-multiple cadence, the rates
 a display reports and the rate each gets, the fractional 2-2-3-2-3 pattern, the budget rising after a frame
@@ -839,19 +859,22 @@ Two things the simulator needed that nothing else has:
   reaching 3.5ms puts it nearer one frame in a hundred thousand, three orders of magnitude rarer, and
   with the wrong figure the simulated 60Hz display lost two seconds in five that a real one holds.
 
-**The drawing, and the font two halves of the suite disagree about.** A `Device` is a pointer to a
-vtable, so `recording.rs` is one, and the four UI modules assert against it in twenty-seven places —
-that part needs no seam and never did. **Which text is at which position is answered now**, by baking
-the string again through the same font and holding it against what the quad's texture was uploaded
-with: `Screen::says`. The scenarios over a whole run read their menus that way, and they do it on the
-`font.ttf` beside the game, which is the file orb really loads `FR_PRIVATE`.
+**The drawing, and the font two halves of the suite disagreed about — closed.** It was a `Device` being a
+pointer to a vtable, so `recording.rs` was one and needed no seam; `says` baked each string a second time
+through the same font and held the two against each other, and the four UI modules did it on
+`C:\Windows\Fonts\arial.ttf` while the scenarios did it on the `font.ttf` beside the game. Both halves are
+gone: the device is eighteen slots of the seam and the record is `orb_sim::Recording`, a bake is
+[`orb_sim::Glyphs`](crates/orb-sim/src/text.rs) answering from a metric a scenario declares, and a mask
+carries which string it came from — so `says` reads the answer out rather than baking a comparison, and no
+test depends on which fonts the machine happens to have. See
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 
-What is left is that the twenty-seven still bake on **`C:\Windows\Fonts\arial.ttf`**, so what they
-measure is a font that is not the one in play and that a machine need not have — and that nothing
-anywhere holds the *rasterising* to: the glyph boxes are the GDI's, so `says` can tell one string from
-another and not one metric from a wrong one. A simulated rasteriser with known glyph boxes closes
-both, lets `recording.rs` leave `orb`, and brings the status line's own placement in `window.rs` —
-untested today — within reach.
+What is left of it is one thing rather than three: **nothing anywhere holds the real rasterising to
+anything.** The suite answers a bake from a declared metric, so what a string comes out as on the machine
+is something only a launch says — `overlay: font.ttf loaded, GDI is using …` is that line, and it is in
+the list of what only the real game can still answer. The status line's own placement in `window.rs` is
+untested for the same reason and by the same route: it is GDI on the window, above the letterbox, handed
+over from a hook body rather than driven by one.
 
 **The regions and the copies** — `memtrack`, `snapshot` — where the cases worth having are a page
 freed between a snapshot and the restore of it, which a laid-out address space can make and a real
@@ -886,21 +909,24 @@ the struct the game passes 0x194 for. A plain-data mirror in `orb-api` has to ha
 exactly, so it must keep that assert *and* gain a `#[cfg(windows)]` one against `windows-sys`' own —
 which is a better check than the one there now, since today nothing says the two agree.
 
-**`recording.rs` stayed in `orb`** while the vtable declarations went to `orb-core`, and that is where
-it belongs until the drawing seam is cut: its `Screen` fixture builds a real `Overlay`, which reaches
-`text.rs` and the GDI. The split is what let `game/` move without taking the whole of the drawing on at
-once. It is `pub` rather than `#[cfg(test)]` now, since the scenarios in `orb-sim/tests/` need a device as
-well — a game laid out by hand hands orb one of these, and orb's overlay is built and drawn through the
-calls it makes against a real one.
+~~**`recording.rs` stayed in `orb`** while the vtable declarations went to `orb-core`.~~ The drawing seam
+is cut and it is `crates/orb-sim/src/drawing.rs`, the simulated host's answer to the eighteen slots — no
+vtable of Rust functions, no `Screen`, and no second bake to recognise a string by. The declarations went
+with it, to `orb-api`. See
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 
 **Three surfaces are not functions at all**, and they are still ahead: Direct3D 8 and DirectSound
 reached through COM vtables, the window procedure and its message pump, and the game's own code
 called through transmuted pointers.
 
-**Two things needed no seam, and the third only looked that way.** The Direct3D device needed none,
-because it is a pointer to a vtable and a vtable of Rust functions is a device — `recording.rs`.
+**One thing needed no seam, one looked as though it needed none, and the third only looked that way.**
 Holding the game still needed none, because the threads it stops are ones a test can make and register
-itself. The third was the clock, and the argument for leaving it — that every decision the pacing
+itself. The Direct3D device *read* as needing none — it is a pointer to a vtable, and a vtable of Rust
+functions is a device — and that argument turned out to be why the tests worked rather than why the seam was
+unnecessary: the same sentence would retire `orb_api::mem`, and what it left behind was `overlay.rs` calling
+Windows fifteen times while naming no `windows-sys`. It is eighteen slots of the seam now, and so are the
+eight of the sound buffer and the bake of a string. See
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md). The third was the clock, and the argument for leaving it — that every decision the pacing
 makes is already a function of numbers, so a seam would only add the order the waiting calls come in —
 does not survive being checked: the order *is* what is untested, `agrees` is decided from two numbers
 a sim can declare, and the measurements beside `frame::Pacing::grid` are of frames landing on blanks, which is a different
@@ -936,12 +962,13 @@ that, and nothing can until there is a message pump to drive.
 
 ## Draw a frame in a test and say what is on it
 
-**The device is done** — `d3d8/recording.rs` — and it needed none of the above. A `Device` is a
-pointer to a vtable, so a vtable of Rust functions *is* a device: nothing in the drawing code
-branches on anything, because the COM ABI is already the seam. It keeps the quads with their
-rectangles, colours and which texture each went through, the clears, and the viewports, and
-`Quad::covers`/`overlaps` are how "the mark covers the row" and "it leaves the row below alone" get
-asked. Five tests hold it to that.
+**The device is done** — `crates/orb-sim/src/drawing.rs`, which is the simulated host's answer to the
+eighteen slots of the game's own. It keeps the quads with their rectangles, colours and which texture each
+went through, the clears, and the viewports, and `Quad::covers`/`overlaps` are how "the mark covers the row"
+and "it leaves the row below alone" get asked. Five tests hold it to that. It was a vtable of Rust functions
+in `orb/recording.rs`, on the argument that a `Device` is a pointer to a vtable — which is why the tests
+worked and not why the seam was unnecessary; see
+[docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 
 **The font is answered.** `Overlay::new` loads the game's own `font.ttf` through
 `AddFontResourceExW`, which wants a real file — but it does not want *that* file. Windows has fonts
@@ -961,10 +988,10 @@ stroke by 24 pixels in `draw` fails both; the five geometry tests beside them do
 
 **The three menus are through it too**, and so is reading text back: `retry_ui` has ten tests over the
 recorded frame, `resume_ui` eleven, `mode_ui` three, and the scenarios over a whole run ask what a quad
-*says* — `Screen::says` bakes the string again through the same font and holds it against what the
-texture was uploaded with, so the retry menu naming the chapter it is offering is something a test can
-read. What is left of the drawing is the rasterising itself: the glyph boxes are the GDI's, so `says`
-tells one string from another and not one metric from a wrong one.
+*says* — `orb_sim::Recording::says`, which reads which string a texture's mask was baked from, so the
+retry menu naming the chapter it is offering is something a test can read. What is left of the drawing is
+the rasterising itself: a bake here is a declared metric and the real glyph boxes are the GDI's, so `says`
+tells one string from another and nothing tells one metric from a wrong one.
 
 **What nothing has ever read is the status line.** The chapter's name, `RETRY n`, `INPUT LAG`, `COMPOSE`
 and the frame rate, in the black beside the game — and every pacing measurement on the machine was read
@@ -994,9 +1021,29 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 347 tests and **no stubs**, and most of what it now covers used to need a session. So this
+The suite is 351 tests and **no stubs**, and most of what it now covers used to need a session. So this
 is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
 what a session is for. Nothing here is a test somebody could write.
+
+**What [docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
+built and the suite cannot witness.** Everything the scenarios drive is now above the seam, which means the
+code that actually talks to Direct3D, DirectSound and the GDI is in three files nothing but a launch
+reaches: `orb-api/src/real/d3d8.rs`, `real/dsound.rs` and `real/text.rs`. They are the only callers of a
+COM vtable or a GDI call left in the tree, and every call site above them was rewritten — 479 lines of
+`overlay.rs` and 468 of `audio.rs` — with no compiler checking the rewrite the way it checks an import
+move. What a session has to say, in this order:
+
+- **The overlay draws and the game's own scene does not draw wrong.** The state block round every draw is
+  what that rests on: the game sets its render states once and assumes they stay set, so the failure to
+  watch for is not orb's own text going missing but the game's scene coming out wrong behind it.
+- **The letterbox still works**, which is the `Present` slot patched through a device read as
+  `orb_api::mem::read(device.0)` rather than dereferenced. `screen: presenting through a letterbox, client
+  WxH` in the log is the line that says it happened, and a stretched picture is what its absence looks like.
+- **A chapter's music still comes back byte for byte**, which is the eight slots of the buffer and the two
+  runs a lock hands over. `music:` lines and an ear are the instruments.
+- **The glyphs are the game's own font again.** The suite answers a bake from a declared metric, so nothing
+  in it has read a real `font.ttf` since; `overlay: font.ttf loaded, GDI is using Some("Rounded M+ 2p
+  regular")` is what a launch has to say, and a substituted face is what that line exists to catch.
 
 **The last twelve stubs were un-stubbed by growing the laid-out game and the seam**, the way the
 seventeen before them were: an ending object reached through the chain job it registers, with a `.end`
@@ -1004,8 +1051,8 @@ whose waits run out inside one frame and a staff roll it hands over to as the tr
 manager whose per-stage records a teardown would write over, whose entries the player moves on, and whose
 seed a stage reached by moving is drawn from; a screen shake registered as a job of the chain's, with the
 game's own `Chain::Cut` handed over to take it down; the front end's own eight items, drawn, with `Extra
-Start` among them only where the score file's `clrd` left something to light it from; and a track
-streamed through a real DirectSound buffer and a real `mmioSeek`/`mmioRead` pair —
+Start` among them only where the score file's `clrd` left something to light it from; and a track streamed
+through a buffer the seam answers and a real `mmioSeek`/`mmioRead` pair —
 [`orb_sim::Sound`](crates/orb-sim/src/sound.rs).
 
 **Two of those carry a claim the laid-out game narrows**, and both say so where they are written:
@@ -1053,7 +1100,7 @@ way:
 
 - **A scene's first update is on the frame it was built**, and the input word is zeroed there. Every
   transition therefore lands a frame earlier than it used to — the front end's, a stage's, a stage
-  transition's, the result screen's. `scenario_the_frame_a_scene_is_built_on.rs` is the claim; what a session
+  transition's, the result screen's. `orb-e2e`'s `the_frame_a_scene_is_built_on` is the claim; what a session
   would say is whether the game's own `f<N> scene=` lines fall where the fake now puts them.
 - **A stage begins with 240 updates nothing can kill the player in**, not 120 and not none. That is
   `Player::OnUpdate`'s spawning branch replacing the count `Player::AddedCallback` wrote, read out of the
@@ -1066,7 +1113,7 @@ declaration, so the provenance agrees with what orb reads it as. That it *is* th
 confirmed by name. A read of the ECL instruction or a run with a card up is what would confirm it.
 
 **A pre-existing intermittent in the suite, and it is not the fidelity pass's.** One scenario of
-`scenario_the_music_across_a_restore.rs` fails perhaps one run in eight with `no sound has been installed on
+`orb-e2e`'s `the_music_across_a_restore` fails perhaps one run in eight with `no sound has been installed on
 this thread` — `orb_sim::Sound`'s `STREAMING` reading null where the sound was installed on the thread that
 asked for it. Held against `HEAD` before any of the fidelity work: it flakes there too, at about the same
 rate, so it is older than that work and nothing in it. What is *fixed* is the other one that used to sit
@@ -1090,7 +1137,7 @@ launch. **東方紅魔郷 has not been launched with the DLL since that table we
 arithmetic has five tests; the match has none and cannot.
 
 **A chapter picked up in a second process.** One launch writes the file and another reads it, which
-is two processes of the game — a scenario is one, and `scenario_pointdevice_run.rs` gives the run up
+is two processes of the game — a scenario is one, and `orb-e2e`'s `pointdevice_run` gives the run up
 inside its own launch instead, so what it reads is the file and only the file. That the file survives
 the game being gone, and that a launch finds and names it, are the real thing's to show.
 

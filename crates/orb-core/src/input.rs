@@ -43,7 +43,7 @@ impl Keyboard {
         // just pressed. Zeroing while away is what keeps a key from sticking down, and it is also
         // what would make the way back an edge: everything read as up, then read as down, which is
         // a press by the rule below. Measured in
-        // `orb-sim/tests/scenario_mode_question.rs`'s
+        // `orb-e2e/src/mode_question.rs`'s
         // `keys_are_not_read_with_another_window_in_front_or_a_host_that_will_not_say` — a key held
         // through an alt-tab chose a mode on the frame the window came forward, which is typing
         // elsewhere driving the game by the door this was closing.

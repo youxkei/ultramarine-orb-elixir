@@ -1,42 +1,33 @@
 //! The sound a track is streamed through, as much of one as orb reaches.
 //!
-//! **Both halves of it are real objects rather than laid-out memory**, and that is not a shortcut: orb
-//! *dereferences* the buffer's pointer — a DirectSound buffer is a COM object and its vtable is called,
-//! not read — and it asks winmm for the two functions it moves the file with. So what stands in for them
-//! is a buffer of this crate's own behind a vtable of Rust functions, which is the same answer the
-//! Direct3D device orb draws through is, and a `mmioSeek`/`mmioRead` pair over a wave file kept in a
-//! `Vec`.
+//! **The buffer is answered through the seam and winmm's two functions are not**, which is the whole of
+//! the shape here. Eight slots of `IDirectSoundBuffer` are `orb_api::dsound`'s, so what stands in for the
+//! buffer is this crate answering them out of a `Vec` — no vtable, no object. `mmioSeek` and `mmioRead`
+//! are found by name in the game's own copy of winmm and called through a transmuted address, so those
+//! two are real functions and this is a real object as far as they are concerned.
 //!
-//! What the *address space* is told is where that object is — see [`Sound::install`] — because the one
+//! What the *address space* is told is where the buffer is — see [`Sound::install`] — because the one
 //! thing orb reads rather than calls is the pointer at its head: a pointer into the image is what it takes
 //! for the difference between a live object and the stale one left in a block the allocator did not scrub.
 
-use std::cell::{Cell, UnsafeCell};
-use std::ffi::c_void;
+use std::cell::Cell;
 
-use orb_api::Kind;
+use orb_api::dsound::{DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING};
+use orb_api::{Hresult, Kind, LockedBuffer, SoundBuffer};
 
 use crate::Sim;
 
-/// Which slot of the buffer's vtable is which, as `orb_core::audio` lays `IDirectSoundBuffer` out: the
-/// three `IUnknown` slots first and then the interface's own.
-mod slot {
-    pub const GET_CURRENT_POSITION: usize = 4;
-    pub const GET_STATUS: usize = 9;
-    pub const LOCK: usize = 11;
-    pub const PLAY: usize = 12;
-    pub const SET_CURRENT_POSITION: usize = 13;
-    pub const STOP: usize = 18;
-    pub const UNLOCK: usize = 19;
-    pub const RESTORE: usize = 20;
-    /// One past the last of them, which is how big the vtable has to be.
-    pub const COUNT: usize = 21;
-}
+/// The buffer the game's music is played out of, as a scenario's game keeps it.
+///
+/// Any address — orb reads it out of the game's memory and hands it back to the seam — with a word at it
+/// holding [`BUFFER_VTABLE`], which is what makes `vtable_in_image` say the buffer is live. See
+/// [`Sound::install`].
+pub const BUFFER: SoundBuffer = SoundBuffer(0x0d50_0000);
 
-/// The two status bits orb reads, and the flag it plays with.
-const DSBSTATUS_PLAYING: u32 = 0x1;
-const DSBSTATUS_LOOPING: u32 = 0x4;
-const DSBPLAY_LOOPING: u32 = 0x1;
+/// And the vtable that word names, which nothing ever calls through: what has to be true of it is only
+/// that it lies in a region mapped as [`Kind::Image`], since that is the whole of the difference between a
+/// live COM object and a stale pointer in a freed block.
+pub const BUFFER_VTABLE: usize = 0x0d51_0000;
 
 /// `mmioSeek`'s origins, of which orb uses two.
 const SEEK_SET: i32 = 0;
@@ -51,24 +42,16 @@ const OK: i32 = 0;
 /// The name orb asks for the two functions under, which is the game's own copy of the library.
 const WINMM: &str = "winmm.dll";
 
-/// The object orb is handed, which is a pointer to a pointer to functions.
-#[repr(C)]
-struct Object {
-    vtable: *const usize,
-}
-
 /// A track being streamed: the wave file it is read out of, the buffer it is played from, and where each
 /// of the two has got to.
 pub struct Sound {
-    /// The vtable first, because the object holds its address.
-    vtable: Box<[usize; slot::COUNT]>,
-    object: UnsafeCell<Object>,
     /// The wave file's own sound, which is what `mmioRead` hands back.
     wave: Vec<u8>,
     /// Where the file handle is, which is what `mmioSeek` answers and moves.
     at: Cell<i32>,
-    /// The buffer's contents. Its length never changes, so the pointer `Lock` hands out stays put.
-    buffer: UnsafeCell<Box<[u8]>>,
+    /// The buffer's contents. Boxed and never resized, so the address a `Lock` hands out stays put for as
+    /// long as whoever took the lock is writing through it.
+    buffer: std::cell::UnsafeCell<Box<[u8]>>,
     /// How long that is, kept beside it: asking the boxed slice would mean a reference into the cell for
     /// nothing, and the length is what every `Lock` is checked against.
     size: u32,
@@ -95,102 +78,52 @@ fn streaming() -> &'static Sound {
     unsafe { &*sound }
 }
 
-/// How many times [`Sound::of`] asks for another allocation before it says so out loud.
-///
-/// Well past what a heap that has taken one 64kB block of a laid-out range needs: the next allocation of the
-/// same size lands in the same block, and the one after it past the end of what the allocator holds. A run
-/// that reaches this is a heap sitting *inside* the game's own ranges, which is a different problem and one
-/// worth naming rather than looping over.
-const ATTEMPTS: usize = 64;
-
 impl Sound {
     /// A track of `wave` bytes, played through a buffer of `buffer` bytes topped up `notify` at a time.
     ///
-    /// Boxed and owned by whoever asked for it: what goes into the game's memory is the address of the
-    /// object inside this, so a value moved out of here would leave that address behind.
-    pub fn of(sim: &Sim, wave: Vec<u8>, buffer: usize, notify: u32) -> Box<Self> {
-        // Allocated again where the object or its vtable landed inside a range the game is laid out in, and
-        // the one that landed there left where it is.
-        //
-        // **Which is a hazard rather than a theory.** A laid-out game claims the addresses the real one's
-        // `.data` and heap blocks are at, and this is a 32-bit process whose own heap reaches both — so a
-        // `Box` can land at an address `Space` has already laid out, and telling the space about it is a
-        // mapping that would shadow the game's own memory. `Space::map` stops rather than shadowing, which
-        // is right and is a panic in the middle of a scenario about the music. Watched two runs in three, at
-        // 0x6ce8f0 and 0x301df98 and 0x651398.
-        //
-        // So the answer is to ask for another allocation, which lands somewhere else. The ones given up are
-        // **held until this call returns**, and that is what makes the next attempt land anywhere new: an
-        // allocation freed straight away is one the allocator hands back at the same address. They go with
-        // the call, which costs nothing — each is the struct and its vtable and no more, the wave and the
-        // buffer going in only once one has been kept.
-        // The wave and the buffer go in only once an allocation has been kept, so an attempt costs the
-        // struct and its vtable and nothing else: a `Vec` is the same three words whether it holds 400,000
-        // bytes or none, so the allocation this asks for is the same size either way.
-        let mut given_up = Vec::new();
-        for _ in 0..ATTEMPTS {
-            let vtable = Box::new(filled_vtable());
-            let mut sound = Box::new(Self {
-                object: UnsafeCell::new(Object {
-                    vtable: vtable.as_ptr(),
-                }),
-                vtable,
-                wave: Vec::new(),
-                at: Cell::new(0),
-                buffer: UnsafeCell::new(Vec::new().into_boxed_slice()),
-                size: buffer as u32,
-                play: Cell::new(0),
-                status: Cell::new(DSBSTATUS_PLAYING | DSBSTATUS_LOOPING),
-                notify,
-            });
-            let space = sim.space();
-            if space.has_room(sound.buffer_object(), size_of::<usize>())
-                && space.has_room(sound.vtable.as_ptr() as usize, 1)
-            {
-                sound.wave = wave;
-                *sound.buffer.get_mut() = vec![0; buffer].into_boxed_slice();
-                STREAMING.set(&raw const *sound);
-                return sound;
-            }
-            given_up.push(sound);
-        }
-        panic!(
-            "{ATTEMPTS} allocations of a sound all landed inside a range this game is laid out in"
-        );
+    /// Boxed and owned by whoever asked for it: winmm's two functions find it through a pointer — the
+    /// handle the game keeps is this object's own address — so a value moved out of here would leave that
+    /// pointer behind.
+    ///
+    /// **It used to have to dodge the game's own addresses and does not any more.** The buffer was a real
+    /// object behind a vtable of Rust functions, and its address and its vtable's were both told to the
+    /// address space — so a `Box` landing inside a range the game is laid out at was a mapping that would
+    /// shadow the game's own memory, watched at 0x6ce8f0, 0x301df98 and 0x651398. Now the buffer is
+    /// answered through the seam and the addresses it is known by are [`BUFFER`] and [`BUFFER_VTABLE`],
+    /// which are numbers rather than allocations.
+    pub fn of(wave: Vec<u8>, buffer: usize, notify: u32) -> Box<Self> {
+        let sound = Box::new(Self {
+            wave,
+            at: Cell::new(0),
+            buffer: std::cell::UnsafeCell::new(vec![0; buffer].into_boxed_slice()),
+            size: buffer as u32,
+            play: Cell::new(0),
+            status: Cell::new(DSBSTATUS_PLAYING | DSBSTATUS_LOOPING),
+            notify,
+        });
+        STREAMING.set(&raw const *sound);
+        sound
     }
 
-    /// Tells `sim` where this is: winmm's two functions, and the two words of it that orb reads rather
-    /// than calls.
+    /// Tells `sim` where this is: winmm's two functions, and the one word of the buffer that orb reads
+    /// rather than asks for.
     ///
-    /// **Four bytes and one**, deliberately: what the address space has to answer is the pointer at the
-    /// object's head and that the vtable it names is in the image. A region no bigger than those cannot
-    /// shadow anything else a scenario laid out, which a page-sized one over a real allocation might.
-    ///
-    /// # Panics
-    /// Through `Space::map`, where this process's heap put either of those two inside an address the game
-    /// is laid out at — which is the one way this can go wrong, and the panic names both addresses.
-    ///
-    /// **Which has happened, so it is a hazard rather than a theory.** The game's own ranges are its
-    /// 0x476000 data and the blocks from 0x3000000 up, and the heap of a binary based at 0x400000 with a
-    /// 10MB image reaches the second of those: a run of `scenario_the_music_across_a_restore.rs` panicked
-    /// here once, on a day when the laid-out blocks had been extended to 0x3050000. So the rule for
-    /// anything laid out from 0x3000000 up is to map the *pages orb reads* and no more — see
-    /// `ANM_TEXTURES` in `orb_core::game::th06::image`, which is the one that found this out.
+    /// **Four bytes and one**, deliberately: what the address space has to answer is the pointer at
+    /// [`BUFFER`]'s head and that the vtable it names is in an image. A region no bigger than those cannot
+    /// shadow anything else a scenario laid out, which a page-sized one might.
     pub fn install(&self, sim: &Sim) {
         sim.load_module(WINMM);
         sim.set_proc_address(WINMM, "mmioSeek", mmio_seek as *const () as usize);
         sim.set_proc_address(WINMM, "mmioRead", mmio_read as *const () as usize);
-        sim.space()
-            .map(self.buffer_object(), size_of::<usize>(), Kind::Private);
-        sim.space()
-            .write::<usize>(self.buffer_object(), self.vtable.as_ptr() as usize);
-        sim.space()
-            .map(self.vtable.as_ptr() as usize, 1, Kind::Image);
+        sim.space().map(BUFFER.0, size_of::<usize>(), Kind::Private);
+        sim.space().write::<usize>(BUFFER.0, BUFFER_VTABLE);
+        sim.space().map(BUFFER_VTABLE, 1, Kind::Image);
     }
 
-    /// The buffer as the game keeps it: the address of the object, which is what orb dereferences.
+    /// The buffer as the game keeps it, which is the address orb reads out of the game's memory and hands
+    /// back to the seam.
     pub fn buffer_object(&self) -> usize {
-        self.object.get() as usize
+        BUFFER.0
     }
 
     /// The file handle, as the game keeps one. Its own address, which is a number no other handle is.
@@ -283,109 +216,83 @@ impl Drop for Sound {
     }
 }
 
-/// The vtable, with a function in every slot orb calls and nothing in the rest.
+/// The eight slots of `IDirectSoundBuffer`, as this host answers them — see [`crate::Sim`], which is
+/// what `orb-api` calls and which calls these.
 ///
-/// The empty ones are never reached — orb calls eight of the twenty-one — and a null in them is what says
-/// so: a call through one would fault where a plausible function would quietly answer.
-fn filled_vtable() -> [usize; slot::COUNT] {
-    let mut slots = [0usize; slot::COUNT];
-    slots[slot::GET_CURRENT_POSITION] = get_current_position as *const () as usize;
-    slots[slot::GET_STATUS] = get_status as *const () as usize;
-    slots[slot::LOCK] = lock as *const () as usize;
-    slots[slot::PLAY] = play as *const () as usize;
-    slots[slot::SET_CURRENT_POSITION] = set_current_position as *const () as usize;
-    slots[slot::STOP] = stop as *const () as usize;
-    slots[slot::UNLOCK] = unlock as *const () as usize;
-    slots[slot::RESTORE] = restore as *const () as usize;
-    slots
-}
-
-unsafe extern "system" fn get_current_position(
-    _buffer: usize,
-    play: *mut u32,
-    write: *mut u32,
-) -> i32 {
-    let sound = streaming();
-    unsafe {
-        if !play.is_null() {
-            play.write(sound.play.get());
-        }
-        // The write cursor DirectSound reports, which is not the offset the game's own streaming thread
-        // keeps: orb reads that one out of the game's memory and never asks the buffer for it.
-        if !write.is_null() {
-            write.write(sound.play.get());
-        }
-    }
-    OK
-}
-
-unsafe extern "system" fn get_status(_buffer: usize, status: *mut u32) -> i32 {
-    unsafe { status.write(streaming().status.get()) };
-    OK
-}
-
-/// `Lock` over the whole buffer, which is the only lock orb takes: one starting at zero never wraps, so
-/// there is never a second part to hand back.
-#[allow(clippy::too_many_arguments)]
-unsafe extern "system" fn lock(
-    _buffer: usize,
-    offset: u32,
-    bytes: u32,
-    first: *mut *mut c_void,
-    first_bytes: *mut u32,
-    second: *mut *mut c_void,
-    second_bytes: *mut u32,
-    _flags: u32,
-) -> i32 {
-    let sound = streaming();
-    if offset != 0 || bytes != sound.buffer_size() {
-        return REFUSED;
-    }
-    unsafe {
-        first.write((*sound.buffer.get()).as_mut_ptr().cast());
-        first_bytes.write(bytes);
-        second.write(std::ptr::null_mut());
-        second_bytes.write(0);
-    }
-    OK
-}
-
-unsafe extern "system" fn unlock(
-    _buffer: usize,
-    _first: *mut c_void,
-    _first_bytes: u32,
-    _second: *mut c_void,
-    _second_bytes: u32,
-) -> i32 {
-    OK
-}
-
-unsafe extern "system" fn play(_buffer: usize, _reserved: u32, _priority: u32, flags: u32) -> i32 {
-    let sound = streaming();
-    let looping = if flags & DSBPLAY_LOOPING != 0 {
-        DSBSTATUS_LOOPING
-    } else {
-        0
+/// Reached through [`streaming`] rather than through a field of the `Sim`, the way winmm's two functions
+/// are: the sound is a thread's, because a scenario's game is a thread's. Every one of them refuses a
+/// handle that is not [`BUFFER`] — a scenario that had orb reading some other buffer would be a scenario
+/// about nothing.
+pub(crate) mod buffer {
+    use super::{
+        BUFFER, DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING, Hresult, LockedBuffer, OK,
+        REFUSED, SoundBuffer, streaming,
     };
-    sound.status.set(DSBSTATUS_PLAYING | looping);
-    OK
-}
 
-unsafe extern "system" fn stop(_buffer: usize) -> i32 {
-    let sound = streaming();
-    sound.status.set(sound.status.get() & !DSBSTATUS_PLAYING);
-    OK
-}
+    /// Where the mixer is playing from, and where the buffer says the next write goes.
+    ///
+    /// The same number twice: the offset the game's own streaming thread writes at is one orb reads out
+    /// of the game's memory and never asks the buffer for, so what DirectSound reports as its own write
+    /// cursor is not that and nothing here has an opinion about it.
+    pub fn position(handle: SoundBuffer) -> (Hresult, u32, u32) {
+        if handle != BUFFER {
+            return (REFUSED, 0, 0);
+        }
+        let play = streaming().play.get();
+        (OK, play, play)
+    }
 
-unsafe extern "system" fn set_current_position(_buffer: usize, at: u32) -> i32 {
-    streaming().play.set(at);
-    OK
-}
+    pub fn status(handle: SoundBuffer) -> (Hresult, u32) {
+        if handle != BUFFER {
+            return (REFUSED, 0);
+        }
+        (OK, streaming().status.get())
+    }
 
-/// Buffers are never lost here: what `Restore` is for is a device that has been taken away, which no
-/// scenario does.
-unsafe extern "system" fn restore(_buffer: usize) -> i32 {
-    OK
+    /// `Lock` over the whole buffer, which is the only lock orb takes: one starting at zero never wraps,
+    /// so there is never a second run to hand back.
+    pub fn lock(handle: SoundBuffer, offset: u32, bytes: u32) -> (Hresult, LockedBuffer) {
+        let sound = streaming();
+        if handle != BUFFER || offset != 0 || bytes != sound.size {
+            return (REFUSED, LockedBuffer::default());
+        }
+        let first = unsafe { (*sound.buffer.get()).as_mut_ptr() } as usize;
+        (
+            OK,
+            LockedBuffer {
+                first,
+                first_bytes: bytes,
+                second: 0,
+                second_bytes: 0,
+            },
+        )
+    }
+
+    pub fn play(handle: SoundBuffer, flags: u32) {
+        if handle != BUFFER {
+            return;
+        }
+        let looping = if flags & DSBPLAY_LOOPING != 0 {
+            DSBSTATUS_LOOPING
+        } else {
+            0
+        };
+        streaming().status.set(DSBSTATUS_PLAYING | looping);
+    }
+
+    pub fn stop(handle: SoundBuffer) {
+        if handle != BUFFER {
+            return;
+        }
+        let sound = streaming();
+        sound.status.set(sound.status.get() & !DSBSTATUS_PLAYING);
+    }
+
+    pub fn set_position(handle: SoundBuffer, at: u32) {
+        if handle == BUFFER {
+            streaming().play.set(at);
+        }
+    }
 }
 
 /// `mmioSeek` over the wave file's own bytes, which answers where the handle ended up.

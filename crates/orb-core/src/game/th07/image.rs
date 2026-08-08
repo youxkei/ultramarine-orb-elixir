@@ -19,7 +19,7 @@ use std::sync::Arc;
 use orb_api::{Hwnd, Kind};
 use orb_sim::{Sim, Space};
 
-use crate::d3d8::Device;
+use orb_api::Device;
 
 /// The game's static data, as the real one is: **one range**, `0x0049c000..0x01365258`, which is what
 /// orb reads out of the PE and writes in the log every run. Six times 紅魔郷's, and the range a
@@ -61,9 +61,9 @@ impl Image {
     ///
     /// A real pointer for the device, code being the one thing an address space cannot hold: orb reads
     /// the pointer out of here and then goes through its vtable, which is a vtable of Rust functions.
-    pub fn shows_through(&self, device: *mut Device, window: Hwnd) {
+    pub fn shows_through(&self, device: Device, window: Hwnd) {
         let space = self.space();
-        space.write::<*mut Device>(super::G_D3D_DEVICE, device);
+        space.write::<usize>(super::G_D3D_DEVICE, device.0);
         space.write::<Hwnd>(super::G_GAME_WINDOW, window);
     }
 

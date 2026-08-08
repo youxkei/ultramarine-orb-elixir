@@ -31,11 +31,12 @@ use orb_api::Hwnd;
 use orb_api::mem;
 
 use crate::audio::Music;
-use crate::d3d8::{Device, Viewport};
 use crate::game::{
     Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
     Reproduction, RunStart, RunState, State,
 };
+use orb_api::d3d8;
+use orb_api::{Device, Viewport};
 
 pub struct Th07;
 
@@ -233,8 +234,8 @@ impl Game for Th07 {
         unsafe { mem::read(G_GAME_WINDOW) }
     }
 
-    unsafe fn d3d_device(&self) -> *mut Device {
-        unsafe { mem::read(G_D3D_DEVICE) }
+    unsafe fn d3d_device(&self) -> Device {
+        Device(unsafe { mem::read(G_D3D_DEVICE) })
     }
 
     /// No music, which costs a chapter its track and there being no chapters costs nothing.
@@ -311,20 +312,17 @@ impl Game for Th07 {
     /// stage wiping its own field rather than device setup being put back, and no depth clear beside it
     /// has been read, so putting one here would be orb inventing one. Reached only on the frames orb
     /// freezes the game for, of which 妖々夢 has none: it asks no question and offers no menu here.
-    unsafe fn set_play_viewport(&self, device: *mut Device) {
-        unsafe {
-            let viewport = Viewport {
-                x: PLAY_AREA.left as u32,
-                y: PLAY_AREA.top as u32,
-                width: PLAY_AREA.width as u32,
-                height: PLAY_AREA.height as u32,
-                min_z: 0.5,
-                max_z: 1.0,
-            };
-            mem::write(VIEWPORT, viewport);
-            let vtable = &*(*device).vtable;
-            (vtable.set_viewport)(device, &viewport);
-        }
+    unsafe fn set_play_viewport(&self, device: Device) {
+        let viewport = Viewport {
+            x: PLAY_AREA.left as u32,
+            y: PLAY_AREA.top as u32,
+            width: PLAY_AREA.width as u32,
+            height: PLAY_AREA.height as u32,
+            min_z: 0.5,
+            max_z: 1.0,
+        };
+        unsafe { mem::write(VIEWPORT, viewport) };
+        d3d8::set_viewport(device, viewport);
     }
 
     fn chain(&self) -> *mut c_void {
@@ -364,20 +362,17 @@ impl Game for Th07 {
     /// before the update. No background
     /// clear, that being an option of the game's that has not been read, and no framerate multiplier,
     /// 妖々夢 not having been read for one.
-    unsafe fn prepare_frame(&self, device: *mut Device) {
-        unsafe {
-            let viewport = Viewport {
-                x: 0,
-                y: 0,
-                width: BACK_BUFFER.0,
-                height: BACK_BUFFER.1,
-                min_z: 0.0,
-                max_z: 1.0,
-            };
-            mem::write(VIEWPORT, viewport);
-            let vtable = &*(*device).vtable;
-            (vtable.set_viewport)(device, &viewport);
-        }
+    unsafe fn prepare_frame(&self, device: Device) {
+        let viewport = Viewport {
+            x: 0,
+            y: 0,
+            width: BACK_BUFFER.0,
+            height: BACK_BUFFER.1,
+            min_z: 0.0,
+            max_z: 1.0,
+        };
+        unsafe { mem::write(VIEWPORT, viewport) };
+        d3d8::set_viewport(device, viewport);
     }
 
     fn frame_calls(&self) -> FrameCalls {

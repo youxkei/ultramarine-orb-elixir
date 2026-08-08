@@ -6,18 +6,18 @@ publish.workspace = true
 
 [lib]
 name = "orb"
-# `rlib` beside the DLL the game loads, so that `orb-sim/tests/scenario_*.rs` can drive this crate
-# from outside it. A scenario over the whole of what a mode does to a run — the chapters, the
-# snapshots, the retry menu, the file a run is left in — reaches code that lives here and cannot move
-# below the seam: `chapter` and `resume` are orb's own, and so are the hooks a game reaches them
-# through. The 紅魔郷 that plays the game's part is `orb-sim/tests/fake/th06.rs`, which names this
-# crate through this `rlib` — see
-# [docs/adr/0005](../../docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
+# `rlib` beside the DLL the game loads, so that `orb-e2e`'s scenarios can drive this crate from outside
+# it. **Which they still do, after everything a scenario drives moved to `orb-core`** — see
+# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md),
+# whose plan expected this line to go and whose status records that it does not. What is left here that a
+# game laid out by hand needs is the rewrite of each import a real launch patches: it has no import table,
+# so where a launch patches the entry it *calls* `window::create_window_ex_a`, `score::create_file_a` and
+# `joystick::answer` itself, and `attach_to` is how it is attached to with no process to patch.
 #
-# An integration test rather than another `#[cfg(test)]` module, and that is the point: `cfg(test)`
-# is false in a `tests/`, so a scenario reaches the simulated Windows the same way the shipped
-# DLL would reach the real one — through the `sim` feature and nothing else. It is also what one of
-# them found: a `cfg(test)` branch in `memtrack` that a scenario does not take.
+# Another crate rather than this one's own `#[cfg(test)]`, and that is the point: `cfg(test)` is false
+# in a crate compiled as a dependency, so a scenario reaches the simulated Windows the same way the
+# shipped DLL would reach the real one — through the `sim` feature and nothing else. It is also what
+# one of them found: a `cfg(test)` branch in `memtrack` that a scenario does not take.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

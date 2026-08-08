@@ -16,19 +16,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use orb_api::{Composition, Hwnd, LogFile, Rect, Win};
+use orb_api::{
+    Composition, Device, Face, Hresult, Hwnd, Locked, LockedBuffer, LogFile, Mask, Rect,
+    SoundBuffer, Texture, Viewport, Win,
+};
 
 mod clock;
 mod display;
+mod drawing;
 mod joystick;
 mod keyboard;
 mod log;
 mod noise;
 mod sound;
 mod space;
+mod text;
 mod window;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
+pub use drawing::{DEVICE, Drawn, Quad, Recording};
 pub use joystick::{Joystick, POV_CENTERED};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
@@ -36,8 +42,9 @@ pub use log::Log;
 /// own to declare: how long the game's frame takes is the game's business rather than the host's, and a
 /// run whose every draw comes from one seed is a run that replays.
 pub use noise::Noise;
-pub use sound::Sound;
+pub use sound::{BUFFER, BUFFER_VTABLE, Sound};
 pub use space::Space;
+pub use text::{Glyphs, Metric};
 pub use window::{Frame, Made, Monitor, Windows};
 
 /// Where a test's laid-out game is installed. The log and `orb.yaml` are read as siblings of the
@@ -82,6 +89,10 @@ pub struct Sim {
     /// The joystick winmm has, which is not the controller DirectInput has: that one is laid out in the
     /// game's own memory, and this is the device on the other branch of the game's own read.
     joystick: Joystick,
+    /// The fonts a scenario says are beside the game, and every string baked through one.
+    glyphs: Glyphs,
+    /// The device the game shows its frames through, keeping what it was asked to draw.
+    drawing: Recording,
     log: Log,
     /// The ranges orb has said are its own — where it keeps the copies a snapshot holds. Nothing is
     /// ever excluded from anything here, `private_regions` answering with none; what the list is for
@@ -127,6 +138,8 @@ impl Sim {
             windows: Windows::new(),
             keyboard: Keyboard::new(),
             joystick: Joystick::new(),
+            glyphs: Glyphs::new(),
+            drawing: Recording::new(),
             log: Log::new(),
             ours: Mutex::new(HashMap::new()),
             threads: Mutex::new(Vec::new()),
@@ -181,6 +194,24 @@ impl Sim {
     /// a pad through where its own enumeration found no controller.
     pub fn joystick(&self) -> &Joystick {
         &self.joystick
+    }
+
+    /// The fonts and the strings baked through them, for a scenario that says a font is beside the game
+    /// or asks which string went into a texture.
+    pub fn text(&self) -> &Glyphs {
+        &self.glyphs
+    }
+
+    /// The device the game shows through, for a scenario reading back what was drawn on a frame.
+    pub fn drawing(&self) -> &Recording {
+        &self.drawing
+    }
+
+    /// The quads that drew `text`, which is [`Recording::says`] with the bake this host answered it
+    /// from — the two being one question and held apart only because a record of the drawing knows
+    /// nothing about fonts.
+    pub fn says(&self, text: &str) -> Vec<Quad> {
+        self.drawing.says(&self.glyphs, text)
     }
 
     /// How many ranges orb is holding copies of the game's memory in, for a scenario asking whether
@@ -443,6 +474,150 @@ impl Win for Sim {
             .get(&(module.to_string(), name.to_string()))
             .copied()
     }
+
+    fn load_face(&self, path: &Path, height: i32) -> Option<Face> {
+        self.glyphs.load_face(path, height)
+    }
+
+    fn face_name(&self, face: Face) -> Option<String> {
+        self.glyphs.face_name(face)
+    }
+
+    fn bake(&self, face: Face, text: &str) -> Option<Mask> {
+        self.glyphs.bake(face, text)
+    }
+
+    /// Nothing. A face is left where it is so that a mask baked through it is still readable, which is
+    /// the whole of what one is here for — there is no font loaded to take back out.
+    fn drop_face(&self, _face: Face) {}
+
+    // --- the device -------------------------------------------------------------
+    //
+    // Which device is nothing to any of these: a simulated host has the one a scenario's game shows
+    // through, and the handle is there because a real one has several and the game says which.
+    // `Recording` is where the record is; these are the eighteen slots reaching it.
+
+    fn create_texture(
+        &self,
+        _device: Device,
+        width: u32,
+        height: u32,
+        _levels: u32,
+        _usage: u32,
+        _format: u32,
+        _pool: u32,
+    ) -> (Hresult, Option<Texture>) {
+        (0, Some(self.drawing.create_texture(width, height)))
+    }
+
+    /// A token that is not zero, which is what the drawing gives up on a device for not answering.
+    fn create_state_block(&self, _device: Device, _kind: u32) -> (Hresult, u32) {
+        (0, 1)
+    }
+
+    fn capture_state_block(&self, _device: Device, _token: u32) -> Hresult {
+        0
+    }
+
+    fn apply_state_block(&self, _device: Device, _token: u32) {}
+
+    fn delete_state_block(&self, _device: Device, _token: u32) {}
+
+    /// Nothing. Which states the drawing sets is above the seam and has its own tests there; what a
+    /// scenario reads back is the quads, and a record of every state written would be a record of the
+    /// drawing's own source.
+    fn set_render_state(&self, _device: Device, _state: u32, _value: u32) {}
+
+    fn set_texture_stage_state(&self, _device: Device, _stage: u32, _kind: u32, _value: u32) {}
+
+    fn set_texture(&self, _device: Device, _stage: u32, texture: Option<Texture>) {
+        self.drawing.set_texture(texture);
+    }
+
+    fn set_vertex_shader(&self, _device: Device, _shader: u32) {}
+
+    fn set_viewport(&self, _device: Device, viewport: Viewport) {
+        self.drawing.viewport_set(viewport);
+    }
+
+    fn get_viewport(&self, _device: Device) -> Viewport {
+        self.drawing.viewport()
+    }
+
+    fn draw_primitive_up(
+        &self,
+        _device: Device,
+        _kind: u32,
+        count: u32,
+        vertices: &[u8],
+        stride: u32,
+    ) {
+        self.drawing.drew(count, vertices, stride);
+    }
+
+    fn begin_scene(&self, _device: Device) {
+        self.drawing.scene_began();
+    }
+
+    fn end_scene(&self, _device: Device) {}
+
+    fn clear(&self, _device: Device, _flags: u32, color: u32, _z: f32, _stencil: u32) {
+        self.drawing.cleared(color);
+    }
+
+    fn lock_rect(&self, texture: Texture, _level: u32, _flags: u32) -> Option<Locked> {
+        self.drawing.lock_rect(texture)
+    }
+
+    fn unlock_rect(&self, _texture: Texture, _level: u32) {}
+
+    /// Nothing, and the storage stays. The drawing may release a texture twice — a `Label` re-baked
+    /// releases the one before — and what a scenario asks after a frame is what went into it, so a
+    /// release that freed the rows would take the answer with it.
+    fn release_texture(&self, _texture: Texture) {}
+
+    // --- the buffer the game's music is played out of ----------------------------
+    //
+    // The sound a scenario installed, which is a thread's rather than this value's — see
+    // `crate::sound`, and `Sound::install`, which is what tells this host where the buffer is.
+
+    fn buffer_position(&self, buffer: SoundBuffer) -> (Hresult, u32, u32) {
+        sound::buffer::position(buffer)
+    }
+
+    fn buffer_status(&self, buffer: SoundBuffer) -> (Hresult, u32) {
+        sound::buffer::status(buffer)
+    }
+
+    fn lock_buffer(
+        &self,
+        buffer: SoundBuffer,
+        offset: u32,
+        bytes: u32,
+        _flags: u32,
+    ) -> (Hresult, LockedBuffer) {
+        sound::buffer::lock(buffer, offset, bytes)
+    }
+
+    /// Nothing. The rows stay where they are for as long as the sound does, so there is nothing to give
+    /// back — and what a scenario reads afterwards is those same bytes.
+    fn unlock_buffer(&self, _buffer: SoundBuffer, _locked: LockedBuffer) {}
+
+    fn play_buffer(&self, buffer: SoundBuffer, _reserved: u32, _priority: u32, flags: u32) {
+        sound::buffer::play(buffer, flags);
+    }
+
+    fn stop_buffer(&self, buffer: SoundBuffer) {
+        sound::buffer::stop(buffer);
+    }
+
+    fn set_buffer_position(&self, buffer: SoundBuffer, position: u32) {
+        sound::buffer::set_position(buffer, position);
+    }
+
+    /// Nothing. Buffers are never lost here: what `Restore` is for is a device that has been taken away,
+    /// which no scenario does.
+    fn restore_buffer(&self, _buffer: SoundBuffer) {}
 }
 
 #[cfg(test)]

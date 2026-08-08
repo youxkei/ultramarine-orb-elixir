@@ -47,9 +47,10 @@ does not know is refused with the list of the ones it does.
 ## Building and installing
 
 The game is a 32-bit process, so both halves target `i686-pc-windows-gnu`, linked with
-`i686-w64-mingw32-gcc`. `rust-toolchain.toml` selects the toolchain and the target: nightly,
+`i686-w64-mingw32-gcc`. `rust-toolchain.toml` selects the toolchain and the targets: nightly,
 for artifact dependencies, which is how cargo builds the DLL first and hands its path to the
-launcher.
+launcher, and beside what ships a 32-bit Linux target that nothing is built for — it is what
+`cargo xtask seam` checks the crates above the seam against, below.
 
 **The target is named by `cargo xtask` and not by a `[build] target`**, so the commands are
 `cargo xtask <task>` rather than bare cargo ones. A task runner built for a 32-bit Windows target
@@ -70,11 +71,16 @@ cargo xtask test
 ```
 
 That is also what installs the hooks. husky-rs points git at `.husky`, whose `pre-commit` is
-`cargo fmt --check`, `cargo xtask clippy` and `cargo xtask test` — a lint that is
+`cargo fmt --check`, `cargo xtask clippy`, `cargo xtask seam` and `cargo xtask test` — a lint that is
 wrong about this code is answered with an allow and the reason beside it, so the tree stays at zero
 warnings and the next one to appear is about the change that made it. `NO_HUSKY_HOOKS=1` keeps a
 build from touching git's
 config at all, and `git commit --no-verify` skips the check for a commit that is not code.
+
+`cargo xtask seam` is the boundary, asked for rather than kept by hand: `orb-core` and `orb-sim`
+checked for a host with no Windows on it, so a crate above the seam that reaches past `orb-api` fails
+to compile. A grep for `windows-sys` would not do — a COM vtable is Windows reached through a pointer
+the game handed over, and no crate's name appears in it.
 
 And `cargo xtask coverage` reports what the scenarios cover, which needs a toolchain of its own —
 `cargo xtask` with no task says which and where to get it, and `crates/xtask/src/main.rs` says how to read

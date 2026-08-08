@@ -236,9 +236,25 @@ dependencies = [
 name = "orb-core"
 version = "0.1.0"
 dependencies = [
+ "miniz_oxide",
  "orb-api",
  "orb-config",
  "orb-sim",
+ "rmp-serde",
+ "rmpv",
+ "serde",
+]
+
+[[package]]
+name = "orb-e2e"
+version = "0.1.0"
+dependencies = [
+ "orb",
+ "orb-api",
+ "orb-config",
+ "orb-core",
+ "orb-sim",
+ "windows-sys",
 ]
 
 [[package]]
@@ -258,7 +274,6 @@ dependencies = [
 name = "orb-sim"
 version = "0.1.0"
 dependencies = [
- "orb",
  "orb-api",
  "orb-config",
  "orb-core",

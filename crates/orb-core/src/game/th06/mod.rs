@@ -17,13 +17,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_api::Hwnd;
 
-use crate::audio::{Music, SoundBuffer};
-use crate::d3d8::{D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, Device, Texture, Viewport};
+use crate::audio::Music;
 use crate::game::{
     Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
     Reproduction, RunStart, RunState, State,
 };
 use crate::log;
+use orb_api::d3d8::{self, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER};
+use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
 use orb_api::mem;
 
@@ -946,8 +947,8 @@ impl Game for Th06 {
         unsafe { mem::read(G_SUPERVISOR + supervisor::HWND_GAME_WINDOW) }
     }
 
-    unsafe fn d3d_device(&self) -> *mut Device {
-        unsafe { mem::read(G_SUPERVISOR + supervisor::D3D_DEVICE) }
+    unsafe fn d3d_device(&self) -> Device {
+        Device(unsafe { mem::read(G_SUPERVISOR + supervisor::D3D_DEVICE) })
     }
 
     /// Every step is a pointer out of a structure the game rebuilds between
@@ -974,7 +975,7 @@ impl Game for Th06 {
         let mmio = mem::read_committed(wave_file + wave_file::MMIO).unwrap_or(0);
         Some(Music {
             stream: streaming,
-            buffer: buffer as *mut SoundBuffer,
+            buffer: SoundBuffer(buffer),
             buffer_size,
             notify_size: mem::read_committed(streaming + streaming_sound::NOTIFY_SIZE)?,
             mmio,
@@ -1086,7 +1087,7 @@ impl Game for Th06 {
         let texture = mem::read_committed::<usize>(at).filter(|texture| *texture != 0)?;
         let sheet = 256.0;
         Some(PanelTile {
-            texture: texture as *mut Texture,
+            texture: Texture(texture),
             uv: [0.0, 224.0 / sheet, 32.0 / sheet, 256.0 / sheet],
             origin: (416.0, 0.0),
             pitch: 32.0,
@@ -1194,8 +1195,8 @@ impl Game for Th06 {
     /// a frame drawn while the update is held back goes through whatever viewport
     /// was left over — the full 640x480 — so bullets appear outside the play area
     /// and stay there, because nothing repaints the border.
-    unsafe fn set_play_viewport(&self, device: *mut Device) {
-        unsafe {
+    unsafe fn set_play_viewport(&self, device: Device) {
+        let viewport = unsafe {
             let top_left =
                 mem::read::<[f32; 2]>(G_GAME_MANAGER + game_manager::ARCADE_REGION_TOP_LEFT);
             let size = mem::read::<[f32; 2]>(G_GAME_MANAGER + game_manager::ARCADE_REGION_SIZE);
@@ -1208,11 +1209,10 @@ impl Game for Th06 {
                 max_z: 1.0,
             };
             mem::write(G_SUPERVISOR + supervisor::VIEWPORT, viewport);
-
-            let vtable = &*(*device).vtable;
-            (vtable.set_viewport)(device, &viewport);
-            (vtable.clear)(device, 0, std::ptr::null(), D3DCLEAR_ZBUFFER, 0, 1.0, 0);
-        }
+            viewport
+        };
+        d3d8::set_viewport(device, viewport);
+        d3d8::clear(device, D3DCLEAR_ZBUFFER, 0, 1.0, 0);
     }
 
     fn chain(&self) -> *mut std::ffi::c_void {
@@ -1242,36 +1242,25 @@ impl Game for Th06 {
 
     /// What the game does before its update chain: the viewport over the whole
     /// output, and, for the options that ask for it, a clear of the background.
-    unsafe fn prepare_frame(&self, device: *mut Device) {
-        unsafe {
-            let vtable = &*(*device).vtable;
-            let viewport = Viewport {
-                x: 0,
-                y: 0,
-                width: BACK_BUFFER.0,
-                height: BACK_BUFFER.1,
-                min_z: 0.0,
-                max_z: 1.0,
-            };
-            if self.clears_background() {
-                (vtable.set_viewport)(device, &viewport);
-                let fog = mem::read::<u32>(G_STAGE + stage::SKY_FOG_COLOR);
-                (vtable.clear)(
-                    device,
-                    0,
-                    std::ptr::null(),
-                    D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-                    fog,
-                    1.0,
-                    0,
-                );
-            }
-            mem::write(G_SUPERVISOR + supervisor::VIEWPORT, viewport);
-            (vtable.set_viewport)(device, &viewport);
-            // One update is one tick: the loop above runs the logic exactly once
-            // per frame, however fast the frames are being produced.
-            mem::write::<f32>(G_SUPERVISOR + supervisor::FRAMERATE_MULTIPLIER, 1.0);
+    unsafe fn prepare_frame(&self, device: Device) {
+        let viewport = Viewport {
+            x: 0,
+            y: 0,
+            width: BACK_BUFFER.0,
+            height: BACK_BUFFER.1,
+            min_z: 0.0,
+            max_z: 1.0,
+        };
+        if self.clears_background() {
+            d3d8::set_viewport(device, viewport);
+            let fog = unsafe { mem::read::<u32>(G_STAGE + stage::SKY_FOG_COLOR) };
+            d3d8::clear(device, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, fog, 1.0, 0);
         }
+        unsafe { mem::write(G_SUPERVISOR + supervisor::VIEWPORT, viewport) };
+        d3d8::set_viewport(device, viewport);
+        // One update is one tick: the loop above runs the logic exactly once
+        // per frame, however fast the frames are being produced.
+        unsafe { mem::write::<f32>(G_SUPERVISOR + supervisor::FRAMERATE_MULTIPLIER, 1.0) };
     }
 
     fn frame_calls(&self) -> FrameCalls {

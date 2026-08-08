@@ -7,21 +7,16 @@
 //! memory without them leaves the streaming bookkeeping pointing at a buffer
 //! that has moved on, which is audible as a short loop repeating forever.
 
-use std::ffi::c_void;
-use std::mem::offset_of;
-
-use orb_api::module;
+use orb_api::dsound::{
+    self, DSBPLAY_LOOPING, DSBSTATUS_BUFFER_LOST, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING,
+};
+use orb_api::{SoundBuffer, module};
 
 use crate::{detail, log};
 
 /// The game's own `HMMIO`, read out of its memory and handed back to its own winmm. Opaque: orb
 /// never asks what is inside one, so a plain word is the whole of what it has to be.
 type Mmio = usize;
-
-const DSBSTATUS_PLAYING: u32 = 0x1;
-const DSBSTATUS_BUFFER_LOST: u32 = 0x2;
-const DSBSTATUS_LOOPING: u32 = 0x4;
-const DSBPLAY_LOOPING: u32 = 0x1;
 
 const SEEK_SET: i32 = 0;
 const SEEK_CUR: i32 = 1;
@@ -34,59 +29,13 @@ const WINMM: &str = "winmm.dll";
 type MmioSeek = unsafe extern "system" fn(Mmio, i32, i32) -> i32;
 type MmioRead = unsafe extern "system" fn(Mmio, *mut u8, i32) -> i32;
 
-#[repr(C)]
-pub struct SoundBuffer {
-    vtable: *const SoundBufferVtable,
-}
-
-#[repr(C)]
-struct SoundBufferVtable {
-    _iunknown: [usize; 3],
-    _get_caps: usize,
-    get_current_position: unsafe extern "system" fn(*mut SoundBuffer, *mut u32, *mut u32) -> i32,
-    _slot_5_to_8: [usize; 4],
-    get_status: unsafe extern "system" fn(*mut SoundBuffer, *mut u32) -> i32,
-    _initialize: usize,
-    lock: unsafe extern "system" fn(
-        *mut SoundBuffer,
-        u32,
-        u32,
-        *mut *mut c_void,
-        *mut u32,
-        *mut *mut c_void,
-        *mut u32,
-        u32,
-    ) -> i32,
-    play: unsafe extern "system" fn(*mut SoundBuffer, u32, u32, u32) -> i32,
-    set_current_position: unsafe extern "system" fn(*mut SoundBuffer, u32) -> i32,
-    _slot_14_to_17: [usize; 4],
-    stop: unsafe extern "system" fn(*mut SoundBuffer) -> i32,
-    unlock: unsafe extern "system" fn(*mut SoundBuffer, *mut c_void, u32, *mut c_void, u32) -> i32,
-    restore: unsafe extern "system" fn(*mut SoundBuffer) -> i32,
-}
-
-const fn slot(index: usize) -> usize {
-    index * size_of::<usize>()
-}
-
-const _: () = {
-    assert!(offset_of!(SoundBufferVtable, get_current_position) == slot(4));
-    assert!(offset_of!(SoundBufferVtable, get_status) == slot(9));
-    assert!(offset_of!(SoundBufferVtable, lock) == slot(11));
-    assert!(offset_of!(SoundBufferVtable, play) == slot(12));
-    assert!(offset_of!(SoundBufferVtable, set_current_position) == slot(13));
-    assert!(offset_of!(SoundBufferVtable, stop) == slot(18));
-    assert!(offset_of!(SoundBufferVtable, unlock) == slot(19));
-    assert!(offset_of!(SoundBufferVtable, restore) == slot(20));
-};
-
 /// The live BGM stream, located afresh each time: a new stage loads a new track
 /// and with it a new buffer and file handle.
 #[derive(Clone, Copy)]
 pub struct Music {
     /// The streaming object itself, which the game replaces when it changes track.
     pub stream: usize,
-    pub buffer: *mut SoundBuffer,
+    pub buffer: SoundBuffer,
     pub buffer_size: u32,
     /// How much the streaming thread writes each time it is woken.
     pub notify_size: u32,
@@ -139,17 +88,16 @@ impl Music {
     /// Must run with no game thread suspended: the streaming thread can be
     /// inside DirectSound, and `Lock` would then wait for a lock it cannot get.
     pub unsafe fn capture(&self, identity: Option<u32>) -> Option<Saved> {
-        let vtable = unsafe { &*(*self.buffer).vtable };
         // Read either side of everything below, so a capture torn by the
         // streaming thread is rejected rather than saved.
         let token = self.token()?;
 
-        let mut status = 0;
-        if unsafe { (vtable.get_status)(self.buffer, &mut status) } < 0 {
+        let (asked, status) = dsound::get_status(self.buffer);
+        if asked < 0 {
             return None;
         }
-        let mut play_cursor = 0;
-        if unsafe { (vtable.get_current_position)(self.buffer, &mut play_cursor, &mut 0) } < 0 {
+        let (asked, play_cursor, _) = dsound::get_current_position(self.buffer);
+        if asked < 0 {
             return None;
         }
 
@@ -184,7 +132,7 @@ impl Music {
         saved.identity.is_some()
             && saved.identity == identity
             && self.stream == live.stream
-            && std::ptr::eq(self.buffer, live.buffer)
+            && self.buffer == live.buffer
     }
 
     /// # Safety
@@ -192,18 +140,17 @@ impl Music {
     /// bookkeeping and what this puts back describe the same instant. No game
     /// thread may be suspended, and `still_current` must hold.
     pub unsafe fn restore(&self, saved: &Saved) {
-        let vtable = unsafe { &*(*self.buffer).vtable };
+        dsound::stop(self.buffer);
         unsafe {
-            (vtable.stop)(self.buffer);
             self.with_locked_buffer(|locked| locked.copy_from_slice(&saved.bytes));
-            (vtable.set_current_position)(self.buffer, saved.play_cursor);
+            dsound::set_current_position(self.buffer, saved.play_cursor);
             if saved.file_position >= 0 {
                 mmio_seek(self.mmio, saved.file_position, SEEK_SET);
             }
-            if saved.playing {
-                let flags = if saved.looping { DSBPLAY_LOOPING } else { 0 };
-                (vtable.play)(self.buffer, 0, 0, flags);
-            }
+        }
+        if saved.playing {
+            let flags = if saved.looping { DSBPLAY_LOOPING } else { 0 };
+            dsound::play(self.buffer, 0, 0, flags);
         }
     }
 
@@ -213,15 +160,12 @@ impl Music {
     /// # Safety
     /// Must run on the game's main thread.
     pub unsafe fn margin(&self) -> Option<Margin> {
-        let vtable = unsafe { &*(*self.buffer).vtable };
-        let mut status = 0;
-        if unsafe { (vtable.get_status)(self.buffer, &mut status) } < 0
-            || status & DSBSTATUS_PLAYING == 0
-        {
+        let (asked, status) = dsound::get_status(self.buffer);
+        if asked < 0 || status & DSBSTATUS_PLAYING == 0 {
             return None;
         }
-        let mut play = 0;
-        if unsafe { (vtable.get_current_position)(self.buffer, &mut play, &mut 0) } < 0 {
+        let (asked, play, _) = dsound::get_current_position(self.buffer);
+        if asked < 0 {
             return None;
         }
         let write = self.token()?;
@@ -251,9 +195,8 @@ impl Music {
     /// # Safety
     /// Must run on the game's main thread.
     pub unsafe fn audible_offset(&self) -> Option<i32> {
-        let vtable = unsafe { &*(*self.buffer).vtable };
-        let mut play = 0;
-        if unsafe { (vtable.get_current_position)(self.buffer, &mut play, &mut 0) } < 0 {
+        let (asked, play, _) = dsound::get_current_position(self.buffer);
+        if asked < 0 {
             return None;
         }
         let write = self.token()?;
@@ -302,16 +245,15 @@ impl Music {
     /// Must run on the game's main thread, between frames, with no game thread suspended: this locks
     /// the buffer, which the streaming thread can be inside DirectSound holding.
     pub unsafe fn play_from(&self, offset: i32) -> bool {
-        let vtable = unsafe { &*(*self.buffer).vtable };
-        let mut status = 0;
-        if unsafe { (vtable.get_status)(self.buffer, &mut status) } < 0 {
+        let (asked, status) = dsound::get_status(self.buffer);
+        if asked < 0 {
             return false;
         }
         // Stopped before the file is touched rather than after it: the streaming thread seeks and
         // reads the same handle and moves the same countdown, on notifications a stopped buffer does
         // not raise. Every read below is of a pair that has to agree, and one of them moving in
         // between is a track that loops in the wrong place.
-        unsafe { (vtable.stop)(self.buffer) };
+        dsound::stop(self.buffer);
         let Some(loop_point) = (unsafe { self.loop_point() }) else {
             return false;
         };
@@ -335,22 +277,20 @@ impl Music {
         let left = (loop_point - offset - read).max(0) as u32;
         unsafe { orb_api::mem::write::<u32>(self.bytes_left, left) };
         detail!("music: the track loops at {loop_point}, so {left} byte(s) left from {offset}");
-        unsafe {
-            if self
-                .with_locked_buffer(|locked| locked.copy_from_slice(&chunk))
+        if unsafe {
+            self.with_locked_buffer(|locked| locked.copy_from_slice(&chunk))
                 .is_none()
-            {
-                return false;
-            }
-            (vtable.set_current_position)(self.buffer, 0);
-            orb_api::mem::write::<u32>(self.write_offset, 0);
-            let flags = if status & DSBSTATUS_LOOPING != 0 {
-                DSBPLAY_LOOPING
-            } else {
-                0
-            };
-            (vtable.play)(self.buffer, 0, 0, flags);
+        } {
+            return false;
         }
+        dsound::set_current_position(self.buffer, 0);
+        unsafe { orb_api::mem::write::<u32>(self.write_offset, 0) };
+        let flags = if status & DSBSTATUS_LOOPING != 0 {
+            DSBPLAY_LOOPING
+        } else {
+            0
+        };
+        dsound::play(self.buffer, 0, 0, flags);
         true
     }
 
@@ -358,58 +298,33 @@ impl Music {
     /// a lock that wraps the end of the buffer in two, which a lock starting at
     /// zero never does.
     unsafe fn with_locked_buffer(&self, body: impl FnOnce(&mut [u8])) -> Option<()> {
-        let vtable = unsafe { &*(*self.buffer).vtable };
-        let mut first = std::ptr::null_mut();
-        let mut first_bytes = 0;
-        let mut second = std::ptr::null_mut();
-        let mut second_bytes = 0;
-
-        let mut locked = unsafe {
-            (vtable.lock)(
-                self.buffer,
-                0,
-                self.buffer_size,
-                &mut first,
-                &mut first_bytes,
-                &mut second,
-                &mut second_bytes,
-                0,
-            )
-        };
+        let (mut asked, mut locked) = dsound::lock(self.buffer, 0, self.buffer_size, 0);
         // A buffer DirectSound has taken away, which happens when the device goes: restored once and
         // locked again, and given up on if that does not take. **No scenario reaches this**, and none can
         // as things are — `orb_sim::Sound` answers every call, and one that refused on demand would be a
         // switch with nothing on the other side of it: what this arm does is give up, which is not a claim
         // a scenario can hold orb to. The same is true of every other arm here that answers `None`.
-        if locked < 0 {
-            let mut status = 0;
-            unsafe { (vtable.get_status)(self.buffer, &mut status) };
+        if asked < 0 {
+            let (_, status) = dsound::get_status(self.buffer);
             if status & DSBSTATUS_BUFFER_LOST == 0 {
                 return None;
             }
-            unsafe { (vtable.restore)(self.buffer) };
-            locked = unsafe {
-                (vtable.lock)(
-                    self.buffer,
-                    0,
-                    self.buffer_size,
-                    &mut first,
-                    &mut first_bytes,
-                    &mut second,
-                    &mut second_bytes,
-                    0,
-                )
-            };
+            dsound::restore(self.buffer);
+            (asked, locked) = dsound::lock(self.buffer, 0, self.buffer_size, 0);
         }
-        if locked < 0 || first.is_null() || first_bytes != self.buffer_size {
-            if locked >= 0 {
-                unsafe { (vtable.unlock)(self.buffer, first, first_bytes, second, second_bytes) };
+        if asked < 0 || locked.first == 0 || locked.first_bytes != self.buffer_size {
+            if asked >= 0 {
+                dsound::unlock(self.buffer, locked);
             }
             return None;
         }
 
-        body(unsafe { std::slice::from_raw_parts_mut(first.cast(), first_bytes as usize) });
-        unsafe { (vtable.unlock)(self.buffer, first, first_bytes, second, second_bytes) };
+        // The run the lock handed over, as the bytes it is: where it is and how long it is are what the
+        // slot answers, and what a capture or a restore does with it is this file's own.
+        body(unsafe {
+            std::slice::from_raw_parts_mut(locked.first as *mut u8, locked.first_bytes as usize)
+        });
+        dsound::unlock(self.buffer, locked);
         Some(())
     }
 }

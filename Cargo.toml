@@ -6,6 +6,7 @@ members = [
     "crates/orb-api",
     "crates/orb-config",
     "crates/orb-core",
+    "crates/orb-e2e",
     "crates/orb-sim",
     "crates/xtask",
 ]
