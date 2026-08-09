@@ -450,15 +450,21 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         let landed = game.state();
         assert_eq!(landed.stage_frames, ATTACK_CHANGES);
         assert_eq!(landed, at_the_nonspell, "the run landed in another frame");
-        // And one attempt at the card for the landing itself, which is an attempt at that chapter the same
-        // way a retry is — with the ones the playback started on its way there taken back off, or a run
-        // picked up would arrive having counted every card it passed.
+        // And the count against the card left where the run had it: the ones the playback started on its way
+        // here are taken back off — a run picked up would otherwise arrive having counted every card it
+        // passed — and the landing itself adds none, this chapter being the nonspell *after* the card. What
+        // an attempt at a chapter with no card in it would be counted against is whichever card came before
+        // it, `g_EnemyManager.spellcardIsActive` being the only thing that says there is one to count.
         assert_eq!(
             game.image().card_attempts(CARD),
-            3,
-            "the playback counted its own way through the card",
+            2,
+            "the playback counted its own way through the card, or the landing counted one of its own",
         );
-        assert!(log.said("resume: attempt 3 at this spell card"));
+        assert!(
+            log.said("score: no spell card is up; no attempt counted"),
+            "the landing in a nonspell was counted against the card before it: {:?}",
+            log.lines(),
+        );
         // And it is the chapter the file named, by name and by frame: what orb holds the landing against is
         // what was written down, not what the run happens to be standing in.
         assert!(

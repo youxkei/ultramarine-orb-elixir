@@ -619,6 +619,22 @@ pub trait Game {
     /// Must run on the game's main thread, with `saved` a `captures` of this same build.
     unsafe fn set_captures(&self, saved: &[u8]);
 
+    /// And puts it back the way a run played into place needs it: the counts as they were before the
+    /// buttons went in, and whatever the playback named left as it named it.
+    ///
+    /// **A name is not a count.** Playing a stage in again starts every card the run had passed, so the
+    /// playback both counts attempts nobody made this session — which is what has to go back — and writes
+    /// each of those cards' *names* into the record, which is the one thing about them the game itself
+    /// knows and the session needs. Put back along with the counts, the name goes back to whatever the
+    /// record held before the card was ever started, and a landing is inside the card: nothing starts it
+    /// again, so nothing names it again for the rest of the session.
+    ///
+    /// The same as [`set_captures`](Game::set_captures) where the game keeps no name of its own.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with `saved` a `captures` of this same build.
+    unsafe fn set_captures_keeping_names(&self, saved: &[u8]);
+
     /// Empties the game's own record of which spell cards have been captured, where a ranking is
     /// about to be read into it.
     ///

@@ -78,6 +78,22 @@ impl Log {
         self.lines().iter().any(|line| line.contains(needle))
     }
 
+    /// How many lines orb has written, which is where a scenario marks its place before walking something
+    /// it has walked once already.
+    pub fn written(&self) -> usize {
+        self.state.lock().unwrap().lines.len()
+    }
+
+    /// And whether any line since that mark holds `needle`. [`said`](Self::said) asks whether a line was
+    /// *ever* written, so a scenario waiting on one for the second time is answered yes by the first — and
+    /// waits out nothing at all.
+    pub fn said_since(&self, from: usize, needle: &str) -> bool {
+        self.lines()
+            .iter()
+            .skip(from)
+            .any(|line| line.contains(needle))
+    }
+
     /// Whether the log has been closed, which orb does on the way out and from the crash handler.
     pub fn closed(&self) -> bool {
         self.state.lock().unwrap().closed

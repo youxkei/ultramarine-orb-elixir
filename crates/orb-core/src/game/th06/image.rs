@@ -214,6 +214,24 @@ const TH6K_VERSION_AT: usize = 0x8;
 const TH6K_VERSION: u8 = 16;
 const CLEARED_WITH_RETRIES: usize = 0xc;
 const CLEARED_WITHOUT_RETRIES: usize = 0x11;
+
+/// A record of a spell card is 0x40 and there are as many as the block holds, which is the count
+/// `GameManager::AddedCallback`'s fill walks at 0x41bc6e and the write at 0x42b9ed copies.
+const CATK_RECORD_BYTES: usize = 0x40;
+const CARDS: usize = super::CARD_HISTORY_BYTES / CATK_RECORD_BYTES;
+
+/// `Catk::cardId` and `Catk::numSuccesses`, the two fields of a record only the fill writes here: the
+/// card's own number at 0x41bcc6, and the count of captures cleared at 0x41bcd5 beside the attempts.
+const CATK_CARD: usize = 0x10;
+const CATK_CAPTURES: usize = 0x3e;
+
+/// What the count of attempts is held under before it goes up: `cmp $0x270f` at 0x40981c, and the card
+/// start leaves the count alone rather than wrapping it.
+const CATK_ATTEMPTS_CAP: u16 = 9999;
+
+/// A byte no name is made of, which is what a record's name span holds until the game copies one in.
+/// Varied per record so that two rows of a ranking are not the same bytes.
+const NOT_A_NAME: u8 = 0x9d;
 const CLEARED_DIFFICULTIES: usize = 5;
 const CLEARED_SHOT_TYPE: usize = 0x16;
 
@@ -1141,17 +1159,77 @@ impl Image {
         }
     }
 
-    /// Lays out the game's own record of a spell card.
+    /// `GameManager::AddedCallback`'s own fill of the 64 records, which every run starts with: the
+    /// generator into all 0x40 of each of them at 0x41bc87, and then the magic, the two lengths, the
+    /// version, the card's own number and both counts written back over the top, 0x41bca0 to 0x41bcd5.
     ///
-    /// A record the game has written, which means the `CATK` magic at its head: `count_card_attempt`
-    /// refuses one without it, because a zeroed record is a card this build does not have rather than
-    /// a card nobody has tried. So a scenario that wants the attempt counted has to say the game had
-    /// got as far as writing the record, which is what this says.
-    pub fn card_record(&self, card: i32, attempts: u16) {
+    /// What it leaves behind is a slot that carries the `CATK` magic and a name nobody wrote, which is why
+    /// the magic says nothing about whether the game has named the card — see
+    /// [`card_name`](Self::card_name) and `count_card_attempt`.
+    ///
+    /// A byte per record where the game draws 32 `u16`, because a fake cannot draw from the game's
+    /// generator and what these are is bytes no name is. Terminated at the end of the span, which a real
+    /// fill leaves terminated only by chance: a name the ranking screen draws has to end somewhere for a
+    /// scenario to read it back.
+    pub fn fills_the_card_records(&self) {
         let space = self.space();
-        let record = super::CARD_HISTORY + card as usize * 0x40;
-        space.write::<u32>(record, super::CATK_MAGIC);
-        space.write::<u16>(record + super::CATK_ATTEMPTS, attempts);
+        for card in 0..CARDS {
+            let record = super::CARD_HISTORY + card * CATK_RECORD_BYTES;
+            space.fill_bytes(
+                record,
+                NOT_A_NAME.wrapping_add(card as u8),
+                CATK_RECORD_BYTES,
+            );
+            space.write::<u8>(record + super::CATK_NAME + super::CATK_NAME_BYTES - 1, 0);
+            space.write::<u32>(record, super::CATK_MAGIC);
+            space.write::<u16>(record + TH6K_LEN, CATK_RECORD_BYTES as u16);
+            space.write::<u16>(record + TH6K_UNK_LEN, CATK_RECORD_BYTES as u16);
+            space.write::<u8>(record + TH6K_VERSION_AT, TH6K_VERSION);
+            space.write::<u16>(record + CATK_CARD, card as u16);
+            space.write::<u16>(record + super::CATK_ATTEMPTS, 0);
+            space.write::<u16>(record + CATK_CAPTURES, 0);
+        }
+    }
+
+    /// The card starting, which is the one place the game names a record and the one place it counts an
+    /// attempt of its own: 0x4096d6 to 0x409832.
+    ///
+    /// In that order and with the reset between them. The name is copied in, its sum held against the byte
+    /// the record keeps beside it, and a record whose sum disagrees is a *different* card in this slot — so
+    /// both of its counts go and the new sum is written down before the attempt is added. That is what
+    /// takes a count made against a name nobody wrote back off.
+    ///
+    /// Nothing at all while a replay is being watched, the whole block sitting inside the
+    /// `g_GameManager.isInReplay == 0` at 0x4096ef.
+    pub fn starts_the_card(&self, card: i32, name: &str) {
+        let space = self.space();
+        if space.read::<u32>(super::G_GAME_MANAGER + super::game_manager::IS_IN_REPLAY) != 0 {
+            return;
+        }
+        let record = super::CARD_HISTORY + card as usize * CATK_RECORD_BYTES;
+        space.write_bytes(record + super::CATK_NAME, name.as_bytes());
+        space.write::<u8>(record + super::CATK_NAME + name.len(), 0);
+        let sum = super::name_sum(name.as_bytes());
+        if space.read::<u8>(record + super::CATK_NAME_SUM) != sum {
+            space.write::<u16>(record + super::CATK_ATTEMPTS, 0);
+            space.write::<u16>(record + CATK_CAPTURES, 0);
+            space.write::<u8>(record + super::CATK_NAME_SUM, sum);
+        }
+        let attempts = self.card_attempts(card);
+        if attempts < CATK_ATTEMPTS_CAP {
+            space.write::<u16>(record + super::CATK_ATTEMPTS, attempts + 1);
+        }
+    }
+
+    /// The name a record holds, which is what the ranking screen draws against the card's row for as long
+    /// as its attempts are not zero — or `None` where the record holds no name at all, the span with no
+    /// terminator in it that [`fills_the_card_records`](Self::fills_the_card_records) can leave.
+    pub fn card_name(&self, card: i32) -> Option<String> {
+        let record = super::CARD_HISTORY + card as usize * CATK_RECORD_BYTES;
+        let span = self
+            .space()
+            .read_bytes(record + super::CATK_NAME, super::CATK_NAME_BYTES);
+        super::name_in(&span).map(|name| String::from_utf8_lossy(name).into_owned())
     }
 
     /// `clrd`'s parse at 0x42b502: every record memset and then fixed up — the magic, the two lengths, the
@@ -1715,8 +1793,10 @@ impl Image {
     /// Every card the game holds a record of, and the attempts against each — which is what its
     /// ranking screen has to show and what its score file is written from.
     ///
-    /// A record with no `CATK` at its head is not a card this build has, so it is not a row: that is
-    /// the same test `count_card_attempt` refuses on.
+    /// A slot with no `CATK` at its head is one no run has been through — the block as the process starts,
+    /// before any [`fills_the_card_records`](Self::fills_the_card_records) — and so is not a row. Every
+    /// slot is one afterwards, all 64 of them, the fill putting the magic on each: what tells the cards
+    /// apart on the screen is the count and the name, not the magic.
     pub fn card_records(&self) -> Vec<(i32, u16)> {
         let cards = super::CARD_HISTORY_BYTES / 0x40;
         (0..cards as i32)

@@ -20,7 +20,9 @@
 //! chunks, ranking and captures included. The write has one caller in the whole exe, 0x42f5cd in that
 //! screen's deleted callback.
 
-use crate::fake::th06::{CARD, CARD_STARTS, Fake, Open, the_run};
+use crate::fake::th06::{
+    CARD, CARD_NAME, CARD_STARTS, Fake, NOT_TRIED, Open, UNNAMED_CARD, the_run,
+};
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen, attempts_in, item};
@@ -391,7 +393,7 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
         game.draws_its_title_menu();
         // Nothing on any disk, which is what a fresh installation is. Before any frame, because the front
         // end is built on the launch's first one and its read is inside that build.
-        game.has_no_score_file();
+        game.has_no_score_file(THEIRS);
         game.at_the_title_menu();
         game.one_frame();
 
@@ -503,6 +505,216 @@ fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write
     });
 }
 
+/// **A chapter is an attempt at a spell card only where one is up, and orb counts none anywhere else.**
+///
+/// The card orb's own count goes against comes out of `ds:0x5a5f98`, which holds the last card a boss was on
+/// and which **nothing clears** — not the card ending, not the stage, not the run. So a chapter with no card
+/// in it reads whichever card came before, and the nonspell that follows a spell reads the spell it follows:
+/// retried there, it would count an attempt at a card nobody was fighting. Which card is up is asked of
+/// `g_EnemyManager.spellcardIsActive` instead, and asked *after* the snapshot is back — a spell chapter's
+/// snapshot was taken at the card's own start, so what the restore puts the game back into is the card.
+///
+/// The other half is what a count against a card nobody has fought puts on the screen.
+/// `GameManager::AddedCallback` fills all 64 records from `Rng::GetRandomU16` at every run's start and writes
+/// back only the magic, the two lengths, the version, the card's number and the two counts — see
+/// `CARD_HISTORY` — so a card the file holds no record of stands in memory carrying a name nobody wrote, and
+/// the ranking screen draws that name the moment its attempts are not zero (0x42e26e).
+///
+/// **Watched on 2026-08-09**: `No.37` on the 完全無欠 ranking drawing the generator's own bytes where
+/// 傀符「操りドール」 belongs, against 0 captures and 4 attempts — every one of those four orb's own, `resume:
+/// 4096 byte(s) of captures put back` and `resume: attempt N at this spell card` on the same millisecond,
+/// thirteen such pairs in `th06/orb.log`. A retry cannot heal a row already written wrong: a chapter's
+/// snapshot is taken after the name was copied in, so putting it back never starts the card again. Only the
+/// card starting for real does — the sum at 0x4097e8 then disagrees and both counts go — or a run picked up,
+/// whose playback starts it and whose landing keeps the name that start wrote: see
+/// [`a_run_picked_up_keeps_the_name_its_playback_learned`].
+#[test]
+fn only_a_chapter_with_a_spell_card_up_counts_an_attempt() {
+    in_its_own_process(|| {
+        let game = launched("the-score-file-which-chapters-count");
+        game.in_a_pointdevice_run();
+        // The record as the run's own start left it, which is all three of the things the fill leaves and a
+        // block nothing had filled would have none of: the magic on it, nothing tried, and a name of its own
+        // that came out of the generator rather than out of a card.
+        assert!(
+            game.image()
+                .card_records()
+                .iter()
+                .any(|(card, attempts)| *card == UNNAMED_CARD && *attempts == 0),
+            "the run's start left no record at all for the card nobody has named",
+        );
+        assert!(
+            game.image()
+                .card_name(UNNAMED_CARD)
+                .is_some_and(|name| !name.is_empty() && name != CARD_NAME),
+            "the record holds no name of its own for a count to put on the screen",
+        );
+
+        // ── The chapter the stage's own start is, retried before any card of the run has started: nothing to
+        // count against, and `ds:0x5a5f98` still holding the 0 a fresh process leaves.
+        retries_the_chapter(&game);
+        assert_eq!(
+            game.image().card_attempts(UNNAMED_CARD),
+            0,
+            "an attempt was counted where no spell card was up",
+        );
+        assert!(
+            game.log().said(NO_CARD_UP),
+            "the count refused is not in the log:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // ── The card's own chapter, where the game counted the start and orb counts the retry.
+        at_the_cards_chapter(&game);
+        retries_the_chapter(&game);
+        assert_eq!(
+            game.image().card_attempts(CARD),
+            2,
+            "the retry of the card's own chapter was not counted against it",
+        );
+
+        // ── And the nonspell after it, which reads that same card out of `ds:0x5a5f98` and is an attempt at
+        // none of it: the card is over and what is being fought has no name.
+        game.frames_until("the chapter after the card", 900, || {
+            game.log().said("chapter 4")
+        });
+        retries_the_chapter(&game);
+        assert_eq!(
+            game.image().card_attempts(CARD),
+            2,
+            "the nonspell after the card counted an attempt at the card it follows",
+        );
+
+        // ── And what the file the session writes holds, which is what the next session reads back.
+        game.frames(A_CHAPTER_TO_SETTLE);
+        gives_the_run_up_at_orbs_menu(&game);
+        wrote_what_the_run_counted(&game, OURS, 2);
+        assert_eq!(
+            attempts_in(
+                &game.score_file(OURS).expect("the file the trip wrote"),
+                UNNAMED_CARD
+            ),
+            0,
+            "the file the trip wrote counts an attempt at a card nobody fought",
+        );
+
+        // ── And the two rows off the screen the session looks at: the card's own name against its count, and
+        // the five question marks a card nobody has tried gets rather than the bytes they stand in front of.
+        asks_for_the_ranking(&game, Mode::Pointdevice);
+        game.forget();
+        game.frame();
+        let fought = game.says(&format!("CARD {CARD}"));
+        let untried = game.says(&format!("CARD {UNNAMED_CARD}"));
+        assert_eq!(
+            (fought.len(), untried.len()),
+            (1, 1),
+            "the ranking is not one row apiece for the card fought and the card nobody named",
+        );
+        assert!(
+            game.says(CARD_NAME)
+                .iter()
+                .any(|written| written.y == fought[0].y),
+            "the card's own name is not what its row shows",
+        );
+        assert!(
+            game.says(NOT_TRIED)
+                .iter()
+                .any(|mark| mark.y == untried[0].y),
+            "the row of a card the game has not named shows something other than {NOT_TRIED}",
+        );
+    });
+}
+
+/// What orb says where a chapter is retried with no card up, which is every chapter but a spellcard's.
+const NO_CARD_UP: &str = "score: no spell card is up; no attempt counted";
+
+/// **A run picked up keeps the name its playback learned, and its landing is counted.**
+///
+/// The playback starts every card the run had passed, so the game names each of their records on the way
+/// through (0x409720) and counts an attempt at each (0x409824). The counts are put back as they were before
+/// the buttons went in — a run picked up would otherwise arrive having counted every card it passed — and
+/// the names are not, a name being what the playback *learned* rather than what it counted. Putting those
+/// back too leaves the record carrying the fill's own bytes, which is a card orb then refuses to count
+/// against and a row the ranking screen never draws a name for again: the landing is *inside* the card, so
+/// nothing starts it a second time.
+///
+/// **Watched on 2026-08-09** with `pointdevice_score.dat` moved aside, which is the state this lays out, and
+/// the walk it was found by is the one this makes: つづきから into stage 5's chapter 12, 被弾, タイトルに戻る,
+/// and the ranking asked for at the title menu's `Score`. What that session showed was `resume: 4096 byte(s)
+/// of captures put back` and `score: card 36 is not one the game has named; no attempt counted` on the same
+/// millisecond, and 傀符「操りドール」 left showing 「？？？？？」 against no attempts at all.
+///
+/// **And watched again the same day with the names kept**: `resume: 4096 byte(s) of captures put back; the
+/// playback counts none of them and keeps the names it wrote` followed on the same millisecond by `resume:
+/// attempt 1 at this spell card` — twice, stage 5's chapter 12 at 753905771ms and stage 1's chapter 3 at
+/// 753936620ms — with no refusal against either card and the name legible on its row afterwards.
+#[test]
+fn a_run_picked_up_keeps_the_name_its_playback_learned() {
+    in_its_own_process(|| {
+        let game = launched("the-score-file-a-run-picked-up");
+        game.in_a_pointdevice_run();
+        at_the_cards_chapter(&game);
+        gives_the_run_up_at_orbs_menu(&game);
+        wrote_what_the_run_counted(&game, OURS, 1);
+
+        // And orb's file moved aside, which is what leaves the card's record to the fill: the run is still
+        // written down under `pointdevice_resume/` and is picked up from there, while the file the run-start
+        // read would have named the card out of is not there to be read.
+        game.has_no_score_file(OURS);
+        game.picks_the_run_up();
+
+        // The name the playback wrote, which is the card's own and not the fill's.
+        assert_eq!(
+            game.image().card_name(CARD).as_deref(),
+            Some(CARD_NAME),
+            "the landing put back the name the playback learned along with the count",
+        );
+        // And the landing counted, this being an attempt at that chapter the same way a retry is — the one
+        // the playback made on its way there having been taken back off.
+        assert_eq!(
+            game.image().card_attempts(CARD),
+            1,
+            "the landing counted no attempt, or the playback's own count stayed",
+        );
+        assert!(
+            game.log().said("resume: attempt 1 at this spell card"),
+            "the landing's attempt is not in the log:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And then the walk this was found by, to the end: the run picked up is played on, given up, and its
+        // ranking asked for. What a session sees is the row, and the row is the whole of what it can see —
+        // the record in memory above is what the row is drawn from, and neither says anything on its own
+        // about what somebody looking at the screen is told.
+        game.frames(A_CHAPTER_TO_SETTLE);
+        gives_the_run_up_at_orbs_menu(&game);
+        wrote_what_the_run_counted(&game, OURS, 1);
+        asks_for_the_ranking(&game, Mode::Pointdevice);
+        game.forget();
+        game.frame();
+        let row = game.says(&format!("CARD {CARD}"));
+        assert_eq!(
+            row.len(),
+            1,
+            "the ranking is not one row for the card the run was picked up into",
+        );
+        assert!(
+            game.says(CARD_NAME)
+                .iter()
+                .any(|written| written.y == row[0].y),
+            "the card's own name is not what its row shows",
+        );
+        assert!(
+            game.says(NOT_TRIED).iter().all(|mark| mark.y != row[0].y),
+            "a card with an attempt against it still shows {NOT_TRIED}",
+        );
+    });
+}
+
+/// Frames between a chapter put back and the death that ends the run, so that the death is one orb
+/// notices: the frame a restore lands on is one it has dropped everything it knew about.
+const A_CHAPTER_TO_SETTLE: u32 = 30;
+
 /// What orb says where a run's own end is what asked for the trip, which is every way out of one but
 /// orb's own menu: that one sets the flag at the choice, on a frame whose run orb has already stopped
 /// comparing anything against.
@@ -529,15 +741,16 @@ fn at_the_cards_chapter(game: &Fake) {
 /// 被弾 and then チャプターをやり直す, which is the retry menu's first item and the attempt orb counts.
 fn retries_the_chapter(game: &Fake) {
     let log = game.log();
+    let from = log.written();
     game.hit();
     game.frame();
     assert!(
-        log.said("died in chapter"),
+        log.said_since(from, "died in chapter"),
         "the death was not noticed:\n  {}",
         log.lines().join("\n  ")
     );
     game.press_until(keys::Z, "the retry menu answered", || {
-        log.said("retry: the chapter again on the keyboard")
+        log.said_since(from, "retry: the chapter again on the keyboard")
     });
 }
 
@@ -548,17 +761,20 @@ fn retries_the_chapter(game: &Fake) {
 /// nothing moved on — see `READS_KEYS_AFTER`.
 fn gives_the_run_up_at_orbs_menu(game: &Fake) {
     let log = game.log();
+    // Where this walk begins, so that a session giving a second run up waits for its own lines: a log asked
+    // whether it has *ever* said something is answered yes by the run before, and nothing is waited out.
+    let from = log.written();
     game.hit();
     game.frame();
     game.frames(READS_KEYS_AFTER);
     game.press(keys::UP);
     game.press_until(keys::Z, "the give-up asking", || {
-        log.said("retry: asking about the run given up")
+        log.said_since(from, "retry: asking about the run given up")
     });
     game.frames(READS_KEYS_AFTER);
     game.press(keys::UP);
     game.press_until(keys::Z, "the run given up", || {
-        log.said("retry: the run is given up")
+        log.said_since(from, "retry: the run is given up")
     });
 }
 
@@ -567,11 +783,14 @@ fn gives_the_run_up_at_orbs_menu(game: &Fake) {
 ///
 /// The opens are forgotten first, so what is read back is the trip's own: the reads the run itself made
 /// are behind it, and the front end's read when the menu comes back is the game's own file either way.
+///
+/// And the write is what the wait is on, rather than the line orb says on its way out of the screen: a
+/// session with two runs in it says that line twice, and a log asked whether it has *ever* said something is
+/// answered yes by the first of them before the second trip has begun.
 fn wrote_what_the_run_counted(game: &Fake, name: &str, attempts: u16) {
-    let log = game.log();
     game.forget_score_file_opens();
     game.frames_until("the trip through the ranking", 300, || {
-        log.said("score: taken through the ranking")
+        !reads_and_writes(&game.score_file_opens()).1.is_empty()
     });
     let (_, writes) = reads_and_writes(&game.score_file_opens());
     assert_eq!(

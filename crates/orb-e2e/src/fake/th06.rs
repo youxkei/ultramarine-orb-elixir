@@ -232,6 +232,15 @@ pub const RANK_AT_A_RUNS_START: i32 = 16;
 /// back is the count of attempts against this one.
 pub const CARD: i32 = 3;
 
+/// What that card is called, which the game copies into the record when the card starts and its ranking
+/// screen draws against the row from then on.
+pub const CARD_NAME: &str = "MIDBOSS CARD";
+
+/// And one no card of this game's is, for a row a scenario reads to say that nothing named it: every
+/// record carries a name from the moment a run fills the block, and the count is what decides whether the
+/// screen draws it — see `Image::fills_the_card_records`.
+pub const UNNAMED_CARD: i32 = 0;
+
 /// How many stages a run goes through, which is 紅魔郷's own six.
 pub const STAGES: i32 = 6;
 
@@ -394,8 +403,13 @@ const TITLE_LEFT: f32 = 224.0;
 const RANKING_TOP: f32 = 96.0;
 const RANKING_LINE: f32 = 24.0;
 const RANKING_LEFT: f32 = 64.0;
+const RANKING_NAME: f32 = 160.0;
 const RANKING_ATTEMPTS: f32 = 400.0;
 const INK: u32 = 0xffff_ffff;
+
+/// What the screen draws where a card's name would go for as long as nobody has tried it: 「？？？？？」
+/// at 0x46bcdc, five full-width question marks, pushed at 0x42e270.
+pub const NOT_TRIED: &str = "？？？？？";
 
 /// How long the result screen a run ends into stands before it leaves for the title.
 ///
@@ -810,11 +824,7 @@ impl Fake {
             keyboard_unacquire as *const () as usize,
             keyboard_release as *const () as usize,
         );
-        // What its score file holds to begin with: a record of the card its boss is on, never tried.
-        // Without the record `count_card_attempt` refuses to count, a zeroed one being a card that is
-        // not there rather than a card nobody has reached.
-        image.card_record(CARD, 0);
-        // And what its front end lights `Extra Start` from: a game that has been cleared, which is what an
+        // What its front end lights `Extra Start` from: a game that has been cleared, which is what an
         // installation somebody has played is. In memory as well as in the file, because the read that
         // fills it is one the front end makes for itself — a menu built before any read would otherwise
         // be lit from a destination nothing had written.
@@ -822,10 +832,15 @@ impl Fake {
         // And the file both are in, under the name the game asks for. Only that one: orb's own is a file
         // that is not there until a ranking screen has written it, which is what makes its first open fail
         // the way a first launch's does.
+        //
+        // With no record of any spell card in it, which is a `catk` chunk holding none: that parse has no
+        // clear of its own — 0x42b466 against `clrd`'s memset at 0x42b502 — so what it leaves standing is
+        // `GameManager::AddedCallback`'s own fill, and a card this file does not name is one the ranking
+        // would draw the fill's bytes for. See `Image::fills_the_card_records`.
         let files = RefCell::new(HashMap::from([(
             SCORE_FILE.to_string_lossy().into_owned(),
             ScoreFile {
-                captures: unsafe { Th06.captures() },
+                captures: Vec::new(),
                 unlocks: cleared(),
             },
         )]));
@@ -1291,15 +1306,15 @@ impl Fake {
         self.opens.borrow_mut().clear();
     }
 
-    /// Takes the game's own score file away, which is what a fresh installation looks like: every read of it
-    /// fails, the front end's own among them.
+    /// Takes a score file away. The game's own is what a fresh installation looks like: every read of it
+    /// fails, the front end's own among them — and that one has to be before the launch's first frame, which
+    /// is the only moment it can be, the front end being built on it and its read inside that build.
     ///
-    /// Before the launch's first frame, because that is the only moment it can be — the front end is built on
-    /// it and its read of the file is inside that build.
-    pub fn has_no_score_file(&self) {
-        self.files
-            .borrow_mut()
-            .remove(&SCORE_FILE.to_string_lossy().into_owned());
+    /// orb's own can go at any point, and what taking it away stands for is somebody moving it aside: the
+    /// records it held are gone and every read of it fails the way a first launch's does, while the run
+    /// written down under `pointdevice_resume/` is still there to be picked up.
+    pub fn has_no_score_file(&self, path: &str) {
+        self.files.borrow_mut().remove(path);
     }
 
     /// The record of spell cards the file of that name holds, or `None` for a file that is not there —
@@ -1341,6 +1356,35 @@ impl Fake {
         self.started_at_the_games_own_screens();
         self.frames_until("the stage's first chapter", 400, || {
             log.said("stage 1 chapter 1 (stage start)")
+        });
+    }
+
+    /// And the same run started again and answered つづきから, which is what plays the buttons it pressed
+    /// back into the stage the game has just built.
+    ///
+    /// # Panics
+    /// Naming whichever step the pick-up did not get past.
+    pub fn picks_the_run_up(&self) {
+        let log = self.log();
+        self.frames_until("the title menu ready to act on a press", 300, || {
+            let front = self.image().front_end_now();
+            self.image().scene() == Scene::FrontEnd
+                && front.screen == Screen::Title
+                && front.acts_on_a_press()
+        });
+        self.press(keys::Z);
+        self.press_until(keys::Z, "the mode question answered again", || {
+            self.image().front_end_now().screen == Screen::ShotType
+        });
+        self.frames_until("the shot type select ready to act on a press", 90, || {
+            self.image().front_end_now().acts_on_a_press()
+        });
+        self.press(keys::Z);
+        self.press_until(keys::Z, "つづきから answered", || {
+            log.said("resume: from where it stopped, answered on the keyboard")
+        });
+        self.frames_until("the run played back into place", 60, || {
+            log.said("resume: the landing is")
         });
     }
 
@@ -1845,8 +1889,7 @@ impl Fake {
                     attack_frames: 0,
                 }));
                 self.image.card(Some(CARD));
-                self.image
-                    .card_record(CARD, self.image.card_attempts(CARD) + 1);
+                self.image.starts_the_card(CARD, CARD_NAME);
             }
             // The card over and the fight going on: the clock back to nothing with no card up, which
             // is a nonspell.
@@ -2242,13 +2285,24 @@ impl Fake {
         }
     }
 
-    /// The ranking's own rows: one per spell card the game holds a record of, with the attempts against
-    /// it, which is the number 完全無欠 counts.
+    /// The ranking's own rows: one per spell card the game holds a record of, with the name it holds and
+    /// the attempts against it, which is the number 完全無欠 counts.
+    ///
+    /// **The name is drawn only while the attempts are not zero**, which is the branch at 0x42e26e: the
+    /// count is read at 0x42e265 and a row whose count is nothing gets [`NOT_TRIED`] at 0x46bcdc instead of
+    /// the name at 0x42e2ac. So a count against a record nobody named is what puts the bytes a fill left
+    /// there on the screen.
     fn draws_the_ranking(&self) {
         for (row, (card, attempts)) in self.image.card_records().into_iter().enumerate() {
             let y = RANKING_TOP + row as f32 * RANKING_LINE;
             self.launch
                 .writes(&format!("CARD {card}"), RANKING_LEFT, y, INK);
+            let name = if attempts == 0 {
+                NOT_TRIED.to_owned()
+            } else {
+                self.image.card_name(card).unwrap_or_default()
+            };
+            self.launch.writes(&name, RANKING_NAME, y, INK);
             self.launch
                 .writes(&attempts.to_string(), RANKING_ATTEMPTS, y, INK);
         }
@@ -2348,6 +2402,10 @@ impl Fake {
     fn stage_numbers_in_place(&self) {
         let starting = self.a_run_starts_here();
         if starting {
+            // The fill first and the read over the top of it, which is the order inside that branch: the
+            // records are the generator's until the file's own are copied in, and a card the file holds no
+            // record of is left named nothing anybody wrote.
+            self.image.fills_the_card_records();
             self.reads_the_score_file();
         }
         // The stage's own song, which its data names first and which plays through the midstage and the

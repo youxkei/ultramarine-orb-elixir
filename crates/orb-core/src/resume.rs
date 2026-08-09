@@ -379,6 +379,9 @@ pub unsafe fn landed() -> Option<Landing> {
 /// Playing a stage in again starts every card the run had passed, and the game counts an attempt at
 /// each — a resumed run would arrive with an attempt, and a capture, against cards nobody had played
 /// this session. So it is taken at [`begin`] and put back at [`landed_captures`].
+///
+/// The counts alone, not the names the playback wrote with them: see
+/// [`Game::set_captures_keeping_names`](crate::game::Game::set_captures_keeping_names).
 static CAPTURES: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
 
 /// Holds the record while the buttons go in.
@@ -391,7 +394,7 @@ pub unsafe fn hold_captures(game: &dyn Game) {
     }
 }
 
-/// Puts it back, the playback being over, and says how many bytes went back.
+/// Puts back what the playback counted, the playback being over, and says how many bytes went back.
 ///
 /// # Safety
 /// Must run on the game's main thread.
@@ -403,7 +406,7 @@ pub unsafe fn landed_captures(game: &dyn Game) -> usize {
     if held.is_empty() {
         return 0;
     }
-    unsafe { game.set_captures(&held) };
+    unsafe { game.set_captures_keeping_names(&held) };
     held.len()
 }
 

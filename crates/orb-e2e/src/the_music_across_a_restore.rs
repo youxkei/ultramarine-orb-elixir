@@ -15,7 +15,6 @@ use crate::fake::th06::{
 };
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
-use orb_core::game::th06::image::{Scene, Screen};
 use orb_sim::keys;
 
 /// What a chapter's line says about its music: put back with the chapter, or left playing through it.
@@ -145,7 +144,7 @@ fn a_sought_stream_keeps_its_countdown_and_still_takes_its_loop() {
         // The run given up and started again, and つづきから: the stage is built, the buttons the run
         // pressed are played back into it, and the song is put where that chapter had it.
         gives_the_run_up(&game);
-        picks_the_run_up(&game);
+        game.picks_the_run_up();
         assert!(
             game.log()
                 .said(&format!("resume: the song picked up at {SONG}")),
@@ -507,32 +506,6 @@ fn gives_the_run_up(game: &Fake) {
     game.press(keys::UP);
     game.press_until(keys::Z, "the run given up", || {
         log.said("retry: the run is given up")
-    });
-}
-
-/// The same run started again and answered つづきから, which is what plays the buttons it pressed back into
-/// the stage the game has just built.
-fn picks_the_run_up(game: &Fake) {
-    let log = game.log();
-    game.frames_until("the title menu ready to act on a press", 300, || {
-        let front = game.image().front_end_now();
-        game.image().scene() == Scene::FrontEnd
-            && front.screen == Screen::Title
-            && front.acts_on_a_press()
-    });
-    game.press(keys::Z);
-    game.press_until(keys::Z, "the mode question answered again", || {
-        game.image().front_end_now().screen == Screen::ShotType
-    });
-    game.frames_until("the shot type select ready to act on a press", 90, || {
-        game.image().front_end_now().acts_on_a_press()
-    });
-    game.press(keys::Z);
-    game.press_until(keys::Z, "つづきから answered", || {
-        log.said("resume: from where it stopped, answered on the keyboard")
-    });
-    game.frames_until("the run played back into place", 60, || {
-        log.said("resume: the landing is")
     });
 }
 

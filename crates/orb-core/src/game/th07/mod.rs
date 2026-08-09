@@ -435,6 +435,8 @@ impl Game for Th07 {
 
     unsafe fn set_captures(&self, _saved: &[u8]) {}
 
+    unsafe fn set_captures_keeping_names(&self, _saved: &[u8]) {}
+
     unsafe fn forget_captures(&self, _screen: *mut c_void) {}
 
     /// Nothing orb has a question about is ever under the cursor, so no press is ever held back and

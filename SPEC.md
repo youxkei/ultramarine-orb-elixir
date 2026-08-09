@@ -1256,8 +1256,41 @@ memory a snapshot covers, so restoring a chapter would undo the attempt the game
 card started — a chapter retried ten times would show one attempt — and undo a capture, which in a
 chapter that can be played again is that chapter cleared. So the block is taken before the restore
 and put back after it, in both of the paths that restore one. Both counters, not the attempt alone:
-capturing the card is what clearing the chapter *is*, and keeping the two apart would mean orb
-knowing which word of the record is which.
+capturing the card is what clearing the chapter *is*, so a rewind that took one back and left the other
+would say a chapter had been cleared none of the tries at it cleared.
+
+**A chapter is an attempt at a spell card only where one is up.** The card orb's own count goes against
+comes out of `ds:0x5a5f98`, which holds the last card a boss was on and which **nothing clears** — not the
+card ending, not the stage, not the run. So a chapter with no card in it reads whichever card came before,
+and the nonspell that follows a spell reads the spell it follows: counted there, it would be an attempt at
+a card nobody was fighting. Whether there is one to count is asked of `g_EnemyManager.spellcardIsActive`
+instead, and asked *after* the snapshot is back rather than before — a spell chapter's snapshot was taken at
+the card's own start, so what the restore puts the game back into is that card. Where no card is up the log
+says so: `score: no spell card is up; no attempt counted`, said rather than left as a missing line, since a
+line only written when the count was made would put the meaning in the absence.
+
+**And only against a card the game has named.** 紅魔郷 fills all 64 records from `Rng::GetRandomU16` before
+it reads the file — 0x41bc87, the whole 0x40 of each of them — and writes back only the magic, the two
+lengths, the version, the card's number and the two counts, 0x41bca0 to 0x41bcd5. So the name a record
+carries is the generator's until the card itself starts and copies one in (0x409720), and `catk`'s parse
+leaves every record the file has no entry for exactly as the fill left it. The ranking screen draws that name
+for any card whose attempts are not zero and 「？？？？？」 for the ones whose are (0x42e265 and 0x42e26e),
+which makes a count added to a record nobody named the generator's own bytes on the screen. Refused by the
+game's own test for the same thing: the byte a record holds beside its name against the sum of that name,
+which is the comparison at 0x4097e8. **A row already written wrong heals itself**, and only by the card
+starting for real: that comparison then disagrees, both counts go, and the name is written. A retry cannot do
+it — a chapter's snapshot is taken after the name was copied in, so putting it back never starts the card
+again.
+
+**A run picked up keeps the names its playback learned.** The playback starts every card the run had passed,
+which is why the counts are put back as they were before the buttons went in — a run picked up would
+otherwise arrive having counted every card it passed. The names those starts wrote are not put back with
+them: a name is what the playback *learned* about a card and not something it counted, and it is the one
+thing about the card only the game knows. Putting it back leaves the record carrying the fill's own bytes,
+which is a card orb then refuses to count against and a row the ranking never draws a name for again — the
+landing being *inside* the card, nothing starts it a second time. So the block goes back with each record's
+name, and the sum beside it, left as the playback left them. Which makes picking a run up the second thing
+that heals a row already written wrong.
 
 **A session that stops without the game writing is taken through the ranking.** The write is reached
 from one place, so a run given up or quit with `ESC` leaves what it counted about spell cards in

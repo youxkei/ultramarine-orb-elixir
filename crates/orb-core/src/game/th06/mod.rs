@@ -242,18 +242,73 @@ const RANKING_STATES_KEEPING_THE_RECORD: [i32; 2] = [0x9, 0x11];
 /// `g_GameManager.cardHistory`: the `GameManager` at 0x69bca0 plus the 0x30 its own read parses
 /// `catk` into (0x41bd1e), which is the same address the ranking screen parses it into (0x42f4f7)
 /// and the same one the write copies it out of (0x42b9ed).
+///
+/// **The block is filled from the generator before that read.** The same callback walks the 64 records
+/// at 0x41bc74 and writes 32 `u16` of `Rng::GetRandomU16` (0x41e780) into each of them — the whole 0x40 —
+/// before writing the magic, the two lengths, the version, the card's number and the two counts over the
+/// top, 0x41bca0 to 0x41bcd5. Every byte it does not write back is the generator's, [`CATK_NAME`] and
+/// [`CATK_NAME_SUM`] among them, and `catk`'s parse then overwrites only the records the file holds. So a
+/// card the file has no record of stands in memory named nothing anybody wrote, and the ranking screen
+/// draws that name the moment its attempts are not zero — which is why [`named`] is asked before one is
+/// counted.
 const CARD_HISTORY: usize = 0x0069bcd0;
 /// `Catk::numAttempts` of the decompilation's 0x40-byte record — the field after `unk_38`, and one of
 /// the two words `GameManager::AddedCallback` clears at 0x41bcd2 and 0x41bcd5. A `u16`.
 const CATK_ATTEMPTS: usize = 0x3c;
-/// `Catk::base.magic`, which says a slot holds a record at all.
+/// `Catk::base.magic`, which says a slot holds a record at all — and no more than that. Every one of the
+/// 64 slots carries it from the moment a run starts: `GameManager::AddedCallback` writes it at 0x41bca0,
+/// once per record, in the loop this file's [`CARD_HISTORY`] comment describes.
 const CATK_MAGIC: u32 = u32::from_le_bytes(*b"CATK");
+/// `Catk::name`, where the name of the card is copied when the card starts: the inlined `strcpy` at
+/// 0x409720, out of the card's own struct at its 0x10. It is what the ranking screen draws against the
+/// row — 0x42e2ac reads `0x69bce8`, which is a record plus this — for every card whose attempts are not
+/// zero, and 「？？？？？」 at 0x46bcdc for the ones whose are (0x42e265, 0x42e26e).
+const CATK_NAME: usize = 0x18;
+/// What `Catk::name` has room for, running from [`CATK_NAME`] up to the `unk_38` before
+/// [`CATK_ATTEMPTS`]. The copy that fills it is a `strcpy` with no bound, so this is the span a *reader*
+/// has and not one the game holds itself to.
+const CATK_NAME_BYTES: usize = 0x38 - CATK_NAME;
+/// `Catk::nameSum`: the low byte of the sum of the name's own bytes. The game measures the name it has
+/// just copied at 0x409763 and adds it up at 0x4097ba onwards — `movsbl`, each byte signed into a
+/// 32-bit accumulator — then compares the low byte against this at 0x4097e8. A name whose sum is not
+/// this one is a *different* card in this slot, so both counts are zeroed (0x4097ec and 0x4097f8) and
+/// the sum written back (0x409804) before the attempt is counted.
+const CATK_NAME_SUM: usize = 0x12;
 /// The card a boss is on, as both of the places the game counts one index by: `ds:0x5a5f98`, shifted
 /// into [`CARD_HISTORY`] at 0x4096df and 0x409889.
 const CURRENT_CARD: usize = 0x005a5f98;
 
 /// 64 records of 0x40, which is the count the write walks and the size it copies each at.
 const CARD_HISTORY_BYTES: usize = 64 * 0x40;
+
+/// The low byte of the sum of a name's own bytes, which is what a record holds beside it at
+/// [`CATK_NAME_SUM`].
+///
+/// Unsigned, where the game's own is `movsbl` into a 32-bit accumulator: sign-extending each byte changes
+/// every bit of the sum above the eighth and none of the eight it is compared on, so the two agree on the
+/// only byte either of them ever reads.
+pub(super) fn name_sum(name: &[u8]) -> u8 {
+    name.iter().fold(0, |sum, byte| sum.wrapping_add(*byte))
+}
+
+/// The name inside a record's [`CATK_NAME`] span: the bytes up to the first `0`, or `None` where there is
+/// no `0` in the span at all — which a name the game copied there always has and one the generator left
+/// only has by chance.
+pub(super) fn name_in(span: &[u8]) -> Option<&[u8]> {
+    let end = span.iter().position(|byte| *byte == 0)?;
+    Some(&span[..end])
+}
+
+/// Whether the game has named the card a record is for, asked the way the game asks it: the sum the
+/// record holds against the name it holds, which is the comparison at 0x4097e8.
+///
+/// # Safety
+/// `record` must be one of [`CARD_HISTORY`]'s.
+unsafe fn named(record: usize) -> bool {
+    let span = unsafe { mem::read_bytes(record + CATK_NAME, CATK_NAME_BYTES) };
+    name_in(&span)
+        .is_some_and(|name| name_sum(name) == unsafe { mem::read::<u8>(record + CATK_NAME_SUM) })
+}
 
 /// `th06::Stage::RegisterChain`, `__cdecl` taking the stage number. Called from one place in the
 /// whole exe — 0x41c00d, inside the callback above — which makes it the seam between the numbers
@@ -1636,11 +1691,34 @@ impl Game for Th06 {
     }
 
     unsafe fn count_card_attempt(&self) -> Option<u16> {
+        // Only where a card is up at all. [`CURRENT_CARD`] holds the last card a boss was on and **nothing
+        // clears it** — not the card ending, not the stage, not the run — so a chapter with no card in it
+        // reads whichever card came before, and the nonspell that follows a spell reads the spell it follows.
+        // Counted there, it would be an attempt at a card nobody was fighting.
+        //
+        // Asked after the snapshot is back rather than before, which is what makes this the chapter's own
+        // answer: a spell chapter's snapshot was taken at the card's own start, so what a restore puts the
+        // game back into is that card.
+        if unsafe { mem::read::<i32>(G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE) } == 0 {
+            log!("score: no spell card is up; no attempt counted");
+            return None;
+        }
         let card = unsafe { mem::read::<i32>(CURRENT_CARD) };
         let record = CARD_HISTORY + usize::try_from(card).ok()? * 0x40;
         if record + 0x40 > CARD_HISTORY + CARD_HISTORY_BYTES
             || unsafe { mem::read::<u32>(record) } != CATK_MAGIC
         {
+            return None;
+        }
+        // The magic alone would not do: every one of the 64 slots carries it from the moment a run starts,
+        // and the name beside it is the generator's until the card itself is started. A count against one of
+        // those is what the ranking screen draws those bytes for.
+        //
+        // Said out loud rather than left as a missing line, because a line only written when the count was
+        // made puts the meaning in the absence — and an absence is equally what a retry nobody made looks
+        // like.
+        if !unsafe { named(record) } {
+            log!("score: card {card} is not one the game has named; no attempt counted");
             return None;
         }
         let attempts = unsafe { mem::read::<u16>(record + CATK_ATTEMPTS) }.saturating_add(1);
@@ -1660,6 +1738,19 @@ impl Game for Th06 {
             );
         }
         unsafe { mem::write_bytes(CARD_HISTORY, saved) };
+    }
+
+    unsafe fn set_captures_keeping_names(&self, saved: &[u8]) {
+        let mut going_back = saved.to_vec();
+        // The name and the sum beside it together, never one without the other: a name held over a sum that
+        // was put back is a record `named` reads as one nobody wrote, which is the whole of what this is for.
+        for (card, record) in going_back.as_chunks_mut::<0x40>().0.iter_mut().enumerate() {
+            let at = CARD_HISTORY + card * 0x40;
+            let name = unsafe { mem::read_bytes(at + CATK_NAME, CATK_NAME_BYTES) };
+            record[CATK_NAME..CATK_NAME + CATK_NAME_BYTES].copy_from_slice(&name);
+            record[CATK_NAME_SUM] = unsafe { mem::read::<u8>(at + CATK_NAME_SUM) };
+        }
+        unsafe { self.set_captures(&going_back) };
     }
 
     unsafe fn show_ranking(&self) {
@@ -2168,10 +2259,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        CARD_HISTORY, CARD_HISTORY_BYTES, G_GAME_MANAGER, G_REPLAY_MANAGER, G_SUPERVISOR,
-        RANKING_STATE, RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER,
-        STATE_GAMEMANAGER_REINIT, STATE_MAINMENU, ending_script, game_manager, replay_manager,
-        supervisor,
+        CARD_HISTORY, CARD_HISTORY_BYTES, CATK_ATTEMPTS, CATK_MAGIC, CATK_NAME, CATK_NAME_BYTES,
+        CATK_NAME_SUM, CURRENT_CARD, G_ENEMY_MANAGER, G_GAME_MANAGER, G_REPLAY_MANAGER,
+        G_SUPERVISOR, RANKING_STATE, RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER,
+        STATE_GAMEMANAGER_REINIT, STATE_MAINMENU, ending_script, enemy_manager, game_manager,
+        name_sum, replay_manager, supervisor,
     };
     use crate::game::{Game, RunStart, th06::Th06};
     use orb_api::Kind;
@@ -2181,17 +2273,43 @@ mod tests {
     /// that a pointer into it is a pointer and not an offset from a global.
     const ALLOCATED: usize = 0x03a0_0000;
 
+    /// One of the sixty-four spell card records, and a name for it. Any of them: what these read back is
+    /// the count against the one the game says its boss is on.
+    const A_CARD: i32 = 3;
+    const A_NAME: &[u8] = b"A CARD OF THE MIDBOSS";
+
+    /// A byte no name is made of, standing in for what `Rng::GetRandomU16` leaves in a record's name before
+    /// the card that would fill it has started. Any byte does, and deliberately not the one
+    /// `image::NOT_A_NAME` uses: nothing links the two, and the same number in both would say something
+    /// does.
+    const NOT_A_NAME: u8 = 0x5a;
+
     /// The globals these tests read, with nothing in them. One region over the game manager,
     /// which is also where the spell card history sits 0x30 into it, and one over the
     /// supervisor; the replay manager is a pointer, so only the pointer is laid out here and
     /// what it points at is each test's business.
+    ///
+    /// And one over the two the enemy manager keeps a card in — whether one is up, and which — which are
+    /// 8 bytes apart in the game's own data and so are one region here.
     fn image() -> Arc<Sim> {
         let sim = Arc::new(Sim::new());
         let space = sim.space();
         space.map(G_GAME_MANAGER, 0x2000, Kind::Private);
         space.map(G_SUPERVISOR, 0x1000, Kind::Private);
         space.map(G_REPLAY_MANAGER, size_of::<usize>(), Kind::Private);
+        space.map(A_CARD_IS_UP, 0x100, Kind::Private);
         sim
+    }
+
+    /// Where the game says a card is up, which orb asks before it counts an attempt at one. [`CURRENT_CARD`]
+    /// is inside the region mapped over this, being the next word but one.
+    const A_CARD_IS_UP: usize = G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE;
+
+    /// Says one is, and which — the pair a fight leaves behind it, and what a chapter with a card in it is
+    /// standing in once its snapshot is back.
+    fn a_card_is_up(space: &orb_sim::Space, card: i32) {
+        space.write::<i32>(A_CARD_IS_UP, 1);
+        space.write::<i32>(CURRENT_CARD, card);
     }
 
     /// The frame a stage is on is the game manager's own count, and it is only that while a stage
@@ -2283,6 +2401,87 @@ mod tests {
 
         unsafe { Th06.set_captures(&[0u8; 8]) };
         assert_eq!(unsafe { Th06.captures() }, before);
+    }
+
+    /// An attempt goes against the card the game is on, and again on the next ask: a record whose name
+    /// and whose sum agree is one the game itself has named.
+    #[test]
+    fn an_attempt_is_counted_against_a_card_the_game_has_named() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        a_card_is_up(space, A_CARD);
+        let record = CARD_HISTORY + A_CARD as usize * 0x40;
+        space.write::<u32>(record, CATK_MAGIC);
+        space.write_bytes(record + CATK_NAME, A_NAME);
+        space.write::<u8>(record + CATK_NAME + A_NAME.len(), 0);
+        space.write::<u8>(record + CATK_NAME_SUM, name_sum(A_NAME));
+
+        assert_eq!(unsafe { Th06.count_card_attempt() }, Some(1));
+        assert_eq!(unsafe { Th06.count_card_attempt() }, Some(2));
+        assert_eq!(space.read::<u16>(record + CATK_ATTEMPTS), 2);
+    }
+
+    /// And none at all where no card is up, whatever [`CURRENT_CARD`] was left holding. Nothing clears that
+    /// word, so a chapter with no card in it — the stage's own start, the nonspell that follows a spell —
+    /// reads whichever card came before it and would otherwise count an attempt at one nobody was fighting.
+    ///
+    /// The same record either way, named and countable: what stops the count is the flag and nothing about
+    /// the record.
+    #[test]
+    fn no_attempt_is_counted_where_no_spell_card_is_up() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        a_card_is_up(space, A_CARD);
+        let record = CARD_HISTORY + A_CARD as usize * 0x40;
+        space.write::<u32>(record, CATK_MAGIC);
+        space.write_bytes(record + CATK_NAME, A_NAME);
+        space.write::<u8>(record + CATK_NAME + A_NAME.len(), 0);
+        space.write::<u8>(record + CATK_NAME_SUM, name_sum(A_NAME));
+        assert_eq!(unsafe { Th06.count_card_attempt() }, Some(1));
+
+        space.write::<i32>(A_CARD_IS_UP, 0);
+        assert_eq!(unsafe { Th06.count_card_attempt() }, None);
+        assert_eq!(space.read::<u16>(record + CATK_ATTEMPTS), 1);
+    }
+
+    /// And not against one the game has not named, which every record is until its card starts: the
+    /// magic is on all sixty-four of them from the fill at a run's start, and what the fill leaves in
+    /// the name is bytes whose sum is not the one it leaves beside them. A count there is what puts
+    /// those bytes on the ranking screen, the name being drawn for any card whose count is not zero.
+    #[test]
+    fn an_attempt_is_not_counted_against_a_card_the_game_has_not_named() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        a_card_is_up(space, A_CARD);
+        let record = CARD_HISTORY + A_CARD as usize * 0x40;
+        space.fill_bytes(record, NOT_A_NAME, 0x40);
+        space.write::<u8>(record + CATK_NAME + CATK_NAME_BYTES - 1, 0);
+        space.write::<u32>(record, CATK_MAGIC);
+        // The two the fill writes back over what it drew, so that what is left of it is the name.
+        space.write::<u16>(record + CATK_ATTEMPTS, 0);
+
+        assert_eq!(unsafe { Th06.count_card_attempt() }, None);
+        assert_eq!(space.read::<u16>(record + CATK_ATTEMPTS), 0);
+    }
+
+    /// Nor against a span with no end to it, which is what a fill leaves whenever none of the bytes it
+    /// drew came out zero: there is no name in it to hold a sum against.
+    #[test]
+    fn an_attempt_is_not_counted_against_a_name_that_does_not_end() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        a_card_is_up(space, A_CARD);
+        let record = CARD_HISTORY + A_CARD as usize * 0x40;
+        space.fill_bytes(record + CATK_NAME, NOT_A_NAME, CATK_NAME_BYTES);
+        space.write::<u32>(record, CATK_MAGIC);
+        space.write::<u8>(record + CATK_NAME_SUM, NOT_A_NAME);
+
+        assert_eq!(unsafe { Th06.count_card_attempt() }, None);
+        assert_eq!(space.read::<u16>(record + CATK_ATTEMPTS), 0);
     }
 
     /// The record in memory is cleared before the game reads a ranking into it, so that the read

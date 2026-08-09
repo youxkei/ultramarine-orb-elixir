@@ -2290,11 +2290,15 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     }
     let arrived = unsafe { resume::landed() };
     // The captures back as they were before the buttons went in: playing a stage again starts every
-    // card the run had passed, and the game counts an attempt — and a capture — at each of them.
+    // card the run had passed, and the game counts an attempt — and a capture — at each of them. The
+    // names those starts wrote stay, a name being what the playback learned rather than what it counted.
     if arrived.is_some() {
         let bytes = unsafe { resume::landed_captures(runtime.game) };
         if bytes != 0 {
-            log!("resume: {bytes} byte(s) of captures put back; the playback counts none of them");
+            log!(
+                "resume: {bytes} byte(s) of captures put back; the playback counts none of them and \
+                 keeps the names it wrote"
+            );
         }
         // And one attempt at the card the chapter is on, because picking a run up where it was left is
         // an attempt at that chapter — the same as the retry menu's, and the game counts neither: it
