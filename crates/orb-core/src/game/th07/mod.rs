@@ -8,10 +8,12 @@
 //! has.
 //!
 //! **What is measured is a frame, and nothing about a run.** The window, the device, the chain and its
-//! two walks, the two calls a frame makes into the game, the play area and the size it renders at. So
-//! orb *paces* 妖々夢 and does not *play* it: every method below that answers `None` or nothing is a
-//! feature 完全無欠 does not have here — no chapters, no retry menu, no run picked up again, no card
-//! counted — and the trait already says what each of those costs. See `docs/adr/0004`.
+//! two walks, the two calls a frame makes into the game, the play area and the size it renders at. And
+//! orb neither *plays* 妖々夢 nor *paces* it: the frame those addresses are for is declined as well —
+//! see [`Hooks::render`] below for the run that settled that — so every method here that
+//! answers `None` or nothing is a feature 完全無欠 does not have here: no chapters, no retry menu, no run
+//! picked up again, no card counted, and no cadence of orb's. The trait already says what each of those
+//! costs. See `docs/adr/0004`.
 //!
 //! **Nothing here panics.** An `unimplemented!()` in a method a frame reaches would take somebody's
 //! game down at the moment orb ran out of measurements, which is the one thing an injected DLL must

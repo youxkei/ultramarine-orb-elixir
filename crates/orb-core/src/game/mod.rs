@@ -59,10 +59,12 @@ pub const KNOWN: &[Known] = &[
         version: "1.02h",
         game: &th06::Th06,
     },
-    // A game orb *paces* and does not *play*: [`th07::Th07`] answers a frame and declines everything
-    // about a run, so a launch here gets the window, the cadence and the overlay and no chapters. What
-    // version this build is the file name does not say and nothing in it has been read that does, so
-    // the md5 is the whole of what pins it — which is what the md5 is for in the other entry too.
+    // A game orb gets into and does nothing to: [`th07::Th07`] answers what has been read of one frame
+    // and declines everything about a run — `Hooks::render` among the declined, which is measured and not
+    // a gap — so a launch here gets its window sized and orb's update and draw hooks inside the game's
+    // own frame, and no cadence of orb's, no overlay and no chapters. What version this build is the file
+    // name does not say and nothing in it has been read that does, so the md5 is the whole of what pins
+    // it — which is what the md5 is for in the other entry too.
     Known {
         exe: "th07.exe",
         cfg: "th07.cfg",

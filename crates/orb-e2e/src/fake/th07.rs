@@ -6,10 +6,11 @@
 //! run is made of is missing because `Th07` answers all of it without looking — no scene to be in, no
 //! stage, no score file, no pad — so there is nothing for this game to be doing.
 //!
-//! What that makes it good for is the one thing worth asking of a second game: that the seam holds.
-//! orb attached to a game it has read a frame of paces that game at sixty, builds its overlay, and
-//! writes its own account of the run — over `Launch`, which is the same half of a launch th06's
-//! scenarios run on. See
+//! What that makes it good for is the one thing worth asking of a second game: that the seam holds. orb
+//! attached to a game it has read a frame of gets in, has its two hooks reached inside that game's own
+//! frame, and writes its own account of the run — and paces nothing and draws nothing, there being no
+//! frame loop of orb's here and no font beside the exe to build an overlay from. Over `Launch`, which is
+//! the same half of a launch th06's scenarios run on. See
 //! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 //!
 //! Where a number here is 妖々夢's it says so. There are two: the answers its chain walk gives, and what
