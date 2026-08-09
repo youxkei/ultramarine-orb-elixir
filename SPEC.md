@@ -10,7 +10,7 @@ and no record of what a mechanism used to be — only what it is, and the facts 
 reasons an alternative was rejected belong in a comment beside the code that would otherwise
 tempt someone back to it, which is where they are. What was measured to settle something is beside the
 thing it settled — the decision in [docs/adr/](docs/adr/), the constant it is the reason for, or the
-scenario that asserts it; what is left is in [TODO.md](TODO.md).
+scenario that asserts it; what is left is in the repository's issues.
 
 ## Which game a launch is
 

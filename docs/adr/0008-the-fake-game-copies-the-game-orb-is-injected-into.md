@@ -12,9 +12,9 @@ and this is where that got an answer which is not a run against the real game. T
 second finding 0001 did not anticipate, and that finding is what this decision is about: the layer 0001
 worried over is sound, and the layer it did not mention has drift in it.
 
-**The frame accounting it moved is what a run against the real game still has to confirm**, and `TODO.md`
-carries it: a scene's first update falling on the frame it was built, and the input word zeroed there, moved
-every transition by a frame.
+**The frame accounting it moved is what a run against the real game still has to confirm**: a scene's first
+update falling on the frame it was built, and the input word zeroed there, moved every transition by a
+frame.
 
 ## Context
 
@@ -147,8 +147,7 @@ should be treated as unmade.
   cannot confirm a frame boundary: nobody can see, from a running game, which frame its supervisor built a
   scene on. The decompilation can be read for exactly that, and the exe's bytes keep the reading honest.
   The real-game run is still what the frame-accounting changes below have to be re-confirmed against once
-  they are built — which is what `TODO.md` carries such things in — but it is no longer the only witness,
-  and it was never the right one for this.
+  they are built, but it is no longer the only witness, and it was never the right one for this.
 
 ## What follows from it
 

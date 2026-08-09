@@ -115,8 +115,7 @@ handovers, smoothed 31 parts in 32 — and it cannot be read in a scenario at al
 wants a window it can `GetClientRect`, and returns without one. Which is a separate thing to want, and a
 smaller one: an average over 32 frames held for 30 more says a run settled at sixty and cannot see the
 second that lost four frames, which is the question these scenarios ask. So the rate stays measured from
-the clock, orb's own line is held against it, and the status line is its own piece of work — see
-[TODO.md](../../TODO.md).
+the clock, orb's own line is held against it, and the status line is its own piece of work.
 
 **What blocked it was two methods, and nothing else.** Every other call `render` makes was answerable by a
 laid-out game already: the device and the window come out of its memory, `prepare_frame` is a viewport
@@ -233,5 +232,4 @@ drains.
   `frame_loop.rs`.
 
 The status line is not covered either. It is the same numbers said again in the one place a scenario
-cannot reach, and reaching it is a seam of its own — see *Draw a frame in a test and say what is on it*
-in [TODO.md](../../TODO.md).
+cannot reach, and reaching it is a seam of its own.

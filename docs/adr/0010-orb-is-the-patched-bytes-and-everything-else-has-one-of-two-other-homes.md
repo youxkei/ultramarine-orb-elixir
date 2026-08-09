@@ -364,7 +364,7 @@ $ cargo xtask seam && cargo xtask test
 
 **And the suite has one known intermittent**, so *green* below means green or that one: a scenario of
 `orb-e2e`'s `the_music_across_a_restore` fails about one run in eight with `no sound has been installed on
-this thread`. `TODO.md` carries what is known about it.
+this thread`.
 
 ## What follows from it
 
@@ -511,5 +511,4 @@ changed is that the crate boundary now says so.
 **What it costs.** Step 5 rewrites a shipped drawing path whose far end no test reaches, so until the
 scenario named in that step exists the only witness before and after is a launch: the four lines in the
 black beside the game, at both sizes the bar can be, on a window whose letterbox leaves room for one and on
-one that does not. That belongs in `TODO.md`'s list of what only the real game can answer until the
-scenario stands behind it.
+one that does not. That is a launch's to answer until the scenario stands behind it.

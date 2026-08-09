@@ -10,7 +10,9 @@ in it went, and again by
 [0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md). Step 6
 happened: 妖々夢 was launched with orb in it and **orb's own frame loop took it down on the first frame**,
 so `Hooks::render` is `None` and 妖々夢 keeps its own cadence. What that costs, and what reading the rest
-of that frame would take, is in `TODO.md`; the measurement is *What the two launches said* below and
+of that frame would take, is
+[issue 2](https://github.com/youxkei/ultramarine-orb-elixir/issues/2); the measurement is *What the two
+launches said* below and
 beside the `render: None`
 itself. What stands is everything about the *shape* — the table, the choice at the attach, the split rig,
 and a stub that declines rather than panics.
@@ -41,7 +43,8 @@ times and then `overlay: unavailable`: **nothing orb draws is drawn there at all
 score file of a game it declines every run feature of: `score: pointdevice_score.dat opened in place of
 the game's own, write` on the way out, leaving a 192-byte file of its own. `score.dat` came through both
 launches untouched — `647b08bc49eba267808df31e7f18af12`, 8467 bytes, at the mtime it went in with — and
-`th07.cfg` too, which is the fork working; that it happens at all for this game is in `TODO.md`.
+`th07.cfg` too, which is the fork working; that it happens at all for this game is
+[issue 2](https://github.com/youxkei/ultramarine-orb-elixir/issues/2).
 
 It stands on three decisions. [0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a game that plays the
 game's part in front of orb and ruled out a second `Game` written for tests.
@@ -90,8 +93,9 @@ frames, and read the hand-overs and the log — `Fake::attach_watching_the_pacin
 `Fake::handovers_us`, `Fake::log`. What stands between them and a second game is not the scenarios and not
 the judging; it is that the only thing to attach them to is a th06.
 
-**Two questions were parked until there was a second game.** *Support Touhou games other than 紅魔郷* in
-`TODO.md` says them: whether `State` says everything a chapter needs for a game whose scoring or resources
+**Two questions were parked until there was a second game.**
+[Issue 2](https://github.com/youxkei/ultramarine-orb-elixir/issues/2)
+says them: whether `State` says everything a chapter needs for a game whose scoring or resources
 work differently, and whether the midstage table's shape — script frame numbers per stage, seven of them in
 `th06/chapters.rs` because 紅魔郷 has seven — holds where stages are not one script on one clock. Neither is
 answerable by reading 紅魔郷 harder, and neither has stopped anything so far because there has been nothing

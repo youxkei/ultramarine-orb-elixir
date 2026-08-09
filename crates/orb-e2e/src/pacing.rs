@@ -756,7 +756,7 @@ mod load {
 
 /// The game's window on one monitor while the compositor times another.
 ///
-/// *What the fixed stutter costs* in `TODO.md` named this case and said of it that "that refusal has
+/// The worklist's *What the fixed stutter costs* named this case and said of it that "that refusal has
 /// not been seen happen", and that the hazard beside it is one "nothing has re-checked since". It was
 /// both: the refusal never fired, and what happened instead ran the game **fast** — measured on a real
 /// mixed-rate desktop, period after period above sixty with `0 frame(s) paced by the clock` in the same
@@ -809,8 +809,7 @@ mod disagrees {
 
                 // And the desktop it is happening on is said once, because a frame shown on the
                 // compositor's blank still has the window's own panel to reach — which is the part of this
-                // no simulator can speak for, and the reason a run on the machine is still wanted. See
-                // *What the fixed stutter costs* in `TODO.md`.
+                // no simulator can speak for, and the reason a run on the machine is still wanted.
                 assert!(
                     game.log().said(
                         "the window's own monitor is 120Hz, which is not what the compositor is timing"

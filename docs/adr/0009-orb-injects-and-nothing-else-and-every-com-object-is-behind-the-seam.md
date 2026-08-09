@@ -217,8 +217,8 @@ than the plan.
 
 **And the suite has one known intermittent**, so *green* below means green or that one: a scenario of
 `scenario_the_music_across_a_restore.rs` fails about one run in eight with `no sound has been installed on
-this thread`, reproduced at `HEAD` before any of this work. `TODO.md` carries what is known about it. A
-step that fails only that way has not broken anything.
+this thread`, reproduced at `HEAD` before any of this work. A step that fails only that way has not broken
+anything.
 
 ## Decision
 
