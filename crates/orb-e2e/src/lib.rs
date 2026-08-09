@@ -36,6 +36,8 @@
 pub(crate) mod fake;
 
 #[cfg(test)]
+mod a_chapter_out_of_the_table;
+#[cfg(test)]
 mod a_chapter_table_collected;
 #[cfg(test)]
 mod a_clear_on_demand;

@@ -1099,6 +1099,23 @@ impl Fake {
         self.bullet.set(true);
     }
 
+    /// The fight over: the boss off the screen and its card with it, which is what the enemy manager
+    /// holds none of once one has been beaten.
+    ///
+    /// A scenario saying so, the way it says the player was hit — there is nothing shooting here, so a
+    /// boss's life comes down because a scenario says the fight is won where in a real run it comes down
+    /// because somebody shot it. What it is for is the stage *after* a fight: a fight underway outranks
+    /// the midstage table, so a stage whose boss never goes down is one where nothing of that table can
+    /// begin a chapter.
+    ///
+    /// Whatever the stage's own script has arranged for a later frame still happens — the fight this game
+    /// has runs from [`BOSS_ARRIVES`] to [`ATTACK_CHANGES`] — so beaten inside those frames is a boss that
+    /// comes back on the next of them.
+    pub fn beats_its_boss(&self) {
+        self.image.boss(None);
+        self.image.card(None);
+    }
+
     /// How long each of this game's stages runs before the next begins.
     ///
     /// Nothing by default, which is a stage that never ends: every scenario about one stage wants that,
