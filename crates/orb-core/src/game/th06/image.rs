@@ -1336,6 +1336,18 @@ impl Image {
         }
     }
 
+    /// Whether a bomb is going off, which is `Player::bombInUse`: the seconds after one where the screen
+    /// has been cleared and nothing can hit the player.
+    ///
+    /// Apart from [`set_bombs`](Self::set_bombs), which is how many the run has left: one of those is spent
+    /// where a bomb starts, and this is true for as long as that bomb lasts.
+    pub fn bombing(&self, bombing: bool) {
+        self.space().write::<u32>(
+            super::G_PLAYER + super::player::BOMB_IN_USE,
+            u32::from(bombing),
+        );
+    }
+
     /// The frames of invulnerability left, which `Player::OnUpdate` ticks down and puts the state back
     /// to normal at the end of.
     ///

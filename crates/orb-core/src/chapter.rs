@@ -1203,9 +1203,9 @@ mod tests {
     use super::{
         Cause, Chapters, Due, Judgement, MUSIC_WAIT_FRAMES, Mark, STAGE_SETTLE_FRAMES, Seen,
     };
-    use crate::game::State;
     use crate::game::th06::Th06;
-    use crate::game::th06::image::Image;
+    use crate::game::th06::image::{Boss, Image, Player, Playing, Track};
+    use crate::game::{Game, State};
     use std::path::PathBuf;
 
     /// Judging happens with the game held on the boundary, which is the only way the keys
@@ -1213,12 +1213,67 @@ mod tests {
     /// land on whichever frame it reached.
     const HELD: bool = true;
 
+    /// The stage every scenario below plays, and the difficulty it is played at: stage one on Normal,
+    /// counted from zero the way everything above `Game` counts stages.
+    ///
+    /// Laid into the game rather than said to the detector, which is what holds the two to the same
+    /// stage: the number the game keeps is one greater — see `game_manager::CURRENT_STAGE` — and the
+    /// stage is what the table is looked up by and what a chapter's log line names.
+    const STAGE: i32 = 0;
+    const DIFFICULTY: i32 = 1;
+
+    /// What the run carries, which is 紅魔郷's own for one that has just started.
+    ///
+    /// Nothing here is decided by any of them: they go into the line a chapter is written down with,
+    /// which is what says a chapter began with the run in the state it was in.
+    const LIVES: i8 = 2;
+    const BOMBS: i8 = 3;
+    const POWER: u16 = 128;
+
+    /// What the boss of a fight has left. No boundary is derived from a boss's life — what the
+    /// detector reads is the clock of the attack it is on — and a fight laid out has to have one all
+    /// the same, the life being read through the pointer that says there is a boss at all.
+    const BOSS_LIFE: i32 = 1500;
+
+    /// The track the fight a stage *ends* with brings, which is the second of the two songs a stage's
+    /// data names.
+    ///
+    /// Its three numbers are this file's own: what tells one track from another is that two tracks are
+    /// not the same three numbers, and which of a stage's two fights is on is read off exactly that.
+    const BOSS_TRACK: Track = Track {
+        length: 0x51a7,
+        loop_start: 0x1000,
+        loop_end: 0x5000,
+    };
+
+    /// A frame of the stage, as it is laid into the game's own memory.
+    ///
+    /// Every field is one `Th06::read_state` parses back out, which is the whole of why a scenario
+    /// says one of these rather than a `State`: the frame the detector is stepped with is read out of
+    /// the game the way production reads it — see [`Stage::standing_on`].
+    #[derive(Clone, Copy)]
+    struct Frame {
+        /// How far into the stage this is, in the game's own clocks. The stage's clock and the
+        /// script's are held equal, since all the boundary detection asks of them is that both
+        /// advance.
+        at: u32,
+        enemies: i32,
+        /// The boss of the fight on, where one is: what is left of it, and how long the attack it is
+        /// on has been running.
+        boss: Option<Boss>,
+        /// The spell card that boss is on.
+        card: Option<i32>,
+        player: Player,
+        /// Whether a bomb is going off, which clears the screen and takes the danger away for a
+        /// couple of seconds.
+        bombing: bool,
+    }
+
     /// Two hundred frames of enemies and two hundred without, over and over: a
-    /// stage's waves in the only terms the detector reads. The stage's clock and the
-    /// script's are held equal, since all it asks of them is that both advance.
-    fn waves(since: u32) -> State {
-        State {
-            enemy_count: if (since / 200).is_multiple_of(2) {
+    /// stage's waves in the only terms the detector reads.
+    fn waves(since: u32) -> Frame {
+        Frame {
+            enemies: if (since / 200).is_multiple_of(2) {
                 3
             } else {
                 0
@@ -1227,51 +1282,15 @@ mod tests {
         }
     }
 
-    /// A frame with nothing on screen at all. The stage's clock and the script's are
-    /// held equal, since all the boundary detection asks of them is that both
-    /// advance.
-    fn empty(frame: u32) -> State {
-        State {
-            scene: 2,
-            wanted: 2,
-            playing: true,
-            in_run: true,
-            in_game: true,
-            in_ending: false,
-            ending_script: None,
-            demo: false,
-            replay: false,
-            practice: false,
-            paused: false,
-            unsettled: false,
+    /// A frame with nothing on screen at all.
+    fn empty(frame: u32) -> Frame {
+        Frame {
+            at: frame,
+            enemies: 0,
+            boss: None,
+            card: None,
+            player: Player::Normal,
             bombing: false,
-            in_dialogue: false,
-            stage: 0,
-            difficulty: 1,
-            stage_frames: frame,
-            script_frames: frame as i32,
-            random_seed: 0,
-            deaths: 0,
-            lives: 2,
-            bombs: 3,
-            power: 128,
-            enemy_count: 0,
-            bullet_count: 0,
-            laser_count: 0,
-            boss_present: false,
-            boss_life: None,
-            boss_attack_frames: None,
-            spellcard: None,
-        }
-    }
-
-    /// A frame of a replay playing back, which a pass building the table follows like a run with
-    /// nobody playing it.
-    fn replaying(frame: u32) -> State {
-        State {
-            in_game: false,
-            replay: true,
-            ..empty(frame)
         }
     }
 
@@ -1292,12 +1311,19 @@ mod tests {
     /// offsets from it rather than as the round numbers the wave pattern alone would put them at.
     const STAGE_BEGINS: u32 = STAGE_SETTLE_FRAMES + MUSIC_WAIT_FRAMES;
 
-    /// A stage running under the real `observe`, and the game whose memory its chapters are copies
-    /// of.
+    /// A stage running under the real `observe`, and the game whose memory its frames are laid into
+    /// and its chapters are copies of.
     ///
-    /// Everything here goes through the code the frame hook runs. What a chapter beginning looks
-    /// like from outside is the number changing, which is what the status line and the retry menu
-    /// read — so that is what these report, rather than a verdict read out of the detector.
+    /// Everything here goes through the code the frame hook runs, from the same end: a frame is
+    /// written into the game's memory, read back out of it with `Th06::read_state`, and the detector
+    /// stepped with what came out. What a chapter beginning looks like from outside is the number
+    /// changing, which is what the status line and the retry menu read — so that is what these
+    /// report, rather than a verdict read out of the detector.
+    ///
+    /// **A stage laid out frame by frame rather than one played**, which is what these reach and a run
+    /// over the game in `orb-e2e` does not: a thousand frames of waves for the floor on how short a
+    /// chapter may be, a boundary judged out and taken back between two of them, and a fight bombed or
+    /// died in on a chosen frame. A whole run through the same code is `orb-e2e`'s `pointdevice_run`.
     struct Stage {
         // Declared first so it is dropped first: the image has to still be installed while the
         // chapters it belongs to are being taken down.
@@ -1310,7 +1336,7 @@ mod tests {
         /// pass reaches that directory as soon as a stage is left or a boundary is added, so a test
         /// wanting one hands over a scratch of its own — an empty path is the directory the tests
         /// themselves run in.
-        fn begun(tuning: Option<PathBuf>, during_replay: bool, of: impl Fn(u32) -> State) -> Self {
+        fn begun(tuning: Option<PathBuf>, during_replay: bool, of: impl Fn(u32) -> Frame) -> Self {
             let mut stage = Self::laid_out(tuning, during_replay);
             stage.settle(of);
             stage
@@ -1327,9 +1353,9 @@ mod tests {
             }
         }
 
-        fn settle(&mut self, of: impl Fn(u32) -> State) {
+        fn settle(&mut self, of: impl Fn(u32) -> Frame) {
             for frame in 0..=STAGE_BEGINS {
-                self.frame(&of(frame));
+                self.frame(of(frame));
             }
             assert_eq!(
                 self.chapters.number(),
@@ -1348,15 +1374,58 @@ mod tests {
             Self::begun(Some(scratch(name)), false, empty)
         }
 
+        /// A stage of a replay playing back, which a pass building the table follows like a run with
+        /// nobody playing it.
+        ///
+        /// The flag the game sets is laid out before the stage begins, because that is where it
+        /// decides something: whether these frames are a run to track chapters over at all.
+        fn replayed() -> Self {
+            let mut stage = Self::laid_out(None, true);
+            stage.image.watching_a_replay();
+            stage.settle(empty);
+            stage
+        }
+
         /// One frame through the real `observe`, and whether a chapter began on it.
-        fn frame(&mut self, state: &State) -> bool {
+        fn frame(&mut self, frame: Frame) -> bool {
+            let state = self.standing_on(frame);
             let _entered = self.image.enter();
             let before = self.chapters.number();
             unsafe {
                 self.chapters
-                    .observe(&Th06, state, &self.image.data(), false)
+                    .observe(&Th06, &state, &self.image.data(), false)
             };
             self.chapters.number() != before
+        }
+
+        /// The game standing on that frame, the way production has one: the frame written into the
+        /// game's own memory, and `Th06::read_state` reading it back out through every offset and
+        /// pointer chase of it.
+        ///
+        /// Which is what the detector and the judging keys below are handed, and the reason a scenario
+        /// says a [`Frame`] rather than a `State`. A `State` written beside the memory is a second
+        /// answer to what the game is doing, and the one thing two answers cannot show is them
+        /// disagreeing — `observe` reading a different stage from the one the image holds is a defect
+        /// no scenario built that way can fail for.
+        fn standing_on(&self, frame: Frame) -> State {
+            let _entered = self.image.enter();
+            self.image.playing(Playing {
+                stage: STAGE,
+                difficulty: DIFFICULTY,
+                frames: frame.at,
+                script_frames: frame.at as i32,
+                seed: 0,
+                deaths: 0,
+                lives: LIVES,
+                bombs: BOMBS,
+                power: POWER,
+                enemies: frame.enemies,
+            });
+            self.image.boss(frame.boss);
+            self.image.card(frame.card);
+            self.image.player(frame.player);
+            self.image.bombing(frame.bombing);
+            unsafe { Th06.read_state() }
         }
 
         /// Plays `frames` frames from the stage's start, and reports how far into the stage each
@@ -1371,19 +1440,21 @@ mod tests {
         fn play_from(&mut self, from: u32, upto: u32) -> Vec<u32> {
             let mut begun = Vec::new();
             for since in from..upto {
-                if self.frame(&waves(since)) {
+                if self.frame(waves(since)) {
                     begun.push(since);
                 }
             }
             begun
         }
 
-        /// The real `add_boundary`, which is what the key that adds one by hand reaches.
-        fn add_boundary(&mut self, state: &State) {
+        /// The real `add_boundary`, which is what the key that adds one by hand reaches — with the
+        /// game standing on that frame, since where a boundary goes is where the game is.
+        fn add_boundary(&mut self, frame: Frame) {
+            let state = self.standing_on(frame);
             let _entered = self.image.enter();
             unsafe {
                 self.chapters
-                    .add_boundary(&Th06, state, &self.image.data(), false)
+                    .add_boundary(&Th06, &state, &self.image.data(), false)
             };
         }
 
@@ -1410,7 +1481,7 @@ mod tests {
     }
 
     /// A frame that far into the stage with nothing on screen.
-    fn at(n: u32) -> State {
+    fn at(n: u32) -> Frame {
         empty(since(n))
     }
 
@@ -1470,20 +1541,22 @@ mod tests {
     }
 
     /// A frame of a fight, with the boss's timer and whichever attack it is on.
-    fn fight(since: u32, timer: i32, spellcard: Option<u32>) -> State {
-        State {
-            boss_present: true,
-            boss_attack_frames: Some(timer),
-            spellcard,
+    fn fight(since: u32, timer: i32, card: Option<i32>) -> Frame {
+        Frame {
+            boss: Some(Boss {
+                life: BOSS_LIFE,
+                attack_frames: timer,
+            }),
+            card,
             ..at(since)
         }
     }
 
     /// A frame with enemies on it, for waiting out the floor on a chapter's length without
     /// the gap detector offering a boundary in the quiet.
-    fn enemies(since: u32) -> State {
-        State {
-            enemy_count: 3,
+    fn enemies(since: u32) -> Frame {
+        Frame {
+            enemies: 3,
             ..at(since)
         }
     }
@@ -1516,7 +1589,7 @@ mod tests {
     /// about is a stage that did.
     #[test]
     fn a_replay_is_not_a_run_somebody_is_playing() {
-        let stage = Stage::begun(None, true, replaying);
+        let stage = Stage::replayed();
         assert!(!stage.chapters.somebody_playing());
     }
 
@@ -1530,36 +1603,35 @@ mod tests {
 
         // A gap in the waves, which the detector offers at 259.
         for frame in 0..300 {
-            stage.frame(&waves(frame));
+            stage.frame(waves(frame));
         }
         assert_eq!(named(&stage.chapters), "MIDSTAGE 2");
 
-        // A midboss, whose first attack starts with it. There is no game here to play a
-        // stage's track, so which fight it is comes from `stage_music` being the same
-        // nothing that `music_identity` reports.
-        stage.frame(&fight(320, 0, None));
+        // A midboss, whose first attack starts with it. The stage began with no track under it, so
+        // which fight this is comes from `music_identity` still reporting that same nothing.
+        stage.frame(fight(320, 0, None));
         assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
 
         for frame in 321..380 {
-            stage.frame(&fight(frame, frame as i32 - 320, None));
+            stage.frame(fight(frame, frame as i32 - 320, None));
         }
-        stage.frame(&fight(380, 0, Some(1)));
+        stage.frame(fight(380, 0, Some(1)));
         assert_eq!(named(&stage.chapters), "MIDBOSS SPELL 1");
 
         for frame in 381..441 {
-            stage.frame(&fight(frame, frame as i32 - 380, Some(1)));
+            stage.frame(fight(frame, frame as i32 - 380, Some(1)));
         }
         // Beaten, which hands the stage back.
-        stage.frame(&enemies(441));
+        stage.frame(enemies(441));
         assert_eq!(named(&stage.chapters), "MIDSTAGE 3");
 
         // The stage's own boss brings the second of the two songs the stage names, which is
-        // what tells it from a midboss.
-        stage.chapters.stage_music = Some(0x51a7);
+        // what tells it from a midboss — the track laid out where the game would start it.
+        stage.image.plays_a_track(BOSS_TRACK);
         for frame in 442..511 {
-            stage.frame(&enemies(frame));
+            stage.frame(enemies(frame));
         }
-        stage.frame(&fight(511, 0, None));
+        stage.frame(fight(511, 0, None));
         assert_eq!(named(&stage.chapters), "BOSS NONSPELL 1");
     }
 
@@ -1571,17 +1643,17 @@ mod tests {
     fn a_chapter_reached_again_keeps_its_name() {
         let mut stage = Stage::tuned("orb-chapter-named-again");
         for frame in 0..300 {
-            stage.frame(&waves(frame));
+            stage.frame(waves(frame));
         }
         let boundary = stage.chapters.mark;
-        stage.frame(&fight(320, 0, None));
+        stage.frame(fight(320, 0, None));
         assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
 
         // What a retry does to orb's own bookkeeping: the mark goes back with the memory.
         stage.chapters.mark = boundary;
-        stage.chapters.seen = Seen::of(&waves(299));
+        stage.chapters.seen = Seen::of(&stage.standing_on(waves(299)));
         assert_eq!(named(&stage.chapters), "MIDSTAGE 2");
-        stage.frame(&fight(320, 0, None));
+        stage.frame(fight(320, 0, None));
         assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
     }
 
@@ -1596,13 +1668,15 @@ mod tests {
         assert_eq!(stage.play_from(0, 300), [259]);
 
         // Fifty-four frames after it, which is inside the floor.
-        stage.add_boundary(&at(313));
+        stage.add_boundary(at(313));
         // And it is still a boundary on the next pass over the same ground.
         stage.chapters.mark = Mark {
             midstage_upto: 0,
             ..stage.chapters.mark
         };
-        let on_it = waves(313);
+        let on_it = stage.standing_on(waves(313));
+        // With the image in front, `due` being one of the calls that asks the game what is playing.
+        let _entered = stage.image.enter();
         assert!(matches!(
             stage.chapters.due(&Th06, &on_it, &Seen::of(&on_it)),
             Due::Yes(Cause::Boundary(frame)) if frame == since(313) as i32,
@@ -1633,18 +1707,12 @@ mod tests {
     #[test]
     fn a_spellcard_named_late_still_names_its_chapter() {
         let mut stage = Stage::tuned("orb-chapter-spellcard-late");
-        let fighting = |since, timer, spell| State {
-            boss_present: true,
-            boss_attack_frames: Some(timer),
-            spellcard: spell,
-            ..at(since)
-        };
 
         for frame in 0..200 {
-            stage.frame(&fighting(frame, frame as i32, None));
+            stage.frame(fight(frame, frame as i32, None));
         }
         // The timer starts again, which is the attack changing and all that is known of it.
-        assert!(stage.frame(&fighting(200, 0, None)));
+        assert!(stage.frame(fight(200, 0, None)));
         assert_eq!(stage.chapters.number(), 2);
         assert!(matches!(
             stage.chapters.cause(),
@@ -1653,7 +1721,7 @@ mod tests {
 
         // The card names itself on the next frame. No second chapter, and the one standing
         // there is a spellcard's.
-        assert!(!stage.frame(&fighting(201, 1, Some(3))));
+        assert!(!stage.frame(fight(201, 1, Some(3))));
         assert!(matches!(
             stage.chapters.cause(),
             Cause::MidbossSpell | Cause::BossSpell
@@ -1674,16 +1742,18 @@ mod tests {
             .unwrap()
             .reject(0, since(659) as i32);
 
-        let from = at(300);
+        let from = stage.standing_on(at(300));
+        let last = stage.standing_on(at(1200));
         assert_eq!(stage.chapters.next_start(&from), Some(since(1059)));
-        assert_eq!(stage.chapters.previous_start(&at(1200)), Some(since(1059)),);
+        assert_eq!(stage.chapters.previous_start(&last), Some(since(1059)));
         assert_eq!(stage.chapters.next_dropped(&from), Some(since(659) as i32));
         assert_eq!(
-            stage.chapters.previous_dropped(&at(1200)),
+            stage.chapters.previous_dropped(&last),
             Some(since(659) as i32),
         );
         // Taken back, it is a chapter start again and no longer the dropped key's.
-        stage.chapters.judge(&at(659), HELD, Judgement::Better);
+        let on_it = stage.standing_on(at(659));
+        stage.chapters.judge(&on_it, HELD, Judgement::Better);
         assert_eq!(stage.chapters.next_start(&from), Some(since(659)));
         assert_eq!(stage.chapters.next_dropped(&from), None);
     }
@@ -1697,9 +1767,10 @@ mod tests {
         let mut stage = Stage::tuned("orb-chapter-stepping-hand-out");
         stage.play(1200);
 
-        let on_it = at(500);
-        stage.add_boundary(&on_it);
-        assert_eq!(stage.chapters.next_start(&at(300)), Some(since(500)));
+        stage.add_boundary(at(500));
+        let on_it = stage.standing_on(at(500));
+        let from = stage.standing_on(at(300));
+        assert_eq!(stage.chapters.next_start(&from), Some(since(500)));
 
         stage.chapters.judge(&on_it, HELD, Judgement::Worse);
         stage.chapters.judge(&on_it, HELD, Judgement::Worse);
@@ -1707,9 +1778,12 @@ mod tests {
             stage.chapters.judged(&on_it, HELD).is_none(),
             "taken out altogether",
         );
-        assert_eq!(stage.chapters.next_start(&at(300)), Some(since(659)));
-        assert_eq!(stage.chapters.previous_start(&at(600)), Some(since(259)));
-        assert_eq!(stage.chapters.next_dropped(&at(300)), None);
+        assert_eq!(stage.chapters.next_start(&from), Some(since(659)));
+        assert_eq!(
+            stage.chapters.previous_start(&stage.standing_on(at(600))),
+            Some(since(259)),
+        );
+        assert_eq!(stage.chapters.next_dropped(&from), None);
     }
 
     /// A fight ending on the frame the player is hit still ends, on that frame: stage 6's
@@ -1719,18 +1793,16 @@ mod tests {
     fn a_fight_that_ends_as_the_player_dies_still_ends() {
         let mut stage = Stage::tuned("orb-chapter-fight-ends-on-death");
 
-        // A midboss, up long enough for a chapter to be allowed after it.
+        // A midboss, up long enough for a chapter to be allowed after it. Its attack's clock stands
+        // still, since a reset is the fight moving on and this fight does not.
         for frame in 0..200 {
-            stage.frame(&State {
-                boss_present: true,
-                ..at(frame)
-            });
+            stage.frame(fight(frame, 0, None));
         }
-        let hit = State {
-            unsettled: true,
+        let hit = Frame {
+            player: Player::Dying,
             ..at(200)
         };
-        assert!(stage.frame(&hit));
+        assert!(stage.frame(hit));
         assert!(matches!(stage.chapters.cause(), Cause::StageAfterMidboss));
     }
 
@@ -1739,26 +1811,20 @@ mod tests {
     #[test]
     fn an_attack_that_changes_under_a_bomb_is_a_boundary_there() {
         let mut stage = Stage::tuned("orb-chapter-bombed-attack-change");
-        let spell = |since, timer| State {
-            boss_present: true,
-            boss_life: Some(3000),
-            boss_attack_frames: Some(timer),
-            spellcard: Some(7),
-            ..at(since)
-        };
+        let spell = |since, timer| fight(since, timer, Some(7));
 
         for frame in 0..200 {
-            stage.frame(&spell(frame, frame as i32));
+            stage.frame(spell(frame, frame as i32));
         }
         // The spellcard is bombed out and the next attack begins while the bomb is still
         // going: the boss's timer starts again from nothing.
-        let bombed = State {
+        let bombed = Frame {
             bombing: true,
             ..spell(200, 0)
         };
-        // Whose fight it is comes from the music, which there is no game here to play, so
+        // Whose fight it is comes from the music, which no track is laid out for here, so
         // either naming will do — what matters is that the change was taken.
-        assert!(stage.frame(&bombed));
+        assert!(stage.frame(bombed));
         assert!(matches!(
             stage.chapters.cause(),
             Cause::BossSpell | Cause::MidbossSpell
@@ -1773,7 +1839,7 @@ mod tests {
         let mut stage = Stage::tuned("orb-chapter-judging-held");
         stage.play(1200);
 
-        let on_it = at(659);
+        let on_it = stage.standing_on(at(659));
         assert!(stage.chapters.judged(&on_it, false).is_none());
         stage.chapters.judge(&on_it, false, Judgement::Worse);
         assert_eq!(
@@ -1783,7 +1849,7 @@ mod tests {
 
         // Nor anywhere else, held or not: what is judged is the boundary underneath, and
         // inside a chapter there is none.
-        let past_it = at(700);
+        let past_it = stage.standing_on(at(700));
         assert!(stage.chapters.judged(&past_it, HELD).is_none());
         stage.chapters.judge(&past_it, HELD, Judgement::Worse);
         assert_eq!(
@@ -1806,13 +1872,8 @@ mod tests {
         // after it. Nothing of the table's begins a chapter while it is up.
         let mut fought = Stage::tuned("orb-chapter-fight-outranks-fought");
         fought.chapters.tuning().unwrap().add(0, since(259) as i32);
-        let fighting = |since_| State {
-            boss_present: true,
-            boss_attack_frames: Some(since_ as i32),
-            ..at(since_)
-        };
         for frame in 0..400 {
-            fought.frame(&fighting(frame));
+            fought.frame(fight(frame, frame as i32, None));
             assert!(
                 !matches!(fought.chapters.cause(), Cause::Boundary(_)),
                 "the table began a chapter at frame {frame}, inside the fight",
@@ -1820,7 +1881,7 @@ mod tests {
         }
         // And it is spent where it fell rather than saved up: what the frame the fight ends
         // on has is the fight's own end, not the table's entry firing as its double.
-        assert!(fought.frame(&at(400)));
+        assert!(fought.frame(at(400)));
         assert!(matches!(fought.chapters.cause(), Cause::StageAfterMidboss));
     }
 
@@ -1897,7 +1958,7 @@ mod tests {
     fn a_boundary_judged_out_can_be_taken_back_from_where_it_is() {
         let mut stage = Stage::tuned("orb-chapter-taken-back");
         stage.play(1200);
-        let on_it = at(659);
+        let on_it = stage.standing_on(at(659));
         stage.chapters.judge(&on_it, HELD, Judgement::Out);
 
         let label = |stage: &Stage| stage.chapters.judged(&on_it, HELD).unwrap().verdict.label();
@@ -1917,8 +1978,8 @@ mod tests {
         let start = stage.chapters.mark;
         stage.play(1200);
 
-        let on_it = at(500);
-        stage.add_boundary(&on_it);
+        stage.add_boundary(at(500));
+        let on_it = stage.standing_on(at(500));
         let judged = stage
             .chapters
             .judged(&on_it, HELD)
@@ -1940,7 +2001,7 @@ mod tests {
         let mut stage = Stage::tuned("orb-chapter-hand-no-room");
         // The gap opens at 200 and the detector's own boundary for it falls at 259.
         assert_eq!(stage.play_from(0, 259), []);
-        stage.add_boundary(&waves(258));
+        stage.add_boundary(waves(258));
         stage.play_from(259, 1200);
 
         let tuning = stage.chapters.tuning().unwrap();
@@ -1963,8 +2024,8 @@ mod tests {
         let mut stage = Stage::tuned("orb-chapter-taking-out-reaches-no-further");
         stage.play(1200);
 
-        let on_it = at(700);
-        stage.add_boundary(&on_it);
+        stage.add_boundary(at(700));
+        let on_it = stage.standing_on(at(700));
         for _ in 0..4 {
             stage.chapters.judge(&on_it, HELD, Judgement::Worse);
         }
@@ -2017,7 +2078,7 @@ mod tests {
         // Where the stepping leaves the game when it stops on a boss's boundary: on a
         // frame the table has nothing at, in a chapter the game began itself.
         stage.chapters.mark.cause = Cause::BossNonspell;
-        let on_it = at(700);
+        let on_it = stage.standing_on(at(700));
         assert!(stage.chapters.judged(&on_it, HELD).is_none());
         stage.chapters.judge(&on_it, HELD, Judgement::Worse);
         stage.chapters.judge(&on_it, HELD, Judgement::Out);
@@ -2042,7 +2103,7 @@ mod tests {
         let start = stage.chapters.mark;
         stage.play(1200);
 
-        stage.add_boundary(&at(500));
+        stage.add_boundary(at(500));
         stage.chapters.mark = start;
         assert_eq!(stage.play(1200), [259, 500, 659, 1059]);
     }
@@ -2059,13 +2120,14 @@ mod tests {
         stage.play_from(0, 500);
 
         let number = stage.chapters.number();
-        stage.add_boundary(&at(499));
+        stage.add_boundary(at(499));
         assert_eq!(stage.chapters.number(), number + 1);
         assert_eq!(stage.chapters.started_at(), since(499));
+        let on_it = stage.standing_on(at(499));
         assert_eq!(
             stage
                 .chapters
-                .judged(&at(499), HELD)
+                .judged(&on_it, HELD)
                 .expect("judged where it is")
                 .frame,
             since(499) as i32,
