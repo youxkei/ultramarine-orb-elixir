@@ -27,32 +27,48 @@ this code is answered with an allow and the reason beside it rather than left in
 
 ## Commit messages
 
-**The subject of the subject line is the commit**, and the line says what that commit does to this
-repository: the head verb is the editing action, lowercase and imperative, with no type prefix and no
-noun phrase naming the feature.
+**The subject line is a summary in 50 characters**, 72 at the very most. The subject of it is the
+commit, and the line says what that commit does to this repository: the head verb is the editing
+action, lowercase and imperative, with no type prefix and no noun phrase naming the feature. At that
+length one line cannot hold a commit that did seven things, and it is not asked to — it says which
+thing was done to what, and the body carries the rest.
 
-**In the words the code uses for the things it touches**, unabbreviated, with no metaphor standing in
-for a name and no periphrasis where the code has a name. This is the rule that decides whether the line
-is worth reading and the one easiest to lose. Before committing, read the line back as though you had
-not seen the diff, and for every noun phrase in it ask whether the code has a name for that thing; where
-it does, a paraphrase in its place is a defect. Having seen the diff makes you the worst judge of this,
-so it is a deliberate pass and not an impression.
+**The body opens with what the commit does**: one bullet per change, and a bullet for every change, so
+that a reader learns from the list which changes happened without opening the diff. Picking out the
+largest of them and leaving the others unwritten is what this exists to stop. Where a diff really is
+unrelated changes, separate commits are better than one long list.
 
-**Name the files and the items rather than the area they are in.** An abstract gesture at what was
-touched costs the reader the diff, the same way a paraphrase does.
+**Each bullet is a summary of its change and not an inventory of it**, in the words the code uses for
+the things it touches: unabbreviated, with no metaphor standing in for a name, no periphrasis where the
+code has a name, and no abstract gesture at an area — *the docs*, *the scenarios*, *the score file*.
+Name the file or the item the bullet is about, say what it now does, and stop: the identifiers, the
+constants, the addresses, the arguments, the call sites and the scenario names inside that change are
+the diff's, and a bullet that needs a sub-item per name is too detailed rather than too short.
 
-**A line names everything the commit does, and not the largest of them**, joined with `and`. **There is
-no limit on the number of clauses and none on the length** — the log already runs past a hundred
-characters. Picking the most consequential change and leaving the rest to the body is what this exists
-to stop: a reader of that line comes away not knowing the others happened. Where a diff really is
-unrelated changes, separate commits are better than one long line — but a line that has to be short is
-never the reason to leave a change unnamed.
+**Then why the change was made**, concretely: the problem it solves, named and with whatever numbers or
+addresses make it real, and why this way rather than the obvious alternative. Not a list of what
+changed, which the bullets and the diff carry between them, and not a summary abstract enough to fit
+some other change. What a commit's scenarios now cover goes here, unless the scenarios are the whole of
+the diff.
 
-The body is why the change was made, concretely: the problem it solves, named and with
-whatever numbers or addresses make it real, and why this way rather than the obvious
-alternative. Not a list of what changed, which the diff carries, and not a summary abstract
-enough to fit some other change. What a commit's scenarios now cover goes here rather than in the
-subject, unless the scenarios are the whole of the diff.
+**The read-back is not yours to do.** Having written the message you cannot read it as the reader it is
+for, who has not seen the diff: you supply the owner a noun phrase left out, so the line reads as
+finished to you and to nobody else. Before committing, hand **the subject line by itself** to an agent
+with an empty context, no sight of the diff and no access to this repository, and ask it three things —
+what the line claims was changed, whose each thing in it is, and which noun phrases it can read more than
+one way. Then compare its answer with what the commit did. Where the two differ the line is wrong and the
+reader is right. Where the subject leans on a bullet, hand that bullet over with it.
+
+What it reports is judged rather than obeyed: it will also name what no subject line could settle. `cap a commit's subject line at fifty characters in CLAUDE.md` came back read correctly and still
+flagged *a commit* for being any commit rather than one — which is the rule being general — and asked
+which CLAUDE.md, there being a global one as well. Both stay. What does not stay is a difference in what
+was changed: `cut CLAUDE.md's subject line to fifty characters` came back as a subject line **belonging to
+the file**, and `cut a commit's subject line to fifty characters in CLAUDE.md` as an example inside the
+file cut down to fifty characters as much as a limit set at fifty — one word each time, and the fifty
+characters had room for it.
+
+The check the reader cannot make is the one against the code: for every noun phrase, ask whether the code
+has a name for that thing, and where it does, a paraphrase in its place is a defect.
 
 ## The documents
 
