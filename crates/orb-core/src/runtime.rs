@@ -1021,14 +1021,19 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     }
     let sounded = frame::now();
 
-    let drawn = unsafe {
+    let (drawn, held) = unsafe {
         d3d8::begin_scene(device);
         draw(chain);
         d3d8::end_scene(device);
         d3d8::set_texture(device, 0, None);
         let drawn = frame::now();
+        // Between the drawing and the handover, which is the one place the frame's own work is a
+        // number rather than a prediction — see `Pacing::hold_for_the_blank_before` for what goes
+        // wrong when the frame is handed over as early as the budget started it.
+        pacing().hold_for_the_blank_before();
+        let held = frame::now();
         PRESENT.call();
-        drawn
+        (drawn, held)
     };
     unsafe { pacing() }.finished(frame::Marks {
         started,
@@ -1037,6 +1042,7 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
         updated: ran,
         sounded,
         drawn,
+        held,
         presented: frame::now(),
     });
     RENDER_KEEP_RUNNING

@@ -762,6 +762,7 @@ DwmFlush()             returns just after a blank
 wait                   until (blank + one frame) − (our drawing + the compositor's)
 update(chain)          the game's logic; reads the keyboard as its first act
 draw(chain)            between BeginScene and EndScene
+hold                   until the blank before the aimed one has gone, if it has not
 Present()              handed over, not waited on
 ```
 
@@ -892,39 +893,54 @@ since the budget was capped at the same figure the drawing had no allowance at a
 frame reached the compositor late and every one of those asked to climb again. 120 frames of
 every 600, for the rest of the run.
 
-**Two ceilings, and both stay inside one refresh.** A frame is handed over `compose` before the
-blank it is aimed at while the budget is a true prediction of the work — and the budget's distance
-*above* what the frame's work turns out to be is how far before its blank the frame really goes, so
-a budget past a refresh hands a light frame over before the blank before the aimed one and the
-compositor takes it at that earlier blank. Which is why neither ceiling may pass a refresh: the
-compositor's share because the frame is handed over that far ahead, and the budget because the
-frame after a spike does almost none of the work the budget was set from. The share is three
-quarters of a refresh and the budget is the smaller of one refresh and three quarters of a game
-frame — so at 60Hz the budget is the game's frame less a quarter as it always was, a refresh there
-being the whole frame.
+**Two ceilings, and only one of them is a refresh.** The compositor's share has to stay inside one
+refresh, because the frame is handed over that far before the blank it is aimed at: hand it over
+earlier than the blank before that one and the compositor takes it at the earlier blank. The share is
+three quarters of a refresh. Getting it wrong is invisible at 120Hz, where half a game frame is
+exactly one refresh; at 144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one
+refresh apiece — `gaps in refreshes 1x418 2x179`, a hundred frames a second.
 
-Getting the share wrong is invisible at 120Hz, where half a game frame is exactly one refresh. At
-144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one refresh apiece — `gaps
-in refreshes 1x418 2x179`, a hundred frames a second. Tying the budget to three quarters of a
-*refresh* rather than to a whole one is the mistake in the other direction: at 144Hz that is the
-same 5208µs as the share, so the drawing has no allowance at all and every frame reaches the
-compositor late.
+The budget is a whole game frame less a quarter, and does not shrink as the display gets faster.
+That is what makes work heavy on every frame coverable: the budget's whole job is starting such a
+frame earlier, and a game whose update and draw come to most of a frame still makes its blank. Tying
+it to three quarters of a *refresh* is the mistake in the other direction — at 144Hz that is the same
+5208µs as the share, so the drawing has no allowance at all and every frame reaches the compositor
+late.
 
-What the budget's ceiling costs is the headroom for work that is heavy *every* frame, and nothing on
-the spike that set it: a spike starts against the budget the frames before it left, so it overruns its
-blank whether or not it is then allowed to raise the budget. What can no longer be covered is work
-sustained past a refresh less the share — swept at 120Hz with 2500µs allowed, 5500µs a frame holds the
-cadence and 6000µs runs every frame three refreshes apart at 40 frames a second, where three quarters
-of a game frame covered both. The game's own work is about a millisecond, so there is room at 120Hz;
-at 240Hz the same arithmetic leaves 1666µs and there is nearly none. Measured, on a 120Hz desktop: a frame whose `PLAY_SOUNDS`
-ran 8438µs came to 8940µs of work, which the old ceiling of three quarters of a game frame admitted,
-and the frames after it — 250µs of work apiece — went over 11190µs before their blanks against a
-refresh of 8333. Five turns came out one refresh apart, 6587 to 9820µs, and the log said `10 shown a
-refresh or more early, so the game ran fast for them`. `orb-e2e`'s `pacing`'s
-`a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early` is that run: three spikes over
-1200 frames, `{1: 42, 2: 1155, 3: 3}` of turns before the ceiling was lowered and `{2: 1197, 3: 3}`
-after, the threes on the same three frames both times, with the share never climbing off its 2500µs
-start.
+**Neither ceiling can keep the handover off the blank before the aimed one, and the hold is what
+does.** How early a frame really goes is the budget less that frame's own work, and the work is not
+a number until the drawing is done: the budget is tracked near the worst of the recent frames, so the
+frame after a heavy one does almost none of the work the budget was set from and goes nearly the
+whole of it early. So between the drawing and `Present` the frame is held until the blank before the
+one it is aimed at has gone. The target is that blank itself rather than a margin before it — a frame
+handed over at a blank cannot have been composed for it — and what is left afterwards is a whole
+refresh, which the share is already held under three quarters of, so the hold can never eat the
+compositor's own time. `hold` is its own span in the pacing line, and it is zero on every frame whose
+drawing finished after that blank, which is nearly all of them. It is not counted as the frame's work
+either: a budget that grew to include a wait caused by the budget being too high would start the next
+frame earlier, hold it longer and grow again.
+
+Measured, on a 120Hz desktop, which is what all of this is answering: a frame whose `PLAY_SOUNDS` ran
+8438µs came to 8940µs of work, so the budget went to 11440µs, and the frames after it — 250µs of work
+apiece — were handed over 11190µs before their blanks. The blank one refresh earlier was 2857µs away
+against the 2500µs the compositor wanted, so it composed them *there*; the flush came back at that
+earlier blank, the anchor moved a refresh with it, and the next frame went as early again. Five turns
+came out one refresh apart, 6587 to 9820µs, about 120 frames a second, and the log said `10 shown a
+refresh or more early, so the game ran fast for them`.
+
+**Bounding the budget instead was tried and is why the hold exists.** Held under a refresh, the most
+the budget could start a frame was a refresh before its blank, so work heavier than a refresh less the
+share could not be covered at all: swept at 120Hz with 2500µs allowed, 5500µs a frame held the cadence
+and 6000µs ran every frame three refreshes apart, 40 frames a second from work a fifth of a game frame
+long. See [docs/adr/0011](docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md).
+
+`orb-e2e`'s `pacing`'s `budget` section holds both halves: `work_that_is_heavy_every_frame_is_covered`
+sweeps 4000 to 9000µs a frame and asks for the cadence at each, and
+`a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early` drives a 9000µs frame one in
+three hundred and asks that no frame is shown early. A spike's own frame is shown a refresh late either
+way — it started against the budget the frames before it left — and the frame after it comes back onto
+the grid, so the gap between those two handovers is a refresh short by arithmetic and is not the game
+running fast. What says the game ran fast is the count of frames shown early, and it is zero.
 
 `--compose=N` pins the share, which is how it is swept: pinned small enough that frames are known
 to miss, then walked up until they stop. A pinned value is also the floor the work estimate is
@@ -982,7 +998,9 @@ clear           prepare_frame
 pace            the frame's turn worked out, settle's display query inside it
 flush           DwmFlush, and how far its anchor sits after the compositor's own qpcVBlank
 wait            the rest of the turn
-update sound draw present
+update sound draw
+hold            waiting out the blank before the aimed one, zero on nearly every frame
+present
 ```
 
 The one that decides is not in that list. `DwmFlush` returns at the *next* blank, so a frame

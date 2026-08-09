@@ -960,8 +960,18 @@ mod budget {
     /// where a period ended inside one: `10 shown a refresh or more early, so the game ran fast for
     /// them`.
     ///
-    /// So the claim is the turn and the count together. A run may lose the spike's own frame — that is
-    /// one refresh, and a stutter — but no turn may be *shorter* than the cadence.
+    /// **The claim is what the screen got, and not the spacing of the handovers.** A spike's own frame
+    /// is shown a refresh late whatever is done — it started against a budget the frames before it set,
+    /// so its drawing outgrew its turn and no pacing can undo that — and the frame after it comes back
+    /// onto the grid. The gap between those two handovers is then a refresh shorter than the cadence by
+    /// arithmetic: 5800µs late plus 16666µs of cadence is 10866, which is 1.3 refreshes. Both frames
+    /// reached the blanks they belong to, so a `1x` turn there is not the game running fast, and
+    /// asserting on the turns alone reads it as if it were.
+    ///
+    /// What says the game ran fast is orb's own count of frames the compositor took a refresh early,
+    /// which is the fault this is about and is asserted at zero. Beside it, that the run neither gains
+    /// nor loses frames: one turn over the cadence and one under it per spike, and sixty frames a
+    /// second over the run.
     #[test]
     fn a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early() {
         in_its_own_process(|| {
@@ -981,25 +991,29 @@ mod budget {
             game.frames(1_200);
             game.frames_until_the_log_holds_another(A_REPORT);
 
-            let handovers = game.handovers_us();
-            let counts = refreshes(&handovers, game.refresh_period_us());
-            let early: Vec<usize> = counts
-                .iter()
-                .enumerate()
-                .filter(|(_, count)| **count < 2)
-                .map(|(at, _)| at)
-                .collect();
-            assert!(
-                early.is_empty(),
-                "{} turn(s) came out under the cadence, at {early:?} — the game ran fast there — {}",
-                early.len(),
-                last_said(&game.log().lines())
-            );
-
-            // And orb's own count of them, which is what somebody reading the log has.
+            // The one that decides, and the one the fault showed up as: orb's own count of frames the
+            // compositor took at the blank before the one they were aimed at.
             assert!(
                 !game.log().said("shown a refresh or more early"),
                 "{}",
+                last_said(&game.log().lines())
+            );
+
+            let handovers = game.handovers_us();
+            let counts = refreshes(&handovers, game.refresh_period_us());
+            let under = counts.iter().filter(|count| **count < 2).count();
+            let over = counts.iter().filter(|count| **count > 2).count();
+            assert_eq!(
+                under,
+                over,
+                "{under} turn(s) under the cadence against {over} over it, so the run gained or lost \
+                 frames rather than paying a spike back — {}",
+                last_said(&game.log().lines())
+            );
+            let rate = fps(&handovers, 0);
+            assert!(
+                (rate - 60.0).abs() < NEAR_SIXTY,
+                "{rate} frames a second — {}",
                 last_said(&game.log().lines())
             );
             // The spike's own frame loses a refresh, and it did so before the ceiling was lowered too —
@@ -1032,6 +1046,54 @@ mod budget {
                 ALLOWED_AT_FIRST,
                 "a spike bought the compositor time — {}",
                 last_said(&game.log().lines())
+            );
+        });
+    }
+
+    /// Work that is heavy on *every* frame is covered, up to most of a game frame.
+    ///
+    /// Which is the other half of the budget's job and the half a ceiling of one refresh gave up. The
+    /// budget exists so that a frame whose work does not fit the tail of its turn is started earlier;
+    /// held under a refresh, the most it can start a frame is a refresh before its blank, so work past
+    /// a refresh less the compositor's share cannot be covered at all and every frame of it misses.
+    /// Swept at 120Hz with 2500µs allowed, that put 5500µs a frame on the cadence and 6000µs on three
+    /// refreshes apiece — 40 frames a second for the whole run, from work a fifth of a game frame long.
+    ///
+    /// The rows are the sweep, and they run either side of that edge on purpose: 4000µs is what
+    /// `a_frame_that_overran_raises_the_budget_and_the_cadence_comes_right` already drives, and 9000µs
+    /// is the sound spike's own size asked for every frame instead of one in three hundred. What holds
+    /// them all is the budget being allowed to grow to what the work takes, which is what it is for.
+    #[test]
+    fn work_that_is_heavy_every_frame_is_covered() {
+        in_its_own_process(|| {
+            let mut missed = Vec::new();
+            for work_us in [4_000i64, 5_500, 6_000, 7_000, 9_000] {
+                let mut display = Display::agreed(HZ);
+                display.compose = Compose::flat(1_000);
+                display.metronome = true;
+                let game = Fake::attach_watching_the_pacing(
+                    display,
+                    &format!("budget-sustained-{work_us}"),
+                    Work::flat(work_us),
+                );
+                game.frames(600);
+                let counts = refreshes(&game.handovers_us(), game.refresh_period_us());
+                // Past the first, which is the one the budget has not been raised for yet — the frame
+                // that teaches it what the work costs, and the claim
+                // `a_frame_that_overran_raises_the_budget_and_the_cadence_comes_right` makes on its own.
+                let off = counts[1..].iter().filter(|count| **count != 2).count();
+                if off > 0 {
+                    missed.push(format!(
+                        "{work_us}us: {off} of {} turns off the cadence\n    {}",
+                        counts.len() - 1,
+                        last_said(&game.log().lines())
+                    ));
+                }
+            }
+            assert!(
+                missed.is_empty(),
+                "work the budget should cover and does not:\n  {}",
+                missed.join("\n  ")
             );
         });
     }

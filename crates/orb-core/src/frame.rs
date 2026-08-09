@@ -196,6 +196,11 @@ pub struct Pacing {
     /// not asked. It happens before the flush, so it is spent out of the compose time.
     settle_us: i64,
 
+    /// How long [`Pacing::hold_for_the_blank_before`] held this frame back — how much further before
+    /// its blank the budget would have handed it over than its own work asked for. Zero on every
+    /// frame whose drawing finished after that earlier blank, which is nearly all of them.
+    held_us: i64,
+
     /// How far the anchor the flush returned at sits after the blank the compositor says was
     /// the last one. Near zero means the anchor is a blank; a whole refresh means it is not,
     /// and every arrival measured against it is out by that much.
@@ -349,6 +354,13 @@ pub struct Marks {
     pub sounded: i64,
     /// After the draw and the overlay.
     pub drawn: i64,
+    /// After [`Pacing::hold_for_the_blank_before`], which is the same moment as `drawn` on every
+    /// frame whose drawing finished after that blank had gone — nearly all of them.
+    ///
+    /// Its own mark rather than folded into `presented`, because the hold is time the frame spent
+    /// doing nothing and the spans in the pacing log have to add up to the gap. Folded in, it would
+    /// read as a `present` that took a refresh.
+    pub held: i64,
     /// After handing the frame over.
     pub presented: i64,
 }
@@ -392,6 +404,7 @@ impl Pacing {
             arrival_us: 0,
             accounted: 0,
             settle_us: 0,
+            held_us: 0,
             anchor_us: 0,
             missed: [0; 4],
             overshoot_us: 0,
@@ -921,37 +934,76 @@ impl Pacing {
     /// this pacing can cost.
     ///
     /// A whole game frame less a quarter, because the budget only decides how early the drawing
-    /// starts and the drawing has the frame's own turn to happen in — held under **one refresh**,
-    /// because the budget's distance above the frame's own work is how far before its blank the frame
-    /// is handed over, and a handover a refresh early is composed at the blank a refresh early. The
-    /// work is what makes that bound the refresh rather than the refresh plus the allowance: the frame
-    /// after a spike does almost none, so the whole of the budget stands between the handover and the
-    /// blank, and the allowance cannot be counted on to cover the difference — it is what orb *gives*
-    /// the compositor, which ratchets upward and is not what the compositor takes.
+    /// starts and the drawing has the frame's own turn to happen in. So work heavy on every frame is
+    /// covered up to most of a frame, which is what a budget is for —
+    /// `orb-e2e`'s `pacing`'s `work_that_is_heavy_every_frame_is_covered` is that claim.
     ///
-    /// Measured, on the 120Hz desktop that sent this looking: a frame whose `PLAY_SOUNDS` ran 8438µs
-    /// came to 8940µs of work, `took` was 11440µs — inside the old 12500µs ceiling, so it was believed —
-    /// and the frames after it, 250µs of work apiece, went over 11190µs before their blanks against a
-    /// refresh of 8333. Five turns came out one refresh apart, 6587 to 9820µs, and orb's own line said
-    /// `10 shown a refresh or more early, so the game ran fast for them`. See `next_budget`, and what
-    /// happened when a 252ms frame was allowed to set this.
+    /// Tying it to three quarters of a *refresh* was a mistake: at 144Hz that came out the same
+    /// 5208µs as the compositor's share, so the drawing had no allowance at all, every frame
+    /// reached the compositor late, and the input lag and the compositor's share read as the same
+    /// number on screen — which is what gave it away, since the one is the other plus the drawing.
     ///
-    /// **What it costs is the headroom for work that is heavy every frame**, and nothing on the spike
-    /// itself: that frame started against a budget set from the frames before it, so it overran its
-    /// blank whether or not the spike was allowed to raise the budget afterwards — measured, the same
-    /// three frames of 1200 in both. What can no longer be covered is work sustained past a refresh less
-    /// the allowance, since the budget cannot grow to meet it: at 120Hz with 2500µs allowed, a swept
-    /// 5500µs a frame holds the cadence and 6000µs runs every frame three refreshes apart, 40 frames a
-    /// second, where the old ceiling of three quarters of a game frame covered both. The game's own work
-    /// is about a millisecond of that, so the room is at 120Hz; at 240Hz the same arithmetic leaves
-    /// 1666µs and the room is nearly gone. Tying this to three quarters of a *refresh* was a
-    /// different thing and was a mistake: at 144Hz that came out the same 5208µs as the compositor's
-    /// share, so the drawing had no allowance at all, every frame reached the compositor late, and the
-    /// input lag and the compositor's share read as the same number on screen — which is what gave it
-    /// away, since the one is the other plus the drawing. A whole refresh is 6944µs there and leaves
-    /// the drawing 4444 of it.
-    fn budget_ceiling(&self, period: i64) -> i64 {
-        (self.micros(self.frame_ticks()) * 3 / 4).min(self.micros(period))
+    /// See `next_budget`, and what happened when a 252ms frame was allowed to set this.
+    ///
+    /// **Nothing here keeps the handover off the blank before the one the frame is aimed at**, and
+    /// nothing here can: how early a frame really goes is this less that frame's own work, and the work
+    /// is not known until it is done. [`Self::hold_for_the_blank_before`] is where that is enforced.
+    fn budget_ceiling(&self) -> i64 {
+        self.micros(self.frame_ticks()) * 3 / 4
+    }
+
+    /// Holds the drawn frame until the blank before the one it is aimed at has gone, so that the
+    /// compositor cannot take it there.
+    ///
+    /// **After the drawing, because that is the only place the question has an answer.** How early the
+    /// frame is going is the budget less the work this frame actually did, and before the drawing
+    /// finishes that number does not exist. The budget is a prediction tracked near the worst of the
+    /// recent frames, so the frame after a spike does almost none of the work the budget was set from
+    /// and goes nearly the whole of it early.
+    ///
+    /// What it is answering, measured on a 120Hz desktop: a frame whose `PLAY_SOUNDS` ran 8438µs came
+    /// to 8940µs of work, so the budget went to 11440µs, and the frames after it — 250µs of work
+    /// apiece — were handed over 11190µs before their blanks. The blank one refresh earlier was 2857µs
+    /// away against the 2500µs the compositor wanted, so it composed them *there*; the flush came back
+    /// at that earlier blank, the anchor moved a refresh with it, and the next frame went as early
+    /// again. Five turns came out one refresh apart, 6587 to 9820µs — about 120 frames a second — and
+    /// the log said `10 shown a refresh or more early, so the game ran fast for them`.
+    ///
+    /// Bounding the budget was tried instead and is why this exists rather than that: held under a
+    /// refresh, the most the budget could start a frame was a refresh before its blank, so work heavier
+    /// than a refresh less the compositor's share could not be covered at all. Swept at 120Hz with
+    /// 2500µs allowed, 5500µs a frame held the cadence and 6000µs ran every frame three refreshes
+    /// apart — 40 frames a second from work a fifth of a game frame long. See
+    /// `orb-e2e`'s `pacing`'s `work_that_is_heavy_every_frame_is_covered`, which is that headroom
+    /// asserted, and `a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early`, which
+    /// is this.
+    ///
+    /// **The target is that earlier blank itself and not a margin before it.** A frame handed over at a
+    /// blank cannot have been composed for it, the composing wanting time it did not have. What is left
+    /// afterwards is a whole refresh in which to be composed for the aimed blank, and `compose_ceiling`
+    /// already holds the share under three quarters of one, so this can never eat the compositor's own
+    /// time however long it waits.
+    ///
+    /// Nothing to hold for where the frame is aimed at one refresh or none: the blank before it is the
+    /// one already in hand, so there is nothing between them, and a frame the clock paced has no blank
+    /// this could be measured from at all — `wait_for_slot` stores zeroes there so they say so.
+    pub fn hold_for_the_blank_before(&mut self) {
+        self.held_us = 0;
+        if self.blank_at == 0 || self.aimed_refreshes < 2 {
+            return;
+        }
+        let earlier = self.blank_at + self.period * (self.aimed_refreshes - 1);
+        let left = earlier - now();
+        if left <= 0 {
+            return;
+        }
+        self.held_us = self.micros(left);
+        // The same wait the frame's own deadline uses, spin and all, although nothing here needs that
+        // precision: overshooting this blank costs nothing, there being a whole refresh behind it and
+        // the compositor wanting at most three quarters of one. A second, cheaper wait for the sake of
+        // the `SPIN_US` this burns is a slow path that ships to save microseconds on the few frames
+        // that reach here at all — and a wait nothing else uses is a wait nothing else tests.
+        self.wait_until(earlier);
     }
 
     /// How many refreshes to give the frame about to start.
@@ -1041,10 +1093,15 @@ impl Pacing {
 
         // What this frame took from reading the keyboard to being handed over, which is what
         // the next one has to leave room for.
-        let turn = self.budget_ceiling(period);
+        let turn = self.budget_ceiling();
         // Left for the next frame's flush to close off, which is when this frame is on screen.
         self.input_read_at = marks.waited;
-        let took = self.micros(marks.presented - marks.waited) + self.compose_us;
+        // The hold is not work and must not be counted as any: it is time this frame spent waiting
+        // *because* the budget was above what the frame needed, so a budget that grew to include it
+        // would start the next frame earlier still, hold it longer, and grow again — the estimate
+        // chasing its own wait until it reached the ceiling. See `hold_for_the_blank_before`.
+        let took = self.micros((marks.presented - marks.waited) - (marks.held - marks.drawn))
+            + self.compose_us;
         let prepare = self.prepare_us;
         // Whether this frame's drawing outgrew what it was started against. If it did, it reached
         // the compositor late for a reason the compositor cannot be given more time to fix, and the
@@ -1149,7 +1206,7 @@ impl Pacing {
         // before calling this one back. Between them they are the millisecond a frame has to
         // reach the flush in.
         pacing!(
-            "frame: {refreshes} refreshes, {}us — {how}; after present {}us, loop {}us, clear {}us, {waiting}, update {}us, sound {}us, draw {}us, present {}us; log {}us in {} writes here, {}us in {} elsewhere",
+            "frame: {refreshes} refreshes, {}us — {how}; after present {}us, loop {}us, clear {}us, {waiting}, update {}us, sound {}us, draw {}us, hold {}us, present {}us; log {}us in {} writes here, {}us in {} elsewhere",
             self.micros(gap),
             us(previous, accounted),
             us(accounted, marks.started),
@@ -1157,7 +1214,8 @@ impl Pacing {
             us(marks.waited, marks.updated),
             us(marks.updated, marks.sounded),
             us(marks.sounded, marks.drawn),
-            us(marks.drawn, marks.presented),
+            us(marks.drawn, marks.held),
+            us(marks.held, marks.presented),
             cost.us,
             cost.writes,
             cost.other_us,
@@ -1521,8 +1579,7 @@ mod tests {
     /// performance counter's ticks. 2.4 refreshes to the frame, so the count has to vary.
     const REFRESH: i64 = 6944;
     const FRAME: i64 = 16_666;
-    /// Three quarters of a frame, which is `budget_ceiling` where a refresh is not the shorter of the
-    /// two — every display at 60Hz and 75Hz.
+    /// Three quarters of a frame, which is `budget_ceiling`.
     const CEILING: i64 = 12_500;
 
     /// The rates a display actually reports itself as, and which of them a frame loop should
@@ -1644,31 +1701,26 @@ mod tests {
         assert!(3700 - next < (3700 - 2900) / 8, "{next} is most of the way");
     }
 
-    /// The whole budget never passes one refresh, at any rate a display reports.
+    /// The whole budget is the game's own frame's, and does not shrink as the display gets faster.
     ///
-    /// Which is what stops the frames after a spike being handed over before the blank before the one
-    /// they are aimed at: the budget's distance above a frame's own work is how early it goes, and the
-    /// frame after a spike does almost none of that work. `orb-e2e`'s `pacing`'s
-    /// `a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early` is the loop doing it,
-    /// and `budget_ceiling` carries the 120Hz measurement it came from.
-    ///
-    /// Three quarters of a *refresh* is the other thing and was a mistake: at 144Hz it came out the
-    /// same 5208µs as the compositor's share, so the drawing had no allowance inside it, every frame
-    /// reached the compositor late, and the input lag and the compositor's share read as the same
-    /// number on screen — which is what gave it away, the one being the other plus the drawing. So the
-    /// second assertion here is that one, and a whole refresh keeps it.
+    /// Which is the fix, and the thing that broke: tied to a *refresh* instead, at 144Hz it came out
+    /// the same 5208µs as the compositor's share, so the drawing had no allowance inside it, every
+    /// frame reached the compositor late, and the input lag and the compositor's share read as the
+    /// same number on screen — which is what gave it away, the one being the other plus the drawing.
+    /// See `budget_ceiling`.
     #[test]
-    fn the_whole_budget_is_held_under_one_refresh() {
+    fn the_whole_budget_is_the_games_frame_and_not_the_displays() {
         let pacing = pacing();
+        let whole = pacing.budget_ceiling();
         // The rates a display reports itself as, over the range anyone plays at.
         for hz in [60u32, 75, 90, 100, 120, 144, 165, 240, 360] {
             let period = pacing.ticks(1_000_000 / i64::from(hz));
-            let whole = pacing.budget_ceiling(period);
-            assert!(
-                whole <= pacing.micros(period),
-                "{hz}Hz lets a frame be handed over {whole}us before a blank a refresh away",
+            assert_eq!(
+                pacing.budget_ceiling(),
+                whole,
+                "{hz}Hz moved the whole budget"
             );
-            // And a display faster than the game still leaves the drawing an allowance inside it.
+            // And a display faster than the game leaves the drawing an allowance inside it.
             if hz > LOGIC_HZ {
                 assert!(
                     pacing.compose_ceiling(period) < whole,
@@ -1676,23 +1728,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// And a 60Hz display's is the game's own frame less a quarter, as it always was: a refresh there
-    /// is the whole frame, so the bound above is not what decides it and the lag is unchanged.
-    ///
-    /// 12499 and not the round [`CEILING`] the `next_budget` rows are handed: three quarters of a
-    /// 16666µs frame is 12499.5, and this is the figure the code arrives at.
-    #[test]
-    fn a_60hz_displays_budget_is_three_quarters_of_the_games_frame() {
-        let pacing = pacing();
-        let frame = pacing.ticks(FRAME);
-        let whole = pacing.budget_ceiling(frame);
-        assert_eq!(whole, 12_499);
-        assert!(
-            whole < pacing.micros(frame),
-            "a 60Hz refresh is the whole frame, so it is not what decides this",
-        );
     }
 
     /// The compositor's share is three quarters of a *refresh*, since what it is being given is time
