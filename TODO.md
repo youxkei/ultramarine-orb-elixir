@@ -1,133 +1,5 @@
 # To do
 
-## What a played run still has to show
-
-A `--clear` run has been through stages 1 to 6, the ending and the result screen with chapters
-taken and no replay offered — `orb-e2e`'s `a_clear_on_demand` holds what that run measured. What it
-cannot show is anything that needs somebody to be hittable, or a mode nobody chose.
-
-**The retry menu on the keyboard.** Every item of it, both confirmations, and both ways of refusing
-one are measured, and every one of them was answered on the pad — `retry_ui.rs`'s
-`a_confirmation_holds_its_keys_off_before_it_answers` and the five beside it are the shape. The
-keyboard goes through the same `Pressed`, so what is left is watching it: `z` or return decides, `x`
-or escape cancels, and the graces are the same frames.
-
-**Which button cancelled.** `retry: ... — cancelled, back to the choices` does not say, and neither
-does the mode question's own cancel line beyond naming the pad. Bomb and the menu button both cancel
-now, so a session where one of them has stopped working looks exactly like a session where nobody
-pressed it — which is the fault the mode question's `By` was added for. The fix is the same shape:
-say which, in the line that says it happened.
-
-**What the confirmation looks like on the real screen.** Its question is the widest text either of
-orb's menus draws, against a play field 384 pixels across, and a line clipped at that edge cannot
-be read at all. Worth looking at once: the question, and the two answers under it with the cursor
-on いいえ.
-
-**What a question asked on the press has left unwatched.** Both questions going up on the press and both
-being cancelled without the screen moving were watched on the pad — the presses 334506843, 334508187,
-334509156 and 334510156, each cancelled within 600ms with the file still there after all four, and the
-screen's own back going to the character select at 0x436c49 is what says it never moved. What that
-sitting did not reach:
-
-- **`はじめから` through this path.** `つづきから` was answered from the same screen ten seconds later —
-  7476 updates played in and the landing the frame written down, field for field — the press handed back, the
-  screen choosing its own item, the chapter going in on the frame the run was registered. The other item
-  is the one that writes over a chapter, and what it has to show is the fresh run starting and the file
-  going only when that run reaches a chapter of its own.
-- **The keyboard.** Every line of the sitting says `on the pad`. The same `Pressed` is what both hands
-  answer through, so what is left is watching it: `z` or return deciding, `x` or escape cancelling.
-- **Every other item of the title menu**, none of which orb asks about and all of which now go through a
-  press held back and handed over: `Replay`, `Music Room`, `Option`, `Quit`. No press anywhere may be
-  eaten, and `Quit` is the one that would say so loudest.
-- **The Extra shot type select**, which reaches the same state the same way, and a shot with no
-  `中断データあり` under it, which must start its run on the press with no question at all.
-
-**What the widest line of the mode question looks like.** Its longest is now
-`進行状況は自動的にセーブされ、いつでも続きから遊べます` — 26 characters at an em of 15 against a 640-wide
-output, so roughly 400 pixels and inside the screen by arithmetic rather than by having been looked at.
-Worth one glance, with the cursor on each of the two modes, since the two now draw a different number of
-lines.
-
-**The rest of what the pad now reaches.** The mode question answers on it, on both of the two devices
-the game's own read has — `orb-e2e`'s `mode_on_the_pad` over a controller the game owns, and
-`orb-e2e`'s `mode_on_a_winmm_pad` over a pad winmm has where the game owns none, which is the path that
-used to work and the one that must not have been broken. Which leaves two things that go through the same
-reading and have not been pushed. The retry menu: up and down on the stick and on the d-pad, shoot
-deciding, bomb or the menu button cancelling. And the settings dialog, which is the launcher's own reading
-and not the game's — its line should say `a pad on XInput, pushed N time(s)` rather than `no pad
-answered`, and that is where XInput's buttons being put into the order the game's mapping names them gets
-tested.
-
-**What a run with a real pad is now the only witness to** is that the two winmm reads still read: they went
-behind the seam — `orb_api::joystick::position` and `caps` over `JOYINFOEX`'s and `JOYCAPSA`'s own
-layouts — and the thread they happen on is spawned through `orb_api::thread::spawn` so that a scenario's
-simulated host reaches it. Nothing about either is different in a shipped launch, and nothing but a launch
-says so. The line to look for is the one the thread writes: `mid=045e pid=02ff … 16 buttons, 5 axes, X
-0..65535, read in Nus`, and then `joystick: 250 reads, Nus each`.
-
-**A life gained under the brush over the lives.** The mark itself is on the screen —
-`orb-e2e`'s `the_mark_over_the_lives` holds what that showed — and what it has not been through is the
-count changing under it: an extend at
-10,000,000 or a 1UP item, where the star should appear under the ink rather than nowhere. That is
-also the one moment the game would have repainted that row without being asked, so it is where orb
-asking every frame and the game doing it anyway could disagree.
-
-Two more of the same kind. A stage's first 250 frames, where the game is still laying the panel's
-tiles itself over everything including the strips orb paints. And a stage where the count reaches
-eight, which is as far right as the stars go — 624 — and so the only case that tests the stroke's
-right end covering them.
-
-What it costs is in the log already: every frame of a pointdevice run now opens an overlay frame
-of its own, where before a run only did that on the fourteen frames of a wash, and an overlay
-frame is a state block captured and applied. So the `draw` phase per period is the figure to
-read — against the same stage in normal mode, which draws no mark.
-
-**A run in normal mode**, which nothing has ever run: no chapter is observed, so no snapshot is
-taken and no wash goes off; dying costs a life and puts up no menu of orb's; the status line loses
-the chapter name and the `RETRY` line and keeps the lag, the compose time and the frame rate. The
-score goes in the game's own `score.dat` — `004c8eda5a29a4ff985529838c21efe5` at the time of
-writing, with a copy beside it, so whether the right file moved is one md5 each. And a normal run
-*is* still offered a replay to save, and can still save one.
-
-**The score written on the way out of an ordinary pointdevice run.** `--clear` refuses every write,
-so what it proved is that `DeletedCallback` runs, not that it writes. The
-`score: pointdevice_score.dat opened` line does not settle it either, which a played run has now
-shown: it goes in on every open of the file whatever the access was asked for, so the title menu
-reading `clrd` back out of it writes one too. Two runs abandoned have now left both score files at
-the mtime they already had — one by closing the game while the retry menu was up, which was the
-only way out of a run at the time, and one given up from the menu's own third item. Neither of
-those reaches an ending or a game over, which is the case still open: what settles it is the file's
-own mtime, or its md5, after a run that reaches one.
-
-**The stick moving a cursor on a menu of orb's.** Both of orb's menus have now been answered on the
-pad — `orb-e2e`'s `mode_on_the_pad` — but nothing says which part of it moved the cursor, and a d-pad and
-a stick are read from different fields. What is left is watching the axis: the dead zone is a
-quarter of the travel either side of centre, taken from `g_JoyCaps`, and this pad's caps had to be
-written there by orb before the game would have believed them.
-
-**Two more about the question itself**, neither of which a menu session reaches:
-
-- that the demo does not start while it is up. The idle counter is in an update that is not running,
-  which is the argument, but 720 frames of it has never been sat through.
-- what the key that answers it does to the difficulty select. `g_CurFrameInput` is left as every
-  button so that no edge exists on the frame the game carries on into: the cursor should not move,
-  and a direction genuinely held across the answer should still move it on the frame after.
-
-**What the front end offers with the bracket in.** Which file each open goes to is measured —
-`orb-e2e`'s `the_score_file`'s `the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode`
-holds that session — and what is left is the half no log can show: `Extra Start` and the practice
-stages lit in pointdevice mode where a `score.dat` has earned them, which is the whole point of the
-bracket and has been read off the addresses rather than seen. One glance at the title menu with
-pointdevice answered says it.
-
-**Whether a pointdevice clear should unlock anything.** It does not now: the clear is written into
-`pointdevice_score.dat`'s `clrd` — the game writes the file whole — and the front end is lit from
-`score.dat`, so clearing the game in pointdevice mode leaves the Extra stage locked. Someone who
-plays nothing but pointdevice runs is never offered it. The fix is the union of the two files'
-`clrd`, which means orb parsing both and handing the game the answer, and with it orb knowing the
-format and the encryption it has so far stayed out of. Nobody has been asked whether that is worth
-it.
-
 ## What is left of the spell card record
 
 Both halves work and are measured —
@@ -174,6 +46,31 @@ letterboxed inside a 16:9 window with the status line in the black beside it, th
 launcher allows for a frame is enough for the sizes it offers — this machine's frame was 6x40 —
 and what a 4:3 window does to the status line, which then has no black to write in and should say
 so once in the log.
+
+## Say which button cancelled, in the line that says it happened
+
+`retry: … — cancelled, back to the choices` does not name it, and the mode question's own cancel line
+says no more than which device it was. Bomb and the menu button both cancel now, so a session where one
+of them has stopped working reads exactly like a session where nobody pressed either — which is the
+fault the mode question's `By` was added for, and the fix here is the same shape.
+
+## Whether a pointdevice clear should unlock anything
+
+It does not now. The clear goes into `pointdevice_score.dat`'s `clrd` — the game writes the file whole —
+and the front end is lit from `score.dat`, so clearing the game in pointdevice mode leaves the Extra
+stage locked and somebody who plays nothing but pointdevice runs is never offered it.
+
+The fix is the union of the two files' `clrd`, which means orb parsing both and handing the game the
+answer, and with it orb knowing the format and the encryption it has so far stayed out of. Nobody has
+been asked whether that is worth it.
+
+## What a mark on the character select would have to say
+
+`中断データあり` is drawn on the shot type select, under the run the cursor is on — see
+[SPEC.md](SPEC.md) for what it is for and why that screen. It says nothing on the character select, a
+screen earlier, where the choice that loses a run is actually made. A mark there would have to stand for
+either shot of that character, which is a different sentence from the one being drawn, and what it
+should say has not been decided.
 
 ## Judge the flash a run gets
 
@@ -311,97 +208,6 @@ that clear did not settle:
   which it is, and the log does not say which character it was either. Worth one line per ending
   as they get seen, since what the skip has to run out is what those come to.
 
-## What picking a run up has not been through
-
-A chapter has been written down, the game closed, and the chapter played back into place — the
-landing agreeing with what was written down field for field, over two launches at 200740000ms and
-200755453ms in the log. That two-process case is in *What only the real game can still answer* below,
-and the check itself is `resume.rs`'s `a_landing_that_differs_says_which_field_it_was`. What it was,
-though, is one chapter of stage 1 nine frames
-in, driven by keys sent from another program. What is left is everything that is more than that.
-
-**A chapter worth grinding, landing on every field — including the seed.** Chapters of 2009, 4597 and
-3394 frames have been picked up now, and the landing check has moved the seed's write twice: out of the
-frame before the stage, and out of the callback's own entry, which turned out to be 2048 draws early
-because that callback fills a key table from the generator first — `GameManager::AddedCallback` draws
-2048 times before it copies the seed, 0x41bc4f filling 64 records of 32 `u16` through
-`Rng::GetRandomU16` (0x41e780), whose `seed = rotl16(((seed ^ 0x9630) - 0x6553), 2)` rewrites it every
-draw, and 2048 draws from `0xc381` are `0x789c`. It is written on the way into `Stage::RegisterChain`
-(0x4044c0) now; `resume.rs` carries the rest beside the write. The check itself now carries `rng=`,
-having once agreed field for field with a seed
-2048 draws out. **Nothing has been resumed since either fix**, so what is owed is one landing that
-agrees with `rng=` among the fields it agrees on. The song's position, ignored in that same session and now decided by the song
-rather than by the chapter's kind, is unwatched for the same reason: the chapter to hear it on is a
-midboss's or a midstage one, and what should be heard is the phrase that was playing rather than the
-track's first bar.
-
-**The track's loop, on a resumed stage.** Putting the song back where the chapter had it worked and
-then looped a section of itself near the end of the stage, which was the countdown the loop is taken
-on being left where the file's old position had put it — moved with the file now, and
-`orb-e2e`'s `the_music_across_a_restore`'s `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop`
-holds what was heard and the addresses it was read off. What is left is to hear a resumed stage's track run past that point and take its
-loop where it should: the loop is minutes in, so it is the end of a resumed 道中 that shows it, and
-`music: the track loops at …, so … byte(s) left from …` is the line to hold against how it sounds.
-
-**Where the mark sits on the shot type select.** `中断データあり` is drawn there now, under the run the
-cursor is on — see [SPEC.md](SPEC.md) for what it is for and why that screen. What has not been done is
-look at it: the corner it is drawn in was chosen from the layout of the screen and not from a screen
-with the line on it, so whether it collides with what the game draws, and whether the bottom left is
-where the eye goes, are both open. It also says nothing on the character select, a screen earlier,
-where the choice that loses a run is actually made — a mark there would have to stand for either shot
-of that character, which is a different sentence.
-
-**What the playback costs there.** Eight updates took no measurable time. A stage's worth is
-thousands, each with `chapters.observe` behind it taking a snapshot at every boundary — and the
-frame it all happens inside is one frame. `--pacing` says what that frame came to, and it will be
-in the log as one enormous miss, which is worth seeing once so it is not read later as a fault.
-
-**What writing it costs.** The whole file goes out every time a chapter begins, which in a fight is
-every few seconds, on the same frame the chapter's snapshot is copied. A stage played to its boss
-should be tens of kilobytes; whether that is a frame off the cadence is `--pacing` against the same
-stage under `--no-resume`.
-
-**Whether a converter is enough to read one by.** The file is MessagePack now, and printing it as
-YAML takes a converter that knows nothing about the format — see [SPEC.md](SPEC.md). What that has not
-been through is a session where something went wrong: every fault so far was found by reading the file
-itself with `cat` beside the log, and whether one command in front of that changes how often anyone
-looks is the thing to notice next time one is being chased.
-
-**Whether the resumed run then plays as itself**, which nine frames cannot say much about: the
-chapter's name and number on the status line, the retry count carrying on from the file's, the brush
-over the lives, a deliberate miss putting the player back at that chapter, and the score on the
-panel being the run's.
-
-**The cases the sessions so far did not reach.** A resume of a resumed run, which is this machinery
-a second time. A run of another character, which has its own file — two short runs settle that the
-second does not write over the first. A practice run, which is not kept at all now: nothing should be
-written, offered or marked for one, and what would say otherwise is a file appearing in the directory
-while one is played. The Extra stage, stage 7 at difficulty 4. A run paused
-mid-stage, where the claim that a paused frame is not in the record gets tested. A run given up and
-*then* cleared in the same session, where the result screen has to take the file away. And a stage
-longer than ten minutes of game time, the only way to reach the bound on how far a playback may run.
-
-**What the sound does through a playback.** Thousands of updates queue their sound effects into the
-game's own list inside one frame, and `PlaySounds` runs once at the end of it. Whether that is a
-burst at the landing or nothing at all has not been heard — nine frames queue nothing. The music is
-the stage's and then the boss's from their beginnings, which is what a chapter restore already does.
-
-**Two things about the file itself.** Its `landing` line is `Reproduction`'s own text, so changing
-what that line holds makes every file written before the change disagree at its first field, and the
-version number does not catch it — the line is opaque to the reader. And a run written down by one
-build and picked up by another whose midstage table differs lands on a chapter named and numbered by
-the second build, which the landing check does not notice: what it compares is the reproduction, not
-the name.
-
-**And one thing the same reading changed elsewhere.** *No replay is offered for a pointdevice run*
-stood in [SPEC.md](SPEC.md) on the reason that a rewound run does not play back. The game keeps its
-record of inputs in the heap a snapshot covers, so it is rewound with everything else and each
-attempt writes over the last from the chapter's own frame — which is the property orb's own record
-leans on too. What would be saved is therefore the path that survived, playing back as a run nobody
-could tell from a flawless one, and that is what `SPEC.md` says now. Settling it by measurement
-rather than by reading means saving a replay from a normal-mode run and from a pointdevice run of
-the same stage and watching what each plays back as.
-
 ## What a pointdevice score is
 
 The scores of runs orb could rewind are kept apart from the game's now — `score.rs`'s
@@ -458,12 +264,6 @@ What is left:
   something like 1.5ms of input lag on every frame. Against the 16.7ms a frame that orb exists to
   save it is under a tenth, and it buys a cadence that does not break, but nobody has been asked
   whether that is the trade they want. `MISS_STEP_US`, `SHAVE_US` and `SHAVE_FRAMES` move it.
-- **Whether exempting the frame after a load leaves one stutter a session.** It should: the
-  floor lands a step above whatever missed and the shaving stops there, and with boss entry no
-  longer able to raise it, the 2450µs that already held for thirteen quiet periods should hold
-  for the run. That is a prediction from the run above, not something a run has shown — the same
-  replay under `--log=quiet --pacing` would show it, as `the compositor gets 2450us` unchanged
-  from the first climb to the end and one `1x1` in the whole log.
 - **Whether the miss the ratchet trips on is always a real one.** The frame that missed at 2400µs
   did not show up as a broken gap in the same period's `gaps in refreshes`, which stayed `2x600`.
   Either the two counters are a frame out of step at a period boundary — `measure_compose` runs at
@@ -471,57 +271,6 @@ What is left:
   that overshoot sat right on the half-refresh boundary the two round opposite ways from. It errs
   toward giving the compositor longer, which is the safe direction, but it means the floor can end
   up a step above what it needs to be, and three steps of that is 150µs of lag.
-- **Whether the grid's own way of running the game fast is gone**, which only a display that is
-  not a whole multiple of 60 can reach — the same fault in the work estimate is the one that was found
-  and measured, a 252ms `RunCalcChain` pinning the estimate to its ceiling and leaving `gaps in refreshes
-  1x29 2x569` behind it. A grid moment left behind the blank in
-  hand made the aim come out at one refresh a frame until the difference had been made up, and
-  each of those frames is an update. It is dropped now and the arithmetic has a test, but no
-  144Hz session has been through a stall shorter than four game frames, which is the only way
-  in: beyond that the phase guard was already resetting the grid. What to watch is the same `1x`
-  bucket, in a session whose log says `144Hz monitor is not a multiple of 60Hz`.
-- **Which refresh rates have actually been run.** Three: 120Hz, 119.88Hz and 144Hz, all on the
-  same machine and the same monitor at three settings — `600 frames, 16650us apart, gaps in refreshes
-  2x600`, `16652us apart` at 59.94fps, and `16695us apart, gaps in refreshes 2x360 3x240` for 60.00. The third one
-  earned its place by breaking both branches it touched, neither of which had been run before, so
-  the list below is not a formality. The rates that would each exercise a different part of the
-  arithmetic:
-
-  | | |
-  | --- | --- |
-  | 60Hz | one refresh a frame, where the compositor's share and the drawing must both fit in 16.7ms rather than 6.9 |
-  | 75Hz, 100Hz | ratios of 1.25 and 1.67, so the count is one *or* two and the grid spends most frames on the shorter one |
-  | 240Hz | four refreshes a frame, a whole multiple again but with a 4.2ms refresh, so the share has less than a quarter of the room it has at 60 |
-  | under 60Hz | deliberately the clock, since one frame per blank would run the game slow and take the music with it |
-
-  The mechanism does not special-case any of them, which is the argument that they work, and no
-  measurement is the reason that is only an argument.
-- **A second display, and a mixed-rate desktop — the setup is measured on real hardware now, and it
-  is the ordinary one rather than an exotic one.** `scripts/compositor-probe.c` on a 120Hz primary
-  with a 144Hz monitor beside it: the compositor reports 144.00Hz and its flushes come at 143.97Hz,
-  and a window on any monitor gets that same 143.97Hz while `EnumDisplaySettingsW` answers about the
-  monitor the window is on. The numbers are beside `frame::Pacing::grid` and at the top of
-  `orb-sim/src/display.rs`.
-
-  **The compositor followed the fastest monitor, not the primary and not the game's**, so "the game
-  on the wrong monitor" is not what it takes: a 120Hz primary to play on and a 144Hz monitor attached
-  is enough, and it is the configuration this machine was already in.
-
-  **The game on it ran a fifth too fast, and that is fixed** — the cadence is counted in the
-  compositor's own spacing now. The run that showed it is `13966us apart`, `14090us`, `13897us` and
-  `13894us` over four periods of 600, 71 to 72 frames a second with `0 frame(s) paced by the clock`;
-  `orb-e2e`'s `pacing`'s `disagrees` section is the fix asserted, and the fault is beside
-  `frame::Pacing::grid`.
-
-  What is left is a run on the machine to confirm it there. The simulator holds every second of every
-  compositor rate at sixty, but it models one blank grid, so the thing it cannot speak for is the half
-  this desktop actually has: a frame shown on the compositor's blank still has the window's own 120Hz
-  panel to reach. What to watch in a `--log=quiet --pacing` run is `144Hz compositor is not a multiple
-  of 60Hz`, the interval at 16666µs rather than 13888, and the buckets alternating `2x` and `3x`.
-
-  Also still unmeasured is the rest of that bullet's table — the rates themselves, 240Hz and
-  under-60Hz.
-
 ## A display under 60Hz is still paced by the clock
 
 `adopt` takes the blanks only at or above 60Hz, and below it goes to the clock: there is no blank to put
@@ -612,47 +361,6 @@ music takes to come up in a real launch, and what a listener hears across a rest
 **`self_check`'s inventory is skipped under a simulated Windows** — see `fingerprint_untracked`. It is a walk
 of every private page in the process, which is a question about the process and not about the
 game.
-
-## The wait on the high-resolution timer has not paced a real frame
-
-[docs/adr/0006](docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) is the decision and it
-is `accepted and built`: `wait_until` waits on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` waitable timer
-made behind the seam on first use, `clock::wait` takes the counter's own ticks, nothing asks
-`timeBeginPeriod` for anything and no `Sleep` is left in the tree, and every log line is stamped off
-`QueryPerformanceCounter`. A host that cannot create the timer is turned away — by the launcher's
-`can_make_the_timer` before it starts anything, and by `Pacing::no_timer` on the first wait for the case
-the launcher was not the way in. `scripts/wait-probe.c` is the probe this waited on, the ADR carries what
-it said, and `SPIN_US`'s own comment carries the histogram that keeps it at 1500.
-
-**What is left is a run.** The probe measured the wait in a process of its own and `pacing_no_timer.rs`
-covers the host that has none, but no frame has reached a screen through it. Three things a session would
-settle and no scenario can:
-
-- **that the timer can be made inside the *game's* process.** Two of the three places are covered: the
-  launcher's `can_make_the_timer` runs on every launch, and `orb-api`'s own `real::clock::tests` create
-  the timer and wait on it through the shipped code on this host. What is left is the DLL's, made from
-  the frame hook of a process that has loaded d3d8 and dsound — and the answer to a failure there is a
-  modal and an `ExitProcess` nothing has yet seen happen for real.
-- **what the cadence comes out as**, against the real runs beside `frame::Pacing::grid` — `600 frames,
-  16650us apart, gaps in refreshes 2x600` is what the wait being replaced produced at 120Hz, and it is
-  the line to compare against. The pacing log's spans are the reading, and the one that used to be called
-  `sleep` is now `wait`.
-- **that the modal is legible over the game.** It is raised with no owner window and
-  `MB_SYSTEMMODAL | MB_SETFOREGROUND` because the game is drawing through Direct3D, and whether that is
-  enough is a claim about the host.
-
-**The log's stamps changed on the real host and only there.** They were `GetTickCount`, which this
-machine advances by 15 to 16ms whether or not the millisecond is asked for, and they are now exact —
-which is what `log_deferral`'s reading of two stamps always assumed and never had. Nothing in the
-simulator moves, because the simulator has derived its stamp from the counter all along.
-
-**The suite got slower and then much faster.** The exact wait took `orb-e2e`'s `pacing` from 54.1 seconds
-to 76.6 on its own, because the spin now runs the whole of `SPIN_US` where the old call's rounding down to
-whole milliseconds left it about 1000µs to run — the simulator's own arithmetic, not a cost a real machine
-pays, since a real wait overshoots into the spin and a real one now overshoots less. Then the spin's
-`pause` went behind the seam and was charged for, which is
-[docs/adr/0007](docs/adr/0007-the-spins-pause-is-behind-the-seam.md): **17.5 seconds for the file and
-30.3 for the suite**, from 76.6 and 95.0, with all 297 passing and no assertion touched.
 
 ## A 240Hz display leaves the compositor less room than it may want
 
@@ -1050,245 +758,6 @@ Two things were learnt on the way and both are traps worth keeping:
 anything else is designed around it:** the tests are Windows binaries run through WSL interop, and
 **an environment variable set for `cargo test` does not reach them**. So a test cannot be
 switched by the environment here, however natural that is everywhere else in this repository.
-
-## What only the real game can still answer
-
-The suite is 356 tests and **no stubs**, and most of what it now covers used to need a session. So this
-is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
-what a session is for. Nothing here is a test somebody could write.
-
-**And [docs/adr/0010](docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md)
-added one file of that kind: `orb-api/src/real/window.rs`.** The status line's whole drawing path moved
-into it — the font measured, the bar cleared, the text written and blitted — and what a scenario now holds
-is the layout above it: which of the two bars the lines went in, at which em height, where the block
-landed, and a shorter stack afterwards clearing the rows the longer one wrote in, all in `orb-e2e`'s
-`the_window`. What no test reaches is the blit itself, and **no log line says it happened**: orb writes one
-only where the text had to be made smaller or where there was no black to write in, so silence is a bar
-written and a bar silently unwritten alike. **All three shapes of that black have now been through a
-session** — the bar down the side, the bar under the game, and the client that leaves none — so what is
-below is what each one said, and the one sub-case a scenario should take over.
-
-**The bar down the side is confirmed on this machine** — `screen: fullscreen` on the 3840x2160 panel, a
-2880x2160 game with 480 pixels of black either side, the lines left-aligned a margin inside the right-hand
-one at 30 pixels of em with no line long enough to be reduced (472 pixels of room, and no `writing at Npx`
-in the log). Watched drawn and readable through a played stage, chapters and the retry menu.
-
-**And the 4:3 client that leaves no black at all is confirmed**, which is the one shape of this a log line
-settles on its own: `screen: 640x480 — window at 1597,820 sized 646x520, client 640x480` and then
-`screen: client 640x480, game 640x480 at 0,0 — no black to write in`, once and not per frame. Once that
-line is written `write_beside` returns before it reaches the seam, so the line *is* the evidence that
-nothing was drawn over the game — the only case here that needs no eye.
-
-**And the bar under the game is confirmed**, which was the third shape: `screen: 1600x1400` — `window at
-1117,360 sized 1606x1440, client 1600x1400`, a 1600x1200 game at y 100 and the black the 100 rows from
-1300 down. Three lines at the title menu, right-aligned on the game's own right edge at x 1600 with the
-lowest one's bottom at 1392, which puts the block at 1302 and leaves **two rows** between it and the game.
-Watched: entirely in the black, nothing over the game. No `writing at Npx` either, the strip being the
-client's full 1600 wide — what forces a smaller font is a narrow bar and not a short one.
-
-**Three lines and not five, and the five-line case is a scenario rather than a session.** `write_status`
-pushes a chapter's name and its retry count only while a run is being chaptered, so the title menu is three
-lines — 90 pixels into 92, the tightest the arithmetic gets, and it fits. A run makes it five, which is 150
-pixels of stack in 92 rows of black, and `write_beside` holds the block's top at `letterbox.bottom` so the
-lines above run off the top of the bitmap and are clipped there rather than drawn over the game. That is
-what a run plays with and what the session above did not show, so it is
-`the_window`'s `a_stack_taller_than_the_black_under_the_game_starts_at_the_games_edge`: five lines in that
-same client, the unclamped top asserted to be inside the game first so the scenario cannot stop being about
-the clamp, and `bar.area.top` then the game's own bottom edge.
-
-**The launcher cannot ask for this shape**, which is worth knowing next to it: `launcher/settings.rs`'s
-`sizes` offers 16:9, then 4:3, then 640x480 — every one either leaves the black down the sides or leaves
-none — so it took `orb.yaml` written by hand with a taller-than-4:3 `screen` **and `ask_at_startup: false`**,
-the dialog dropping a size its own list has not got and falling back to fullscreen. Nobody playing can
-select it, so no run will find a fault here for us.
-
-**What [docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
-built and the suite cannot witness.** Everything the scenarios drive is now above the seam, which means the
-code that actually talks to Direct3D, DirectSound and the GDI is in three files nothing but a launch
-reaches: `orb-api/src/real/d3d8.rs`, `real/dsound.rs` and `real/text.rs`. They are the only callers of a
-COM vtable or a GDI call left in the tree, and every call site above them was rewritten — 479 lines of
-`overlay.rs` and 468 of `audio.rs` — with no compiler checking the rewrite the way it checks an import
-move. **All four have now been through a session**, and what each one's instrument said is here rather than
-in a list of what to do again — the point of the list was the first launch after the move, and it happened:
-
-- **The overlay draws and the game's own scene does not draw wrong** — watched, and normal. The state block
-  round every draw is what that rests on: `overlay.rs`'s `frame` sets thirteen render states and twelve
-  texture stage states, plus the viewport and the FVF, and 紅魔郷 sets its own once and assumes they stay
-  set. So the failure to watch for was never orb's own text going missing but the game's scene coming out
-  wrong behind it — the blending of bullets, the draw order with `D3DRS_ZENABLE` left off, the scene drawn
-  into orb's 640x480 viewport, sprites drawn with orb's texture still bound to stage 0. Every one of those
-  is gross enough to see at a glance; the only quiet one would be `D3DTEXF_LINEAR` left on, which softens
-  the game's own pixels.
-- **The letterbox still works** — `screen: presenting through a letterbox, client 3840x2160`, which is the
-  `Present` slot patched through a device read as `orb_api::mem::read(device.0)` rather than dereferenced. A
-  stretched picture is what its absence looks like, and the status line beside the game needs that black to
-  exist at all, so the two were confirmed together.
-- **A chapter's music comes back from where the chapter began** — heard. **The `music:` lines are Verbose**,
-  one `detail!` at `audio.rs:279`, so a session at `log_level=normal` has none of them and their absence is
-  not a signal: the ear is the instrument at that level.
-- **The glyphs are the game's own font again** — `overlay: font.ttf loaded, GDI is using Some("Rounded M+ 2p
-  regular")`. The suite answers a bake from a declared metric, so nothing in it has read a real `font.ttf`
-  since, and a substituted face is what that line exists to catch.
-
-**The last twelve stubs were un-stubbed by growing the laid-out game and the seam**, the way the
-seventeen before them were: an ending object reached through the chain job it registers, with a `.end`
-whose waits run out inside one frame and a staff roll it hands over to as the track changes; a replay
-manager whose per-stage records a teardown would write over, whose entries the player moves on, and whose
-seed a stage reached by moving is drawn from; a screen shake registered as a job of the chain's, with the
-game's own `Chain::Cut` handed over to take it down; the front end's own eight items, drawn, with `Extra
-Start` among them only where the score file's `clrd` left something to light it from; and a track streamed
-through a buffer the seam answers and a real `mmioSeek`/`mmioRead` pair —
-[`orb_sim::Sound`](crates/orb-sim/src/sound.rs).
-
-**Two of those carry a claim the laid-out game narrows**, and both say so where they are written:
-
-- `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` asserts the arithmetic over an
-  ending whose waits are known — an ending orb can find no script in is run out to the scene change,
-  roll and all, and the difference between that and stopping at the roll is the roll's own script. The
-  **62 frames** between the real run's 7,892 and `staff00.end`'s 7,830 are still unaccounted for, and a
-  scenario that accounted for them would be inventing the account.
-- `a_sought_stream_keeps_its_countdown_and_still_takes_its_loop` asserts that the file's position and the
-  countdown still name the same loop point after a seek, which is the arithmetic the episode was the
-  failure of. **The track has not been re-heard** since the countdown was moved with the file.
-
-And two more things a laid-out game reaches the edge of, which the scenarios name rather than assert:
-
-- **The roll's drawn frames are fewer than its own script's waits**, because a run that ended waits for
-  the trip through the ranking and a trip that finds no front end up spends its whole allowance of
-  updates inside one frame. Whether that is part of what left the real roll **544 frames short** of its
-  7,830 is not settled.
-- ~~**A track taken down and started again** is `StopBGM` and `PlayAudio` at their own addresses, and
-  there is no code at either in a game laid out by hand.~~ Both are handed over now, the way `Chain::Cut`
-  is — see [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — so
-  `restore: the track has changed since this snapshot` and the two lines after it are
-  `a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_starting_it_again`. What is
-  still the real game's is what the *game* does inside those two calls: its allocator seeing the stream
-  freed, and `PlayAudio` finding the `.wav` and the `.pos` beside the path it was handed.
-
-**What the calls handed over do inside the game.** Nine of them now — see
-[docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — and every one is
-a constant in the shipped build with the handover behind the `sim` feature, so what a scenario drives is
-the path and never the code at the far end of it. Three are new since the last launch and worth watching
-on the next: `GameWindow::Create`, where the display setting orb overrules is read a few instructions
-later; `StopBGM` and `PlayAudio`, where a restore's `music: stopped through the game` and `music:
-restarting …` are the lines to look for; and the game's own `joyGetPosEx`, whose entry orb still patches
-for real. The `JOYCAPSA` orb writes into 0x69d760 goes through `orb_api::mem` rather than a raw
-`copy_nonoverlapping` now, which is the same volatile write in a shipped launch and a different one only
-under a simulated host.
-
-**The frame accounting the fake's fidelity pass moved, and the fourteen fixes behind it.** The laid-out game
-is faithful to the game orb is injected into now — see
-[docs/adr/0008](docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), which is a description
-of the tree — and every one of those fixes was read out of a decompilation of the same binary rather than off
-a run. **Two of them move when a frame happens**, and only the real game says whether they moved it the right
-way:
-
-- **A scene's first update is on the frame it was built**, and the input word is zeroed there. Every
-  transition therefore lands a frame earlier than it used to — the front end's, a stage's, a stage
-  transition's, the result screen's. `orb-e2e`'s `the_frame_a_scene_is_built_on` is the claim; what a session
-  would say is whether the game's own `f<N> scene=` lines fall where the fake now puts them.
-- **A stage begins with 240 updates nothing can kill the player in**, not 120 and not none. That is
-  `Player::OnUpdate`'s spawning branch replacing the count `Player::AddedCallback` wrote, read out of the
-  decompilation and agreeing with `PLAYER_INVULNERABLE_FRAMES`, which was measured on the real game from the
-  other end. A run that stands still into a bullet at a stage's start is what would say so directly.
-
-**And one global orb reads that has no name.** `CURRENT_CARD` at 0x005a5f98 is in no `globals.csv` row, and
-the exe touches it only from inside `EclManager::RunEcl` — the interpreter that runs a spell card
-declaration, so the provenance agrees with what orb reads it as. That it *is* the current card is not
-confirmed by name. A read of the ECL instruction or a run with a card up is what would confirm it.
-
-**A pre-existing intermittent in the suite, and it is not the fidelity pass's.** One scenario of
-`orb-e2e`'s `the_music_across_a_restore` fails perhaps one run in eight with `no sound has been installed on
-this thread` — `orb_sim::Sound`'s `STREAMING` reading null where the sound was installed on the thread that
-asked for it. Held against `HEAD` before any of the fidelity work: it flakes there too, at about the same
-rate, so it is older than that work and nothing in it. What is *fixed* is the other one that used to sit
-beside it: an allocation landing inside a range the laid-out game claims, which failed two runs in three
-until `Sound::of` began asking `Space::has_room` and allocating again — the addresses it was watched at are
-written down there. This one is still to find; the panic crosses an `extern` frame and aborts, so what it
-needs first is a run that catches it under a debugger or a `STREAMING` that says which thread it was set on.
-
-**Addresses and the bytes at them.** Every offset in `game/th06/` is written into a laid-out space
-by the same constant the reader reads it with, so a wrong one is wrong on both sides at once. The
-prologue bytes a hook is installed over, the exe's md5, and that the jmp lands where it should are
-the same kind of claim. Only the real image says.
-
-**That the hooks hold.** Installing a trampoline over a prologue and having the game carry on
-through it is a property of that image and that compiler's code, not of the installation logic.
-
-**Which game a launch matched, and the two log lines that come of it.** `attach_to` is handed its
-game, as a scenario's is, so `host_exe()`'s lookup against `orb_core::game::KNOWN` — the build a run's
-addresses were read off, and the list of games in a process that is none of them — runs only in a real
-launch. **東方紅魔郷 has not been launched with the DLL since that table went in.** The table's own
-arithmetic has five tests; the match has none and cannot.
-
-**A chapter picked up in a second process.** One launch writes the file and another reads it, which
-is two processes of the game — a scenario is one, and `orb-e2e`'s `pointdevice_run` gives the run up
-inside its own launch instead, so what it reads is the file and only the file. That the file survives
-the game being gone, and that a launch finds and names it, are the real thing's to show.
-
-**The pacing, as frames on a screen.** The arithmetic is covered; what is not, and cannot be, is
-whether frames land on blanks. The 120Hz, 119.88Hz and 144Hz runs are beside `frame::Pacing::grid`
-with the probes that took them, and they stay measurements.
-
-**What else on the desktop does to the window.** A borderless tool on this machine acted on
-`東方紅魔郷.exe`'s window creation and resized the client to 2880x2160 three and a half seconds after
-orb's last say in it. Nothing in the suite has another program in it.
-
-**The launcher's dialog answered on a pad.** `launcher/pad.rs` has the reading and `settings.rs` the
-dialog's own arithmetic; a Win32 dialog with a real pad pushed at it is neither.
-
-**The sound, as sound.** A track does play in a laid-out game now — `orb_sim::Sound` is the buffer
-`Music::capture` locks and the winmm it seeks through — so which chapters put their music back, the
-position a chapter is written down with, and where the countdown lands after a seek are all covered. What
-is not, and cannot be, is what any of it sounds like: whether a chapter comes back with its music is a
-thing to hear, and the streaming margin is a real thread topping up a real buffer against a real card.
-
-**Anything the screen is the judge of.** The drawing tests say where a quad went and in what colour;
-they do not say it looks right. The brush stroke reading as a stroke, the panel's own tile showing
-through the strips either side of it, the wash being dark enough to read a menu over and light enough
-to see the run under — those are looked at.
-
-**And the front end's own answers.** What its spell card history shows in each mode, and which items the
-game's menu lights beyond the one the score file's `clrd` decides — the log cannot see a menu, so what a
-scenario reads is what the laid-out front end draws, and it draws eight names and no artwork.
-
-**The driver for such a session is not in the tree, on purpose.** `.gitignore` keeps `/scripts` out
-because what wraps the build and the copy is one person's workflow and the last one carried that
-person's machine in it. A session driver is the same shape — it needs a game directory, and it would
-be asserting against a log nobody else's run produces. `--take-sent-keys` exists so that one can be
-written outside the tree: it makes the game read its keyboard the way it does when DirectInput has no
-device, which is the only way keys sent with `SendInput` are seen at all.
-
-## Confirm `self_check`
-
-It should report zero saved regions failing to restore, and no untracked region changing outside
-the process heap. It pauses the game for as long as fingerprinting every private page takes,
-which is why running it is a deliberate session rather than something left on.
-
-## Play a stage with a pad
-
-The read is orb's thread's now and the frame pays a copy, and a pad that turned up mid-run drove
-the menus — `joystick.rs` carries both, the timings and the run that watched a pad wake mid-run. What no
-run has been through is a stage: shot and bomb under
-a pattern, the four directions at the speed they are used at, and the auto-repeat behind holding
-one, none of which a menu asks for. Worth doing once by somebody who plays with a pad.
-
-**One loose end from the run that settled the calibration.** The handover said so once a
-second rather than once, which is a write into the game's memory every time it says it. The
-caps were being read beside every position then, so the likeliest reading is that
-`joyGetDevCapsA` does not fill all 404 bytes the same way twice — the tail is `szOEMVxD`, 260
-bytes of it. They are taken once per appearance now, which should leave one line, and the line
-says the offset it differed from so that a repeat says what is putting the game's copy back. A
-retried chapter is the one thing that legitimately does, since the caps are in `.data`.
-Unwatched since the change; it needs a pad asleep at launch and woken afterwards, which is the
-only way into the winmm branch with a device on it.
-
-The other branch is measured but not through the game. A pad attached *before* the game starts
-is one `EnumDevices` finds, and then the frame's read is DirectInput's rather than winmm's:
-about a microsecond a probe measured, and orb neither replaces nor times it. Its up-to-400
-`Acquire` retries on `DIERR_INPUTLOST` have never been seen to happen — a device that goes to
-sleep mid-stage is how they would be, which is worth watching for on a machine whose pad is
-wireless, since 400 of them land on one frame.
 
 ## Map the DLL by hand, if a temp file is itself the objection
 

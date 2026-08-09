@@ -99,6 +99,12 @@ const FRAME: (u32, u32) = (16, 40);
 ///
 /// Filtered by the monitor because a window bigger than the screen is a window with part of
 /// itself off it, and these settings are being asked on the machine the game will be played on.
+///
+/// **Every size here leaves the black down the sides or leaves none**, the game being 4:3, so the third
+/// shape orb's status line can land in — a bar *under* the game, from a client taller than 4:3 — is one
+/// this list cannot produce. Reaching it takes `orb.yaml` written by hand with such a `screen` and
+/// `ask_at_startup: false`, since the dialog drops a size its own list has not got and falls back to
+/// fullscreen. So nobody playing can select it, and no run of theirs will find a fault in it.
 pub fn sizes(monitor: (u32, u32)) -> Vec<(u32, u32)> {
     let fits = |(width, height): &(u32, u32)| {
         width + FRAME.0 <= monitor.0 && height + FRAME.1 <= monitor.1

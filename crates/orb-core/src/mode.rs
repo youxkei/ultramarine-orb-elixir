@@ -138,6 +138,12 @@ pub fn title(asked: Menu) -> &'static str {
 /// A line rather than a sentence wrapped by the drawing: a label is one `TextOutW` and so one line,
 /// and where each break falls is a decision about what belongs together rather than about how wide
 /// the screen is.
+///
+/// **How much room a line has, for whoever adds a longer one.** The longest here is
+/// `進行状況は自動的にセーブされ、いつでも続きから遊べます`, 26 characters at an em of 15 against a
+/// 640-wide output — some 400 pixels, and inside the screen by that arithmetic rather than by anyone
+/// having held a ruler to it. Nothing clips a line that outgrows the width; it is drawn off the edge
+/// and the part past it cannot be read at all.
 pub fn aside(asked: Menu, mode: Mode) -> &'static [&'static str] {
     match (asked, mode) {
         // Nothing under a ranking's two choices: the two names are the whole of that choice, and a

@@ -77,7 +77,7 @@ has a name for that thing, and where it does, a paraphrase in its place is a def
 | `README.md` | one sentence saying what orb is, where to download it, and which games it runs — and nothing else. **Not a feature list**: the window, the frame pacing and the frame of input lag are not in it, and the table of games says supported or not supported and nothing more. Nor is how any of it works — no build, no target, no linker, no file format. Nor is there a section pointing at any of the documents below: the only link out is to the other language. Whoever is going to play knows 完全無欠モード already, is installing one file, and reads past everything that is neither of those two things |
 | `README.ja.md` | the same in Japanese, and the two are edited together. The game and everything orb puts on the screen are Japanese, so it is the language most of the people it is for read. Each names the games and the mode in its own language — 東方紺珠伝's 完全無欠モード here, Legacy of Lunatic Kingdom's Pointdevice mode in `README.md`, where a Japanese title is a title the reader cannot read |
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
-| `TODO.md` | what is left, with what is already known about each — and what is built and still waiting on a run against the real game |
+| `TODO.md` | what is left, with what is already known about each |
 | `docs/todo/` | one file per piece of work too long to sit in `TODO.md` as a paragraph: what was measured, how to measure it again, and the order the work is worth doing in. A file belongs here rather than in `TODO.md` when the measurement behind it has to be repeatable — the recipe goes with the worklist, since a worklist nobody can re-derive is one nobody can tell is still true |
 | `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in `TODO.md` when it is settled rather than pending |
 
@@ -127,8 +127,7 @@ that is:**
   the record. A confirmation written as a scenario is one anybody can repeat on demand, so the scenario
   is the work and the write-up comes free.
 - **It is ahead of all three** — `TODO.md`, named and carried. A measurement still waiting for a
-  constant or a scenario to stand beside belongs there, and so does everything built that still waits
-  on a run against the real game.
+  constant or a scenario to stand beside belongs there.
 
 **A claim beside the thing it is about moves when that thing moves**, which is what the list above is
 for: the measurement goes where the reader of that thing is already standing, and a document collecting

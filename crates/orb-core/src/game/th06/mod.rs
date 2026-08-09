@@ -276,6 +276,11 @@ const CATK_NAME_BYTES: usize = 0x38 - CATK_NAME;
 const CATK_NAME_SUM: usize = 0x12;
 /// The card a boss is on, as both of the places the game counts one index by: `ds:0x5a5f98`, shifted
 /// into [`CARD_HISTORY`] at 0x4096df and 0x409889.
+///
+/// **The one address here with no name behind it.** No `globals.csv` row covers it, and the exe touches
+/// it only from inside `EclManager::RunEcl` — the interpreter that runs a spell card declaration, so
+/// the provenance agrees with what orb reads it as and nothing states it. What would settle it is a
+/// read of the ECL instruction that writes it.
 const CURRENT_CARD: usize = 0x005a5f98;
 
 /// 64 records of 0x40, which is the count the write walks and the size it copies each at.

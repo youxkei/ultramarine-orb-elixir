@@ -179,7 +179,9 @@ fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
 /// ended waits for is the trip through the ranking — a trip that finds no front end up spends its whole
 /// allowance of updates saying so, `score: the ranking was not built after 240 update(s)`, and every one
 /// of those is an update of the roll inside a single frame. Whether that is part of what left the real
-/// roll **544 frames short** of its 7,830 is in [TODO.md](../../../TODO.md), not settled here.
+/// roll **544 frames short** of its 7,830 is not settled here or anywhere — see
+/// `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` below, which carries that number
+/// and the 62 frames beside it.
 #[test]
 fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
     in_its_own_process(|| {

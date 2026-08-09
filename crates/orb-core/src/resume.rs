@@ -642,6 +642,13 @@ struct Written {
     /// The reproduction line exactly as the log prints it, kept as the one string it is: a landing is
     /// held against it by field name — see [`differs`] — so what is compared is this text either way,
     /// and the file shows the line somebody can hold against the log by eye.
+    ///
+    /// **Two things it cannot say, both worth knowing before changing anything near it.** Changing what
+    /// [`crate::game::Reproduction`] puts in this line makes every file written before the change
+    /// disagree at its first field, and [`VERSION`] does not catch it: the line is opaque to the reader,
+    /// which is the price of holding the log's own text. And a run written down by one build and picked
+    /// up by another whose midstage table differs lands on a chapter the second build names and numbers
+    /// differently, which passes unnoticed — what is compared here is the reproduction and not the name.
     landing: String,
     /// The buttons held from each frame they changed on, keyed by that frame.
     ///

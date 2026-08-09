@@ -69,6 +69,19 @@ thread_local! {
     static STREAMING: Cell<*const Sound> = const { Cell::new(std::ptr::null()) };
 }
 
+/// # An intermittent that is still to find
+///
+/// One scenario of `orb-e2e`'s `the_music_across_a_restore` fails perhaps one run in eight on the
+/// assertion below, this reading null where the sound was installed on the thread that asked for it.
+/// Held against `HEAD` before the fake's fidelity pass: it flakes there too and at about the same rate,
+/// so it is older than that work and nothing in it.
+///
+/// The one that used to sit beside it *is* fixed — an allocation landing inside a range the laid-out game
+/// claims, which failed two runs in three until [`Sound::of`] began asking `Space::has_room` and
+/// allocating again, and the addresses it was watched at are written down there.
+///
+/// The panic crosses an `extern` frame and aborts, so what this needs first is a run caught under a
+/// debugger, or this saying which thread it was set on.
 fn streaming() -> &'static Sound {
     let sound = STREAMING.get();
     assert!(

@@ -20,8 +20,9 @@ own items lit from the score file's `clrd`, and a track streamed through a real 
 real `mmioSeek`/`mmioRead` pair — see [`orb_sim::Sound`](../../crates/orb-sim/src/sound.rs), which is where
 this decision's answer runs out: orb *calls* a buffer's vtable rather than reading it, so what stands in for
 one is a real object and the address space is only told where it is. **No stub is left.** What a run on the
-real game is still the only witness to is *What only the real game can still answer* in
-[TODO.md](../../TODO.md), and none of it is a test that could be written.
+real game is still the only witness to is not listed anywhere: the sound as sound, the screen as the judge
+of what is on it, the bytes at the addresses and that a trampoline over a prologue holds — each of them a
+thing to look at rather than a thing to do, and none a test that could be written.
 
 **Two things it says are wrong.** This claimed `render` was the one thing a game laid out by hand could
 not drive; [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) names the obstacle —
