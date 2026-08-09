@@ -432,6 +432,28 @@ was the shaving random-walking upward for want of a floor, not a heavier stage n
 
 What is left:
 
+- **What holding `budget_ceiling` under a refresh took away is the headroom for work that is heavy
+  every frame, and a better fix would take nothing.** Swept at 120Hz with 2500µs allowed the covered
+  work went from about 10ms to 5833µs — 5500µs a frame still holds the cadence, 6000µs runs at 40
+  frames a second — and at 240Hz the same arithmetic leaves 1666µs against the millisecond the game
+  actually takes. Nothing in play reaches it, which is why the ceiling was worth taking; what makes it
+  a compromise rather than the answer is that the budget is the wrong place to enforce it.
+
+  The invariant is on the *handover*: the frame must not be handed over before the blank before the one
+  it is aimed at. Capping the budget only approximates that, because how early a frame really goes is
+  the budget less that frame's own work, and the work is not known until it is done. Enforced where it
+  belongs — a wait between the drawing and `PRESENT`, holding the frame until the earlier blank has
+  gone — the budget needs no ceiling of its own and heavy frames stay covered. What that costs is a
+  wait inside the frame and a rewrite of what *The work estimate* claims, so it is a decision for
+  `docs/adr/` rather than an edit.
+
+  `PLAY_SOUNDS` is what set the budget above a refresh: the game's own call, which orb makes between
+  the update and the draw, ran 8438µs on the frame a spell card started and 12531µs at worst, four
+  times in one session. That frame loses its blank either way — a budget is a prediction and a spike
+  nothing has seen yet cannot be one — so what is left about it is only that orb chose *where* to call
+  it. After `PRESENT` instead, the frame keeps its blank and the sound starts a frame later: sixteen
+  milliseconds of audio latency against a lost refresh, with no measurement of either as a thing
+  anybody notices.
 - **The lag.** `prepare` sits at 3200–4500µs against the 2100µs it used to, so the cadence costs
   something like 1.5ms of input lag on every frame. Against the 16.7ms a frame that orb exists to
   save it is under a tenth, and it buys a cadence that does not break, but nobody has been asked

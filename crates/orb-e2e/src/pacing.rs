@@ -933,6 +933,109 @@ mod budget {
         });
     }
 
+    /// The usual frame beside the spike below, which is what a real run's report line says the game's
+    /// own work takes: "(1328us to draw + 2500us for the compositor)" and "(998us to draw + …)".
+    const QUIET_WORK_US: i64 = 700;
+
+    /// One frame's own work, where the sound it started took most of it.
+    ///
+    /// Measured, in a stage 4 spell card with 491 bullets up: `sound 8438us` on the frame's own
+    /// `--pacing` line, `PLAY_SOUNDS.call()` being what that span is, and the whole frame coming to
+    /// 8940µs with its update, draw and present. The largest of the four in that session was 12531µs.
+    const SOUND_SPIKE_US: i64 = 9_000;
+
+    /// One frame in this many carries it, so a run of this length sees a handful.
+    const SPIKE_ONE_IN: i64 = 300;
+
+    /// A spike the ceiling admits must not leave the frames after it handed over before the blank
+    /// *before* the one they are aimed at, because that is the game running at double speed.
+    ///
+    /// The chain, measured on a 120Hz desktop and the reason this exists: a frame whose sound took
+    /// 8438µs came to 8940µs of work, so `took` was 11440µs against a ceiling of 12500 — inside it, so
+    /// `next_budget` believed it and `prepare_us` went to 11440. The frames after it do 250µs of work
+    /// apiece, so each was handed over 11190µs before its blank, and the blank one refresh earlier was
+    /// only 2857µs away against the 2500µs the compositor wanted: it took them *there*. The anchor moved
+    /// a refresh early, the next frame went as early again, and five turns came out one refresh apart —
+    /// 6587, 9090, 8212, 8501 and 9820µs, which is about 120 frames a second. orb's own line said so
+    /// where a period ended inside one: `10 shown a refresh or more early, so the game ran fast for
+    /// them`.
+    ///
+    /// So the claim is the turn and the count together. A run may lose the spike's own frame — that is
+    /// one refresh, and a stutter — but no turn may be *shorter* than the cadence.
+    #[test]
+    fn a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early() {
+        in_its_own_process(|| {
+            let mut display = Display::agreed(HZ);
+            display.compose = Compose::flat(1_000);
+            display.metronome = true;
+            let game = Fake::attach_watching_the_pacing(
+                display,
+                "budget-spike",
+                Work {
+                    usual_us: QUIET_WORK_US,
+                    jitter_us: 0,
+                    spike_us: SOUND_SPIKE_US,
+                    spike_one_in: SPIKE_ONE_IN,
+                },
+            );
+            game.frames(1_200);
+            game.frames_until_the_log_holds_another(A_REPORT);
+
+            let handovers = game.handovers_us();
+            let counts = refreshes(&handovers, game.refresh_period_us());
+            let early: Vec<usize> = counts
+                .iter()
+                .enumerate()
+                .filter(|(_, count)| **count < 2)
+                .map(|(at, _)| at)
+                .collect();
+            assert!(
+                early.is_empty(),
+                "{} turn(s) came out under the cadence, at {early:?} — the game ran fast there — {}",
+                early.len(),
+                last_said(&game.log().lines())
+            );
+
+            // And orb's own count of them, which is what somebody reading the log has.
+            assert!(
+                !game.log().said("shown a refresh or more early"),
+                "{}",
+                last_said(&game.log().lines())
+            );
+            // The spike's own frame loses a refresh, and it did so before the ceiling was lowered too —
+            // measured over these 1200 turns, `{1: 42, 2: 1155, 3: 3}` without it against `{2: 1197, 3:
+            // 3}` with, the threes at the same three frames both times. A budget is a prediction and a
+            // spike nothing has seen yet cannot be one, so that frame is not what the ceiling changed:
+            // what it changed is the 42.
+            let over: Vec<(usize, i64)> = counts
+                .iter()
+                .enumerate()
+                .filter(|(_, count)| **count > 3)
+                .map(|(at, count)| (at, *count))
+                .collect();
+            assert!(
+                over.is_empty(),
+                "turn(s) past a lost refresh, at {over:?} — {}",
+                last_said(&game.log().lines())
+            );
+
+            // And orb charges it to the frame's own drawing rather than to the compositor, which is what
+            // keeps the allowance where it is: giving the compositor longer would not have made a frame
+            // whose work outgrew its budget arrive any earlier.
+            assert!(
+                game.log().said("whose drawing overran"),
+                "{}",
+                last_said(&game.log().lines())
+            );
+            assert_eq!(
+                allowance_us(&game.log().lines()),
+                ALLOWED_AT_FIRST,
+                "a spike bought the compositor time — {}",
+                last_said(&game.log().lines())
+            );
+        });
+    }
+
     /// And over a real host the rate still comes right, which is the part that matters to a run.
     #[test]
     fn the_rate_comes_right_over_a_real_host_too() {

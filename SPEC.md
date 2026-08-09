@@ -892,17 +892,39 @@ since the budget was capped at the same figure the drawing had no allowance at a
 frame reached the compositor late and every one of those asked to climb again. 120 frames of
 every 600, for the rest of the run.
 
-**Two ceilings, and they are not the same.** A frame is handed over `compose` before the blank it
-is aimed at — that is the whole of what decides where the handover lands, because the drawing
-happens before it and only moves when the drawing starts. So it is the compositor's share, and
-not the budget, that has to stay inside one refresh: hand over earlier than the blank before the
-aimed one and the compositor takes it at that earlier blank. The budget may run to most of a game
-frame, since it only decides how early the drawing starts — but only while it is a prediction of
-what the work takes, which is the same trap from the other side: see *The work estimate*.
+**Two ceilings, and both stay inside one refresh.** A frame is handed over `compose` before the
+blank it is aimed at while the budget is a true prediction of the work — and the budget's distance
+*above* what the frame's work turns out to be is how far before its blank the frame really goes, so
+a budget past a refresh hands a light frame over before the blank before the aimed one and the
+compositor takes it at that earlier blank. Which is why neither ceiling may pass a refresh: the
+compositor's share because the frame is handed over that far ahead, and the budget because the
+frame after a spike does almost none of the work the budget was set from. The share is three
+quarters of a refresh and the budget is the smaller of one refresh and three quarters of a game
+frame — so at 60Hz the budget is the game's frame less a quarter as it always was, a refresh there
+being the whole frame.
 
-Getting that wrong is invisible at 120Hz, where half a game frame is exactly one refresh. At
+Getting the share wrong is invisible at 120Hz, where half a game frame is exactly one refresh. At
 144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one refresh apiece — `gaps
-in refreshes 1x418 2x179`, a hundred frames a second.
+in refreshes 1x418 2x179`, a hundred frames a second. Tying the budget to three quarters of a
+*refresh* rather than to a whole one is the mistake in the other direction: at 144Hz that is the
+same 5208µs as the share, so the drawing has no allowance at all and every frame reaches the
+compositor late.
+
+What the budget's ceiling costs is the headroom for work that is heavy *every* frame, and nothing on
+the spike that set it: a spike starts against the budget the frames before it left, so it overruns its
+blank whether or not it is then allowed to raise the budget. What can no longer be covered is work
+sustained past a refresh less the share — swept at 120Hz with 2500µs allowed, 5500µs a frame holds the
+cadence and 6000µs runs every frame three refreshes apart at 40 frames a second, where three quarters
+of a game frame covered both. The game's own work is about a millisecond, so there is room at 120Hz;
+at 240Hz the same arithmetic leaves 1666µs and there is nearly none. Measured, on a 120Hz desktop: a frame whose `PLAY_SOUNDS`
+ran 8438µs came to 8940µs of work, which the old ceiling of three quarters of a game frame admitted,
+and the frames after it — 250µs of work apiece — went over 11190µs before their blanks against a
+refresh of 8333. Five turns came out one refresh apart, 6587 to 9820µs, and the log said `10 shown a
+refresh or more early, so the game ran fast for them`. `orb-e2e`'s `pacing`'s
+`a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early` is that run: three spikes over
+1200 frames, `{1: 42, 2: 1155, 3: 3}` of turns before the ceiling was lowered and `{2: 1197, 3: 3}`
+after, the threes on the same three frames both times, with the share never climbing off its 2500µs
+start.
 
 `--compose=N` pins the share, which is how it is swept: pinned small enough that frames are known
 to miss, then walked up until they stop. A pinned value is also the floor the work estimate is
