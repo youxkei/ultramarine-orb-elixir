@@ -1,36 +1,18 @@
 //! The joystick read, off the game's thread, and what a sample of it means.
 //!
-//! `Controller::GetControllerInput` asks winmm for joystick 0 once a frame, and where no
-//! joystick answers, that one call takes 8.7ms and spends nearly all of it on the CPU:
-//! winmm looking for a device, not waiting on one. Against a 16.67ms frame it was the
-//! whole of the frame-pacing trouble.
+//! `Controller::GetControllerInput` asks winmm for joystick 0 once a frame, and where no joystick
+//! answers, that call can take long enough to cost the frame its blank — measured as a large part of a
+//! frame, spent looking for a device rather than waiting on one.
 //!
-//! **Measured, both branches, outside the game by a program that asks the way the game asks** —
-//! `joyGetPosEx` with `JOY_RETURNALL`, and `EnumDevices` for `DI8DEVCLASS_GAMECTRL` with
-//! `DIEDFL_ATTACHEDONLY` then `Poll`, `Acquire`, `GetDeviceState` behind a foreground exclusive
-//! acquire — around `QueryPerformanceCounter`, with `GetThreadTimes` across the hundred calls for the
-//! split between work and waiting:
+//! Because it is work rather than waiting, moving it to a quieter part of the frame buys nothing. So a
+//! thread of orb's own takes the samples and the game's call is answered out of the last one. What a
+//! sample means is left to the game: which button is shot, where an axis becomes a direction, the
+//! auto-repeat behind holding one — none of that is orb's to reimplement, and all of it is downstream
+//! of the call this replaces.
 //!
-//! | | |
-//! | --- | --- |
-//! | with nothing plugged in | `joyGetPosEx(0, JOY_RETURNALL)` answered `JOYERR_PARMS` in 8.7ms, min 7.8 max 10.8 over 100 calls; 100 back to back took 917ms of wall clock against 906ms of CPU — 703 kernel, 203 user |
-//! | with an Xbox One pad attached | the same call returns in under a microsecond |
-//! | the branch the game takes where `EnumDevices` found a controller | DirectInput, about a microsecond a frame: `GetDeviceState` 1µs average and 9µs worst over 100 reads, `Poll` answering `DI_NOEFFECT` in under a microsecond, and one 2.1ms `Acquire` on the first read |
-//! | what the frames it ran on cost | `joystick=8562us/frame worst=13227us` in the log, against about 1µs for the keyboard |
-//!
-//! So the setting that turned the joystick off was never the answer to this and is gone: the call is
-//! only expensive where no device answers, which is also the only case DirectInput leaves the game in
-//! this branch for.
-//!
-//! Because it is work rather than waiting, moving it to a quieter part of the frame buys
-//! nothing. So a thread of orb's own takes the samples, and the game's call is answered
-//! out of the last one. With nothing plugged in that costs the frame `input=1us/frame worst=4us
-//! calls=600` and `joystick=0us/frame worst=1us calls=600` over 600 frames, the frame itself
-//! `16763us worst=23817us`, while the thread's own reads were 32ms for the first in the process —
-//! winmm's joystick support coming up — and 8.7ms once a second after it. What a sample means is left
-//! to the game: which button is shot,
-//! where an axis becomes a direction, the auto-repeat behind holding one — none of that
-//! is orb's to reimplement, and all of it is downstream of the call this replaces.
+//! The setting that turned the joystick off was never the answer to this and is gone: the call is only
+//! expensive where no device answers, which is also the only case DirectInput leaves the game in this
+//! branch for.
 //!
 //! One thing the game cannot be left to do for itself. `GetControllerInput` places the centre of each
 //! axis at `(wXmin + wXmax) / 2` with a dead zone of a quarter of the travel, read out of the
@@ -41,11 +23,9 @@
 //! over, and the game spends the rest of the run with two directions held. So the
 //! calibration is handed over with the sample it belongs to.
 //!
-//! Watched doing it: a run that started with the pad asleep (`there is no joystick 0, read in
-//! 33785us`), had it wake mid-run (`mid=045e pid=02ff ... 16 buttons, 5 axes, X 0..65535, read in
-//! 2494us`), took the calibration on the next frame (`the game's axis calibration was not this
-//! device's`), and was then driven through the menus with nothing drifting — reads settled at 2µs on
-//! the 4ms cadence, the frame at `input=2us/frame worst=180us calls=600`.
+//! Watched doing it: a run that started with the pad asleep, had it wake mid-run, took the calibration
+//! on the next frame — `the game's axis calibration was not this device's` — and was then driven
+//! through the menus with nothing drifting.
 //!
 //! **What is left in `orb::joystick` is the write over the import table entry**, which is the whole of
 //! what needs a process to patch. The replacement that entry is pointed at is [`answer`] and it is here,
@@ -113,14 +93,11 @@ pub struct Sample {
 impl Sample {
     /// Whether what answered is a pad, which is not the same as something having answered.
     ///
-    /// A device with no buttons and no axes has nothing to say, and joystick 0 is one of those on
-    /// this machine whenever the pad is in XInput's second slot: `mid=413d pid=2104`, answering
-    /// `joyGetPosEx` with every field zero. Measured with all three interfaces asked at once — winmm
-    /// reports 16 devices, index 0 being that one and 1 to 15 `JOYERR_UNPLUGGED` at 13µs each;
-    /// DirectInput enumerates `Controller (Xbox 360 Controller)`; XInput has it in slot 1 with slot 0
-    /// empty. Believing it
-    /// costs a line in the log claiming a pad answered, and the game's axis calibration written
-    /// from a device that has no axes.
+    /// A device with no buttons and no axes has nothing to say, and winmm's joystick 0 can be one of
+    /// those: a pad sitting in XInput's second slot leaves a device at index 0 that answers
+    /// `joyGetPosEx` successfully with every field zero, while the pad itself is somewhere further
+    /// along. So a successful read is not a pad, and believing it costs a line in the log claiming one
+    /// answered and the game's axis calibration written from a device that has no axes.
     pub fn is_a_pad(&self) -> bool {
         self.result == joyerr::NOERROR
             && self
@@ -301,7 +278,7 @@ fn poll() -> ! {
         polls += 1;
         total += cost;
         // Each line covers its own reads and no others: one that averaged everything since
-        // the thread started would spend a minute walking the first read down — 12ms of it,
+        // the thread started would spend a long time walking the first read down — the slow one,
         // where winmm found the device — and read as though the reads were getting faster.
         // What device they are of stands in the line above rather than being asked again,
         // since naming it means another read of the thing this stops reading often.

@@ -876,7 +876,7 @@ const PLAYER_INVULNERABLE: i8 = 3;
 /// It has to be written and not only the state: `Player::OnUpdate` runs at chain priority 7 and
 /// the bullets are checked at 11, so frames left at nothing — where the last respawn left
 /// them — is a state put back to normal *before* the hit test, in the same update it was written
-/// for. Measured with the state alone: `died in chapter 1` 235ms after `stage 1 chapter 1 (stage
+/// for. Measured with the state alone: `died in chapter 1` right behind `stage 1 chapter 1 (stage
 /// start)`, and again after each of the two retries.
 ///
 /// 240 rather than something that could not run out, because the frames left are also the blink:
@@ -1358,7 +1358,7 @@ impl Game for Th06 {
         // the path a stage move takes; `ReplayManager::AddedCallbackDemo` then puts the
         // score back from the stage before the one being started, which the first stage
         // does not have. So stage 1 would otherwise begin with the score the run was
-        // left on — 7417420 in the log at 303310937ms — and cross the first extra life's
+        // left on — 7417420 in the run this was found on — and cross the first extra life's
         // 10000000 part way through it: a life the recording never got, and with it the
         // `IncreaseSubrank(200)` that took rank from 21 to 23. Rank is what the enemies
         // read, so from there the stage was a different one, and the recorded inputs
@@ -1857,10 +1857,9 @@ impl Game for Th06 {
     /// `Controller::GetControllerInput` asks winmm for joystick 0 only where its own enumeration
     /// found no game controller; where it found one it polls that through DirectInput and never
     /// asks winmm at all. So a menu of orb's has to read the same device, or it answers to a pad
-    /// the game has not got — which is what a pad in XInput's second slot does here: DirectInput
-    /// has it, and winmm's joystick 0 is a phantom reporting no buttons and no axes — `mid=413d
-    /// pid=2104`, every field zero. Measured on this machine with all three interfaces asked; the numbers
-    /// are beside `orb`'s `joystick::Sample::is_a_pad`.
+    /// the game has not got — which is what a pad in XInput's second slot does: DirectInput has it,
+    /// and winmm's joystick 0 is a phantom reporting no buttons and no axes. Which reading is a pad
+    /// at all is [`crate::joystick::Sample::is_a_pad`].
     unsafe fn pad(&self, winmm: Option<Reading>) -> Pad {
         unsafe { self.controller_pad() }
             .or_else(|| winmm.map(|reading| self.winmm_pad(reading)))
@@ -2050,8 +2049,8 @@ impl Th06 {
     /// `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down. So a bomb
     /// within a shake's 80 frames of a stage move gave the next stage a player 3.13
     /// pixels high, at `192.00,380.87` where the stage starts one at `192.00,384.00`, and
-    /// four numbers a frame going out of a stream the replay has to match. Measured at
-    /// 312597765ms in the log: stage 2 left at its frame 642 with `bombs=2`.
+    /// four numbers a frame going out of a stream the replay has to match. Measured on a
+    /// stage 2 left at its frame 642 with `bombs=2`.
     ///
     /// The region is written here rather than left to the shake, because the shake only
     /// restores it on the frame it removes itself on and it is being removed early.

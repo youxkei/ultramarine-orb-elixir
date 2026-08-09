@@ -31,7 +31,7 @@ const fn frame_hz() -> i64 {
 fn a_host_that_cannot_make_the_timer_is_told_so_and_the_launch_ends() {
     let sim = Arc::new(Sim::new());
     let _installed = sim.enter();
-    sim.attach_display(WINDOW, HZ, Compose::measured());
+    sim.attach_display(WINDOW, HZ, Compose::ordinary());
     sim.clock().refuse_the_timer();
 
     orb_core::log::open();

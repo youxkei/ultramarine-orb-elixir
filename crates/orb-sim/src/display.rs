@@ -23,13 +23,11 @@
 //! decided by when `DwmFlush` returns, which is the compositor's grid — and it is why nothing here
 //! can say anything about how those frames land on the other panel.
 //!
-//! **The split case is measured, not assumed** — `scripts/compositor-probe.c` on a desktop of a 120Hz
-//! primary, a second 120Hz monitor and a 144Hz one beside them. The compositor reported
-//! `qpcRefreshPeriod=6944.4us` — 144.00Hz, the fastest monitor's rate — and 119 flushes apiece put a
-//! window on each of the three at 143.97Hz, means of 6946.0, 6946.1 and 6945.5µs, while
-//! `EnumDisplaySettingsW` answered 120, 144 and 120 about their own. So both of the things this simulates
-//! hold: the flushes fall at the compositor's rate, and the window's monitor changes nothing about
-//! them.
+//! **The split case is measured, not assumed**, on a desktop of monitors at two different rates: the
+//! compositor reports one period for all of them and it is the fastest monitor's, while
+//! `EnumDisplaySettingsW` answers about each panel's own, and a window on any of them flushes at the
+//! compositor's rate. So both of the things this simulates hold: the flushes fall at the compositor's
+//! rate, and the window's monitor changes nothing about them.
 //!
 //! **The wake delay is modelled, from its measured distribution** — see [`USUAL_US`]. Which makes the
 //! simulator non-deterministic, on purpose: a host that woke a thread the instant a blank came is a
@@ -37,13 +35,12 @@
 //! scenario that fails for some seeds and not others has found something a real machine can do, and
 //! the seed is in the assertion so the run can be replayed.
 //!
-//! **The compose time is a distribution too, and it is inferred rather than read** — see [`Compose`].
-//! Nothing on the machine reports what the compositor takes over a frame; orb knows only what it
-//! *allows* it, which is its own estimate and climbs on a miss. So [`Compose::measured`] is pinned
-//! from three sides — the value that reproduces the real 120Hz run's `600 frames, 16650us apart, gaps
-//! in refreshes 2x600`, the 3.5ms a session was
-//! seen reaching, and how rare half an hour of play makes that — and remains the number to vary
-//! rather than the number to trust. A scenario asking what the ratchet does sets its own rate, since
+//! **The compose time is a distribution too, and nothing reports it** — see [`Compose`]. No host says
+//! what its compositor takes over a frame; orb knows only what it *allows* it, which is its own
+//! estimate and climbs on a miss. So [`Compose::ordinary`] is a shape declared here — cheap almost
+//! always, rarely several times that, and rarely enough that most scenarios see no spike — and it
+//! remains the thing to vary rather than a number to trust. A scenario asking what the ratchet does
+//! sets its own rate, since
 //! at the measured rarity a scenario sees no spike at all.
 
 use std::sync::Mutex;
@@ -54,24 +51,15 @@ use crate::noise::Noise;
 
 /// How late a flush's return sits after the blank it is returning at, as measured.
 ///
-/// `scripts/compositor-probe.c` at 144Hz, 119 gaps between flush returns against a 6944.4µs refresh:
-/// mean 6945.2µs, least 5856.1, most 8048.8, and in 200µs bands about the mean
-///
-/// ```text
-///  -1700                      mean                      +1700
-///    0  0  0  1  0  4  4  3    96    1  5  4  0  0  1  0  0
-/// ```
-///
-/// so **81% of returns are within 100µs of the refresh** and the rest are single excursions. The raw
-/// run shows what those are: `... 6912 6964 7539 6405 6874 7392 6528 6918 ...` — one gap long and the
-/// next short, the two summing back to twice the refresh. That is one late wake, not a drifting clock,
+/// Measured, over a long run of gaps between flush returns: the great majority sit within a small
+/// fraction of the refresh and the rest are single excursions, one gap long and the next short by as
+/// much, the two summing back to twice the refresh. That is one late wake and not a drifting clock,
 /// which is why the blanks here are an exact grid and only the *return* is delayed.
 ///
-/// Read off that histogram: `USUAL_US` for the 90% within a band or two of nothing, `SPIKE_US` for the
-/// 9% that are not, of which the largest measured was about 1300µs. Not a shape chosen for
-/// convenience — a delay drawn evenly over the whole range, which is what this was before the
-/// distribution was measured, makes a tenth of the frames miss where a real machine misses three per
-/// hundred.
+/// So the shape is a tight usual case with rare excursions out of it — `USUAL_US` for the one and
+/// `SPIKE_US` for the other. Not a shape chosen for convenience: a delay drawn evenly over the whole
+/// range, which is what this was before the distribution was measured, makes a far larger share of the
+/// frames miss than a real machine does.
 pub const USUAL_US: i64 = 100;
 pub const SPIKE_US: i64 = 1_300;
 /// How often the wake is one of the excursions rather than one of the 96, in parts per hundred.
@@ -82,10 +70,9 @@ pub const SPIKE_PERCENT: i64 = 9;
 struct Compositor {
     /// How far apart the blanks are, in performance-counter ticks.
     ///
-    /// Kept apart from the monitor's reported rate rather than derived from it, because the case
-    /// the pacing refuses — and which `TODO.md` records as never having been seen happen — is
-    /// exactly the two disagreeing: the compositor's clock follows one monitor of the desktop, and
-    /// the game's window may be on another.
+    /// Kept apart from the monitor's reported rate rather than derived from it, because the case worth
+    /// declaring is exactly the two disagreeing: the compositor's clock follows one monitor of the
+    /// desktop, and the game's window may be on another.
     period: i64,
     /// The tick the blank grid is counted from.
     origin: i64,
@@ -322,9 +309,8 @@ impl Display {
 ///
 /// Two numbers and a rate rather than one, because a compositor is not a constant and orb's allowance
 /// exists for the times it is not. A fixed compose time makes every frame expensive, which costs
-/// refreshes a real machine does not lose — measured: with a fixed 2000µs a simulated 120Hz display
-/// lost 35 refreshes in 1592 frames, where the real 120Hz run is `600 frames, 16650us apart, gaps in
-/// refreshes 2x600` over seven periods in a row, none lost at all.
+/// refreshes a real machine does not lose — measured: a fixed cost lost refreshes steadily through a
+/// simulated run, where a real one goes period after period with none lost at all.
 /// Three sources of unevenness rather than two, and the third is what a scenario about the *rate* wants:
 /// the usual cost is not one number either, it wanders. `jitter_us` is how far above `usual_us` it may
 /// wander, drawn per frame from the same seeded stream the wake delays come from, so a scenario declares
@@ -342,30 +328,24 @@ pub struct Compose {
 }
 
 impl Compose {
-    /// What this machine appears to do, from three observations rather than one:
+    /// An ordinary compositor: cheap on almost every frame, and rarely several times that.
     ///
-    /// - `usual_us` — anything up to about 1200µs reproduces the real 120Hz run exactly:
-    ///   `600 frames, 16650us apart, gaps in refreshes 2x600` with the allowance never climbing off its
-    ///   2500µs start. Above it the simulated allowance climbs where the real one did not. And
-    ///   `scripts/background-flush-probe.c` puts this machine's compose time between 1000 and 2000µs
-    ///   from the other side: a frame handed over 1000µs before a blank made it 54 times in 60, and one
-    ///   handed over 2000µs before made it 60 times in 60.
-    /// - `spike_us` — the compositor is reported to reach about this in **half an hour** of play.
-    /// - `spike_one_in` — which is what half an hour says about how rare it is: thirty minutes at sixty
-    ///   frames a second is 108,000 frames, and reaching 3500µs about once in that is one frame in a
-    ///   hundred thousand. A floor on the rarity rather than a count of it, since nobody counted — but
-    ///   the order of it is the point, and it is the thing this was wrong about. It was nine in six
-    ///   hundred, taken from a mixed-rate run's miss accounting, and that run was mispaced: its misses
-    ///   were the pacing's and not the compositor's. Three orders of magnitude too often, and it cost
-    ///   the simulated 60Hz display two seconds in five that a real one holds.
+    /// Each field is a declaration and the shape of it is what matters, not the value:
     ///
-    /// So a scenario of a few thousand frames sees no spike at all, which is what the real 600-frame
-    /// runs show — `gaps in refreshes 2x600`, none lost. The spike is what the allowance's
-    /// ratchet exists for over a *session*, and a scenario about it says so and sets its own.
-    /// `jitter_us` is what is left over from the same reasoning: the 1200µs that still reproduces the
-    /// real run is the ceiling of the ordinary cost, not its middle, so an ordinary frame is put between
-    /// 1000 and 1200µs rather than at either end.
-    pub fn measured() -> Self {
+    /// - `usual_us` with `jitter_us` — an ordinary frame's cost, low enough that the allowance has no
+    ///   reason to climb off its start. A host declared slower than that is a scenario about the climb,
+    ///   which is what `Compose::flat` and the `converges` rows are for.
+    /// - `spike_us` — the several-times-that a compositor occasionally takes, which is the thing the
+    ///   allowance's ratchet exists for.
+    /// - `spike_one_in` — and how rare that is: rare enough that a scenario of a few thousand frames
+    ///   sees none, which is why a scenario about a spike declares its own rate rather than waiting for
+    ///   this one. This is the field the shape was once wrong about, at nine frames in six hundred: that
+    ///   figure came from a mixed-rate run whose misses were the pacing's and not the compositor's, and
+    ///   being orders of magnitude too often it cost the simulated 60Hz display seconds a real one holds.
+    ///
+    /// What any one host actually takes is read off `--pacing` and is not written down here: a number in
+    /// a comment is one machine's and goes stale the moment anybody else runs it.
+    pub fn ordinary() -> Self {
         Self {
             usual_us: 1_000,
             jitter_us: 200,
@@ -374,7 +354,7 @@ impl Compose {
         }
     }
 
-    /// As [`measured`](Self::measured), with the ordinary cost wandering as far as a scenario says.
+    /// As [`ordinary`](Self::ordinary), with that cost wandering as far as a scenario says.
     ///
     /// For the rows of a decision table that vary the compositor's unevenness on its own, since what the
     /// spike answers for and what a restless ordinary cost answers for are not the same thing: the
@@ -383,23 +363,21 @@ impl Compose {
     pub fn wandering(jitter_us: i64) -> Self {
         Self {
             jitter_us,
-            ..Self::measured()
+            ..Self::ordinary()
         }
     }
 
-    /// As [`measured`](Self::measured), but spiking often enough that a scenario a few hundred frames
+    /// As [`ordinary`](Self::ordinary), but spiking often enough that a scenario a few hundred frames
     /// long sees several.
     ///
-    /// One in a hundred thousand is what half an hour of play suggests, and over a fifteen-second
-    /// scenario that is no spikes at all — a path nothing reaches is a path nothing tests. So a scenario
-    /// about the spike says how often, and this is the rate that puts a handful inside one: one in three
-    /// hundred is about three a run, which is what the allowance's ratchet has to answer for.
+    /// A spike as rare as [`ordinary`](Self::ordinary) declares is no spike at all over a scenario a few
+    /// seconds long, and a path nothing reaches is a path nothing tests. So a scenario about the spike
+    /// says how often, and this is the rate that puts a handful inside one run.
     ///
-    /// Deliberately not the default. What the default is for is asking whether a display holds sixty on
-    /// the machine this was measured from, and a compositor spiking three hundred times as often is not
-    /// that machine.
+    /// Deliberately not the default. What the default is for is asking whether a display holds sixty
+    /// against an ordinary compositor, and one spiking hundreds of times as often is not that question.
     ///
-    /// And with the ordinary cost held still, unlike [`measured`](Self::measured): the allowance answers
+    /// And with the ordinary cost held still, unlike [`ordinary`](Self::ordinary): the allowance answers
     /// a spike and a restless ordinary cost with the same ratchet, so a scenario that moved both could not
     /// say which of them moved it. A row about the wander says so with
     /// [`wandering`](Self::wandering).
@@ -407,7 +385,7 @@ impl Compose {
         Self {
             jitter_us: 0,
             spike_one_in: 300,
-            ..Self::measured()
+            ..Self::ordinary()
         }
     }
 

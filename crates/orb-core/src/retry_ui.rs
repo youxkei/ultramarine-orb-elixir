@@ -177,6 +177,10 @@ impl RetryMenu {
         log!("retry: {} — {how}, back to the choices", choice.label());
     }
 
+    /// Drawn into the game's own back buffer through the D3D overlay, which is right for this menu —
+    /// it belongs over the game — and carries the game's repainting with it: anything drawn this way
+    /// where the game does not repaint accumulates instead of being replaced.
+    ///
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay, area: Rect, chapter: &str, retries: u32) {

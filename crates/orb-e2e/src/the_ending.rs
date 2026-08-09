@@ -17,8 +17,8 @@
 //!
 //! **What the laid-out game reproduces is the two signals and the arithmetic between them**, not the
 //! wall clock: an ending laid out with those frames of waits, the script it hands over to, and the track
-//! each part plays — see `Fake::lays_out_an_ending`. The seconds and the milliseconds in the
-//! measurements below are the real game's.
+//! each part plays — see `Fake::lays_out_an_ending`. The frame and update counts below are the game's own
+//! and come out the same anywhere; how long any of it took is one machine's and is not written down.
 
 use crate::fake::th06::{Fake, STAGES, the_run};
 use crate::fake::{Launched, in_its_own_process};
@@ -166,8 +166,8 @@ fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
 
 /// The roll plays on its own afterwards, at the rate everything else is paced at.
 ///
-/// Measured over the same clear: **7,286 drawn frames over 122.0 seconds**, 16.74ms each, with
-/// `0 shown late` and the audio never behind, and the scene after it was 7, the result screen.
+/// Measured over the same clear: **7,286 drawn frames**, held to the cadence with `0 shown late` and the
+/// audio never behind, and the scene after it was 7, the result screen.
 ///
 /// The roll's own length is the 7,830 frames of waits in `staff00.end`, and it is played out an update a
 /// frame — the skip does not start again over it, the ending's flag staying set and the scene staying 10
@@ -253,10 +253,9 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
 /// The two ways of measuring an ending agree, and the arithmetic between them is what says so.
 ///
 /// The clear above ran the ending alone at 29,040 updates. An earlier clear measured the ending and the
-/// roll together at **36,932 updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times
-/// and then `932 frames run, scene 10 -> 7`, 484ms of wall clock, 13µs an update, with the scene after
-/// it opening the score file 47ms later. 36,932 − 29,040 = **7,892**, against the **7,830** frames of
-/// waits in `staff00.end`.
+/// roll together at **36,932 updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times and
+/// then `932 frames run, scene 10 -> 7`, with the scene after it opening the score file. 36,932 − 29,040 =
+/// **7,892**, against the **7,830** frames of waits in `staff00.end`.
 ///
 /// **What the two ways are.** The skip stops where the script hands over, and it can only do that where
 /// there is a script to compare: an ending orb finds no script in — one whose job is not in the chain —
@@ -266,8 +265,9 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
 /// **The 62 frames between 7,892 and 7,830 are still unaccounted for**, and no laid-out game can account
 /// for them: the roll ran 544 frames short of those 7,830 on that clear, the only wait in it that input
 /// can cut short is one `@w1200` whose second argument is 4, and nobody was watching the keyboard for it.
-/// So what is asserted here is the arithmetic over an ending whose waits are known, and the gap stays in
-/// [TODO.md](../../../TODO.md) for a run against the real game to close.
+/// So what is asserted here is the arithmetic over an ending whose waits are known, and the gap is open:
+/// only a clear that keeps its hands off the keyboard through the roll closes it, which is a run against
+/// the real game and nothing a scenario can do.
 #[test]
 fn the_ending_and_the_roll_together_come_to_the_waits_in_the_script() {
     in_its_own_process(|| {

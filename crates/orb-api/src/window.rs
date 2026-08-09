@@ -4,9 +4,9 @@
 //!
 //! The three sizes are behind the seam for one reason, and it is not that they are Win32 calls: what
 //! `orb::window` lays out is decided by numbers only the host knows, and a test that cannot move them
-//! cannot reach the layout at all. The frame is the host's and its theme's — 6x40 on this machine —
-//! and the monitor answers two different sizes for one panel depending on whether the process has said
-//! it is DPI aware. Both of those are measurements, and each is kept beside the call that reports it.
+//! cannot reach the layout at all. The frame is the host's and its theme's, and the monitor answers two
+//! different sizes for one panel depending on whether the process has said it is DPI aware. Neither is
+//! a number orb may assume, which is why each is a call here and why a scenario declares its own.
 
 use crate::{Bar, Hwnd, Rect};
 

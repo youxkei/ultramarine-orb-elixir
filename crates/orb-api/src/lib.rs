@@ -408,7 +408,9 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// Behind the seam because every size orb lays out is measured against what the host reports
     /// *after* this, and no test can otherwise make a host report two different sizes for one
-    /// monitor. Measured on this machine: a 3840x2160 panel reads as 2560x1440 until this is called.
+    /// monitor: a scaled desktop reports the scaled size until this is called and the panel's own
+    /// afterwards, so the same monitor has two sizes and which one a layout used is the whole of
+    /// whether it was right. `orb_sim::Windows::monitor_reads` is a host that answers both.
     fn set_process_dpi_aware(&self) -> bool;
 
     /// `MonitorFromPoint(0,0)` and `GetMonitorInfoW` — the primary monitor, in the desktop's own
@@ -419,8 +421,8 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// Behind the seam because how thick a frame is belongs to the host and to its theme: the size in
     /// `orb.yaml` is the size of what is *inside* the window, so the frame is what stands between the
-    /// number asked for and the window to ask for. Measured on this machine: 6x40 round the
-    /// caption-and-system-menu style `orb::window` asks for.
+    /// number asked for and the window to ask for, and it is not a number orb can know. The frame a
+    /// scenario charges is `orb_sim::Windows`'s.
     ///
     /// `None` where the host refused, which leaves the rectangle as the client area — a window a
     /// frame too small rather than no window.

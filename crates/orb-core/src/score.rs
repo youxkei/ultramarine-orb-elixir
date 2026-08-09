@@ -20,6 +20,17 @@
 //! follows it: a normal run and the ranking of normal runs are the game's own file, which is
 //! where a run anybody could have played belongs.
 //!
+//! **Forking is as far as this goes, and orb's own format is the thing not to reach for.** Two files keep
+//! runs that were rewound away from runs somebody played, and that is all they do: they do not make the
+//! rewound ones comparable with each other, since a miss there costs a rewind rather than a life and the
+//! number rewards grinding one chapter until it goes perfectly. What would make the file worth reading is
+//! the retries beside the score — `RETRY` is counted already — and that means orb's own format, and with
+//! it the game's own ranking screen no longer being where these are read. Nothing here is broken, so that
+//! is a whole mechanism bought for a number nobody has asked for.
+//!
+//! **A window closed mid-run writes nothing**, and there is nowhere to put the fix: there is no front end
+//! left to take the run through and the loop is on its way out. 紅魔郷 loses that record too.
+//!
 //! **What is left in `orb::score` is the write over the exe's import of `CreateFileA`.** The replacement
 //! that entry is pointed at is [`create_file_a`] and it is here, being a hook body like the eleven in
 //! [`crate::runtime`]: nothing in it is per-game and nothing in it is Windows. See
@@ -35,6 +46,11 @@ use crate::log;
 const THEIRS: &[u8] = b"score.dat";
 /// orb's, beside it and named for the mode whose runs are in it, so that a directory listing
 /// says which is which.
+///
+/// An earlier version of orb called this `orb_score.dat`, and nothing reads or renames that name now: a
+/// directory that has one has its old pointdevice scores in a file nothing opens. Renaming it on sight
+/// would be orb writing to a file it did not create, over a name it cannot be sure of, so it is left
+/// where it is.
 const OURS: &[u8] = b"pointdevice_score.dat";
 
 /// `GENERIC_WRITE`, which is Win32's own number for it.

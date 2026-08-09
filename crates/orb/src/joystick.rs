@@ -6,8 +6,8 @@
 //! would have gone through it. Everything past this line is covered that way — see
 //! `orb-e2e/src/mode_on_a_winmm_pad.rs`.
 //!
-//! The thread that takes the samples, what a sample means, and the measurement of the 8.7ms call this
-//! exists to move are all [`orb_core::joystick`]'s.
+//! The thread that takes the samples, what a sample means, and why the call this exists to move is off
+//! the game's frame at all are [`orb_core::joystick`]'s.
 
 use orb_core::joystick::{JoyGetPosEx, answer, install_over};
 

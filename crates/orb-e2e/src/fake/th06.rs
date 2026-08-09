@@ -413,9 +413,9 @@ pub const NOT_TRIED: &str = "？？？？？";
 
 /// How long the result screen a run ends into stands before it leaves for the title.
 ///
-/// Not at once, because the real one is a screen somebody reads — **9.5 seconds** of it measured between
-/// the two scene lines of a cleared run — and orb's trip through the ranking has to fit inside the frames
-/// one takes: what that budget is measured against is `COMMIT_FRAME_LIMIT`. Past
+/// Not at once, because the real one is a screen somebody reads — it stood for a long stretch between the
+/// two scene lines of a cleared run — and orb's trip through the ranking has to fit inside the frames one
+/// takes: what that budget is measured against is `COMMIT_FRAME_LIMIT`. Past
 /// [`REPLAY_QUESTION_DRAWN_AT`], so that a screen left to itself really would draw the question orb writes
 /// past.
 const RESULT_FRAMES: i32 = 120;

@@ -1,10 +1,11 @@
 //! **The window orb makes: the size asked for, the monitor's real pixels, and the black beside the game.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken on this machine — a 3840x2160
-//! monitor that reads as 2560x1440 to a process that has not asked otherwise, with a 6x40 frame round a
-//! window of a chosen size. Both of those are the host's, declared through [`Panel::measured`], and both
-//! are numbers no test could otherwise move: `orb_sim::Monitor` answers two sizes for one panel and
-//! `orb_sim::Windows` charges the frame on the way in and gives it back on the way out.
+//! What each scenario holds is the layout orb has to come out with on the host it declares — a scaled
+//! monitor that reads one size to a process which has not asked otherwise and another once it has, with a
+//! frame round a window of a chosen size. Both of those belong to the host and neither is a number a test
+//! could otherwise move, which is why they are declared through [`Panel::scaled`]: `orb_sim::Monitor`
+//! answers two sizes for one panel and `orb_sim::Windows` charges the frame on the way in and gives it
+//! back on the way out. The values are that declaration's and stand for any host of the same shape.
 //!
 //! **The game asks for a window and orb rewrites every argument of the ask.** `Fake::creates_its_window`
 //! is that call — 646x505 at 17,23 with a caption, which is nothing like any answer below — so what these
@@ -30,7 +31,7 @@ const BAR_TEXT_HEIGHT: i32 = 30;
 const CLIENT: (u32, u32) = (1280, 720);
 const WHOLE: (i32, i32) = (1286, 760);
 
-/// The one this machine's panel reads as before and after the process says it is DPI aware.
+/// What the declared panel reads as before and after the process says it is DPI aware.
 const SCALED: (i32, i32) = (2560, 1440);
 const REAL: (i32, i32) = (3840, 2160);
 
@@ -47,7 +48,7 @@ const REAL: (i32, i32) = (3840, 2160);
 fn a_game_configured_for_full_screen_is_put_in_a_window_before_it_makes_one() {
     in_its_own_process(|| {
         let game = Fake::attach_to_a_panel(
-            Panel::measured(),
+            Panel::scaled(),
             "the-window-overruled",
             the_run(),
             |config| config.screen = Screen::Fullscreen,
@@ -86,7 +87,7 @@ fn a_game_configured_for_full_screen_is_put_in_a_window_before_it_makes_one() {
 fn a_game_already_in_a_window_is_left_as_it_is() {
     in_its_own_process(|| {
         let game = Fake::attach_to_a_panel(
-            Panel::measured(),
+            Panel::scaled(),
             "the-window-left-alone",
             the_run(),
             |config| config.screen = Screen::Fullscreen,
@@ -112,7 +113,7 @@ fn a_game_already_in_a_window_is_left_as_it_is() {
 /// Nothing of a run is played: what a window is does not depend on what is on screen, and the game sits
 /// where a launch leaves it.
 fn launched(name: &str, screen: Screen) -> Box<Fake> {
-    let game = Fake::attach_to_a_panel(Panel::measured(), name, the_run(), move |config| {
+    let game = Fake::attach_to_a_panel(Panel::scaled(), name, the_run(), move |config| {
         config.screen = screen;
     });
     game.creates_its_window();
@@ -255,7 +256,7 @@ fn a_refused_dpi_awareness_leaves_the_sizes_scaled_and_says_so() {
         let game = Fake::attach_to_a_panel(
             Panel {
                 refuses_dpi_awareness: true,
-                ..Panel::measured()
+                ..Panel::scaled()
             },
             "the-window-dpi-refused",
             the_run(),

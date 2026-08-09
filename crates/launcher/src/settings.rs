@@ -503,9 +503,8 @@ unsafe fn take_answers(dialog: HWND) {
     *ANSWERS.lock().unwrap() = Some(answers);
 }
 
-/// The face and point size windows are written in on this machine, which the dialog is given so
-/// that a face is never named here: one named is one that is missing on somebody's machine, and
-/// this text is Japanese.
+/// The face and point size this host writes windows in, asked of it rather than chosen here: a face
+/// named in the source is a face missing on somebody's machine, and this text is Japanese.
 struct Font {
     face: String,
     points: u16,

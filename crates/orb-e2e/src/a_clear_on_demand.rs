@@ -12,10 +12,10 @@
 //! against the bullets' 11 — so a run that comes out with `deaths=0` came out that way because something
 //! stopped it, and the same bullet in a run without `--clear` kills on the frame it is put there.
 //!
-//! The wall-clock numbers in the measurements below are the real game's: 50.7 seconds of six stages, 235ms
-//! to a death, 9.5 seconds of result screen. What a laid-out game reproduces is the invariants — no death
-//! anywhere, the six stages in order, the ending after them, and the screen that saves a replay never
-//! coming up.
+//! What the measurements below took off the real game is how the run *went*, not how long it took: the
+//! wall clock is one machine's and is not written down. What a laid-out game reproduces is the invariants
+//! — no death anywhere, the six stages in order, the ending after them, and the screen that saves a
+//! replay never coming up.
 
 use crate::fake::th06::{Fake, STAGES, the_run};
 use crate::fake::{Launched, in_its_own_process};
@@ -57,10 +57,10 @@ fn clearing(name: &str) -> Box<Fake> {
 
 /// Six stages with nothing able to hit the player, and no death anywhere in them.
 ///
-/// Measured: `--clear` cleared stages 1 to 6 in **50.7 seconds** of wall clock — the log's stage starts
-/// 5.3, 6.1, 7.7, 9.2 and 9.3 seconds apart — with `deaths=0` from the first stage to the ending and not
-/// one `died in chapter` line, on nothing but the shot key being held. A later run of the same thing put
-/// stages 1 to 6 in 35 seconds and went on into the ending.
+/// Measured: `--clear` cleared stages 1 to 6 inside a minute, with `deaths=0` from the first stage to the
+/// ending and not one `died in chapter` line, on nothing but the shot key being held. Which is the whole
+/// of what it is for — a result screen without half an hour of playing well — and the invariants are what
+/// this asserts, the minute being one machine's.
 #[test]
 fn a_cleared_run_reaches_the_ending_with_no_death_in_it() {
     in_its_own_process(|| {
@@ -181,8 +181,9 @@ fn a_cleared_runs_replay_is_refused_and_an_ordinary_launchs_is_written() {
 
 /// The frames of invulnerability go back with the player's state, and the log said why they have to.
 ///
-/// With the frames left where the last respawn had put them, `died in chapter 1` came 235ms after
-/// `stage 1 chapter 1 (stage start)`, and again after each of the two retries. `Player::OnUpdate` runs at
+/// With the frames left where the last respawn had put them, `died in chapter 1` followed
+/// `stage 1 chapter 1 (stage start)` almost at once, and again after each of the two retries.
+/// `Player::OnUpdate` runs at
 /// chain priority **7** and the bullets are checked at **11**, so the state expired before the hit test
 /// in the update it was written for. Writing the frames left with it fixed that.
 #[test]
@@ -247,7 +248,7 @@ fn the_invulnerability_outlasts_the_hit_test_in_the_update_it_was_written_for() 
 /// score: pointdevice_score.dat opened in place of the game's own     the menu reading it again
 /// ```
 ///
-/// The result screen was up for **9.5 seconds** between those two scene lines, which is the high-score
+/// The result screen was up for a long stretch between those two scene lines, which is the high-score
 /// name entry and the stats screen being played through as they always were — the state is written after
 /// those, not instead of them. Then the title menu, with no save-replay screen in between.
 #[test]
@@ -286,7 +287,7 @@ fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
             "the screen that saves a replay was drawn before orb wrote past it",
         );
 
-        // The screens before it were played through as they always were, which is what the 9.5 seconds
+        // The screens before it were played through as they always were, which is what the stretch
         // between the two scene lines is: the state is written after those and not instead of them.
         assert!(
             game.log().said("run ended after"),
@@ -299,12 +300,10 @@ fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
 /// Nothing is written to any score file, and the game's own teardown still runs.
 ///
 /// Measured over a clear that reached the result screen: the read went through — `score:
-/// orb_score.dat opened in place of the game's own`, 47ms into scene 7 — and the write was refused,
+/// orb_score.dat opened in place of the game's own`, early in scene 7 — and the write was refused,
 /// `score: orb_score.dat not written, this run had nothing able to hit the player`. The game carried on
 /// past it, scene 7 to 1 to 4, which is `WriteDataToFile` checking its open and its caller dropping the
-/// answer. `score.dat` came out with the md5 and timestamp it went in with,
-/// `004c8eda5a29a4ff985529838c21efe5` and `2026-07-29_22:44:45`, and orb's own with
-/// `eca4048d984295dc91ca4f55050a779a` and `2026-08-01_21:18:05`.
+/// answer. Both files came out byte for byte as they went in, checksums and mtimes unchanged.
 ///
 /// Measured when orb's file was `orb_score.dat` and the fork was the `own_score_file` key. It is
 /// `pointdevice_score.dat` now and the fork follows the mode chosen in the game; the seam and the

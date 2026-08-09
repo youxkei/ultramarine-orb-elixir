@@ -334,6 +334,12 @@ impl Drop for Frame<'_> {
 }
 
 /// One line of text, baked to a texture and re-baked only when it changes.
+///
+/// **The texture it keeps belongs to the device it was baked on**, and nothing here says which device
+/// that was. So the same `Label` drawn against a *second* device hands over the first one's texture,
+/// which is a use-after-free rather than a wrong picture. A run never arranges it — there is one device,
+/// and the overlay is rebuilt with the new one when it is lost — so only a test can, and a test that
+/// draws should make one device of its own and draw every frame of that test on it.
 pub struct Label {
     texture: Option<Texture>,
     baked: String,

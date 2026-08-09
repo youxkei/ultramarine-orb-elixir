@@ -7,8 +7,7 @@
 //! compositor is not timing. A simulated display says so in a line.
 //!
 //! What is *not* behind the seam is whether a frame landed on a real blank. That is a measurement of
-//! real hardware, and it is beside `frame::Pacing::grid` with the probe that took it —
-//! `scripts/compositor-probe.c` and `scripts/background-flush-probe.c`.
+//! real hardware, and what it decided is beside `frame::Pacing::grid`.
 
 use crate::{Composition, Hwnd};
 

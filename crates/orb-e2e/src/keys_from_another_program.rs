@@ -126,9 +126,9 @@ fn an_injected_key_reaches_the_game_only_once_orb_has_released_its_device() {
 
 /// A press has to be repeated, because two moments in the front end spend one on nothing.
 ///
-/// Measured, two things about the timing: a press inside the title's own opening animation is spent on
-/// nothing, and the attract demo eats one to leave. So what works is **a press every 1.1 seconds until
-/// the log says the screen moved**, rather than one press per screen.
+/// Measured, two things: a press inside the title's own opening animation is spent on nothing, and the
+/// attract demo eats one to leave. So what works is **pressing again until the log says the screen
+/// moved**, rather than one press per screen and hoping.
 #[test]
 fn a_press_is_repeated_until_the_screen_moves_because_two_moments_swallow_one() {
     in_its_own_process(|| {

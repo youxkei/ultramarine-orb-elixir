@@ -96,6 +96,11 @@ const ENDING_SKIP_LIMIT: u32 = 60 * 60 * 15;
 /// A stop on the trip through the ranking that writes what a run counted about spell cards: room for
 /// the front end's wait on the item and the screen building itself, in updates run inside one frame
 /// with nothing drawn.
+///
+/// **Inside one frame on purpose, and the frame is long enough to feel.** Spreading the trip over
+/// frames is spreading something that would then be *drawn*, which is the ranking screen appearing for
+/// a second on the way out of a run — the thing this shape was arrived at to stop. So the cost is a
+/// pause where a run is given up, and the alternative is a second of a screen nobody asked for.
 const COMMIT_FRAME_LIMIT: u32 = 240;
 
 /// How many times the stress mode restores the same chapter before letting the
@@ -139,6 +144,11 @@ const FLASH_JUDGING: Flash = Flash {
 /// Dimmer and shorter than a judging pass's, but not by as much as it was: 0x40 held two
 /// frames of ten went unnoticed in play, where attention is on the player and not on the
 /// field. Somebody watching a pass is looking straight at the frame the wash is on.
+///
+/// **If a wash bright enough to notice turns out to be a wash in the way, the answer is a different
+/// shape and not another number**: the field's *edge* rather than over it, which says a chapter began
+/// without taking any of the field away. Turning these two numbers down again only trades one of the
+/// two faults for the other.
 const FLASH_PLAYING: Flash = Flash {
     alpha: 0x70,
     hold: 3,
@@ -313,6 +323,10 @@ pub static PACING: MainThread<Option<frame::Pacing>> = MainThread::new(None);
 /// draws from its window proc, so a hook can be entered again from inside itself.
 /// Nested entries run the game and nothing of ours: `Runtime` is handed out as
 /// `&mut`, and two of those at once is not a thing that can be reasoned about.
+///
+/// **Nothing tests this and nothing can**, which is the one thing a simulated Windows is still the
+/// answer to and does not have: the re-entry comes from a message pump, and there is no pump for a
+/// scenario to drive. So the flag is reasoned about rather than asserted.
 pub static IN_HOOK: AtomicBool = AtomicBool::new(false);
 
 pub static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
@@ -974,8 +988,7 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
         // function, and the game's own loop calls it straight back, so a return that waits for
         // nothing spins a core for as long as the window stays behind. On the compositor's blanks
         // like any other frame — a window behind, one covered and one minimised all flush at the
-        // compositor's own rate with every gap one refresh, measured in
-        // `scripts/background-flush-probe.c`.
+        // compositor's own rate with every gap one refresh, which is measured rather than assumed.
         unsafe { pacing() }.wait_for_slot(window);
         return RENDER_KEEP_RUNNING;
     }
@@ -1351,9 +1364,8 @@ pub extern "C" fn save_replay(path: *const u8, name: *const u8) {
 ///
 /// So leaving a stage part way — which is what moving between a replay's stages
 /// does — leaves that stage terminated at the frame it was left on. Play it again and
-/// the player takes no input from there: it stands still and is hit. Measured at
-/// 297414375ms in `orb.log`, jumping out of stage 1 around script frame 250 and
-/// straight back, three lives gone by frame 1027.
+/// the player takes no input from there: it stands still and is hit. Measured by jumping out of
+/// stage 1 around script frame 250 and straight back — three lives gone by frame 1027.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its
 /// own teardown calls that function, there being no prologue to patch — see
@@ -2725,9 +2737,9 @@ unsafe fn before_draw() {
 ///
 /// **Asked of the run and not of the frame**, which is `runtime.previous`, and which was wrong
 /// about the mark twice over. It is the gameplay scene alone, so it does not hold the frame a stage
-/// transition is built in — one frame of the log and a quarter of a second of screen, `f44096
-/// scene=3 stage=2` and then `f44097 scene=2 stage=3 frames=1` 265ms later, every transition of
-/// that run between 250 and 265ms. And it is dropped outright wherever an update has put the game
+/// transition is built in — one frame of the log and a visible stretch of screen, `f44096
+/// scene=3 stage=2` and then `f44097 scene=2 stage=3 frames=1`, the game building the next stage
+/// inside it and every transition of that run the same. And it is dropped outright wherever an update has put the game
 /// somewhere that has nothing to do with the frame it froze on — a chapter put back, a resume
 /// landed — which are frames in the middle of a run and drawn like any other. On both the mark went
 /// off, and the game paints that row from its own "this row changed" bits without asking orb, so

@@ -104,8 +104,8 @@ mod tests {
     /// the machine and the `windows-sys` bindings.
     ///
     /// What is deliberately not asserted here is how *accurate* the wait is. That is a property of the
-    /// host, it belongs to `scripts/wait-probe.c`, and its answer is written down beside
-    /// `frame::SPIN_US` — a suite that asserted it would be asserting that this machine is a good one.
+    /// host and what it decided is beside `frame::SPIN_US` — a suite that asserted it would be
+    /// asserting that the machine it happens to be running on is a good one.
     #[test]
     fn this_host_can_create_the_timer_the_waits_are_made_on() {
         assert_ne!(
@@ -132,8 +132,8 @@ mod tests {
         // spin after the wait be the only thing between it and the deadline.
         assert!(took_us >= asked_us, "{took_us}us for a {asked_us}us wait");
         // And generously bounded, because the number this is here to catch is a units error — the
-        // conversion off by ten makes this 50,000µs. The worst overshoot ever measured on this host is
-        // 1.4ms, so 20ms of slack is a suite that does not fail for being run on a busy machine.
+        // conversion off by ten makes this 50,000µs. The slack is orders of magnitude above any
+        // overshoot measured, so this is a suite that does not fail for being run on a busy machine.
         assert!(
             took_us < asked_us + 20_000,
             "{took_us}us for a {asked_us}us wait"

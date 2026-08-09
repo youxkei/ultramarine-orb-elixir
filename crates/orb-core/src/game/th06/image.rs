@@ -205,8 +205,8 @@ const CLEARED_RECORD_BYTES: usize = 0x18;
 /// Inside one. `Th6k base` is the first 0xc — the magic, the two lengths and the version, then a byte of
 /// padding — and after it the two arrays of five difficulties and the shot the record is about.
 ///
-/// `CLRD_MAGIC` is `'DRLC'`, which on this machine is the four bytes `CLRD` in order: a multi-character
-/// literal is big-endian and a `u32` in memory is not, so the two cancel.
+/// `CLRD_MAGIC` is `'DRLC'` in the game's own source and the four bytes `CLRD` in order in the file: a
+/// multi-character literal is big-endian and a `u32` in memory on x86 is not, so the two cancel.
 const CLRD_MAGIC: &[u8; 4] = b"CLRD";
 const TH6K_LEN: usize = 0x4;
 const TH6K_UNK_LEN: usize = 0x6;

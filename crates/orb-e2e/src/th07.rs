@@ -20,7 +20,8 @@ use crate::fake::th07::Fake;
 use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process};
 use orb_core::frame;
 
-/// What the game's own frame takes, read off a real 紅魔郷 run's report line — "(694us to draw + …)".
+/// What the game's own frame is declared to take here: about what a real run's report line shows for the
+/// drawing, so that the pacing is being asked the question a run asks it.
 const WORK_US: i64 = 700;
 
 /// How long the run is: a few seconds of it, which is past the frames orb spends trying to build an

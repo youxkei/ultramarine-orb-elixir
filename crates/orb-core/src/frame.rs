@@ -36,28 +36,17 @@ pub const LOGIC_HZ: u32 = 60;
 /// **The number is what the wait overshoots by**, because covering that is the whole of what the spin
 /// does: a wait aimed at the deadline less this lands *on* the deadline whenever it overshoots by
 /// less than this, and hands the frame over after its blank has gone whenever it overshoots by more —
-/// one refresh lost, visibly. `scripts/wait-probe.c` on this host (Windows 10.0 build 26200, a 32-bit
-/// process, the counter at 10MHz), 1000 waits aimed at each deadline, return minus deadline:
+/// one refresh lost, visibly.
 ///
-/// | aimed at | 2000µs | 4000µs | 8000µs | 16600µs |
-/// | --- | --- | --- | --- | --- |
-/// | the high-resolution timer, p99 | +938µs | +698µs | +828µs | +781µs |
-/// | the high-resolution timer, worst of 1000 | +998µs | +933µs | +1284µs | +1416µs |
-/// | `Sleep` under `timeBeginPeriod(1)`, p99 | +1585µs | +1677µs | +1577µs | +924µs |
-/// | `Sleep` under `timeBeginPeriod(1)`, worst of 1000 | +2086µs | +2011µs | +2153µs | +1644µs |
-///
-/// Which is the measurement the wait was changed for, and it is not the one that was expected: 1500
-/// covers the timer's worst excursion of 4000 waits and does *not* cover `Sleep`'s. What margin the
-/// old call really had came from rounding its wait down to a whole millisecond — up to another
-/// millisecond of spin, gone at every exact multiple and never counted on. See
+/// Measured, and set a little above the worst overshoot seen. Which is why the wait is a
+/// high-resolution timer and not `Sleep`: this figure covers the timer's worst excursions and does
+/// *not* cover `Sleep`'s, and what margin the old call really had came from rounding its wait down to
+/// a whole millisecond — gone at every exact multiple and never counted on. See
 /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
 ///
-/// So the figure stays 1500 and stops being a reading of `Sleep`'s millisecond with headroom, which
-/// is all it ever was. Anything smaller drops frames on this host, and the timer is what makes 1500
-/// enough — but only just: three runs of the same 1000 waits put the timer's worst at **1216, 1416 and
-/// 1432µs**, so 1500 clears the worst seen by 68µs and the p99 by some 600. Whoever finds frames
-/// arriving late here should suspect this number before anything else, and raise it rather than shrink
-/// it: what a larger one costs is a busier core, and what a smaller one costs is refreshes.
+/// The margin over the worst seen is not large, so whoever finds frames arriving late should suspect
+/// this number before anything else, measure their own host's overshoot, and raise it rather than
+/// shrink it: what a larger one costs is a busier core, and what a smaller one costs is refreshes.
 const SPIN_US: i64 = 1500;
 /// How often the display is asked what it is doing. Cheap, but there is no reason to
 /// ask more than once a second: it only changes when the window moves to another
@@ -240,9 +229,9 @@ pub struct Pacing {
     ///
     /// A stage load takes a quarter of a second, and the frame after one misses its blank
     /// through no fault of the compositor — nothing about that says it wants longer. Measured:
-    /// of the three climbs over a 37,800-frame replay, the one at 2400µs happened in a quiet
-    /// period, and the two at 2450 and 2500 both happened in periods carrying a 225ms load,
-    /// while 2450 sat through thirteen quiet periods without missing once.
+    /// over a long replay, most of the climbs the allowance made happened in the reporting
+    /// periods that carried a load, and the value each climbed from had sat through many quiet
+    /// periods without missing once.
     ///
     /// Cleared by the first frame that makes its blank rather than after a fixed count, since
     /// what it is waiting for is the loop being back on its feet and that is the thing that
@@ -447,15 +436,19 @@ const COMPOSE_FLOOR_US: i64 = 1000;
 ///
 /// What the compositor needs is not a threshold with a value below it that always fails and
 /// above it that always works — it is a distribution, and more time only makes a miss rarer.
-/// Measured by climbing from 1000µs in 50µs steps over 36,000 frames: every value from 1250
-/// upward carried the frames that came after it, and each still missed now and then, so the
-/// climb took four and a half minutes and stuttered about twenty times on the way. There was
-/// no edge to arrive at.
+/// Measured by climbing in small steps over tens of thousands of frames: past a certain point
+/// every value carried the frames that came after it, and every one of them still missed now
+/// and then, so the climb stuttered its way up and there was no edge to arrive at.
 ///
-/// So this is a margin past the knee rather than a measurement of any machine: a sweep found
-/// 2500µs and up missing nothing over 1200 frames apiece, while 1500µs missed 5 or 7 and
-/// 800µs missed 35. Somebody who would rather have the microseconds back can find their own
-/// floor with `--compose=N`.
+/// So this is a margin past the knee rather than a reading of any machine, found by sweeping pinned
+/// values until the misses stopped. Somebody who would rather have the microseconds back can find
+/// their own floor with `--compose=N`.
+///
+/// **A run that never stutters says nothing about how far above the knee this is.** The climb only
+/// goes up, so a display whose compositor is satisfied here reports this number back whatever it
+/// would have settled for — the microseconds between the two are real input lag and invisible. What
+/// finds them is `--compose=N` below this and a run long enough to stutter at it, which is the sweep
+/// above rather than anything a paced run can be read for.
 const COMPOSE_START_US: i64 = 2500;
 /// What a frame that missed its blank adds to it. Enough to be worth the trip, since a miss
 /// is one stutter and a hundred microseconds is not; small enough that a frame which missed
@@ -534,27 +527,21 @@ impl Pacing {
     /// **The compositor's whenever there is one**, because that is the only grid a frame can be put on:
     /// `DwmFlush` returns at its blanks and at nobody else's. Both halves of that are measured.
     ///
-    /// `scripts/compositor-probe.c` on a desktop of DISPLAY1 the primary at 120Hz, DISPLAY2 at 120Hz and
-    /// DISPLAY3 at 144Hz: the compositor reported `qpcRefreshPeriod=6944.4us`,
-    /// `rateRefresh=10000000/69444` — the **fastest** monitor's rate, neither the primary's nor the
-    /// window's — and 119 flushes apiece put a window on each of the three at 143.97Hz (means 6946.0,
-    /// 6946.1 and 6945.5µs) while `EnumDisplaySettingsW` answered 120, 144 and 120 about their own
-    /// panels. So the two numbers `adopt` compares really can disagree, and only the first of them moves
+    /// Measured on a mixed-rate desktop: the compositor reports one period for the whole desktop and it
+    /// is the *fastest* monitor's, neither the primary's nor the window's, while `EnumDisplaySettingsW`
+    /// answers about each panel's own. A window on any of the monitors flushes at that one compositor
+    /// rate. So the two numbers `adopt` compares really can disagree, and only the first of them moves
     /// with the window.
     ///
-    /// And the frames really are composed against that grid, from `scripts/background-flush-probe.c`
-    /// handing a frame over a chosen lead before a blank, sixty frames a lead:
-    ///
-    /// | lead | 250µs | 500µs | 1000µs | 1500µs | 2000µs and up |
-    /// | --- | --- | --- | --- | --- | --- |
-    /// | made the blank, in front | 0 of 60 | 11 | 54 | 58 | 60 |
-    /// | made it while covered | 0 of 60 | 12 | 57 | 53 | 60 |
+    /// And the frames really are composed against that grid: measured by handing a frame over a chosen
+    /// lead before a blank, a frame handed over too near one never makes it and a frame handed over far
+    /// enough ahead always does, with the same thresholds for a window covered by a full-screen one as
+    /// for a window in front.
     ///
     /// So `fallback`, which is what a monitor or the desktop reports for itself, is only the rate to
     /// count in where the compositor will not say. Counting in it while flushing on the compositor's
-    /// blanks is what ran a 120Hz window at 72 frames a second on a desktop the compositor timed at
-    /// 144: the frames went on 6944µs blanks while the cadence asked for two of the monitor's 8333µs
-    /// ones.
+    /// blanks is what ran a 120Hz window fast on a desktop the compositor timed at 144: the frames went
+    /// on 6944µs blanks while the cadence asked for two of the monitor's 8333µs ones.
     fn grid(&self, fallback: Option<u32>) -> (Option<u32>, Option<i64>) {
         match composition() {
             Some((period, _)) => (
@@ -638,6 +625,14 @@ impl Pacing {
         // display would get one frame per blank and run the game at 50, seventeen percent slow with the
         // music to match. The clock at least keeps the game's own speed there and leaves the unevenness
         // to the display.
+        //
+        // A grid was the obvious alternative and is not wanted. A 50Hz display could take two blanks
+        // for some frames and one for others, the way the fractional path does above 60, and land every
+        // frame on a blank at an average of 1.2 — sixty frames a second on a 50Hz panel. What it buys
+        // that with is judder by construction: five frames of every six shown for one refresh and the
+        // sixth for two, every second of the run. A display under 60Hz is outside what orb paces at
+        // all, so what it gets here is the game's own speed on a clock that lands anywhere, and not an
+        // even speed traded for uneven frames.
         self.blank_paced =
             blanks > 0 || (measured.is_some() && hz.is_some_and(|hz| hz >= LOGIC_HZ));
         // A compose time shown to be short is shown so of the display it was measured on. The window
@@ -701,10 +696,10 @@ impl Pacing {
         // The window being behind is not one of the reasons. It was: "counting refreshes against it
         // comes out wrong, and the clock will do until that is understood rather than guessed at" — and
         // measuring it says nothing about a window behind comes out wrong.
-        // `scripts/background-flush-probe.c`, 120Hz, 599 gaps a state: in front, behind, covered by a
-        // full-screen window and minimised all flush at 120.00Hz with every gap one refresh, `Present`
+        // Measured, over every state a window can be in: in front, behind, covered by a full-screen
+        // window and minimised all flush at the compositor's rate with every gap one refresh, `Present`
         // never answers `S_PRESENT_OCCLUDED`, and the lead a frame needs to make its blank is the same
-        // 2000µs whether anybody can see it or not. So a background frame is paced on the blanks like
+        // whether anybody can see it or not. So a background frame is paced on the blanks like
         // any other, which is what `always_draw` — on by default — asked for all along.
         //
         // A replay being run fast keeps the cadence like anything else: `speed` is
@@ -896,12 +891,10 @@ impl Pacing {
             // It used to: a clean stretch shaved it, on the reasoning that the least that works is
             // worth having since every microsecond of it is input lag. But the only thing that can
             // say a value is too little is a frame missing its blank at it, so every step downward is
-            // a wager, and every lost wager is a stutter in the middle of a run. Measured, shaving
-            // 100µs a second from 2000µs: the first frame missed at 2000, which set a floor of 2100
-            // that said nothing about 2100 being enough; the walk down took 2500 → 2400 → 2300 →
-            // 2200 → 2100 in four seconds without dwelling anywhere long enough to catch a value that
-            // only fails sometimes; and from there it climbed back 2100 → 2200 → 2300 → 2400 at a
-            // stutter a step, through the whole of stage 1.
+            // a wager, and every lost wager is a stutter in the middle of a run. Measured: a walk
+            // downward passes the real edge without dwelling anywhere long enough to catch a value that
+            // only fails sometimes, and the miss that says so then sets a floor which says nothing about
+            // that floor being enough — so it climbs back a stutter a step, for as long as the walk lasts.
             //
             // Climbing from below has none of that to do. It starts under anything a display has
             // wanted and rises until the misses stop, which at fifty microseconds a frame is over
@@ -926,6 +919,15 @@ impl Pacing {
     /// this was never visibly wrong there. At 144Hz a refresh is 6944 and half a game frame is
     /// 8333, and the moment the compositor's share passed a refresh the gaps collapsed to one
     /// apiece: `gaps in refreshes 1x418 2x179`, a hundred frames a second.
+    ///
+    /// **The fastest rate makes this the shortest, and there is no line here saying the climb was
+    /// refused.** A display fast enough for [`COMPOSE_START_US`] to sit near this leaves the
+    /// allowance with nowhere to go, and a log that only counts the misses reads the same as a
+    /// compositor that is merely slow. What has kept that line from being worth writing is that
+    /// nothing has been shown to reach the state: the allowance is a ratchet driven by missed
+    /// blanks, so a run that was mispaced for any other reason inflates it directly, and a figure
+    /// read off such a run is not a claim about what a compositor wanted. Anyone who suspects the
+    /// ceiling has `--pacing`, whose `frame:` line carries the allowance beside the gaps.
     fn compose_ceiling(&self, period: i64) -> i64 {
         self.micros(period) * 3 / 4
     }
@@ -961,19 +963,18 @@ impl Pacing {
     /// recent frames, so the frame after a spike does almost none of the work the budget was set from
     /// and goes nearly the whole of it early.
     ///
-    /// What it is answering, measured on a 120Hz desktop: a frame whose `PLAY_SOUNDS` ran 8438µs came
-    /// to 8940µs of work, so the budget went to 11440µs, and the frames after it — 250µs of work
-    /// apiece — were handed over 11190µs before their blanks. The blank one refresh earlier was 2857µs
-    /// away against the 2500µs the compositor wanted, so it composed them *there*; the flush came back
-    /// at that earlier blank, the anchor moved a refresh with it, and the next frame went as early
-    /// again. Five turns came out one refresh apart, 6587 to 9820µs — about 120 frames a second — and
-    /// the log said `10 shown a refresh or more early, so the game ran fast for them`.
+    /// What it is answering, measured on a real run: one heavy frame — a spell card starting, and its
+    /// sounds with it — set the budget high enough that the frames after it, doing almost none of that
+    /// work, were handed over further ahead than a refresh. The blank one refresh earlier was then nearer
+    /// than the compositor's share, so it composed them *there*; the flush came back at that earlier
+    /// blank, the anchor moved a refresh with it, and the next frame went as early again. The turns came
+    /// out a refresh apart instead of two and the log said so:
+    /// `shown a refresh or more early, so the game ran fast for them`.
     ///
     /// Bounding the budget was tried instead and is why this exists rather than that: held under a
     /// refresh, the most the budget could start a frame was a refresh before its blank, so work heavier
-    /// than a refresh less the compositor's share could not be covered at all. Swept at 120Hz with
-    /// 2500µs allowed, 5500µs a frame held the cadence and 6000µs ran every frame three refreshes
-    /// apart — 40 frames a second from work a fifth of a game frame long. See
+    /// than a refresh less the compositor's share could not be covered at all — the cadence held up to
+    /// that point and broke to a third of the rate past it, from work a fraction of a game frame long. See
     /// `orb-e2e`'s `pacing`'s `work_that_is_heavy_every_frame_is_covered`, which is that headroom
     /// asserted, and `a_spike_the_ceiling_admits_does_not_hand_the_frames_after_it_over_early`, which
     /// is this.
@@ -1139,6 +1140,11 @@ impl Pacing {
         let band = off.div_euclid(JITTER_BAND_US) + (self.jitter.len() as i64) / 2;
         self.jitter[band.clamp(0, self.jitter.len() as i64 - 1) as usize] += 1;
 
+        // Smoothed over 32 frames, and the status line then holds each value for 30 more — so the rate
+        // on screen is what a run settled at and cannot show the second that lost four frames. That is
+        // what it is for, being read while playing rather than afterwards, and it is why the pacing's
+        // own account is the log's: every frame that missed the cadence is written there with where its
+        // time went, and nothing on screen is a substitute for reading it.
         let interval = self.interval_us;
         let smoothed = if interval == 0 {
             self.micros(gap)
@@ -1400,13 +1406,11 @@ impl Pacing {
             } else {
                 // `pause`, and nothing given up. Yielding here instead — `SwitchToThread` or
                 // `Sleep(0)`, so that the sound and the rest of the system get the core back for the
-                // last stretch — is the obvious improvement and it was measured, in
-                // `scripts/spin-probe.c`: on an idle machine it saves *nothing*, the same 3.34 against
-                // 3.39 Gcycles over ten seconds of frames, because a yield with nobody waiting returns
-                // at once and the loop goes round as often. With every core loaded it made the rest of
-                // the system worse off, not better — the load threads got 0.6% less done with
-                // `SwitchToThread` and 3.6% less with `Sleep(0)` — while the landings went from 80µs
-                // past the deadline at worst to three frames in six hundred over a whole refresh.
+                // last stretch — is the obvious improvement, and it was measured and rejected. On an
+                // idle machine it saves nothing, because a yield with nobody waiting returns at once
+                // and the loop goes round as often. With every core loaded it made the rest of the
+                // system worse off rather than better, and it cost the landings: frames that had been
+                // arriving just past the deadline began missing whole refreshes.
                 clock::spin_once();
             }
         }

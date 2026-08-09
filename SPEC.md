@@ -781,11 +781,11 @@ composed: see *The compositor's drawing time*.
 period `DwmGetCompositionTimingInfo` reports: two at 120Hz, one at 60Hz.
 
 **The compositor's, because that is the grid a frame can be put on.** `DwmFlush` returns at its
-blanks and at nobody else's, whatever monitor the window is on — measured on a desktop of a 120Hz
-primary with a 144Hz monitor beside it, where a window on any of the three flushed at 143.97Hz while
-`EnumDisplaySettingsW` answered about its own panel. And the frames really are composed against that
-grid: handed over 250µs before a blank, every one of sixty missed it; handed over 2000µs before, none
-did, and the threshold is the same for a window covered by a full-screen one as for a window in front.
+blanks and at nobody else's, whatever monitor the window is on, while `EnumDisplaySettingsW` answers
+about the window's own panel — which on a mixed-rate desktop are two different rates, measured.
+And the frames really are composed against that grid: handed over too near a blank they miss it and
+handed over far enough ahead they make it, with the same threshold for a window covered by a
+full-screen one as for a window in front.
 `MonitorFromWindow` and `EnumDisplaySettingsW` are then only the rate to count in where the compositor
 will not say, and otherwise what the log calls the desktop: a frame shown on the compositor's blank
 still has the window's own panel to reach, which is worth a line and decides nothing.
@@ -817,10 +817,10 @@ makes it come out even. The aim is the blank nearest the grid, counted from a ke
 a frame that landed where it was aimed moves that phase on. Measuring the next aim from the last
 *landing* instead cannot correct itself — a frame that lands a refresh late becomes the reference,
 so the following aim asks for one refresh fewer and the lateness is absorbed rather than undone.
-That settles: measured at 144Hz as an aim averaging 2.2 refreshes with a frame in five landing a
-refresh late, which adds back to the 2.4 the display wants, so the rate reads correct while a
-fifth of the frames are shown somewhere nobody asked for. Anchoring the aim instead took that from
-117 frames of every 600 to none.
+That settles: at a fractional rate the aim comes out averaging *less* than the display wants while
+some of the frames land a refresh late, and the two add back to the right average — so the rate
+reads correct while those frames are shown somewhere nobody asked for. Anchoring the aim instead
+leaves none of them.
 
 A grid moment the blank in hand has already passed is a frame that has been missed, and it is
 dropped: the grid starts again one frame from that blank. Left where it was, the aim comes out at
@@ -861,10 +861,10 @@ it is `DwmFlush`'s own return.
 The flush waits for the compositor to compose the next frame rather than for the next blank as
 such, so it returns at the blank the frame just handed over *reached*. Its overshoot against the
 blank that frame was aimed at is therefore a per-frame answer to whether the frame made it, and
-the two cases do not overlap: every frame that made its blank came back within ±900µs of it, and
-every frame that missed came back 5944µs or more late, on a refresh of 8333. Half a refresh is
-the boundary and one frame decides it — nothing to average, and no waiting for a fault that
-happens three times in six hundred frames.
+the two cases do not overlap: a frame that made its blank comes back near it and one that missed
+comes back most of a refresh late, so the two are a refresh apart while the aim is good to a few
+hundred microseconds. Half a refresh is the boundary and one frame decides it — nothing to average,
+and no waiting for a fault that happens a few times in six hundred frames.
 
 Raised 100µs the moment a frame misses, and **never lowered**. Every microsecond of it is input
 lag on every frame, so the least that works is what is wanted — but the only way to learn that a
@@ -872,10 +872,10 @@ value is too little is a frame missing its blank at it, so a value that comes do
 being wagered again, and a lost wager is a stutter in the middle of a run. It starts at 2500µs
 and climbs from there; a display wanting less pays the difference in lag and nothing else.
 
-Shaving it back was tried and is why it is not done. From 2000µs at 100µs a second the first
-frame missed at 2000, which set a floor of 2100 that said nothing about 2100 being enough; the
-walk down passed the real edge without dwelling anywhere long enough to catch a value that only
-fails sometimes; and from 2100 it climbed back at a stutter a step, through the whole of stage 1.
+Shaving it back was tried and is why it is not done. A walk downward passes the real edge without
+dwelling anywhere long enough to catch a value that only fails sometimes, and each step it takes
+below that edge is paid for by a frame missing its blank on the way back up — a stutter a step,
+for as long as the walk lasts.
 
 Three kinds of miss are counted and only one of them climbs:
 
@@ -885,20 +885,21 @@ Three kinds of miss are counted and only one of them climbs:
 | the frame after one of those, and one frame only | still picking itself up, and not the compositor's to answer for |
 | a frame whose own drawing outgrew its budget | late whatever the compositor had been given |
 
-The middle one was measured: of three climbs over a 37,800-frame replay, two happened in the
-periods where a boss appeared — the game stopping for 225ms while it loads one — and the value
-they climbed from had sat through thirteen quiet periods without missing once. The last was
-measured too, and worse: at 144Hz a heavy frame at startup climbed the share to its ceiling, and
-since the budget was capped at the same figure the drawing had no allowance at all, so every
-frame reached the compositor late and every one of those asked to climb again. 120 frames of
-every 600, for the rest of the run.
+Both of the excused ones are there because a run found them. A stage load stops the game long
+enough that the frame it lands on cannot make its blank however much the compositor was given, and
+the frame after it is still picking itself up — climbing for either raises the lag for the rest of
+the run to answer for something the compositor never did. The drawing's own overrun is worse: a
+heavy frame climbed the share to its ceiling, and with the budget capped at the same figure the
+drawing had no allowance left, so every frame afterwards reached the compositor late and asked to
+climb again — a run that never recovers, from one frame.
 
 **Two ceilings, and only one of them is a refresh.** The compositor's share has to stay inside one
 refresh, because the frame is handed over that far before the blank it is aimed at: hand it over
 earlier than the blank before that one and the compositor takes it at the earlier blank. The share is
 three quarters of a refresh. Getting it wrong is invisible at 120Hz, where half a game frame is
-exactly one refresh; at 144Hz a refresh is 6944µs, and a share of 8333 collapsed the gaps to one
-refresh apiece — `gaps in refreshes 1x418 2x179`, a hundred frames a second.
+exactly one refresh; at 144Hz a refresh is 6944µs and half a game frame is 8333, and a share that
+size collapses the gaps to about one refresh apiece — a hundred frames a second, the game running
+fast.
 
 The budget is a whole game frame less a quarter, and does not shrink as the display gets faster.
 That is what makes work heavy on every frame coverable: the budget's whole job is starting such a
@@ -920,19 +921,18 @@ drawing finished after that blank, which is nearly all of them. It is not counte
 either: a budget that grew to include a wait caused by the budget being too high would start the next
 frame earlier, hold it longer and grow again.
 
-Measured, on a 120Hz desktop, which is what all of this is answering: a frame whose `PLAY_SOUNDS` ran
-8438µs came to 8940µs of work, so the budget went to 11440µs, and the frames after it — 250µs of work
-apiece — were handed over 11190µs before their blanks. The blank one refresh earlier was 2857µs away
-against the 2500µs the compositor wanted, so it composed them *there*; the flush came back at that
-earlier blank, the anchor moved a refresh with it, and the next frame went as early again. Five turns
-came out one refresh apart, 6587 to 9820µs, about 120 frames a second, and the log said `10 shown a
-refresh or more early, so the game ran fast for them`.
+What that answers is a run where one heavy frame — a spell card starting, and its sounds with it —
+set the budget high enough that the frames after it, doing almost no work, were handed over further
+ahead than a refresh. The blank one refresh earlier was then nearer than the compositor's share, so it
+composed them *there*, the flush came back at that earlier blank, the anchor moved a refresh with it,
+and the next frame went as early again. The turns came out a refresh apart instead of two — the game
+running fast — and the log said so: `shown a refresh or more early, so the game ran fast for them`.
 
 **Bounding the budget instead was tried and is why the hold exists.** Held under a refresh, the most
 the budget could start a frame was a refresh before its blank, so work heavier than a refresh less the
-share could not be covered at all: swept at 120Hz with 2500µs allowed, 5500µs a frame held the cadence
-and 6000µs ran every frame three refreshes apart, 40 frames a second from work a fifth of a game frame
-long. See [docs/adr/0011](docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md).
+share could not be covered at all — the cadence held up to that point and broke to a third of the rate
+past it, from work a fraction of a game frame long. See
+[docs/adr/0011](docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md).
 
 `orb-e2e`'s `pacing`'s `budget` section holds both halves: `work_that_is_heavy_every_frame_is_covered`
 sweeps 4000 to 9000µs a frame and asks for the cadence at each, and
@@ -964,17 +964,17 @@ while frames slipped a refresh apiece.
 of the recent frames rather than their average, because aiming at the average means missing
 the handover on every frame heavier than it.
 
-A frame that wanted more than the whole budget is left out of that. It is a scene being built
-rather than a heavy frame — `RunCalcChain` runs 252ms where a run ends and the next one is set up —
-and it says nothing about what the frame after it will take. Believed, it pinned the estimate to
-the ceiling, and the frames that followed, two milliseconds of work apiece, were then started
-12.5ms before a blank 8.3ms away: handed over that early they were composed for the blank *before*
-the one they were aimed at, `DwmFlush` returned there with them, so the anchor the next aim is
-counted from moved a refresh early and the frame after was handed over just as early again. One
-frame per refresh is one update per refresh, so the game and everything in it ran at double speed
-for the thirty frames the estimate took to decay back — after every stage load, and with nothing in
-the log saying so, since the buckets take `max(0)` of the overshoot and a frame a refresh early read
-as one that landed exactly where it asked to. Those are counted now.
+A frame that wanted more than the whole budget is left out of that. It is a scene being built rather
+than a heavy frame — `RunCalcChain` takes a quarter of a second where a run ends and the next one is
+set up — and it says nothing about what the frame after it will take. Believed, it pinned the estimate
+to the ceiling, and the frames that followed, doing almost no work, were then started further ahead
+than a refresh: handed over that early they were composed for the blank *before* the one they were
+aimed at, `DwmFlush` returned there with them, so the anchor the next aim is counted from moved a
+refresh early and the frame after was handed over just as early again. One frame per refresh is one
+update per refresh, so the game and everything in it ran fast for as long as the estimate took to
+decay back — after every stage load, and with nothing in the log saying so, since the buckets take
+`max(0)` of the overshoot and a frame a refresh early read as one that landed exactly where it asked
+to. Those are counted now.
 
 **What the wait to a frame's own deadline is.** A waitable timer created with
 `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, made on first use from the frame hook and kept for the run,
@@ -1071,10 +1071,10 @@ table. The DirectInput branch beside it is only entered where the game's `EnumDe
 an attached game controller at startup — where none was, `g_Supervisor.controller` (0x6c6d2c)
 stays null and every frame goes to winmm.
 
-Where nothing answers, that call takes 8.7ms and spends nearly all of it on the CPU — the numbers are
-beside `orb-core/joystick.rs`'s own header — which is half a 16.67ms frame, and being work rather than waiting there
-is nowhere cheap in the frame to put it. Where a joystick does answer it costs under a
-microsecond, so what it charges for is the looking and not the reading. orb
+Where nothing answers, that call was measured taking a large fraction of a frame and spending nearly
+all of it on the CPU, so being work rather than waiting there is nowhere cheap in the frame to put it.
+Where a joystick
+does answer it is fast, so what it charges for is the looking and not the reading. orb
 redirects the exe's import of it and answers the game out of the last sample a thread of its
 own took: every 4ms while a joystick answers, once a second while none does, and never sooner
 than the read itself took, so no device can hold a core of its own. What a sample means —
@@ -1143,7 +1143,7 @@ since a caption or a frame is exactly what puts a border on one — covering the
 with, centred on the monitor, and nothing to resize it with: the size is one of the settings, so
 dragging the edge would be a second place to say it and the one that is not written down. The
 size is of what is *inside* the window, `AdjustWindowRect` being what turns it into the window to
-ask for, so `1280x720` is 1280x720 of game however thick this machine's frames are. A window too
+ask for, so `1280x720` is 1280x720 of game however thick the host's frames are. A window too
 big for the monitor goes against its top-left corner rather than half off the top, since a caption
 above the screen cannot be dragged back onto it.
 
@@ -1164,11 +1164,10 @@ all: the black it leaves down the sides is where the status line goes.
 
 **Anything outside the game that squares windows up wins**, and there is nothing orb can do about
 it: such a tool acts on the window after it exists, which is after every moment orb has. It takes
-the black beside the game with it, and with that the numbers written there. Measured on a machine
-running one — a `1280x720` window was created with a client of exactly 1280x720, still 1280x720
-when the device was created, and 2880x2160 three and a half seconds later, which is 4:3 filling the
-height of a 3840x2160 monitor. The client the window came out with is logged next to the size asked
-for, and again at the device, so a run where this happens says so rather than looking like orb
+the black beside the game with it, and with that the numbers written there. Seen happening: a window
+created with exactly the client asked for, still that at the device, and squared up to 4:3 filling the
+monitor's height some seconds later. The client the window came out with is logged next to the size
+asked for, and again at the device, so a run where this happens says so rather than looking like orb
 getting the size wrong. vpatch's `[Window]` section is the same hazard from inside.
 
 A monitor-sized back buffer would not scale the game: its 2D drawing uses `D3DFVF_XYZRHW`,
@@ -1264,9 +1263,8 @@ the skip runs the scene out the way it did before there was one to read.
 is 7, the result screen. So the limit on the loop is above a whole ending — fifteen minutes of
 game time — because it is a limit per frame rather than on the skip: the frame the loop stops in
 goes on to draw whatever the ending is showing by then, which at two minutes put five frames of
-it on the screen. An update of an ending cost 13µs when the whole 36,932 were timed, which puts
-29,040 of them under 400ms; what the frame the skip runs in actually took is not measured, only
-that it was five refreshes or more.
+it on the screen. What the frame the skip runs in costs is not measured, only that it took five
+refreshes or more — `--pacing` is what would say, its `gap at worst` being that frame.
 
 **Reaching one at all** takes clearing the game: `GameManager`'s end-of-run branch at 0x418f4e
 sends a replay to state 8 and practice to the result screen, and only a run somebody played gets
@@ -1399,9 +1397,10 @@ deleted callback on its way out, so a write while pointdevice mode is on is that
 entered into it, or a ranking that was only looked at and written back as it was read, which is
 what brings `pointdevice_score.dat` into existence before any run has finished. It carries `clrd`
 along with the rest, because the game writes the file whole — so a pointdevice clear is recorded in
-orb's file and unlocks nothing, the front end being lit from `score.dat`. Whether a pointdevice
-clear ought to unlock the Extra stage is in [TODO.md](TODO.md), and would be the union of the two
-files' `clrd`.
+orb's file and **unlocks nothing**, the front end being lit from `score.dat`. That is the shape and not
+a gap in it: what the front end offers is what runs somebody could have played have earned, and a run
+orb could rewind is not one of those. Making a clear in the mode count would mean the union of the two
+files' `clrd`, and with it orb knowing a format and an encryption it stays out of.
 
 **orb's file is a new one, not a copy of the game's.** Nothing seeds it: until a pointdevice run
 has entered a score there is no `pointdevice_score.dat` at all, the open of one that is not there
@@ -1525,7 +1524,8 @@ named here is one that is missing on somebody's machine and the text is Japanese
 `.rc` and a resource compiler in the build, and this is six controls. Being one rather than looking
 like one is the point — a window manager decides whether to leave a window alone by asking what it
 is, and the dialog class is the answer it looks for. A window of orb's own class with a dialog's
-styles was tiled by the one on the machine this was run on, which is how the difference showed up.
+styles was tiled by a window manager that leaves real dialogs alone, which is how the difference
+showed up.
 Its measurements are therefore in dialog units, a quarter of the font's average character width
 across and an eighth of its height down, so the whole of it scales with the font the system gives
 it and nothing in it is in pixels — which is also why display scaling costs the dialog nothing. The
@@ -1542,11 +1542,12 @@ fullscreen is for.
 
 **The dialog answers to a pad**, which no dialog does by itself and which matters because the person
 it is put in front of is about to play a game with one in their hands. `joyGetPosEx` on a thread of
-its own — the same call the game makes, and slow for the same reason: 15ms with a pad awake and 33ms
-with none, so a message loop cannot be made to wait for it — read again as soon as each read
-finishes, because a press is only ever seen if a read lands while the button is down. A cycle that
-waited 120ms between reads was 155ms long and lost quick taps between two of them, which is what a
-pad that answers *sometimes* looks like; the launcher now also prints whether a pad answered at all
+its own — the same call the game makes, and slow for the same reason, the worse case being the one
+where there is no pad to find, so a message loop cannot be made to wait for it — read again as soon
+as each read finishes, because a press is only ever seen if a read lands while the button is down. A
+cycle that waited between reads was longer than a quick tap and lost taps that fell between two of
+them, which is what a pad that answers *sometimes* looks like; the launcher now also prints whether a
+pad answered at all
 and how many pushes it sent, since a pad that was never there and one that was pushed and ignored
 want opposite things done about them. The thread posts what it sees to the dialog,
 which turns it into what the dialog manager and the controls already answer to.

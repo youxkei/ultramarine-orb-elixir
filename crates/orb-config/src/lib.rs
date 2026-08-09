@@ -44,7 +44,8 @@ pub struct Config {
     /// For driving a session from a script, which is otherwise impossible: the game takes its
     /// keyboard `DISCL_EXCLUSIVE | DISCL_FOREGROUND` and such a device does not see `SendInput`, so
     /// every screen — the game's menus and the questions orb puts over them — needs a hand. Measured
-    /// rather than assumed; see `TODO.md`.
+    /// rather than assumed, and `orb-e2e`'s `keys_from_another_program` is that measurement as a
+    /// scenario: a key another program sent reaches the game only once orb has let the device go.
     pub sent_keys: bool,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.

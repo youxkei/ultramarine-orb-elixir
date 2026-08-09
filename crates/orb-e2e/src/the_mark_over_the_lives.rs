@@ -75,10 +75,9 @@ fn marked_on_the_frame_a_press_reaches(
 /// The mark is drawn on the run rather than on the frame, so a stage transition does not lose it.
 ///
 /// A stage transition leaves the gameplay scene for exactly one frame — `f44096 scene=3 stage=2` and then
-/// `f44097 scene=2 stage=3 frames=1` — and the log's timestamps put those **265ms** apart, because the game
-/// builds the next stage inside that frame. Every transition of the run went the same way, **250ms to
-/// 265ms** each, so the one frame the mark was asked about and said no to was a quarter of a second of
-/// screen: the count came back for an instant at every stage boundary.
+/// `f44097 scene=2 stage=3 frames=1` — and that one frame is long, because the game builds the next stage
+/// inside it. Every transition of the run went the same way, so the one frame the mark was asked about and
+/// said no to was a visible stretch of screen: the count came back for an instant at every stage boundary.
 ///
 /// The frame a chapter is put back on is the same case for a different reason — the update drops what it
 /// knows of the frame it froze on, a chapter put back not being a continuation of it. Both are a run's own

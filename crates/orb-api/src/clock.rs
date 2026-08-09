@@ -5,12 +5,11 @@
 //! numbers that come out — `grid_aim`, `next_budget`, `whole_multiple`, `on_cadence` — so those are
 //! tested by handing them numbers, and what a seam adds is the order the waiting calls come in. What
 //! matters about the waiting is whether frames land on blanks, which is a measurement of real
-//! hardware rather than anything a simulated clock can answer; it is beside `frame::Pacing::grid`,
-//! with the probe that took it.
+//! hardware rather than anything a simulated clock can answer; what it decided is beside
+//! `frame::Pacing::grid`.
 //!
 //! The wait's own timer is made behind here and never crosses, and how accurate it is was measured
-//! too — `scripts/wait-probe.c`, beside `frame::SPIN_US`, which is the spin that covers what it
-//! overshoots by.
+//! too — beside `frame::SPIN_US`, which is the spin that covers what it overshoots by.
 
 /// `QueryPerformanceCounter`, for measuring how long something took.
 pub fn counter() -> i64 {
@@ -36,9 +35,9 @@ pub fn frequency() -> i64 {
 /// Divided down from [`counter`] rather than read off `GetTickCount`, which follows the system timer
 /// tick and is therefore fifteen milliseconds coarse unless somebody has asked the whole system for
 /// better. Nothing asks any more — the frame loop's wait does not need it — and a stamp that could
-/// not say when anything happened would take `--pacing`'s two-stamp readings with it. Measured on
-/// this host, in `scripts/wait-probe.c`: `GetTickCount` advances by 15 or 16ms with no resolution in
-/// force, and the counter is exact to the millisecond either way.
+/// not say when anything happened would take `--pacing`'s two-stamp readings with it. Measured: with
+/// no resolution in force `GetTickCount` advances by the system timer's tick and nothing finer, and
+/// the counter is exact to the millisecond either way.
 ///
 /// Zero where the host has no counter, which is a host that cannot say when anything happened at all.
 pub fn ticks() -> u32 {

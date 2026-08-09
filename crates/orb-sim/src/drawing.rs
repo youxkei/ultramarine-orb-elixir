@@ -126,6 +126,10 @@ struct Held {
 }
 
 /// The device a scenario's game shows through, and everything asked of it.
+///
+/// **Whatever keeps this installed has to be a field of it** rather than a second value handed back
+/// beside it: a guard returned alongside drops *first*, so the installation goes away while the textures
+/// this recording still holds are being released, and the next test finds them cleared under it.
 pub struct Recording {
     drawn: Mutex<Drawn>,
     /// The textures handed out, by the handle each was given. The handle is an address of its own

@@ -114,17 +114,15 @@ fn reads_and_writes(opens: &[Open]) -> (Vec<String>, Vec<String>) {
 
 /// The front end's own read is the game's file, and every other open follows the mode.
 ///
-/// Measured over a session on 2026-08-05, both halves of the bracket on `MainMenu::AddedCallback`:
+/// Measured over a session, both halves of the bracket on `MainMenu::AddedCallback`:
 ///
-/// - `unlocks read hook installed, original at 0x02940000` at 357601218ms, so the six bytes at
-///   **0x43a464** were the `push ebp; mov ebp,esp; sub esp,0x10` expected of it.
-/// - The menu was up at 357605156ms (`f0 scene=1`) with **no `score:` line anywhere in between**, where
-///   the same point in the session before the bracket had one at 338359890ms.
-/// - Answering pointdevice at the *Score* item (357616406ms) and the screen coming up at 357617437ms
-///   (`f555 scene=6`) was followed by `score: pointdevice_score.dat opened in place of the game's own`
-///   31ms later.
-/// - Neither file was written by any of that: mtimes stayed `2026-08-04_19:01:40` and
-///   `2026-08-04_19:03:35`.
+/// - The hook went in, so the six bytes at **0x43a464** were the `push ebp; mov ebp,esp; sub esp,0x10`
+///   expected of it.
+/// - The menu came up with **no `score:` line anywhere in between**, where the same point in a session
+///   before the bracket had one.
+/// - Answering pointdevice at the *Score* item and the screen coming up was then followed by
+///   `score: pointdevice_score.dat opened in place of the game's own`.
+/// - Neither file was written by any of that: both mtimes were unchanged.
 #[test]
 fn the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode() {
     in_its_own_process(|| {
@@ -217,10 +215,10 @@ fn leaving_the_ranking_writes_orbs_file_with_nothing_entered() {
 /// Each mode's ranking screen writes its own file, and the mode an answer left behind cannot reach the
 /// other.
 ///
-/// Measured in one session: answering pointdevice at the *Score* item sent the read to orb's file at
-/// 357617468ms and the write at `2026-08-05_00:21:53`; answering the game's own ranking next — `mode:
-/// normal, was pointdevice` at 357638484ms — read and wrote `score.dat`, mtime `2026-08-05_00:22:28`.
-/// Every item that opens the file asks first, which is what makes that safe.
+/// Measured in one session: answering pointdevice at the *Score* item sent both the read and the write
+/// to orb's file; answering the game's own ranking next — `mode: normal, was pointdevice` — read and
+/// wrote `score.dat`, and each file's mtime moved only for its own answer. Every item that opens the file
+/// asks first, which is what makes that safe.
 #[test]
 fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
     in_its_own_process(|| {
@@ -276,10 +274,10 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
 /// A missing `pointdevice_score.dat` locks the unlocks rather than leaving them as they were, and the
 /// front end's own read is what keeps them.
 ///
-/// Measured on a launch with no such file — `score.dat` beside it untouched, mtime
-/// `2026-08-02_18:47:50`: `Extra Start` came up **locked** on the title menu with pointdevice chosen, and
-/// the log's only score line for that menu was `score: pointdevice_score.dat opened in place of the
-/// game's own` at 338359890ms. Which is the session that put the bracket over
+/// Measured on a launch with no such file and `score.dat` beside it untouched: `Extra Start` came up
+/// **locked** on the title menu with pointdevice chosen, and the log's only score line for that menu was
+/// `score: pointdevice_score.dat opened in place of the game's own`. Which is the session that put the
+/// bracket over
 /// `MainMenu::AddedCallback` there: the menu was being lit from the mode's file, and a mode whose file is
 /// new has nothing in it.
 ///
@@ -418,9 +416,9 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
 
 /// What a session counted about spell cards survives a run that ended anywhere but the result screen.
 ///
-/// Watched on 2026-08-05 in play. A run ended elsewhere is taken through the game's own ranking, which is
-/// where it writes: `score: a run ended; what it counted waits for the trip through the ranking` at
-/// 371528265ms, `score.dat opened as the game's own, write` **297ms** later, and `score: taken through the
+/// Watched in play. A run ended elsewhere is taken through the game's own ranking, which is
+/// where it writes: `score: a run ended; what it counted waits for the trip through the ranking`, then
+/// `score.dat opened as the game's own, write`, and `score: taken through the
 /// ranking in 84 update(s) — cur=1 wanted=1`. The same shape with `pointdevice_score.dat` for a
 /// pointdevice run. Both modes, and both ways out of a run — orb's retry menu and the game's own `ESC`.
 /// The counts read off the game's own screen afterwards were up: the attempt count against the card a
@@ -520,7 +518,7 @@ fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write
 /// `CARD_HISTORY` — so a card the file holds no record of stands in memory carrying a name nobody wrote, and
 /// the ranking screen draws that name the moment its attempts are not zero (0x42e26e).
 ///
-/// **Watched on 2026-08-09**: `No.37` on the 完全無欠 ranking drawing the generator's own bytes where
+/// **Watched in play**: `No.37` on the 完全無欠 ranking drawing the generator's own bytes where
 /// 傀符「操りドール」 belongs, against 0 captures and 4 attempts — every one of those four orb's own, `resume:
 /// 4096 byte(s) of captures put back` and `resume: attempt N at this spell card` on the same millisecond,
 /// thirteen such pairs in `th06/orb.log`. A retry cannot heal a row already written wrong: a chapter's
@@ -638,16 +636,16 @@ const NO_CARD_UP: &str = "score: no spell card is up; no attempt counted";
 /// against and a row the ranking screen never draws a name for again: the landing is *inside* the card, so
 /// nothing starts it a second time.
 ///
-/// **Watched on 2026-08-09** with `pointdevice_score.dat` moved aside, which is the state this lays out, and
+/// **Watched in play** with `pointdevice_score.dat` moved aside, which is the state this lays out, and
 /// the walk it was found by is the one this makes: つづきから into stage 5's chapter 12, 被弾, タイトルに戻る,
 /// and the ranking asked for at the title menu's `Score`. What that session showed was `resume: 4096 byte(s)
 /// of captures put back` and `score: card 36 is not one the game has named; no attempt counted` on the same
 /// millisecond, and 傀符「操りドール」 left showing 「？？？？？」 against no attempts at all.
 ///
-/// **And watched again the same day with the names kept**: `resume: 4096 byte(s) of captures put back; the
-/// playback counts none of them and keeps the names it wrote` followed on the same millisecond by `resume:
-/// attempt 1 at this spell card` — twice, stage 5's chapter 12 at 753905771ms and stage 1's chapter 3 at
-/// 753936620ms — with no refusal against either card and the name legible on its row afterwards.
+/// **And watched again with the names kept**: `resume: 4096 byte(s) of captures put back; the playback
+/// counts none of them and keeps the names it wrote` followed on the same millisecond by `resume:
+/// attempt 1 at this spell card` — twice, at stage 5's chapter 12 and at stage 1's chapter 3 — with no
+/// refusal against either card and the name legible on its row afterwards.
 #[test]
 fn a_run_picked_up_keeps_the_name_its_playback_learned() {
     in_its_own_process(|| {

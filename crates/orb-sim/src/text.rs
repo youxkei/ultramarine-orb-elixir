@@ -11,7 +11,7 @@
 //! string went into a texture**, and **how big the quad round it came out**. The first is the whole of
 //! what `says` is for; the second is what the drawing centres and lays out against. So the mask
 //! carries the one and [`Metric`] declares the other — the same shape everything else in this crate
-//! answers with, `Panel::measured`'s two sizes and `Display::agreed`'s hertz.
+//! answers with, `Panel::scaled`'s two sizes and `Display::agreed`'s hertz.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,11 @@ impl Metric {
 }
 
 /// The fonts a scenario says are there, the faces made of them, and every string baked through one.
+///
+/// **What this cannot hold is the rasterising**, and nothing else does either: a bake here answers from
+/// the metric a scenario declared, so a scenario can ask where the drawing put a string and tell one
+/// string from another, and nothing tells a right metric from a wrong one. What a string actually comes
+/// out as is something only a launch says, in `overlay: font.ttf loaded, GDI is using …`.
 pub struct Glyphs {
     /// The font files a scenario says are beside the game. A path that is not one of these is one
     /// [`Glyphs::load_face`] refuses — which is 妖々夢, whose fonts are inside `th07.dat` and whose

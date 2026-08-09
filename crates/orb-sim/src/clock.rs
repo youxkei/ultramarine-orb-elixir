@@ -27,23 +27,21 @@ const READ_TICKS: i64 = 1;
 
 /// What one turn of the spin costs, in ticks.
 ///
-/// A real `pause` is twenty-odd cycles — a hundredth of a microsecond — and this is a hundred times
-/// that, deliberately. What it buys is the suite's time: `frame::SPIN_US` is 1500µs, so at a faithful
-/// cost the spin is fifteen thousand turns of a real loop per simulated frame, and `orb-e2e`'s `pacing`
-/// was 76.6 seconds of almost nothing else.
+/// A real `pause` is twenty-odd cycles — a tiny fraction of a microsecond — and this is orders of
+/// magnitude more, deliberately. What it buys is the suite's time: at a faithful cost the spin is
+/// thousands of turns of a real loop per simulated frame, and `orb-e2e`'s `pacing` was almost nothing
+/// else.
 ///
 /// What it sells is how precisely a simulated frame lands on its deadline, and only that: the loop reads
 /// the counter each turn and stops once past the deadline, so a frame lands somewhere in
-/// `[0, PAUSE_TICKS)` past it rather than within a tick. One microsecond against the 100µs wake delay a
-/// flush's return already carries, and against a real landing that `scripts/spin-probe.c` measured at a
-/// median of 0.0µs and a worst of 80.3µs over 600 frames.
+/// `[0, PAUSE_TICKS)` past it rather than within a tick. Which is small against the wake delay a
+/// flush's return already carries, and against what a real landing was measured at.
 ///
 /// **It is the coarsest step that leaves every scenario's answer unchanged, and the next one up does
-/// not.** Measured: at 10 ticks `pacing` is 17.5 seconds and the suite 30.3, all 297
-/// passing, where they were 76.6 and 95.0. At 100 the file is 7.1 seconds and
-/// `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails — seed 3, a second at 46.83
-/// frames against a bound of 47 — which is the scenario with a 250ms stage load on a display whose
-/// compositor has no room, so the one with the least of it to give. That failure is the reason this is
+/// not.** Measured by raising it until something failed: one step further and
+/// `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails, which is the scenario with a
+/// stage load on a display whose compositor has no room, so the one with the least of it to give. That
+/// failure is the reason this is
 /// not larger; whoever wants the suite faster should read it before raising this, and the answer is not
 /// to loosen the bound it crossed.
 ///
@@ -118,7 +116,8 @@ impl Clock {
     ///
     /// The same arithmetic `orb_api::clock::ticks` does above the seam, and here for a scenario that
     /// wants to know what a stamp should read. It used to be a divergence — the real host's stamp was
-    /// `GetTickCount`, which this machine advances by 15 or 16ms — and
+    /// `GetTickCount`, which advances by the system timer's tick and not by the counter this derives
+    /// from — and
     /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) is
     /// where that was measured and closed.
     pub fn ticks(&self) -> u32 {
@@ -150,9 +149,8 @@ impl Clock {
     /// Waits `ticks` out, and whether the host could.
     ///
     /// Exactly as long as it was asked for. A real wait overshoots by whatever the host's wake delay
-    /// is — measured in `scripts/wait-probe.c` as up to 1.2ms, which is what `SPIN_US` covers — and
-    /// modelling that here would make every assertion about a wait a statement about the overshoot
-    /// instead of about the pacing's arithmetic.
+    /// is — which is measured, and what `SPIN_US` covers — and modelling that here would make every
+    /// assertion about a wait a statement about the overshoot instead of about the pacing's arithmetic.
     pub fn wait(&self, ticks: i64) -> bool {
         if !self.timer.load(Ordering::Relaxed) {
             return false;

@@ -6,10 +6,10 @@
 //! understands, which is also what keeps the dialog a dialog: nothing about its controls is aware
 //! of any of this.
 //!
-//! **On a thread of its own**, because `joyGetPosEx` is slow in a way that a message loop cannot
-//! absorb: 15ms with a pad awake and 33ms with none on the machine this was written for, measured by
-//! the other half of orb, which moved the same call off the game's frame for the same reason. The
-//! thread posts what it sees and the dialog never waits for it.
+//! **On a thread of its own**, because `joyGetPosEx` can take long enough to be felt in a message
+//! loop, and the worse case is the one where there is no pad to find. The other half of orb moved the
+//! same call off the game's frame for the same reason — see [`orb_core::joystick`]. The thread posts
+//! what it sees and the dialog never waits for it.
 //!
 //! What the buttons mean is read out of the game's own configuration file rather than decided here,
 //! so that the pad answers this dialog with the same buttons it will play the game with.
@@ -144,9 +144,9 @@ fn held(button: Option<u32>, buttons: u32) -> bool {
 /// How long the thread waits between reads.
 ///
 /// Short, because what is acted on is the press and a press is only ever seen if a read lands while
-/// the button is down. The read itself costs 15 to 33ms, so a cycle is that plus this — and at the
-/// 120ms this started as, a cycle could be 155ms and a quick tap fell between two of them and was
-/// never seen at all. Which is what a pad that answers sometimes looks like.
+/// the button is down. The read itself is the slow part and a cycle is that plus this — and at the
+/// much longer wait this started as, a cycle was longer than a quick tap, so taps fell between two
+/// reads and were never seen at all. Which is what a pad that answers sometimes looks like.
 const POLL: std::time::Duration = std::time::Duration::from_millis(8);
 
 /// The one device the game reads through winmm, so the one this reads through winmm.
@@ -154,10 +154,11 @@ const DEVICE: u32 = 0;
 
 /// XInput, read beside winmm because winmm does not always have the pad.
 ///
-/// Measured on the machine this was written for: with the pad in XInput's second slot, winmm's
-/// joystick 0 is `mid=413d pid=2104` with no buttons and no axes answering every field zero, and
-/// nothing on indices 1 to 15 — while DirectInput and XInput both have the pad. The game reaches it
-/// through DirectInput, so the game answered a pad this dialog could not see at all.
+/// A pad sitting in XInput's second slot can leave winmm's joystick 0 a phantom — a device with no
+/// buttons and no axes that answers every field zero — with the pad itself on DirectInput and XInput
+/// and on none of winmm's indices. The game reaches it through DirectInput, so a dialog reading winmm
+/// alone answers to a pad the game has and it does not. Measured by asking all three interfaces at
+/// once, which is what to do again the next time a pad works in one half of orb and not the other.
 ///
 /// Loaded by name rather than imported, because which of the three is present is a property of the
 /// machine and a load-time import of one that is not there is a launcher that does not start.

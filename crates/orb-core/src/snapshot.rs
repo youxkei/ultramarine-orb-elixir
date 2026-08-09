@@ -11,6 +11,16 @@
 //! `Game::live_handles`. A handle put back from a snapshot names something that may since
 //! have been released, and the game releasing it a second time faults inside itself: which
 //! is what a step back across the frame a boss's graphics are loaded on used to do.
+//!
+//! **What leaving them costs is cosmetic and is the price of not faulting.** For the frames between
+//! such a restore and the game loading those graphics again, the sprite tables the snapshot put back
+//! describe one set of graphics while the slots hold another, so something may be drawn from the wrong
+//! texture until the load catches up. Nothing can be done about it from here: the two cannot be made
+//! consistent without copying objects that cannot be copied.
+//!
+//! Left out for a different reason: `AnmManager`'s surfaces and its vertex buffer. The game releases
+//! those when it loses the device, which a stage does not run into, and a range left out of a restore is
+//! a range the snapshot no longer describes at all.
 
 use std::ops::Range;
 

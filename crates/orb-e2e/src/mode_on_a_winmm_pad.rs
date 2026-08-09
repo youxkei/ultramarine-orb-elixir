@@ -7,11 +7,11 @@
 //! something it polls that through DirectInput and never asks winmm at all. So which of the two a menu of
 //! orb's reads has to be the same one the game is on, and that one is here.
 //!
-//! **This is also the path that used to work and must not have been broken.** Every measurement in
-//! `orb_core::joystick` was taken on it: with nothing plugged in that one call answers `JOYERR_PARMS`
-//! in 8.7ms and spends nearly all of it on the CPU — 917ms of wall clock against 906ms of CPU over a
-//! hundred calls — which against a 16.67ms frame was the whole of the frame-pacing trouble, and is why
-//! the read moved onto a thread of orb's own. What the game is handed is the last sample that thread took.
+//! **This is also the path that used to work and must not have been broken.** What
+//! `orb_core::joystick` was measured on is this one: with nothing plugged in that call answers
+//! `JOYERR_PARMS` after a large part of a frame and spends nearly all of it on the CPU, which was the
+//! whole of the frame-pacing trouble and is why the read moved onto a thread of orb's own. What the game
+//! is handed is the last sample that thread took.
 //!
 //! What the laid-out game brings is the read and nothing more: it asks winmm once a frame through orb's
 //! replacement of that import entry, the way its own `GetControllerInput` does. The host's pad is
@@ -36,8 +36,8 @@ const TRAVEL: (u32, u32) = (0, 65535);
 const NAMED: &str = "joystick: mid=045e pid=02ff";
 
 /// What the thread asks the host to wait between two reads, in milliseconds: four while a pad is
-/// answering, which is four samples a frame, and a second while none is — the read costing 8.7ms of CPU
-/// with nothing plugged in being the whole reason it is off the game's thread.
+/// answering, which is four samples a frame, and a second while none is — the read costing most of a
+/// frame of CPU with nothing plugged in being the whole reason it is off the game's thread.
 const SAMPLED_MS: u32 = 4;
 const LOOKED_FOR_MS: u32 = 1000;
 
@@ -45,18 +45,18 @@ const LOOKED_FOR_MS: u32 = 1000;
 ///
 /// **Real time and not simulated**, which is the one place a scenario here needs any: the sample is taken
 /// on a thread, that being the whole point of it, so what is being waited for is that thread being
-/// scheduled and not a number of the game's frames. A second is thousands of times what the first read
-/// takes — 32ms on this machine, winmm's joystick support coming up — and a wait that runs out is a
-/// failure naming what it was waiting for.
+/// scheduled and not a number of the game's frames. It is orders of magnitude more than the first read
+/// takes — that one being the slow one, winmm's joystick support coming up — and a wait that runs out is
+/// a failure naming what it was waiting for.
 const WAITS: u32 = 3000;
 
 /// And the span the game's own read costs reaches the `perf:` line, which is the whole of what orb's hook
 /// over `Controller::GetControllerInput` is for.
 ///
 /// That read is a tail call inside `Controller::GetInput` and cannot be told apart from outside it, so
-/// timing it means standing in front of it — which is what the hook does and the only thing it does. The
-/// 8.7ms this file's own head records is what that line said, and a launch whose perf line has no joystick
-/// span in it is a launch where nobody could have found that out.
+/// timing it means standing in front of it — which is what the hook does and the only thing it does. What
+/// this file's own head records about that read is what that line said, and a launch whose perf line has
+/// no joystick span in it is a launch where nobody could have found it out.
 ///
 /// Verbose, because that is the gate: a real launch installs this hook only at Verbose and leaves the read
 /// untimed otherwise. A game that hands the function over cannot be gated by an installation — it has one
@@ -229,12 +229,11 @@ fn a_pad_winmm_has_answers_the_question_and_its_axis_is_measured_against_its_own
 
 /// A device that answers with no buttons and no axes is not a pad, however much it answers.
 ///
-/// Windows leaves exactly one of these on joystick 0 whenever the pad it has sits in XInput's second
-/// slot: `mid=413d pid=2104`, answering `joyGetPosEx` with every field zero. Measured with all three
-/// interfaces asked at once — winmm reports 16 devices, index 0 being that one and 1 to 15
-/// `JOYERR_UNPLUGGED` at 13µs each; DirectInput enumerates `Controller (Xbox 360 Controller)`; XInput has
-/// it in slot 1 with slot 0 empty. Believing it costs a line in the log claiming a pad answered, and the
-/// game's axis calibration written from a device that has no axes.
+/// Windows can leave exactly one of these on joystick 0 whenever the pad it has sits in XInput's second
+/// slot: a device answering `joyGetPosEx` successfully with every field zero. Measured by asking all
+/// three interfaces at once — winmm has the phantom at index 0 and nothing on the rest, while
+/// DirectInput and XInput both have the real pad. Believing the phantom costs a line in the log claiming
+/// a pad answered, and the game's axis calibration written from a device that has no axes.
 #[test]
 fn a_device_with_no_buttons_and_no_axes_drives_nothing() {
     in_its_own_process(|| {
@@ -289,17 +288,16 @@ fn a_device_with_no_buttons_and_no_axes_drives_nothing() {
 /// Nothing plugged in is the case this whole module exists for, and a pad that turns up later is picked up
 /// within the second the thread waits.
 ///
-/// **The empty socket is the expensive one.** `joyGetPosEx` answers `JOYERR_PARMS` in **8.7ms** with
-/// nothing there — min 7.8, max 10.8 over 100 calls — and spends nearly all of it on the CPU: 100 back to
-/// back took 917ms of wall clock against 906ms of CPU. Against a 16.67ms frame that was the whole of the
-/// frame-pacing trouble, and it is why the read is on a thread at all. A pad *attached* answers the same
-/// call in under a microsecond.
+/// **The empty socket is the expensive one.** Measured: with nothing there `joyGetPosEx` answers
+/// `JOYERR_PARMS` after a large part of a frame and spends nearly all of it on the CPU rather than
+/// waiting, which was the whole of the frame-pacing trouble and is why the read is on a thread at all. A
+/// pad *attached* answers the same call fast.
 ///
 /// So the thread asks once a second while nothing answers rather than four times a frame, which is what
-/// bounds how late a pad plugged in mid-session is picked up. Watched on this machine: a run that started
-/// with the pad asleep (`there is no joystick 0, read in 33785us` — winmm's joystick support coming up),
-/// had it wake mid-run, took the calibration on the next frame, and was then driven through the menus with
-/// nothing drifting.
+/// bounds how late a pad plugged in mid-session is picked up. Watched happening: a run that started with
+/// the pad asleep — the first read the slow one, winmm's joystick support coming up — had it wake
+/// mid-run, took the calibration on the next frame, and was then driven through the menus with nothing
+/// drifting.
 #[test]
 fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
     in_its_own_process(|| {

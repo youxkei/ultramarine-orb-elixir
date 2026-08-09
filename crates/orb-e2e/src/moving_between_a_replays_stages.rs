@@ -108,8 +108,8 @@ fn moves_to_the_stage(game: &Fake, key: u8, stage: i32) {
 /// has reached. Leaving a stage part way therefore terminated it there, and playing it again the player
 /// took no input from that frame on.
 ///
-/// Measured before this was held back, in the log at **297414375ms**: out of stage 1 around script frame
-/// 250 and straight back, **three lives gone by frame 1027**.
+/// Measured before this was held back: out of stage 1 around script frame 250 and straight back,
+/// **three lives gone by frame 1027**.
 #[test]
 fn a_stage_teardown_does_not_end_the_recording_being_played_back() {
     in_its_own_process(|| {
@@ -169,7 +169,7 @@ fn a_stage_teardown_does_not_end_the_recording_being_played_back() {
 /// Starting a replay at a stage puts the score and the extra lives paid for back to nothing first.
 ///
 /// Starting at a stage is not the run carrying on. Measured before this: stage 1 began with the score the
-/// run was left on — **7417420** at 303310937ms — crossed 10,000,000 at frame 3240 and took an extra life
+/// run was left on — **7417420** — crossed 10,000,000 at frame 3240 and took an extra life
 /// the recording never had, which raised rank from **21 to 23**. The generator's stream shifted three
 /// frames 173 frames later, and the player, moving on recorded inputs, was hit.
 ///
@@ -223,9 +223,9 @@ fn starting_a_replay_at_a_stage_puts_the_score_and_the_extra_lives_back_to_nothi
 ///
 /// Measured: a bomb within the shake's **80 frames** of a stage move began the next stage with the player
 /// at **`192.00,380.87`** where it starts one at **`192.00,384.00`**, and four numbers a frame going out
-/// of the stream. Checked by leaving stage 2 while a bomb's shake was running — taken down at
-/// **61041250ms** — and holding the stage 1 that followed against a menu-started pass of it: identical
-/// from its first frame to the **742nd**, where the replay was stopped by hand.
+/// of the stream. Checked by leaving stage 2 while a bomb's shake was running and holding the stage 1 that
+/// followed against a menu-started pass of it: identical from its first frame to the **742nd**, where the
+/// replay was stopped by hand.
 #[test]
 fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
     in_its_own_process(|| {

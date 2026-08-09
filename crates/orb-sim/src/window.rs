@@ -17,8 +17,9 @@
 //!   the way in and added on the way out, which is what makes "the size in `orb.yaml` is the size of
 //!   the game" a claim with something to fail.
 //! - **Nothing moves a window after it is made.** What the real host does to one afterwards — a
-//!   borderless tool resizing a client three and a half seconds later, which happened on this machine —
-//!   is not here, and `TODO.md` keeps it under *What else on the desktop does to the window*.
+//!   borderless or aspect-ratio tool resizing a client seconds later, which is a thing that happens —
+//!   is not here. orb cannot stop it either, such a tool acting on the window after every moment orb
+//!   has, so what it gets is the client logged next to the size asked for and a run that says so.
 
 use std::sync::Mutex;
 
@@ -26,11 +27,11 @@ use orb_api::{Bar, Hwnd, Rect};
 
 /// What a monitor reports, and the two answers it has.
 ///
-/// Measured on this machine, a 3840x2160 panel at 150%: `EnumDisplayMonitors` and everything else
-/// report **2560x1440** to a process that has not said it is DPI aware, and **3840x2160** once it has.
-/// Which is the whole reason orb calls `SetProcessDPIAware` before it reads a monitor at all: without
-/// it a 1280x720 client asked for on that panel is laid out against two thirds of it, and Windows
-/// scales the result behind the game's back.
+/// A scaled desktop reports the scaled size to a process that has not said it is DPI aware and the
+/// panel's own once it has, so the same monitor has two sizes and a layout is right or wrong depending
+/// on which it used. Which is the whole reason orb calls `SetProcessDPIAware` before it reads a monitor
+/// at all: without it a client asked for on a scaled panel is laid out against a fraction of it, and
+/// Windows scales the result behind the game's back. The pair below is a scenario's to declare.
 #[derive(Clone, Copy)]
 pub struct Monitor {
     /// The pixels the panel really has, which is what it reports once the process is DPI aware.
@@ -40,8 +41,9 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    /// This machine's: 3840x2160 reading as 2560x1440, which is 150%.
-    pub fn measured() -> Self {
+    /// A panel with scaling on it: 3840x2160 reading as 2560x1440, which is 150%. One shape of host
+    /// among the ones worth covering, and the numbers are this declaration's rather than any machine's.
+    pub fn scaled() -> Self {
         Self {
             real: (3840, 2160),
             scaled: (2560, 1440),
@@ -59,9 +61,9 @@ impl Monitor {
 
 /// How much bigger than its client a window is, in pixels.
 ///
-/// Measured on this machine, round the caption-and-system-menu style orb asks for: a `1280x720`
-/// client came out of a **1286x760** window, so **6x40**. A property of the host and its theme, which
-/// is why it is declared here and not worked out.
+/// A property of the host and its theme, which is why it is declared here and not worked out: the frame
+/// round the caption-and-system-menu style orb asks for is whatever the theme draws, and orb's layout
+/// has to hold for any of them. What a scenario charges is the number below.
 #[derive(Clone, Copy)]
 pub struct Frame {
     pub width: i32,
@@ -69,8 +71,8 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// This machine's, round `WINDOWED_STYLE`.
-    pub const MEASURED: Self = Self {
+    /// A host that charges one, round `WINDOWED_STYLE`.
+    pub const SOME: Self = Self {
         width: 6,
         height: 40,
     };

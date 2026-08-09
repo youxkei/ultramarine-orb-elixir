@@ -94,8 +94,8 @@ pub struct Work {
 impl Work {
     /// The same every frame, for a scenario about the arithmetic around it.
     ///
-    /// 694µs is what a real run's report line said the game's own drawing took — "(694us to draw + …)"
-    /// — which is where the 700 every pacing scenario uses comes from.
+    /// The 700 every pacing scenario passes is about what a real run's report line shows for the game's
+    /// own drawing, so a scenario is asking the pacing the question a run asks it.
     pub fn flat(us: i64) -> Self {
         Self {
             usual_us: us,
@@ -160,12 +160,12 @@ pub struct Panel {
 }
 
 impl Panel {
-    /// This machine's: a 3840x2160 monitor that reads as 2560x1440 to a process that has not asked
-    /// otherwise, with a 6x40 frame round a window of a chosen size.
-    pub fn measured() -> Self {
+    /// A scaled monitor — one that reads a smaller size to a process which has not asked otherwise —
+    /// with a frame round a window of a chosen size. Both are the host's and both are declared.
+    pub fn scaled() -> Self {
         Self {
-            monitor: orb_sim::Monitor::measured(),
-            frame: orb_sim::Frame::MEASURED,
+            monitor: orb_sim::Monitor::scaled(),
+            frame: orb_sim::Frame::SOME,
             refuses_dpi_awareness: false,
         }
     }
@@ -177,7 +177,7 @@ impl Display {
         Self {
             monitor_hz: Some(hz),
             compositor_hz: Some(hz),
-            compose: Compose::measured(),
+            compose: Compose::ordinary(),
             seed: 0,
             metronome: false,
         }
@@ -188,7 +188,7 @@ impl Display {
         Self {
             monitor_hz: Some(monitor_hz),
             compositor_hz: Some(compositor_hz),
-            compose: Compose::measured(),
+            compose: Compose::ordinary(),
             seed: 0,
             metronome: false,
         }
@@ -199,7 +199,7 @@ impl Display {
         Self {
             monitor_hz: None,
             compositor_hz: None,
-            compose: Compose::measured(),
+            compose: Compose::ordinary(),
             seed: 0,
             metronome: false,
         }
@@ -707,6 +707,11 @@ const SCENARIO: &str = "ORB_SCENARIO";
 /// Where the harness is not naming its threads — `--test-threads=1`, which puts every test on `main` —
 /// there is nothing to tell the child to run, so the scenario runs here. Serially, which is what asking
 /// for one thread asked for.
+///
+/// **What a scenario cannot be switched by is the environment.** These are Windows binaries and the build
+/// that runs them may not be a Windows one — under WSL interop an environment variable set for
+/// `cargo test` does not reach the test process at all. So whatever a scenario needs told, it is told in
+/// its own arguments or in what it declares, however natural a variable would be anywhere else.
 pub fn in_its_own_process(scenario: impl FnOnce()) {
     if std::env::var_os(SCENARIO).is_some() {
         return scenario();

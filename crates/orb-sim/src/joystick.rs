@@ -21,7 +21,7 @@ use orb_api::{JoyCaps, JoyInfo, joyerr};
 /// yet.
 pub struct Joystick {
     /// What is plugged in, and `None` for a socket with nothing in it — which is what
-    /// `JOYERR_PARMS` says and the case that costs 8.7ms a frame on a real machine.
+    /// `JOYERR_PARMS` says and the case that is slow on a real machine.
     device: Mutex<Option<Device>>,
 }
 

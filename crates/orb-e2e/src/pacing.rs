@@ -18,19 +18,17 @@ use orb_core::frame;
 /// test and the harness runs tests across the cores, so rows looped over *inside* one test are rows nothing
 /// runs in parallel.
 ///
-/// Measured on this machine, sixteen cores, and it is why this exists. With the three tables below as three
-/// tests the file was **539.6 seconds of work in 126 seconds** of wall clock — the parallelism working —
-/// but one of them, forty rate-and-compose-time pairs in one process, took **121.6 seconds by itself**:
-/// 96% of that 126, and a floor no number of cores goes below. Split into a test per rate it was **591.7
-/// seconds of work in 54.8 seconds**, and the floor became the 36.9 seconds of the rate whose ceiling
-/// admits the most compose times. Below that nothing but less work will help — the work over the cores —
-/// so the rows are not split further than the reading of a failure wants.
+/// And it is why this exists. With the three tables below as three tests, one of them — forty
+/// rate-and-compose-time pairs in one process — was very nearly the whole of the file's wall clock by
+/// itself, a floor no number of cores goes below however much of the rest runs in parallel. Split into a
+/// test per rate, the floor became the one rate whose ceiling admits the most compose times, and below
+/// that nothing but less work helps. So the rows are not split further than the reading of a failure
+/// wants. Whoever wants the seconds runs the file.
 ///
-/// The file is **17.5 seconds** now, from the same split and the same rows, and the split is no longer
-/// what decides it. Two things moved after that measurement: the wait to a frame's deadline became exact,
-/// which took the file to 76.6 seconds because the spin then ran the whole of `SPIN_US` rather than about
-/// two thirds of it — and then the spin's `pause` went behind the seam and was charged a microsecond a
-/// turn, which took a hundredfold off its iterations. See
+/// What the file costs stopped being the split's to decide once two other things moved: the wait to a
+/// frame's deadline became exact, so the spin ran the whole of `SPIN_US` rather than part of it, and then
+/// the spin's `pause` went behind the seam and was charged for, which took a hundredfold off its
+/// iterations. See
 /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) and
 /// [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
 ///
@@ -190,10 +188,10 @@ fn worst_second(handovers_us: &[i64], warm_up: usize) -> (usize, f64) {
 ///
 /// `wanted` is sixty for every display that has a blank on a sixtieth of a second, which is every
 /// whole multiple and every fractional rate the grid can chase. It is *not* sixty for the
-/// NTSC-derived ones: a display reporting 59 gets one blank a frame and runs at its own rate, which the
-/// real 119.88Hz machine did — `600 frames, 16652us apart, gaps in refreshes 2x600`, 59.94fps, the
-/// display's own rate halved, with the compositor's share never once climbing off its 2500µs start.
-/// That is the pacing working; a tenth of a percent slow is a clock nobody can see.
+/// NTSC-derived ones: a display reporting 59 gets one blank a frame and runs at its own rate, which is
+/// what a real NTSC-derived display did — its own rate halved, two refreshes a frame throughout, with
+/// the compositor's share never once climbing off its start. That is the pacing working; a tenth of a
+/// percent slow is a clock nobody can see.
 ///
 /// All of the seconds, not most: measured over four hosts and thirty seconds apiece, every display
 /// the pacing accepts holds every second — which is what the real runs show too, `gaps in
@@ -506,7 +504,8 @@ mod blanks {
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
 
     const HZ: u32 = 120;
-    /// What the game's own frame takes, read off a real run's report line: "(694us to draw + …)".
+    /// What the game's own frame is declared to take: about what a real run's report line shows for the
+    /// drawing, so the pacing is asked the question a run asks it.
     const WORK_US: i64 = 700;
     /// Long enough for the allowance to have finished climbing; the climb itself costs refreshes.
     const FRAMES: u32 = 3_000;
@@ -759,16 +758,16 @@ mod load {
 ///
 /// *What the fixed stutter costs* in `TODO.md` named this case and said of it that "that refusal has
 /// not been seen happen", and that the hazard beside it is one "nothing has re-checked since". It was
-/// both: the refusal never fired, and what happened instead ran the game **fast** — measured on the
-/// machine at `13966us apart`, `14090us`, `13897us` and `13894us` over four periods of 600, which is 71
-/// to 72 frames a second, with `0 frame(s) paced by the clock` in the same run — because the frames went
+/// both: the refusal never fired, and what happened instead ran the game **fast** — measured on a real
+/// mixed-rate desktop, period after period above sixty with `0 frame(s) paced by the clock` in the same
+/// run, at the ratio the two rates come to — because the frames went
 /// on the compositor's blanks while the
 /// cadence was counted in the monitor's. Music and every timer in the game are counted in its own
 /// frames, so a run like that is a run at the wrong speed.
 ///
 /// It is not a limit and never was. `DwmFlush` returns at the compositor's blanks and at nobody
-/// else's, whatever monitor the window is on — measured on a real mixed-rate desktop, see
-/// `scripts/compositor-probe.c` — so that grid is the one a frame can be put on, and counting the
+/// else's, whatever monitor the window is on — measured on a real mixed-rate desktop, and what it
+/// decided is beside `frame::Pacing::grid` — so that grid is the one a frame can be put on, and counting the
 /// cadence in anything else is the fault. The grid is the compositor's now, and a 144Hz compositor is
 /// paced the way any 144Hz display is: one frame on whichever of its blanks is nearest each sixtieth.
 mod disagrees {
@@ -820,8 +819,9 @@ mod disagrees {
                     game.log().lines()
                 );
 
-                // Sixty frames a second in every second past the grace, which is the whole of the fix: it
-                // used to be 71 to 72 on the machine and 69 to 70 here.
+                // Sixty frames a second in every second past the grace, which is the whole of the fix: the
+                // rate used to come out above sixty here and on a real desktop alike, the game running
+                // fast by the ratio of the two rates.
                 assert_every_second_at(
                     &game.handovers_us(),
                     60.0,
@@ -933,15 +933,15 @@ mod budget {
         });
     }
 
-    /// The usual frame beside the spike below, which is what a real run's report line says the game's
-    /// own work takes: "(1328us to draw + 2500us for the compositor)" and "(998us to draw + …)".
+    /// The usual frame beside the spike below: about what a real run's report line shows for the game's
+    /// own drawing, so the spike is being set against an ordinary frame and not against nothing.
     const QUIET_WORK_US: i64 = 700;
 
     /// One frame's own work, where the sound it started took most of it.
     ///
-    /// Measured, in a stage 4 spell card with 491 bullets up: `sound 8438us` on the frame's own
-    /// `--pacing` line, `PLAY_SOUNDS.call()` being what that span is, and the whole frame coming to
-    /// 8940µs with its update, draw and present. The largest of the four in that session was 12531µs.
+    /// Declared from what a real run showed rather than invented: on the frame a spell card starts,
+    /// `PLAY_SOUNDS.call()` is most of the frame's whole span — the `sound` figure on its own `--pacing`
+    /// line — and that happens a handful of times in a session, the worst of them worse than this.
     const SOUND_SPIKE_US: i64 = 9_000;
 
     /// One frame in this many carries it, so a run of this length sees a handful.
@@ -950,15 +950,13 @@ mod budget {
     /// A spike the ceiling admits must not leave the frames after it handed over before the blank
     /// *before* the one they are aimed at, because that is the game running at double speed.
     ///
-    /// The chain, measured on a 120Hz desktop and the reason this exists: a frame whose sound took
-    /// 8438µs came to 8940µs of work, so `took` was 11440µs against a ceiling of 12500 — inside it, so
-    /// `next_budget` believed it and `prepare_us` went to 11440. The frames after it do 250µs of work
-    /// apiece, so each was handed over 11190µs before its blank, and the blank one refresh earlier was
-    /// only 2857µs away against the 2500µs the compositor wanted: it took them *there*. The anchor moved
-    /// a refresh early, the next frame went as early again, and five turns came out one refresh apart —
-    /// 6587, 9090, 8212, 8501 and 9820µs, which is about 120 frames a second. orb's own line said so
-    /// where a period ended inside one: `10 shown a refresh or more early, so the game ran fast for
-    /// them`.
+    /// The chain, measured on a real run and the reason this exists: a frame whose sound took most of it
+    /// came to a whole frame's worth of work, which was inside the ceiling — so `next_budget` believed it
+    /// and `prepare_us` went to it. The frames after that one do almost no work, so each was handed over
+    /// nearly the whole budget before its blank, and the blank one refresh earlier was nearer than the
+    /// compositor's share: it took them *there*. The anchor moved a refresh early, the next frame went as
+    /// early again, and the turns came out a refresh apart instead of two. orb's own line said so where a
+    /// period ended inside one: `shown a refresh or more early, so the game ran fast for them`.
     ///
     /// **The claim is what the screen got, and not the spacing of the handovers.** A spike's own frame
     /// is shown a refresh late whatever is done — it started against a budget the frames before it set,
@@ -1403,14 +1401,17 @@ mod converges {
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_sim::Compose;
 
-    /// What the game's own update and draw take, read off a real run's report line: "(694us to draw + …)".
+    /// What the game's own update and draw are declared to take: about what a real run's report line
+    /// shows for the drawing.
     const WORK_US: i64 = 700;
     const FRAMES: u32 = 3_000;
     const SETTLED: usize = 2_000;
 
-    /// What a compositor might take over a frame, in microseconds. The upper end is not invented: a real
-    /// session was seen reaching about 3.5ms, and the mixed-rate run on the machine had orb's own
-    /// allowance climb 2800 → 3400 → 3600 → 3900µs chasing misses more time could not fix.
+    /// What a compositor might take over a frame, in microseconds — the range these rows declare, not a
+    /// reading of anywhere. It runs from well under the allowance's start to past the ceiling of the
+    /// fastest rate covered, so that between them the rows ask what happens on both sides of every
+    /// boundary the pacing has. What any one host takes is read off `--pacing` and is not a number the
+    /// suite has an opinion about.
     const COMPOSE_US: [i64; 8] = [400, 1_000, 2_000, 2_500, 3_000, 3_200, 3_800, 4_000];
 
     fn settled(hz: u32, compose: Compose, name: &str, seed: u64) -> (Box<Fake>, f64) {
@@ -1423,12 +1424,12 @@ mod converges {
         (game, rate)
     }
 
-    /// The one that holds: a compositor whose cost is what this machine's appears to be — usually a
-    /// millisecond, occasionally three and a half. Every host, at each rate a display reports.
+    /// The one that holds: a compositor that is cheap most frames and occasionally several times that,
+    /// which is the shape `Compose::spiking` declares. Every host, at each rate a display reports.
     fn spikes_and_settles(hz: u32) {
         for seed in 0..SEEDS {
             let name = format!("converges-{hz}-{seed}");
-            let (game, rate) = settled(hz, Compose::measured(), &name, seed);
+            let (game, rate) = settled(hz, Compose::ordinary(), &name, seed);
             assert!(
                 (rate - 60.0).abs() < NEAR_SIXTY,
                 "{hz}Hz, seed {seed}: {rate} frames a second after {SETTLED} frames\n  {}",
@@ -1509,12 +1510,16 @@ mod converges {
         any_compositor_inside_a_240hz_displays_ceiling_settles_at_sixty => inside_the_ceiling(240),
     }
 
-    /// And past the ceiling it cannot, which is a limit rather than a defect — but nothing in orb says so.
+    /// And past the ceiling it cannot, which is a limit rather than a defect.
     ///
-    /// Of the rates anyone plays at only 240Hz has a refresh short enough for a plausible compositor to want
-    /// three quarters of it: 3124µs against the 3200µs and up that a busy desktop reaches. There the
-    /// allowance climbs to exactly the ceiling and stops, no miss is charged to a load, and the rate settles
-    /// at 48.00 — every fifth frame taking an extra refresh, for the rest of the run.
+    /// 240Hz is where the ceiling is shortest — 3124µs — so it is the rate at which a compositor wanting
+    /// more than the geometry allows can be asked for at all. Whether a real desktop wants that much is a
+    /// separate question and not this one's: the compose time here is pinned, and what a host actually
+    /// takes is read off `--pacing` rather than asserted anywhere. What this holds is the pacing's
+    /// behaviour when it is asked for more than there is room for: the allowance
+    /// climbs to exactly the ceiling and stops, no miss is charged to a load, and the rate settles at 48.00
+    /// for the rest of the run — five refreshes a frame against the four a sixtieth is at this rate, so
+    /// every frame takes one extra and not every fifth.
     ///
     /// What is asserted is that shape and not a number to be satisfied with: the allowance ends *at* the
     /// ceiling, so what is missing is room and not a climb. A run reading 48fps with the allowance below the
@@ -1557,8 +1562,8 @@ mod converges {
 ///
 /// **What the split rows do and do not establish.** That a compositor can be timing a rate the game's
 /// monitor is not, and that a flush follows the compositor whatever monitor the window is on, are measured
-/// on real hardware — `scripts/compositor-probe.c`, whose numbers are beside `frame::Pacing::grid`, and
-/// the game itself measured there too. What these rows add is orb's own arithmetic over that.
+/// on real hardware, and what that decided is beside `frame::Pacing::grid`. What these rows add is orb's
+/// own arithmetic over it.
 mod rates {
     use super::*;
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
@@ -1615,8 +1620,8 @@ mod rates {
     ///
     /// `dmDisplayFrequency` is whole Hz, so a 59.94Hz display reports 59 and a 119.88Hz one reports 119.
     /// `whole_multiple` reads those as one blank a frame and two, which is right — and the rate that comes
-    /// out is then the display's, not sixty. The real 119.88Hz machine came out at 59.94fps — its own rate
-    /// halved, `600 frames, 16652us apart` — which is the same thing.
+    /// out is then the display's, not sixty. A real NTSC-derived display came out at its own rate halved,
+    /// two refreshes a frame throughout, which is the same thing.
     ///
     /// Here the compositor really is 59 and 119 rather than 59.94 and 119.88, since those are the numbers
     /// the scenario declares, so the rates to expect are 59 and 59.5.
@@ -1698,9 +1703,8 @@ mod rates {
 
     /// **The ones that used to be broken.** A monitor that *is* a whole multiple used to keep the cadence in
     /// its own refreshes while the frames went on the compositor's blanks, and the rate came out wrong at
-    /// every one of these — measured on the machine at `13966us apart` for the 144 row, which is 71 to 72
-    /// frames a second, the game running *fast*, with music and every timer in it counted in frames that
-    /// were coming too quickly.
+    /// every one of these: the frames came too quickly and the game ran *fast*, with the music and every
+    /// timer in it counted in them.
     ///
     /// The cadence is counted in the compositor's spacing now, so each of these is the same fractional grid a
     /// display of that rate would get: one frame on whichever blank is nearest each sixtieth. Every second of
@@ -1796,10 +1800,9 @@ mod rates {
 /// # One test a row
 ///
 /// Not a loop over rows inside one test, because a row is a launch and a launch is a process — so the
-/// harness runs them at once, sixteen at a time on this machine, and the whole table takes six seconds
-/// where a loop would take a minute and a half. The seeds stay a loop inside a row: four hosts of the
-/// same situation are the same question asked again, and naming which of them failed is what the
-/// assertion messages do.
+/// harness runs them across the cores at once, where a loop would run them one after another. The seeds
+/// stay a loop inside a row: four hosts of the same situation are the same question asked again, and
+/// naming which of them failed is what the assertion messages do.
 ///
 /// # Where the floors come from
 ///
@@ -1841,8 +1844,8 @@ mod holds {
     /// second, and a row that wants a proportion instead says so and says why.
     const FRAMES: u32 = 15 * A_SECOND as u32;
 
-    /// What the game's own frame costs when it is not the thing being varied: what a real run's report line
-    /// said, "(694us to draw + …)".
+    /// What the game's own frame costs when it is not the thing being varied: about what a real run's
+    /// report line shows for the drawing.
     const WORK_US: i64 = 700;
 
     /// Everything uneven at once, which is the row that says the sources do not compound into something none
@@ -1851,7 +1854,7 @@ mod holds {
         Compose {
             jitter_us: 800,
             spike_one_in: 300,
-            ..Compose::measured()
+            ..Compose::ordinary()
         }
     }
 
@@ -2342,9 +2345,9 @@ mod frame_loop {
     ///
     /// **On the blanks, and not by the clock.** That is measured rather than assumed: a window behind, one
     /// covered by a full-screen window and one minimised all flush at the compositor's own rate with every
-    /// gap one refresh, and the lead a frame needs to make its blank is the same whether anybody can see it —
-    /// `scripts/background-flush-probe.c`. So a background frame is paced like any other, which is what the
-    /// run below reads back out of the log.
+    /// gap one refresh, and the lead a frame needs to make its blank is the same whether anybody can see
+    /// it. So a background frame is paced like any other, which is what the run below reads back out of
+    /// the log.
     #[test]
     fn a_frame_with_the_window_behind_takes_its_turn_on_the_blanks() {
         in_its_own_process(|| {
@@ -2478,8 +2481,8 @@ mod log_deferral {
 
 // ── What the compositor's own counters are worth ─────────────────────────────────────────────────
 //
-// What this holds is the measurement, taken on this machine, and the point of writing it as a scenario
-// is that orb reports one of these numbers and reporting it has to keep saying nothing.
+// What this holds is that orb reports one of these numbers and that reporting it has to keep saying
+// nothing, which is why it is a scenario rather than a note about what a host was once seen doing.
 //
 // The claim is a negative one, so it is asserted the only way a negative can be: the same frames are run
 // twice, against two hosts that differ in this one answer and in nothing else, and every number orb
@@ -2501,7 +2504,8 @@ mod counters {
     const HZ: u32 = 240;
     const COMPOSE_US: i64 = 4_000;
 
-    /// What the game's own update and draw take, read off a real run's report line: "(694us to draw + …)".
+    /// What the game's own update and draw are declared to take: about what a real run's report line
+    /// shows for the drawing.
     const WORK_US: i64 = 700;
 
     /// Long enough that the allowance has finished climbing and the misses that are left are the
@@ -2525,21 +2529,21 @@ mod counters {
 
     /// `cFramesLate` is not evidence, and neither is the family around it.
     ///
-    /// Measured through every run of the pacing work on this machine: the compositor's own count of frames
-    /// it could not show at the refresh they were aimed at read **`0 shown late`** throughout, *including*
-    /// the runs where **57 frames of 600 missed their blank**. It is still reported, as a number whose
+    /// The compositor's own count of frames it could not show at the refresh they were aimed at read
+    /// `0 shown late` through every run the pacing work was developed against, *including* runs where a
+    /// tenth of the frames in a period plainly missed their blank. It is still reported, as a number whose
     /// meaning is not what its name says.
     ///
     /// `qpcFrameDisplayed`, `cFrameDisplayed`, `cFramesDropped`, `cFramesMissed` and `cRefreshesDisplayed`
-    /// are worse: all zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved **1211**
-    /// over a period. So the call works and that family is not populated for the desktop query, which is
-    /// the only one `DwmGetCompositionTimingInfo` accepts. None of those five is in [`Composition`] at
-    /// all, which is where that measurement is kept: a field orb does not read is a field no scenario can
-    /// say anything about.
+    /// are worse: all zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved with the
+    /// frames. So the call works and that family is not populated for the desktop query, which is the only
+    /// one `DwmGetCompositionTimingInfo` accepts. None of those five is in [`Composition`] at all, which
+    /// is the whole of what that leaves behind: a field orb does not read is a field no scenario can say
+    /// anything about.
     ///
-    /// And `cRefresh` advanced by exactly one per state in `scripts/background-flush-probe.c` whether 601
-    /// frames were handed over or none — so it is neither refreshes nor our compositions, and the first
-    /// version of that probe read it twice per state and got "+2" out of its own calls.
+    /// And `cRefresh` was measured advancing by exactly one per read whether a run of frames had been
+    /// handed over or none at all — so it is neither refreshes nor our compositions, and the first probe
+    /// written for it read it twice and got its own calls back as the answer.
     ///
     /// [`Composition`]: orb_api::Composition
     #[test]
