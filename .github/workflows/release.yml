@@ -1,0 +1,84 @@
+name: Release
+
+# The exe the README tells whoever is going to play to download, built somewhere that is not the
+# author's machine and attached to the release that link resolves to. A tag push is the whole of
+# making a release: the release and the asset are created together here, so a release with no
+# orb.exe on it never exists.
+#
+# Not `on: release`, with the release published by hand and this filling in the asset afterwards.
+# What the README links to is the *latest* release, and between publishing and the upload finishing
+# that link resolves to a release with nothing to download.
+
+on:
+  push:
+    # A tag in any other shape pushes cleanly and fires nothing, which from the outside is
+    # indistinguishable from a release still building.
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  # `gh release create`. A workflow's token is read-only by default.
+  contents: write
+
+jobs:
+  release:
+    # Windows, and not a cross build for the same reasons ci.yml gives: the linker is the 32-bit
+    # mingw one and `orb-core` calls the game's own methods by conventions that exist on 32-bit x86
+    # and nowhere else.
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        # The mingw32 shell, so the linker `.cargo/config.toml` names is on PATH — and so gh, which
+        # the Windows PATH carries, is reachable from the step that attaches the exe.
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The three setup steps are ci.yml's, and why each is shaped the way it is — MINGW32 rather
+      # than the runner image's own MSYS2, `path-type: inherit` for the cargo rustup put on the
+      # Windows PATH, the channel and the target named again so they install before the first cargo
+      # call — is written there. One target rather than two: nothing here is checked for the host
+      # with no Windows on it, so `rust-toolchain.toml`'s second one has nothing to do.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          path-type: inherit
+          install: mingw-w64-i686-gcc
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: i686-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      # No fmt, clippy, seam or suite in front of this. A tag names a commit that is already on main,
+      # where ci.yml ran all four against this same tree; running them again would only make the
+      # release later.
+      #
+      # And no NO_HUSKY_HOOKS, which ci.yml sets: husky-rs is a dev-dependency, and a `cargo build`
+      # does not build those, so nothing here reaches the build script that points git at .husky.
+      - name: Build
+        run: cargo xtask build --release
+
+      # The release and its one asset in a single call. One asset because orb.exe carries orb.dll
+      # inside itself, so there is nothing else to hand out, and no orb.yaml is every default.
+      #
+      # `--title` and `--generate-notes` because gh given neither prompts for both, and fails
+      # outright where there is no terminal to prompt at. The notes are the commits since the last
+      # release, which is the log — a release carries nothing that is not in there.
+      #
+      # A tag that already has a release fails here rather than clobbering the exe on it: re-running
+      # this over a release people have already downloaded from replaces the file under them.
+      - name: Attach orb.exe to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          target/i686-pc-windows-gnu/release/orb.exe
