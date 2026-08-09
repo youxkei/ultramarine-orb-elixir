@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "orb"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "miniz_oxide",
  "orb-api",
@@ -218,14 +218,14 @@ dependencies = [
 
 [[package]]
 name = "orb-api"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "windows-sys",
 ]
 
 [[package]]
 name = "orb-config"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "clap",
  "serde",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "orb-core"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "miniz_oxide",
  "orb-api",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "orb-e2e"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "orb-api",
  "orb-config",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "orb-launcher"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "clap",
  "husky-rs",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "orb-sim"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "orb-api",
  "orb-config",
@@ -511,4 +511,4 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.0-dev"

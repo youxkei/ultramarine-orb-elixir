@@ -56,6 +56,49 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The tag and `[workspace.package] version` name the same release, and this is what holds them to
+      # it. The version is in what ships rather than only in the repository: the DLL logs
+      # `orb <CARGO_PKG_VERSION>` the moment it attaches, and orb.log is what a report of a defect
+      # arrives as — so an exe whose log names a version other than the release it was downloaded from
+      # cannot be placed at all.
+      #
+      # The `-dev` case is refused rather than compared. main carries `X.Y.Z-dev` between releases and
+      # `tags: ["v*"]` matches `v0.2.0-dev` as readily as `v0.2.0`, so without this a tag on any ordinary
+      # commit of main would build a release out of a tree whose version says it is on the way to one.
+      #
+      # In front of the build, so a tag that names the wrong version costs the setup steps rather than
+      # the link. Behind them rather than up beside the checkout because it is itself a cargo call:
+      # `rust-toolchain.toml` pins nightly and the first cargo call is what installs it, and
+      # `Swatinem/rust-cache@v2` is what belongs in front of every cargo call in a job.
+      #
+      # Not the other direction, with the version written into Cargo.toml out of the tag here. Then
+      # Cargo.toml no longer says which version the tree is, so every build that is not this workflow's
+      # builds a version that does not exist, and the write puts the tree the release is built from out
+      # of step with the commit the tag names.
+      #
+      # `cargo pkgid` rather than a grep over Cargo.toml, where `version` is not one line — clap's
+      # dependency table carries one of its own below the workspace's. It names a package because a
+      # workspace with no root package has no version to be asked for; every member inherits this one,
+      # and `orb-launcher` is the package the exe is built from.
+      #
+      # A mismatch is caught with the tag already pushed, so the way out of it is deleting that tag and
+      # pushing the right one. That is the cost of checking here, and it is paid on the releases that
+      # would otherwise have gone out mislabelled.
+      - name: Check the tag names the version in Cargo.toml
+        run: |
+          version=$(cargo pkgid -p orb-launcher | sed 's/.*[@#]//')
+          case "$version" in
+            *-dev)
+              echo "tag $GITHUB_REF_NAME names a commit whose version is $version," >&2
+              echo "which is a version on the way to a release rather than one" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not name Cargo.toml's version $version" >&2
+            exit 1
+          fi
+
       # No fmt, clippy, seam or suite in front of this. A tag names a commit that is already on main,
       # where ci.yml ran all four against this same tree; running them again would only make the
       # release later.
