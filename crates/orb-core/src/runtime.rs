@@ -1000,6 +1000,13 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     );
     // Calling a null function pointer is undefined, and the compiler turns it into
     // an instruction that only crashes. Handing the frame back is the honest answer.
+    //
+    // **The one way out of this loop no scenario reaches, and it can have none**: `attach` and
+    // `attach_to` both fill these two statics as they install, and nothing outside orb can empty
+    // them — so a game would have to be laid out with a hole in orb rather than in itself. The other
+    // three are the `frame_loop` section of `orb-e2e`'s `pacing`: the frame handed back for want of a
+    // runtime or of a device, the chain's two exits becoming the frame's two, and the turn a frame
+    // whose window is behind still takes.
     if update == 0 || draw == 0 {
         return unsafe { call_render(game_window) };
     }

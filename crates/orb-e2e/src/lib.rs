@@ -42,6 +42,8 @@ mod a_chapter_table_collected;
 #[cfg(test)]
 mod a_clear_on_demand;
 #[cfg(test)]
+mod a_practice_run;
+#[cfg(test)]
 mod a_stage_transition;
 #[cfg(test)]
 mod keys_from_another_program;

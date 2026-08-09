@@ -92,34 +92,3 @@ The cause and the fix of the stutter are beside `frame::Pacing::grid` and in `or
   wrongly are answered since: `recovering` excuses the frame after a load and `overran` excuses a
   frame whose own drawing outgrew its budget. What is left errs toward giving the compositor longer,
   which is the safe direction, but every wrong step is `MISS_STEP_US` of lag for the rest of the run.
-
-## Move the rest of the suite onto the space
-
-**`chapter.rs`'s scenarios build a `State` by hand and step the detector with it**, where production
-reads one out of the game's memory with `read_state`. So what those cannot catch is `observe` reading a
-different stage from the one the image holds. The parse itself is covered by `orb-e2e`'s
-`the_run_read_back`, and the handover once by `orb-e2e`'s `pointdevice_run`, where nothing hands orb a
-`State` at all. What is left is that `chapter.rs`'s own twenty-seven still cannot fail for that reason,
-which matters for the three cases only they reach: the shortest a chapter may be, a boundary judged out,
-and a bomb swallowing a transition.
-
-**What the game that plays the game's part does not do yet**, each of which is a scenario somebody
-could write next:
-
-- **No practice run and no Extra.**
-- **No boundary out of the *baked* midstage table.** Stage 1's one entry is script frame 4472 and its fake
-  stage is over by 700, so what those runs exercise is the fight's own boundaries; the baked table's path
-  is `chapter.rs`'s twenty-seven. A boundary a *pass* proposes is reached —
-  `orb-e2e`'s `a_chapter_table_collected`, whose gap is at script 259 — since a proposal goes into the
-  same list the baked one is read from.
-- **One of the frame loop's four ways out.** The other three and the loop's order are the `frame_loop`
-  section of `orb-e2e`'s `pacing`;
-  a chain target that is null has no scenario, because `attach` and `attach_to` both fill those statics
-  and nothing outside orb can empty them. See
-  [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
-
-**No track plays in a laid-out game unless a scenario asks for one**, and a stage with none takes
-`STAGE_SETTLE_FRAMES` *plus* `MUSIC_WAIT_FRAMES` to begin — the 248 frames `STAGE_BEGINS` names, in front
-of every test that is not about the music. `Fake::plays_its_songs` is the numbers a track is told apart by
-and `Fake::streams_its_song` is the whole of one, buffer and file handle included, which brings that down
-to the settle alone.

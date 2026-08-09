@@ -383,11 +383,16 @@ pub enum Screen {
     Other(i32),
 }
 
-/// Which item of the title menu a cursor is on, for the two orb has a question about — and for the
-/// one the score file decides, which is [`EXTRA`].
+/// Which item of the title menu a cursor is on, for the four orb has a question about — and [`EXTRA`]
+/// is also the one the score file decides.
+///
+/// Three of them start a run, and orb asks the same question over all three: a practice stage and the
+/// Extra are runs with chapters as much as a full run is. What tells them apart is what the run turns out
+/// to be — see [`Game::run_slot`](crate::game::Game::run_slot), which a practice run has none of.
 pub mod item {
     pub const GAME_START: i32 = super::super::TITLE_ITEM_START;
     pub const EXTRA: i32 = super::super::TITLE_ITEM_EXTRA;
+    pub const PRACTICE: i32 = super::super::TITLE_ITEM_PRACTICE;
     pub const SCORE: i32 = super::super::TITLE_ITEM_SCORE;
 }
 
