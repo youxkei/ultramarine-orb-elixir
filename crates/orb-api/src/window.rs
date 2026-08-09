@@ -1,6 +1,6 @@
 //! Which window the host has in front, the sizes the host decides — what the monitor measures, the
-//! frame it puts round a client area, and the client a created window came out with — and the one
-//! window orb puts up itself.
+//! frame it puts round a client area, and the client a created window came out with — the GDI a stack
+//! of lines is measured and written to the window with, and the one window orb puts up itself.
 //!
 //! The three sizes are behind the seam for one reason, and it is not that they are Win32 calls: what
 //! `orb::window` lays out is decided by numbers only the host knows, and a test that cannot move them
@@ -8,7 +8,7 @@
 //! and the monitor answers two different sizes for one panel depending on whether the process has said
 //! it is DPI aware. Both of those are measurements, and each is kept beside the call that reports it.
 
-use crate::{Hwnd, Rect};
+use crate::{Bar, Hwnd, Rect};
 
 /// The window the host has in front, or [`Hwnd::NULL`] if that is none of them.
 ///
@@ -58,6 +58,24 @@ pub fn client_rect(window: Hwnd) -> Option<Rect> {
     host::client_rect(window)
 }
 
+/// The widest of `lines` and one line's height, at an em height of `em` pixels.
+pub fn measure_lines(lines: &[String], em: i32) -> (i32, i32) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.measure_lines(lines, em);
+    }
+    host::measure_lines(lines, em)
+}
+
+/// `lines` written into `bar` of `window`'s client area, and whether they reached the screen.
+pub fn write_lines(window: Hwnd, bar: Bar, lines: &[String]) -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.write_lines(window, bar, lines);
+    }
+    host::write_lines(window, bar, lines)
+}
+
 /// Puts up a modal with nothing to answer, for the one thing orb has to say to somebody rather than
 /// to its log: that this host cannot do what orb needs of it.
 ///
@@ -79,7 +97,7 @@ use crate::real::window as host;
 
 #[cfg(not(windows))]
 mod host {
-    use crate::{Hwnd, Rect, no_windows};
+    use crate::{Bar, Hwnd, Rect, no_windows};
 
     pub fn foreground() -> Hwnd {
         no_windows("window::foreground")
@@ -95,6 +113,12 @@ mod host {
     }
     pub fn client_rect(_window: Hwnd) -> Option<Rect> {
         no_windows("window::client_rect")
+    }
+    pub fn measure_lines(_lines: &[String], _em: i32) -> (i32, i32) {
+        no_windows("window::measure_lines")
+    }
+    pub fn write_lines(_window: Hwnd, _bar: Bar, _lines: &[String]) -> bool {
+        no_windows("window::write_lines")
     }
     pub fn message_box(_title: &str, _text: &str) {
         no_windows("window::message_box")

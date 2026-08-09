@@ -6,7 +6,7 @@ use windows_sys::Win32::Foundation::{FALSE, HANDLE, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows_sys::Win32::System::Threading::{
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, INFINITE, SetWaitableTimer,
-    TIMER_ALL_ACCESS, WaitForSingleObject,
+    Sleep, TIMER_ALL_ACCESS, WaitForSingleObject,
 };
 
 pub fn counter() -> i64 {
@@ -25,6 +25,12 @@ pub fn frequency() -> i64 {
 /// and about twenty cycles. Here so that the simulated host can charge time for it.
 pub fn spin_once() {
     std::hint::spin_loop();
+}
+
+/// `Sleep`, and not the timer [`wait`] is made on: nothing is waiting for the thread that calls this,
+/// so the system timer tick it rounds to — fifteen milliseconds on this host — costs it nothing.
+pub fn sleep(ms: u32) {
+    unsafe { Sleep(ms) };
 }
 
 /// The timer, made on first use and kept for the rest of the run: the handle, or [`REFUSED`].

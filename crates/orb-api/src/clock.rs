@@ -1,5 +1,5 @@
-//! The host's clock: reading it, the stamp divided down from it, and the wait to a frame's own
-//! deadline.
+//! The host's clock: reading it, the stamp divided down from it, the wait to a frame's own deadline,
+//! and the coarse one a thread nobody is waiting for takes between two reads of a device.
 //!
 //! No decision of the pacing's is behind the seam. Every one of them is already a function of the
 //! numbers that come out — `grid_aim`, `next_budget`, `whole_multiple`, `on_cadence` — so those are
@@ -61,6 +61,18 @@ pub fn wait(ticks: i64) -> bool {
     host::wait(ticks)
 }
 
+/// Waits `ms` whole milliseconds out, on a thread nothing is waiting for.
+///
+/// Apart from [`wait`], which is the frame's own deadline: see [`Win::sleep`](crate::Win::sleep) for
+/// why the two are different calls rather than one with a unit.
+pub fn sleep(ms: u32) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.sleep(ms);
+    }
+    host::sleep(ms);
+}
+
 /// One turn of the spin that finishes a wait: the `pause` instruction, and nothing else in a build
 /// with no simulated Windows in it.
 pub fn spin_once() {
@@ -86,6 +98,9 @@ mod host {
     }
     pub fn wait(_ticks: i64) -> bool {
         no_windows("clock::wait")
+    }
+    pub fn sleep(_ms: u32) {
+        no_windows("clock::sleep")
     }
     pub fn spin_once() {
         no_windows("clock::spin_once")

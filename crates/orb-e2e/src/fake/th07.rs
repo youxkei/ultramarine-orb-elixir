@@ -142,7 +142,7 @@ impl Fake {
         });
         RUNNING.set(&raw const *fake);
         unsafe {
-            orb::attach_to(
+            orb_core::runtime::attach_to(
                 &TH07,
                 config,
                 fake.image.data(),
@@ -259,7 +259,8 @@ extern "system" fn input() -> u16 {
     0
 }
 
-/// The four seams `Th07` declines, as functions that exist so [`orb::Originals`] can be filled.
+/// The four seams `Th07` declines, as functions that exist so [`orb_core::runtime::Originals`] can be
+/// filled.
 ///
 /// Every one of them is `None` in `Th07::hooks`, so nothing patches them and nothing calls them — the
 /// recording's own teardown among them, this game having no record to end. They answer what the real

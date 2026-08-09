@@ -45,7 +45,7 @@ pub use noise::Noise;
 pub use sound::{BUFFER, BUFFER_VTABLE, Sound};
 pub use space::Space;
 pub use text::{Glyphs, Metric};
-pub use window::{Frame, Made, Monitor, Windows};
+pub use window::{Frame, Made, Monitor, Windows, Written};
 
 /// Where a test's laid-out game is installed. The log and `orb.yaml` are read as siblings of the
 /// exe, so what matters is that it has a directory and a file name and that both come back
@@ -70,6 +70,14 @@ fn thread_id() -> u32 {
         static ID: u32 = NEXT.fetch_add(1, Ordering::Relaxed);
     }
     ID.with(|id| *id)
+}
+
+/// What orb has told this host the game allocated: the heap handles, and the ranges reserved straight
+/// from the OS as `(base, len)`.
+#[derive(Default)]
+struct Noticed {
+    heaps: Vec<usize>,
+    reservations: Vec<(usize, usize)>,
 }
 
 /// The host a test puts in front of the real one.
@@ -101,6 +109,13 @@ pub struct Sim {
     /// The threads the game has said it created. Nothing is ever stopped; what the list is for is a
     /// scenario asking whether orb noticed one.
     threads: Mutex<Vec<u32>>,
+    /// The heaps and the reservations orb has said the game took. Nothing is ever walked — laid-out
+    /// memory answers `game_regions` on its own — and what the lists are for is the same as `threads`'.
+    noticed: Mutex<Noticed>,
+    /// The threads that have put themselves below the game's priority, by [`thread_id`]. Nothing is
+    /// scheduled differently for it; what the list is for is a scenario asking that a thread of orb's
+    /// own said so, and that the frame's did not.
+    below_normal: Mutex<Vec<u32>>,
     host_exe: Mutex<PathBuf>,
     /// What `module::proc_address` finds, keyed by module and name. Empty by default: a test that
     /// has not said `mmioSeek` is there is a test of what orb does without it, which is a case orb
@@ -143,6 +158,8 @@ impl Sim {
             log: Log::new(),
             ours: Mutex::new(HashMap::new()),
             threads: Mutex::new(Vec::new()),
+            noticed: Mutex::new(Noticed::default()),
+            below_normal: Mutex::new(Vec::new()),
             host_exe: Mutex::new(host_exe()),
             procs: Mutex::new(HashMap::new()),
             modules: Mutex::new(Vec::new()),
@@ -225,6 +242,19 @@ impl Sim {
         self.threads.lock().unwrap().clone()
     }
 
+    /// And the ones that have put themselves below the game's priority, which is a thread of orb's own
+    /// saying it is not the one to schedule first.
+    pub fn threads_below_normal(&self) -> Vec<u32> {
+        self.below_normal.lock().unwrap().clone()
+    }
+
+    /// The heaps orb has said the game allocated from, and the ranges it reserved straight from the OS
+    /// as `(base, len)` — a range released again having been forgotten.
+    pub fn noticed_allocations(&self) -> (Vec<usize>, Vec<(usize, usize)>) {
+        let noticed = self.noticed.lock().unwrap();
+        (noticed.heaps.clone(), noticed.reservations.clone())
+    }
+
     /// The modals orb has put up, as title and text.
     pub fn dialogs(&self) -> Vec<(String, String)> {
         self.dialogs.lock().unwrap().clone()
@@ -305,12 +335,51 @@ impl Win for Sim {
         self.space.read_committed_bytes(address, len)
     }
 
+    /// Out of the laid-out space, with nothing to unprotect: what a page's protection is is the real
+    /// host's business, and a space that modelled one would be refusing writes a scenario asked for.
+    ///
+    /// Always answers, an address nothing is mapped at panicking the way every other read here does.
+    fn replace_word(&self, address: usize, value: usize) -> Option<usize> {
+        let original = self.space.read::<usize>(address);
+        self.space.write::<usize>(address, value);
+        Some(original)
+    }
+
     fn commit(&self, address: usize, len: usize) -> bool {
         self.space.commit(address, len)
     }
 
     fn vtable_in_image(&self, address: usize) -> bool {
         self.space.vtable_in_image(address)
+    }
+
+    /// Remembered, and the walk answers without them: a laid-out game's memory *is* the game's, so
+    /// there are no heaps to walk and no reservations to have been told about. What the lists are for is
+    /// a scenario asking whether orb noticed one.
+    fn note_heap(&self, heap: usize) {
+        let mut noticed = self.noticed.lock().unwrap();
+        if !noticed.heaps.contains(&heap) {
+            noticed.heaps.push(heap);
+        }
+    }
+
+    fn note_reservation(&self, base: usize, len: usize) {
+        let mut noticed = self.noticed.lock().unwrap();
+        if !noticed
+            .reservations
+            .iter()
+            .any(|(at, len)| *at <= base && base < at + len)
+        {
+            noticed.reservations.push((base, len));
+        }
+    }
+
+    fn forget_reservation(&self, base: usize) {
+        self.noticed
+            .lock()
+            .unwrap()
+            .reservations
+            .retain(|(at, _)| *at != base);
     }
 
     fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)> {
@@ -351,6 +420,10 @@ impl Win for Sim {
 
     fn spin_once(&self) {
         self.clock.spin_once();
+    }
+
+    fn sleep(&self, ms: u32) {
+        self.clock.sleep(ms);
     }
 
     fn message_box(&self, title: &str, text: &str) {
@@ -402,6 +475,24 @@ impl Win for Sim {
         Some(self.windows.adjust(area, style))
     }
 
+    /// Out of the same declared metric a baked string is measured by — one answer per em height,
+    /// whichever rasteriser asks. Two knobs for the two would be two numbers a scenario had to keep in
+    /// step for no question it asks; the bar is written at 30 pixels of em and the overlay at 15 and 19,
+    /// so nothing declares one of these and moves the other by accident.
+    fn measure_lines(&self, lines: &[String], em: i32) -> (i32, i32) {
+        let metric = self.glyphs.metric(em);
+        let widest = lines
+            .iter()
+            .map(|line| metric.advance * line.chars().count() as u32)
+            .max()
+            .unwrap_or(0);
+        (widest as i32, metric.line as i32)
+    }
+
+    fn write_lines(&self, window: Hwnd, bar: orb_api::Bar, lines: &[String]) -> bool {
+        self.windows.write_lines(window, bar, lines)
+    }
+
     fn client_rect(&self, window: Hwnd) -> Option<Rect> {
         self.windows.client(window)
     }
@@ -418,6 +509,12 @@ impl Win for Sim {
         self.joystick.caps(device)
     }
 
+    /// UTF-8, lossily. A code page is a property of the machine, so a simulated one would be a table
+    /// nobody could check — and the device names a scenario declares are the names it then reads back.
+    fn codepage_text(&self, bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+
     fn current_thread_id(&self) -> u32 {
         thread_id()
     }
@@ -429,6 +526,12 @@ impl Win for Sim {
     fn register_thread(&self, id: u32) -> bool {
         self.threads.lock().unwrap().push(id);
         true
+    }
+
+    /// Written down and nothing scheduled differently, for the same reason: how a real host schedules a
+    /// thread it has been told about is not something a model of one can answer.
+    fn below_normal(&self) {
+        self.below_normal.lock().unwrap().push(thread_id());
     }
 
     fn suspend_game_threads(&self, _audio: Option<u32>) -> Vec<u32> {

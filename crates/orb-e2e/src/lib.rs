@@ -1,10 +1,17 @@
 //! The launches: a game playing the game's part, and every scenario that drives orb through one.
 //!
-//! **A scenario is a launch with the far side of the hooks replaced.** `orb::attach_to` fills the same
-//! statics `hook::install` fills, so orb's own code is the same code in a scenario as in a run and the
-//! only thing that can differ is what lies past a hook. What lies past them here is [`fake`], whose
-//! address space, scenes and records are the game's own laid out by hand; what lies under them is
-//! `orb-sim`.
+//! **A scenario is a launch with the far side of the hooks replaced.** `orb_core::runtime::attach_to`
+//! fills the same statics `orb`'s own install lists fill, so orb's own code is the same code in a scenario as
+//! in a run and the only thing that can differ is what lies past a hook. What lies past them here is
+//! [`fake`], whose address space, scenes and records are the game's own laid out by hand; what lies under
+//! them is `orb-sim`.
+//!
+//! **Nothing here names `orb`.** A laid-out game has no import table, so where a real launch patches an
+//! entry it calls the rewrite itself — `orb_core::window::create_window_ex_a`,
+//! `orb_core::score::create_file_a` and `orb_core::joystick::answer` — and every one of those is above the
+//! line `orb` draws round the patched bytes. What is left in that crate is `DllMain`, the trampolines, the
+//! PE headers and the crash filter, none of which a laid-out game has anything to offer. See
+//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 //!
 //! **The whole crate is `#[cfg(test)]`, and that is what it is for.** `orb_core::game::th06::image` and
 //! the seam's install point are reached through `orb-core`'s `sim` feature, and a crate under test

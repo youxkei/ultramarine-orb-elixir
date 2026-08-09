@@ -1,26 +1,24 @@
 # 9. `orb` injects and nothing else, every COM object orb calls is behind the seam, and the scenarios drive `orb-core` from a crate of their own
 
-**Status:** accepted and built. `crates/orb` is nine files and 2728 lines — `DllMain`, `hook`, `pe`,
-`crash`, the six heap imports, the `CreateThread` import, the two window imports and the `Present` slot,
-the `CreateFileA` import, the `joyGetPosEx` entry with its sampling thread, and the install lists — and
-names `windows-sys` in every one of them. Everything else is `orb-core`, whose `runtime.rs` holds the
-eleven hook bodies, `Runtime` and `Originals`; `cargo xtask seam` checks it and `orb-sim` for a host with
-no Windows, so a `windows-sys` import there fails to compile. Direct3D, DirectSound and the GDI's glyphs
-are behind the seam — eighteen slots, eight slots and four calls — and the 133 scenarios are
-`#[cfg(test)]` modules of `crates/orb-e2e/src/`. 351 tests pass, which is the 347 this was written against
-plus four the declared metric brought.
+**Status:** accepted and built, and its title made true by
+[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md). Everything that
+decides what happens to a run is `orb-core`, whose `runtime.rs` holds the eleven hook bodies, `Runtime`
+and `Originals`; `cargo xtask seam` checks it and `orb-sim` for a host with no Windows, so a
+`windows-sys` import there fails to compile. Direct3D, DirectSound and the GDI's glyphs are behind the
+seam — eighteen slots, eight slots and four calls — and the 137 scenarios are `#[cfg(test)]` modules of
+`crates/orb-e2e/src/`. 356 tests pass, which is the 347 this was written against plus four the declared
+metric brought and five 0010 added.
 
-**And the title is not yet true of it**, which
-[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md) finishes. Step 6
-below splits the five mixed files "along the line between a hook and an arithmetic", and names the
-joystick's halves as the import entry *and the sampling thread* — which is a different line from the one
-this document's first section draws, *what has no meaning without a process to patch*. So a hook body that
-needs Windows and patches nothing came out on `orb`'s side: `joystick.rs`'s sampling thread and
-`window.rs`'s status line, about 250 and 330 lines, with the heap walk a third of the same kind reached
-through a handover. What the paragraph above records — that every one of the nine files names
-`windows-sys` — is true and is the weaker claim: it says the boundary is where Windows is rather than
-where the patching is. The rule this document sets holds and `cargo xtask seam` holds it; what does not
-hold is that everything a scenario *ought* to be able to drive is above the seam.
+**What this document built and 0010 finished.** As built, `crates/orb` was nine files and 2728 lines and
+named `windows-sys` in every one of them — which is true and is the weaker claim than the title's: it says
+the boundary is where Windows is rather than where the patching is. Step 6 below splits the five mixed
+files "along the line between a hook and an arithmetic", and names the joystick's halves as the import
+entry *and the sampling thread*, which is a different line from the one this document's first section draws.
+So a hook body that needed Windows and patched nothing came out on `orb`'s side: `joystick.rs`'s sampling
+thread and `window.rs`'s status line, about 250 and 330 lines, with the heap walk a third of the same kind
+reached through a handover. 0010 moves all three and `crates/orb` is nine files and 1346 lines. The rule
+this document sets held throughout and `cargo xtask seam` holds it; what did not hold until 0010 is that
+everything a scenario *ought* to be able to drive is above the seam.
 
 **Six things the building found, each of which corrects something below.**
 
@@ -44,18 +42,24 @@ hold is that everything a scenario *ought* to be able to drive is above the seam
    with them, being an install list. What the fake stopped naming is the eleven hook bodies, which are
    `orb_core::runtime`'s.
 
-   **[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md) undoes this
-   one**, and step 8's prediction turns out to have been right about the design and wrong only about step
-   6. Those three are hook bodies, and this document already settled where a hook body lives —
-   `run_calc_chain` is `orb_core::runtime`'s and the install list takes its address. The one thing that
-   really had to stay was the `Present` slot's `VirtualProtect`, and 0010 puts that behind
-   `mem::replace_word`, which takes the last handover with it.
+   **[0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md) has undone
+   this one, so it was true of step 6 and not of the design**: step 8's prediction was right, and wrong
+   only about which step would make it so. Those three are hook bodies, and this document already settled
+   where a hook body lives — `run_calc_chain` is `orb_core::runtime`'s and the install list takes its
+   address. `attach_to` went to `orb_core::runtime` beside `detached`. The one thing that really had to stay
+   was the `Present` slot's `VirtualProtect`, and 0010 put that behind `mem::replace_word`, which took the
+   last handover with it. `crates/orb-e2e` names no `orb` and `crates/orb/Cargo.toml` builds a `cdylib`
+   only.
 5. **Two handovers the other way, not three.** `save_replay` and `get_controller_input` turned out to need
-   none, and `render`'s bail-outs reach the seam's own `window::foreground`. What is handed over is the
+   none, and `render`'s bail-outs reach the seam's own `window::foreground`. What was handed over is the
    device's `Present` slot and the lines written in the black beside the game — `runtime::Patches`, set by
-   both attaches. The region walk is a third of the same kind, in `memtrack`: the arithmetic is
-   `orb-core`'s and `HeapWalk` is `orb`'s, so `orb::memtrack::install` hands the walk over as it patches
-   the imports it walks the results of.
+   both attaches. The region walk was a third of the same kind, in `memtrack`: the arithmetic was
+   `orb-core`'s and `HeapWalk` was `orb`'s, so `orb::memtrack::install` handed the walk over as it patched
+   the imports it walked the results of.
+
+   **All three are gone with 0010**, and there is no handover the other way at all: the bar's GDI and the
+   walk went to `orb-api`'s `real`, the slot's swap to `mem::replace_word`, and `Patches`,
+   `hands_over_the_patches` and `hands_over_the_walk` with them.
 6. **`orb::detached` did not close the log, and that was a defect.** A real launch closes it from
    `DllMain`'s `DLL_PROCESS_DETACH`; `detached` is the fake's game-closing and the only way out of a
    scenario. Left open, the next `log::line` wrote through a handle onto a game that had gone — and where

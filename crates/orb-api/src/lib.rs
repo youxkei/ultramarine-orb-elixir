@@ -22,6 +22,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 pub mod clock;
+pub mod codepage;
 pub mod d3d8;
 pub mod display;
 pub mod dsound;
@@ -63,9 +64,18 @@ impl Hwnd {
 /// A rectangle in whatever coordinates the call that answered it works in: a monitor's own for the
 /// monitor, and the window's own for a client area.
 ///
-/// The same four fields in the same order as Windows' `RECT`, and exclusive at the right and bottom
+/// The same four fields at the same offsets as Windows' `RECT`, and exclusive at the right and bottom
 /// as that one is, so the arithmetic either side of the seam is the arithmetic that was already
 /// written. Plain data, so the types the seam traffics in build on any host.
+///
+/// **`#[repr(C)]` because that sentence is a claim about a layout**, and one something relies on: the
+/// `Present` slot's signature takes two `*const RECT`, and the replacement `orb::window` puts in the slot
+/// has to have that signature exactly. Four `i32`s give a compiler no reason to reorder them and it does
+/// not, which is why nothing had gone wrong before this attribute — and is also why nothing would have
+/// said if it did. `orb::window` holds the four offsets against Windows' own at compile time, being the
+/// last place that names `RECT` at all; a size assert would pass whatever order the fields came out in,
+/// which is the one thing being asked about.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
     pub left: i32,
@@ -92,6 +102,38 @@ impl Rect {
     pub fn height(self) -> i32 {
         self.bottom - self.top
     }
+}
+
+/// Where a stack of lines goes in the black beside the game: the rows to repaint, and where in them
+/// the text starts.
+///
+/// **Here rather than in `orb-core`**, which is the one thing about this that cannot be got wrong
+/// quietly: it is [`Win::write_lines`]'s argument, that call is answered below the seam, and the far
+/// side may not name `orb-core`. So it joins [`Viewport`] and [`Locked`] at this crate's root, laid out
+/// above the seam and read below it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Bar {
+    /// Everything to clear and put on the screen, in the window's client coordinates.
+    pub area: Rect,
+    /// The x the text is aligned from, in client coordinates.
+    pub x: i32,
+    /// The bottom of the lowest line.
+    pub bottom: i32,
+    /// One line's height, which is also the em the font is made at.
+    pub height: i32,
+    /// [`Bar::LEFT`] or [`Bar::RIGHT`].
+    pub align: u32,
+}
+
+impl Bar {
+    /// `TA_LEFT` and `TA_RIGHT`, written out here and held against Windows' own numbers by a `const`
+    /// assert below the seam — the same way `orb_core::window`'s two window styles are.
+    ///
+    /// Above the seam because which way a stack of lines is aligned is part of deciding *which* bar it
+    /// goes in: down the side the text runs away from the game and under it the text runs back towards
+    /// the game's own edge, and that is one decision with the alignment as half of its answer.
+    pub const LEFT: u32 = 0;
+    pub const RIGHT: u32 = 2;
 }
 
 /// What a region of the address space is, as far as anything reading it can tell.
@@ -141,6 +183,15 @@ pub trait Win: Send + Sync + 'static {
     /// restore has somewhere to write, and says whether the whole of it is now there.
     fn commit(&self, address: usize, len: usize) -> bool;
 
+    /// Swaps the word at `address` for `value`, unprotecting the page for as long as the write takes,
+    /// and answers what was there. `None` where the page could not be made writable at all.
+    ///
+    /// Here beside [`commit`](Win::commit) rather than left to the caller because it is a page operation
+    /// and not a decision: what the caller wants is a vtable slot swapped, and the page that slot is in
+    /// being read-only is this side's business. The read and the write on their own are
+    /// [`read_bytes`](Win::read_bytes) and [`write_bytes`](Win::write_bytes) already.
+    fn replace_word(&self, address: usize, value: usize) -> Option<usize>;
+
     /// Whether `address` holds a pointer into a mapped image, which is what a live COM
     /// object's vtable pointer looks like.
     fn vtable_in_image(&self, address: usize) -> bool;
@@ -148,7 +199,30 @@ pub trait Win: Send + Sync + 'static {
     /// The committed regions the game owns, as `(base, len)` — what a snapshot walks. The
     /// data range comes first, as a real game's does; a region of the game's code is left out,
     /// since a chapter is a copy of the game's state and not of itself.
+    ///
+    /// No two entries may cover the same pages. That is this side's rule to keep because it is a rule
+    /// about *these* pages: a real walk finds a heap region and a reservation naming the same ones and
+    /// merges them, and laid-out memory answers with the objects a scenario put there, two of which
+    /// merged because they abut is one range nothing in that space can read.
     fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)>;
+
+    /// Remembers a heap the game has just allocated from, so [`game_regions`](Win::game_regions) walks
+    /// it.
+    ///
+    /// The same shape [`register_thread`](Win::register_thread) has and for the same reason: the
+    /// noticing is orb's — import hooks on `HeapCreate`, `HeapAlloc`, `HeapReAlloc` and `HeapFree` —
+    /// and what is done with what was noticed is the host's, `HeapLock` and `HeapWalk` belonging on this
+    /// side. Every allocation the game makes says it again, so a host must take a heap it already has
+    /// once.
+    fn note_heap(&self, heap: usize);
+
+    /// And a range the game reserved straight from the OS — an import hook on `VirtualAlloc`. A commit
+    /// inside a range already noted is not a new one.
+    fn note_reservation(&self, base: usize, len: usize);
+
+    /// And that one has been released, which is `VirtualFree` with `MEM_RELEASE`. A range freed and not
+    /// forgotten is a range a snapshot would read after the OS took it back.
+    fn forget_reservation(&self, base: usize);
 
     /// Says a range is orb's own, so that [`private_regions`](Win::private_regions) leaves it out.
     ///
@@ -215,6 +289,18 @@ pub trait Win: Send + Sync + 'static {
     /// an instruction rather than a call is nothing to the seam, which is the host's side of orb and not
     /// Win32's.
     fn spin_once(&self);
+
+    /// `Sleep` — a coarse wait, in whole milliseconds, on a thread nothing is waiting for.
+    ///
+    /// Apart from [`wait`](Win::wait), which is aimed at a frame's own deadline on a high-resolution
+    /// timer and whose whole reason for existing is the input lag left to win. This one is the gap
+    /// between two reads of a device, and a millisecond is as fine as it needs to be.
+    ///
+    /// **A simulated host must not advance the clock here.** The caller is the sampling thread, and a
+    /// background thread moving the frame loop's own counter would break every pacing scenario — each
+    /// asserts about that counter to the microsecond. So a simulated host waits and writes down what it
+    /// was asked for, which is what makes the cadence something a scenario can read back.
+    fn sleep(&self, ms: u32);
 
     // --- the one failure that ends a launch -------------------------------------
     //
@@ -284,6 +370,16 @@ pub trait Win: Send + Sync + 'static {
     /// opening a handle of our own is the host's, because what a handle is belongs on this side.
     fn register_thread(&self, id: u32) -> bool;
 
+    /// `SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL)` — the calling thread put
+    /// below the game's.
+    ///
+    /// No thread named and no priority chosen, because there is one caller and it is the sampling
+    /// thread on itself: a sample a millisecond old costs nobody anything and a late frame costs the
+    /// thing orb was written for. Not a parameter of [`thread::spawn`](crate::thread::spawn) either —
+    /// the priority is set from inside the body because that is where the thread is, and
+    /// `std::thread::Builder` has nowhere to say it.
+    fn below_normal(&self);
+
     // --- the log --------------------------------------------------------------
 
     /// Opens the log for appending, starting it over rather than appending where it has already
@@ -334,6 +430,35 @@ pub trait Win: Send + Sync + 'static {
     /// anything between here and the screen has an opinion. `None` for a window that is not there.
     fn client_rect(&self, window: Hwnd) -> Option<Rect>;
 
+    // --- the status line, in the black beside the game ---------------------------
+    //
+    // Two, and **coarser than the drawing seam's eighteen on purpose**. That one is a mirror of the
+    // device's slots because the failure a state-block bracket exists to prevent is the *game's own
+    // scene* drawing wrong, which no test below the seam could see. Here there is no such bracket: the
+    // black beside the game is orb's alone, Direct3D never touches it, and the one failure below this
+    // line is a flicker, which the single blit prevents and which no test could have seen either way.
+    // What a scenario can have an opinion about — which bar the lines went in, which height they got
+    // and where the block landed — is all above. See
+    // [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+
+    /// The widest of `lines` and one line's height, at an em height of `em` pixels —
+    /// `GetTextExtentPoint32W` through a font made at that height, over each line.
+    ///
+    /// Both, because that is what the call answers. The widest is what a size is chosen from: what is
+    /// written beside the game runs from three characters to twenty, and a line clipped at the bar's
+    /// edge cannot be read at all.
+    fn measure_lines(&self, lines: &[String], em: i32) -> (i32, i32);
+
+    /// `lines` written into `bar` of `window`'s client area — the clear, the text and the blit — and
+    /// whether they reached the screen.
+    ///
+    /// **One call because the three have to be one operation.** Done on the window in turn, a refresh
+    /// landing between the clear and the text shows a bar with nothing in it, and at 120Hz that is a
+    /// flicker somebody sees.
+    ///
+    /// The font is made at [`Bar::height`], that being the em a line's height was measured at.
+    fn write_lines(&self, window: Hwnd, bar: Bar, lines: &[String]) -> bool;
+
     // --- the keyboard ----------------------------------------------------------
 
     /// `GetKeyboardState` — every key at once, `0x80` set on the ones that are down. `None` where
@@ -356,6 +481,16 @@ pub trait Win: Send + Sync + 'static {
     /// `joyGetDevCapsA` — what the device is and what its axes' bounds are. `None` where the call
     /// failed, which orb reads as a device it cannot describe.
     fn joystick_caps(&self, device: u32) -> Option<JoyCaps>;
+
+    // --- the machine's code page -------------------------------------------------
+
+    /// `MultiByteToWideChar` with `CP_ACP` — bytes a Win32 `-A` call answered, in whatever code page
+    /// the machine is set to, as a string the log can hold.
+    ///
+    /// A simulated host reads them as UTF-8, lossily, and that is not a gap: what a scenario asks of
+    /// the line this ends up in is which device it names, and the name it names is one the scenario
+    /// declared.
+    fn codepage_text(&self, bytes: &[u8]) -> String;
 
     // --- loaded modules --------------------------------------------------------
 

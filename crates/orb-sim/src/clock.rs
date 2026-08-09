@@ -4,6 +4,7 @@
 //! is the only way the numbers a run is judged by can be written down in the test that asserts on
 //! them — a real clock would make every such assertion a measurement of the machine it ran on.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 /// Ticks a second, matching what Windows reports on every machine since Windows 8: the counter is
@@ -65,6 +66,9 @@ pub struct Clock {
     /// What one turn of the spin costs. [`PAUSE_TICKS`] unless a scenario has said otherwise —
     /// nothing that spins may set it to zero.
     pause_cost: AtomicI64,
+    /// The coarse waits asked for, in order, with a run of equal ones held as one — see
+    /// [`Clock::sleep`].
+    sleeps: Mutex<Vec<u32>>,
 }
 
 impl Default for Clock {
@@ -82,6 +86,7 @@ impl Clock {
             read_cost: AtomicI64::new(READ_TICKS),
             timer: AtomicBool::new(true),
             pause_cost: AtomicI64::new(PAUSE_TICKS),
+            sleeps: Mutex::new(Vec::new()),
         }
     }
 
@@ -154,6 +159,30 @@ impl Clock {
         }
         self.advance(ticks);
         true
+    }
+
+    /// A coarse wait, written down and not waited out.
+    ///
+    /// **The counter is not moved**, which is the one thing this may not do: the caller is a thread of
+    /// orb's own and the counter is the frame loop's, so a wait here that advanced it would move a
+    /// number every pacing scenario asserts about to the microsecond. Nor is any real time spent —
+    /// measured both ways, and the suite is neither slower nor different for returning at once: 16.3s
+    /// against 16.4s over `orb-e2e`, with `pacing::` unchanged at 15.1s.
+    ///
+    /// **So what a run of them says is how long was asked for and not how often**, the caller going
+    /// round as fast as a core will let it. Which is why [`sleeps`](Self::sleeps) collapses a run of
+    /// equal asks: a cadence is the number, and the count of it is this machine's clock speed.
+    pub fn sleep(&self, ms: u32) {
+        let mut sleeps = self.sleeps.lock().unwrap();
+        if sleeps.last() != Some(&ms) {
+            sleeps.push(ms);
+        }
+    }
+
+    /// The coarse waits asked for, in order and with a run of equal ones as one — what a scenario reads
+    /// a sampling cadence back off. See [`sleep`](Self::sleep) for why the repeats are not kept.
+    pub fn sleeps(&self) -> Vec<u32> {
+        self.sleeps.lock().unwrap().clone()
     }
 
     /// Moves the clock on by `micros`, which is what a test does instead of sleeping.

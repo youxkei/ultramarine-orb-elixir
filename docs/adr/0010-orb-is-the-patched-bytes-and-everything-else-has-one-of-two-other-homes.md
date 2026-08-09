@@ -1,13 +1,66 @@
 # 10. `orb` is the patched bytes, and everything else has one of two other homes
 
-**Status:** accepted, not built. `crates/orb` is nine files and 2728 lines, and three things in it patch
-nothing: `joystick.rs`'s sampling thread and `window.rs`'s status line, about 250 and 330 lines, and
-`memtrack.rs`'s heap walk, which `orb-core` reaches through a handover. With those in the two homes they
-belong in, **nothing outside `orb` calls `orb` any more**: `crates/orb-e2e` loses its dependency on it and
-`crates/orb/Cargo.toml` loses the `rlib` beside the DLL, which is what
+**Status:** accepted and built. `crates/orb` is nine files and 1346 lines, from 2728: `DllMain` and the
+install lists, `hook`, `pe`, `crash`, and one file per set of patched entries holding the write and nothing
+else. **Nothing outside it names it** — `crates/orb-e2e` has no dependency on it and
+`crates/orb/Cargo.toml` builds a `cdylib` only, which is what
 [0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)'s step 8 predicted and
-its status records as not having happened. It did not happen because 0009's step 6 drew the line in the
-wrong place; this is the same decision finished, and it makes that prediction true.
+its status recorded as not having happened. It did not happen because 0009's step 6 drew the line in the
+wrong place; this is the same decision finished, and 0009's title is now true of the tree. 356 tests pass,
+which is the 351 this was written against, the four *What it buys* names, and a fifth a launch asked for:
+the status line's stack held off the game where the black is shorter than the stack is tall, which is the
+shape a run plays with and the one a session watching the title menu does not reach.
+
+**The five-line experiment answered *record and return*.** Both filters stayed green and neither got
+slower — `pacing::` 15.1s against 15.1s, `orb-e2e` as a whole 16.3s against 16.4s — so a simulated host
+writes the milliseconds down and returns at once. Which makes the count of them this machine's clock speed
+rather than a cadence, so `orb_sim::Clock::sleeps` collapses a run of equal asks: what a scenario reads back
+is *which* numbers were asked for, in order, and that is what a cadence is. The numbers are beside that
+function rather than here, being the kind that goes stale.
+
+**Eight things the building found, each of which corrects something below.**
+
+1. **`push_merged` did not stay in `orb-core`.** *The walk goes to the seam's far side* leaves it there and
+   the walk below the seam, and that cannot be: the walk is the only caller, and `real/mem.rs` may not name
+   `orb-core`. Folding the seam's *answer* through it instead was tried and is wrong — merging is a rule
+   about real pages, a heap region and a reservation being able to name the same ones, where two laid-out
+   objects that abut are two objects. Measured: **26 of `orb-core`'s own tests** failed on
+   `0x03000000 for 61440 bytes is not mapped in this space`, which is two of `Space`'s regions merged into
+   one range nothing can read. So `push_merged` and its two tests went below the seam with the walk, and
+   `Win::game_regions`'s own contract is that no two entries cover the same pages.
+2. **The joystick's one test moved at step 4 and not step 11.** Step 11 says it goes with `calibrate`, and
+   `calibrate` and `CALIBRATION` move at step 4 — so `a_calibration_write_stops_where_the_caps_do` had to go
+   then, and `orb/src/joystick.rs` was left with no tests of its own eight steps earlier than step 11 says.
+3. **`orb` keeps three unit tests and not two.** `create_file_a`'s refusal is `INVALID_HANDLE_VALUE`, which
+   *Before starting*'s reading of `score.rs` classified as patched bytes and step 11 moves anyway. Written
+   out above the seam it cannot be held against Windows' own by a `const` assert the way the two window
+   styles and the two text alignments are: a raw pointer can be neither cast to an integer nor compared
+   during const evaluation. So `orb/src/score.rs` has `the_refused_handle_is_windows_own`, and it is the
+   one Windows number in the tree the compiler cannot be made to check.
+4. **`orb-api`'s `windows-sys` features were missing `Win32_Globalization`,** and the whole-workspace build
+   never said so: `orb` names that feature, and cargo unifies features across a workspace build. What found
+   it is `cargo xtask test -p orb-core`, one package at a time, which is worth running after any step that
+   adds a `windows-sys` import to `orb-api`.
+5. **`measure_lines` answers two numbers and the layout uses one.** *The status line's layout goes above the
+   seam* asks the seam for the widest of a stack *and one line's height*, which is what
+   `GetTextExtentPoint32W` answers. `Bar::height` stays the em height it already was, and the line height
+   comes back unused above the seam: `CreateFontW` with a null face name can map to a face whose `tmHeight`
+   is not the height asked for, so stacking on the measured height would be a change in where the lines land
+   hiding inside a move whose only witness is a launch.
+6. **`orb::window::install` hands over last, which is a change in what a failed install does.** With
+   `settle` in `orb-core` and reached through `install_over`, the two are one call — so an install that
+   cannot find one of the two import entries now settles nothing, where before it had already called
+   `SetProcessDPIAware` and written the ratio down. That is the better answer: what `settle` says is said
+   because orb is laying the window out, and a launch whose imports are not there is not.
+7. **`orb-e2e` stopped naming `windows-sys` at step 10, and its dev-dependency went with the page.** *`mem`
+   gains the one call that stands in the way* predicts the page, its loop and its hazard note going; the
+   dependency was the fourth thing that went, that page having been the crate's only use of it.
+8. **The bar's record is a list of stacks written and not a picture.** `orb_sim::Written` is the window, the
+   `Bar` and the lines, which is what the four assertions *What it buys* names read: `bar.height` for the
+   height a stack got, `bar.align` and `bar.x` for which of the two bars, `bar.area` for where the block
+   landed, and `bar.area` again on a shorter stack for the rows it clears. The cleared rows turned out to be
+   the *last stack's own block* and not the widest ever painted — `PAINTED` holds one block — which is
+   correct and is what the scenario now says.
 
 ## Context
 

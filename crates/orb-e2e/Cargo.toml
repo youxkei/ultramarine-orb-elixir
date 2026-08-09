@@ -10,20 +10,18 @@ publish.workspace = true
 # [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
 # for the decision.
 #
-# `orb-e2e` may name `windows-sys`, and that is not a hole in the rule `cargo xtask seam` checks: that
-# rule is about `orb-core` and `orb-sim`, the code under test and the host it is tested against. A game
-# playing the game's part is allowed to be a real object where a laid-out one will not do, the way
-# `orb_sim::Sound` already is. It names it once, for one page: the device vtable orb patches the `Present`
-# slot of has to be memory this process really owns, `hook::replace_pointer` calling `VirtualProtect` over
-# the slot before it writes it — see `fake::vtable_page`.
+# **Nothing here names `windows-sys`.** It did, for one page: the device vtable orb patches the `Present`
+# slot of had to be memory this process really owned, the swap calling `VirtualProtect` over the slot
+# before it wrote it. That swap is `orb_api::mem::replace_word` now and a simulated host answers it out of
+# its own address space, so the vtable is laid out like everything else — see
+# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 [dev-dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Memory"] }
-# By path rather than through the workspace, `orb` being the one crate here that nothing else depends on.
-# The eleven hook bodies are `orb-core`'s now; what a game laid out by hand still needs of this crate is
-# the rewrite of each import a real launch patches — it has no import table, so it calls
-# `window::create_window_ex_a`, `score::create_file_a` and `joystick::answer` where a launch has the entry
-# patched — and `attach_to`, which is how it is attached to with no process to patch.
-orb = { path = "../orb" }
+# **`orb` is not here, and that is the test of where everything lives** rather than a tidying. A game laid
+# out by hand has no import table, so where a real launch patches an entry it calls the rewrite itself —
+# and every one of those rewrites is `orb-core`'s, as is `attach_to`. What is left in `orb` is `DllMain`,
+# the trampolines, the PE headers and the crash filter, none of which a scenario has ever reached: a
+# laid-out game has neither an import table nor PE headers. See
+# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 orb-api = { workspace = true }
 orb-config = { workspace = true }
 # `sim` is what carries `game::th06::image` — the game laid out by hand, which is what the fake writes

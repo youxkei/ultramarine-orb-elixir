@@ -18,6 +18,18 @@ use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 /// something changed behind a snapshot's back.
 static OURS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 
+/// The heap handles and the direct reservations orb's import hooks have noticed the game take, which is
+/// what [`game_regions`] walks. Any game thread can allocate, so this needs a lock.
+static TRACKED: Mutex<Tracked> = Mutex::new(Tracked {
+    heaps: Vec::new(),
+    reservations: Vec::new(),
+});
+
+struct Tracked {
+    heaps: Vec<usize>,
+    reservations: Vec<(usize, usize)>,
+}
+
 pub unsafe fn read<T: Copy>(address: usize) -> T {
     unsafe { (address as *const T).read_volatile() }
 }
@@ -83,6 +95,19 @@ pub unsafe fn commit(address: usize, len: usize) -> bool {
         at = run;
     }
     true
+}
+
+/// The word swapped with the page writable for exactly the length of the write, and put back whatever it
+/// was: a vtable's page is read-only, and a range left writable is one the game can be made to execute
+/// out of.
+pub unsafe fn replace_word(address: usize, value: usize) -> Option<usize> {
+    let previous = unsafe { unprotect(address, size_of::<usize>()) }?;
+    let original = unsafe { read::<usize>(address) };
+    unsafe {
+        write(address, value);
+        reprotect(address, size_of::<usize>(), previous);
+    }
+    Some(original)
 }
 
 pub unsafe fn unprotect(address: usize, len: usize) -> Option<u32> {
@@ -190,6 +215,131 @@ fn is_readable(protect: PAGE_PROTECTION_FLAGS) -> bool {
         != 0
 }
 
+pub fn note_heap(heap: usize) {
+    if heap == 0 {
+        return;
+    }
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
+    if !tracked.heaps.contains(&heap) {
+        tracked.heaps.push(heap);
+    }
+}
+
+pub fn note_reservation(base: usize, len: usize) {
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
+    // A commit inside an already-recorded reservation is not a new region.
+    if tracked
+        .reservations
+        .iter()
+        .any(|(at, len)| *at <= base && base < at + len)
+    {
+        return;
+    }
+    tracked.reservations.push((base, len));
+}
+
+pub fn forget_reservation(base: usize) {
+    let Ok(mut tracked) = TRACKED.lock() else {
+        return;
+    };
+    tracked.reservations.retain(|(at, _)| *at != base);
+}
+
+/// The data range, then the heaps and the reservations the import hooks noticed, as committed readable
+/// ranges with no two of them covering the same pages.
+///
+/// Beside [`private_regions`] and [`process_heap_regions`], which are the same `HeapWalk` and
+/// `VirtualQuery` over the same process asked two other questions. The three differ in what they are
+/// walking *for*: this one is what a chapter is a copy of, and it covers only what the game itself took.
+///
+/// Walking a heap takes its lock, so no thread may be suspended when this is called.
+pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
+    let mut regions = vec![(data.start, data.len())];
+
+    let (heaps, reservations) = match TRACKED.lock() {
+        Ok(tracked) => (tracked.heaps.clone(), tracked.reservations.clone()),
+        Err(_) => return regions,
+    };
+    for heap in heaps {
+        collect_heap(heap, &mut regions);
+    }
+    for (base, len) in reservations {
+        collect_committed(base..base + len, &mut regions);
+    }
+    regions
+}
+
+fn collect_heap(heap: usize, out: &mut Vec<(usize, usize)>) {
+    let heap = heap as *mut c_void;
+    if unsafe { HeapLock(heap) } == 0 {
+        return;
+    }
+    let mut entry: PROCESS_HEAP_ENTRY = unsafe { std::mem::zeroed() };
+    while unsafe { HeapWalk(heap, &mut entry) } != 0 {
+        if entry.wFlags & PROCESS_HEAP_REGION as u16 == 0 {
+            continue;
+        }
+        let region = unsafe { entry.Anonymous.Region };
+        let base = entry.lpData as usize;
+        let span = base..base + region.dwCommittedSize as usize + region.dwUnCommittedSize as usize;
+        collect_committed(span, out);
+    }
+    unsafe { HeapUnlock(heap) };
+}
+
+/// Splits `span` into the parts that are committed and readable. Heap regions contain uncommitted holes
+/// and no-access guard pages, and reading those would fault rather than return zeroes.
+fn collect_committed(span: std::ops::Range<usize>, out: &mut Vec<(usize, usize)>) {
+    let mut address = span.start;
+    while address < span.end {
+        let Some(info) = query(address) else {
+            return;
+        };
+        let base = info.BaseAddress as usize;
+        let next = base + info.RegionSize;
+        // This file's own [`is_readable`] and not the looser test the walk arrived with, which was
+        // not-guarded-and-not-no-access: that admits an execute-only page, and a page with no read
+        // protection on it is one a copy faults on rather than reads.
+        if info.State == MEM_COMMIT && is_readable(info.Protect) {
+            let start = address.max(base);
+            let end = next.min(span.end);
+            if start < end {
+                push_merged(out, (start, end - start));
+            }
+        }
+        address = next.max(address + 1);
+    }
+}
+
+/// Heap regions and direct reservations can name the same pages; saving them twice would make a
+/// restore's write order decide the outcome.
+///
+/// Every entry the range touches and not the first of them: one that bridges two entries already apart —
+/// a heap region and a reservation with a gap between — would otherwise grow the first across the second
+/// and leave the pair overlapping, which is the duplicate this exists to prevent. One pass reaches them
+/// all, because no two entries here ever touch each other: this is the only thing that adds one.
+///
+/// **Below the seam and not above it**, which is where it was and is the one thing about this that could
+/// be got wrong quietly: it is a rule about real pages. A laid-out game answers with the objects a
+/// scenario put there, and two of those merged because they abut is one range nothing in that space can
+/// read — measured, as 26 of `orb-core`'s own tests failing on a 61440-byte range that is two.
+fn push_merged(out: &mut Vec<(usize, usize)>, (base, len): (usize, usize)) {
+    let (mut base, mut end) = (base, base + len);
+    out.retain(|(at, len)| {
+        let touching = base <= at + len && *at <= end;
+        if touching {
+            base = base.min(*at);
+            end = end.max(at + len);
+        }
+        !touching
+    });
+    out.push((base, end - base));
+}
+
 pub fn process_heap_regions() -> Vec<(usize, usize)> {
     let heap = unsafe { GetProcessHeap() };
     let mut regions = Vec::new();
@@ -221,4 +371,37 @@ pub fn read_committed_bytes(address: usize, len: usize) -> Option<Vec<u8>> {
         return None;
     }
     Some(unsafe { read_bytes(address, len) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::push_merged;
+
+    /// Nothing in the set covers the same pages as anything else, whichever order the walk found
+    /// them in — including where what arrives bridges two that were apart.
+    #[test]
+    fn a_region_bridging_two_entries_leaves_one() {
+        for mut out in [
+            vec![(0x1000, 0x1000), (0x3000, 0x1000)],
+            vec![(0x3000, 0x1000), (0x1000, 0x1000)],
+        ] {
+            push_merged(&mut out, (0x1800, 0x2000));
+            assert_eq!(out, [(0x1000, 0x3000)]);
+        }
+    }
+
+    /// One already covered adds nothing, one that abuts an entry extends it, and one that
+    /// touches nothing stands on its own.
+    #[test]
+    fn what_is_already_covered_is_not_saved_again() {
+        let mut out = vec![(0x1000, 0x3000)];
+        push_merged(&mut out, (0x2000, 0x1000));
+        assert_eq!(out, [(0x1000, 0x3000)]);
+
+        push_merged(&mut out, (0x4000, 0x1000));
+        assert_eq!(out, [(0x1000, 0x4000)]);
+
+        push_merged(&mut out, (0x8000, 0x1000));
+        assert_eq!(out, [(0x1000, 0x4000), (0x8000, 0x1000)]);
+    }
 }

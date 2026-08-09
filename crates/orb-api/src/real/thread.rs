@@ -8,7 +8,8 @@ use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentThreadId, OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME,
+    GetCurrentThread, GetCurrentThreadId, OpenThread, ResumeThread, SetThreadPriority,
+    SuspendThread, THREAD_PRIORITY_BELOW_NORMAL, THREAD_SUSPEND_RESUME,
 };
 
 /// The threads the game has created, with a handle each so that suspending one needs no lookup. A
@@ -22,6 +23,12 @@ struct Thread {
 
 pub fn current_id() -> u32 {
     unsafe { GetCurrentThreadId() }
+}
+
+/// The calling thread put below the game's. A pseudo-handle rather than one of ours, since
+/// `GetCurrentThread` names the caller wherever it is used and needs no closing.
+pub fn below_normal() {
+    unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) };
 }
 
 /// Opens a handle of our own for `id`, so that suspending never depends on one the game may close.

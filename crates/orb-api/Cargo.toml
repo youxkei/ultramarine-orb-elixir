@@ -23,6 +23,8 @@ sim = []
 workspace = true
 features = [
     "Win32_Foundation",
+    # `MultiByteToWideChar`, for the device name winmm gives in the machine's own code page.
+    "Win32_Globalization",
     # The compositor and the monitor, which the pacing reads its cadence from.
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",

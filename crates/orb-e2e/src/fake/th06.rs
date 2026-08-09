@@ -622,7 +622,7 @@ impl Fake {
     /// its lifetime — **and the one before has to be dropped first**. What a launch's device and its record
     /// are is the simulated Windows', which goes with the game; what does not is orb's own state, the
     /// runtime and the pacing and the log's handle being the process's. `Drop` is the handover: it calls
-    /// `orb::detached`, which takes the runtime down and closes the log so that the next game opens its
+    /// `orb_core::runtime::detached`, which takes the runtime down and closes the log so that the next game opens its
     /// own.
     ///
     /// Boxed rather than returned by value because the hooks find it through a pointer, and a value
@@ -876,7 +876,7 @@ impl Fake {
         });
         RUNNING.set(&raw const *fake);
         unsafe {
-            orb::attach_to(
+            orb_core::runtime::attach_to(
                 &TH06,
                 config,
                 fake.image.data(),
@@ -1001,21 +1001,15 @@ impl Fake {
     pub fn finds_its_device(&self) {
         let device = self.launch.device();
         // The device object and the vtable under it, laid out here because orb redirects the `Present`
-        // slot inside that hook: `hook::replace_pointer` reads the slot and writes it through
-        // `orb_api::mem`, and the vtable it finds it in it reads out of the object the same way — so a
-        // device that was only a handle is a read of an address nothing has mapped.
-        //
-        // **The vtable is at a real address as well as a mapped one**, which is the one thing here that
-        // cannot go through the seam: `replace_pointer` calls `VirtualProtect` over the slot before
-        // writing it, and that is Windows however the read and the write are answered. So the address is
-        // one of this process's own pages — see [`Launch::vtable`] — and what lands in the slot lands in
-        // the copy this space holds rather than in that page.
+        // slot inside that hook: `orb_core::window::hook_device` reads the object for its vtable and swaps
+        // the slot through `orb_api::mem`, so a device that was only a handle is a read of an address
+        // nothing has mapped.
         let vtable = self.launch.vtable();
         let space = self.image.space();
         space.map(device.0, size_of::<usize>(), orb_api::Kind::Private);
         space.write::<usize>(device.0, vtable);
         space.map(vtable, super::DEVICE_VTABLE_BYTES, orb_api::Kind::Image);
-        space.write_bytes(vtable, self.launch.vtable_bytes());
+        space.write_bytes(vtable, &self.launch.vtable_bytes());
         self.image.shows_through(device, WINDOW);
         orb_core::runtime::init_d3d_device();
     }
@@ -2267,7 +2261,7 @@ impl Fake {
     fn opens_the_score_file(&self, write: bool) -> Option<String> {
         let access = if write { GENERIC_WRITE } else { 0 };
         let handle = unsafe {
-            orb::score::create_file_a(
+            orb_core::score::create_file_a(
                 SCORE_FILE.as_ptr().cast(),
                 access,
                 0,
@@ -2504,7 +2498,7 @@ impl Fake {
             flags: RETURN_ALL,
             ..orb_api::JoyInfo::default()
         };
-        unsafe { orb::joystick::answer(JOYSTICK_0, &mut info) };
+        unsafe { orb_core::joystick::answer(JOYSTICK_0, &mut info) };
     }
 
     /// The keys the game sees, as its own read hands them back — `Controller::GetInput` and both of its
@@ -2655,7 +2649,7 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
 extern "C" fn game_window_create(_instance: *mut c_void) {
     let fake = running();
     let window = unsafe {
-        orb::window::create_window_ex_a(
+        orb_core::window::create_window_ex_a(
             0,
             WINDOW_CLASS.as_ptr().cast(),
             c"th06".as_ptr().cast(),

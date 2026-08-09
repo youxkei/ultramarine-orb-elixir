@@ -1030,7 +1030,7 @@ an attached game controller at startup — where none was, `g_Supervisor.control
 stays null and every frame goes to winmm.
 
 Where nothing answers, that call takes 8.7ms and spends nearly all of it on the CPU — the numbers are
-beside `joystick.rs`'s own header — which is half a 16.67ms frame, and being work rather than waiting there
+beside `orb-core/joystick.rs`'s own header — which is half a 16.67ms frame, and being work rather than waiting there
 is nowhere cheap in the frame to put it. Where a joystick does answer it costs under a
 microsecond, so what it charges for is the looking and not the reading. orb
 redirects the exe's import of it and answers the game out of the last sample a thread of its
@@ -1055,7 +1055,7 @@ index 0 answers `joyGetPosEx` with `JOYERR_NOERROR` and every field zero — `mi
 no buttons and no axes, which is what Windows leaves there while the slot the pad is in is not
 the first — and 1 to 15 are all `JOYERR_UNPLUGGED`. DirectInput has the pad, the game therefore
 has it, and orb's own menus had nothing. Those numbers are the measurement and they are beside
-`joystick.rs`'s `Sample::is_a_pad`; what took them is a probe of the same shape as the one the joystick
+`orb-core/joystick.rs`'s `Sample::is_a_pad`; what took them is a probe of the same shape as the one the joystick
 read's own figures came from, which lives outside the tree like that one.
 
 So a menu of orb's asks the game, and 紅魔郷 answers by trying its own controller first: `Poll`,
@@ -1959,9 +1959,11 @@ the offset it was read at — see `orb_core::game::th06::image`. Everything buil
 is what the space is for.
 
 It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took
-from the OS, which needs the import hooks that watched it take them; a laid-out space *is* the game's
-memory, so it says which regions those are and `memtrack` asks it — through `mem::game_regions` like
-every other host call, since a branch on `cfg(test)` there is a branch a scenario does not reach.
+from the OS, which the six import hooks hand over as they see them; a laid-out space *is* the game's
+memory, so it says which regions those are itself. Either way `memtrack` asks `mem::game_regions` like
+every other host call, since a branch on `cfg(test)` there is a branch a scenario does not reach — and
+holding the answer to no two regions covering the same pages is the answering host's, a heap region and a
+reservation being able to name the same ones where two laid-out objects that abut are two objects.
 
 In a build without the `sim` feature the space does not exist and none of `mem`'s functions branch.
 
@@ -1970,9 +1972,9 @@ In a build without the `sim` feature the space does not exist and none of `mem`'
 Above the memory there is a 東方紅魔郷 that plays the game's part rather than the address space's:
 `orb-e2e/src/fake`. It owns a laid-out image, has a front end and a stage of its own, and calls orb's
 hook bodies where the real game's code calls them — the draw chain and then the update, with the input read
-inside the update, which is the game's own order. `orb::attach_to` puts a runtime in place with its
-functions where the trampolines `hook::install` leaves behind would be, so nothing is patched and
-nothing is a real process.
+inside the update, which is the game's own order. `orb_core::runtime::attach_to` puts a runtime in place with
+its functions where the trampolines `orb`'s own install lists leave behind would be, so nothing is patched
+and nothing is a real process — and nothing in that crate is named from a scenario at all.
 
 **And the device, the sound and the glyphs are the simulated Windows'**, not objects of the fake's own:
 `orb_sim::DEVICE` is what the game writes into its own memory as its `IDirect3DDevice8`, `orb_sim::BUFFER`
@@ -2121,19 +2123,19 @@ game's entry point and the memory hooks see the first allocation.
 | `crates/orb-sim` | the simulated Windows: the memory, the clock, the display, the keyboard, the pad, the sound, the device orb draws through and the strings it bakes. In its `tests/` are the four no game drives |
 | `crates/orb-e2e` | the launches: a game playing the game's part in `src/fake/`, compiled once, with every scenario a `#[cfg(test)]` module beside it |
 | `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
-| `orb-sim/window.rs` | the panel a test declares and the window manager over it: the two sizes one monitor reports either side of `SetProcessDPIAware`, the frame it costs to get a client of a given size, and the windows it has been asked to make |
+| `orb-sim/window.rs` | the panel a test declares and the window manager over it: the two sizes one monitor reports either side of `SetProcessDPIAware`, the frame it costs to get a client of a given size, the windows it has been asked to make, and every stack of lines it has been asked to write in the black beside the game |
 | `orb-sim/keyboard.rs` | the keys a test holds down, the keys another program sent — which `GetKeyboardState` reports and an exclusive foreground device does not — and a host that refuses to say what is down at all |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
-| `orb/lib.rs` | `DllMain` and the install lists: which prologue goes with which hook, which of them a `Config` asks for, and the two calls a hook body makes back out into the process |
-| `orb-core/runtime.rs` | what those hooks *do*: the eleven bodies, the `Runtime` they carry between frames, and `Originals` — the game's own calls each one goes on to make |
+| `orb/lib.rs` | `DllMain` and the install lists: which prologue goes with which hook, and which of them a `Config` asks for |
+| `orb-core/runtime.rs` | what those hooks *do*: the eleven bodies, the `Runtime` they carry between frames, `Originals` — the game's own calls each one goes on to make — and `attach_to`, which is how a game laid out by hand is attached to with no process to patch |
 | `orb/hook.rs` | trampoline and import-table hooks |
-| `orb/memtrack.rs` | the six import hooks that notice the heaps and reservations the game takes from the OS, and the walk of what they hand out |
-| `orb-core/memtrack.rs` | the set those make up, and the rule that no two regions of it cover the same pages |
+| `orb/memtrack.rs` | the six import hooks that notice the heaps and reservations the game takes from the OS, each handing over what it saw |
+| `orb-core/memtrack.rs` | the set those make up, as a snapshot asks for it |
 | `orb-core/snapshot.rs` | save and restore of `.data`, those regions, and the music |
 | `orb/threads.rs` | the `CreateThread` import, which is the only way to know which of the process's threads are the game's. Suspending them is `orb-api`'s |
-| `orb/joystick.rs` | the `joyGetPosEx` entry stood in front of, and the thread that samples the pad off the game's own |
-| `orb-core/joystick.rs` | what one of those samples means: whether what answered is a pad, and what orb's own menus read off it |
+| `orb/joystick.rs` | the write over the `joyGetPosEx` entry, which is the one thing here no scenario reaches |
+| `orb-core/joystick.rs` | the thread that samples the pad off the game's own, the entry's replacement answered out of the last sample, and what one of those samples means: whether what answered is a pad, and what orb's own menus read off it |
 | `orb-core/audio.rs` | the sound buffer and file position, which live outside the game's memory |
 | `orb-core/chapter.rs` | where chapters begin, and which snapshots are kept |
 | `orb-core/resume.rs` | the buttons a run has pressed, and the file that lets its chapter be played to again |
@@ -2143,17 +2145,18 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/mode_ui.rs` | that question drawn — the labels and the wash. What it decides is `orb-core/mode.rs` |
 | `orb-core/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
 | `orb-core/menu_ui.rs` | the list those three draw, and the colours they draw it in |
-| `orb/score.rs` | the `CreateFileA` import stood in front of, and the walk of the path the game handed over |
-| `orb-core/score.rs` | which file that open lands in: the fork's choice of name, and the refusing of a clear run's write |
+| `orb/score.rs` | the write over the `CreateFileA` import |
+| `orb-core/score.rs` | that entry's replacement, the walk of the path the game handed over, and which file the open lands in: the fork's choice of name, and the refusing of a clear run's write |
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
-| `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, and unprotecting it |
-| `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — and the modal orb puts up itself |
-| `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, and the wait to a frame's own deadline |
+| `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, unprotecting it, swapping a word in a page that is read-only — and the walk of the heaps and reservations the game took, which is what a chapter is a copy of |
+| `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — the GDI a stack of lines is measured and written to the window with, and the modal orb puts up itself |
+| `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, the wait to a frame's own deadline, and the coarse one a thread nobody is waiting for takes between two reads of a device |
+| `orb-api/codepage.rs` | `MultiByteToWideChar`, for the one string a Win32 `-A` call answers in the machine's own code page: the name winmm gives a pad |
 | `orb-api/joystick.rs` | the joystick winmm has, which is the branch the game reads a pad on where its own enumeration found no controller |
 | `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
 | `orb-core/tuning.rs` | building the midstage table |
-| `orb/window.rs` | getting in front of the two window imports and the device's `Present` slot, the black brush, and the lines written in the letterbox |
-| `orb-core/window.rs` | how big that window is and where it goes: the style, the centring, and the rectangle a 4:3 game is presented into |
+| `orb/window.rs` | the writes over the two window imports, and the black brush the rewrite of `RegisterClassA` swaps in |
+| `orb-core/window.rs` | how big that window is and where it goes — the style, the centring, and the rectangle a 4:3 game is presented into — the device's `Present` slot redirected into it, and where orb's own lines go in the black beside it |
 | `orb-core/overlay.rs` | drawing over the game's frame: the state block round every draw, the quads, and the labels and pictures baked into textures |
 | `orb-api/d3d8.rs`, `orb-api/real/d3d8.rs` | the eighteen slots of the game's device orb calls, and the only code in the tree that calls a Direct3D vtable |
 | `orb-api/dsound.rs`, `orb-api/real/dsound.rs` | the eight of the buffer its music is played out of, the same way |
@@ -2170,7 +2173,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/pacing.rs` | every scenario about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb-e2e/src/mode_question.rs`, `orb-e2e`'s `mode_on_the_pad`, `orb-e2e`'s `mode_on_a_winmm_pad` | the question over the game's title menu answered on the keyboard, answered on a controller the game owns, and answered on a pad winmm has where the game owns none — with the empty socket and the pad that turns up in it later beside it |
 | `orb-e2e/src/the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
-| `orb-e2e/src/the_window.rs` | the window orb makes on a monitor the scenario declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, and the black either side of a 4:3 game |
+| `orb-e2e/src/the_window.rs` | the window orb makes on a monitor the scenario declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, the black either side of a 4:3 game, and the status line written in it — which of the two bars, at which height, where the block landed, and a shorter stack afterwards clearing the rows the longer one wrote in |
 | `orb-e2e/src/the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended — and the panel's own tile the strips beside the count are painted with |
 | `orb-e2e/src/a_clear_on_demand.rs` | `--clear` through six stages with a bullet sitting on the player, the screen that saves a replay written past rather than answered, and neither score file written |
 | `orb-e2e/src/the_score_file.rs` | which of the two files each of the game's own opens lands in: the front end's read, which is the game's own file whatever the mode, and each mode's ranking screen reading and writing its own |

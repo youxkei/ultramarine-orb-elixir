@@ -8,7 +8,7 @@
 //! orb's reads has to be the same one the game is on, and that one is here.
 //!
 //! **This is also the path that used to work and must not have been broken.** Every measurement in
-//! `orb`'s `joystick` module was taken on it: with nothing plugged in that one call answers `JOYERR_PARMS`
+//! `orb_core::joystick` was taken on it: with nothing plugged in that one call answers `JOYERR_PARMS`
 //! in 8.7ms and spends nearly all of it on the CPU — 917ms of wall clock against 906ms of CPU over a
 //! hundred calls — which against a 16.67ms frame was the whole of the frame-pacing trouble, and is why
 //! the read moved onto a thread of orb's own. What the game is handed is the last sample that thread took.
@@ -34,6 +34,12 @@ const TRAVEL: (u32, u32) = (0, 65535);
 /// The name the log says that device is, which is what a scenario waits for the sample by: the read
 /// happens on a thread of orb's own, so what says it has happened is the line that thread writes.
 const NAMED: &str = "joystick: mid=045e pid=02ff";
+
+/// What the thread asks the host to wait between two reads, in milliseconds: four while a pad is
+/// answering, which is four samples a frame, and a second while none is — the read costing 8.7ms of CPU
+/// with nothing plugged in being the whole reason it is off the game's thread.
+const SAMPLED_MS: u32 = 4;
+const LOOKED_FOR_MS: u32 = 1000;
 
 /// How long a scenario gives that thread, in frames with a millisecond of real time each.
 ///
@@ -306,6 +312,35 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
             game.log().said("joystick: there is no joystick 0")
         });
 
+        // A second between reads, and never the four milliseconds a pad gets: the ask goes through the
+        // seam, so the cadence is a number a scenario reads back rather than a wait it sits through.
+        //
+        // What is in the record and not what all of it is. The wait is never sooner than the read itself
+        // took, and here one clock serves both threads — a read the game's own frames advanced it across
+        // is charged that time — so a longer ask can stand between two of these. That a *shorter* one
+        // cannot is the assertion: with nothing answering the wait is `max(1000, cost)`.
+        waits_until(
+            &game,
+            "the second the thread waits for an empty socket",
+            || game.sim().clock().sleeps().contains(&LOOKED_FOR_MS),
+        );
+        assert!(
+            !game.sim().clock().sleeps().contains(&SAMPLED_MS),
+            "the empty socket was read at a pad's cadence: {:?}",
+            game.sim().clock().sleeps(),
+        );
+
+        // And that thread runs below the game's, which is the other half of costing the frame nothing: a
+        // sample a millisecond old costs nobody anything and a late frame costs the thing orb was written
+        // for. One thread and not this one — the frame's own is what it is being put below.
+        let below = game.sim().threads_below_normal();
+        assert_eq!(below.len(), 1, "{below:?} put themselves below the game's");
+        assert_ne!(
+            below[0],
+            orb_api::thread::current_id(),
+            "the thread the game's frames run on put itself below the game's own priority",
+        );
+
         // The question up, and nothing to answer it with: a menu of orb's reads the sample, and there is
         // no pad in it.
         game.press(keys::Z);
@@ -327,10 +362,16 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
         }
 
         // And then a pad, which the thread finds on its next read — within the second it waits while
-        // nothing is answering, and this is the one wait in the suite that is really that long.
+        // nothing is answering, which on a simulated host is a second asked for rather than a second
+        // spent.
         game.sim().joystick().attach(BUTTONS, TRAVEL.0, TRAVEL.1);
         waits_until(&game, "the pad that turned up being read", || {
             game.log().said(NAMED)
+        });
+        // And the cadence changes with it: four samples a frame, so that what the game is handed is never
+        // a frame behind what the stick is doing.
+        waits_until(&game, "the cadence of a pad that is answering", || {
+            game.sim().clock().sleeps().contains(&SAMPLED_MS)
         });
         game.sim().joystick().pushes(1 << MAPPING.shoot, centred());
         waits_until(&game, "the pad's answer", || outcomes(&game) == 1);

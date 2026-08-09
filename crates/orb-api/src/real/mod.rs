@@ -5,6 +5,7 @@
 //! facades in the parent modules compile down to these calls and nothing else.
 
 pub mod clock;
+pub mod codepage;
 pub mod d3d8;
 pub mod display;
 pub mod dsound;

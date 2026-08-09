@@ -171,36 +171,6 @@ pub unsafe fn install_import(
     }
 }
 
-/// Swaps a function pointer, for vtables and other tables of them, and returns
-/// what was there.
-///
-/// # Safety
-/// `slot` must hold a function pointer, and `replacement` must have that
-/// function's exact signature and calling convention.
-pub unsafe fn replace_pointer(slot: usize, replacement: usize) -> Result<usize, Error> {
-    unsafe {
-        let mut previous: PAGE_PROTECTION_FLAGS = 0;
-        if VirtualProtect(
-            slot as *const c_void,
-            size_of::<usize>(),
-            PAGE_READWRITE,
-            &mut previous,
-        ) == FALSE
-        {
-            return Err(Error::Protect);
-        }
-        let original = orb_api::mem::read::<usize>(slot);
-        orb_api::mem::write(slot, replacement);
-        VirtualProtect(
-            slot as *const c_void,
-            size_of::<usize>(),
-            previous,
-            &mut previous,
-        );
-        Ok(original)
-    }
-}
-
 unsafe fn write_jmp(at: usize, to: usize) {
     unsafe {
         orb_api::mem::write(at, JMP_REL32);

@@ -1,4 +1,4 @@
-//! Which thread is running, and stopping the ones the game made.
+//! Which thread is running, what a thread of orb's own runs at, and stopping the ones the game made.
 
 /// `GetCurrentThreadId`. Never zero, which is what lets the log claim the frame's own thread with
 /// nothing but a compare-and-swap.
@@ -32,6 +32,18 @@ pub fn spawn(body: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
             body();
         })
         .map(|_| ())
+}
+
+/// The calling thread put below the game's, which the sampling thread says of itself.
+///
+/// Called by the body rather than given to [`spawn`] because that is where the thread is — see
+/// [`Win::below_normal`](crate::Win::below_normal).
+pub fn below_normal() {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.below_normal();
+    }
+    host::below_normal();
 }
 
 /// Remembers a thread the game has just created, and answers whether it can be stopped later.
@@ -99,6 +111,9 @@ mod host {
 
     pub fn current_id() -> u32 {
         no_windows("thread::current_id")
+    }
+    pub fn below_normal() {
+        no_windows("thread::below_normal")
     }
     pub fn registered(_id: u32) -> bool {
         no_windows("thread::registered")

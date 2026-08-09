@@ -22,7 +22,7 @@
 
 use std::sync::Mutex;
 
-use orb_api::{Hwnd, Rect};
+use orb_api::{Bar, Hwnd, Rect};
 
 /// What a monitor reports, and the two answers it has.
 ///
@@ -108,6 +108,20 @@ pub struct Made {
     pub framed: bool,
 }
 
+/// A stack of lines this host has been asked to write in the black beside the game: where it went, and
+/// what was in it.
+///
+/// Which is the whole of what a scenario can ask about the status line — the height the lines got, which
+/// of the two bars they went in, where the block landed, and that a shorter stack afterwards clears the
+/// rows the longer one wrote in. Nothing is rasterised: what a line comes out as at an em height is the
+/// declared metric, the same one a baked string is measured by.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Written {
+    pub window: Hwnd,
+    pub bar: Bar,
+    pub lines: Vec<String>,
+}
+
 pub struct Windows {
     monitor: Mutex<Option<Monitor>>,
     frame: Mutex<Frame>,
@@ -122,6 +136,8 @@ pub struct Windows {
     /// Every read of the monitor, and whether the process had said it was DPI aware at the time — see
     /// [`monitor_reads`](Windows::monitor_reads).
     reads: Mutex<Vec<(bool, Rect)>>,
+    /// Every stack of lines written in the black beside the game, in the order it was written.
+    written: Mutex<Vec<Written>>,
 }
 
 impl Default for Windows {
@@ -142,6 +158,7 @@ impl Windows {
             made: Mutex::new(Vec::new()),
             next: Mutex::new(0x1_0000),
             reads: Mutex::new(Vec::new()),
+            written: Mutex::new(Vec::new()),
         }
     }
 
@@ -249,5 +266,29 @@ impl Windows {
     /// scenario says that one was made and that nothing came before it to flash on the screen.
     pub fn made(&self) -> Vec<Made> {
         self.made.lock().unwrap().clone()
+    }
+
+    /// Writes a stack of lines down as written, and says it reached the screen.
+    ///
+    /// Always, where there is a rectangle to write in at all. What a real blit fails for is a device
+    /// context that is not a window's, and orb's answer to that is to leave the bar holding whatever it
+    /// held and put it right on the next call — which is behaviour a scenario reaches by asking for a
+    /// window this host has never made.
+    pub(crate) fn write_lines(&self, window: Hwnd, bar: Bar, lines: &[String]) -> bool {
+        if bar.area.width() <= 0 || bar.area.height() <= 0 || self.client(window).is_none() {
+            return false;
+        }
+        self.written.lock().unwrap().push(Written {
+            window,
+            bar,
+            lines: lines.to_vec(),
+        });
+        true
+    }
+
+    /// Every stack of lines written in the black beside the game, in order — and a stack of none is one
+    /// of them, that being the bar cleared.
+    pub fn written(&self) -> Vec<Written> {
+        self.written.lock().unwrap().clone()
     }
 }

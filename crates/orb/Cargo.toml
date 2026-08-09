@@ -6,19 +6,17 @@ publish.workspace = true
 
 [lib]
 name = "orb"
-# `rlib` beside the DLL the game loads, so that `orb-e2e`'s scenarios can drive this crate from outside
-# it. **Which they still do, after everything a scenario drives moved to `orb-core`** — see
-# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md),
-# whose plan expected this line to go and whose status records that it does not. What is left here that a
-# game laid out by hand needs is the rewrite of each import a real launch patches: it has no import table,
-# so where a launch patches the entry it *calls* `window::create_window_ex_a`, `score::create_file_a` and
-# `joystick::answer` itself, and `attach_to` is how it is attached to with no process to patch.
+# The DLL the game loads and nothing else. **There is no `rlib`, and that is what says everything a
+# scenario drives lives above this crate**: it cannot be built while anything a game laid out by hand
+# reaches is still here, because such a game has no import table and calls each rewrite itself. See
+# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md),
+# whose steps are ordered by trying this line first and keeping it last.
 #
-# Another crate rather than this one's own `#[cfg(test)]`, and that is the point: `cfg(test)` is false
-# in a crate compiled as a dependency, so a scenario reaches the simulated Windows the same way the
-# shipped DLL would reach the real one — through the `sim` feature and nothing else. It is also what
-# one of them found: a `cfg(test)` branch in `memtrack` that a scenario does not take.
-crate-type = ["cdylib", "rlib"]
+# This crate still has unit tests of its own, and cargo builds their harness from the lib's own source
+# whatever `crate-type` says: `hook.rs`'s two over an import table written out by hand, and
+# `score.rs`'s one over the handle a refused open answers with. Measured rather than assumed — losing
+# them would be a coverage change that decision was not allowed to make.
+crate-type = ["cdylib"]
 
 [dependencies]
 orb-api.workspace = true

@@ -1,16 +1,18 @@
 //! orb injected into the game's process, and nothing else.
 //!
-//! **What is here is what has no meaning without a process to patch**: `DllMain`, the trampolines and
-//! the import table ([`hook`]), the PE headers those are read out of ([`pe`]), the crash handler that
-//! names a module and an offset ([`crash`]), the six heap imports and the walk of what they hand out
-//! ([`memtrack`]), the `CreateThread` import ([`threads`]), the two window imports and the `Present`
-//! slot ([`window`]), the `CreateFileA` import ([`score`]), the `joyGetPosEx` entry and the thread that
-//! samples it ([`joystick`]) — and the install lists below, which say which prologue goes with which
-//! hook and which of them a `Config` asks for.
+//! **What is here is code whose subject is another module's memory**: `DllMain`, the jump written over a
+//! prologue and the import table entry swapped ([`hook`]), the PE headers those are read out of ([`pe`]),
+//! the crash handler that names a module and an offset when a fault happens in the process this was
+//! injected into ([`crash`]), the six heap imports ([`memtrack`]), the `CreateThread` import
+//! ([`threads`]), the two window imports and the black brush one of those rewrites swaps in ([`window`]),
+//! the `CreateFileA` import ([`score`]), the `joyGetPosEx` entry ([`joystick`]) — and the install lists
+//! below, which say which prologue goes with which hook and which of them a `Config` asks for.
 //!
-//! **What a hook then does is [`orb_core::runtime`]**, and so is everything that decides what happens to
-//! a run. See
-//! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+//! **What each of those entries is pointed at is [`orb_core`]'s**, and so is everything that decides what
+//! happens to a run: every hook body, the rectangles the window is laid out by, the thread the pad is
+//! sampled on, and `attach_to`. Nothing outside this crate names it — the DLL exports `DllMain` and
+//! nothing else, and there is no `rlib` — which is what says so. See
+//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 //!
 //! Chapter-based retry for 東方紅魔郷 1.02h, injected before the game starts.
 
@@ -20,28 +22,19 @@
 // the DLL's entry point work, and there is no spelling of the export that avoids it.
 #![allow(linker_messages)]
 
-// `pub` on the ones an `orb-e2e` scenario drives, which is what a crate outside this one needs of it: a
-// game laid out by hand has no import table, so where a real launch patches an entry it calls the
-// rewrite itself — `window::create_window_ex_a`, `score::create_file_a`, `joystick::answer` — and
-// [`attach_to`] is how it is attached to with no process to patch. Nothing but those scenarios links this
-// crate; the DLL exports `DllMain` and nothing else.
+// None of them `pub`: nothing outside this crate reaches any of it. A game laid out by hand has no import
+// table, so where a real launch patches an entry it calls the rewrite itself — and every one of those
+// rewrites is `orb-core`'s.
 mod crash;
 mod hook;
-pub mod joystick;
-pub mod memtrack;
+mod joystick;
+mod memtrack;
 mod pe;
-pub mod score;
+mod score;
 mod threads;
-/// How much of the screen the game gets: the window created for it, and the black beside it.
-///
-/// `pub` for the same reason the hooks below are — a game laid out by hand calls
-/// [`window::create_window_ex_a`] where the real game's own `CreateWindowExA` call lands, there being
-/// no import table to reach it through — and for one thing besides: [`window::letterbox`] is where the
-/// black either side of a 4:3 game is decided, and nothing else in orb says how much of it there is.
-pub mod window;
+mod window;
 
 use std::ffi::c_void;
-use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use orb_config::Config;
@@ -50,22 +43,18 @@ use orb_config::Config;
 // `log` carries both the module and the macro of that name — they are in different namespaces —
 // which is why every call site can say `use crate::{detail, log}` whether it lives here or in
 // `orb-core`, and go on saying it as it moves between them.
-use orb_core::game::Game;
-pub(crate) use orb_core::{detail, game, log, profile, resume, runtime, sync};
+pub(crate) use orb_core::{game, log};
 // What a hook *does* is `orb-core`'s, and so are the statics the install lists below fill: this crate
 // installs them and calls none of them itself — see
 // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 use orb_core::runtime::{
-    BLOCK_REPLAY_SAVE, CREATE_GAME_WINDOW, DECIDE_PRESSED, DECIDE_WAS_DOWN, FEED_DECIDE,
-    FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT, HOLD_CANCEL, HOLD_DECIDE, IN_HOOK,
-    INIT_D3D_DEVICE, INPUT_ACTIVE, INPUT_LOST, LAST_WORD, PACING, PLAY_SOUNDS, PRESENT,
-    RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET, RUN_DRAW_CHAIN,
-    RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, SETTLE_KEYS, STAGE_BEGUN, STAGE_BUILDING, STOP_RECORDING,
-    TIME_JOYSTICK, UNLOCKS_READ, attached, create_game_window, get_controller_input, get_input,
+    CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT, INIT_D3D_DEVICE,
+    PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET,
+    RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN, STAGE_BUILDING,
+    STOP_RECORDING, UNLOCKS_READ, attached, create_game_window, get_controller_input, get_input,
     init_d3d_device, pacing, ranking_read, render, run_calc_chain, run_draw_chain, save_replay,
     stage_begun, stage_building, stop_recording, unlocks_read,
 };
-pub use orb_core::runtime::{Originals, detached};
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -108,19 +97,6 @@ pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_v
     TRUE
 }
 
-/// What a hook body reaches back out to this crate for: the device's `Present` slot, and the lines
-/// written in the black beside the game.
-///
-/// Both of them patch or draw over a real process, which is what this crate is and what `orb-core` is
-/// not. Handed over as an install rather than compiled in, so that the same two arrive whether the game
-/// is a process or a game laid out by hand.
-fn patches() -> runtime::Patches {
-    runtime::Patches {
-        hook_device: window::hook_device,
-        write_beside: window::write_beside,
-    }
-}
-
 /// Runs with the game still suspended and the loader lock held: no loader
 /// calls, no game code, just patching bytes and allocating our own memory.
 fn attach() {
@@ -133,10 +109,6 @@ fn attach() {
         env!("CARGO_PKG_VERSION"),
         unsafe { GetCurrentProcessId() }
     );
-
-    // The two things a hook body does that need a process to do them to, handed the other way — see
-    // `orb_core::runtime::Patches`.
-    unsafe { runtime::hands_over_the_patches(patches()) };
 
     let exe = unsafe { GetModuleHandleW(std::ptr::null()) } as usize;
     log!("exe image base {exe:#010x}");
@@ -240,7 +212,7 @@ fn attach() {
     // write means being in the path of it.
     if config.chapters || config.fast_clear {
         if config.fast_clear {
-            score::refuse_writes();
+            orb_core::score::refuse_writes();
         }
         match unsafe { score::install(exe) } {
             Ok(()) if config.fast_clear => log!("score: no file is written this run"),
@@ -423,133 +395,5 @@ fn attach() {
         }
     }
 
-    unsafe { attached(game, config, data) };
-}
-
-/// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
-/// then the same runtime [`attach`] leaves behind.
-///
-/// What [`attach`] does above this and a scenario cannot: read a `.data` section out of the PE, load
-/// `orb.yaml` from beside an exe, and patch a call site in the game's code. A game laid out by hand
-/// has none of those — it hands over its own memory's bounds, a `Config` written in the open, and its
-/// own functions where the patches would have pointed.
-///
-/// # Safety
-/// Must run on the thread the game's frames will run on, with a simulated Windows installed there,
-/// and every function in `originals` must outlive the last frame orb's hooks are reached on.
-pub unsafe fn attach_to(
-    game: &'static dyn Game,
-    config: Config,
-    data: Range<usize>,
-    originals: Originals,
-) {
-    log::open();
-    // The same two as a real launch hands over, and for the same reason: a laid-out game's device has a
-    // vtable to patch and its window has black beside it, so what a scenario drives is the whole of what
-    // a hook does rather than a hook with two of its steps missing.
-    unsafe { runtime::hands_over_the_patches(patches()) };
-    log!(
-        "orb {} attached to a game laid out in this process",
-        env!("CARGO_PKG_VERSION")
-    );
-    log::set_level(config.log_level);
-    log::set_pacing(config.pacing_log);
-    // Where [`attach`] settles this off the exe's own name, a game laid out by hand is handed over as
-    // itself: there is no file to read the name of, and a scenario that had to name one would be
-    // choosing its game twice.
-    unsafe { *GAME.get() = Some(game) };
-    // The flags a fresh process would have brought, since a game that is not one does not bring it: a
-    // launch is the moment nothing is being held back, nobody has pressed anything, and the keyboard
-    // has not been lost. Left standing, one game's would be the next game's opening state — a press
-    // held back on the screen a game before ended on, and a question up over the one that follows.
-    IN_HOOK.store(false, Ordering::Relaxed);
-    INPUT_ACTIVE.store(true, Ordering::Relaxed);
-    INPUT_LOST.store(false, Ordering::Relaxed);
-    HOLD_DECIDE.store(false, Ordering::Relaxed);
-    DECIDE_PRESSED.store(false, Ordering::Relaxed);
-    DECIDE_WAS_DOWN.store(false, Ordering::Relaxed);
-    FEED_DECIDE.store(false, Ordering::Relaxed);
-    HOLD_CANCEL.store(false, Ordering::Relaxed);
-    SETTLE_KEYS.store(false, Ordering::Relaxed);
-    LAST_WORD.store(0, Ordering::Relaxed);
-    // And nothing of a run written down, which is the one piece of that state a `Runtime` does not
-    // hold: the record lives beside it, for the two hooks that reach it from inside the game's update.
-    unsafe { resume::forget() };
-    // The two decisions [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
-    BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
-    TIME_JOYSTICK.store(
-        config.log_level >= orb_config::LogLevel::Verbose,
-        Ordering::Relaxed,
-    );
-    for (slot, original) in [
-        (&RUN_CALC_CHAIN, originals.update as usize),
-        (&RUN_DRAW_CHAIN, originals.draw as usize),
-        (&GET_INPUT, originals.input as usize),
-        (&STAGE_BUILDING, originals.stage_building as usize),
-        (&STAGE_BEGUN, originals.stage_begun as usize),
-        (&UNLOCKS_READ, originals.unlocks_read as usize),
-        (&RANKING_READ, originals.ranking_read as usize),
-        (&RENDER, originals.render as usize),
-        (&STOP_RECORDING, originals.stop_recording as usize),
-        (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
-        (
-            &GET_CONTROLLER_INPUT,
-            originals.get_controller_input as usize,
-        ),
-        (&SAVE_REPLAY, originals.save_replay as usize),
-        (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
-        // What the patched call sites would be. In a real process these are the game's own two chain
-        // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
-        // the address it was handed runs everything orb does per frame; here the hooks are what there
-        // is, and calling them straight is the same path.
-        (&RUN_CALC_CHAIN_TARGET, hook::address(run_calc_chain as _)),
-        (&RUN_DRAW_CHAIN_TARGET, hook::address(run_draw_chain as _)),
-    ] {
-        slot.store(original, Ordering::Relaxed);
-    }
-    // And the two the frame loop calls in the game rather than reaching through a hook. Nothing to
-    // call them on: see [`Originals`].
-    PLAY_SOUNDS.store(game::Call {
-        function: originals.play_sounds as usize,
-        this: 0,
-    });
-    PRESENT.store(game::Call {
-        function: originals.present as usize,
-        this: 0,
-    });
-    // And the window, which is the same story: what the game gets is decided by orb either way, and a
-    // laid-out game reaches the rewrite by calling it rather than by having its imports patched. Always,
-    // as [`attach`] installs it always — the answer is orb's whichever of the two the settings say.
-    unsafe { window::install_over(originals.create_window, game.content_size(), config.screen) };
-    // And the display setting that window is made under, which is overruled once and where [`attach`]
-    // overrules it: a game that has taken the display exclusively has no window to resize, and by the
-    // time anything of orb's runs per frame the device already exists. Set here rather than in the reset
-    // above because it is the one flag a fresh process brings *set*.
-    FORCE_WINDOWED.store(true, Ordering::Relaxed);
-    // And the joystick, which is the same story again: the read moves onto a thread of orb's own either
-    // way, and what differs is whether the entry it stands in front of was patched or handed over.
-    joystick::install_over(originals.joystick_position, game.joystick_calibration());
-    log!("joystick: read on a thread of orb's, out of the game's frame");
-    // The score file's fork, on the same gate [`attach`] puts it behind: only where a run can be rewound,
-    // and always for a clear — there the fork is not what it is for, and being in the path of the write is.
-    if config.chapters || config.fast_clear {
-        if config.fast_clear {
-            score::refuse_writes();
-        }
-        unsafe { score::install_over(originals.create_file) };
-        if config.fast_clear {
-            log!("score: no file is written this run");
-        } else {
-            log!("score: score.dat is forked while orb is in pointdevice mode");
-        }
-    }
-    // The frame loop from nothing, and set up as [`attach`] sets it up: the cadence off the desktop's
-    // own rate before there is a window to ask about, and the compositor's drawing time pinned where
-    // the launch pinned it. Thrown away first rather than configured again, because what a `Pacing`
-    // carries is a run's own — the frames it has counted and the gaps it has put them in are what the
-    // `frame:` line is written from, and a game before this one's would be added to this one's.
-    unsafe { *PACING.get() = None };
-    unsafe { pacing() }.configure();
-    unsafe { pacing() }.pin_compose(config.compose_us);
     unsafe { attached(game, config, data) };
 }

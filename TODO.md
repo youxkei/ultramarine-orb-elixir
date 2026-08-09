@@ -735,7 +735,7 @@ name it too. The counts:
 $ ls crates/orb/src/ && grep -rlc windows_sys crates/orb-core/src crates/orb-sim/src
 ```
 
-**A hundred and forty-six of the 351 tests are `orb-e2e`'s, and every one of them is driven by a game.** In
+**A hundred and fifty of the 356 tests are `orb-e2e`'s, and every one of them is driven by a game.** In
 `crates/orb-e2e/src/`, where each is a `#[cfg(test)]` module beside the fake it drives,
 a 紅魔郷 that plays the game's part drives them through orb's own hooks and through orb's own frame loop —
 see *Running the game with no game there* in [SPEC.md](SPEC.md): a whole run in each mode, the question
@@ -766,22 +766,22 @@ line of `.husky/pre-commit`, and it checks `orb-core` and `orb-sim` for `i686-un
 with no Windows, and 32-bit because `Th06` calls the game's own methods by conventions that exist on x86
 and nowhere else. It needs no linker for that target, never linking.
 
-**What is still where it was**, with the question above asked of each: the heap walk for the regions,
-which is `orb`'s and handed the other way to the arithmetic over it; twenty-odd GDI calls for the status
-line, handed over the same way; the joystick's sampling thread, whose `Sleep` and `SetThreadPriority` are
-the two calls that keep it there; DirectInput's `EnumDevices` and winmm's own enumeration for finding a
-pad; `RegisterClassA`, whose whole business is the black brush the window class paints the letterbox with;
-and the two winmm functions a track is moved through, which are found by name in the game's own copy of the
-library and called through a transmuted address rather than through the seam.
-
-The first three of those are decided rather than pending —
+**What is still where it was**, with the question above asked of each: DirectInput's `EnumDevices` and
+winmm's own enumeration for finding a pad; `RegisterClassA`, whose whole business is the black brush the
+window class paints the letterbox with — the one exception
 [docs/adr/0010](docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md)
-moves them and says where each goes, `orb`'s line being the patched bytes and `orb-api`'s `real` being the
-home for everything else that needs Windows. What that decision ends with is `crates/orb-e2e` naming no
-`orb` at all and the `rlib` beside the DLL going, which is what
+names, a hook body being allowed the one call its rewrite consists of; and the two winmm functions a track
+is moved through, which are found by name in the game's own copy of the library and called through a
+transmuted address rather than through the seam.
+
+The three that were the head of that list are done: the heap walk is `orb-api`'s `real/mem.rs` beside the
+two walks it already did and answers `mem::game_regions` itself; the status line's GDI is two seam
+functions and its layout is `orb-core`'s; and the joystick's sampling thread is `orb-core`'s, its `Sleep`
+and `SetThreadPriority` having become `clock::sleep` and `thread::below_normal`. With them
+`crates/orb-e2e` names no `orb` at all and the `rlib` beside the DLL is gone, which is what
 [docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)'s
-step 8 expected — the one call that really had to stay in `orb` being the `Present` slot's
-`VirtualProtect`, and `mem::replace_word` is where it goes.
+step 8 expected — and nothing is handed from `orb-core` back into `orb` any more, the `Present` slot's
+`VirtualProtect` being `mem::replace_word` now.
 
 **The window — done, and it is the fourth mechanism the seam was worth cutting for.** What decides how
 much of the screen the game gets is two numbers only the host knows, and neither could be moved by a
@@ -1031,9 +1031,54 @@ switched by the environment here, however natural that is everywhere else in thi
 
 ## What only the real game can still answer
 
-The suite is 351 tests and **no stubs**, and most of what it now covers used to need a session. So this
+The suite is 356 tests and **no stubs**, and most of what it now covers used to need a session. So this
 is the list that is left — what a run on 東方紅魔郷 1.02h is still the only witness to, and therefore
 what a session is for. Nothing here is a test somebody could write.
+
+**And [docs/adr/0010](docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md)
+added one file of that kind: `orb-api/src/real/window.rs`.** The status line's whole drawing path moved
+into it — the font measured, the bar cleared, the text written and blitted — and what a scenario now holds
+is the layout above it: which of the two bars the lines went in, at which em height, where the block
+landed, and a shorter stack afterwards clearing the rows the longer one wrote in, all in `orb-e2e`'s
+`the_window`. What no test reaches is the blit itself, and **no log line says it happened**: orb writes one
+only where the text had to be made smaller or where there was no black to write in, so silence is a bar
+written and a bar silently unwritten alike. **All three shapes of that black have now been through a
+session** — the bar down the side, the bar under the game, and the client that leaves none — so what is
+below is what each one said, and the one sub-case a scenario should take over.
+
+**The bar down the side is confirmed on this machine** — `screen: fullscreen` on the 3840x2160 panel, a
+2880x2160 game with 480 pixels of black either side, the lines left-aligned a margin inside the right-hand
+one at 30 pixels of em with no line long enough to be reduced (472 pixels of room, and no `writing at Npx`
+in the log). Watched drawn and readable through a played stage, chapters and the retry menu.
+
+**And the 4:3 client that leaves no black at all is confirmed**, which is the one shape of this a log line
+settles on its own: `screen: 640x480 — window at 1597,820 sized 646x520, client 640x480` and then
+`screen: client 640x480, game 640x480 at 0,0 — no black to write in`, once and not per frame. Once that
+line is written `write_beside` returns before it reaches the seam, so the line *is* the evidence that
+nothing was drawn over the game — the only case here that needs no eye.
+
+**And the bar under the game is confirmed**, which was the third shape: `screen: 1600x1400` — `window at
+1117,360 sized 1606x1440, client 1600x1400`, a 1600x1200 game at y 100 and the black the 100 rows from
+1300 down. Three lines at the title menu, right-aligned on the game's own right edge at x 1600 with the
+lowest one's bottom at 1392, which puts the block at 1302 and leaves **two rows** between it and the game.
+Watched: entirely in the black, nothing over the game. No `writing at Npx` either, the strip being the
+client's full 1600 wide — what forces a smaller font is a narrow bar and not a short one.
+
+**Three lines and not five, and the five-line case is a scenario rather than a session.** `write_status`
+pushes a chapter's name and its retry count only while a run is being chaptered, so the title menu is three
+lines — 90 pixels into 92, the tightest the arithmetic gets, and it fits. A run makes it five, which is 150
+pixels of stack in 92 rows of black, and `write_beside` holds the block's top at `letterbox.bottom` so the
+lines above run off the top of the bitmap and are clipped there rather than drawn over the game. That is
+what a run plays with and what the session above did not show, so it is
+`the_window`'s `a_stack_taller_than_the_black_under_the_game_starts_at_the_games_edge`: five lines in that
+same client, the unclamped top asserted to be inside the game first so the scenario cannot stop being about
+the clamp, and `bar.area.top` then the game's own bottom edge.
+
+**The launcher cannot ask for this shape**, which is worth knowing next to it: `launcher/settings.rs`'s
+`sizes` offers 16:9, then 4:3, then 640x480 — every one either leaves the black down the sides or leaves
+none — so it took `orb.yaml` written by hand with a taller-than-4:3 `screen` **and `ask_at_startup: false`**,
+the dialog dropping a size its own list has not got and falling back to fullscreen. Nobody playing can
+select it, so no run will find a fault here for us.
 
 **What [docs/adr/0009](docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
 built and the suite cannot witness.** Everything the scenarios drive is now above the seam, which means the
@@ -1041,19 +1086,27 @@ code that actually talks to Direct3D, DirectSound and the GDI is in three files 
 reaches: `orb-api/src/real/d3d8.rs`, `real/dsound.rs` and `real/text.rs`. They are the only callers of a
 COM vtable or a GDI call left in the tree, and every call site above them was rewritten — 479 lines of
 `overlay.rs` and 468 of `audio.rs` — with no compiler checking the rewrite the way it checks an import
-move. What a session has to say, in this order:
+move. **All four have now been through a session**, and what each one's instrument said is here rather than
+in a list of what to do again — the point of the list was the first launch after the move, and it happened:
 
-- **The overlay draws and the game's own scene does not draw wrong.** The state block round every draw is
-  what that rests on: the game sets its render states once and assumes they stay set, so the failure to
-  watch for is not orb's own text going missing but the game's scene coming out wrong behind it.
-- **The letterbox still works**, which is the `Present` slot patched through a device read as
-  `orb_api::mem::read(device.0)` rather than dereferenced. `screen: presenting through a letterbox, client
-  WxH` in the log is the line that says it happened, and a stretched picture is what its absence looks like.
-- **A chapter's music still comes back byte for byte**, which is the eight slots of the buffer and the two
-  runs a lock hands over. `music:` lines and an ear are the instruments.
-- **The glyphs are the game's own font again.** The suite answers a bake from a declared metric, so nothing
-  in it has read a real `font.ttf` since; `overlay: font.ttf loaded, GDI is using Some("Rounded M+ 2p
-  regular")` is what a launch has to say, and a substituted face is what that line exists to catch.
+- **The overlay draws and the game's own scene does not draw wrong** — watched, and normal. The state block
+  round every draw is what that rests on: `overlay.rs`'s `frame` sets thirteen render states and twelve
+  texture stage states, plus the viewport and the FVF, and 紅魔郷 sets its own once and assumes they stay
+  set. So the failure to watch for was never orb's own text going missing but the game's scene coming out
+  wrong behind it — the blending of bullets, the draw order with `D3DRS_ZENABLE` left off, the scene drawn
+  into orb's 640x480 viewport, sprites drawn with orb's texture still bound to stage 0. Every one of those
+  is gross enough to see at a glance; the only quiet one would be `D3DTEXF_LINEAR` left on, which softens
+  the game's own pixels.
+- **The letterbox still works** — `screen: presenting through a letterbox, client 3840x2160`, which is the
+  `Present` slot patched through a device read as `orb_api::mem::read(device.0)` rather than dereferenced. A
+  stretched picture is what its absence looks like, and the status line beside the game needs that black to
+  exist at all, so the two were confirmed together.
+- **A chapter's music comes back from where the chapter began** — heard. **The `music:` lines are Verbose**,
+  one `detail!` at `audio.rs:279`, so a session at `log_level=normal` has none of them and their absence is
+  not a signal: the ear is the instrument at that level.
+- **The glyphs are the game's own font again** — `overlay: font.ttf loaded, GDI is using Some("Rounded M+ 2p
+  regular")`. The suite answers a bake from a declared metric, so nothing in it has read a real `font.ttf`
+  since, and a substituted face is what that line exists to catch.
 
 **The last twelve stubs were un-stubbed by growing the laid-out game and the seam**, the way the
 seventeen before them were: an ending object reached through the chain job it registers, with a `.end`

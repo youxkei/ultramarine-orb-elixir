@@ -20,12 +20,16 @@
 //! follows it: a normal run and the ranking of normal runs are the game's own file, which is
 //! where a run anybody could have played belongs.
 //!
-//! **The open itself is `orb::score`**, which is the exe's import of `CreateFileA` hooked. This is the
-//! half that decides *which* name that open is given, and it is the half a test can ask on its own:
-//! nothing here is per-game and nothing here is Windows.
+//! **What is left in `orb::score` is the write over the exe's import of `CreateFileA`.** The replacement
+//! that entry is pointed at is [`create_file_a`] and it is here, being a hook body like the eleven in
+//! [`crate::runtime`]: nothing in it is per-game and nothing in it is Windows. See
+//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+use crate::log;
 
 /// The game's file, as the game asks for it.
 const THEIRS: &[u8] = b"score.dat";
@@ -40,6 +44,23 @@ const OURS: &[u8] = b"pointdevice_score.dat";
 /// one of the hook's arguments. So it is a number about the game's call and not a call of orb's, and the
 /// half that reads it is this one.
 const GENERIC_WRITE: u32 = 0x4000_0000;
+
+/// `INVALID_HANDLE_VALUE`, which is what a refused open answers with.
+///
+/// Written out here for the same reason [`GENERIC_WRITE`] is, and held against Windows' own by a test in
+/// `orb` — `the_refused_handle_is_windows_own` — rather than by a `const` assert beside it: a raw pointer
+/// cannot be cast to an integer or compared in a constant, so this is one Windows number the compiler
+/// cannot be made to check.
+pub const INVALID_HANDLE: isize = -1;
+
+/// Longer than any path the game opens, and a bound on the walk for the terminator: a
+/// pointer that is not a string at all is handed back untouched rather than read until it
+/// faults.
+const LIMIT: usize = 1024;
+
+/// The game's own `CreateFileA`, which the game's import table pointed at — or the function a game laid
+/// out by hand handed over in place of it.
+static CREATE_FILE_A: AtomicUsize = AtomicUsize::new(0);
 
 static WRITTEN: AtomicBool = AtomicBool::new(true);
 /// Whether opens of the score file go to orb's own, which is what pointdevice mode means for
@@ -152,6 +173,131 @@ pub fn forked(directory: &[u8]) -> Vec<u8> {
 pub fn text(path: &[u8]) -> Cow<'_, str> {
     let end = path.len() - usize::from(path.last() == Some(&0));
     String::from_utf8_lossy(&path[..end])
+}
+
+/// The game's own `CreateFileA`, which [`create_file_a`] calls through with the name it decided.
+pub type CreateFileA = unsafe extern "system" fn(
+    *const u8,
+    u32,
+    u32,
+    *const c_void,
+    u32,
+    u32,
+    *mut c_void,
+) -> *mut c_void;
+
+/// Says which function [`create_file_a`] calls through, which `orb::score::install` does with what it
+/// took out of the import table — and a game laid out by hand with its own `CreateFileA`, there being no
+/// import table to take one out of.
+///
+/// The same answer [`crate::window::install_over`] is, and for the same reason — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// Which file an open lands in is what every scenario about this file reads, and the path and the access
+/// are the whole of what has to cross for that: a laid-out game answers with a handle of its own and there
+/// is no file on any disk.
+///
+/// # Safety
+/// `original` must be the game's own `CreateFileA` and outlive the last open it makes.
+pub unsafe fn install_over(original: CreateFileA) {
+    CREATE_FILE_A.store(original as usize, Ordering::Relaxed);
+}
+
+/// Creates the file the mode says, in place of the one the game asked for.
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// `CreateFileA` call lands, there being no import table to reach it through.
+///
+/// # Safety
+/// The arguments are `CreateFileA`'s own, and an [`install_over`] must have run first — without one the
+/// original this calls through is null.
+pub unsafe extern "system" fn create_file_a(
+    name: *const u8,
+    access: u32,
+    share: u32,
+    security: *const c_void,
+    disposition: u32,
+    flags: u32,
+    template: *mut c_void,
+) -> *mut c_void {
+    let original: CreateFileA =
+        unsafe { std::mem::transmute(CREATE_FILE_A.load(Ordering::Relaxed)) };
+    // Every archive, stage script and replay the game reads comes through here, so a path
+    // that is not the score file costs one walk and one comparison.
+    let Some(path) = (unsafe { given(name) }) else {
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
+    };
+    let Some(directory) = theirs(path) else {
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
+    };
+    // The open is refused rather than the write being sent somewhere else, because the game asks
+    // for the file once, checks the open, and drops what its write returned — see `SPEC.md` for
+    // the two calls that is. So a refusal is a file that stays as it was, and a game that carries
+    // on as if it had saved. Before the fork, since what must not be written is whichever file
+    // this run would have written.
+    if refused(access) {
+        log!("score: nothing written, this run had nothing able to hit the player");
+        return INVALID_HANDLE as *mut c_void;
+    }
+    // Written whichever file the open lands in, so that no fact about this file has to be read out
+    // of a line that is not there: an open that was left alone and an open that never happened look
+    // the same in a log that only says when one was swapped, and telling those two apart is most of
+    // what anybody reads these lines for.
+    if !redirected() {
+        log!(
+            "score: {} opened as the game's own, {}",
+            text(path),
+            asked(access)
+        );
+        return unsafe { original(name, access, share, security, disposition, flags, template) };
+    }
+    // orb's file is made by the game writing it — which the ranking screen does on its way out,
+    // whether a score was entered into it or the ranking was only looked at — and until then there
+    // is nothing there: the open of a file that is not there fails, and the game takes that the way
+    // it takes a first launch. It is not started as a copy of `score.dat`,
+    // which would carry that file's record into a ranking none of it belongs to: what a
+    // `score.dat` says has been cleared was cleared by runs nobody could rewind. The cost of
+    // not copying is what such a file has unlocked — practice on a stage that has been reached,
+    // the Extra stage — since the menu lights those from the file the mode points at.
+    let ours = forked(directory);
+    log!(
+        "score: {} opened in place of the game's own, {}",
+        text(&ours),
+        asked(access)
+    );
+    unsafe {
+        original(
+            ours.as_ptr(),
+            access,
+            share,
+            security,
+            disposition,
+            flags,
+            template,
+        )
+    }
+}
+
+/// The path the game gave, as its own bytes without the terminator, and `None` for a null
+/// pointer or a string with no terminator inside [`LIMIT`].
+///
+/// **A raw pointer into the game's memory, walked here.** Which is the one thing about this file that
+/// reads as though it were on the wrong side of the seam and is not: the pointer is the hook's own
+/// argument, brought by the call, and the hook body is this crate's.
+///
+/// # Safety
+/// `name` must be null or a readable NUL-terminated string.
+unsafe fn given(name: *const u8) -> Option<&'static [u8]> {
+    if name.is_null() {
+        return None;
+    }
+    // Walked a byte at a time rather than taking `LIMIT` of them and looking for the
+    // terminator: a short string near the end of a page has no such bytes to read.
+    for length in 0..LIMIT {
+        if unsafe { *name.add(length) } == 0 {
+            return Some(unsafe { std::slice::from_raw_parts(name, length) });
+        }
+    }
+    None
 }
 
 #[cfg(test)]

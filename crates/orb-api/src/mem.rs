@@ -143,6 +143,24 @@ pub unsafe fn commit(address: usize, len: usize) -> bool {
     unsafe { host::commit(address, len) }
 }
 
+/// Swaps the word at `address` for `value` and answers what was there, unprotecting the page for as long
+/// as the write takes. `None` where the page could not be made writable.
+///
+/// A whole seam function rather than [`unprotect`], [`read`], [`write`] and [`reprotect`] at the call
+/// site, and the reason is the `None`: a simulated Windows has no protection to change, so an
+/// `unprotect` that answered `None` there would be indistinguishable from a real one refusing.
+///
+/// # Safety
+/// `address` must hold a word of the game's, and where the caller is swapping a function pointer the
+/// replacement must have that function's exact signature and calling convention.
+pub unsafe fn replace_word(address: usize, value: usize) -> Option<usize> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.replace_word(address, value);
+    }
+    unsafe { host::replace_word(address, value) }
+}
+
 /// Makes a range writable and answers what its protection was, or `None` where it could not be
 /// changed. A simulated Windows has no protection to change, so nothing is asked of it and
 /// nothing has to be put back.
@@ -270,25 +288,54 @@ pub fn count_private_region_again(base: usize) {
     host::count_private_region_again(base);
 }
 
-/// The committed regions the game owns, where the host is one that can say — which is a simulated
-/// Windows, whose laid-out memory *is* the game's.
+/// The committed regions the game owns, as `(base, len)`, with the data range first.
 ///
-/// `None` in a real process, where nothing can be asked this: what the game owns there is found by
-/// walking the heaps it took from the OS, which is `memtrack`'s job and needs the hooks that watched
-/// it take them.
+/// The real host walks the heaps and the reservations the six import hooks noticed — see
+/// [`note_heap`] — and a simulated one answers out of laid-out memory, that *being* the game's. So this
+/// is the seam and nothing else: it used to answer `None` for a real process and `orb_core::memtrack`
+/// branched on that to reach a walk handed the other way, which was the walk being on the wrong side.
 ///
-/// A facade like every other here rather than something reached through
-/// [`installed`](crate::installed) at the call site, and that is not a tidying: reached the other way
-/// it was behind a `cfg(test)`, which is false in a crate compiled as a dependency of a test binary —
-/// so the scenarios that drive a whole run got the heap walk with no heaps in it. See `memtrack`.
-pub fn game_regions(data: &std::ops::Range<usize>) -> Option<Vec<(usize, usize)>> {
+/// No two entries cover the same pages, a heap region and a reservation being able to name the same
+/// ones. That rule is the answering host's, being a rule about *its* pages: laid-out memory answers with
+/// the objects a scenario put there, and two of those merged because they abut is one range nothing in
+/// that space can read.
+pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
     #[cfg(feature = "sim")]
     if let Some(win) = crate::installed() {
-        return Some(win.game_regions(data));
+        return win.game_regions(data);
     }
-    // Taken and not used in a build with no simulated Windows in it, there being nothing there to ask.
-    let _ = data;
-    None
+    host::game_regions(data)
+}
+
+/// Remembers a heap the game has just allocated from, so that [`game_regions`] walks it.
+///
+/// Said again by every allocation the game makes, `HeapAlloc` carrying the handle: there is no call
+/// that says a heap is *finished* with, so what the hooks can say is which heap this allocation was
+/// from and nothing more.
+pub fn note_heap(heap: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.note_heap(heap);
+    }
+    host::note_heap(heap);
+}
+
+/// And a range the game reserved straight from the OS.
+pub fn note_reservation(base: usize, len: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.note_reservation(base, len);
+    }
+    host::note_reservation(base, len);
+}
+
+/// And that it has been released.
+pub fn forget_reservation(base: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.forget_reservation(base);
+    }
+    host::forget_reservation(base);
 }
 
 /// Every committed, private, readable region in the process, as `(base, len)`, less the ones
@@ -376,6 +423,9 @@ mod host {
     pub unsafe fn commit(_address: usize, _len: usize) -> bool {
         no_windows("mem::commit")
     }
+    pub unsafe fn replace_word(_address: usize, _value: usize) -> Option<usize> {
+        no_windows("mem::replace_word")
+    }
     pub unsafe fn unprotect(_address: usize, _len: usize) -> Option<u32> {
         no_windows("mem::unprotect")
     }
@@ -402,5 +452,17 @@ mod host {
     }
     pub fn process_heap_regions() -> Vec<(usize, usize)> {
         no_windows("mem::process_heap_regions")
+    }
+    pub fn game_regions(_data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
+        no_windows("mem::game_regions")
+    }
+    pub fn note_heap(_heap: usize) {
+        no_windows("mem::note_heap")
+    }
+    pub fn note_reservation(_base: usize, _len: usize) {
+        no_windows("mem::note_reservation")
+    }
+    pub fn forget_reservation(_base: usize) {
+        no_windows("mem::forget_reservation")
     }
 }

@@ -226,18 +226,10 @@ pub struct Launch {
     /// being recognised by *which* string it is rather than by how it came out, and 紅魔郷's own screens
     /// have not been read for one.
     font: Option<Font>,
-    /// The vtable the game's device is reached through, in this process's own memory.
-    ///
-    /// **A real page and not only a mapped one**, which is the one thing about a device that cannot go
-    /// through the seam: orb redirects the `Present` slot with `hook::replace_pointer`, which calls
-    /// `VirtualProtect` over the slot before writing it — and that is Windows however the read and the
-    /// write themselves are answered. So the address has to be one this process really owns.
+    /// Where the vtable the game's device is reached through is laid out — see [`vtable_for`].
     ///
     /// What every slot holds is [`never_called`], because nothing here is reached through this: the frame
     /// loop calls this game's own present, which is an `Originals` entry.
-    ///
-    /// **And where it is is chosen rather than allocated** — see [`vtable_page`], which is where that
-    /// hazard is written down.
     vtable: usize,
     /// The directory the game is installed in, which is where orb reads `orb.yaml`, writes the runs
     /// left unfinished, and finds `font.ttf`.
@@ -291,10 +283,16 @@ impl Launch {
         self.vtable
     }
 
-    pub fn vtable_bytes(&self) -> &[u8] {
-        // The same bytes at the same address, so that what orb reads out of a slot through the seam is
-        // what is really there.
-        unsafe { std::slice::from_raw_parts(self.vtable() as *const u8, DEVICE_VTABLE_BYTES) }
+    /// What goes in it: [`never_called`] in every slot.
+    ///
+    /// Non-zero in every one of them and that is the property that matters: `hook_device` stores what
+    /// was in the `Present` slot and reads it back to know it has already patched, so a slot of zeros
+    /// would be one it patched twice.
+    pub fn vtable_bytes(&self) -> Vec<u8> {
+        [never_called as *const () as usize; DEVICE_VTABLE_SLOTS]
+            .iter()
+            .flat_map(|slot| slot.to_ne_bytes())
+            .collect()
     }
 
     /// Where the game is installed, which is where orb reads `orb.yaml` and writes its log.
@@ -435,74 +433,32 @@ unsafe extern "system" fn never_called() {
     panic!("something called through the device's own vtable");
 }
 
-/// Where the device vtable goes: one page of this process, at an address nothing a game is laid out at
-/// claims.
+/// Where the device vtable goes: an address well past every range either game lays out, mapped into the
+/// space like everything else a laid-out game has.
 ///
-/// **A page asked for by address rather than an allocation that happens to land clear**, and the
-/// difference is the whole of why this is here. It has to be a real page — `hook::replace_pointer` calls
-/// `VirtualProtect` over the slot before writing it, and that is Windows however the read and the write
-/// are answered — and it has to be somewhere `orb_sim::Space` has nothing at, because the space is told
-/// where it is and `Space::map` stops rather than shadowing the game's own memory.
+/// **It used to have to be a page this process really owned**, and that is gone with the last thing that
+/// wanted one: orb redirected the `Present` slot with a `VirtualProtect` over it, which is Windows however
+/// the read and the write are answered, so the vtable lived at a real address *as well as* a mapped one
+/// and the slot orb wrote landed only in the copy. The swap is `orb_api::mem::replace_word` now, which a
+/// simulated host answers out of its own space — see
+/// [docs/adr/0010](../../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 ///
-/// **Letting the allocator choose does not work.** It was a `Box` retried until `Space::has_room` agreed,
-/// which is what the sound buffer used to do: a laid-out game claims the addresses the real one's `.data`
-/// and heap blocks are at, this is a 32-bit process whose own heap reaches both, and a `Box` can land
-/// inside one. Watched at 0x6ce8f0, 0x301df98 and 0x651398 — and then watched failing sixty-four times in
-/// a row in 妖々夢's launch, because 308 bytes of retry does not walk out of a 2.5MB range. So the address
-/// is chosen instead, well past every range either game lays out: 紅魔郷's reach 0x0300f000, `orb-sim`'s
+/// **Chosen rather than allocated, which the address that page was asked for was too.** A laid-out game
+/// claims the addresses the real one's `.data` and heap blocks are at, and this is a 32-bit process whose
+/// own heap reaches both: an allocation of this process's own can land inside one, watched at 0x6ce8f0,
+/// 0x301df98 and 0x651398 back when it was a `Box`. 紅魔郷's ranges reach 0x0300f000 and `orb-sim`'s
 /// device and sound buffer are at 0x0d3d0000 and 0x0d500000.
-const VTABLE_PAGE: usize = 0x2000_0000;
+const DEVICE_VTABLE: usize = 0x2000_0000;
 
-/// And how far to step if that page is taken, which is only ever a second launch in one process asking
-/// for it again.
-const VTABLE_STEP: usize = 0x0010_0000;
-
-/// How many steps before it says so out loud. A process that has had this many launches is not one this
-/// suite runs.
-const VTABLE_TRIES: usize = 64;
-
-/// That page, committed once for the process and shared by every launch in it.
-///
-/// One for the process because that is what it is: a page nothing frees, four kilobytes, and a launch
-/// after this one maps the same address into its own space. Asked for through `VirtualAlloc` at a named
-/// base, which `orb-e2e` may do — the rule `cargo xtask seam` checks is about `orb-core` and `orb-sim`,
-/// and a game playing the game's part is allowed to be a real object.
-fn vtable_page() -> usize {
-    static PAGE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *PAGE.get_or_init(|| {
-        for step in 0..VTABLE_TRIES {
-            let at = VTABLE_PAGE + step * VTABLE_STEP;
-            let got = unsafe {
-                windows_sys::Win32::System::Memory::VirtualAlloc(
-                    at as *const c_void,
-                    DEVICE_VTABLE_BYTES,
-                    windows_sys::Win32::System::Memory::MEM_COMMIT
-                        | windows_sys::Win32::System::Memory::MEM_RESERVE,
-                    windows_sys::Win32::System::Memory::PAGE_READWRITE,
-                )
-            } as usize;
-            if got == at {
-                return at;
-            }
-        }
-        panic!("no page for a device vtable in {VTABLE_TRIES} tries from {VTABLE_PAGE:#010x}")
-    })
-}
-
-/// The device vtable for this launch: that page, with [`never_called`] in every slot.
-///
-/// `sim` is asked whether the page is clear of what this game is laid out at, which is the one thing that
-/// could still be wrong about a chosen address — and a scenario that laid a game out over 0x20000000 should
-/// hear about it here rather than inside `Space::map`.
+/// The device vtable for this launch, and the one thing that could still be wrong about a chosen address:
+/// a scenario that laid a game out over 0x20000000 should hear about it here rather than inside
+/// `Space::map`.
 fn vtable_for(sim: &orb_sim::Sim) -> usize {
-    let at = vtable_page();
     assert!(
-        sim.space().has_room(at, DEVICE_VTABLE_BYTES),
-        "{at:#010x} is inside a range this game is laid out at",
+        sim.space().has_room(DEVICE_VTABLE, DEVICE_VTABLE_BYTES),
+        "{DEVICE_VTABLE:#010x} is inside a range this game is laid out at",
     );
-    let slots = unsafe { std::slice::from_raw_parts_mut(at as *mut usize, DEVICE_VTABLE_SLOTS) };
-    slots.fill(never_called as *const () as usize);
-    at
+    DEVICE_VTABLE
 }
 
 /// What a scenario does to whatever game orb is attached to: run a frame of it, and read back the host

@@ -17,7 +17,7 @@
 //! Several games in one file, each dropped before the next is attached, because what a scenario needs is a
 //! launch and there is nothing about a launch that outlives it. **What makes the dropping load-bearing is
 //! that orb's own state is the process's**: the runtime, the pacing and the log's handle are statics, and
-//! `Fake`'s own `Drop` is what hands them over — `orb::detached` takes the runtime down and closes the log,
+//! `Fake`'s own `Drop` is what hands them over — `orb_core::runtime::detached` takes the runtime down and closes the log,
 //! so the next game opens its own.
 
 use crate::fake::th06::Fake;
