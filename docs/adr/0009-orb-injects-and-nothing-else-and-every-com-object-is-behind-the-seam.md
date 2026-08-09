@@ -86,7 +86,7 @@ gives the reason:
 > Linux runner — and a build that stops working there is a build that has taken a dependency on the host,
 > which is worth finding out about when it happens rather than at the end of the work.
 
-`.github/workflows/ci.yml` has one job. `runs-on: windows-latest`, target `i686-pc-windows-gnu`, and the
+`.github/workflows/ci.yaml` has one job. `runs-on: windows-latest`, target `i686-pc-windows-gnu`, and the
 three steps are `cargo fmt --check`, `cargo xtask clippy` and `cargo xtask test` — all of which name that
 target. **Nothing in this repository builds `orb-core` for a host that is not Windows.** The tripwire the
 manifest describes is not armed, so the rule it is there to enforce is kept by hand.

@@ -19,7 +19,7 @@ members = [
 # towards, which is what makes it a decision taken here rather than at the moment of releasing.
 #
 # So a release is the commit that takes the suffix off, the `v`-tag on that commit, and the next
-# `-dev` opened behind it. `.github/workflows/release.yml` is what holds the tag and this line to the
+# `-dev` opened behind it. `.github/workflows/release.yaml` is what holds the tag and this line to the
 # same number, and it refuses a `-dev` version outright — `v*` matches `v0.2.0-dev` as readily as
 # `v0.2.0`, so a tag on any ordinary commit of main would otherwise be built and handed out.
 version = "0.1.0-dev"

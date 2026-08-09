@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   release:
-    # Windows, and not a cross build for the same reasons ci.yml gives: the linker is the 32-bit
+    # Windows, and not a cross build for the same reasons ci.yaml gives: the linker is the 32-bit
     # mingw one and `orb-core` calls the game's own methods by conventions that exist on 32-bit x86
     # and nowhere else.
     runs-on: windows-latest
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The three setup steps are ci.yml's, and why each is shaped the way it is — MINGW32 rather
+      # The three setup steps are ci.yaml's, and why each is shaped the way it is — MINGW32 rather
       # than the runner image's own MSYS2, `path-type: inherit` for the cargo rustup put on the
       # Windows PATH, the channel and the target named again so they install before the first cargo
       # call — is written there. One target rather than two: nothing here is checked for the host
@@ -100,10 +100,10 @@ jobs:
           fi
 
       # No fmt, clippy, seam or suite in front of this. A tag names a commit that is already on main,
-      # where ci.yml ran all four against this same tree; running them again would only make the
+      # where ci.yaml ran all four against this same tree; running them again would only make the
       # release later.
       #
-      # And no NO_HUSKY_HOOKS, which ci.yml sets: husky-rs is a dev-dependency, and a `cargo build`
+      # And no NO_HUSKY_HOOKS, which ci.yaml sets: husky-rs is a dev-dependency, and a `cargo build`
       # does not build those, so nothing here reaches the build script that points git at .husky.
       - name: Build
         run: cargo xtask build --release
