@@ -1,7 +1,9 @@
 # Ultramarine Orb Elixir — specification
 
-What orb does, and the facts about 東方紅魔郷 1.02h and about Windows that shape how. The
-README is the guide to using it; this describes the thing itself.
+What orb does, and the facts about 東方紅魔郷 1.02h and about Windows that shape how. The README
+says where to download it and which games it runs, and nothing more than that; everything anybody
+would use it with — the settings, the arguments, the files it writes and every screen it puts up — is
+here.
 
 **This document describes the final form only.** No history of what was tried and rejected,
 and no record of what a mechanism used to be — only what it is, and the facts it rests on. The

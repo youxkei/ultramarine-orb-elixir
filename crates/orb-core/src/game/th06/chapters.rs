@@ -5,11 +5,11 @@
 //! player is doing, and regardless of difficulty. Boss attacks are not listed:
 //! those boundaries are detected at runtime.
 //!
-//! Built with `orb --collect` and `--judge` over a Lunatic replay of a 1→6 run and
-//! an Extra replay, a stage at a time; see the README. Stages keep whatever is here until one
-//! is looked at again, and `tuning.txt` beside the launcher holds the thirty boundaries judged
-//! out of this as well, so a stage picked up again starts from what was decided rather than
-//! from nothing.
+//! Built with `orb --collect` and `--judge` over a Lunatic replay of a 1→6 run and an Extra
+//! replay, a stage at a time; see *Building the midstage table* in `SPEC.md`. Stages keep whatever
+//! is here until one is looked at again, and `tuning.txt` beside the launcher holds the thirty
+//! boundaries judged out of this as well, so a stage picked up again starts from what was decided
+//! rather than from nothing.
 //!
 //! `hand` marks the ones somebody put there, which are the numbers nothing would propose again
 //! if they were lost. Extra is all of them: the detector's proposals for it were all refused,

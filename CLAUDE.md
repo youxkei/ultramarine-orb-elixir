@@ -4,6 +4,27 @@ The project is **Ultramarine Orb Elixir**. Written in full where it is being nam
 shortened to *orb* everywhere else, which is also what its crates and the files it installs
 are called.
 
+## Building and checking
+
+`cargo xtask build --release` is what installs: it puts the one file to hand out,
+`target/i686-pc-windows-gnu/release/orb.exe`, which carries `orb.dll` inside itself. Building needs
+the 32-bit mingw linker `.cargo/config.toml` names, `mingw-w64-i686-gcc` from MSYS2's MINGW32
+environment, on `PATH`. **The README says none of this** — it tells whoever is going to play to
+download that exe from the latest release, so what a release is built with is written down here and
+nowhere else.
+
+Everything that has to name a target goes through `cargo xtask` — `build`, `test`, `clippy`,
+`seam`, `coverage` — because there is no `[build] target` naming it for them; `cargo xtask` with no
+task lists them, and `.cargo/config.toml` says why there is no such key. A bare `cargo check`
+therefore builds for the host and fails on `windows-sys`, so **point the editor at the target
+instead**: rust-analyzer's setting is `rust-analyzer.cargo.target`, and the target is
+`i686-pc-windows-gnu`.
+
+`cargo xtask test` is also what installs the git hooks, husky-rs pointing `core.hooksPath` at
+`.husky`. What its `pre-commit` runs and why is written in that file, `NO_HUSKY_HOOKS=1` and
+`git commit --no-verify` included. The tree is held at zero warnings, so a lint that is wrong about
+this code is answered with an allow and the reason beside it rather than left in the output.
+
 ## Commit messages
 
 **The subject of the subject line is the commit**, and the line says what that commit does to this
@@ -37,7 +58,8 @@ subject, unless the scenarios are the whole of the diff.
 
 | | |
 | --- | --- |
-| `README.md` | what orb is, how to build and install it, and where to read further |
+| `README.md` | one sentence saying what orb is, where to download it, and which games it runs — and nothing else. **Not a feature list**: the window, the frame pacing and the frame of input lag are not in it, and the table of games says supported or not supported and nothing more. Nor is how any of it works — no build, no target, no linker, no file format. Nor is there a section pointing at any of the documents below: the only link out is to the other language. Whoever is going to play knows 完全無欠モード already, is installing one file, and reads past everything that is neither of those two things |
+| `README.ja.md` | the same in Japanese, and the two are edited together. The game and everything orb puts on the screen are Japanese, so it is the language most of the people it is for read. Each names the games and the mode in its own language — 東方紺珠伝's 完全無欠モード here, Legacy of Lunatic Kingdom's Pointdevice mode in `README.md`, where a Japanese title is a title the reader cannot read |
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
 | `TODO.md` | what is left, with what is already known about each — and what is built and still waiting on a run against the real game |
 | `docs/todo/` | one file per piece of work too long to sit in `TODO.md` as a paragraph: what was measured, how to measure it again, and the order the work is worth doing in. A file belongs here rather than in `TODO.md` when the measurement behind it has to be repeatable — the recipe goes with the worklist, since a worklist nobody can re-derive is one nobody can tell is still true |
