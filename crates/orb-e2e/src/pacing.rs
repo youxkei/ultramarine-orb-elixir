@@ -1,6 +1,6 @@
 //! **orb's own frame loop: the shape it has, the rate it holds, and the log it writes about itself.**
 //!
-//! Sixty-three scenarios over the one subject, each in a process of its own —
+//! Sixty-six scenarios over the one subject, each in a process of its own —
 //! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so a scenario owns a
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
@@ -941,6 +941,10 @@ mod budget {
     /// Declared from what a real run showed rather than invented: on the frame a spell card starts,
     /// `PLAY_SOUNDS.call()` is most of the frame's whole span — the `sound` figure on its own `--pacing`
     /// line — and that happens a handful of times in a session, the worst of them worse than this.
+    ///
+    /// Spent with the rest of that frame's work rather than through [`Work::sound_us`], because what it
+    /// is here for is a spike of this size and what the budget does with the frames after one. Where
+    /// inside the frame it falls is the [`sound`](super::sound) section's subject.
     const SOUND_SPIKE_US: i64 = 9_000;
 
     /// One frame in this many carries it, so a run of this length sees a handful.
@@ -979,10 +983,9 @@ mod budget {
                 display,
                 "budget-spike",
                 Work {
-                    usual_us: QUIET_WORK_US,
-                    jitter_us: 0,
                     spike_us: SOUND_SPIKE_US,
                     spike_one_in: SPIKE_ONE_IN,
+                    ..Work::flat(QUIET_WORK_US)
                 },
             );
             game.frames(1_200);
@@ -1115,6 +1118,145 @@ mod budget {
                     last_said(&game.log().lines())
                 );
             });
+        });
+    }
+}
+
+/// Where the frame loop calls `PlaySounds`, and what the frame that starts a spell card pays for it.
+///
+/// The sounds are the game's own call, and the frame loop makes it where the game's own loop does:
+/// between the update and the draw, inside the span the frame has to reach its blank in. On the frame a
+/// spell card starts that call is most of the frame's whole span — the `sound` figure of a `--pacing`
+/// line — so what it costs is a question about the frame the card starts on and not about a rate.
+///
+/// Which is why the card is a frame the scenario names rather than one in three hundred: the sound is
+/// declared for one frame, through [`Work::sound_us`], which the fake game spends inside `PlaySounds`
+/// and nowhere else. The turns from that frame on are then read off directly, and which frame paid is
+/// the answer rather than something averaged away.
+///
+/// **What it is for is the placement**, and `runtime::render` is where the reason that placement is
+/// what it is stands: moving the call past `Present` moves the lost refresh from the card's own frame
+/// to the frame after it, and the frame it moves to is one whose drawing did not overrun — so the
+/// allowance climbs for it. Moving the call and running this is how that is measured again.
+mod sound {
+    use super::*;
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
+    use orb_sim::Compose;
+
+    const HZ: u32 = 120;
+    /// What the frames either side of the card's do, which is what a real run's report line shows for
+    /// the game's own drawing.
+    const WORK_US: i64 = 700;
+    /// What the sound the card starts costs, from the run in
+    /// [docs/adr/0011](../../../docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md):
+    /// a `PLAY_SOUNDS` that ran 8438µs, and the worst of a session is worse.
+    ///
+    /// Inside `budget_ceiling`, which at 120Hz is 12500µs, so this is a frame the budget is allowed to
+    /// answer to rather than one the ceiling refuses.
+    const SOUND_US: i64 = 9_000;
+    /// A second of play after the card, so the frames following it are judged over a stretch the
+    /// scenario names rather than over whatever is left of orb's reporting period.
+    const AFTER: u32 = A_SECOND as u32;
+
+    /// The card's own frame loses its blank, and what the run pays for it stops there.
+    ///
+    /// **The frame cannot keep it wherever the call is made.** It began against a budget the frames
+    /// before it left, a budget is a prediction, and a sound nothing has heard yet is not one it can
+    /// have made — so the work outgrows the turn and the compositor takes the frame at the refresh
+    /// after the one it asked for. What the placement decides is only which frame that is.
+    ///
+    /// So what is asserted is where the cost lands and that nothing follows it: the lost refresh is the
+    /// card's own, the frame after it comes straight back onto the grid, and the two readings that
+    /// would say the run itself had been made worse — the compositor's allowance, which never comes
+    /// back down, and frames handed over before the blank before the one they are aimed at — say
+    /// nothing.
+    #[test]
+    fn the_sound_a_frame_starts_costs_that_frame_its_blank_and_no_lag_after_it() {
+        in_its_own_process(|| {
+            let mut display = Display::agreed(HZ);
+            // A metronome, and the compositor flat inside its allowance: the claim is about the turns of
+            // named frames, and a host that wakes late loses a refresh of its own now and then, which
+            // this would read as the sound's.
+            display.compose = Compose::flat(1_000);
+            display.metronome = true;
+            let game = Fake::attach_watching_the_pacing(display, "sound", Work::flat(WORK_US));
+
+            // Far enough in for the budget to have settled on what an ordinary frame takes, which is
+            // what the card's frame then begins against, and for orb to have said what it is allowing
+            // the compositor.
+            game.frames_until_the_log_holds_another(A_REPORT);
+            let quiet = game.handovers_us().len();
+            let allowed_before = allowance_us(&game.log().lines());
+
+            game.frame_takes(Work {
+                sound_us: SOUND_US,
+                ..Work::flat(WORK_US)
+            });
+            game.frame();
+            game.frame_takes(Work::flat(WORK_US));
+            game.frames(AFTER);
+            game.frames_until_the_log_holds_another(A_REPORT);
+
+            // The card's own turn is the first of these and the frames after it are the rest.
+            let handovers = game.handovers_us();
+            let counts = refreshes(&handovers[quiet - 1..], game.refresh_period_us());
+            let said = last_said(&game.log().lines());
+            assert_eq!(
+                counts[0], 3,
+                "the card's own frame took {} refreshes — {said}",
+                counts[0]
+            );
+
+            // And the frame after it is back where the grid always meant it to be, which makes its turn
+            // a refresh *shorter* than the cadence rather than longer: the card's frame was handed over
+            // late and this one at its own blank, so the gap between the two is short by however late
+            // the first was. The two turns come out 25666µs and 10229µs against a cadence of 16666,
+            // which the report line carries as its worst and its best. Both frames reached the blank
+            // they belong to, so a turn of one here is not the game running fast — see `docs/adr/0011`,
+            // and the count of frames shown early below, which is the reading that would say otherwise.
+            assert_eq!(
+                counts[1], 1,
+                "the frame after the card took {} refreshes — {said}",
+                counts[1]
+            );
+            let off: Vec<(usize, i64)> = counts[2..]
+                .iter()
+                .enumerate()
+                .filter(|(_, count)| **count != 2)
+                .map(|(at, count)| (at + 2, *count))
+                .collect();
+            assert!(
+                off.is_empty(),
+                "turn(s) off the cadence past the card's own frame and the one after it: {off:?} — \
+                 {said}"
+            );
+
+            // The miss is charged to the frame's own drawing, which is what keeps the allowance where it
+            // is: the sound was inside the span that frame had to reach its blank in, so no amount of
+            // time given to the compositor would have got it there any earlier.
+            assert!(game.log().said("whose drawing overran"), "{said}");
+            let allowed = allowance_us(&game.log().lines());
+            assert_eq!(
+                allowed, allowed_before,
+                "the sound took the allowance from {allowed_before}us to {allowed}us, which is input \
+                 lag for the rest of the run — {said}"
+            );
+
+            // Nor did the frames after it go early, which is what the budget the sound raised would
+            // otherwise do to frames that start no sound of their own — a refresh or more before their
+            // blank, where the compositor takes them at the blank before it and the game runs fast.
+            assert!(!game.log().said("shown a refresh or more early"), "{said}");
+
+            // And the budget it raised has come back down: the report line's own figure for the game's
+            // drawing, against the 9000µs the sound put into one frame. Not to the microsecond, that
+            // being however many frames of the period fell after the card, but nowhere near the sound.
+            let reported = reported(&game.log().lines());
+            assert!(
+                reported.draw_us < 2 * WORK_US,
+                "the lag still holds {}us of the drawing, where a quiet frame takes {WORK_US}us — \
+                 {said}",
+                reported.draw_us
+            );
         });
     }
 }

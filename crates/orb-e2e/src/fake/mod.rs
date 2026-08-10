@@ -89,6 +89,14 @@ pub struct Work {
     pub spike_us: i64,
     /// One frame in this many. Zero for a game whose frames never cost more than the usual.
     pub spike_one_in: i64,
+    /// What the sounds this frame hands to the sound device cost, spent inside `PlaySounds` rather
+    /// than with the rest.
+    ///
+    /// Apart from the three above because *where* a frame loop calls `PlaySounds` is a question a
+    /// scenario has to be able to ask, and work spent as one span cannot answer it: a frame that
+    /// starts a spell card spends most of itself in that one call, and whether that lands inside the
+    /// span the frame has to reach its blank in is what the call's position decides.
+    pub sound_us: i64,
 }
 
 impl Work {
@@ -102,6 +110,7 @@ impl Work {
             jitter_us: 0,
             spike_us: us,
             spike_one_in: 0,
+            sound_us: 0,
         }
     }
 
@@ -497,7 +506,8 @@ pub trait Launched {
         }
     }
 
-    /// How long the game's own work takes in a frame: its update, its sounds and its draw, as one span.
+    /// How long the game's own work takes in a frame: its update and its draw as one span, and
+    /// [`Work::sound_us`] inside `PlaySounds`.
     ///
     /// A scenario saying so, the way it says the player was hit. A laid-out game's update walks a few
     /// writes and would take no time at all, and what a rate is judged against is a frame whose work
@@ -505,6 +515,11 @@ pub trait Launched {
     /// goes around work of that size, and how unevenly it comes.
     fn frame_takes(&self, work: Work) {
         self.launch().work.set(work);
+    }
+
+    /// What this frame's sounds cost, which the game spends inside `PlaySounds`.
+    fn sound_this_frame(&self) -> i64 {
+        self.launch().work.get().sound_us
     }
 
     /// What this frame's own work costs, drawn: the usual, or now and then the spike.

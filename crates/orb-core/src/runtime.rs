@@ -1032,6 +1032,24 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let waited = frame::now();
     let updated = update(chain);
     let ran = frame::now();
+    // Where the game's own loop makes it, and inside the span this frame has to reach its blank in. On
+    // the frame a spell card starts, this call is most of that span — 8438µs of it on the run
+    // [docs/adr/0011](../../../docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md)
+    // was measured on — so that frame is handed over after its blank has gone and loses a refresh.
+    //
+    // **Past `PRESENT.call()` was tried and buys nothing**, which is why the frame that loses the
+    // refresh is this one and not the next. `orb-e2e`'s `pacing`'s `sound` section is the measurement,
+    // and moving the call is how to take it again: the card's own frame then keeps its blank, and the
+    // frame after it loses one instead, the sounds having spent the whole of the tail between this
+    // handover and the blank it was aimed at. Which is arithmetic rather than a near miss — that tail
+    // is `compose_us`, a couple of milliseconds against a sound of nine — so the next frame reaches
+    // the flush past that blank, and a frame that arrives there has lost its refresh before doing
+    // anything.
+    //
+    // It is the worse of the two, and not merely a wash: the miss lands on a frame whose own drawing
+    // did not overrun, so `measure_compose` reads it as the compositor being short and climbs the
+    // allowance — 2500µs to 2600µs per card, never shaved back, which is input lag for the rest of the
+    // run. The sound also starts a frame later than the update that asked for it.
     unsafe { PLAY_SOUNDS.call() };
     if updated == CHAIN_EXIT_SUCCESS {
         return RENDER_EXIT_SUCCESS;

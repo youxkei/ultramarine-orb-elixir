@@ -230,12 +230,16 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
     FRAME_KEPT_RUNNING
 }
 
-/// `SoundPlayer::PlaySounds` at 0x44c9c0: nothing, a laid-out game having no sound system.
+/// `SoundPlayer::PlaySounds` at 0x44c9c0: the time a scenario says this frame's sounds cost, a laid-out
+/// game having no sound system to spend it in.
 ///
 /// Here rather than left out because the frame loop calls it where the game's own loop did, and a frame
-/// that skipped it would be one span of the pacing's breakdown short.
+/// that skipped it would be one span of the pacing's breakdown short. What it costs is spent here and
+/// not with the rest of the frame's work, as in 紅魔郷's — see [`Work::sound_us`].
 unsafe extern "fastcall" fn play_sounds(_player: usize) {
-    running().launch.asked_for(SOUND);
+    let fake = running();
+    fake.launch.asked_for(SOUND);
+    fake.sim().clock().advance_micros(fake.sound_this_frame());
 }
 
 /// `GameWindow::Present` at 0x4345c0: the frame handed over, which from here is the compositor's.
