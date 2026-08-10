@@ -6,6 +6,14 @@
 //! The DLL is carried inside this exe and written out to be loaded, so installing orb is one
 //! file.
 
+// **Not a console program.** Windows makes a console for one that was not started from a shell, and
+// that window is on the screen for as long as this process lives — the whole of the settings dialog,
+// and a flash of it otherwise — in front of the game somebody asked for. Hiding it once it is there,
+// `ShowWindow` on `GetConsoleWindow`, is that window appearing and then going away again, which is
+// the whole of what there is to avoid. What this prints goes to the console of whatever started the
+// launch instead, which `attach_to_the_console` asks for.
+#![windows_subsystem = "windows"]
+
 mod inject;
 mod pad;
 mod settings;
@@ -18,7 +26,11 @@ use clap::Parser;
 use orb_config::Config;
 use orb_config::args::Options;
 use orb_core::game::{self, Known};
-use windows_sys::Win32::Foundation::CloseHandle;
+use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::System::Console::{
+    ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_HANDLE,
+    STD_OUTPUT_HANDLE, SetStdHandle,
+};
 use windows_sys::Win32::System::Threading::{
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, TIMER_ALL_ACCESS,
 };
@@ -109,13 +121,72 @@ fn cannot_run(text: &str) {
     };
 }
 
+/// Takes the console of whatever started this launch, and answers whether a line printed here
+/// reaches anybody at all.
+///
+/// A shell hands its console to a console program and this is not one, so the console of the process
+/// that started this one is asked for outright. `ATTACH_PARENT_PROCESS` is that ask, and it fails
+/// where that process has no console to lend: a launch from Explorer, from a shortcut, from anything
+/// that is not a shell. Which is the answer, together with a redirection: what a launch was given as
+/// its standard output before it ran is something reading the output too.
+///
+/// **What the parent handed over is put back**, because attaching takes the standard handles as well
+/// as the console. Measured on Windows 11, an exe like this one printing a line on either side of the
+/// attach and run from cmd as `exe > file`: the file holds the line from before it and not the one
+/// after, which went to cmd's console instead.
+fn attach_to_the_console() -> bool {
+    let handed_over = |id: STD_HANDLE| match unsafe { GetStdHandle(id) } {
+        handle if handle.is_null() || handle == INVALID_HANDLE_VALUE => None,
+        handle => Some(handle),
+    };
+
+    let (out, error) = (
+        handed_over(STD_OUTPUT_HANDLE),
+        handed_over(STD_ERROR_HANDLE),
+    );
+    let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
+    for (id, handle) in [(STD_OUTPUT_HANDLE, out), (STD_ERROR_HANDLE, error)] {
+        if let Some(handle) = handle {
+            unsafe { SetStdHandle(id, handle) };
+        }
+    }
+    attached || out.is_some() || error.is_some()
+}
+
+/// Says why no game started, in whichever of the two forms the launch that stopped can see: the line
+/// always, and the dialog where nothing is going to read a line.
+///
+/// Both were said before there was any way to tell one launch from the other, which put a dialog in
+/// front of a terminal that had the line already.
+fn not_started(line: &str, text: &str, lines_are_read: bool) -> ExitCode {
+    // Printed whether or not it is read, rather than guarded: a launch with no console and no
+    // redirection has no standard error at all, and printing into that returns `Ok` — measured on
+    // Windows 11, and worth knowing under `panic = "abort"`, where a print that failed instead would
+    // be the launcher taken down by a line nobody was going to see.
+    eprintln!("orb: {line}");
+    if !lines_are_read {
+        cannot_run(text);
+    }
+    ExitCode::FAILURE
+}
+
 fn main() -> ExitCode {
+    // Before anything is printed, which is everything below.
+    let lines_are_read = attach_to_the_console();
+
+    // Before anything is read or started, because nothing else matters on a host orb cannot pace
+    // frames on. The DLL asks the same question of the same call and its answer is to stop the game
+    // on its first frame; asking it here is that answer with the game never started, which is the
+    // one an unsupported host should get — see `docs/adr/0006`.
+    if !can_make_the_timer() {
+        // Words of its own for the dialog, where a paragraph reads as one.
+        return not_started(NO_TIMER_LINE, NO_TIMER_TEXT, lines_are_read);
+    }
+
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("orb: {error}");
-            ExitCode::FAILURE
-        }
+        // One text in both, an error having only the words it was written with.
+        Err(error) => not_started(&error.to_string(), &error.to_string(), lines_are_read),
     }
 }
 
@@ -124,16 +195,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     // starts rather than into a log inside one.
     let launch = Launch::parse();
 
-    // Before anything is read or started, because nothing else matters on a host orb cannot pace
-    // frames on. The DLL asks the same question of the same call and its answer is to stop the game
-    // on its first frame; asking it here is that answer with the game never started, which is the
-    // one an unsupported host should get — see `docs/adr/0006`.
-    if !can_make_the_timer() {
-        // Both, because either can be the only one seen: the line for a launch from a terminal, and
-        // the dialog for one from Explorer, where nobody ever sees a line.
-        cannot_run(NO_TIMER_TEXT);
-        return Err(NO_TIMER_LINE.into());
-    }
     let exe = std::env::current_exe()?;
     // Settled before the settings are asked for, because the pad they can be answered with is
     // described by a file in the game's directory too.
