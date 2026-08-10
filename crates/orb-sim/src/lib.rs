@@ -28,6 +28,7 @@ mod files;
 mod joystick;
 mod keyboard;
 mod log;
+mod mouse;
 mod noise;
 mod sound;
 mod space;
@@ -40,6 +41,7 @@ pub use files::Files;
 pub use joystick::{Joystick, POV_CENTERED};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
+pub use mouse::Mouse;
 /// The seeded stream the host's own unevenness is drawn from, for an e2e test that has unevenness of its
 /// own to declare: how long the game's frame takes is the game's business rather than the host's, and a
 /// run whose every draw comes from one seed is a run that replays.
@@ -96,6 +98,9 @@ pub struct Sim {
     /// not — see [`Windows`].
     windows: Windows,
     keyboard: Keyboard,
+    /// The mouse, and whether its pointer is being drawn — which is the game's window that orb hides
+    /// one over, so it is the layout's neighbour rather than the pacing's.
+    mouse: Mouse,
     /// The joystick winmm has, which is not the controller DirectInput has: that one is laid out in the
     /// game's own memory, and this is the device on the other branch of the game's own read.
     joystick: Joystick,
@@ -156,6 +161,7 @@ impl Sim {
             display: Display::new(seed),
             windows: Windows::new(),
             keyboard: Keyboard::new(),
+            mouse: Mouse::new(),
             joystick: Joystick::new(),
             glyphs: Glyphs::new(),
             drawing: Recording::new(),
@@ -210,6 +216,12 @@ impl Sim {
     /// The keyboard, for a test that presses a key at one of orb's own menus.
     pub fn keyboard(&self) -> &Keyboard {
         &self.keyboard
+    }
+
+    /// The mouse, for a test that moves the pointer over the game and reads back whether the host is
+    /// drawing it.
+    pub fn mouse(&self) -> &Mouse {
+        &self.mouse
     }
 
     /// And the joystick winmm has, for a test that plugs a pad in — which is the branch the game reads
@@ -510,6 +522,14 @@ impl Win for Sim {
 
     fn keyboard_state(&self) -> Option<[u8; 256]> {
         self.keyboard.state()
+    }
+
+    fn mouse_position(&self) -> Option<(i32, i32)> {
+        self.mouse.position()
+    }
+
+    fn show_mouse(&self, showing: bool) -> i32 {
+        self.mouse.show(showing)
     }
 
     fn joystick_position(&self, device: u32, flags: u32) -> (u32, orb_api::JoyInfo) {

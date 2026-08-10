@@ -1185,6 +1185,50 @@ A monitor-sized back buffer would not scale the game: its 2D drawing uses `D3DFV
 whose coordinates are already screen space, so a viewport does not transform them. Scaling
 that way would need a render target and a full-screen quad.
 
+## The mouse pointer
+
+**It goes once the mouse has been still for three seconds, and comes back on the frame it moves.**
+Neither game is played with the mouse and orb's answer to every display setting is a window, which is
+where Windows draws a pointer — so without this the arrow sits over the playfield for as long as nobody
+moves it away. Where the pointer is is read once a frame with `GetCursorPos`, on every frame the loop
+takes and the ones that draw nothing included. A host that will not say where it is has it left alone:
+a pointer orb cannot follow is one it cannot tell has stopped, and one taken off the screen by a launch
+that has lost sight of the mouse is one nothing puts back.
+
+**Only while the game's window is the one in front**, and a window going behind puts the pointer back —
+with the wait then running from the frame it comes forward rather than from the last movement of the
+mouse. Which is the question orb's own keys are read behind as well, asked for a different reason: keys
+read with another window in front are keys somebody typed at that window, while no movement of a mouse is
+ever the game's to act on. What it answers here is how far the counter below reaches — the pointer over
+another program's window is not something orb has measured itself into, and one over a window that is not
+in front is in nobody's way.
+
+**Whether the pointer is drawn is one counter the whole process shares**, and it is a counter rather
+than a flag: `ShowCursor` moves it one step per call, and Windows draws the pointer while it is not
+negative. **The game moves it too.** 紅魔郷 answers `WM_SETCURSOR` itself — its window procedure at
+0x420d40 sends `0x20` to the case at 0x420dc0 — and with the game in a window, which is every launch of
+orb's, that case loads the arrow, sets it, asks for the pointer to be drawn, and answers 1 so
+`DefWindowProcA` never sees the message. One of those arrives per movement of the pointer over the
+window, so the counter climbs by one for each and nothing in a windowed run ever lowers it: a single
+`ShowCursor(FALSE)` from orb would leave the pointer exactly where it was, and what it would take
+instead is one call per mouse movement since the window came up.
+
+**So the exe's `ShowCursor` import is patched and the game's asks are answered rather than passed on**,
+which leaves the counter orb's alone — one step takes the pointer off the screen and one puts it back.
+All of them are answered and not only the ones that would fight a pointer orb has taken off: a call let
+through while the pointer is drawn changes nothing on the screen and moves the counter all the same, and
+a step taken afterwards cannot cross an edge that has moved. What the game gets back is the counter orb
+last read, which it looks at in none of its six calls. A launch where that entry could not be patched
+says so in the log and leaves the pointer as the game has it, there being no counter left to win.
+
+Three seconds because nothing in either game wants the pointer at all: the wait is there to keep it from
+being chased away between two movements of a hand that is still using it, and no longer.
+
+**`hide_mouse` in `orb.yaml` is what asks for it**, on by default and one of the switches the launcher
+offers — 時間経過でマウスカーソルを消す. Off leaves the pointer to the game, and leaves the `ShowCursor`
+import unpatched with it: what orb does about the pointer is own that counter, and there is nothing to own
+where the pointer is not being taken off. The log line says which of the two a launch got.
+
 ## The status line
 
 The chapter, `RETRY`, `INPUT LAG` and the frame rate are drawn with GDI onto the window, in the
@@ -1518,21 +1562,23 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 and leaves set; a launch's arguments hold what is different every time it is run; and the mode a
 run is in is asked inside the game, where the run is started — see *Pointdevice and normal*.
 
-`orb.yaml` is five keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash` and
-`ask_at_startup`. YAML read with serde; four switches written `true` or `false`, and `screen`
+`orb.yaml` is six keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash`, `hide_mouse` and
+`ask_at_startup`. YAML read with serde; five switches written `true` or `false`, and `screen`
 written `fullscreen` or a size like `1280x720`. `deny_unknown_fields`, so a key nobody reads is
 an error naming it — including one that used to be a key, which is a file to edit rather than one
 to pass over quietly. A setting that is not read is a setting somebody thinks is on.
 
-**The launcher asks for all five before it starts the game**, and writes back what it is told.
-Which is why they are the five they are: each is about the machine the game is being played on,
+**The launcher asks for all six before it starts the game**, and writes back what it is told.
+Which is why they are the six they are: each is about the machine the game is being played on,
 and somebody who has just installed one file has nothing to edit. It is orb's own window rather
-than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for six
+than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for ten
 controls — with the system's own message font asked for rather than a face named, since a face
 named here is one that is missing on somebody's machine and the text is Japanese.
 
 **A real dialog, class `#32770`**, from a `DLGTEMPLATE` built in memory: a resource would mean a
-`.rc` and a resource compiler in the build, and this is six controls. Being one rather than looking
+`.rc` and a resource compiler in the build, and this is ten controls. It is as tall as what is
+stacked in it rather than a height of its own, so a switch added to the list takes the dialog with
+it instead of being drawn over the buttons. Being one rather than looking
 like one is the point — a window manager decides whether to leave a window alone by asking what it
 is, and the dialog class is the answer it looks for. A window of orb's own class with a dialog's
 styles was tiled by a window manager that leaves real dialogs alone, which is how the difference
@@ -1603,7 +1649,7 @@ somebody typed is one they meant, and answering it with the defaults would leave
 a setting nothing read.
 
 The file is written out as text with a comment over each key rather than through a serialiser,
-which would leave five bare keys and nothing beside them to say what any of it is for. There is
+which would leave six bare keys and nothing beside them to say what any of it is for. There is
 no copy of it in this repository to install: it is written by the thing that asks, and a second
 hand-kept copy is one that goes stale.
 
@@ -1942,7 +1988,8 @@ restoring as it goes.
 ## The seam between orb and its host
 
 Some of what orb gets from the host it runs on goes through `orb-api`. Each area of it — the game's
-memory, the clock, which keys are down, which thread is running, the log file, the modules the process
+memory, the clock, which keys are down, where the mouse pointer is and whether it is drawn, which thread
+is running, the log file, the modules the process
 has loaded — is a facade of
 free functions with two answers behind it: the real one, under `#[cfg(windows)]`, and whatever
 `Win` implementation a test has installed.
@@ -1960,7 +2007,10 @@ reads two numbers they answer — the compositor's own spacing, which the cadenc
 monitor's rate, which says what the desktop is like — and the case that matters is the two disagreeing,
 which otherwise wants two monitors of different rates and a window on one of them. And the keyboard is behind it because orb's own questions read it
 themselves, the game being frozen on the frames they are up on: which mode a run is, and so whether it
-has chapters at all, is decided by keys nobody could press in a test. The modal and the `ExitProcess`
+has chapters at all, is decided by keys nobody could press in a test. The mouse is behind it for both
+halves of the same reason: a hand moving one is what orb puts the pointer back for, and whether the
+pointer is drawn at all is a counter the host keeps for the process — so a test that cannot move a mouse
+and cannot read that counter back cannot reach any of it. The modal and the `ExitProcess`
 that turn away a host orb cannot pace on are behind it for the same reason at its plainest: an e2e test
 that raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
 exited would take the harness's child with it.
@@ -2197,7 +2247,7 @@ game's entry point and the memory hooks see the first allocation.
 | | |
 | --- | --- |
 | `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
-| `launcher/settings.rs` | the dialog that asks for the five settings before the game starts |
+| `launcher/settings.rs` | the dialog that asks for the six settings before the game starts |
 | `launcher/pad.rs` | reading a pad on the launcher's side, so that dialog answers to one |
 | `crates/orb-config` | `orb.yaml` — read by both halves, written by the launcher — and the command line |
 | `crates/orb-api` | the seam: the `Win` trait, the neutral types, and the facades every host call goes through |
@@ -2207,11 +2257,12 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/input.rs` | the keyboard orb reads for itself, and what it does when the game is not the window in front |
 | `orb-core/menu.rs` | the keys the three questions read, whose press each is, and where a cursor over them goes |
 | `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
-| `crates/orb-sim` | the simulated Windows: the memory, the clock, the display, the keyboard, the pad, the sound, the device orb draws through and the strings it bakes. In its `tests/` are the four no game drives |
+| `crates/orb-sim` | the simulated Windows: the memory, the clock, the display, the keyboard, the mouse, the pad, the sound, the device orb draws through and the strings it bakes. In its `tests/` are the four no game drives |
 | `crates/orb-e2e` | the launches: a game playing the game's part in `src/fake/`, compiled once, with every e2e test a `#[cfg(test)]` module beside it |
 | `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
 | `orb-sim/window.rs` | the panel a test declares and the window manager over it: the two sizes one monitor reports either side of `SetProcessDPIAware`, the frame it costs to get a client of a given size, the windows it has been asked to make, and every stack of lines it has been asked to write in the black beside the game |
 | `orb-sim/keyboard.rs` | the keys a test holds down, the keys another program sent — which `GetKeyboardState` reports and an exclusive foreground device does not — and a host that refuses to say what is down at all |
+| `orb-sim/mouse.rs` | the pointer a test moves, the display counter `ShowCursor` keeps and how many times it has been asked to move it, and a host that refuses to say where the pointer is |
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb/lib.rs` | `DllMain` and the install lists: which prologue goes with which hook, and which of them a `Config` asks for |
@@ -2237,12 +2288,15 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
 | `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, unprotecting it, swapping a word in a page that is read-only — and the walk of the heaps and reservations the game took, which is what a chapter is a copy of |
 | `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — the GDI a stack of lines is measured and written to the window with, and the modal orb puts up itself |
+| `orb-api/mouse.rs` | where the pointer is, and the display counter the host draws it by |
 | `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, the wait to a frame's own deadline, and the coarse one a thread nobody is waiting for takes between two reads of a device |
 | `orb-api/codepage.rs` | `MultiByteToWideChar`, for the one string a Win32 `-A` call answers in the machine's own code page: the name winmm gives a pad |
 | `orb-api/joystick.rs` | the joystick winmm has, which is the branch the game reads a pad on where its own enumeration found no controller |
 | `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
 | `orb-core/tuning.rs` | building the midstage table |
 | `orb/window.rs` | the writes over the two window imports, and the black brush the rewrite of `RegisterClassA` swaps in |
+| `orb/mouse.rs` | the write over the `ShowCursor` import, which is what leaves the display counter orb's |
+| `orb-core/mouse.rs` | how long the mouse has to have been still for the pointer to go, the read that follows it, and that entry's replacement — the game's own ask answered rather than passed on |
 | `orb-core/window.rs` | how big that window is and where it goes — the style, the centring, and the rectangle a 4:3 game is presented into — the device's `Present` slot redirected into it, and where orb's own lines go in the black beside it |
 | `orb-core/overlay.rs` | drawing over the game's frame: the state block round every draw, the quads, and the labels and pictures baked into textures |
 | `orb-api/d3d8.rs`, `orb-api/real/d3d8.rs` | the eighteen slots of the game's device orb calls, and the only code in the tree that calls a Direct3D vtable |
@@ -2274,6 +2328,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/a_practice_run.rs` | one stage practised: the mode question over its own item of the title menu, the chapter put back after a death, and nothing written down for a run the game keeps no slot for |
 | `orb-e2e/src/the_handles_a_restore_leaves_alone.rs` | a texture handle the game holds left where a restore finds it, and the rest of the block it is in put back |
 | `orb-e2e/src/the_window_going_behind.rs` | the keys dropped while the game's window is behind, and the keyboard device taken again — as many times as it takes — when it comes forward |
+| `orb-e2e/src/the_mouse_pointer_over_the_game.rs` | the pointer taken off the screen three seconds after the mouse was last moved and put back on the frame it moves again, with the wait running from that movement rather than from the launch; the display counter one step from where it started; the pointer put back for as long as the game's window is behind, and the wait run again from the frame it comes forward; the game's own ask for the pointer answered without reaching the host; and a host that will not say where the pointer is left alone |
 | `orb-e2e/src/a_stage_transition.rs` | what a stage transition carries and what only the start of a run puts in place: the lives, the bombs, the power and the deaths a run walks through six stages with, the one read of the score file a run makes, the rank its difficulty is played at, the arcade region, and the box the player is held inside |
 | `orb-e2e/src/the_frame_a_scene_is_built_on.rs` | a scene's own first update falling on the frame it was built, at a stage's transition and at the front end alike, with the input word zeroed there so a button still held reads as a fresh press on the frame after |
 | `orb-e2e/src/the_player_a_stage_starts.rs` | the player a stage starts: invulnerable with the first of 240 frames already spent, and the 240th the one a bullet sitting on them kills on |

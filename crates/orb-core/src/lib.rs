@@ -32,6 +32,7 @@ pub mod menu;
 pub mod menu_ui;
 pub mod mode;
 pub mod mode_ui;
+pub mod mouse;
 pub mod overlay;
 pub mod profile;
 pub mod resume;

@@ -1660,6 +1660,20 @@ impl Fake {
         orb_api::Hwnd(window as usize)
     }
 
+    /// The game answering `WM_SETCURSOR`, which is the ask orb's rewrite over its `ShowCursor` import
+    /// stands in front of.
+    ///
+    /// Its window procedure's case for that message as 1.02h has it — 0x420d40 dispatching `0x20` to
+    /// 0x420dc0 — where a game in a window loads the arrow, sets it, and asks for the pointer to be
+    /// drawn. Only the ask is here, that being the half orb has anything to do with; and one of these
+    /// arrives per movement of the pointer over the window, which is what makes it something a launch
+    /// meets thousands of times.
+    ///
+    /// Straight through the rewrite, there being no import table in a laid-out game to reach it through.
+    pub fn answers_wm_setcursor(&self) -> i32 {
+        orb_core::mouse::show_cursor(1)
+    }
+
     /// What the game's memory says the run is, read the way the frame hook reads it: every field
     /// parsed back out of the memory rather than off the addresses this game wrote.
     pub fn state(&self) -> orb_core::game::State {

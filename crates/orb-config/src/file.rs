@@ -9,7 +9,7 @@
 //!
 //! Written as well as read, because these are what the launcher asks about before it starts
 //! the game. Written out as text with its comments rather than through a serialiser, which
-//! would leave five bare keys and nothing beside them to say what any of it is for.
+//! would leave six bare keys and nothing beside them to say what any of it is for.
 
 use serde::Deserialize;
 
@@ -22,6 +22,7 @@ pub(crate) struct File {
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
+    pub hide_mouse: bool,
     pub ask_at_startup: bool,
 }
 
@@ -34,6 +35,7 @@ impl Default for File {
             always_draw: true,
             boundary_flash: true,
             skip_ending: true,
+            hide_mouse: true,
             ask_at_startup: true,
         }
     }
@@ -82,6 +84,13 @@ always_draw: {always_draw}
 # and longer, since there the wash is what the pass is run with.
 boundary_flash: {boundary_flash}
 
+# Take the mouse pointer off the screen once the mouse has been still for three seconds, and put it
+# back the moment it moves. Nothing in the game is played with the mouse and orb always puts the game
+# in a window — which is where Windows draws a pointer — so without this the arrow sits over the play
+# field for as long as nobody moves it away. false leaves the pointer to the game, which draws it
+# whenever it moves.
+hide_mouse: {hide_mouse}
+
 # Ask for all of the above again at the next launch. false keeps what is written here and
 # starts the game straight away; `orb --settings` asks whichever way this is set.
 ask_at_startup: {ask_at_startup}
@@ -90,6 +99,7 @@ ask_at_startup: {ask_at_startup}
         skip_ending = file.skip_ending,
         always_draw = file.always_draw,
         boundary_flash = file.boundary_flash,
+        hide_mouse = file.hide_mouse,
         ask_at_startup = file.ask_at_startup,
     )
 }

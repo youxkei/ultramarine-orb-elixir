@@ -29,6 +29,7 @@ mod crash;
 mod hook;
 mod joystick;
 mod memtrack;
+mod mouse;
 mod pe;
 mod score;
 mod threads;
@@ -331,6 +332,17 @@ fn attach() {
     match unsafe { window::install(exe, game.content_size(), config.screen) } {
         Ok(()) => log!("screen: window hooks installed"),
         Err(error) => log!("screen: {error}; the window is left as the game makes it"),
+    }
+    // And the pointer over that window, where the settings ask for it: a window is where Windows draws
+    // one, and nothing in the game is played with the mouse. Left out rather than installed and idle
+    // where they do not, the entry being worth patching only for a launch that is taking the pointer off.
+    if config.hide_mouse {
+        match unsafe { mouse::install(exe) } {
+            Ok(()) => log!("mouse: the pointer goes while nothing is moving the mouse"),
+            Err(error) => log!("mouse: {error}; the pointer is left as the game has it"),
+        }
+    } else {
+        log!("mouse: hide_mouse is off; the pointer is left as the game has it");
     }
     match patches.unlocks_read {
         // Only where a run can be rewound, which is the only way the mode is ever pointdevice and

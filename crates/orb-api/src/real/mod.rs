@@ -14,6 +14,7 @@ pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
+pub mod mouse;
 pub mod process;
 pub mod text;
 pub mod thread;

@@ -86,6 +86,8 @@ mod the_letterbox_presented_into;
 #[cfg(test)]
 mod the_mark_over_the_lives;
 #[cfg(test)]
+mod the_mouse_pointer_over_the_game;
+#[cfg(test)]
 mod the_music_across_a_restore;
 #[cfg(test)]
 mod the_player_a_stage_starts;

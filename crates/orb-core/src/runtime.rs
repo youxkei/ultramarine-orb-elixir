@@ -28,6 +28,7 @@ use crate::input::Keyboard;
 use crate::lives_ui::LivesMark;
 use crate::menu_ui::By;
 use crate::mode_ui::{Answer, Mode, ModeMenu};
+use crate::mouse::Mouse;
 use crate::overlay::{FONT_HEIGHT, MARK_FONT_HEIGHT, Overlay};
 use crate::retry_ui::{Choice, RetryMenu};
 use crate::sync::MainThread;
@@ -201,6 +202,9 @@ pub struct Runtime {
     frames: u32,
     previous: Option<State>,
     keyboard: Keyboard,
+    /// Where the mouse pointer was, for the frame loop that takes it off the screen once nothing has
+    /// moved it.
+    mouse: Mouse,
     /// Created on the first frame that has a Direct3D device.
     overlay: Option<Overlay>,
     /// Frames left to try building it on, so that a broken overlay is not retried for the whole
@@ -625,6 +629,11 @@ pub unsafe fn attach_to(
     unsafe {
         crate::window::install_over(originals.create_window, game.content_size(), config.screen)
     };
+    // And the pointer over that window, whose rewrite is reached the same way: a laid-out game calls it
+    // where the real one's patched `ShowCursor` entry would have taken it. With the setting handed over
+    // rather than the call gated on it, so that a launch told not to hide the pointer is one that says so
+    // here — where [`attach`] answers the same setting by leaving the entry alone.
+    crate::mouse::install(config.hide_mouse);
     // And the display setting that window is made under, which is overruled once and where [`attach`]
     // overrules it: a game that has taken the display exclusively has no window to resize, and by the
     // time anything of orb's runs per frame the device already exists. Set here rather than in the reset
@@ -734,6 +743,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             frames: 0,
             previous: None,
             keyboard: Keyboard::new(),
+            mouse: Mouse::new(),
             overlay: None,
             overlay_attempts: OVERLAY_ATTEMPTS,
             shown: (0, 0, 0),
@@ -985,6 +995,11 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     if device.is_null() {
         return unsafe { call_render(game_window) };
     }
+    // The pointer, above the check below rather than beside the keyboard's own read: whether the mouse
+    // has moved is nothing to do with the game's update, and a frame that draws nothing is still a frame
+    // somebody may be reaching for the mouse on.
+    runtime.mouse.poll(unsafe { game.window() });
+
     // The game does nothing at all while its window is behind, and orb carries on: that is what
     // makes coming back to it instant instead of a stale frame, and what keeps a replay or a
     // stress run going while attention is elsewhere. The keys are dealt with in the input hook,

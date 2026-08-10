@@ -44,6 +44,7 @@ pub mod keyboard;
 pub mod logfile;
 pub mod mem;
 pub mod module;
+pub mod mouse;
 pub mod process;
 pub mod text;
 pub mod thread;
@@ -500,6 +501,19 @@ pub trait Win: Send + Sync + 'static {
     /// per key would be several reads of a state that may have moved between them, and orb's menus
     /// read six keys a frame.
     fn keyboard_state(&self) -> Option<[u8; 256]>;
+
+    // --- the mouse pointer ------------------------------------------------------
+
+    /// `GetCursorPos` — where the pointer is, in the desktop's own coordinates. `None` where the call
+    /// failed, which orb reads as a pointer it cannot follow.
+    fn mouse_position(&self) -> Option<(i32, i32)>;
+
+    /// `ShowCursor` — the display counter moved one step either way, and what it reads afterwards.
+    ///
+    /// The counter rather than a flag because that is what Windows keeps: the pointer is drawn while it
+    /// is not negative, and every caller in the process moves the same number. Which is why the answer
+    /// comes back — see [`mouse::show`].
+    fn show_mouse(&self, showing: bool) -> i32;
 
     // --- the joystick ----------------------------------------------------------
 

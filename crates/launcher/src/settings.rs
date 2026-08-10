@@ -9,7 +9,7 @@
 //!
 //! **A real dialog**, class `#32770`, from a template built in memory rather than from a
 //! resource: a resource means a `.rc` and a resource compiler in the build, and the template is
-//! six controls. Being one rather than merely looking like one is what matters — a window manager
+//! ten controls. Being one rather than merely looking like one is what matters — a window manager
 //! decides whether to leave a window alone by asking what it is, and the dialog class is the
 //! answer it looks for. One built out of `CreateWindowExW` with a dialog's styles carries its own
 //! class whatever it looks like, and gets tiled.
@@ -57,12 +57,13 @@ const ATOM_BUTTON: u16 = 0x0080;
 const ATOM_STATIC: u16 = 0x0082;
 const ATOM_COMBOBOX: u16 = 0x0085;
 
-/// What the settings were answered with, which is the five keys of `orb.yaml`.
+/// What the settings were answered with, which is the six keys of `orb.yaml`.
 pub struct Answers {
     pub screen: Screen,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
+    pub hide_mouse: bool,
     pub ask_at_startup: bool,
 }
 
@@ -72,6 +73,7 @@ impl Answers {
         config.always_draw = self.always_draw;
         config.boundary_flash = self.boundary_flash;
         config.skip_ending = self.skip_ending;
+        config.hide_mouse = self.hide_mouse;
         config.ask_at_startup = self.ask_at_startup;
     }
 }
@@ -167,7 +169,7 @@ struct Switch {
 }
 
 /// The switches, in the order they are stacked. Each is one key of `orb.yaml`.
-const SWITCHES: [Switch; 4] = [
+const SWITCHES: [Switch; 5] = [
     Switch {
         text: "エンディングをスキップする",
         shown: |config| config.skip_ending,
@@ -184,6 +186,11 @@ const SWITCHES: [Switch; 4] = [
         answered: |answers, on| answers.boundary_flash = on,
     },
     Switch {
+        text: "時間経過でマウスカーソルを消す",
+        shown: |config| config.hide_mouse,
+        answered: |answers, on| answers.hide_mouse = on,
+    },
+    Switch {
         text: "起動時に毎回訊ねる",
         shown: |config| config.ask_at_startup,
         answered: |answers, on| answers.ask_at_startup = on,
@@ -195,14 +202,39 @@ const SWITCH_ID: u16 = 200;
 
 /// The dialog, in dialog units — a quarter of the font's average character width across and an
 /// eighth of its height down — so all of it scales with the font the system gives it.
-const DIALOG: (i16, i16) = (268, 136);
+///
+/// **As tall as what is stacked in it**, rather than a number of its own: the switches are one row each
+/// and the pad's line and the buttons are two more, so a switch added to [`SWITCHES`] takes the dialog
+/// with it. Written out as a number it was 136, which is what this comes to for the four switches it had
+/// then; a fifth would have put the pad's line through the buttons.
+const DIALOG: (i16, i16) = (268, HINT_TOP + TEXT + 4 + BUTTON.1 + MARGIN.1);
 const MARGIN: (i16, i16) = (10, 8);
+/// The pitch of a row, which is a line of text and the space under it.
 const LINE: i16 = 16;
+/// And one line of text: a label, a switch's own box, the line about the pad.
+const TEXT: i16 = 10;
 const LABEL: i16 = 26;
 const BUTTON: (i16, i16) = (56, 16);
 /// The whole of a combo box including its dropped list, which is what its height measures — not
 /// the box shown while it is closed.
 const COMBO: i16 = 90;
+/// Where the switches start, which is under the row the sizes are on.
+const SWITCHES_TOP: i16 = MARGIN.1 + LINE + 6;
+/// And the line about the pad, under the last of them.
+const HINT_TOP: i16 = SWITCHES_TOP + LINE * SWITCHES.len() as i16 + 4;
+/// The top of the two buttons, which are the last row.
+const BUTTONS_TOP: i16 = DIALOG.1 - MARGIN.1 - BUTTON.1;
+
+// The rows held against the dialog they are stacked in: every switch above the line about the pad, that
+// line above the two buttons, and the buttons inside the dialog. A `const` block rather than a test
+// because [`DIALOG`]'s own height is worked out from these — so a switch added to [`SWITCHES`] with a
+// height that did not follow it is a build that stops, rather than a dialog with that line drawn through
+// its buttons.
+const _: () = {
+    assert!(SWITCHES_TOP + LINE * (SWITCHES.len() as i16 - 1) + TEXT <= HINT_TOP);
+    assert!(HINT_TOP + TEXT <= BUTTONS_TOP);
+    assert!(BUTTONS_TOP + BUTTON.1 <= DIALOG.1);
+};
 
 /// What the dialog is shown with and what it comes back with. One dialog per launch, and its
 /// procedure runs on the thread that put it up, so there is nothing here to share with anyone.
@@ -493,6 +525,7 @@ unsafe fn take_answers(dialog: HWND) {
         always_draw: false,
         boundary_flash: false,
         skip_ending: false,
+        hide_mouse: false,
         ask_at_startup: false,
     };
     for (index, switch) in SWITCHES.iter().enumerate() {
@@ -571,14 +604,11 @@ fn system_dpi() -> i32 {
 /// and so does every control in it, and a byte vector's buffer promises neither.
 fn template(font: &Font) -> Vec<u32> {
     let mut bytes = Vec::new();
-    let switches_top = MARGIN.1 + LINE + 6;
-    let hint_top = switches_top + LINE * SWITCHES.len() as i16 + 4;
-    let buttons_top = DIALOG.1 - MARGIN.1 - BUTTON.1;
     let items: Vec<Item> = std::iter::once(Item {
         class: ATOM_STATIC,
         style: WS_CHILD | WS_VISIBLE | WS_GROUP,
         id: 0,
-        at: (MARGIN.0, MARGIN.1 + 2, LABEL, 10),
+        at: (MARGIN.0, MARGIN.1 + 2, LABEL, TEXT),
         text: "画面".to_owned(),
     })
     // Said, because a dialog that answers to a pad is not something anybody expects one to do, and
@@ -597,7 +627,7 @@ fn template(font: &Font) -> Vec<u32> {
         class: ATOM_STATIC,
         style: WS_CHILD | WS_VISIBLE,
         id: 0,
-        at: (MARGIN.0, hint_top, DIALOG.0 - MARGIN.0 * 2, 10),
+        at: (MARGIN.0, HINT_TOP, DIALOG.0 - MARGIN.0 * 2, TEXT),
         text: "パッド: 上下で移動  ショットで決定  ボムでやめる".to_owned(),
     }))
     .chain(std::iter::once(Item {
@@ -618,9 +648,9 @@ fn template(font: &Font) -> Vec<u32> {
         id: SWITCH_ID + index as u16,
         at: (
             MARGIN.0,
-            switches_top + LINE * index as i16,
+            SWITCHES_TOP + LINE * index as i16,
             DIALOG.0 - MARGIN.0 * 2,
-            10,
+            TEXT,
         ),
         text: switch.text.to_owned(),
     }))
@@ -631,7 +661,7 @@ fn template(font: &Font) -> Vec<u32> {
             id: IDOK as u16,
             at: (
                 DIALOG.0 - MARGIN.0 - BUTTON.0 * 2 - 4,
-                buttons_top,
+                BUTTONS_TOP,
                 BUTTON.0,
                 BUTTON.1,
             ),
@@ -643,7 +673,7 @@ fn template(font: &Font) -> Vec<u32> {
             id: IDCANCEL as u16,
             at: (
                 DIALOG.0 - MARGIN.0 - BUTTON.0,
-                buttons_top,
+                BUTTONS_TOP,
                 BUTTON.0,
                 BUTTON.1,
             ),
@@ -740,7 +770,61 @@ fn wide(text: &str) -> Vec<u16> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ATOM_BUTTON, DIALOG, Font, SWITCHES, ratio, sizes, template};
+    use super::{ATOM_BUTTON, Answers, DIALOG, Font, SWITCHES, ratio, sizes, template};
+    use orb_config::Config;
+
+    /// Every key at what a file that is not there gives it, which is on for every switch — and no
+    /// directory is made, the read of a file that is not there being the whole of what this needs.
+    fn defaults() -> Config {
+        let missing = std::env::temp_dir().join(format!("orb-no-settings-{}", std::process::id()));
+        Config::load_beside(&missing.join("orb.exe")).expect("the defaults")
+    }
+
+    /// Each switch answers the key it shows.
+    ///
+    /// Which is what the pair in `Switch` is for: a `shown` and an `answered` naming two different keys
+    /// would be a dialog showing one setting and writing another, and nothing about the dialog itself
+    /// would look wrong.
+    #[test]
+    fn each_switch_answers_the_key_it_shows() {
+        let shown = defaults();
+        for switch in &SWITCHES {
+            assert!(
+                (switch.shown)(&shown),
+                "{}: not shown as on with every key at its default",
+                switch.text,
+            );
+        }
+        for (index, switch) in SWITCHES.iter().enumerate() {
+            // Answered the way the dialog reads its controls: an `Answers` of nothing, and one call
+            // per switch — this one off and every other on.
+            let mut answers = Answers {
+                screen: shown.screen,
+                always_draw: false,
+                boundary_flash: false,
+                skip_ending: false,
+                hide_mouse: false,
+                ask_at_startup: false,
+            };
+            for (other, answering) in SWITCHES.iter().enumerate() {
+                (answering.answered)(&mut answers, other != index);
+            }
+            let mut config = defaults();
+            answers.apply(&mut config);
+
+            let off: Vec<&str> = SWITCHES
+                .iter()
+                .filter(|switch| !(switch.shown)(&config))
+                .map(|switch| switch.text)
+                .collect();
+            assert_eq!(
+                off,
+                [switch.text],
+                "{}: the key that came out off is not the one this switch shows",
+                switch.text,
+            );
+        }
+    }
 
     /// 16:9 above 4:3 and the biggest of each first, since that is the order somebody reads a
     /// list of sizes in. A 16:9 window is the one that leaves black down the sides for orb's

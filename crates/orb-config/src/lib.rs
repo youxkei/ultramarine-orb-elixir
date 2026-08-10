@@ -102,6 +102,13 @@ pub struct Config {
     pub boundary_flash: bool,
     /// Run the ending out without ever drawing it, stopping at its staff roll.
     pub skip_ending: bool,
+    /// Take the mouse pointer off the screen while nothing has moved the mouse for a few seconds,
+    /// and put it back the moment something does.
+    ///
+    /// Off leaves the pointer to the game and the exe's `ShowCursor` import unpatched with it: what
+    /// orb does about the pointer is own the host's display counter, and there is nothing to own where
+    /// the pointer is not being taken off.
+    pub hide_mouse: bool,
     /// How big the game's window is, the game's aspect ratio kept either way.
     pub screen: Screen,
     /// Ask for the settings above before starting the game, and write down what was
@@ -322,6 +329,7 @@ impl Config {
             block_replay_save: false,
             boundary_flash: file.boundary_flash,
             skip_ending: file.skip_ending,
+            hide_mouse: file.hide_mouse,
             screen: file.screen,
             ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
@@ -342,6 +350,7 @@ impl Config {
             always_draw: self.always_draw,
             boundary_flash: self.boundary_flash,
             skip_ending: self.skip_ending,
+            hide_mouse: self.hide_mouse,
             ask_at_startup: self.ask_at_startup,
         };
         orb_api::fs::write(path, file::text(&file).as_bytes()).map_err(|source| Error::Write {
@@ -372,6 +381,7 @@ mod tests {
         assert!(!config.block_replay_save);
         assert!(config.boundary_flash);
         assert!(config.skip_ending);
+        assert!(config.hide_mouse);
         assert_eq!(config.screen, Screen::Fullscreen);
         assert!(config.ask_at_startup);
         assert!(config.chapters);
@@ -407,6 +417,7 @@ mod tests {
         assert!(config.skip_ending);
         assert!(config.always_draw);
         assert!(config.boundary_flash);
+        assert!(config.hide_mouse);
         assert!(config.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -429,6 +440,7 @@ mod tests {
         config.always_draw = false;
         config.boundary_flash = false;
         config.skip_ending = false;
+        config.hide_mouse = false;
         config.ask_at_startup = false;
         config.save(&path).unwrap();
 
@@ -437,6 +449,7 @@ mod tests {
         assert!(!read.always_draw);
         assert!(!read.boundary_flash);
         assert!(!read.skip_ending);
+        assert!(!read.hide_mouse);
         assert!(!read.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();
