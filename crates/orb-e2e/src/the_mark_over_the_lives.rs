@@ -250,8 +250,8 @@ fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
         game.press_until(keys::Z, "the run given up", || {
             game.log().said("retry: the run is given up")
         });
-        game.frames_until("the trip through the ranking", 60, || {
-            game.log().said("score: taken through the ranking")
+        game.frames_until("the ranking built and taken down", 60, || {
+            game.log().said("score: the ranking built and taken down")
         });
         game.frames(4);
 

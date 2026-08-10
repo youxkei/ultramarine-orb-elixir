@@ -743,6 +743,12 @@ sets the supervisor back to the title menu and takes the job out — which runs
 the question for the player, which means writing the interrupt each of the screen's 38 sprites is
 to run next and then waiting out the fade they play.
 
+**That question is the only state of that screen orb writes.** `RegisterChain` starts a finished run's
+screen in `WRITING_HIGHSCORE_NAME` — `EXIT` for a practice run, which is why both are the states the
+game skips its own parses in — and the name entry and the stats screen after it are screens whoever
+just finished the run reads. Nothing of orb's is written into either, and what used to write into the
+first of them is above, under the ranking orb has built to write.
+
 Refusing the write instead — which is what `--clear` still does, since a cleared run *does* reach
 that screen — would leave somebody naming a replay file that never appears.
 
@@ -1387,24 +1393,38 @@ landing being *inside* the card, nothing starts it a second time. So the block g
 name, and the sum beside it, left as the playback left them. Which makes picking a run up the second thing
 that heals a row already written wrong.
 
-**A session that stops without the game writing is taken through the ranking.** The write is reached
-from one place, so a run given up or quit with `ESC` leaves what it counted about spell cards in
-memory and nowhere else — 紅魔郷 loses it, and orb does not. On the first frame the front end is up
-after a run that ended anywhere else, orb writes `MainMenu.gameState` with what the `Score` item
-writes — 0xa, from the handler at 0x437f56 — runs the updates that brings inside that one frame with
-nothing drawn, and writes `curState` back to the front end the way the ranking leaves itself. The
-deleted callback then writes the file. Bounded at 180 updates, against the 60 the front end waits and
-the one each scene change costs; at 30µs an update the whole trip is under a frame's worth of time
-and none of it is seen, the draw chain running once a frame after this.
+**Where a session stops without the game writing, orb has the ranking built and taken down.** The
+write is reached from one place, so a run given up or quit with `ESC` leaves what it counted about
+spell cards in memory and nowhere else — 紅魔郷 loses it, and orb does not. On the first frame the
+front end is up after a run that ended anywhere else, orb writes `MainMenu.gameState` with what the
+`Score` item writes — 0xa, from the handler at 0x437f56 — runs the updates that brings inside that one
+frame with nothing drawn, and writes `curState` back to the front end the way the ranking leaves
+itself. The deleted callback then writes the file. Bounded at 240 updates, against the 60 the front
+end waits and the one each scene change costs; at 30µs an update the whole of it is under a frame's
+worth of time and none of it is seen, the draw chain running once a frame after this.
 
-**The record is put back in the middle of that trip.** The added callback fills the captures out of
-the file it read, which is what they were before the session counted anything, so orb puts back what
-it took before asking the screen to leave. The ranking is the file's own and has to be: the write
-takes it out of the table that read just filled — which is also why the trip is through the game's
+**None is built for a run that finished, or for one still inside its ending.** The screen a run
+finishes at writes for itself, that deleted callback being the same one — so a run that reached
+`STATE_RESULTSCREEN_FROMGAME` has nothing left waiting, and orb drops the request there. That a
+ranking cannot be built from either place is what makes it worth naming rather than leaving to the
+front end never coming up: there is no front end to act on 0xa on the result screen or over a staff
+roll, so all 240 updates went on whichever of those was running and the request was then undone — and
+undoing it wrote `RESULT_SCREEN_STATE_EXITING` into the screen that *was* up. One `ResultScreen`
+reached two ways is the same field in the same object either way, so what that write sent away was the
+high-score name entry a finished run had just arrived on: two frames from the run ending to the title
+menu, with the name entry and the stats screen inside them and nobody having seen either. Over an
+ending it took 240 frames off the staff roll instead, and wrote into a screen already freed. So the
+write is made only where a ranking orb asked for is up, and the request is dropped where the run
+finished.
+
+**The record is put back between the two.** The added callback fills the captures out of the file it
+read, which is what they were before the session counted anything, so orb puts back what it took
+before asking the screen to leave. The ranking is the file's own and has to be: the write takes it out
+of the table that read just filled — which is also why the record goes out through the game's own
 screen rather than orb calling the write itself.
 
 Whether a run wrote on its own is asked rather than assumed: every open for writing is noted, and a
-run that ended at the result screen has one. Both modes make the trip. A legacy session stopping
+run that ended at the result screen has one. Both modes build one. A legacy session stopping
 partway keeping its record is the one place orb is deliberately not the game as it was.
 
 **The captures in memory are emptied before a ranking is read.** 紅魔郷 keeps the record of which

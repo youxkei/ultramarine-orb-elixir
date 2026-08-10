@@ -38,7 +38,7 @@ use orb_sim::keys;
 /// killed in, [`INVULNERABLE_AFTER_SPAWNING`] — and short enough that the transition is not a wait.
 const STAGE_FRAMES: u32 = INVULNERABLE_AFTER_SPAWNING as u32 + 100;
 
-/// A launch with orb saying everything it does, which is how the trip out of a run is read back.
+/// A launch with orb saying everything it does, which is how the way out of a run is read back.
 fn launched(name: &str) -> Box<Fake> {
     Fake::attach(name, the_run(), |config| {
         config.log_level = LogLevel::Verbose;
@@ -290,7 +290,7 @@ fn a_new_run_puts_the_arcade_region_and_the_runs_own_numbers_back() {
             "the run being given up had not lost the life this is about",
         );
 
-        // `esc` and then やめる, and orb's trip through the game's own ranking after it: what the run
+        // `esc` and then やめる, and the game's own ranking built and taken down after it: what the run
         // counted is written on the way out, and the front end comes back up behind that.
         game.gives_the_run_up_at_its_own_pause();
         game.frames_until("the title menu after the run", 600, || {

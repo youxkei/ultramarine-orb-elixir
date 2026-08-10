@@ -576,18 +576,19 @@ pub trait Game {
     unsafe fn showing_ranking(&self) -> bool;
 
     /// Whether the ranking is still the scene at all, which is a coarser thing than
-    /// [`showing_ranking`](Game::showing_ranking) and what says the trip is over: the screen answers a
-    /// request to leave by changing its own state first and putting the scene back a few updates
-    /// later, so a trip that stopped at the state change let those updates fall into drawn frames —
-    /// the ranking, seen for a second on the way out of a run.
+    /// [`showing_ranking`](Game::showing_ranking) and what says it is all the way down: the screen
+    /// answers a request to leave by changing its own state first and putting the scene back a few
+    /// updates later, so stopping at the state change let those updates fall into drawn frames — the
+    /// ranking, seen for a second on the way out of a run.
     ///
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn ranking_scene(&self) -> bool;
 
-    /// Puts the front end's cursor back where it was before the trip, once the front end is up again.
+    /// Puts the front end's cursor back where it was before the ranking was asked for, once the front
+    /// end is up again.
     ///
-    /// After the trip rather than as part of leaving it: asking for the ranking takes the front end
+    /// Afterwards rather than as part of leaving the screen: asking for the ranking takes the front end
     /// down and coming back builds a new one, so a cursor written on the way out goes into the object
     /// being discarded — and the new one starts on the item the game thinks you came back from, which
     /// is the ranking.
@@ -596,7 +597,7 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, with the front end up.
     unsafe fn restore_menu_cursor(&self);
 
-    /// What the trip is looking at, for the log: the scene, the scene wanted, the screen orb has the
+    /// Where that screen has got to, for the log: the scene, the scene wanted, the screen orb has the
     /// address of, and the state that screen is in. Numbers rather than a verdict, because a verdict
     /// is what has been wrong.
     ///
@@ -1016,8 +1017,8 @@ pub struct State {
     /// the scene changed.
     pub scene: i32,
     /// The scene the game is on its way to, which is the same number as [`scene`](State::scene)
-    /// wherever it has arrived. Read because a trip through one of the game's own screens has to
-    /// start from a game that has arrived somewhere: asking for a screen while a change is still in
+    /// wherever it has arrived. Read because asking the game for one of its own screens has to
+    /// start from a game that has arrived somewhere: asking while a change is still in
     /// flight left the front end built twice, moving its cursor two items to a press.
     pub wanted: i32,
     /// The gameplay scene, whoever is driving it.

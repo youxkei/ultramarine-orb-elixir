@@ -189,43 +189,50 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
             log.lines(),
         );
 
-        // ── 6. Out of lives, which is where the game ends a run: orb takes it through the screen the
-        // ranking is shown on the same way it takes a pointdevice run, and what that screen is written
-        // from is the game's own count with nothing of orb's added to it.
+        // ── 6. Out of lives, which is where the game ends a run: the run finishes at its own result screen,
+        // and that screen is what writes the record — nothing of orb's is built for it, and the count in it
+        // is the game's own with nothing of orb's added to it.
         //
         // **Which is the difference the two e2e tests are about.** The other one dies on a spell card,
         // goes back to the chapter it was in, and the record ends up holding that attempt as well; here
         // the same death costs a life, nothing is retried, and the only number against the card is the one
         // the card's own start put there. Which of the two files it is written to — `pointdevice_score.dat`
         // or the game's own — is decided by an import hook on `CreateFileW` that an e2e test cannot install,
-        // and `score.rs`'s own tests are what hold it to that.
+        // and `score.rs`'s own tests are what hold it to that. The screen itself, and what it wrote, is
+        // `the_screen_a_finished_run_ends_at.rs`'s.
         for _ in 0..2 {
             game.hit();
             game.frame();
         }
         assert_eq!(game.state().lives, -1, "the run is out of lives");
         game.frames_until("the run over", 60, || !game.state().in_run);
-        game.frames_until("the trip through the ranking", 60, || {
-            log.said("score: taken through the ranking")
+        game.frames_until("the record kept for the screen to write", 60, || {
+            log.said("score: the run finished, and the screen it finished at is what writes")
         });
         assert!(
-            log.said("score: the captures in memory cleared for the ranking about to be read"),
-            "the ranking's read did not clear the record it fills: {:?}",
+            !log.said("score: the captures in memory cleared for the ranking about to be read"),
+            "the record was cleared on the way into the screen that is about to write it: {:?}",
             log.lines(),
         );
         assert_eq!(
             game.image().card_attempts(CARD),
             1,
-            "the ranking a legacy run is written into counts an attempt orb added",
+            "the record a legacy run is written from counts an attempt orb added",
         );
 
         // ── 7. レガシーのスコア画面, read the way somebody reads it: the title menu's `Score`, the same
         // question about which of the two rankings, and then the row for that card. What it shows is the
         // one attempt the card's own start counted — nothing of orb's, there having been no retry to count.
-        game.frames_until("the title menu ready to act on a press", 120, || {
-            game.image().front_end_now().screen == Screen::Title
-                && game.image().front_end_now().acts_on_a_press()
-        });
+        //
+        // Past the screen the run finished at first, which is a screen somebody reads.
+        game.frames_until(
+            "the title menu after the run's own result screen",
+            600,
+            || {
+                game.image().front_end_now().screen == Screen::Title
+                    && game.image().front_end_now().acts_on_a_press()
+            },
+        );
         for _ in 0..item::SCORE {
             game.press(keys::DOWN);
         }

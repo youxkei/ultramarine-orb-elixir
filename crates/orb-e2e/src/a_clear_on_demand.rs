@@ -251,6 +251,11 @@ fn the_invulnerability_outlasts_the_hit_test_in_the_update_it_was_written_for() 
 /// The result screen was up for a long stretch between those two scene lines, which is the high-score
 /// name entry and the stats screen being played through as they always were — the state is written after
 /// those, not instead of them. Then the title menu, with no save-replay screen in between.
+///
+/// **Which screens the state is written after is `the_screen_a_finished_run_ends_at.rs`'s**, and it is
+/// there because a later session lost that stretch: the two scene lines came two frames apart, and what
+/// closed it was not this write. What is asserted here is the write itself and that no frame of the
+/// question was drawn.
 #[test]
 fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
     in_its_own_process(|| {
@@ -287,8 +292,8 @@ fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
             "the screen that saves a replay was drawn before orb wrote past it",
         );
 
-        // The screens before it were played through as they always were, which is what the stretch
-        // between the two scene lines is: the state is written after those and not instead of them.
+        // And it was a finished run that reached it, which is what the write is only ever about: the
+        // screens before the question are the subject of the e2e test named above.
         assert!(
             game.log().said("run ended after"),
             "the run did not finish through the result screen:\n  {}",

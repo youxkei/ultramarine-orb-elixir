@@ -229,7 +229,7 @@ static RESULT_SCREEN: AtomicUsize = AtomicUsize::new(0);
 /// a give-up that went to the ranking instead of the title.
 static MENU_STATE_BEFORE: AtomicUsize = AtomicUsize::new(0);
 /// And the item its cursor was on, plus one the same way. The state alone was not enough: the cursor
-/// stayed on `Score` after a trip, and the next run given up was read as that item being chosen again.
+/// stayed on `Score` afterwards, and the next run given up was read as that item being chosen again.
 static MENU_CURSOR_BEFORE: AtomicUsize = AtomicUsize::new(0);
 
 /// `ResultScreen+0x8`, the state the screen a ranking is shown on is in.
@@ -237,8 +237,10 @@ const RANKING_STATE: usize = 0x8;
 /// The two of those states the screen does not parse the score file it read in — compared at
 /// 0x42f4e5 and 0x42f4f1, jumping over the `catk`, `clrd` and `pscr` parses at 0x42f4f7 onwards.
 /// They are the states on the way out of a run, where what is in memory is that run's own record and
-/// the file is about to be written from it.
-const RANKING_STATES_KEEPING_THE_RECORD: [i32; 2] = [0x9, 0x11];
+/// the file is about to be written from it — the two `ResultScreen::RegisterChain` starts such a screen
+/// in, one for a run somebody played and one for a practice run.
+const RANKING_STATES_KEEPING_THE_RECORD: [i32; 2] =
+    [RESULT_STATE_WRITING_HIGHSCORE_NAME, RESULT_STATE_EXIT];
 /// `g_GameManager.cardHistory`: the `GameManager` at 0x69bca0 plus the 0x30 its own read parses
 /// `catk` into (0x41bd1e), which is the same address the ranking screen parses it into (0x42f4f7)
 /// and the same one the write copies it out of (0x42b9ed).
@@ -849,14 +851,24 @@ const MENU_SHOT_TYPE_GRACE_FRAMES: i32 = 0x1e;
 /// either.
 const MENU_GRACE_LOOKAHEAD: i32 = 1;
 
-/// `th06::ResultScreenState`: the screen that asks whether to save a replay, and the state that
-/// leaves for the title menu without any of that.
+/// `th06::ResultScreenState`: the state a run somebody played arrives on, the screen that asks whether
+/// to save a replay, and the state that leaves for the title menu without any of that.
+///
+/// `RESULT_STATE_WRITING_HIGHSCORE_NAME` is where a run's own end begins:
+/// `ResultScreen::RegisterChain` at 0x42d773 writes it for every run but a practice one, which gets
+/// `RESULT_STATE_EXIT` instead. orb has nothing to do with it and must leave it standing — it is the
+/// screen a name is typed into, and the stats screen follows it before the question below is reached.
 ///
 /// `RESULT_STATE_EXIT` is the game's own way out — it is what a practice run's result screen is
 /// registered in, and its `OnUpdate` case sets the supervisor back to the title menu and takes
 /// the job out. So the score file is still written on the way, by `DeletedCallback`.
+const RESULT_STATE_WRITING_HIGHSCORE_NAME: i32 = 9;
 const RESULT_STATE_SAVE_REPLAY_QUESTION: i32 = 10;
 const RESULT_STATE_EXIT: i32 = 17;
+/// And what `new ResultScreen()`'s memset leaves, which is therefore where the ranking the *Score* item
+/// asks for starts: `RegisterChain(NULL)` writes no state at all.
+#[cfg(any(test, feature = "sim"))]
+const RESULT_STATE_INIT: i32 = 0;
 
 /// `th06::PlayerState`.
 const PLAYER_NORMAL: i8 = 0;
@@ -1797,15 +1809,22 @@ impl Game for Th06 {
     }
 
     unsafe fn leave_ranking(&self) {
-        let screen = RESULT_SCREEN.load(Ordering::Relaxed);
-        if screen != 0 {
+        // Only a ranking that is up, which is what [`Th06::showing_ranking`] answers. `ResultScreen` is one
+        // class reached two ways — the *Score* item's ranking and a run's own end — so the field this writes
+        // is the same field a finished run's name entry is standing in, and the address is whichever screen
+        // was built last. Written unconditionally it sent that screen away on the frame it came up: a name
+        // entry and a stats screen nobody saw, and, where a ranking was asked for over an ending, a write
+        // into a screen already freed. This call also undoes the request below, which is why it is reached
+        // at all where no ranking came up.
+        if unsafe { self.showing_ranking() } {
+            let screen = RESULT_SCREEN.load(Ordering::Relaxed);
             unsafe { mem::write::<i32>(screen + RANKING_STATE, RESULT_SCREEN_STATE_EXITING) };
         }
         // The front end's own state back as it was, before it is the thing acting on orb's request.
         // The item list rather than whatever was found there: after somebody has looked at the
         // ranking themselves the field still holds that item, and putting *that* back is the front end
         // acting on it again — a give-up that landed on the score screen instead of the title, and a
-        // trip that therefore never wrote.
+        // record that therefore never got written.
         if MENU_STATE_BEFORE.swap(0, Ordering::Relaxed) != 0 {
             unsafe { mem::write::<i32>(G_MAIN_MENU + main_menu::GAME_STATE, MENU_STATE_TITLE) };
         }

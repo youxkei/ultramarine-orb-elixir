@@ -298,11 +298,11 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         game.press_until(keys::Z, "the run given up", || {
             log.said("retry: the run is given up")
         });
-        // What a run counted about spell cards is written on the way out, which orb reaches by taking the
-        // game through the screen that ranking is shown on, with nothing drawn: that is the one place the
-        // game writes the records its score file holds.
-        game.frames_until("the trip through the ranking", 30, || {
-            log.said("score: taken through the ranking")
+        // What a run counted about spell cards is written on the way out, which orb reaches by having the
+        // game build the screen that ranking is shown on and take it down again, with nothing drawn: that is
+        // the one place the game writes the records its score file holds.
+        game.frames_until("the ranking built and taken down", 30, || {
+            log.said("score: the ranking built and taken down")
         });
         // **The number the 完全無欠 ranking shows against that card.** The screen's own read is what fills
         // this record — and orb empties it first, so that a ranking read defines the history rather than
@@ -384,13 +384,13 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             "the count is not across the row from the card",
         );
         // And the row is the record, not a number of the screen's own: nothing says 1, which is what the
-        // card would show if the retry had not been counted or if the trip through the ranking had lost it.
+        // card would show if the retry had not been counted or if the write on the way out had lost it.
         assert!(
             game.says("1").is_empty(),
             "the ranking shows a count nothing in this run reached",
         );
 
-        // Back to the title, and the cursor back where the trip through the ranking left it.
+        // Back to the title, and the cursor back where the ranking orb asked for left it.
         game.press(keys::X);
         game.frames_until("the title menu again", 30, || {
             game.image().scene() == Scene::FrontEnd

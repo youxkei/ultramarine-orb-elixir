@@ -94,11 +94,11 @@ const CHAIN_EXIT_ERROR: i32 = -1;
 /// pause under a second rather than a game that never comes back.
 const ENDING_SKIP_LIMIT: u32 = 60 * 60 * 15;
 
-/// A stop on the trip through the ranking that writes what a run counted about spell cards: room for
-/// the front end's wait on the item and the screen building itself, in updates run inside one frame
-/// with nothing drawn.
+/// A stop on building the ranking and taking it down, which is what writes what a run counted about
+/// spell cards: room for the front end's wait on the item and the screen building itself, in updates
+/// run inside one frame with nothing drawn.
 ///
-/// **Inside one frame on purpose, and the frame is long enough to feel.** Spreading the trip over
+/// **Inside one frame on purpose, and the frame is long enough to feel.** Spreading those updates over
 /// frames is spreading something that would then be *drawn*, which is the ranking screen appearing for
 /// a second on the way out of a run — the thing this shape was arrived at to stop. So the cost is a
 /// pause where a run is given up, and the alternative is a second of a screen nobody asked for.
@@ -824,8 +824,8 @@ fn choose(runtime: &mut Runtime, mode: Mode) {
     log!("mode: {mode}, was {was}");
 }
 
-/// Takes the game through the screen a ranking is shown on, with nothing drawn, that being the one
-/// place it writes the records its score file holds.
+/// Has the game build the screen a ranking is shown on and take it down again, with nothing drawn, that
+/// being the one place it writes the records its score file holds.
 ///
 /// A run given up writes nothing, so what it counted about spell cards would go with the process. The
 /// screen is asked for the way the front end's item asks, the updates that brings run inside this one
@@ -881,7 +881,7 @@ unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut
     }
     unsafe { runtime.game.restore_menu_cursor() };
     log!(
-        "score: taken through the ranking in {frames} update(s) — {}",
+        "score: the ranking built and taken down in {frames} update(s) — {}",
         unsafe { runtime.game.ranking_state() }
     );
 }
@@ -1702,13 +1702,27 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             .is_some_and(|previous| !previous.demo && !previous.replay)
         {
             runtime.given_up = true;
-            log!("score: a run ended; what it counted waits for the trip through the ranking");
+            log!(
+                "score: a run ended; what it counted waits for the ranking to be built and taken down"
+            );
         }
     }
+    // Unless the run finished, where the screen it finished at is what writes: `ResultScreen`'s deleted
+    // callback is the one caller of the write in the whole exe, and a run that reached that screen is
+    // already on its way through it. So there is nothing to build a ranking for, and building one there
+    // is not harmless either — the front end it is asked of is not up, so the updates would all be spent
+    // on the result screen and the request then undone, which used to be a write into the name entry
+    // somebody was standing at.
+    if runtime.given_up && unsafe { runtime.game.run_finished() } {
+        runtime.given_up = false;
+        log!("score: the run finished, and the screen it finished at is what writes");
+    }
     // The first frame after a run was given up on which the game has arrived somewhere: asking for a
-    // screen while a change was in flight is what broke the front end twice.
-    // The first frame after a run was given up on which the game has arrived somewhere.
-    if runtime.given_up && !state.in_run && state.scene == state.wanted {
+    // screen while a change was in flight is what broke the front end twice. Not while an ending is
+    // running, which is a cleared run's own way to that screen: the roll is played out an update a frame,
+    // and a ranking asked for over one is asked of a front end that cannot come up, so the whole
+    // allowance went on frames of the roll — see `the_ending.rs`.
+    if runtime.given_up && !state.in_run && !state.in_ending && state.scene == state.wanted {
         runtime.given_up = false;
         unsafe { commit_records(runtime, chain, &mut result) };
         state = unsafe { runtime.game.read_state() };
@@ -1840,8 +1854,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
     }
 
-    // Every frame while nothing is being played, not only where the scene changed: what a trip through
-    // the game's own ranking has to fit into is the frames *inside* a transition, and a line per
+    // Every frame while nothing is being played, not only where the scene changed: what building the
+    // game's own ranking has to fit into is the frames *inside* a transition, and a line per
     // change showed neither how many there are nor what the two fields do across them.
     if !state.in_run {
         detail!("state: cur={} wanted={}", state.scene, state.wanted);

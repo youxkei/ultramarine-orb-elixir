@@ -164,7 +164,8 @@ fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
     });
 }
 
-/// The roll plays on its own afterwards, at the rate everything else is paced at.
+/// The roll plays on its own afterwards, at the rate everything else is paced at, with nothing of orb's
+/// taken out of it.
 ///
 /// Measured over the same clear: **7,286 drawn frames**, held to the cadence with `0 shown late` and the
 /// audio never behind, and the scene after it was 7, the result screen.
@@ -174,14 +175,16 @@ fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
 /// through both. The rate is what the loop paces every other frame at. The audio half is the real run's:
 /// a laid-out game streams no sound.
 ///
-/// **Its updates and the frames it was drawn in are not the same count**, which is why the length is read
-/// off the roll and the rate off the frames. The run ended when the ending began, and what a run that
-/// ended waits for is the trip through the ranking — a trip that finds no front end up spends its whole
-/// allowance of updates saying so, `score: the ranking was not built after 240 update(s)`, and every one
-/// of those is an update of the roll inside a single frame. Whether that is part of what left the real
-/// roll **544 frames short** of its 7,830 is not settled here or anywhere — see
-/// `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` below, which carries that number
-/// and the 62 frames beside it.
+/// **240 of those frames used to go on a ranking that could not come up.** The run ended when the ending
+/// began, and what a run that ended waits for is the ranking to be built and taken down; asked for where no
+/// front end is up, that spends its whole allowance of updates saying so — `score: the ranking was not built
+/// after 240 update(s)` — and every one of those was an update of the roll inside a single frame. None is
+/// asked for over an ending any more, a cleared run's own way to the result screen running through one and
+/// that screen being what writes for it, so the roll now plays every frame of its own script. Whether those
+/// 240 were part of what left the real roll **544 frames short** of its 7,830 is not settled here or
+/// anywhere; the rest of that gap is
+/// `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` below, which carries the number and
+/// the 62 frames beside it.
 #[test]
 fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
     in_its_own_process(|| {
@@ -190,12 +193,12 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
             |game| game.lays_out_an_ending(ENDING_UPDATES, ROLL_FRAMES),
             RAN_OUT,
         );
-        // Some of the roll is already behind: the run ended when the ending began, and the trip through the
-        // ranking it waits for spends its whole allowance of updates on a frame with no front end up to
-        // build one. Named rather than left to arithmetic, because it is what the counts below differ by.
+        // None of the roll is behind: the run ended when the ending began, and the ranking it waits for is
+        // one no ending is interrupted for. Named rather than left to the count below, because that count is
+        // what updates spent here would have taken from.
         assert!(
-            game.log().said("score: the ranking was not built after"),
-            "the trip through the ranking did not happen where the run ended:\n  {}",
+            !game.log().said("score: the ranking was not built after"),
+            "a ranking was asked for over the roll:\n  {}",
             game.log().lines().join("\n  ")
         );
 
@@ -223,10 +226,10 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
         // orb itself reported shown late as the other half of the reading.
         let handovers = game.handovers_us();
         let rolled = &handovers[handovers_before..];
-        assert!(
-            rolled.len() > ROLL_FRAMES as usize / 2,
-            "the roll was drawn in {} frame(s), which is not a roll that played",
+        assert_eq!(
             rolled.len(),
+            ROLL_FRAMES as usize,
+            "the roll was drawn in a count of frames that is not its own script's",
         );
         let spent = rolled.last().expect("a frame of the roll") - rolled[0];
         let apart = spent / (rolled.len() - 1) as i64;

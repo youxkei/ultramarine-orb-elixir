@@ -415,8 +415,8 @@ impl Game for Th07 {
 
     unsafe fn restore_menu_cursor(&self) {}
 
-    /// Said rather than numbered, there being no numbers: the line exists so that a trip through the
-    /// ranking can be read afterwards, and no trip is taken here.
+    /// Said rather than numbered, there being no numbers: the line exists so that a ranking built and
+    /// taken down can be read afterwards, and none is built here.
     unsafe fn ranking_state(&self) -> String {
         "nothing of 妖々夢's ranking screen has been measured".to_owned()
     }

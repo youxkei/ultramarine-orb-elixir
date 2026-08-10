@@ -100,6 +100,8 @@ mod the_run_read_back;
 #[cfg(test)]
 mod the_score_file;
 #[cfg(test)]
+mod the_screen_a_finished_run_ends_at;
+#[cfg(test)]
 mod the_snapshot_held_against_itself;
 #[cfg(test)]
 mod the_window;

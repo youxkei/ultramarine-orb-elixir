@@ -442,18 +442,26 @@ const INK: u32 = 0xffff_ffff;
 /// at 0x46bcdc, five full-width question marks, pushed at 0x42e270.
 pub const NOT_TRIED: &str = "？？？？？";
 
-/// How long the result screen a run ends into stands before it leaves for the title.
+/// How long the high-score name entry a finished run arrives on stands before it is answered.
 ///
-/// Not at once, because the real one is a screen somebody reads — it stood for a long stretch between the
-/// two scene lines of a cleared run — and orb's trip through the ranking has to fit inside the frames one
-/// takes: what that budget is measured against is `COMMIT_FRAME_LIMIT`. Past
-/// [`REPLAY_QUESTION_DRAWN_AT`], so that a screen left to itself really would draw the question orb writes
-/// past.
-const RESULT_FRAMES: i32 = 120;
+/// Not at once, because the real one is a screen somebody types eight characters into — it stood for a long
+/// stretch between the two scene lines of a cleared run, with the stats screen after it.
+///
+/// **Past the 240 updates `runtime`'s `COMMIT_FRAME_LIMIT` allows a ranking to be built in**, which is the
+/// property that matters rather than the number: the real screen never advances on its own at all, so a
+/// game whose screen walked itself out inside that allowance would answer for orb what a player answers —
+/// and a ranking asked for where this screen is up would come out looking like one that came up.
+const NAME_ENTRY_FRAMES: i32 = 300;
 
-/// And how many frames into that screen the question about saving a replay begins to be drawn, which is
-/// 紅魔郷's own **60**: orb writes the state past the question before the frame timer reaches that, so no
-/// part of that screen is ever drawn. See `Th06::skip_replay_prompt`.
+/// And how long the question about saving a replay stands after it, where nothing writes past it.
+///
+/// Past [`REPLAY_QUESTION_DRAWN_AT`], so that a screen left to itself really would draw the question orb
+/// writes past — which is what the half of that measurement taken on a launch orb asks nothing of needs.
+const REPLAY_QUESTION_FRAMES: i32 = 90;
+
+/// And how many frames into that state the question begins to be drawn, which is 紅魔郷's own **60**: orb
+/// writes the state past the question before the frame timer reaches that, so no part of that screen is
+/// ever drawn. See `Th06::skip_replay_prompt`.
 const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 
 /// How far the player moves in a frame, which is this game's own.
@@ -577,6 +585,9 @@ pub struct Fake {
     /// Whether a stage asked for is one that never arrives — see
     /// [`never_builds_the_stage_it_is_asked_for`](Fake::never_builds_the_stage_it_is_asked_for).
     never_builds: Cell<bool>,
+    /// And whether its front end sits on a ranking it was asked for — see
+    /// [`never_builds_the_ranking_it_is_asked_for`](Fake::never_builds_the_ranking_it_is_asked_for).
+    never_builds_the_ranking: Cell<bool>,
     /// Whether this game's controller has been lost — see
     /// [`its_controller_poll_fails`](Fake::its_controller_poll_fails) — and how many times orb has had it
     /// acquired again.
@@ -954,6 +965,7 @@ impl Fake {
             plays_songs: Cell::new(false),
             fights_boss_out: Cell::new(false),
             never_builds: Cell::new(false),
+            never_builds_the_ranking: Cell::new(false),
             controller_poll_fails: Cell::new(false),
             controller_acquires: Cell::new(0),
             comes_up_as: Cell::new(None),
@@ -1306,6 +1318,17 @@ impl Fake {
     /// `runtime::RESUME_START_FRAMES`, which is ten seconds of frames.
     pub fn never_builds_the_stage_it_is_asked_for(&self) {
         self.never_builds.set(true);
+    }
+
+    /// And have its front end sit on the ranking it is asked for: the item is written into
+    /// `MainMenu.gameState`, and the screen behind it never comes up.
+    ///
+    /// Which is what a ranking orb asked for looks like when it does not come up, and the bound orb puts on
+    /// waiting is `runtime::COMMIT_FRAME_LIMIT` — 240 updates inside the one frame it asks in. What that
+    /// path has to do with a game that answers slowly rather than not at all is the same thing: undo the
+    /// request, write nothing, and touch no screen.
+    pub fn never_builds_the_ranking_it_is_asked_for(&self) {
+        self.never_builds_the_ranking.set(true);
     }
 
     /// Has its stage stream a track through a sound of the host's, with the sound now audible beginning
@@ -1884,8 +1907,16 @@ impl Fake {
                 // in, at priority 2.
                 self.image.cuts_the_gameplay_scene();
                 self.image.registers_the_front_end();
+                // On its own first screen, which is what "from nothing" is: the memset inside
+                // `MainMenu::RegisterChain` takes `gameState` with it, and the menu walks up to its title
+                // from there. So whichever of its screens a run was started from is not the one it comes
+                // back to.
                 let front = self.image.front_end_now();
-                self.image.front_end(FrontEnd { frames: 0, ..front });
+                self.image.front_end(FrontEnd {
+                    screen: Screen::Title,
+                    frames: 0,
+                    ..front
+                });
                 // Whatever run was on screen is over, the attract demo among them: the flag that tells one
                 // apart from a played run belongs to the run and not to the front end.
                 self.image.demo_mode(false);
@@ -1930,18 +1961,28 @@ impl Fake {
             // Not the ending, which this game enters in one act rather than asking for it and building it
             // a frame later — see [`enters_the_ending`](Fake::enters_the_ending).
             Scene::Ending => {}
-            // `ResultScreen::RegisterChain`: the screen's own job in the chain, and its frame timer at
-            // nothing. It comes up on the question about saving a replay, which is what the screen does
-            // with a run that finished — and the state orb writes over for a run that has chapters.
+            // `ResultScreen::RegisterChain(this)`: the screen's own job in the chain, and its frame timer
+            // at nothing. It comes up on the high-score name entry, which is the state that call writes
+            // for every run but a practice one — a practice run's goes straight to the way out.
             Scene::Result => {
                 self.image.cuts_the_gameplay_scene();
                 let front = self.image.front_end_now();
                 self.image.front_end(FrontEnd { frames: 0, ..front });
                 self.image
-                    .registers_the_result_screen(result_state::SAVE_REPLAY_QUESTION);
+                    .registers_the_result_screen(if self.run.practice {
+                        result_state::EXIT
+                    } else {
+                        result_state::WRITING_HIGHSCORE_NAME
+                    });
+                // `ResultScreen::AddedCallback`, the same function the ranking's build runs: one screen,
+                // one added callback, and orb's hook over it therefore runs at a finished run's end too.
+                unsafe {
+                    orb_core::runtime::ranking_read(self.image.result_screen() as *mut c_void)
+                };
                 self.image.cuts_gui_from_the_draw_chain();
             }
-            // `Ranking::AddedCallback`, whose read of the score file fills the record of captures.
+            // The same screen the *Score* item asks for, and the same `ResultScreen::AddedCallback` with
+            // it — whose read of the score file fills the record of captures.
             Scene::Ranking => {
                 // The front end's job out and the screen's own in, which is the same element and the same
                 // callback a finished run's result screen registers: `ResultScreen::RegisterChain(NULL)`,
@@ -1949,7 +1990,7 @@ impl Fake {
                 self.image.cuts_the_front_end();
                 self.image.registers_the_ranking();
                 unsafe {
-                    orb_core::runtime::ranking_read(self.image.ranking_screen() as *mut c_void)
+                    orb_core::runtime::ranking_read(self.image.result_screen() as *mut c_void)
                 };
                 self.image.cuts_gui_from_the_draw_chain();
             }
@@ -2035,6 +2076,10 @@ impl Fake {
                 },
                 None,
             ),
+            // A ranking asked for that never comes up, where an e2e test said so — see
+            // [`never_builds_the_ranking_it_is_asked_for`](Fake::never_builds_the_ranking_it_is_asked_for).
+            // The item is in the front end's own state and no scene is asked for.
+            Screen::Ranking if self.never_builds_the_ranking.get() => (front, None),
             // The ranking asked for, which orb does on the way out of a run so that what the run
             // counted is written. Its own scene, which the front end asks for the same way.
             Screen::Ranking => (front, Some(Scene::Ranking)),
@@ -2424,38 +2469,65 @@ impl Fake {
         });
     }
 
-    /// The result screen, which walks itself out and leaves for the title.
+    /// The result screen a run's own end arrives on, which walks its states out and leaves for the title.
     ///
-    /// `RESULT_FRAMES` rather than at once because the real one is a screen somebody reads, and orb's
-    /// trip through the ranking has to fit inside the frames one takes: what that budget is measured
-    /// against is `COMMIT_FRAME_LIMIT`.
+    /// **The name entry and the screen a replay is saved from are states of this one screen and not scenes
+    /// of their own**, which is what makes the difference between them orb's to make: the name entry is a
+    /// screen somebody types into and orb has nothing to say to it, and the question is one a pointdevice
+    /// run cannot answer, which orb writes the state past rather than answering — answering means playing
+    /// out a fade. So what "no replay is offered" is, is that write; what says the question was never put
+    /// to anybody is that no frame of it was ever drawn; and what says the name entry was left alone is
+    /// that the screen is still standing in that state.
     ///
-    /// **The screen a replay is saved from is a state of this one and not a scene of its own.** So what
-    /// "no replay is offered" is, is this screen's state having been written past the question — orb does
-    /// that rather than answering the question, because answering it means playing out a fade — and what
-    /// says the question was never put to anybody is that no frame of it was ever drawn.
+    /// The frames each state stands for are this game's own, the real ones standing until they are
+    /// answered. The stats screen between the two is not laid out at all — orb does nothing at that one
+    /// either, and what these e2e tests are about is the screens it decides between.
     fn result(&self) -> i32 {
         let front = self.image.front_end_now();
-        self.image.front_end(FrontEnd {
-            frames: front.frames + 1,
-            ..front
-        });
-        // The question about saving a replay, drawn from the frame its own animation starts on. Where the
-        // state has been written past it there is nothing to draw, which is the whole of what orb writing
-        // that state buys.
-        if self.image.result_screen_state() == result_state::SAVE_REPLAY_QUESTION
-            && front.frames >= REPLAY_QUESTION_DRAWN_AT
-        {
-            self.replay_question_drawn.set(true);
-        }
-        if front.frames >= RESULT_FRAMES {
-            self.image.cuts_the_result_screen();
-            self.image.supervising(Supervising {
-                running: Scene::FrontEnd,
-                wanted: Scene::Result,
-            });
+        let frames = front.frames + 1;
+        self.image.front_end(FrontEnd { frames, ..front });
+        // The frame timer back to nothing with the state, which every one of the game's own transitions
+        // does: each state waits out a count of its own.
+        let moves_on = |state: i32| {
+            self.image.set_result_screen_state(state);
+            self.image.front_end(FrontEnd { frames: 0, ..front });
+        };
+        match self.image.result_screen_state() {
+            // Either way out. `EXIT` is the game's own case for it — the scene put back and the job taken
+            // out — and `EXITING` is where its own menus go to play the fade that ends in the same thing.
+            result_state::EXIT | result_state::EXITING => self.leaves_the_result_screen(),
+            result_state::WRITING_HIGHSCORE_NAME if frames >= NAME_ENTRY_FRAMES => {
+                moves_on(result_state::SAVE_REPLAY_QUESTION);
+            }
+            result_state::SAVE_REPLAY_QUESTION => {
+                // Drawn from the frame its own animation starts on. Where the state has been written past
+                // it there is nothing to draw.
+                if frames >= REPLAY_QUESTION_DRAWN_AT {
+                    self.replay_question_drawn.set(true);
+                }
+                if frames >= REPLAY_QUESTION_FRAMES {
+                    moves_on(result_state::EXITING);
+                }
+            }
+            _ => {}
         }
         chain_result::CONTINUES
+    }
+
+    /// That screen going down: the score file written by its deleted callback, its job out of the chain,
+    /// and the scene put back — `ResultScreen.cpp:1527-1535`, which is how it leaves.
+    ///
+    /// The write is the whole reason orb has this screen's other half built for a run given up: what the
+    /// run counted is in memory and nowhere else until this happens. Written whether a score was entered
+    /// or the screen was only read, as the deleted callback writes it — 0x42f5cd, the one caller of the
+    /// write in the whole exe.
+    fn leaves_the_result_screen(&self) {
+        self.writes_the_score_file();
+        self.image.cuts_the_result_screen();
+        self.image.supervising(Supervising {
+            running: Scene::FrontEnd,
+            wanted: Scene::Result,
+        });
     }
 
     fn advance_the_attack(&self) {
@@ -2468,15 +2540,21 @@ impl Fake {
         }
     }
 
-    /// The ranking screen: it leaves when it is told to, or when somebody presses back, and putting
-    /// the scene and the front end's own state back is its own doing. Going down is what writes the
-    /// file.
+    /// The ranking screen: it comes up out of the state its build left, it leaves when it is told to or
+    /// when somebody presses back, and putting the scene and the front end's own state back is its own
+    /// doing. Going down is what writes the file.
     fn ranking(&self) -> i32 {
-        if !self.image.ranking_screen_leaving() && !self.pressed(Th06.menu_cancel()) {
+        // `OnUpdate`'s `INIT` case, which is the screen showing what it read: the state `RegisterChain(NULL)`
+        // left is nothing, and this is the first one orb reads as a ranking that is up.
+        if self.image.result_screen_state() == result_state::INIT {
+            self.image.shows_the_ranking();
             return chain_result::CONTINUES;
         }
-        // Going down is what writes the file, which is the whole reason orb walks a run through this
-        // screen: what the run counted is in memory and nowhere else until this happens. Written whether a
+        if !self.image.result_screen_leaving() && !self.pressed(Th06.menu_cancel()) {
+            return chain_result::CONTINUES;
+        }
+        // Going down is what writes the file, which is the whole reason orb has this screen built for a
+        // run: what the run counted is in memory and nowhere else until this happens. Written whether a
         // score was entered into the ranking or the ranking was only looked at, as the deleted callback
         // writes it — 0x42f5cd, the one caller of the write in the whole exe.
         self.writes_the_score_file();
@@ -3361,14 +3439,24 @@ extern "C" fn unlocks_read(_menu: *mut c_void) -> i32 {
     0
 }
 
-/// `Ranking::AddedCallback`: the screen built, with the records it shows read out of the score file.
+/// `ResultScreen::AddedCallback`: the screen built, with the score file opened and read.
 ///
 /// orb gets in front of this to empty what is in memory first, so that a ranking read defines the
 /// history rather than adding to it — see `Game::forget_captures`.
+///
+/// **One callback for the two screens the class is**, which is why the state decides what the read is
+/// parsed into: `ParseCatk`, `ParseClrd` and `ParsePscr` sit inside `resultScreenState !=
+/// WRITING_HIGHSCORE_NAME && != EXIT` (compared at 0x42f4e5 and 0x42f4f1, jumped over at 0x42f4f7), so a
+/// finished run's own record is what stands in memory when that screen goes down and writes. The open
+/// happens either way, which is what a run's end shows in the log as a read of the mode's file.
 extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
     let fake = running();
-    fake.reads_the_score_file();
-    fake.image.ranking_screen_shown();
+    match fake.image.result_screen_state() {
+        result_state::WRITING_HIGHSCORE_NAME | result_state::EXIT => {
+            fake.opens_the_score_file(false);
+        }
+        _ => fake.reads_the_score_file(),
+    }
     0
 }
 

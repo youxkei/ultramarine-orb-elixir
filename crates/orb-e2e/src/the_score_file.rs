@@ -224,11 +224,11 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
     in_its_own_process(|| {
         let game = launched("the-score-file-both-modes");
 
-        // The trip each answer makes, read as its own two opens: the screen's read on the way up and its
-        // write on the way down. The front end's own read when the menu is rebuilt afterwards is the game's
-        // file either way and is not part of this — see the e2e test above, which is what says so — so the
-        // opens are forgotten between the two halves of each trip.
-        let trip = |mode: Mode| {
+        // The screen each answer opens, read as its own two opens of the file: the screen's read as it is
+        // built and its write as it goes down. The front end's own read when the menu is rebuilt afterwards
+        // is the game's file either way and is not part of this — see the e2e test above, which is what says
+        // so — so the opens are forgotten between the two halves of each answer.
+        let opens_of = |mode: Mode| {
             game.forget_score_file_opens();
             asks_for_the_ranking(&game, mode);
             let (reads, _) = reads_and_writes(&game.score_file_opens());
@@ -238,7 +238,7 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
             (reads, writes)
         };
 
-        let (reads, writes) = trip(Mode::Pointdevice);
+        let (reads, writes) = opens_of(Mode::Pointdevice);
         assert_eq!(reads, vec![OURS.to_owned()]);
         assert_eq!(
             writes,
@@ -248,7 +248,7 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
 
         // And the game's own ranking next, in the same launch: the mode the first answer left behind is not
         // where the second one lands, because every item that opens the file asks first.
-        let (reads, writes) = trip(Mode::Normal);
+        let (reads, writes) = opens_of(Mode::Normal);
         assert!(
             game.log().said("mode: normal, was pointdevice"),
             "the second answer did not change the mode:\n  {}",
@@ -416,10 +416,10 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
 
 /// What a session counted about spell cards survives a run that ended anywhere but the result screen.
 ///
-/// Watched in play. A run ended elsewhere is taken through the game's own ranking, which is
-/// where it writes: `score: a run ended; what it counted waits for the trip through the ranking`, then
-/// `score.dat opened as the game's own, write`, and `score: taken through the
-/// ranking in 84 update(s) — cur=1 wanted=1`. The same shape with `pointdevice_score.dat` for a
+/// Watched in play. For a run ended elsewhere the game's own ranking is built and taken down, which is
+/// where it writes: `score: a run ended; what it counted waits for the ranking to be built and taken
+/// down`, then `score.dat opened as the game's own, write`, and `score: the ranking built and taken down
+/// in 84 update(s) — cur=1 wanted=1`. The same shape with `pointdevice_score.dat` for a
 /// pointdevice run. Both modes, and both ways out of a run — orb's retry menu and the game's own `ESC`.
 /// The counts read off the game's own screen afterwards were up: the attempt count against the card a
 /// chapter was retried at, and the capture count for a card taken in a legacy run stopped partway.
@@ -427,16 +427,17 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
 /// **Four attempts at this before it worked**, and the shape of each mistake is why the walk is what it
 /// is: writing `curState` — the game's *result* — instead of asking the way the game asks left the front
 /// end white twice and doubled once; taking `curState == 6` for the ranking being up caught a frame
-/// mid-transition; guarding the trip's loops on `CHAIN_EXIT_SUCCESS`, which is 0 and so also an ordinary
+/// mid-transition; guarding the two loops on `CHAIN_EXIT_SUCCESS`, which is 0 and so also an ordinary
 /// chain answer, ended them after one update; and the front end's cursor was written into the menu object
 /// being discarded rather than the one built on the way back. `ResultScreen.cpp:1527-1535` is how that
 /// screen leaves, `MainMenu.cpp:848` the request being a reservation the front end acts on 60 frames later.
 ///
 /// The three ways out a run has that are not the result screen, each in the mode it can be reached in: two
 /// in 完全無欠モード, where orb's own menu is one of them, and the game's own in レガシーモード, where it is
-/// the only one.
+/// the only one. The fourth way — a run that finished, whose own screen writes for it and which needs no
+/// ranking built at all — is `the_screen_a_finished_run_ends_at.rs`'s.
 #[test]
-fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write() {
+fn a_run_ended_away_from_the_result_screen_has_a_ranking_built_to_write() {
     in_its_own_process(|| {
         // ── タイトルに戻る, the retry menu's third item, which is the way out orb's own menu has. The
         // count it leaves is one only orb can have made: the game counts an attempt where a card
@@ -459,18 +460,18 @@ fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write
             });
             gives_the_run_up_at_orbs_menu(&game);
             wrote_what_the_run_counted(&game, OURS, 2);
-            // And the trip was asked for at the menu rather than by the run's own end: the choice is where
-            // the flag goes in, and the frame it was acted on is one orb has deliberately dropped
+            // And the ranking was asked for at the menu rather than by the run's own end: the choice is
+            // where the flag goes in, and the frame it was acted on is one orb has deliberately dropped
             // everything it knew about — so there is no run of the frame before to notice ending.
             assert!(
-                !game.log().said(WAITS_FOR_THE_TRIP),
+                !game.log().said(WAITS_FOR_THE_RANKING),
                 "a run given up at orb's own menu was noticed ending as well:\n  {}",
                 game.log().lines().join("\n  ")
             );
         }
 
         // ── `esc` and then やめる, which is the game's own way out and the one a run in either mode has.
-        // Here the run's own end is what asks for the trip, orb having nothing to do with the way out.
+        // Here the run's own end is what asks for the ranking, orb having nothing to do with the way out.
         {
             let game = launched("the-score-file-out-through-the-games-own");
             game.in_a_pointdevice_run();
@@ -478,8 +479,8 @@ fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write
             game.gives_the_run_up_at_its_own_pause();
             wrote_what_the_run_counted(&game, OURS, 1);
             assert!(
-                game.log().said(WAITS_FOR_THE_TRIP),
-                "the run's own end is not what asked for the trip:\n  {}",
+                game.log().said(WAITS_FOR_THE_RANKING),
+                "the run's own end is not what asked for the ranking:\n  {}",
                 game.log().lines().join("\n  ")
             );
         }
@@ -495,11 +496,72 @@ fn a_run_ended_away_from_the_result_screen_is_taken_through_the_ranking_to_write
             game.gives_the_run_up_at_its_own_pause();
             wrote_what_the_run_counted(&game, THEIRS, 1);
             assert!(
-                game.log().said(WAITS_FOR_THE_TRIP),
-                "the run's own end is not what asked for the trip:\n  {}",
+                game.log().said(WAITS_FOR_THE_RANKING),
+                "the run's own end is not what asked for the ranking:\n  {}",
                 game.log().lines().join("\n  ")
             );
         }
+    });
+}
+
+/// A ranking that never comes up writes nothing, has its request undone, and leaves the front end where it
+/// was.
+///
+/// The one way that path is reached now: the ranking is asked for at the front end and nowhere else, so a
+/// game that does not build the screen inside the 240 updates it is allowed is what is left of it. Three
+/// things have to be true of it, and each was a defect once —
+///
+/// - **nothing is written**, the record in memory not having been put back;
+/// - **the request is undone**, `MainMenu.gameState` going back to the item list rather than being left
+///   holding the *Score* item: left there it is a reservation the front end acts on 60 frames later, which
+///   is a ranking that comes up by itself, and the next run's end acting on it again;
+/// - **and no screen's state is written**, there being no ranking to send away. That third one is the reason
+///   the write is asked about at all and is the one this cannot read back: the address orb has is whichever
+///   `ResultScreen` was built last and nothing clears it, so the write lands in a screen the game has already
+///   freed, which a laid-out game has no way to tell from one it has not. What it *could* land in until orb
+///   stopped asking for a ranking at a run's own result screen was the name entry somebody was standing at —
+///   see `the_screen_a_finished_run_ends_at.rs`, which is where that half is read back.
+#[test]
+fn a_ranking_that_never_comes_up_writes_nothing_and_has_its_request_undone() {
+    in_its_own_process(|| {
+        let game = launched("the-score-file-a-ranking-that-never-comes-up");
+        game.in_a_pointdevice_run();
+        at_the_cards_chapter(&game);
+        game.never_builds_the_ranking_it_is_asked_for();
+        game.forget_score_file_opens();
+        game.gives_the_run_up_at_its_own_pause();
+        game.frames_until("the ranking given up on", 300, || {
+            game.log().said("score: the ranking was not built after")
+        });
+
+        // Nothing written, and nothing read either: no screen came up to read one.
+        let (reads, writes) = reads_and_writes(&game.score_file_opens());
+        assert!(
+            writes.is_empty(),
+            "a ranking that never came up wrote {writes:?}",
+        );
+        assert_eq!(
+            reads,
+            vec![THEIRS.to_owned()],
+            "the opens after it are not the front end's own read of the game's file coming back",
+        );
+
+        // And the front end is on its own item list, with no ranking coming up by itself behind it: the
+        // request is a reservation, so one left behind is a screen that arrives a second later.
+        game.frames_until("the title menu", 300, || {
+            game.image().front_end_now().screen == Screen::Title
+        });
+        game.frames(120);
+        assert_eq!(
+            game.image().front_end_now().screen,
+            Screen::Title,
+            "a ranking nobody asked for came up after the one orb asked for was given up on",
+        );
+        assert_eq!(
+            game.image().scene(),
+            Scene::FrontEnd,
+            "the scene afterwards is not the front end's own",
+        );
     });
 }
 
@@ -589,11 +651,11 @@ fn only_a_chapter_with_a_spell_card_up_counts_an_attempt() {
         wrote_what_the_run_counted(&game, OURS, 2);
         assert_eq!(
             attempts_in(
-                &game.score_file(OURS).expect("the file the trip wrote"),
+                &game.score_file(OURS).expect("the file the ranking wrote"),
                 UNNAMED_CARD
             ),
             0,
-            "the file the trip wrote counts an attempt at a card nobody fought",
+            "the file the ranking wrote counts an attempt at a card nobody fought",
         );
 
         // ── And the two rows off the screen the session looks at: the card's own name against its count, and
@@ -713,11 +775,11 @@ fn a_run_picked_up_keeps_the_name_its_playback_learned() {
 /// notices: the frame a restore lands on is one it has dropped everything it knew about.
 const A_CHAPTER_TO_SETTLE: u32 = 30;
 
-/// What orb says where a run's own end is what asked for the trip, which is every way out of one but
+/// What orb says where a run's own end is what asked for the ranking, which is every way out of one but
 /// orb's own menu: that one sets the flag at the choice, on a frame whose run orb has already stopped
 /// comparing anything against.
-const WAITS_FOR_THE_TRIP: &str =
-    "score: a run ended; what it counted waits for the trip through the ranking";
+const WAITS_FOR_THE_RANKING: &str =
+    "score: a run ended; what it counted waits for the ranking to be built and taken down";
 
 /// The run played as far as the chapter its boss's spell card is, which is where the game counts an
 /// attempt at that card: a chapter beginning inside one never starts it, so this is the number orb's own
@@ -776,37 +838,37 @@ fn gives_the_run_up_at_orbs_menu(game: &Fake) {
     });
 }
 
-/// The trip through the ranking that follows, and the file it wrote: which name the write landed in, and
+/// The ranking built and taken down after it, and the file that wrote: which name the write landed in, and
 /// the count in it.
 ///
-/// The opens are forgotten first, so what is read back is the trip's own: the reads the run itself made
+/// The opens are forgotten first, so what is read back is that screen's own: the reads the run itself made
 /// are behind it, and the front end's read when the menu comes back is the game's own file either way.
 ///
 /// And the write is what the wait is on, rather than the line orb says on its way out of the screen: a
 /// session with two runs in it says that line twice, and a log asked whether it has *ever* said something is
-/// answered yes by the first of them before the second trip has begun.
+/// answered yes by the first of them before the second screen has been asked for.
 fn wrote_what_the_run_counted(game: &Fake, name: &str, attempts: u16) {
     game.forget_score_file_opens();
-    game.frames_until("the trip through the ranking", 300, || {
+    game.frames_until("the ranking built and taken down", 300, || {
         !reads_and_writes(&game.score_file_opens()).1.is_empty()
     });
     let (_, writes) = reads_and_writes(&game.score_file_opens());
     assert_eq!(
         writes,
         vec![name.to_owned()],
-        "the trip wrote something other than the file this run's mode is in, or wrote it twice",
+        "the write landed somewhere other than the file this run's mode is in, or happened twice",
     );
     // And what is in it: the record as the memory held it when the screen went down, which is this
     // session's count and not the one the file was read with.
-    let written = game.score_file(name).expect("the file the trip wrote");
+    let written = game.score_file(name).expect("the file that screen wrote");
     assert_eq!(
         attempts_in(&written, CARD),
         attempts,
-        "the file the trip wrote holds a count this session did not make",
+        "the file that screen wrote holds a count this session did not make",
     );
     assert_eq!(
         game.image().card_attempts(CARD),
         attempts,
-        "the trip left the record in memory holding something else",
+        "the record in memory was left holding something else",
     );
 }

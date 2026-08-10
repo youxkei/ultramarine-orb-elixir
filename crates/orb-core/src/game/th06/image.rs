@@ -42,19 +42,23 @@ const DATA: Range<usize> = 0x0047_6000..0x006e_79fc;
 /// and one anywhere else reads as the stale pointer left in a block the allocator did not scrub.
 const CODE: Range<usize> = 0x0040_1000..0x0040_2000;
 
-/// Two of the blocks the game takes from its allocator: the boss of the fight on now, and the screen
-/// a ranking is shown on. Both are reached only through a pointer the game keeps in [`DATA`], which
-/// is what makes "no boss" the enemy manager holding none rather than the memory going away.
+/// One of the blocks the game takes from its allocator: the boss of the fight on now, reached only
+/// through a pointer the game keeps in [`DATA`], which is what makes "no boss" the enemy manager
+/// holding none rather than the memory going away.
 ///
-/// Outside `DATA` because that is where they are in the real game, and a snapshot of a laid-out game
+/// Outside `DATA` because that is where it is in the real game, and a snapshot of a laid-out game
 /// should have the same work to do as one of a running game: `game_regions` finds these for itself
 /// and copies them beside the static data, rather than getting them for free as fields of a global.
 const BOSS: Range<usize> = 0x0300_0000..0x0300_1000;
-const RANKING_SCREEN: Range<usize> = 0x0300_1000..0x0300_2000;
 /// And the screen a run's result is shown on, which is reached the hardest of the three ways: through
 /// the chain element it registered, by the callback that element holds. There is nothing in [`DATA`]
 /// pointing at it at all — `chain_argument` is the whole of how orb finds it — so the element goes in
 /// the chain's calc list with this block hanging off it.
+///
+/// **One block, because in 紅魔郷 it is one screen.** `ResultScreen` is what the *Score* item's ranking
+/// and a run's own end both build, so the state orb writes to send a ranking away is the same field a
+/// finished run's name entry is standing in — see [`result_screen_leaving`](Image::result_screen_leaving).
+/// Two blocks here answered that question for orb instead of asking it.
 const RESULT_SCREEN: Range<usize> = 0x0300_3000..0x0300_4000;
 /// The chain element that screen registers, in a block of its own so that a snapshot has the same walk
 /// to do over it as over a real one.
@@ -513,8 +517,6 @@ impl Image {
         sim.space().map(DATA.start, DATA.len(), Kind::Private);
         sim.space().map(CODE.start, CODE.len(), Kind::Image);
         sim.space().map(BOSS.start, BOSS.len(), Kind::Private);
-        sim.space()
-            .map(RANKING_SCREEN.start, RANKING_SCREEN.len(), Kind::Private);
         sim.space()
             .map(CONTROLLER.start, CONTROLLER.len(), Kind::Private);
         sim.space()
@@ -1611,8 +1613,8 @@ impl Image {
     }
 
     /// The three objects the game's own chain hands to a callback, which is what orb's hooks over
-    /// those callbacks are given: the front end, the game manager, and the screen a ranking is shown
-    /// on.
+    /// those callbacks are given: the front end, the game manager, and the result screen — whose added
+    /// callback is one function for the ranking and for a finished run alike.
     ///
     /// Here rather than as addresses in whatever is driving the game, for the same reason everything
     /// else in this file is: the offsets are th06's, and this is the one place that knows them.
@@ -1624,8 +1626,8 @@ impl Image {
         super::G_GAME_MANAGER
     }
 
-    pub fn ranking_screen(&self) -> usize {
-        RANKING_SCREEN.start
+    pub fn result_screen(&self) -> usize {
+        RESULT_SCREEN.start
     }
 
     /// The window object the game's whole frame is a method on, which is what a frame loop — the
@@ -1655,8 +1657,9 @@ impl Image {
         self.cuts_from_the_chain(RESULT_SCREEN_ELEM.start);
     }
 
-    /// Which of its states that screen is in, and the two orb has anything to do with — the question it
-    /// asks about saving a replay, and the way out it writes in place of answering one.
+    /// Which of its states that screen is in — [`result_state`] names those orb has anything to do with,
+    /// the question it asks about saving a replay and the way out it writes in place of answering one
+    /// among them.
     pub fn result_screen_state(&self) -> i32 {
         self.space()
             .read(RESULT_SCREEN.start + super::result_screen::STATE)
@@ -1702,15 +1705,27 @@ impl Image {
     /// callback a finished run's screen registers, because in 紅魔郷 they are one screen — both the item and
     /// a run's own end go through `SUPERVISOR_STATE_RESULTSCREEN`.
     ///
-    /// The state is left alone, which is the difference: what a ranking being looked at is has nothing to do
-    /// with the question about saving a replay.
+    /// The state it starts in is the difference, and it is the argument that decides it: a null one writes
+    /// no state, so the screen begins in the nothing `new ResultScreen()`'s memset left. What a ranking
+    /// being looked at is has nothing to do with a name being typed or a replay being offered.
     pub fn registers_the_ranking(&self) {
-        self.registers_in_the_calc_chain(
-            RESULT_SCREEN_ELEM.start,
-            CALC_RESULTSCREEN,
-            super::RESULT_SCREEN_ON_UPDATE,
-            RESULT_SCREEN.start,
-        );
+        self.registers_the_result_screen(super::RESULT_STATE_INIT);
+    }
+
+    /// `ResultScreen::OnUpdate`'s `RESULT_SCREEN_STATE_INIT` case walking itself out into the first state
+    /// that shows something, which is the ranking up with the records it read in — and what orb waits for
+    /// before it puts back what this session counted.
+    pub fn shows_the_ranking(&self) {
+        self.set_result_screen_state(RANKING_SHOWN);
+    }
+
+    /// Whether the screen has been told to leave, which is what asks the game to put the scene back.
+    ///
+    /// The ranking's own way out and orb's alike: `leave_ranking` writes this state, and so does the
+    /// screen's own menu. What makes the two worth telling apart is that a finished run's name entry is
+    /// the same object in the same field, and a write made there is a screen nobody was finished with.
+    pub fn result_screen_leaving(&self) -> bool {
+        self.result_screen_state() == super::RESULT_SCREEN_STATE_EXITING
     }
 
     /// `Ending::LoadEndingFile` reading the staff roll's script over the one running, which is every
@@ -1832,20 +1847,6 @@ impl Image {
             super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
             0,
         );
-    }
-
-    /// Says that screen is up with its records read in, which is the state orb waits for before it
-    /// puts back what this session counted.
-    pub fn ranking_screen_shown(&self) {
-        self.space()
-            .write::<i32>(RANKING_SCREEN.start + super::RANKING_STATE, RANKING_SHOWN);
-    }
-
-    /// Whether it has been told to leave, which is what asks the game to put the scene back.
-    pub fn ranking_screen_leaving(&self) -> bool {
-        self.space()
-            .read::<i32>(RANKING_SCREEN.start + super::RANKING_STATE)
-            == super::RESULT_SCREEN_STATE_EXITING
     }
 
     /// Every card the game holds a record of, and the attempts against each — which is what its
@@ -2012,7 +2013,7 @@ fn record_of(stage: i32) -> usize {
 ///
 /// The same 0x40-byte records [`Image::card_attempts`] reads in memory, read out of the bytes a score
 /// file was written from instead: what the file holds is what the memory held when the ranking screen
-/// went down, so this is what says the trip through that screen wrote what a session counted.
+/// went down, so this is what says that screen going down wrote what a session counted.
 pub fn attempts_in(saved: &[u8], card: i32) -> u16 {
     let at = card as usize * 0x40 + super::CATK_ATTEMPTS;
     saved
@@ -2024,13 +2025,17 @@ pub fn attempts_in(saved: &[u8], card: i32) -> u16 {
 /// orb reads as "showing", so a game laid out here and orb cannot disagree about which those are.
 const RANKING_SHOWN: i32 = super::RESULT_SCREEN_SHOWING[0];
 
-/// The two states of the result screen orb has anything to do with, under the names the exe's own
-/// `ResultScreenState` gives them: the question about saving a replay, and the way out the game itself
-/// puts a practice run's result screen into.
+/// The states of the result screen orb has anything to do with, under the names the exe's own
+/// `ResultScreenState` gives them: the name entry a finished run arrives on, the question about saving a
+/// replay, the way out the game itself puts a practice run's result screen into, and the way out its own
+/// menus take.
 ///
 /// Named here rather than left as numbers in whatever drives the game, for the same reason every other
 /// offset is: they are th06's, and this is the one place that knows them.
 pub mod result_state {
+    pub const INIT: i32 = super::super::RESULT_STATE_INIT;
+    pub const EXITING: i32 = super::super::RESULT_SCREEN_STATE_EXITING;
+    pub const WRITING_HIGHSCORE_NAME: i32 = super::super::RESULT_STATE_WRITING_HIGHSCORE_NAME;
     pub const SAVE_REPLAY_QUESTION: i32 = super::super::RESULT_STATE_SAVE_REPLAY_QUESTION;
     pub const EXIT: i32 = super::super::RESULT_STATE_EXIT;
 }
