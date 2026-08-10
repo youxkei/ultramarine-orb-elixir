@@ -22,7 +22,7 @@ members = [
 # `-dev` opened behind it. `.github/workflows/release.yaml` is what holds the tag and this line to the
 # same number, and it refuses a `-dev` version outright — `v*` matches `v0.2.0-dev` as readily as
 # `v0.2.0`, so a tag on any ordinary commit of main would otherwise be built and handed out.
-version = "0.3.0-dev"
+version = "0.3.0"
 edition = "2024"
 publish = false
 
