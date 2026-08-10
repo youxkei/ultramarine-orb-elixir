@@ -11,7 +11,7 @@
 //!
 //! **The rule that no two entries cover the same pages went with the walk**, and that is not tidying:
 //! it is a rule about real pages, a heap region and a reservation being able to name the same ones. A
-//! laid-out game's regions are the objects a scenario put there, and two of those merged because they
+//! laid-out game's regions are the objects an e2e test put there, and two of those merged because they
 //! happen to abut is one range that nothing in that space can read. See
 //! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 
@@ -37,7 +37,7 @@ impl Region {
 /// result treated as a plan rather than a fact: `snapshot` re-checks each range before touching it.
 ///
 /// Asked through the seam rather than from behind a `cfg(test)`, which is where the choice used to be
-/// made: `cfg(test)` is false in a crate compiled as a dependency of a test binary, so the scenario that
+/// made: `cfg(test)` is false in a crate compiled as a dependency of a test binary, so the e2e test that
 /// drives a whole run reached the walk with no heaps tracked — a chapter that copied `.data` and nothing
 /// else. What that lost was the fight's own block: the clock of the attack a chapter began on did not
 /// come back with the chapter.

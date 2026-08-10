@@ -22,7 +22,7 @@
 //! guess.
 
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
-/// crates that drive it — which is where the scenarios live.
+/// crates that drive it — which is where the e2e tests live.
 #[cfg(any(test, feature = "sim"))]
 pub mod image;
 

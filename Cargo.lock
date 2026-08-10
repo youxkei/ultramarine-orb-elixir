@@ -228,6 +228,7 @@ name = "orb-config"
 version = "0.3.0-dev"
 dependencies = [
  "clap",
+ "orb-api",
  "serde",
  "serde_yaml_ng",
 ]

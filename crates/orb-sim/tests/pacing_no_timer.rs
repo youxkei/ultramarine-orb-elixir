@@ -8,7 +8,7 @@
 //! [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md),
 //! decisions 3 to 5.
 //!
-//! Writable at all only because the dialog and the giving up are behind the seam: a scenario that
+//! Writable at all only because the dialog and the giving up are behind the seam: an e2e test that
 //! raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
 //! exited would take the harness's child with it.
 

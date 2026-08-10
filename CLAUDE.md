@@ -40,15 +40,15 @@ unrelated changes, separate commits are better than one long list.
 
 **Each bullet is a summary of its change and not an inventory of it**, in the words the code uses for
 the things it touches: unabbreviated, with no metaphor standing in for a name, no periphrasis where the
-code has a name, and no abstract gesture at an area — *the docs*, *the scenarios*, *the score file*.
+code has a name, and no abstract gesture at an area — *the docs*, *the e2e tests*, *the score file*.
 Name the file or the item the bullet is about, say what it now does, and stop: the identifiers, the
-constants, the addresses, the arguments, the call sites and the scenario names inside that change are
+constants, the addresses, the arguments, the call sites and the e2e test names inside that change are
 the diff's, and a bullet that needs a sub-item per name is too detailed rather than too short.
 
 **Then why the change was made**, concretely: the problem it solves, named and with whatever numbers or
 addresses make it real, and why this way rather than the obvious alternative. Not a list of what
 changed, which the bullets and the diff carry between them, and not a summary abstract enough to fit
-some other change. What a commit's scenarios now cover goes here, unless the scenarios are the whole of
+some other change. What a commit's e2e tests now cover goes here, unless the e2e tests are the whole of
 the diff.
 
 **The read-back is not yours to do.** Having written the message you cannot read it as the reader it is
@@ -94,7 +94,7 @@ rather than tidying afterwards. It is one piece of work and not a permanent docu
 nothing left on it costs whoever finds it a read to learn that.
 
 It is not a plain `rm`, though. Everything in the file that has to survive goes first, and where each thing
-goes is what the rules below already say — the reason a scenario or a check *cannot* be written to a comment
+goes is what the rules below already say — the reason an e2e test or a check *cannot* be written to a comment
 beside the code that would otherwise tempt somebody to write it, the recipe for a measurement to the code
 that implements it, a decision still to be taken to `docs/adr/`. **Not back into the issue**, which is going
 the other way: what is in one belongs in files here, one per piece of work, and moving anything back into it
@@ -123,11 +123,11 @@ that is:**
   reasoning it settled.
 - **It is why a constant is the number it is** — beside that constant, with how it was found, so that
   whoever changes the number reads what it was measured against first.
-- **It confirmed the code works on the real game** — a scenario asserting the same thing, which is then
-  the record. A confirmation written as a scenario is one anybody can repeat on demand, so the scenario
+- **It confirmed the code works on the real game** — an e2e test asserting the same thing, which is then
+  the record. A confirmation written as an e2e test is one anybody can repeat on demand, so the e2e test
   is the work and the write-up comes free.
 - **It is ahead of all three** — the issue for that work, named and carried in it. A measurement still
-  waiting for a constant or a scenario to stand beside belongs there.
+  waiting for a constant or an e2e test to stand beside belongs there.
 
 **A claim beside the thing it is about moves when that thing moves**, which is what the list above is
 for: the measurement goes where the reader of that thing is already standing, and a document collecting

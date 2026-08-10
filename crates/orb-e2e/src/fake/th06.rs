@@ -5,12 +5,12 @@
 //! the run. Its state is the memory laid out by `image`, so `read_state` is how orb learns what the
 //! run is — as in production — and a chapter restored underneath it takes the run back with it,
 //! because there is nothing else for the run to be. Anything kept beside that memory would be a
-//! second source of truth, which is the mistake this replaced: a scenario that told orb what the
+//! second source of truth, which is the mistake this replaced: an e2e test that told orb what the
 //! state was while the memory said something else.
 //!
 //! **Its own loop calls orb's frame loop, as the real game's does.** The `Present` and the sound that
 //! loop makes are addresses the game hands over — see `Game::frame_calls` — so this game hands over two
-//! of its own, and its `present` is where a scenario counts a frame handed over. A launch started
+//! of its own, and its `present` is where an e2e test counts a frame handed over. A launch started
 //! `--no-frame-loop` is the game's own draw-then-update order instead, with orb's update and draw hooks
 //! in the middle of it, which is the other configuration orb ships.
 //!
@@ -19,7 +19,7 @@
 //! game would bring one of its own of.
 //!
 //! Where a number here is 紅魔郷's it says so. Where it is this game's own — how far the player moves,
-//! when its boss arrives — it says that too: what a scenario is about is that the same buttons from
+//! when its boss arrives — it says that too: what an e2e test is about is that the same buttons from
 //! the same seed arrive at the same place, not how fast Reimu is.
 
 use std::cell::{Cell, RefCell};
@@ -90,6 +90,11 @@ mod button {
 /// window of any other class is one orb leaves the size the game asked for.
 const WINDOW_CLASS: &CStr = c"BASE";
 
+/// And a class that is not it, for the other windows a game makes — see
+/// [`creates_another_window`](Fake::creates_another_window). Any name but the one above; what an e2e test
+/// asks of it is that orb left the ask alone.
+const OTHER_WINDOW_CLASS: &CStr = c"th06-notify";
+
 /// The score file 紅魔郷 asks for, which is the only name this game ever passes `CreateFileA`.
 ///
 /// Which file the open *lands* in is orb's answer and not this one's — the whole subject of
@@ -119,7 +124,7 @@ fn cleared() -> Vec<u8> {
 
 /// One open of the score file: the name it landed in, and whether it was for writing.
 ///
-/// Which is the whole of what crosses `CreateFileA` and the whole of what a scenario about that file reads
+/// Which is the whole of what crosses `CreateFileA` and the whole of what an e2e test about that file reads
 /// back. There is no file on any disk — see [`Fake::opens`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Open {
@@ -143,18 +148,18 @@ struct ScoreFile {
 
 /// What the game asks `CreateWindowExA` for, and every one of these is replaced.
 ///
-/// This game's own numbers rather than 紅魔郷's, and deliberately nothing like the answer: what a
-/// scenario asserts is the window that came out, so an ask that already resembled it would be an ask
+/// This game's own numbers rather than 紅魔郷's, and deliberately nothing like the answer: what an
+/// e2e test asserts is the window that came out, so an ask that already resembled it would be an ask
 /// that could not tell a rewrite from a pass-through. The style is a caption and a system menu, which
 /// is a window with a frame — the one thing about the ask that is real, since it is what the game
 /// would have got.
-const ASKED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x1000_0000;
-const ASKED_AT: (i32, i32) = (17, 23);
-const ASKED_SIZE: (i32, i32) = (646, 505);
+pub const ASKED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x1000_0000;
+pub const ASKED_AT: (i32, i32) = (17, 23);
+pub const ASKED_SIZE: (i32, i32) = (646, 505);
 
 /// The two arrow keys orb's own menus do not read, so `orb_sim::keys` does not name them.
 ///
-/// The four it does read come from there, which is what makes a scenario pressing `Z` at one of orb's
+/// The four it does read come from there, which is what makes an e2e test pressing `Z` at one of orb's
 /// questions and this game reading its shot key the same key by construction rather than by two
 /// numbers that happen to agree.
 const LEFT: u8 = 0x25;
@@ -168,7 +173,7 @@ const RIGHT: u8 = 0x27;
 /// writes it offers nothing about the keyboard.
 ///
 /// So this is the game's own map and not a configuration of it, and the six here are the six a run is played
-/// with. What the arrangement buys is that a scenario pressing `Z` at one of orb's questions and this game
+/// with. What the arrangement buys is that an e2e test pressing `Z` at one of orb's questions and this game
 /// reading its shot key are the same key by construction — see [`LEFT`] for the two `orb_sim::keys` does not
 /// name.
 const MAP: [(u8, u16); 6] = [
@@ -215,12 +220,38 @@ pub const ATTACK_CHANGES: u32 = 700;
 /// stage 3 parking on the same wait for its *midboss*.
 pub const STAGE_BOSS_ARRIVES: u32 = 900;
 
+/// And that fight fought out, where an e2e test asked for it — see [`Fake::fights_its_boss_out`]. A card
+/// first, and then the attack after it.
+///
+/// This game's own numbers, each far enough from the last that a chapter is due at it: the shortest a
+/// chapter may be is `chapter.rs`'s `MIN_CHAPTER_FRAMES`, a second.
+pub const STAGE_BOSS_CARD_STARTS: u32 = 1100;
+pub const STAGE_BOSS_ATTACK_CHANGES: u32 = 1300;
+
+/// And the frame that attack is *named* on, which is not the frame it began on.
+///
+/// **Two frames behind, which 紅魔郷 really does**: the boss's own timer resets first and the spellcard is
+/// declared after, and where those fall on different updates the chapter is already there and called a
+/// nonspell. Patchouli's first card and Flandre's last, in stage 7, are the two it was measured on — see
+/// `chapter::Chapters::due`, whose comment carries that measurement and whose answer is that the chapter
+/// takes the name rather than a second chapter starting for it.
+pub const STAGE_BOSS_NAMES_ITS_CARD: u32 = STAGE_BOSS_ATTACK_CHANGES + 2;
+
+/// The two spell card records those attacks are, and what each is called.
+///
+/// Apart from [`CARD`] so that an e2e test reading a count back says which card it counted, the fight the
+/// stage ends with and the midboss's being two fights.
+pub const STAGE_BOSS_CARD: i32 = 4;
+pub const STAGE_BOSS_CARD_NAME: &str = "BOSS CARD";
+pub const STAGE_BOSS_LATE_CARD: i32 = 5;
+pub const STAGE_BOSS_LATE_CARD_NAME: &str = "BOSS CARD NAMED LATE";
+
 /// What rank a run is started at, which is 紅魔郷's own **16**.
 ///
 /// `g_DifficultyInfo` at `src/GameManager.cpp` holds `{rank, minRank, maxRank}` per difficulty and every one
 /// of the five has 16 as its rank — Easy's bounds are `{12, 20}` and Extra's `{14, 18}` where the other three
 /// are `{10, 32}`, so the difficulty decides how far rank can move and not where it starts. One number
-/// therefore covers whichever run a scenario declares.
+/// therefore covers whichever run an e2e test declares.
 ///
 /// Written in the branch `GameManager::AddedCallback` takes only when it is *not* reinitialising — after an
 /// earlier `rank = 8` in the same branch, which nothing between the two reads — so a stage transition carries
@@ -228,7 +259,7 @@ pub const STAGE_BOSS_ARRIVES: u32 = 900;
 /// above the game reads either.
 pub const RANK_AT_A_RUNS_START: i32 = 16;
 
-/// Which of the game's 64 spell card records its boss's card is. Any of them; what a scenario reads
+/// Which of the game's 64 spell card records its boss's card is. Any of them; what an e2e test reads
 /// back is the count of attempts against this one.
 pub const CARD: i32 = 3;
 
@@ -236,7 +267,7 @@ pub const CARD: i32 = 3;
 /// screen draws against the row from then on.
 pub const CARD_NAME: &str = "MIDBOSS CARD";
 
-/// And one no card of this game's is, for a row a scenario reads to say that nothing named it: every
+/// And one no card of this game's is, for a row an e2e test reads to say that nothing named it: every
 /// record carries a name from the moment a run fills the block, and the count is what decides whether the
 /// screen draws it — see `Image::fills_the_card_records`.
 pub const UNNAMED_CARD: i32 = 0;
@@ -249,7 +280,7 @@ pub const STAGES: i32 = 6;
 ///
 /// This game's own number, and far past the frames the title's own opening animation ignores a press for —
 /// `MENU_TITLE_GRACE_FRAMES` — so the two moments a press can be spent on nothing are two moments and not
-/// one. What a scenario is about is that each of them costs a press, not how patient 紅魔郷 is.
+/// one. What an e2e test is about is that each of them costs a press, not how patient 紅魔郷 is.
 pub const DEMO_AFTER: i32 = 90;
 
 /// How long the game lays its panel over the start of a stage, which is 紅魔郷's own: the vm's script
@@ -258,19 +289,19 @@ pub const DEMO_AFTER: i32 = 90;
 /// nothing.
 pub const PANEL_FRAMES: u32 = 250;
 
-/// How long the ending stands before the result screen follows it, where no scenario has laid an ending
+/// How long the ending stands before the result screen follows it, where no e2e test has laid an ending
 /// out.
 ///
 /// This game's own. An ending is a script and a staff roll — see [`Fake::lays_out_an_ending`] — and this
-/// is the scene with nothing in it, which is what every scenario that only has to pass a cleared run
+/// is the scene with nothing in it, which is what every e2e test that only has to pass a cleared run
 /// through the ending wants.
 const ENDING_FRAMES: i32 = 10;
 
-/// What an ending is, as a scenario lays one out.
+/// What an ending is, as an e2e test lays one out.
 ///
 /// Two scripts and two tracks: the ending's own, which runs out and hands over to `@Fdata/staff00.end`,
 /// and the roll's, which plays on afterwards. Both are the game's — see [`Fake::lays_out_an_ending`] for
-/// where the frames come from — and the tracks are this game's own numbers, since what a scenario reads
+/// where the frames come from — and the tracks are this game's own numbers, since what an e2e test reads
 /// of them is that the boundary changed both.
 #[derive(Clone, Copy)]
 struct Ending {
@@ -285,7 +316,7 @@ struct Ending {
 /// The tracks this game plays, as the numbers orb tells one track from another by.
 ///
 /// Two for an ending: `@mbgm/th06_16.mid` is the one an ending plays, and `staff00.end` starts
-/// `bgm/th06_17` for the roll — what a scenario reads off those two is that the script handing over and
+/// `bgm/th06_17` for the roll — what an e2e test reads off those two is that the script handing over and
 /// the track changing happen on the same update. And two for a stage, which is what an STD names: the
 /// stage's own song, which plays through the midstage and the midboss alike, and the boss's, which is the
 /// second one and begins with the fight the stage ends with.
@@ -306,7 +337,7 @@ const STAGE_TRACK: Track = Track {
     loop_start: 44,
     loop_end: 7_900_000,
 };
-/// And one more for a scenario about the stream *itself* rather than about which chapters rewind: the same
+/// And one more for an e2e test about the stream *itself* rather than about which chapters rewind: the same
 /// shape and small enough to hold the sound of in memory, since what is read of it is arithmetic over its
 /// own numbers. See [`streams_its_song`](Fake::streams_its_song).
 const STREAMED_TRACK: Track = Track {
@@ -322,7 +353,7 @@ pub const STREAM_NOTIFY: u32 = 8_192;
 
 /// The sound in that track's file: a byte per offset, and no two offsets alike.
 ///
-/// A wave of zeros would say nothing. What a scenario reads off the buffer has to name *where in the
+/// A wave of zeros would say nothing. What an e2e test reads off the buffer has to name *where in the
 /// file* those bytes were read from, or a restore that put back a buffer full of silence would pass the
 /// same assertion as one that put the music back — so the byte at each offset is that offset's own,
 /// Knuth's multiplicative hash of it, whose period is longer than any file laid out here.
@@ -337,7 +368,7 @@ fn sound_of(length: u32) -> Vec<u8> {
 ///
 /// **Which is exactly what no snapshot of that memory holds** — the buffer is DirectSound's, the cursor
 /// is the mixer's and the position is winmm's — and so exactly what a chapter's restore has to put back
-/// by calling them. One value rather than four reads, so a scenario asks whether the *stream* came back.
+/// by calling them. One value rather than four reads, so an e2e test asks whether the *stream* came back.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Stream {
     pub buffered: Vec<u8>,
@@ -348,7 +379,7 @@ pub struct Stream {
 
 impl std::fmt::Debug for Stream {
     /// The buffer as how much of it and what it adds up to, because a failure naming 32,768 bytes is a
-    /// failure nobody reads: what a scenario is asking is whether these are the same bytes, and a sum
+    /// failure nobody reads: what an e2e test is asking is whether these are the same bytes, and a sum
     /// that differs says they are not.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -392,13 +423,13 @@ const TITLE_MENU: [&str; TITLE_ITEMS as usize] = [
 ];
 
 /// Where this game's title menu puts them. Its own layout, the way the ranking's rows are its own:
-/// what a scenario reads off it is which of the items are there at all.
+/// what an e2e test reads off it is which of the items are there at all.
 const TITLE_TOP: f32 = 152.0;
 const TITLE_LINE: f32 = 20.0;
 const TITLE_LEFT: f32 = 224.0;
 
 /// Where this game's ranking screen puts its rows, and the colour it writes them in. Its own layout:
-/// what a scenario reads off it is which text is at which of these, and the numbers themselves are
+/// what an e2e test reads off it is which text is at which of these, and the numbers themselves are
 /// nothing but somewhere to put them.
 const RANKING_TOP: f32 = 96.0;
 const RANKING_LINE: f32 = 24.0;
@@ -443,12 +474,12 @@ pub const PLAYER_AREA_SIZE: (f32, f32) = (368.0, 416.0);
 ///
 /// `ScreenEffect::RegisterChain(SCREEN_EFFECT_SHAKE, …)` is called from six places in `src/BombData.cpp`
 /// with 16, 60, 80, 120, 60 and 200 frames — one bomb registers two of them at different moments of itself —
-/// so there is no such thing as *the* length of a bomb's shake. This is 80 because 80 is one of them and a
-/// scenario has to wait out whichever it gets; which bomb went off is the player's own code and none of it is
+/// so there is no such thing as *the* length of a bomb's shake. This is 80 because 80 is one of them and an
+/// e2e test has to wait out whichever it gets; which bomb went off is the player's own code and none of it is
 /// here.
 pub const SHAKE_FRAMES: i32 = 80;
 
-/// How far it moves the arcade region, in pixels. This game's own: what a scenario reads of it is that
+/// How far it moves the arcade region, in pixels. This game's own: what an e2e test reads of it is that
 /// the region is not where a stage left it, not how violent a bomb looks.
 const SHAKE_PIXELS: u16 = 8;
 
@@ -477,7 +508,7 @@ pub const PLAYER_STARTS_ABOVE: f32 = 64.0;
 
 /// The run a launch is started for: Normal, Reimu A, from stage one.
 ///
-/// What a scenario that is not about a run declares, a launch having to be started for one: the game
+/// What an e2e test that is not about a run declares, a launch having to be started for one: the game
 /// sits on its title menu and none of this is played.
 pub fn the_run() -> RunStart {
     RunStart {
@@ -501,7 +532,7 @@ pub struct Fake {
     /// The score files this game keeps, by the name each open landed in — see [`ScoreFile`] for the
     /// chunks one holds.
     ///
-    /// A map rather than files on disk: what a scenario reads is which name an open landed in and the
+    /// A map rather than files on disk: what an e2e test reads is which name an open landed in and the
     /// number behind it, and both of those cross `CreateFileA` — the path and the access. Outside the
     /// game's memory, so a chapter restored does not rewind them, which is true of real files too.
     ///
@@ -510,21 +541,21 @@ pub struct Fake {
     files: RefCell<HashMap<String, ScoreFile>>,
     /// Every open of the score file, in the order they happened — see [`Open`].
     opens: RefCell<Vec<Open>>,
-    /// What the pad is doing, as a scenario is pushing it.
+    /// What the pad is doing, as an e2e test is pushing it.
     ///
     /// Beside the memory rather than in it, and that is what a device is: the game's own read asks the
     /// controller every frame and the answer is never anywhere a snapshot could rewind.
     pushed: Cell<Pushed>,
-    /// Set by a scenario for the frame the player is hit on.
+    /// Set by an e2e test for the frame the player is hit on.
     ///
     /// The one thing about a run that a laid-out game cannot do for itself: there are no bullets
-    /// here, so being hit is a scenario saying so where in a real run it is a scenario dodging badly.
+    /// here, so being hit is an e2e test saying so where in a real run it is an e2e test dodging badly.
     hit: Cell<bool>,
     /// And a bullet sitting on the player from here on, which is a hit every frame rather than one.
     ///
-    /// Apart from `hit` because what it is for is the other question: `hit` is a scenario saying the
-    /// player died, and this is a scenario saying nothing is stopping them dying — so what happens is
-    /// the hit test's answer and not the scenario's. See [`puts_a_bullet_on_the_player`](Fake::puts_a_bullet_on_the_player).
+    /// Apart from `hit` because what it is for is the other question: `hit` is an e2e test saying the
+    /// player died, and this is an e2e test saying nothing is stopping them dying — so what happens is
+    /// the hit test's answer and not the e2e test's. See [`puts_a_bullet_on_the_player`](Fake::puts_a_bullet_on_the_player).
     bullet: Cell<bool>,
     /// How long each of this game's stages runs before the next begins. `None` is a stage that never
     /// ends — see [`stages_last`](Fake::stages_last).
@@ -540,13 +571,32 @@ pub struct Fake {
     /// Whether its stages stream the two songs their data names — see
     /// [`plays_its_songs`](Fake::plays_its_songs).
     plays_songs: Cell<bool>,
-    /// The sound a track is streamed through, where a scenario asked for one — see
+    /// Whether the fight the stage ends with goes on past its arrival — see
+    /// [`fights_its_boss_out`](Fake::fights_its_boss_out).
+    fights_boss_out: Cell<bool>,
+    /// Whether a stage asked for is one that never arrives — see
+    /// [`never_builds_the_stage_it_is_asked_for`](Fake::never_builds_the_stage_it_is_asked_for).
+    never_builds: Cell<bool>,
+    /// Whether this game's controller has been lost — see
+    /// [`its_controller_poll_fails`](Fake::its_controller_poll_fails) — and how many times orb has had it
+    /// acquired again.
+    controller_poll_fails: Cell<bool>,
+    controller_acquires: Cell<u32>,
+    /// What comes up where a stage is asked for, or `None` for the stage that was asked for — see
+    /// [`comes_up_as`](Fake::comes_up_as).
+    comes_up_as: Cell<Option<ComesUpAs>>,
+    /// Every present the game's device was asked for, in the order it was asked — see [`Presented`].
+    presents: RefCell<Vec<Presented>>,
+    /// Whether this device's driver will not stretch on a present — see
+    /// [`refuses_to_stretch_on_a_present`](Fake::refuses_to_stretch_on_a_present).
+    refuses_to_stretch: Cell<bool>,
+    /// The sound a track is streamed through, where an e2e test asked for one — see
     /// [`streams_its_song`](Fake::streams_its_song).
     ///
     /// Held here because orb reaches it by dereferencing the pointer the game's memory holds: the object
     /// has to outlive the last frame that reads the music, which is the game closing.
     sound: RefCell<Option<Box<orb_sim::Sound>>>,
-    /// Set by a scenario for the run to be given up at the game's own pause — see
+    /// Set by an e2e test for the run to be given up at the game's own pause — see
     /// [`gives_the_run_up_at_its_own_pause`](Fake::gives_the_run_up_at_its_own_pause).
     given_up: Cell<bool>,
     /// Whether the title screen falls into its attract demo when nothing is pressed at it — see
@@ -569,8 +619,8 @@ pub struct Fake {
     /// the restore these happen either side of would rewind the record of them.
     music_stops: Cell<u32>,
     music_starts: RefCell<Vec<String>>,
-    /// How many times orb has asked this game's keyboard device to be acquired again, which is what a
-    /// scenario reads instead of a log line — see [`keyboard_acquires`](Fake::keyboard_acquires).
+    /// How many times orb has asked this game's keyboard device to be acquired again, which is what an
+    /// e2e test reads instead of a log line — see [`keyboard_acquires`](Fake::keyboard_acquires).
     ///
     /// Beside the memory rather than in it: what a device was asked is not a fact about the run, and no
     /// chapter restored underneath it takes an acquire back.
@@ -578,12 +628,12 @@ pub struct Fake {
     /// And whether that device refuses, which is what one whose window is not in front does — see
     /// [`refuses_the_keyboard_acquire`](Fake::refuses_the_keyboard_acquire).
     refuses_the_acquire: Cell<bool>,
-    /// What this game's chain walk answers, which a scenario changes to say the game is leaving.
+    /// What this game's chain walk answers, which an e2e test changes to say the game is leaving.
     answers: Cell<i32>,
     /// Every replay this game has written, as the file name and the name inside it — see
     /// [`saves_its_replay`](Fake::saves_its_replay).
     ///
-    /// Beside the memory rather than in it, for the same reason the score files are: what a scenario reads
+    /// Beside the memory rather than in it, for the same reason the score files are: what an e2e test reads
     /// back is whether a write happened and under which name, and both of those cross the call.
     replays_written: RefCell<Vec<(String, String)>>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory. Last,
@@ -595,7 +645,7 @@ thread_local! {
     /// The game running on this thread, for the hooks orb calls back into.
     ///
     /// Those are plain `extern` functions with nothing but the ABI's arguments — the same reason the sound
-    /// a scenario installed is a thread's rather than a field of the simulated host — so where the real game
+    /// an e2e test installed is a thread's rather than a field of the simulated host — so where the real game
     /// would reach its own globals, this reaches the game.
     static RUNNING: Cell<*const Fake> = const { Cell::new(std::ptr::null()) };
 }
@@ -629,10 +679,10 @@ impl Fake {
     /// Lays the game out, gives it a window and a device, and attaches orb to it.
     ///
     /// `name` names the directory that stands in for the one the game is installed in: `orb.yaml` is
-    /// read from it, and the runs left unfinished are kept under it. `settings` is where a scenario says
+    /// read from it, and the runs left unfinished are kept under it. `settings` is where an e2e test says
     /// what this launch was started with.
     ///
-    /// Boxed and owned by whoever asked for it, so that a scenario file can hold more than one game over
+    /// Boxed and owned by whoever asked for it, so that an e2e test file can hold more than one game over
     /// its lifetime — **and the one before has to be dropped first**. What a launch's device and its record
     /// are is the simulated Windows', which goes with the game; what does not is orb's own state, the
     /// runtime and the pacing and the log's handle being the process's. `Drop` is the handover: it calls
@@ -653,7 +703,7 @@ impl Fake {
     /// Before, because that is the only moment it can be: orb reads what it finds there while it is being
     /// attached — a tuning pass reads `tuning.txt` inside `Chapters::new` — and a file written after that
     /// is one nothing will ever look at. Which is also why the directory is emptied at every attach: a
-    /// launch finds what a scenario says it finds and nothing another scenario left behind.
+    /// launch finds what an e2e test says it finds and nothing another e2e test left behind.
     pub fn attach_finding(
         name: &str,
         left: &[(&str, &str)],
@@ -663,7 +713,7 @@ impl Fake {
         Self::attach_declaring(Display::ordinary(), None, name, left, run, true, settings)
     }
 
-    /// And on a display a scenario says the whole of, for the ones the frame loop's pacing is about.
+    /// And on a display an e2e test says the whole of, for the ones the frame loop's pacing is about.
     pub fn attach_to_display(
         display: Display,
         name: &str,
@@ -673,7 +723,7 @@ impl Fake {
         Self::attach_declaring(display, None, name, &[], run, true, settings)
     }
 
-    /// And on a monitor a scenario says the whole of too, for the ones about the window orb makes.
+    /// And on a monitor an e2e test says the whole of too, for the ones about the window orb makes.
     ///
     /// The panel goes in before orb is attached, because attaching is when orb says the process reads
     /// real pixels — a monitor written down after that would be one nothing had asked the truth of.
@@ -704,6 +754,26 @@ impl Fake {
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
         Self::attach_declaring(Display::ordinary(), None, name, &[], run, false, settings)
+    }
+
+    /// And the same with a monitor declared, which is the launch a letterbox exists in: the window is laid
+    /// out against a panel, and the device whose `Present` that letterbox is presented through turns up
+    /// afterwards, through the hook orb redirects the slot inside.
+    pub fn attach_to_a_panel_before_its_device(
+        panel: Panel,
+        name: &str,
+        run: RunStart,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(
+            Display::ordinary(),
+            Some(panel),
+            name,
+            &[],
+            run,
+            false,
+            settings,
+        )
     }
 
     fn attach_declaring(
@@ -737,27 +807,33 @@ impl Fake {
         );
 
         let dir = scratch(name);
+        // The simulated Windows first, because everything below reads through it: `orb.yaml` and the runs an
+        // earlier session left are files of orb's own, and files of orb's own go through the file seam into
+        // `orb_sim::Files`. Which is why `left` is put in *here* rather than on a disk — see
+        // [`scratch`](super::scratch).
+        let image = Image::laid_out_seeded(display.seed);
+        let installed = image.enter();
+        // The directory the game is installed in, which is there because the game is: orb writes a tuning
+        // pass's two files straight into it, and a write wants its directory here as on a real host.
+        image.sim().files().make(&dir);
         for (file, contents) in left {
-            std::fs::write(dir.join(file), contents)
-                .unwrap_or_else(|error| panic!("{}: {error}", dir.join(file).display()));
+            image.sim().files().put(dir.join(file), contents);
         }
         let mut config =
-            Config::load_beside(&dir.join("th06.exe")).expect("a directory with no orb.yaml in it");
-        // The memory hooks patch an import table there is none of, and no scenario can turn them on: a game
+            Config::load_beside(&dir.join(EXE)).expect("a directory with no orb.yaml in it");
+        // The memory hooks patch an import table there is none of, and no e2e test can turn them on: a game
         // laid out by hand has no PE headers for `pe::import_slot` to walk, and one that grew a synthesized
         // set would be a game standing in for a loader. What stands behind them instead is `hook.rs`'s own
         // `an_imports_slot_is_swapped_and_what_was_there_comes_back`, over headers written out by hand.
         config.track_memory = false;
         settings(&mut config);
 
-        let image = Image::laid_out_seeded(display.seed);
-        let installed = image.enter();
         // The font beside the game's exe, which is what orb builds its overlay from — 紅魔郷 ships one
         // and this says so. In front of the launch and not after it, because the launch's own device
         // bakes through the same seam and a face made before this is one nothing declared.
         image.sim().text().install_font(dir.join("font.ttf"));
         let launch = Launch::new(image.sim(), dir, display.seed, config.own_frame_loop);
-        // The window the game has made, and the device it shows through where a scenario says the setup has
+        // The window the game has made, and the device it shows through where an e2e test says the setup has
         // already run. A launch that says otherwise gets the window and no device, which is what a process is
         // between `GameWindow::Create` and `InitD3dDevice`.
         image.shows_through(
@@ -770,7 +846,7 @@ impl Fake {
         );
         // Where the game is installed, which is where orb writes its log: beside the exe, because that
         // is where `orb.yaml` and the launcher are.
-        image.sim().set_host_exe(launch.dir().join("th06.exe"));
+        image.sim().set_host_exe(launch.dir().join(EXE));
         // The display, in front of orb being attached: `configure` reads the desktop's own rate before
         // there is a window to ask about, and a rate written down after that would be read a second
         // late — the first second of the run paced against nothing.
@@ -788,10 +864,10 @@ impl Fake {
         if display.metronome {
             sim.display().as_a_metronome();
         }
-        // And the monitor the window goes on, for a scenario about the window: in front of orb being
+        // And the monitor the window goes on, for an e2e test about the window: in front of orb being
         // attached for the same reason the rate is, since attaching is where orb says this process reads
         // sizes as real pixels and a panel written down afterwards would never have been asked the
-        // scaled question at all. A scenario that declares none has no monitor, which is the launch orb
+        // scaled question at all. An e2e test that declares none has no monitor, which is the launch orb
         // leaves the window as the game made it.
         if let Some(panel) = &panel {
             sim.windows().set_monitor(panel.monitor, panel.frame);
@@ -799,7 +875,7 @@ impl Fake {
                 sim.windows().refuse_dpi_awareness();
             }
         }
-        // And the game's own calls orb makes that a scenario reaches: a shake still running at a stage
+        // And the game's own calls orb makes that an e2e test reaches: a shake still running at a stage
         // move is taken down through `Chain::Cut`, and a track whose chapter has been left behind is
         // stopped and started again through `StopBGM` and `PlayAudio`.
         image.hands_over_chain_cut(chain_cut as *const () as usize);
@@ -808,7 +884,7 @@ impl Fake {
             play_audio as *const () as usize,
         );
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
-        // a real one's come out of the file the game's own options screen writes — and what a scenario
+        // a real one's come out of the file the game's own options screen writes — and what an e2e test
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
         image.controller(
             poll as *const () as usize,
@@ -818,7 +894,7 @@ impl Fake {
         image.maps_the_pad(MAPPING);
         // And the keyboard device the game takes exclusively, which is what its own read goes through until
         // orb lets it go: a launch that has not asked for `--sent-keys` keeps it for its whole life, which
-        // is every other scenario here and is why the keys they press are pressed rather than sent.
+        // is every other e2e test here and is why the keys they press are pressed rather than sent.
         image.keyboard_device(
             keyboard_acquire as *const () as usize,
             keyboard_unacquire as *const () as usize,
@@ -876,6 +952,13 @@ impl Fake {
             draws_the_menu: Cell::new(false),
             shake_frames: Cell::new(0),
             plays_songs: Cell::new(false),
+            fights_boss_out: Cell::new(false),
+            never_builds: Cell::new(false),
+            controller_poll_fails: Cell::new(false),
+            controller_acquires: Cell::new(0),
+            comes_up_as: Cell::new(None),
+            presents: RefCell::new(Vec::new()),
+            refuses_to_stretch: Cell::new(false),
             sound: RefCell::new(None),
             given_up: Cell::new(false),
             demos: Cell::new(false),
@@ -892,7 +975,7 @@ impl Fake {
         RUNNING.set(&raw const *fake);
         unsafe {
             orb_core::runtime::attach_to(
-                &TH06,
+                the_game_this_is(),
                 config,
                 fake.image.data(),
                 orb_core::runtime::Originals {
@@ -920,8 +1003,8 @@ impl Fake {
         fake
     }
 
-    /// And the same with orb's own account of the pacing being written where a scenario can read it
-    /// back, which is every scenario about the frame loop — see `pacing.rs`.
+    /// And the same with orb's own account of the pacing being written where an e2e test can read it
+    /// back, which is every e2e test about the frame loop — see `pacing.rs`.
     ///
     /// `work` is what the game's own frame costs, since that is the whole of what the pacing has to put a
     /// wait around — see [`Work`]. The run is [`the_run`] and the game sits on its title menu throughout:
@@ -935,7 +1018,7 @@ impl Fake {
         game
     }
 
-    /// What this game's chain walk answers from here on: [`CHAIN_CARRIED_ON`] until a scenario says
+    /// What this game's chain walk answers from here on: [`CHAIN_CARRIED_ON`] until an e2e test says
     /// otherwise, and [`CHAIN_LEFT`] or [`CHAIN_FAILED`] to say the game is going.
     pub fn chain_answers(&self, result: i32) {
         self.answers.set(result);
@@ -950,7 +1033,7 @@ impl Fake {
     /// Says the run on screen is a replay being watched rather than one somebody is playing, and asks
     /// for it.
     ///
-    /// A scenario saying so, the way it says the player was hit: a replay is started from the game's
+    /// An e2e test saying so, the way it says the player was hit: a replay is started from the game's
     /// own replay menu, and this game's front end has the two screens orb asks a question over and
     /// nothing else. What it stands in for is the flag the game sets, which is what orb reads.
     pub fn watches_a_replay(&self) {
@@ -966,12 +1049,12 @@ impl Fake {
     /// record of inputs per stage of this game's six.
     ///
     /// Which is what makes the run play *itself*: the manager's own job overwrites the word the input
-    /// read handed back, so the player moves on the buttons that were recorded rather than on the ones a
-    /// scenario is pressing — and the stepping keys a scenario does press move between the stages the
+    /// read handed back, so the player moves on the buttons that were recorded rather than on the ones an
+    /// e2e test is pressing — and the stepping keys an e2e test does press move between the stages the
     /// replay covers instead.
     ///
     /// Apart from [`watches_a_replay`](Fake::watches_a_replay) because a record is what a teardown can
-    /// write over and a stage move needs: a scenario about neither wants a replay that plays nothing.
+    /// write over and a stage move needs: an e2e test about neither wants a replay that plays nothing.
     pub fn watches_a_replay_of_its_stages(&self) {
         let stages: Vec<i32> = (0..STAGES).collect();
         self.image.loads_a_replay(&stages);
@@ -990,9 +1073,9 @@ impl Fake {
     /// The game writing its replay out, which is what `ResultScreen`'s save screen does once somebody has
     /// named one: `ReplayManager::SaveReplay(replayPath, this->replayName)` at `src/ResultScreen.cpp`.
     ///
-    /// A scenario saying so, the way it says the player was hit. The screen itself is not here — orb writes
+    /// An e2e test saying so, the way it says the player was hit. The screen itself is not here — orb writes
     /// that screen's state *past* the question rather than answering it, which is
-    /// `a_clear_on_demand.rs`'s subject — so the one thing a scenario needs of it is the call, and
+    /// `a_clear_on_demand.rs`'s subject — so the one thing an e2e test needs of it is the call, and
     /// this is the call.
     pub fn saves_its_replay(&self) {
         orb_core::runtime::save_replay(REPLAY_FILE.as_ptr().cast(), REPLAY_NAME.as_ptr().cast());
@@ -1024,9 +1107,34 @@ impl Fake {
         space.map(device.0, size_of::<usize>(), orb_api::Kind::Private);
         space.write::<usize>(device.0, vtable);
         space.map(vtable, super::DEVICE_VTABLE_BYTES, orb_api::Kind::Image);
-        space.write_bytes(vtable, &self.launch.vtable_bytes());
+        space.write_bytes(
+            vtable,
+            &self
+                .launch
+                .vtable_bytes(device_present as *const () as usize),
+        );
         self.image.shows_through(device, WINDOW);
         orb_core::runtime::init_d3d_device();
+    }
+
+    /// Every present the game's device has been asked for since the last
+    /// [`forget_presents`](Fake::forget_presents), in the order it was asked.
+    pub fn presented(&self) -> Vec<Presented> {
+        self.presents.borrow().clone()
+    }
+
+    pub fn forget_presents(&self) {
+        self.presents.borrow_mut().clear();
+    }
+
+    /// Has this device's driver refuse to stretch on a present, which some do: the call that asks for a
+    /// destination rectangle answers a failure and the one that asks for none is answered.
+    ///
+    /// An e2e test saying so, the way it says the host will not turn display scaling off. What it is for is
+    /// what orb does about it — the game's own call again, which leaves the run playable and stretched —
+    /// since a run that stopped being presented at all would be a black window.
+    pub fn refuses_to_stretch_on_a_present(&self) {
+        self.refuses_to_stretch.set(true);
     }
 
     /// How many times orb has taken this game's music down through its own `StopBGM`.
@@ -1054,35 +1162,72 @@ impl Fake {
     /// Has that device refuse, which is what one whose window is not in front really does:
     /// `DIERR_OTHERAPPHASPRIO`.
     ///
-    /// A scenario saying so, the way it says which window is in front — the two are the same fact from
+    /// An e2e test saying so, the way it says which window is in front — the two are the same fact from
     /// two sides, and a device that worked that out for itself would be answering the question orb is
     /// being asked here.
     pub fn refuses_the_keyboard_acquire(&self, refuses: bool) {
         self.refuses_the_acquire.set(refuses);
     }
 
+    /// Has the game's controller answer its poll with `DIERR_INPUTLOST`, which is what a DirectInput device
+    /// does once it has been lost — the window went away, or another process took it.
+    ///
+    /// An e2e test saying so, the way it says the keyboard device refuses its acquire. What it is for is the
+    /// one thing orb does about it: `Th06::controller_pad` acquires the device again and answers nothing for
+    /// that frame, so a pad that came back is a pad the next frame reads.
+    pub fn its_controller_poll_fails(&self, fails: bool) {
+        self.controller_poll_fails.set(fails);
+    }
+
+    /// How many times the game's controller has been acquired again after a poll that failed.
+    pub fn controller_acquires(&self) -> u32 {
+        self.controller_acquires.get()
+    }
+
+    /// Has what comes up where a stage was asked for be something other than that stage.
+    ///
+    /// **Which is the one thing a resume cannot check for itself.** It points the run the game is about to
+    /// build at a stage and holds that stage's numbers for the moment it is ready for them; if what arrives
+    /// is another stage, or a run orb keeps nothing of, then writing those numbers over it would be a run
+    /// put back with the wrong lives and the wrong seed and nothing about the file saying so. So orb
+    /// compares, and an e2e test is what makes there be something to compare — see
+    /// `resume::stage_begun`.
+    ///
+    /// From the frame this is said until it is said otherwise, which is per stage the game builds.
+    pub fn comes_up_as(&self, what: Option<ComesUpAs>) {
+        self.comes_up_as.set(what);
+    }
+
     /// A bomb, which is here for the one thing about one that outlives the stage it went off in: the
     /// screen shake it starts.
     ///
-    /// A scenario saying so, the way it says the player was hit — the four bombs are the player's own code
+    /// An e2e test saying so, the way it says the player was hit — the four bombs are the player's own code
     /// and none of it is here. What is here is `ScreenEffect::ShakeScreen` registered as a job of the
     /// chain's, the [`SHAKE_FRAMES`] it writes the arcade region from the generator over, and the bomb the
     /// run has one fewer of: `Player::OnUpdate` spends one where it starts one, and only where there is one
     /// to spend.
+    ///
+    /// And `Player::bombInUse`, which is the flag orb reads a bomb by. **A bomb here is its shake and
+    /// nothing else**, so the flag stands for exactly the shake's own frames and the frame the shake takes
+    /// itself down is the frame it goes out; a real bomb's four are the player's code, where the two lengths
+    /// are the same effect's and not one number. What an e2e test asks of it is that a bomb is *not* a frame
+    /// orb keeps away from — see `chapter::guarded`, whose comment says so and says the `sync:` line is
+    /// where a bomb is read back.
     pub fn bombs(&self) {
         let left = self.image.playing_now().bombs;
         if left > 0 {
             self.image.set_bombs(left - 1);
         }
         self.shake_frames.set(SHAKE_FRAMES);
+        self.image.bombing(true);
         self.image.shakes_the_screen();
     }
 
     /// A power item collected, which raises the run's power by one and stops at the game's own
     /// [`FULL_POWER`].
     ///
-    /// A scenario saying so, the way it says the player was hit: there are no items here, so the
-    /// collection is a scenario's word for it where in a real run it is a scenario flying over one.
+    /// An e2e test saying so, the way it says the player was hit: there are no items here, so the
+    /// collection is an e2e test's word for it where in a real run it is an e2e test flying over one.
     pub fn collects_a_power_item(&self) {
         let power = self.image.playing_now().power;
         self.image.set_power((power + 1).min(FULL_POWER));
@@ -1092,7 +1237,7 @@ impl Fake {
     /// hit test against a live bullet.
     ///
     /// Which is what a stage really is, and the difference from [`hit`](Fake::hit) is the whole point of
-    /// it: a scenario saying "the player died" cannot show that something *stopped* them dying. The test
+    /// it: an e2e test saying "the player died" cannot show that something *stopped* them dying. The test
     /// runs where the game runs it — after `Player::OnUpdate`, which is chain priority 7 against the
     /// bullets' 11 — so an invulnerability written for this update has to still be there when it runs.
     pub fn puts_a_bullet_on_the_player(&self) {
@@ -1102,8 +1247,8 @@ impl Fake {
     /// The fight over: the boss off the screen and its card with it, which is what the enemy manager
     /// holds none of once one has been beaten.
     ///
-    /// A scenario saying so, the way it says the player was hit — there is nothing shooting here, so a
-    /// boss's life comes down because a scenario says the fight is won where in a real run it comes down
+    /// An e2e test saying so, the way it says the player was hit — there is nothing shooting here, so a
+    /// boss's life comes down because an e2e test says the fight is won where in a real run it comes down
     /// because somebody shot it. What it is for is the stage *after* a fight: a fight underway outranks
     /// the midstage table, so a stage whose boss never goes down is one where nothing of that table can
     /// begin a chapter.
@@ -1118,7 +1263,7 @@ impl Fake {
 
     /// How long each of this game's stages runs before the next begins.
     ///
-    /// Nothing by default, which is a stage that never ends: every scenario about one stage wants that,
+    /// Nothing by default, which is a stage that never ends: every e2e test about one stage wants that,
     /// and one about a run through six says how long each of them is. A run's last stage hands over to
     /// the ending rather than to a seventh.
     pub fn stages_last(&self, frames: u32) {
@@ -1128,13 +1273,39 @@ impl Fake {
     /// Has its stages stream the two songs their data names: the stage's own from the frame the stage is
     /// built, and the boss's from [`STAGE_BOSS_ARRIVES`].
     ///
-    /// Nothing by default, which is what every scenario that is not about the music wants and is why
+    /// Nothing by default, which is what every e2e test that is not about the music wants and is why
     /// `pointdevice_run.rs` takes its first chapter at frame 248 — the whole of `MUSIC_WAIT_FRAMES`
     /// spent waiting for a track that is never coming. A stage with a song under it is also a stage whose
     /// chapters have sound to put back, which is work on every one of them.
     pub fn plays_its_songs(&self) {
         self.plays_songs.set(true);
         self.image.plays_a_track(STAGE_TRACK);
+    }
+
+    /// Has the fight the stage ends with go on past its arrival: a card at [`STAGE_BOSS_CARD_STARTS`], the
+    /// attack after it at [`STAGE_BOSS_ATTACK_CHANGES`], and that attack's *name* two frames behind it.
+    ///
+    /// **Which fight those attacks belong to this does not say**, and that is what it is for: with the two
+    /// songs a stage's data names laid out they are the stage's own boss's, the boss track having started at
+    /// [`STAGE_BOSS_ARRIVES`], and without them they are still the midboss's. One script, and the music is
+    /// the whole of the difference — which is the claim `chapter::Chapters::due` rests a boss's chapters on.
+    ///
+    /// Nothing by default, and that is not tidiness: these are three more chapters in every stage that runs
+    /// past frame 1100, and an e2e test counting the chapters before a boundary of the table would count
+    /// them.
+    pub fn fights_its_boss_out(&self) {
+        self.fights_boss_out.set(true);
+    }
+
+    /// Has a stage this game is asked for never arrive: the scene a run is played in, with nothing of the
+    /// run built inside it and `GameManager::AddedCallback` never reached.
+    ///
+    /// Which is what a stage the game cannot load looks like from orb's side — the run was chosen, the
+    /// game went somewhere else with it, and the moment orb writes a resumed run's numbers over a stage's
+    /// never comes. What it is for is the bound orb puts on waiting for one; see
+    /// `runtime::RESUME_START_FRAMES`, which is ten seconds of frames.
+    pub fn never_builds_the_stage_it_is_asked_for(&self) {
+        self.never_builds.set(true);
     }
 
     /// Has its stage stream a track through a sound of the host's, with the sound now audible beginning
@@ -1168,7 +1339,7 @@ impl Fake {
     /// one the countdown being left behind would have moved.
     ///
     /// # Panics
-    /// Where no scenario asked for a sound, there being no file to have a position in.
+    /// Where no e2e test asked for a sound, there being no file to have a position in.
     pub fn loop_point(&self) -> u32 {
         self.with_the_sound(|sound| sound.position() as u32) + self.image.bytes_left()
     }
@@ -1176,9 +1347,9 @@ impl Fake {
     /// `StreamingSound::ServiceBuffer`: one chunk of the file into the buffer at the offset the game
     /// keeps for it, with that offset and the countdown moved on by what was read.
     ///
-    /// A scenario saying the streaming thread ran, the way it says the player was hit. That thread is a
-    /// thread, and what it would have done over a few seconds of a track is not something a scenario can
-    /// wait for — so a scenario that has to have the stream *somewhere else than the chapter left it*
+    /// An e2e test saying the streaming thread ran, the way it says the player was hit. That thread is a
+    /// thread, and what it would have done over a few seconds of a track is not something an e2e test can
+    /// wait for — so an e2e test that has to have the stream *somewhere else than the chapter left it*
     /// says how far.
     ///
     /// The countdown goes down by what the read took, because that is what the game's own `WaveFile::Read`
@@ -1186,7 +1357,7 @@ impl Fake {
     ///
     /// # Panics
     /// Where the read came up short, which is the end of the track's sound: taking the loop there is the
-    /// game's own answer and no scenario here needs one, so a scenario that has run its stream that far
+    /// game's own answer and no e2e test here needs one, so an e2e test that has run its stream that far
     /// has run further than it meant to.
     pub fn services_the_buffer(&self) {
         let at = self.image.next_write_offset();
@@ -1203,7 +1374,7 @@ impl Fake {
     /// And the mixer playing what is in the buffer: the play cursor moved on by `bytes`.
     ///
     /// Apart from the servicing above because they are two clocks, and the distance between them is what
-    /// a margin *is* — see [`orb_core::audio::Margin`]. A scenario says how far apart they are for the
+    /// a margin *is* — see [`orb_core::audio::Margin`]. An e2e test says how far apart they are for the
     /// same reason it says the stream ran at all.
     pub fn plays_the_buffer_on(&self, bytes: u32) {
         self.with_the_sound(|sound| sound.plays_on(bytes));
@@ -1213,7 +1384,7 @@ impl Fake {
     /// is what a restore has to put back and what no snapshot of that memory holds.
     ///
     /// # Panics
-    /// Where no scenario asked for a sound.
+    /// Where no e2e test asked for a sound.
     pub fn stream_now(&self) -> Stream {
         self.with_the_sound(|sound| Stream {
             buffered: sound.buffered(),
@@ -1224,16 +1395,16 @@ impl Fake {
     }
 
     /// # Panics
-    /// Where no scenario asked for a sound, there being nothing for any of the above to be about.
+    /// Where no e2e test asked for a sound, there being nothing for any of the above to be about.
     fn with_the_sound<T>(&self, body: impl FnOnce(&orb_sim::Sound) -> T) -> T {
         let sound = self.sound.borrow();
-        body(sound.as_ref().expect("a sound this scenario asked for"))
+        body(sound.as_ref().expect("a sound this e2e test asked for"))
     }
 
-    /// Has the front end draw its own items, which is how a scenario reads back what the score file
+    /// Has the front end draw its own items, which is how an e2e test reads back what the score file
     /// unlocked: `Extra Start` is on the menu or it is not, and no log can see a menu.
     ///
-    /// Off unless a scenario asks, and that is not tidiness. Baking eight labels a frame is real work, and
+    /// Off unless an e2e test asks, and that is not tidiness. Baking eight labels a frame is real work, and
     /// the runs that sit on the title menu for thousands of frames are the ones measuring what a frame
     /// costs: with the menu drawn on every one of them, `pacing.rs` went from 18 seconds to 616.
     pub fn draws_its_title_menu(&self) {
@@ -1246,7 +1417,7 @@ impl Fake {
     /// Nothing by default, which is the scene with nothing in it — and that is not tidiness. An ending orb
     /// can find a script in is one its skip stops at the roll of, and an ending with none is one it runs
     /// the whole scene out of: the two are different lines in the log and different numbers, so which of
-    /// them a scenario is about is the scenario's to say. See
+    /// them an e2e test is about is the e2e test's to say. See
     /// [`lays_out_an_ending_orb_cannot_find`](Fake::lays_out_an_ending_orb_cannot_find).
     pub fn lays_out_an_ending(&self, waits: i32, roll_waits: i32) {
         self.ending.set(Some(Ending {
@@ -1273,16 +1444,16 @@ impl Fake {
     /// it, and leave it on the first press.
     ///
     /// Off by default, and that is not tidiness: a title screen that started a run of its own would change
-    /// every scenario that sits on one, and the pacing's sit there for thousands of frames apiece — a demo
+    /// every e2e test that sits on one, and the pacing's sit there for thousands of frames apiece — a demo
     /// under them would be building stages, taking snapshots and costing the frames they are measuring. So
-    /// the one scenario about a press being eaten asks for it.
+    /// the one e2e test about a press being eaten asks for it.
     pub fn demos_when_idle(&self) {
         self.demos.set(true);
     }
 
     /// `esc` and then やめる: the game's own way out of a run, which is one write.
     ///
-    /// A scenario saying so, the way it says the player was hit — the pause menu's two screens are not
+    /// An e2e test saying so, the way it says the player was hit — the pause menu's two screens are not
     /// here, and `StageMenu::OnUpdateGameMenu` ends them by writing the scene the front end runs in. The
     /// panel, and with it `g_Gui`'s job in the draw chain, stands until the front end is built on the
     /// frame after: that one frame is what this exists to make reachable.
@@ -1312,12 +1483,12 @@ impl Fake {
     /// Every open of the score file this game has made, in the order they happened.
     ///
     /// Which name each landed in is orb's answer — the fork follows the mode chosen inside the game — and
-    /// this is where a scenario reads it back. There is no file on any disk: see [`Fake::files`].
+    /// this is where an e2e test reads it back. There is no file on any disk: see [`Fake::files`].
     pub fn score_file_opens(&self) -> Vec<Open> {
         self.opens.borrow().clone()
     }
 
-    /// Forgets them, so that what a scenario reads is the opens it means rather than every one since the
+    /// Forgets them, so that what an e2e test reads is the opens it means rather than every one since the
     /// game started.
     pub fn forget_score_file_opens(&self) {
         self.opens.borrow_mut().clear();
@@ -1352,7 +1523,7 @@ impl Fake {
         self.replay_question_drawn.get()
     }
 
-    /// The game in a 完全無欠モード run with its first chapter taken, which is where every scenario about
+    /// The game in a 完全無欠モード run with its first chapter taken, which is where every e2e test about
     /// a run being played from further on starts.
     ///
     /// The walk somebody makes to get there: the mode question answered over the title menu, the shot
@@ -1461,6 +1632,34 @@ impl Fake {
         self.window.get()
     }
 
+    /// And a window of the game's that is **not** the one it plays in: another class, which the game does
+    /// make — a message-only window for its own device notifications among them.
+    ///
+    /// Straight through orb's rewrite rather than through `GameWindow::Create`, because that function is the
+    /// one call the *play* window is decided inside: any other window the game makes reaches the patched
+    /// import on its own. What orb has to do with one is nothing, and the class is what settles that — it is
+    /// looked at before the monitor is read, so a window that is not the game's is not even the reason the
+    /// host was asked about its panel.
+    pub fn creates_another_window(&self) -> orb_api::Hwnd {
+        let window = unsafe {
+            orb_core::window::create_window_ex_a(
+                0,
+                OTHER_WINDOW_CLASS.as_ptr().cast(),
+                c"th06 notifications".as_ptr().cast(),
+                ASKED_STYLE,
+                ASKED_AT.0,
+                ASKED_AT.1,
+                ASKED_SIZE.0,
+                ASKED_SIZE.1,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        orb_api::Hwnd(window as usize)
+    }
+
     /// What the game's memory says the run is, read the way the frame hook reads it: every field
     /// parsed back out of the memory rather than off the addresses this game wrote.
     pub fn state(&self) -> orb_core::game::State {
@@ -1472,7 +1671,7 @@ impl Fake {
     }
 
     /// The game at its title menu, past the frames its own screen ignores a press for and with an
-    /// overlay for orb to draw a question with — which is where every scenario about the question that
+    /// overlay for orb to draw a question with — which is where every e2e test about the question that
     /// chooses a mode starts, and where one comes back to after answering.
     ///
     /// # Panics
@@ -1493,7 +1692,7 @@ impl Fake {
         // What the frame's own work costs, which is the game's and not orb's: the update, the sounds
         // handed over after it and the draw, as one span, since what the pacing is judged on is how long
         // a frame took between its turn and being handed over. Nothing by default — a laid-out game
-        // walks a few writes — and a scenario about the rate says the size and its unevenness. See
+        // walks a few writes — and an e2e test about the rate says the size and its unevenness. See
         // `frame_takes`.
         self.sim().clock().advance_micros(self.work_this_frame());
         self.runs_the_calc_chain()
@@ -1640,7 +1839,7 @@ impl Fake {
             running: self.image.scene(),
             wanted: self.image.scene(),
         });
-        // The game leaving, where a scenario said so: the two ways out of a walk are answers a *job* gives,
+        // The game leaving, where an e2e test said so: the two ways out of a walk are answers a *job* gives,
         // and this is the job that gives them — `CHAIN_CALLBACK_RESULT_EXIT_GAME_SUCCESS` where the
         // supervisor has nothing left to run, and the error beside it.
         match self.answers.get() {
@@ -1686,6 +1885,10 @@ impl Fake {
                 // mode orb is in.
                 orb_core::runtime::unlocks_read(self.image.front_end_object() as *mut c_void);
             }
+            // A stage asked for that never arrives, where an e2e test said so — see
+            // [`never_builds_the_stage_it_is_asked_for`](Fake::never_builds_the_stage_it_is_asked_for).
+            // The scene is the one a run is played in and nothing of the run is in it.
+            Scene::Playing if self.never_builds.get() => {}
             // `GameManager::AddedCallback`, which is where a stage's numbers are put in place and
             // inside which the stage itself is built.
             Scene::Playing => {
@@ -1926,6 +2129,32 @@ impl Fake {
                     attack_frames: 0,
                 }));
             }
+            // That fight fought out: a card, and the attack after it. Which fight these belong to is the
+            // music's to say and nothing else's — see [`Fake::fights_its_boss_out`].
+            STAGE_BOSS_CARD_STARTS if self.fights_boss_out.get() => {
+                self.image.boss(Some(Boss {
+                    life: 2000,
+                    attack_frames: 0,
+                }));
+                self.image.card(Some(STAGE_BOSS_CARD));
+                self.image
+                    .starts_the_card(STAGE_BOSS_CARD, STAGE_BOSS_CARD_NAME);
+            }
+            STAGE_BOSS_ATTACK_CHANGES if self.fights_boss_out.get() => {
+                self.image.boss(Some(Boss {
+                    life: 1600,
+                    attack_frames: 0,
+                }));
+                self.image.card(None);
+            }
+            // And its name, two frames behind the attack itself. The attack's own clock is advanced here
+            // as on any other frame: nothing began on this one, and a reset would say something did.
+            STAGE_BOSS_NAMES_ITS_CARD if self.fights_boss_out.get() => {
+                self.image.card(Some(STAGE_BOSS_LATE_CARD));
+                self.image
+                    .starts_the_card(STAGE_BOSS_LATE_CARD, STAGE_BOSS_LATE_CARD_NAME);
+                self.advance_the_attack();
+            }
             // The attack's own clock, which the two frames above put back to nothing: a reset is what
             // says the fight has moved on, so it must not be reset by anything else.
             _ => self.advance_the_attack(),
@@ -1954,7 +2183,7 @@ impl Fake {
             });
             return chain_result::CONTINUES;
         }
-        // The stage over, where a scenario said how long one is. A transition goes through the scene the
+        // The stage over, where an e2e test said how long one is. A transition goes through the scene the
         // game rebuilds its manager in and the last stage hands over to the ending instead — never to a
         // seventh stage.
         if Some(run.frames) == self.stage_frames.get() {
@@ -2018,6 +2247,7 @@ impl Fake {
         if left == 1 {
             self.image
                 .sets_the_arcade_region((field.left, field.top), (field.width, field.height));
+            self.image.bombing(false);
             return chain_result::REMOVED;
         }
         // And every other frame: **one of three cases per axis**, chosen by `GetRandomU32InRange(3)`. Two
@@ -2038,7 +2268,7 @@ impl Fake {
         self.image.reproducing(moving);
         // How far each case moves it. The game ramps this from one of the effect's parameters to the other
         // over the shake's own frames; this is a constant of this game's own — see [`SHAKE_PIXELS`] — since
-        // what a scenario reads of it is that the region is not where a stage left it.
+        // what an e2e test reads of it is that the region is not where a stage left it.
         let offset = f32::from(SHAKE_PIXELS);
         let (left_edge, width) = match across {
             0 => (field.left, field.width),
@@ -2138,7 +2368,7 @@ impl Fake {
     /// The ending, which walks its script out, hands over to the staff roll, and leaves for the result
     /// screen when the roll is done.
     ///
-    /// **One update per frame of waits**, which is what makes the count a scenario reads off the log the
+    /// **One update per frame of waits**, which is what makes the count an e2e test reads off the log the
     /// script's own: an `.end` is one-character instructions and waits between them, and every frame of
     /// those waits is an update of this scene whether anything is drawn on it or not.
     ///
@@ -2254,7 +2484,7 @@ impl Fake {
 
     /// What the game draws of its own.
     ///
-    /// Nothing of a stage: a laid-out game has no sprites and a scenario reads a run out of its memory
+    /// Nothing of a stage: a laid-out game has no sprites and an e2e test reads a run out of its memory
     /// rather than off the screen. Its two screens whose *contents* are a fact about what the game read
     /// are drawn, because for those the memory is not where the answer is — the ranking, which shows the
     /// record orb has been writing into, and the title menu, whose items are what the read that lights
@@ -2276,11 +2506,11 @@ impl Fake {
         }
     }
 
-    /// The title menu's own items, each on a row of its own, where a scenario asked for them — see
+    /// The title menu's own items, each on a row of its own, where an e2e test asked for them — see
     /// [`draws_its_title_menu`](Fake::draws_its_title_menu).
     ///
     /// `Extra Start` among them only where the score file's `clrd` chunk left the front end something to
-    /// light it from, which is what makes a read that failed cost something a scenario can see: the
+    /// light it from, which is what makes a read that failed cost something an e2e test can see: the
     /// destination is cleared before the chunk is looked for, so a menu built after one offers a stage
     /// nobody can reach.
     fn draws_the_title_menu(&self) {
@@ -2417,6 +2647,14 @@ impl Fake {
     /// stage in again starts every card the run had passed, and this read is what a landing would
     /// otherwise be left with. See `resume::hold_captures`.
     fn stage_numbers_in_place(&self) {
+        // A stage other than the one asked for, or a run orb keeps nothing of, where an e2e test said so —
+        // see [`comes_up_as`](Fake::comes_up_as). Before the number is raised and the run's own fields are
+        // written, which is where the game itself settles both.
+        match self.comes_up_as.get() {
+            Some(ComesUpAs::AnotherStage(stage)) => self.image.builds_stage(stage),
+            Some(ComesUpAs::TheDemo) => self.image.demo_mode(true),
+            None => {}
+        }
         let starting = self.a_run_starts_here();
         if starting {
             // The fill first and the read over the top of it, which is the order inside that branch: the
@@ -2500,7 +2738,7 @@ impl Fake {
         // `Player::RegisterChain` and the `Player::AddedCallback` inside it, **after** the stage's own
         // build and not before it, which is the order `GameManager::AddedCallback` has.
         //
-        // No scenario can fail on the order today and that is the finding rather than an omission:
+        // No e2e test can fail on the order today and that is the finding rather than an omission:
         // `resume::stage_building` writes the generator's seed and nothing else, so nothing reads a player
         // or a draw chain that was put in place too early. What it would cost is a debugging session on the
         // day that call grows a second write — which is why the order is right here now rather than then.
@@ -2615,11 +2853,27 @@ impl Drop for Fake {
 /// Real functions rather than anything in the laid-out memory, because code cannot be laid out: the
 /// vtable in that memory holds their addresses, the same way the game's own memory holds the address
 /// of the Direct3D device orb draws through.
+/// `IDirectInputDevice8::Poll` on the controller, which answers what an e2e test declared — see
+/// [`its_controller_poll_fails`](Fake::its_controller_poll_fails).
 unsafe extern "system" fn poll(_device: usize) -> i32 {
-    0
+    if running().controller_poll_fails.get() {
+        INPUT_LOST
+    } else {
+        0
+    }
 }
 
+/// `DIERR_INPUTLOST`, which is what a device answers once it has been lost — the window went away, or
+/// another process took it. Negative as an `HRESULT` is, which is what orb reads.
+const INPUT_LOST: i32 = 0x8007_001eu32 as i32;
+
+/// And its `Acquire`, which is what the game calls after a poll that failed. Nothing to do but say it was
+/// called: what a device being acquired *means* is nothing this game keeps, the same way the keyboard
+/// device's acquire keeps only the count — see [`keyboard_acquire`].
 unsafe extern "system" fn acquire(_device: usize) -> i32 {
+    let fake = running();
+    fake.controller_acquires
+        .set(fake.controller_acquires.get() + 1);
     0
 }
 
@@ -2630,7 +2884,7 @@ unsafe extern "system" fn acquire(_device: usize) -> i32 {
 /// because that is what the game's own read branches on and what orb clears: a device object that
 /// remembered its own acquired state would be a second answer to the one question.
 ///
-/// So the only thing the acquire itself keeps is that it was called, which is what a scenario reads
+/// So the only thing the acquire itself keeps is that it was called, which is what an e2e test reads
 /// instead of a log line, and whether this device is refusing — see
 /// [`refuses_the_keyboard_acquire`](Fake::refuses_the_keyboard_acquire).
 unsafe extern "system" fn keyboard_acquire(_device: usize) -> i32 {
@@ -2669,7 +2923,7 @@ unsafe extern "system" fn read_state(_device: usize, size: u32, state: *mut u8) 
 }
 
 /// Which of this game's buttons is which. Its own numbers, in the order the game's options screen
-/// lists them, and a scenario names them through [`MAPPING`] rather than by number.
+/// lists them, and an e2e test names them through [`MAPPING`] rather than by number.
 pub const MAPPING: Mapping = Mapping {
     shoot: 0,
     bomb: 1,
@@ -2680,8 +2934,41 @@ pub const MAPPING: Mapping = Mapping {
     y_axis: 250,
 };
 
-/// The one game orb is attached to here, which has to outlive the runtime that holds it.
-static TH06: Th06 = Th06;
+/// What comes up where a stage was asked for, as an e2e test declares it — see [`Fake::comes_up_as`].
+///
+/// The two things orb tells from the stage it asked about, and it tells them apart: a run it keeps nothing
+/// of is one thing and the wrong stage of one it does keep is another, and the line it writes says which.
+#[derive(Clone, Copy)]
+pub enum ComesUpAs {
+    /// A stage of this run other than the one asked for, counted from zero.
+    AnotherStage(i32),
+    /// The attract demo, which is a run orb keeps nothing of — and the plainest of the three the log line
+    /// names, the others being a replay and a launch in a mode that keeps nothing.
+    TheDemo,
+}
+
+/// The exe this game is running as, which is 紅魔郷's own file name.
+///
+/// Which is what the process orb wakes up inside is recognised by, and how this game's `Game` is found:
+/// nothing else of a game is readable before the game it is has been settled, so the name is the whole of
+/// what `game::found` is given — see [`the_game_this_is`].
+pub const EXE: &str = "東方紅魔郷.exe";
+
+/// The `Game` orb is attached to here, out of the table by [`EXE`] rather than named.
+///
+/// **Named twice is where the two sides could disagree.** `orb::attach` reads the exe's own file name and
+/// asks the table which game that is; a game laid out by hand is running under a name too, and an e2e test
+/// that wrote `&Th06` here would be one where the table could hold anything at all and no launch would
+/// notice. So this asks the same question the attach asks, and `the_process_orb_woke_up_in.rs` is the other
+/// answer to it.
+///
+/// # Panics
+/// Where no entry holds that name, which is the table having lost this game.
+fn the_game_this_is() -> &'static dyn orb_core::game::Game {
+    orb_core::game::found(EXE)
+        .unwrap_or_else(|| panic!("{EXE} is a game orb knows"))
+        .game
+}
 
 extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
     let fake = running();
@@ -2700,7 +2987,7 @@ extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
 /// says so to the loop above that.
 ///
 /// No wait in it. The real one paces itself and this one is called a frame at a time by whatever is
-/// driving the game, so there is nothing here for a scenario to be held up by.
+/// driving the game, so there is nothing here for an e2e test to be held up by.
 extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
     unsafe { orb_core::runtime::run_draw_chain(Th06.chain()) };
     let walked = unsafe { orb_core::runtime::run_calc_chain(Th06.chain()) };
@@ -2787,13 +3074,13 @@ unsafe extern "system" fn create_window(
     running().sim().windows().create_window(asked, style).0 as *mut c_void
 }
 
-/// `SoundPlayer::PlaySounds`: the time a scenario says this frame's sounds cost, a laid-out game having
+/// `SoundPlayer::PlaySounds`: the time an e2e test says this frame's sounds cost, a laid-out game having
 /// no sound system to spend it in.
 ///
 /// Here rather than left out because the frame loop calls it where the game's own loop did, and a frame
 /// that skipped it would be one span of the pacing's breakdown short. What it costs is declared apart
 /// from the rest of the frame's work — see [`Work::sound_us`] — because it is spent *here*, and where
-/// that is against the handover is the whole of what a scenario about this call can ask.
+/// that is against the handover is the whole of what an e2e test about this call can ask.
 unsafe extern "fastcall" fn play_sounds(_player: usize) {
     let fake = running();
     fake.launch.asked_for(SOUND);
@@ -2802,16 +3089,110 @@ unsafe extern "fastcall" fn play_sounds(_player: usize) {
 
 /// `GameWindow::Present`: the frame handed over, which from here is the compositor's.
 ///
-/// Where a scenario counts a frame — the tick it was handed over at, which is what a rate is read off —
+/// Where an e2e test counts a frame — the tick it was handed over at, which is what a rate is read off —
 /// and where the host is told, since the next flush is what waits for this frame to be composed.
 ///
-/// The tick is peeked rather than read: a scenario writing down when something happened should not be
+/// The tick is peeked rather than read: an e2e test writing down when something happened should not be
 /// what moves the clock on, and every other read of this counter in a frame is orb's own.
 unsafe extern "fastcall" fn present(_window: usize) {
     let fake = running();
     fake.launch.asked_for(PRESENT);
     fake.launch.handed_over(fake.sim().clock().peek());
     fake.sim().presented();
+    // And the device's own `Present`, which is what this function does in the game and the one path orb's
+    // letterbox is on: the slot is read out of the vtable rather than remembered, because what is in it is
+    // whatever orb last put there.
+    //
+    // Only where the vtable is laid out, which is a launch whose device has been found: a game that never
+    // had one presents through nothing, and that is the launch `attach_before_its_device` starts in.
+    let device = fake.launch.device();
+    if fake
+        .image
+        .space()
+        .read_committed::<usize>(device.0)
+        .is_some()
+    {
+        let slot: usize = fake.image.space().read(fake.launch.present_slot());
+        let through: DevicePresent = unsafe { std::mem::transmute(slot) };
+        let source = ASKS_TO_PRESENT;
+        unsafe {
+            through(
+                device.0 as *mut c_void,
+                &raw const source,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+            )
+        };
+    }
+}
+
+/// The `Present` slot's own signature, which is `orb_core::window`'s private one written out again: a
+/// laid-out game calling through that slot has to call it the way Direct3D would.
+type DevicePresent = unsafe extern "system" fn(
+    *mut c_void,
+    *const orb_api::Rect,
+    *const orb_api::Rect,
+    isize,
+    *const c_void,
+) -> orb_api::Hresult;
+
+/// What this game asks its device to present: the whole of its back buffer, and no destination — which is
+/// the stretch over the whole client that orb's replacement is there to narrow.
+///
+/// **A source rectangle where the real game may pass none.** What 紅魔郷 hands its device has not been read,
+/// and this is a rectangle rather than a null because it is the thing orb *drops*: a game that passed
+/// nothing there would leave nothing to see dropped, and the claim is that the letterbox is presented from
+/// the whole back buffer whatever the caller asked for. Its size is the game's own content size.
+pub const ASKS_TO_PRESENT: orb_api::Rect = orb_api::Rect {
+    left: 0,
+    top: 0,
+    right: 640,
+    bottom: 480,
+};
+
+/// What the game's device does with a present: writes down the two rectangles it was given, and answers
+/// whichever an e2e test declared — `S_OK`, or the refusal a driver that will not stretch gives.
+///
+/// The one slot of the device's vtable anything is reached through; see `Launch::vtable_bytes`.
+unsafe extern "system" fn device_present(
+    _device: *mut c_void,
+    source: *const orb_api::Rect,
+    destination: *const orb_api::Rect,
+    _window_override: isize,
+    _dirty: *const c_void,
+) -> orb_api::Hresult {
+    let fake = running();
+    let read = |at: *const orb_api::Rect| (!at.is_null()).then(|| unsafe { *at });
+    fake.presents.borrow_mut().push(Presented {
+        source: read(source),
+        destination: read(destination),
+    });
+    // Only the present that asks for one: what such a driver refuses is the *stretch*, so the game's own
+    // call with no destination in it is one it answers.
+    if fake.refuses_to_stretch.get() && !destination.is_null() {
+        return STRETCH_REFUSED;
+    }
+    S_OK
+}
+
+/// What a present that worked answers, and what a driver that will not stretch on one answers instead.
+///
+/// `D3DERR_DRIVERINTERNALERROR`, which is what such a refusal really comes back as: any negative number
+/// would do — orb reads the sign and nothing else — and this is the one a driver gives.
+const S_OK: orb_api::Hresult = 0;
+const STRETCH_REFUSED: orb_api::Hresult = 0x8876_0827u32 as i32;
+
+/// One present the game's device was asked for: the two rectangles, with `None` for a null.
+///
+/// Which is the whole of what orb's replacement of that slot decides — the back buffer's whole surface into
+/// a rectangle of the game's own ratio — and what no other instrument can see: the rectangle is handed
+/// straight to Direct3D, so an e2e test that only read `letterbox()` would be reading orb's arithmetic
+/// rather than what reached the device.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Presented {
+    pub source: Option<orb_api::Rect>,
+    pub destination: Option<orb_api::Rect>,
 }
 
 extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
@@ -2851,7 +3232,7 @@ extern "C" fn get_controller_input(buttons: u32) -> u16 {
 ///
 /// **Where the path is null there is nothing here**, and that is not an omission. What the real one does
 /// there is free each stage's block of recorded inputs and cut the manager's own job out of the chain, and
-/// nothing above the game reads either — the record a scenario reads back is the one `Image::loads_a_replay`
+/// nothing above the game reads either — the record an e2e test reads back is the one `Image::loads_a_replay`
 /// laid out, and the blocks it would free are not in it.
 extern "C" fn save_replay(path: *const u8, name: *const u8) {
     if path.is_null() {
@@ -2872,7 +3253,7 @@ extern "C" fn save_replay(path: *const u8, name: *const u8) {
 /// `SaveReplay`.
 ///
 /// This game's own, and pointers into this process rather than into its laid-out memory: what crosses the
-/// call is a `char *` each, and the whole of what a scenario reads back is which name a write landed under.
+/// call is a `char *` each, and the whole of what an e2e test reads back is which name a write landed under.
 const REPLAY_FILE: &CStr = c"replay/th6_ud0000.rpy";
 const REPLAY_NAME: &CStr = c"ORB";
 
@@ -2887,7 +3268,7 @@ const REPLAY_NAME: &CStr = c"ORB";
 extern "C" fn init_d3d_device() {}
 
 /// `Chain::Cut` (0x41cde0): the element unlinked, which is one of the three calls into the game orb makes
-/// that a scenario reaches — a screen shake still running at a stage move is taken down through it.
+/// that an e2e test reaches — a screen shake still running at a stage move is taken down through it.
 ///
 /// A real function rather than anything in the laid-out memory, for the same reason the controller's three
 /// are: code cannot be laid out.
@@ -2936,7 +3317,7 @@ const SONG_PATH_BYTES: usize = 128;
 /// into it at the entry playback has reached.
 ///
 /// Which is right for a recording and wrong for a replay, and orb's hook over it is what tells the two
-/// apart — so a scenario reads the record back to find out whether this ran.
+/// apart — so an e2e test reads the record back to find out whether this ran.
 extern "C" fn stop_recording() {
     let fake = running();
     let run = fake.image.playing_now();
@@ -2980,8 +3361,8 @@ extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
 /// The game's own `CreateFileA`, which the score file's fork calls through with the name it decided.
 ///
 /// Writes down that name and the access, which is the whole of what crosses this call and the whole of what
-/// a scenario about that file reads back. The handle is an index into those, one-based so it is never the
-/// null the game reads as a failure: there is no file on any disk here, and what a scenario asks is which
+/// an e2e test about that file reads back. The handle is an index into those, one-based so it is never the
+/// null the game reads as a failure: there is no file on any disk here, and what an e2e test asks is which
 /// name the open landed in.
 #[allow(clippy::too_many_arguments)]
 unsafe extern "system" fn create_file(
@@ -2999,7 +3380,7 @@ unsafe extern "system" fn create_file(
         .into_owned();
     let write = access & GENERIC_WRITE != 0;
     // Written down before the open is answered, and whether it succeeds or not: an open that failed is an
-    // open that happened, and which name it landed in is exactly what a scenario reads back.
+    // open that happened, and which name it landed in is exactly what an e2e test reads back.
     let index = {
         let mut opens = fake.opens.borrow_mut();
         opens.push(Open {
@@ -3034,7 +3415,7 @@ pub fn lives_row() -> Quad {
 /// The record a replay of one of this game's stages holds: a change of what was held every
 /// [`RECORDED_EVERY`] frames, cycling through the directions with the shot key down throughout.
 ///
-/// This game's own — what a scenario is about is that the same record played twice puts the player in the
+/// This game's own — what an e2e test is about is that the same record played twice puts the player in the
 /// same place to the last digit, not which buttons Reimu was pressing. Entries rather than a word per
 /// frame because that is what a recording is: the frame each change happened on, and what was held from
 /// then on.
@@ -3064,7 +3445,7 @@ pub fn waves(script: i32) -> i32 {
 
 /// The next number out of the generator.
 ///
-/// A generator of this game's own, not 紅魔郷's: what a scenario is about is that a stage seeded the
+/// A generator of this game's own, not 紅魔郷's: what an e2e test is about is that a stage seeded the
 /// same way draws the same numbers, which any generator answers and which is what a resume rests on.
 fn drawn_from(seed: u16) -> u16 {
     seed.wrapping_mul(0x9d5d).wrapping_add(0x6f7f)

@@ -1,6 +1,6 @@
 //! **`--clear`: a run to the ending in a minute, on nothing but the shot key held.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! What `--clear` is for is reaching a result screen without half an hour of playing well, so it is also
@@ -40,7 +40,7 @@ const OURS: &str = "pointdevice_score.dat";
 /// A launch of `--clear`, in a run, with a bullet sitting on the player.
 ///
 /// Two of the four things that word sets — `fast_clear` and the refusal of a replay write — and not the other
-/// two, deliberately. `speed` stays 1 where `--clear` names 64: what these scenarios count is frames of the
+/// two, deliberately. `speed` stays 1 where `--clear` names 64: what these e2e tests count is frames of the
 /// run, and a launch running 64 updates in each of them counts them in sixty-fourths. `resume` stays on
 /// because nothing here writes a chapter down to be offered one.
 fn clearing(name: &str) -> Box<Fake> {

@@ -232,8 +232,8 @@ impl Snapshot {
         // taken together and rejected if the stream ran in between, which is what
         // otherwise leaves a chapter's music very slightly wrong.
         //
-        // **No scenario reaches the retry**, and none can: a laid-out game has no streaming thread, and
-        // what stands in for one is a scenario saying the stream ran, between frames. So the loop below
+        // **No e2e test reaches the retry**, and none can: a laid-out game has no streaming thread, and
+        // what stands in for one is an e2e test saying the stream ran, between frames. So the loop below
         // goes round once there and the `continue` is the real game's alone.
         let mut saved_music = None;
         for _ in 0..AUDIO_ATTEMPTS {
@@ -456,7 +456,7 @@ unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
     // crashed here in parallel and passed with `--test-threads=1`.
     //
     // What `self_check` is for, naming game state a snapshot is missing, needs the real process to
-    // mean anything anyway: under a laid-out simulated Windows the regions a scenario did not hand
+    // mean anything anyway: under a laid-out simulated Windows the regions an e2e test did not hand
     // over are the ones it chose not to.
     if cfg!(test) {
         return Vec::new();
@@ -478,6 +478,11 @@ unsafe fn fingerprint_untracked(regions: &[Region]) -> Vec<Fingerprint> {
         .collect()
 }
 
+/// **Neither this nor [`hash`] is entered by an e2e test**, and the reason is the host rather than the
+/// switch: `self_check` is on in `orb-e2e`'s `the_snapshot_held_against_itself`, and what
+/// `mem::private_regions` answers a simulated Windows' walk with is nothing — see
+/// `orb_sim::Sim::private_regions`, whose comment says why. So the iterator above runs over an empty list
+/// and these two, which are what it would call per range, are never reached.
 fn overlaps(region: &Region, others: &[Region]) -> bool {
     others
         .iter()

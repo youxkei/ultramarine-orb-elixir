@@ -115,13 +115,6 @@ impl Question {
     pub fn selected(&self) -> Mode {
         CHOICES[self.selection].0
     }
-
-    /// The frames left of the grace, for the scenarios that press a key at this and want to say out
-    /// loud that it is held off rather than infer it from nothing happening.
-    #[cfg(any(test, feature = "sim"))]
-    pub fn held(&self) -> u32 {
-        self.keys.held()
-    }
 }
 
 /// What is being asked about. Two questions rather than one, because what a mode decides about a

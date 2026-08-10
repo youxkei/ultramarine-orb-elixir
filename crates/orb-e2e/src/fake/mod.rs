@@ -1,15 +1,15 @@
 //! What a launch is with none of the game in it: the display it runs on, the device orb draws
-//! through, what a frame's own work costs, and the vocabulary a scenario drives any game by.
+//! through, what a frame's own work costs, and the vocabulary an e2e test drives any game by.
 //!
-//! **A scenario's whole vocabulary is the host and the input.** It says which window is in front,
+//! **An e2e test's whole vocabulary is the host and the input.** It says which window is in front,
 //! presses keys, and runs frames. Everything else it reads back: the game's own memory, the game's
 //! own records, and what orb put in the log.
 //!
-//! **Each scenario runs in a process of its own**, which is what lets every one of them run at once —
+//! **Each e2e test runs in a process of its own**, which is what lets every one of them run at once —
 //! see [`in_its_own_process`]. A launch is a process, and orb is written that way.
 //!
-//! **Compiled once, so what nothing calls reads as dead.** Every scenario in this crate is a module
-//! beside this one, so a `pub` item here that no scenario reaches is one `dead_code` names — which it
+//! **Compiled once, so what nothing calls reads as dead.** Every e2e test in this crate is a module
+//! beside this one, so a `pub` item here that no e2e test reaches is one `dead_code` names — which it
 //! could not while this was an integration test's module and compiled into one binary per file. See
 //! `../lib.rs`.
 //!
@@ -43,19 +43,19 @@ pub const WINDOW: Hwnd = Hwnd(0x1234);
 /// [`Launched::asked`].
 ///
 /// Four whichever loop is running: an update, the sounds handed over after it, a draw, and the frame
-/// handed to the display. What differs between the two is the order, which is what a scenario reads
+/// handed to the display. What differs between the two is the order, which is what an e2e test reads
 /// these back for.
 pub const UPDATE: &str = "update";
 pub const SOUND: &str = "sound";
 pub const DRAW: &str = "draw";
 pub const PRESENT: &str = "present";
 
-/// How long a scenario waits before it presses a *direction* at a menu of orb's that has just come up.
+/// How long an e2e test waits before it presses a *direction* at a menu of orb's that has just come up.
 ///
 /// Every one of them holds its keys off for frames of its own — the press that opened it is an edge
 /// already spent, and the keys somebody was playing with belong to the run — and none of those counts
-/// is something a scenario can see. The retry menu's 24 frames is the longest, so waiting past it
-/// waits past all of them, and a scenario that presses after it is somebody who read the screen before
+/// is something an e2e test can see. The retry menu's 24 frames is the longest, so waiting past it
+/// waits past all of them, and an e2e test that presses after it is somebody who read the screen before
 /// answering.
 ///
 /// A `decide` needs no such wait: pressing it again costs nothing where the item under the cursor is
@@ -64,23 +64,23 @@ pub const PRESENT: &str = "present";
 /// answers wait out.
 pub const READS_KEYS_AFTER: u32 = 30;
 
-/// How many presses a scenario makes before it gives up on a menu answering.
+/// How many presses an e2e test makes before it gives up on a menu answering.
 ///
 /// Well past the longest any of orb's own menus holds its keys off for — the retry menu's 24 frames,
-/// against two frames a press — so a menu that has not answered by here is not going to. A scenario
+/// against two frames a press — so a menu that has not answered by here is not going to. An e2e test
 /// counts presses rather than frames because how long a menu holds them off is the menu's business.
 const PRESSES: u32 = 30;
 
-/// How long the game's own work takes in a frame, as a scenario declares it.
+/// How long the game's own work takes in a frame, as an e2e test declares it.
 ///
 /// The same shape as [`Compose`], and for the same reason: a frame's own update and draw are not one
 /// number either. What is on screen decides them — a title menu and a stage 3 boss fight with 524
 /// bullets up are not the same work — and now and then one frame costs far more than any of them, a
-/// stage load being a quarter of a second of it. So a scenario says the middle, how far above it an
+/// stage load being a quarter of a second of it. So an e2e test says the middle, how far above it an
 /// ordinary frame wanders, and what the occasional one costs.
 ///
 /// A `usual_us` of nothing is a laid-out game left to itself: its update walks a few writes and no
-/// simulated time passes at all, which is what every scenario that is not about the pacing wants.
+/// simulated time passes at all, which is what every e2e test that is not about the pacing wants.
 #[derive(Clone, Copy)]
 pub struct Work {
     pub usual_us: i64,
@@ -92,18 +92,18 @@ pub struct Work {
     /// What the sounds this frame hands to the sound device cost, spent inside `PlaySounds` rather
     /// than with the rest.
     ///
-    /// Apart from the three above because *where* a frame loop calls `PlaySounds` is a question a
-    /// scenario has to be able to ask, and work spent as one span cannot answer it: a frame that
+    /// Apart from the three above because *where* a frame loop calls `PlaySounds` is a question an
+    /// e2e test has to be able to ask, and work spent as one span cannot answer it: a frame that
     /// starts a spell card spends most of itself in that one call, and whether that lands inside the
     /// span the frame has to reach its blank in is what the call's position decides.
     pub sound_us: i64,
 }
 
 impl Work {
-    /// The same every frame, for a scenario about the arithmetic around it.
+    /// The same every frame, for an e2e test about the arithmetic around it.
     ///
-    /// The 700 every pacing scenario passes is about what a real run's report line shows for the game's
-    /// own drawing, so a scenario is asking the pacing the question a run asks it.
+    /// The 700 every pacing e2e test passes is about what a real run's report line shows for the game's
+    /// own drawing, so an e2e test is asking the pacing the question a run asks it.
     pub fn flat(us: i64) -> Self {
         Self {
             usual_us: us,
@@ -125,7 +125,7 @@ impl Work {
 
     /// And one that now and then costs a quarter of a second, which is a stage load.
     ///
-    /// `one_in` rather than a count, so a scenario says how many its length will see. What the load
+    /// `one_in` rather than a count, so an e2e test says how many its length will see. What the load
     /// must *not* do is buy the compositor anything — `pacing.rs`'s `load` section is that claim;
     /// this is the other half of it, which is that the rate comes back.
     pub fn loading(us: i64, one_in: i64) -> Self {
@@ -137,9 +137,9 @@ impl Work {
     }
 }
 
-/// The display the game's window is on, as a scenario declares it.
+/// The display the game's window is on, as an e2e test declares it.
 ///
-/// What the pacing is paced against, and the whole of what a scenario says about the host it is
+/// What the pacing is paced against, and the whole of what an e2e test says about the host it is
 /// running on: everything else the frame loop reads it reads through orb's own code.
 pub struct Display {
     /// What the monitor the window is on reports, in whole Hz. `None` is one that will not say.
@@ -150,15 +150,15 @@ pub struct Display {
     pub compose: Compose,
     /// Which stream of wake delays the host has. Named in a failure so the run can be replayed.
     pub seed: u64,
-    /// Whether to take the host's non-determinism away, leaving a metronome. Only for a scenario
+    /// Whether to take the host's non-determinism away, leaving a metronome. Only for an e2e test
     /// making a claim about arithmetic — no machine is one.
     pub metronome: bool,
 }
 
-/// The monitor the game's window goes on, as a scenario declares it — apart from [`Display`] because
+/// The monitor the game's window goes on, as an e2e test declares it — apart from [`Display`] because
 /// this is what the *layout* reads and that is what the pacing reads.
 ///
-/// Two numbers a scenario cannot otherwise move: how many pixels the panel has and will admit to, and
+/// Two numbers an e2e test cannot otherwise move: how many pixels the panel has and will admit to, and
 /// the frame this host costs to get a client area of a given size. See [`orb_sim::Windows`].
 pub struct Panel {
     pub monitor: orb_sim::Monitor,
@@ -214,7 +214,7 @@ impl Display {
         }
     }
 
-    /// The display every scenario that is not about the pacing runs on: one monitor at the rate the
+    /// The display every e2e test that is not about the pacing runs on: one monitor at the rate the
     /// game was written for, with the compositor timing it. A whole multiple of sixty, so the frames
     /// go on its blanks and the loop paces the way a shipped run paces.
     pub fn ordinary() -> Self {
@@ -248,7 +248,7 @@ pub struct Launch {
     own_frame_loop: bool,
     /// How long the game's own work takes in a frame — see [`Launched::frame_takes`].
     work: Cell<Work>,
-    /// The stream the frame's own unevenness is drawn from, which is the host's: a scenario names one
+    /// The stream the frame's own unevenness is drawn from, which is the host's: an e2e test names one
     /// seed and everything drawn in the run follows from it.
     noise: RefCell<orb_sim::Noise>,
     /// The tick each frame was handed over at, as the game's own `Present` records it.
@@ -292,16 +292,26 @@ impl Launch {
         self.vtable
     }
 
-    /// What goes in it: [`never_called`] in every slot.
+    /// What goes in it: `present` in the slot orb redirects, and [`never_called`] in every other.
     ///
     /// Non-zero in every one of them and that is the property that matters: `hook_device` stores what
     /// was in the `Present` slot and reads it back to know it has already patched, so a slot of zeros
     /// would be one it patched twice.
-    pub fn vtable_bytes(&self) -> Vec<u8> {
-        [never_called as *const () as usize; DEVICE_VTABLE_SLOTS]
-            .iter()
-            .flat_map(|slot| slot.to_ne_bytes())
-            .collect()
+    ///
+    /// **The `Present` slot is a real one because it is the one slot anything goes through.** The game's
+    /// own `GameWindow::Present` calls the device's, which is where orb's replacement sits, and what that
+    /// replacement calls through is whatever was here — so a game whose device answered nothing would be a
+    /// game where the rectangle orb decided reached nobody. Every other slot is a path nobody meant to
+    /// exist: orb's own drawing goes through the seam.
+    pub fn vtable_bytes(&self, present: usize) -> Vec<u8> {
+        let mut slots = [never_called as *const () as usize; DEVICE_VTABLE_SLOTS];
+        slots[d3d8::PRESENT_SLOT] = present;
+        slots.iter().flat_map(|slot| slot.to_ne_bytes()).collect()
+    }
+
+    /// Where that slot is, which is what the game's own present calls through.
+    pub fn present_slot(&self) -> usize {
+        self.vtable + d3d8::PRESENT_SLOT * size_of::<usize>()
     }
 
     /// Where the game is installed, which is where orb reads `orb.yaml` and writes its log.
@@ -325,7 +335,7 @@ impl Launch {
     /// **The game drawing through the seam, the way orb's overlay draws.** A mask baked, a texture made,
     /// the mask uploaded into it and one quad drawn with it bound — written out here rather than borrowed
     /// from `orb_core::overlay`, because a game that drew its own screens through orb's drawing code would be
-    /// a scenario holding orb against itself.
+    /// an e2e test holding orb against itself.
     ///
     /// Baked afresh every call: a screen drawn a frame at a time is a screen whose text may have changed,
     /// and holding the textures would mean deciding here which of them is which.
@@ -460,7 +470,7 @@ unsafe extern "system" fn never_called() {
 const DEVICE_VTABLE: usize = 0x2000_0000;
 
 /// The device vtable for this launch, and the one thing that could still be wrong about a chosen address:
-/// a scenario that laid a game out over 0x20000000 should hear about it here rather than inside
+/// an e2e test that laid a game out over 0x20000000 should hear about it here rather than inside
 /// `Space::map`.
 fn vtable_for(sim: &orb_sim::Sim) -> usize {
     assert!(
@@ -470,7 +480,7 @@ fn vtable_for(sim: &orb_sim::Sim) -> usize {
     DEVICE_VTABLE
 }
 
-/// What a scenario does to whatever game orb is attached to: run a frame of it, and read back the host
+/// What an e2e test does to whatever game orb is attached to: run a frame of it, and read back the host
 /// it is laid out in, the device it draws through and the log orb wrote.
 ///
 /// The four below are the game's own to answer — its window, its own frame, the host its memory is in,
@@ -482,7 +492,7 @@ pub trait Launched {
     /// The game's own whole frame, in its own order, and what that frame answered.
     fn own_render(&self) -> i32;
 
-    /// The host the game is laid out in, for a scenario that says which window is in front.
+    /// The host the game is laid out in, for an e2e test that says which window is in front.
     fn sim(&self) -> &orb_sim::Sim;
 
     fn launch(&self) -> &Launch;
@@ -509,7 +519,7 @@ pub trait Launched {
     /// How long the game's own work takes in a frame: its update and its draw as one span, and
     /// [`Work::sound_us`] inside `PlaySounds`.
     ///
-    /// A scenario saying so, the way it says the player was hit. A laid-out game's update walks a few
+    /// An e2e test saying so, the way it says the player was hit. A laid-out game's update walks a few
     /// writes and would take no time at all, and what a rate is judged against is a frame whose work
     /// takes as long as a real game's does — the whole question the pacing answers is where the wait
     /// goes around work of that size, and how unevenly it comes.
@@ -549,7 +559,7 @@ pub trait Launched {
             .collect()
     }
 
-    /// How far apart the blanks of the compositor this scenario declared are, in microseconds.
+    /// How far apart the blanks of the compositor this e2e test declared are, in microseconds.
     ///
     /// # Panics
     /// On a display declared without a compositor, there being no blanks to be apart.
@@ -558,7 +568,7 @@ pub trait Launched {
             .sim()
             .display()
             .compositor_period()
-            .expect("a display this scenario declared a compositor for");
+            .expect("a display this e2e test declared a compositor for");
         Clock::micros_for_ticks(period)
     }
 
@@ -573,7 +583,7 @@ pub trait Launched {
         self.launch().asked.borrow().clone()
     }
 
-    /// Forgets it, so that what a scenario reads is the frame it means rather than every frame since the
+    /// Forgets it, so that what an e2e test reads is the frame it means rather than every frame since the
     /// game started.
     fn forget_asked(&self) {
         self.launch().asked.borrow_mut().clear();
@@ -582,7 +592,7 @@ pub trait Launched {
     /// Runs frames until `done`.
     ///
     /// # Panics
-    /// After `limit` frames, naming what was being waited for: a scenario that waits for something
+    /// After `limit` frames, naming what was being waited for: an e2e test that waits for something
     /// which never happens should say what it was waiting for rather than time out.
     fn frames_until(&self, what: &str, limit: u32, done: impl Fn() -> bool) {
         for _ in 0..limit {
@@ -596,12 +606,12 @@ pub trait Launched {
 
     /// Runs frames until orb has written one more line holding `what`.
     ///
-    /// What a scenario does instead of asking the pacing for a number: the `Pacing` a run is paced by is
+    /// What an e2e test does instead of asking the pacing for a number: the `Pacing` a run is paced by is
     /// the frame loop's own and nothing outside orb holds it, so the line is waited for — a reporting
     /// period at the most, and every frame of the waiting is an ordinary frame of the run.
     ///
     /// # Panics
-    /// After a reporting period, with the whole log: a scenario waiting for a line orb never wrote is
+    /// After a reporting period, with the whole log: an e2e test waiting for a line orb never wrote is
     /// about to assert on a number that was never said.
     fn frames_until_the_log_holds_another(&self, what: &str) {
         let holding = || {
@@ -638,11 +648,11 @@ pub trait Launched {
 
     /// Presses `key` again and again until `done`, and says how many presses that took.
     ///
-    /// What somebody sitting at the keyboard does, and what a scenario has to do rather than count
+    /// What somebody sitting at the keyboard does, and what an e2e test has to do rather than count
     /// frames: every menu orb puts up holds its keys off for frames of its own — the press that opened
-    /// it is an edge already spent — and how many is the menu's business and not the scenario's.
+    /// it is an edge already spent — and how many is the menu's business and not the e2e test's.
     ///
-    /// Stops on the frame it happens on, which is what a scenario reading the game's memory
+    /// Stops on the frame it happens on, which is what an e2e test reading the game's memory
     /// afterwards needs: the frame a menu is answered on is the frame a chapter is put back on, and
     /// one more frame of the game is one frame past it.
     ///
@@ -688,7 +698,7 @@ pub trait Launched {
         self.sim().says(text)
     }
 
-    /// Forgets what has been drawn, so that what a scenario asks about is the frames it means rather
+    /// Forgets what has been drawn, so that what an e2e test asks about is the frames it means rather
     /// than every frame since the game started.
     fn forget(&self) {
         self.sim().drawing().forget();
@@ -702,49 +712,49 @@ pub trait Launched {
     }
 }
 
-/// What names the process a scenario runs in as the one that is *being* the launch, and which scenario
+/// What names the process an e2e test runs in as the one that is *being* the launch, and which e2e test
 /// it is: read by the child, set by the parent.
-const SCENARIO: &str = "ORB_SCENARIO";
+const E2E_TEST: &str = "ORB_E2E_TEST";
 
-/// Runs `scenario` in a process of its own, so that every one of these can run beside every other.
+/// Runs `e2e_test` in a process of its own, so that every one of these can run beside every other.
 ///
 /// **A launch is a process, and orb is written that way.** Its runtime, the record of what a run has
 /// pressed, which of the two files a score goes to and the device it draws through are one apiece, the
 /// way they are in the game — and the runtime cannot be made one per thread even for a test's sake:
 /// `DllMain` writes it on the thread the launcher's remote `LoadLibraryW` runs on, and the frame hook
-/// reads it on the game's main thread. So two scenarios in one process have to take turns, which they
+/// reads it on the game's main thread. So two e2e tests in one process have to take turns, which they
 /// did on the recording device's lock. Taking turns is not being able to run at once.
 ///
-/// So a scenario spawns this same binary again, told to run this one test and nothing else, and reports
+/// So an e2e test spawns this same binary again, told to run this one test and nothing else, and reports
 /// what the child made of it. The child is the launch and this side is the harness, which is also what
-/// makes a scenario that hangs or takes its process down name itself.
+/// makes an e2e test that hangs or takes its process down name itself.
 ///
 /// Where the harness is not naming its threads — `--test-threads=1`, which puts every test on `main` —
-/// there is nothing to tell the child to run, so the scenario runs here. Serially, which is what asking
+/// there is nothing to tell the child to run, so the e2e test runs here. Serially, which is what asking
 /// for one thread asked for.
 ///
-/// **What a scenario cannot be switched by is the environment.** These are Windows binaries and the build
+/// **What an e2e test cannot be switched by is the environment.** These are Windows binaries and the build
 /// that runs them may not be a Windows one — under WSL interop an environment variable set for
-/// `cargo test` does not reach the test process at all. So whatever a scenario needs told, it is told in
+/// `cargo test` does not reach the test process at all. So whatever an e2e test needs told, it is told in
 /// its own arguments or in what it declares, however natural a variable would be anywhere else.
-pub fn in_its_own_process(scenario: impl FnOnce()) {
-    if std::env::var_os(SCENARIO).is_some() {
-        return scenario();
+pub fn in_its_own_process(e2e_test: impl FnOnce()) {
+    if std::env::var_os(E2E_TEST).is_some() {
+        return e2e_test();
     }
     let named = std::thread::current().name().map(str::to_owned);
     let Some(name) = named.filter(|name| name != "main") else {
-        return scenario();
+        return e2e_test();
     };
-    let exe = std::env::current_exe().expect("the binary this scenario is in");
+    let exe = std::env::current_exe().expect("the binary this e2e test is in");
     let run = std::process::Command::new(&exe)
         // One thread in the child, so the test it runs is the whole of what that process does.
         .args(["--exact", &name, "--nocapture", "--test-threads=1"])
-        .env(SCENARIO, &name)
+        .env(E2E_TEST, &name)
         .output()
         .unwrap_or_else(|error| panic!("running {name} in a process of its own: {error}"));
     let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     // Said out loud rather than trusted: a filter that matched nothing is a child that passes without
-    // running anything, which would be a scenario reported as green for never having happened.
+    // running anything, which would be an e2e test reported as green for never having happened.
     assert!(
         said(&run.stdout).contains("1 passed"),
         "{name} did not run in the process it was given:\n{}{}",
@@ -759,17 +769,20 @@ pub fn in_its_own_process(scenario: impl FnOnce()) {
     );
 }
 
-/// A directory standing in for the one the game is installed in, empty of everything a run left
-/// behind.
+/// The directory standing in for the one the game is installed in, which is where orb reads `orb.yaml`,
+/// writes the runs left unfinished, and finds `font.ttf`.
 ///
-/// **No `font.ttf` in it**, and that is the glyph seam arriving: it used to hold a copy of Windows'
-/// own Arial under the name the game's font is installed as, because `AddFontResourceExW` takes a path
-/// and a path that is not a font is not something `Font::load` survives. Whether a font is there is a
-/// thing a scenario declares now — `Sim::text().install_font` — so what was being matched is no longer
-/// whichever face the machine happened to have.
+/// **A path and nothing else: no directory of this name is made anywhere.** Everything orb reads or
+/// writes under it goes through the file seam and lands in `orb_sim::Files`, which is per simulated
+/// Windows and so per e2e test — so there is nothing to empty first, nothing left behind by a test that
+/// failed, and no two tests sharing a directory. See
+/// [docs/adr/0012](../../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+///
+/// Named after the test all the same, so that a path in the log says which one wrote it.
+///
+/// **No `font.ttf` under it**, and that is the glyph seam: whether a font is there is a thing an e2e test
+/// declares — `Sim::text().install_font` — so what a baked string is matched against is no longer whichever
+/// face the machine happened to have.
 pub fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("orb-{name}-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).expect("a scratch directory");
-    dir
+    PathBuf::from("game").join(name)
 }

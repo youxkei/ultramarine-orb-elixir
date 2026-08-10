@@ -324,8 +324,8 @@ fn collect_committed(span: std::ops::Range<usize>, out: &mut Vec<(usize, usize)>
 /// all, because no two entries here ever touch each other: this is the only thing that adds one.
 ///
 /// **Below the seam and not above it**, which is where it was and is the one thing about this that could
-/// be got wrong quietly: it is a rule about real pages. A laid-out game answers with the objects a
-/// scenario put there, and two of those merged because they abut is one range nothing in that space can
+/// be got wrong quietly: it is a rule about real pages. A laid-out game answers with the objects an
+/// e2e test put there, and two of those merged because they abut is one range nothing in that space can
 /// read — measured, as 26 of `orb-core`'s own tests failing on a 61440-byte range that is two.
 fn push_merged(out: &mut Vec<(usize, usize)>, (base, len): (usize, usize)) {
     let (mut base, mut end) = (base, base + len);

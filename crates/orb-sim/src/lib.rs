@@ -24,6 +24,7 @@ use orb_api::{
 mod clock;
 mod display;
 mod drawing;
+mod files;
 mod joystick;
 mod keyboard;
 mod log;
@@ -35,10 +36,11 @@ mod window;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
 pub use drawing::{DEVICE, Drawn, Quad, Recording};
+pub use files::Files;
 pub use joystick::{Joystick, POV_CENTERED};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
-/// The seeded stream the host's own unevenness is drawn from, for a scenario that has unevenness of its
+/// The seeded stream the host's own unevenness is drawn from, for an e2e test that has unevenness of its
 /// own to declare: how long the game's frame takes is the game's business rather than the host's, and a
 /// run whose every draw comes from one seed is a run that replays.
 pub use noise::Noise;
@@ -97,23 +99,25 @@ pub struct Sim {
     /// The joystick winmm has, which is not the controller DirectInput has: that one is laid out in the
     /// game's own memory, and this is the device on the other branch of the game's own read.
     joystick: Joystick,
-    /// The fonts a scenario says are beside the game, and every string baked through one.
+    /// The fonts an e2e test says are beside the game, and every string baked through one.
     glyphs: Glyphs,
     /// The device the game shows its frames through, keeping what it was asked to draw.
     drawing: Recording,
     log: Log,
+    /// The files orb reads and writes of its own, kept rather than written — see [`Files`].
+    files: Files,
     /// The ranges orb has said are its own — where it keeps the copies a snapshot holds. Nothing is
     /// ever excluded from anything here, `private_regions` answering with none; what the list is for
-    /// is a scenario asking whether the copies a chapter took were given back with it.
+    /// is an e2e test asking whether the copies a chapter took were given back with it.
     ours: Mutex<HashMap<usize, usize>>,
-    /// The threads the game has said it created. Nothing is ever stopped; what the list is for is a
-    /// scenario asking whether orb noticed one.
+    /// The threads the game has said it created. Nothing is ever stopped; what the list is for is an
+    /// e2e test asking whether orb noticed one.
     threads: Mutex<Vec<u32>>,
     /// The heaps and the reservations orb has said the game took. Nothing is ever walked — laid-out
     /// memory answers `game_regions` on its own — and what the lists are for is the same as `threads`'.
     noticed: Mutex<Noticed>,
     /// The threads that have put themselves below the game's priority, by [`thread_id`]. Nothing is
-    /// scheduled differently for it; what the list is for is a scenario asking that a thread of orb's
+    /// scheduled differently for it; what the list is for is an e2e test asking that a thread of orb's
     /// own said so, and that the frame's did not.
     below_normal: Mutex<Vec<u32>>,
     host_exe: Mutex<PathBuf>,
@@ -128,7 +132,7 @@ pub struct Sim {
     dialogs: Mutex<Vec<(String, String)>>,
     /// The code orb asked the host to end the process with, where it has. Written down instead of
     /// happening: a suite that really exited would take the harness's child with it, so the giving
-    /// up is a thing a scenario reads back rather than a thing it survives.
+    /// up is a thing an e2e test reads back rather than a thing it survives.
     exited: Mutex<Option<u32>>,
 }
 
@@ -143,7 +147,7 @@ impl Sim {
         Self::seeded(0)
     }
 
-    /// With the host's non-determinism drawn from `seed`, which a scenario names in its assertions so
+    /// With the host's non-determinism drawn from `seed`, which an e2e test names in its assertions so
     /// that a failure can be replayed.
     pub fn seeded(seed: u64) -> Self {
         Self {
@@ -156,6 +160,7 @@ impl Sim {
             glyphs: Glyphs::new(),
             drawing: Recording::new(),
             log: Log::new(),
+            files: Files::default(),
             ours: Mutex::new(HashMap::new()),
             threads: Mutex::new(Vec::new()),
             noticed: Mutex::new(Noticed::default()),
@@ -213,13 +218,13 @@ impl Sim {
         &self.joystick
     }
 
-    /// The fonts and the strings baked through them, for a scenario that says a font is beside the game
+    /// The fonts and the strings baked through them, for an e2e test that says a font is beside the game
     /// or asks which string went into a texture.
     pub fn text(&self) -> &Glyphs {
         &self.glyphs
     }
 
-    /// The device the game shows through, for a scenario reading back what was drawn on a frame.
+    /// The device the game shows through, for an e2e test reading back what was drawn on a frame.
     pub fn drawing(&self) -> &Recording {
         &self.drawing
     }
@@ -231,7 +236,7 @@ impl Sim {
         self.drawing.says(&self.glyphs, text)
     }
 
-    /// How many ranges orb is holding copies of the game's memory in, for a scenario asking whether
+    /// How many ranges orb is holding copies of the game's memory in, for an e2e test asking whether
     /// the ones a chapter took were given back with it.
     pub fn copies_held(&self) -> usize {
         self.ours.lock().unwrap().len()
@@ -291,6 +296,12 @@ impl Sim {
         &self.log
     }
 
+    /// The files orb reads and writes of its own: what an e2e test says it finds there, and what it reads
+    /// back of what orb wrote.
+    pub fn files(&self) -> &Files {
+        &self.files
+    }
+
     /// Where the game is installed, which is the directory orb reads `orb.yaml` and writes the log
     /// in.
     pub fn set_host_exe(&self, path: impl Into<PathBuf>) {
@@ -336,7 +347,7 @@ impl Win for Sim {
     }
 
     /// Out of the laid-out space, with nothing to unprotect: what a page's protection is is the real
-    /// host's business, and a space that modelled one would be refusing writes a scenario asked for.
+    /// host's business, and a space that modelled one would be refusing writes an e2e test asked for.
     ///
     /// Always answers, an address nothing is mapped at panicking the way every other read here does.
     fn replace_word(&self, address: usize, value: usize) -> Option<usize> {
@@ -355,7 +366,7 @@ impl Win for Sim {
 
     /// Remembered, and the walk answers without them: a laid-out game's memory *is* the game's, so
     /// there are no heaps to walk and no reservations to have been told about. What the lists are for is
-    /// a scenario asking whether orb noticed one.
+    /// an e2e test asking whether orb noticed one.
     fn note_heap(&self, heap: usize) {
         let mut noticed = self.noticed.lock().unwrap();
         if !noticed.heaps.contains(&heap) {
@@ -476,7 +487,7 @@ impl Win for Sim {
     }
 
     /// Out of the same declared metric a baked string is measured by — one answer per em height,
-    /// whichever rasteriser asks. Two knobs for the two would be two numbers a scenario had to keep in
+    /// whichever rasteriser asks. Two knobs for the two would be two numbers an e2e test had to keep in
     /// step for no question it asks; the bar is written at 30 pixels of em and the overlay at 15 and 19,
     /// so nothing declares one of these and moves the other by accident.
     fn measure_lines(&self, lines: &[String], em: i32) -> (i32, i32) {
@@ -510,7 +521,7 @@ impl Win for Sim {
     }
 
     /// UTF-8, lossily. A code page is a property of the machine, so a simulated one would be a table
-    /// nobody could check — and the device names a scenario declares are the names it then reads back.
+    /// nobody could check — and the device names an e2e test declares are the names it then reads back.
     fn codepage_text(&self, bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
     }
@@ -519,7 +530,7 @@ impl Win for Sim {
         thread_id()
     }
 
-    /// Remembered, and nothing is ever stopped. A simulated game runs on the thread the scenario is
+    /// Remembered, and nothing is ever stopped. A simulated game runs on the thread the e2e test is
     /// on, so there is nothing else touching the memory a copy covers — and what `SuspendThread` does
     /// is checked against real threads a test makes and registers itself, in `orb-api`, rather than
     /// against a model of it here.
@@ -550,6 +561,30 @@ impl Win for Sim {
 
     fn close_log(&self, file: LogFile) {
         self.log.close(file);
+    }
+
+    fn read_file(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        self.files.read(path)
+    }
+
+    fn read_file_to_string(&self, path: &Path) -> std::io::Result<String> {
+        self.files.read_to_string(path)
+    }
+
+    fn write_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.files.write(path, bytes)
+    }
+
+    fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
+        self.files.create_dir_all(path)
+    }
+
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        self.files.remove_file(path)
+    }
+
+    fn files_in(&self, path: &Path) -> std::io::Result<Vec<PathBuf>> {
+        self.files.files_in(path)
     }
 
     fn module_path(&self, module: Option<usize>) -> Option<PathBuf> {
@@ -596,7 +631,7 @@ impl Win for Sim {
 
     // --- the device -------------------------------------------------------------
     //
-    // Which device is nothing to any of these: a simulated host has the one a scenario's game shows
+    // Which device is nothing to any of these: a simulated host has the one an e2e test's game shows
     // through, and the handle is there because a real one has several and the game says which.
     // `Recording` is where the record is; these are the eighteen slots reaching it.
 
@@ -626,8 +661,8 @@ impl Win for Sim {
 
     fn delete_state_block(&self, _device: Device, _token: u32) {}
 
-    /// Nothing. Which states the drawing sets is above the seam and has its own tests there; what a
-    /// scenario reads back is the quads, and a record of every state written would be a record of the
+    /// Nothing. Which states the drawing sets is above the seam and has its own tests there; what an
+    /// e2e test reads back is the quads, and a record of every state written would be a record of the
     /// drawing's own source.
     fn set_render_state(&self, _device: Device, _state: u32, _value: u32) {}
 
@@ -675,13 +710,13 @@ impl Win for Sim {
     fn unlock_rect(&self, _texture: Texture, _level: u32) {}
 
     /// Nothing, and the storage stays. The drawing may release a texture twice — a `Label` re-baked
-    /// releases the one before — and what a scenario asks after a frame is what went into it, so a
+    /// releases the one before — and what an e2e test asks after a frame is what went into it, so a
     /// release that freed the rows would take the answer with it.
     fn release_texture(&self, _texture: Texture) {}
 
     // --- the buffer the game's music is played out of ----------------------------
     //
-    // The sound a scenario installed, which is a thread's rather than this value's — see
+    // The sound an e2e test installed, which is a thread's rather than this value's — see
     // `crate::sound`, and `Sound::install`, which is what tells this host where the buffer is.
 
     fn buffer_position(&self, buffer: SoundBuffer) -> (Hresult, u32, u32) {
@@ -703,7 +738,7 @@ impl Win for Sim {
     }
 
     /// Nothing. The rows stay where they are for as long as the sound does, so there is nothing to give
-    /// back — and what a scenario reads afterwards is those same bytes.
+    /// back — and what an e2e test reads afterwards is those same bytes.
     fn unlock_buffer(&self, _buffer: SoundBuffer, _locked: LockedBuffer) {}
 
     fn play_buffer(&self, buffer: SoundBuffer, _reserved: u32, _priority: u32, flags: u32) {
@@ -719,7 +754,7 @@ impl Win for Sim {
     }
 
     /// Nothing. Buffers are never lost here: what `Restore` is for is a device that has been taken away,
-    /// which no scenario does.
+    /// which no e2e test does.
     fn restore_buffer(&self, _buffer: SoundBuffer) {}
 }
 

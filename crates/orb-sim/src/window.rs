@@ -31,7 +31,7 @@ use orb_api::{Bar, Hwnd, Rect};
 /// panel's own once it has, so the same monitor has two sizes and a layout is right or wrong depending
 /// on which it used. Which is the whole reason orb calls `SetProcessDPIAware` before it reads a monitor
 /// at all: without it a client asked for on a scaled panel is laid out against a fraction of it, and
-/// Windows scales the result behind the game's back. The pair below is a scenario's to declare.
+/// Windows scales the result behind the game's back. The pair below is an e2e test's to declare.
 #[derive(Clone, Copy)]
 pub struct Monitor {
     /// The pixels the panel really has, which is what it reports once the process is DPI aware.
@@ -50,7 +50,7 @@ impl Monitor {
         }
     }
 
-    /// One with no scaling on it, which is every monitor a scenario is not asking about scaling.
+    /// One with no scaling on it, which is every monitor an e2e test is not asking about scaling.
     pub fn plain(width: i32, height: i32) -> Self {
         Self {
             real: (width, height),
@@ -63,7 +63,7 @@ impl Monitor {
 ///
 /// A property of the host and its theme, which is why it is declared here and not worked out: the frame
 /// round the caption-and-system-menu style orb asks for is whatever the theme draws, and orb's layout
-/// has to hold for any of them. What a scenario charges is the number below.
+/// has to hold for any of them. What an e2e test charges is the number below.
 #[derive(Clone, Copy)]
 pub struct Frame {
     pub width: i32,
@@ -113,7 +113,7 @@ pub struct Made {
 /// A stack of lines this host has been asked to write in the black beside the game: where it went, and
 /// what was in it.
 ///
-/// Which is the whole of what a scenario can ask about the status line — the height the lines got, which
+/// Which is the whole of what an e2e test can ask about the status line — the height the lines got, which
 /// of the two bars they went in, where the block landed, and that a shorter stack afterwards clears the
 /// rows the longer one wrote in. Nothing is rasterised: what a line comes out as at an em height is the
 /// declared metric, the same one a baked string is measured by.
@@ -178,7 +178,7 @@ impl Windows {
 
     /// What the monitor reports *now*, which is the scaled size until the process has said otherwise.
     ///
-    /// Written down as it is answered, so that a scenario can say the read happened on the far side of
+    /// Written down as it is answered, so that an e2e test can say the read happened on the far side of
     /// `SetProcessDPIAware` rather than only that its answer was the real pixels — see
     /// [`monitor_reads`](Self::monitor_reads).
     ///
@@ -195,7 +195,7 @@ impl Windows {
     /// Every read of the monitor, in the order they came, each with whether the process had said it
     /// was DPI aware when it was answered.
     ///
-    /// Which is the whole of how a scenario says orb read the monitor's real pixels rather than its
+    /// Which is the whole of how an e2e test says orb read the monitor's real pixels rather than its
     /// scaled ones: an `false` here is a read taken before the process asked to be told the truth, and
     /// every size laid out from it is laid out against a monitor that is not there.
     pub fn monitor_reads(&self) -> Vec<(bool, Rect)> {
@@ -264,8 +264,8 @@ impl Windows {
             .map(|made| made.client)
     }
 
-    /// Every window this host has been asked to make, in the order it was asked — which is how a
-    /// scenario says that one was made and that nothing came before it to flash on the screen.
+    /// Every window this host has been asked to make, in the order it was asked — which is how an
+    /// e2e test says that one was made and that nothing came before it to flash on the screen.
     pub fn made(&self) -> Vec<Made> {
         self.made.lock().unwrap().clone()
     }
@@ -274,7 +274,7 @@ impl Windows {
     ///
     /// Always, where there is a rectangle to write in at all. What a real blit fails for is a device
     /// context that is not a window's, and orb's answer to that is to leave the bar holding whatever it
-    /// held and put it right on the next call — which is behaviour a scenario reaches by asking for a
+    /// held and put it right on the next call — which is behaviour an e2e test reaches by asking for a
     /// window this host has never made.
     pub(crate) fn write_lines(&self, window: Hwnd, bar: Bar, lines: &[String]) -> bool {
         if bar.area.width() <= 0 || bar.area.height() <= 0 || self.client(window).is_none() {

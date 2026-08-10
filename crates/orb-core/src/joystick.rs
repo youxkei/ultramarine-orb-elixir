@@ -56,8 +56,8 @@ const DETACHED_MS: u32 = 1000;
 /// How many reads a `verbose` line covers: a second's worth while a joystick answers, and
 /// far rarer than that while none does, which is when there is least to say about it.
 ///
-/// **Which is why no scenario reaches that line.** A real host waits the four milliseconds, so a
-/// scenario waiting for one waits a second of wall clock — for a line about what the reads cost.
+/// **Which is why no e2e test reaches that line.** A real host waits the four milliseconds, so an
+/// e2e test waiting for one waits a second of wall clock — for a line about what the reads cost.
 /// Reachable, and not worth a second of the suite.
 const REPORT_READS: u32 = 250;
 

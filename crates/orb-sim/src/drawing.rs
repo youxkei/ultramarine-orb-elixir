@@ -23,7 +23,7 @@ use orb_api::{Device, Locked, Texture, Viewport};
 
 use crate::Glyphs;
 
-/// What the game shows through, as a scenario's game writes it into its own memory.
+/// What the game shows through, as an e2e test's game writes it into its own memory.
 ///
 /// Any address: what it is for is that orb reads it out of the game's memory and hands it back to the
 /// seam, so the only thing it has to be is a number that comes out as it went in. A laid-out game maps a
@@ -118,14 +118,14 @@ struct Vertex {
 ///
 /// Boxed, and never taken out of [`Recording::textures`] while the recording lives. A lock hands out the
 /// address of these rows and the drawing writes through it, so the storage must not move — and a
-/// release does not free it, both because the drawing may release twice and because what a scenario
+/// release does not free it, both because the drawing may release twice and because what an e2e test
 /// asks afterwards is what went in.
 struct Held {
     width: u32,
     pixels: Vec<u32>,
 }
 
-/// The device a scenario's game shows through, and everything asked of it.
+/// The device an e2e test's game shows through, and everything asked of it.
 ///
 /// **Whatever keeps this installed has to be a field of it** rather than a second value handed back
 /// beside it: a guard returned alongside drops *first*, so the installation goes away while the textures
@@ -138,7 +138,7 @@ pub struct Recording {
     /// The texture bound to stage 0, which the next quad is drawn with.
     bound: Mutex<usize>,
     /// The next handle to hand out. Well clear of [`DEVICE`], so that a device and a texture can never
-    /// be mistaken for one another in a record a scenario reads.
+    /// be mistaken for one another in a record an e2e test reads.
     next: Mutex<usize>,
 }
 
@@ -173,7 +173,7 @@ impl Recording {
         }
     }
 
-    /// Forgets what has been drawn, so that what a scenario asserts about is one frame rather than the
+    /// Forgets what has been drawn, so that what an e2e test asserts about is one frame rather than the
     /// textures the drawing uploaded while it was being built.
     pub fn forget(&self) {
         *self.drawn.lock().unwrap() = Drawn::default();
@@ -274,7 +274,7 @@ impl Recording {
     pub(crate) fn drew(&self, count: u32, vertices: &[u8], stride: u32) {
         if stride as usize != size_of::<Vertex>() || count != 2 {
             // Not the two-triangle strip the drawing draws. Said rather than decoded as one, because a
-            // silent misread here would be a scenario asserting about quads that were never drawn.
+            // silent misread here would be an e2e test asserting about quads that were never drawn.
             return;
         }
         if vertices.len() < 4 * size_of::<Vertex>() {

@@ -14,7 +14,7 @@ shape a run plays with and the one a session watching the title menu does not re
 **The five-line experiment answered *record and return*.** Both filters stayed green and neither got
 slower — `pacing::` 15.1s against 15.1s, `orb-e2e` as a whole 16.3s against 16.4s — so a simulated host
 writes the milliseconds down and returns at once. Which makes the count of them this machine's clock speed
-rather than a cadence, so `orb_sim::Clock::sleeps` collapses a run of equal asks: what a scenario reads back
+rather than a cadence, so `orb_sim::Clock::sleeps` collapses a run of equal asks: what an e2e test reads back
 is *which* numbers were asked for, in order, and that is what a cadence is. The numbers are beside that
 function rather than here, being the kind that goes stale.
 
@@ -60,7 +60,7 @@ function rather than here, being the kind that goes stale.
    height a stack got, `bar.align` and `bar.x` for which of the two bars, `bar.area` for where the block
    landed, and `bar.area` again on a shorter stack for the rows it clears. The cleared rows turned out to be
    the *last stack's own block* and not the widest ever painted — `PAINTED` holds one block — which is
-   correct and is what the scenario now says.
+   correct and is what the e2e test now says.
 
 ## Context
 
@@ -74,12 +74,12 @@ lot of it.
 **And 0009's own status records the weaker property in place of the one its title claims.** It says
 `crates/orb` "names `windows-sys` in every one of them", which is true and is a different sentence: it
 says the boundary is where Windows is, not where the patching is. The rule 0009 sets —
-*the code a scenario drives cannot reach Windows except through the seam* — does hold, and
+*the code an e2e test drives cannot reach Windows except through the seam* — does hold, and
 `cargo xtask seam` holds it. What does not hold is the other half of the same thought, which is that
-everything a scenario *ought* to be able to drive is above the seam.
+everything an e2e test *ought* to be able to drive is above the seam.
 
 **What is missing is not reach — it is where the answers stop coming back**, and getting that the wrong way
-round would send somebody looking for code a scenario cannot get to. A scenario gets to nearly all of
+round would send somebody looking for code an e2e test cannot get to. An e2e test gets to nearly all of
 `orb`, because a game laid out by hand has no import table and so *calls* each rewrite where a real launch
 has the entry patched. Seven doors:
 
@@ -89,9 +89,9 @@ $ grep -rhoE 'orb::[a-z_]+(::[a-z_]+)?' crates/orb-e2e/src | sort -u
 
 Everything those reach runs. What happens at the far end is the thing.
 
-`write_beside` runs on every frame of every scenario and gets as
+`write_beside` runs on every frame of every e2e test and gets as
 far as `GetDC` of `Hwnd(0x1234)`, which is null, and returns; the sampling thread runs, loops, and calls a
-real `Sleep` nobody writes down. So the layout above those calls is *executed and unreadable*: a scenario
+real `Sleep` nobody writes down. So the layout above those calls is *executed and unreadable*: an e2e test
 cannot say how often the pad is sampled, what orb said about the device it found, which font height the bar
 chose, where the block landed, or that a shorter stack of lines clears the rows the last one wrote in. What
 moves the boundary is not reaching further but having the simulated host answer where a null handle answers
@@ -134,12 +134,12 @@ wrote in; `report_no_bar` is the judgement that there is nowhere to write at all
 which clears, writes and blits in one operation so that a refresh cannot land between the clear and the
 text, and `fitting_font`, which measures the widest line to choose a height.
 
-**And the line already runs where a scenario can see the first of those and not the rest**, which is what
+**And the line already runs where an e2e test can see the first of those and not the rest**, which is what
 says where the boundary really is. `orb-e2e`'s `the_window` calls `letterbox` and asserts the rectangle to
 the pixel — `(320, 0, 2240, 1440)` on a 16:9 client — and it calls `write_beside` twice and asserts
 `report_no_bar`'s judgement both ways: that the `no black to write in` line does *not* appear where there
 are 320 pixels of it, and that it appears with the client's own numbers in it where a 4:3 window leaves
-none. So the judgement is covered. What is not is everything past `GetDC`, which in a scenario is a null
+none. So the judgement is covered. What is not is everything past `GetDC`, which in an e2e test is a null
 handle: the height `fitting_font` chose, where the block landed, and `union`'s clearing of the rows before
 — which was a bug that was fixed and has never had a test.
 
@@ -180,8 +180,8 @@ kind of thing.
 The three `install_over`s go the same way, and for the same reason: each one stores an address the game
 handed over into the static its own hook body reads, which is what `attach_to` already does for the fifteen
 slots of `Originals`. So `attach_to` and `detached` are `orb-core`'s too, and what is left in `orb` is
-`DllMain`, `attach`, `install_hooks`, `hook`, `pe` and `crash` — none of which a scenario has ever reached,
-`joystick::install`'s own doc saying so of itself: *the one thing in this module no scenario reaches*.
+`DllMain`, `attach`, `install_hooks`, `hook`, `pe` and `crash` — none of which an e2e test has ever reached,
+`joystick::install`'s own doc saying so of itself: *the one thing in this module no e2e test reaches*.
 
 ### `Rect` gains `#[repr(C)]`, before anything is moved
 
@@ -233,7 +233,7 @@ that page, its `VTABLE_TRIES` loop and the hazard note above it all go.
   body because that is where the thread is, and `std::thread::Builder` has nowhere to say it.
 - **`codepage::text(bytes) -> String`** — `MultiByteToWideChar` with `CP_ACP`, for a device name winmm
   gives in the machine's own code page. A simulated host answers the bytes as UTF-8, lossily, and that is
-  not a gap: what a scenario asks of the line is which device it names, and `orb_sim::Joystick` is where
+  not a gap: what an e2e test asks of the line is which device it names, and `orb_sim::Joystick` is where
   the name it names was declared.
 
   **A module of its own, `crates/orb-api/src/codepage.rs`, and neither of the two it could have been put
@@ -264,7 +264,7 @@ do.
 vertex layout below the line — and the failure that bracket exists to prevent is the *game's own scene*
 drawing wrong, which no test below the seam could see. Here there is no such bracket. The black beside
 the game is orb's alone, Direct3D never touches it, and the one failure below this line is a flicker,
-which `paint`'s single `BitBlt` prevents and which no test could have seen either way. What a scenario
+which `paint`'s single `BitBlt` prevents and which no test could have seen either way. What an e2e test
 *can* have an opinion about is which bar the lines went in and where in it they started, and that is
 exactly what stays above.
 
@@ -287,13 +287,13 @@ seam's now, and only the device's `Present` slot is still handed the other way.
 ## What was weighed and rejected
 
 - **Leaving it and recording it.** The cheapest, and it is what the status of 0009 does today. Rejected
-  because what it records is that a document's title is wrong about its own tree, and the four things a
-  scenario cannot ask stay unaskable — which is the cost, not the untidiness.
+  because what it records is that a document's title is wrong about its own tree, and the four things an
+  e2e test cannot ask stay unaskable — which is the cost, not the untidiness.
 - **Moving the sampling thread and leaving the status line.** Half the work for most of the benefit: the
   joystick's is 250 lines against the status line's 330, and the three seam calls it wants are far smaller
   than the two the bar wants. Rejected because it leaves the rule stated and broken in the same tree,
   which is the state this decision exists to end — and because *nothing has ever tested the status line*,
-  which makes it the half where a scenario is worth more.
+  which makes it the half where an e2e test is worth more.
 - **A `Win::status_line(lines)` that took the whole thing.** It reads better and it is the mistake 0009
   named: `BAR_TEXT_MIN` is a judgement about what is still readable and `union` is a bug that was fixed,
   and neither would be reachable. What is below the line here is one blit and one measurement, and that is
@@ -311,12 +311,12 @@ seam's now, and only the device's `Present` slot is still handed the other way.
 
 ## Before starting
 
-**The sampling thread is a real thread in a scenario, and every step below rests on that.** It is not
+**The sampling thread is a real thread in an e2e test, and every step below rests on that.** It is not
 laid out and it is not stubbed: `answer` calls `start_polling`, which calls `orb_api::thread::spawn`, whose
 whole reason for existing is that it carries the installed simulated Windows onto the thread it makes —
 its own doc says what a plain `std::thread::spawn` there would cost, *the joystick poller reading this
-machine's own winmm instead of the one a scenario laid out*. So the thread really runs, really loops, and
-really calls `Sleep`, in the middle of a scenario. `crates/orb-e2e/src/mode_on_a_winmm_pad.rs` is where it
+machine's own winmm instead of the one an e2e test laid out*. So the thread really runs, really loops, and
+really calls `Sleep`, in the middle of an e2e test. `crates/orb-e2e/src/mode_on_a_winmm_pad.rs` is where it
 is driven.
 
 **Two things go first, and the first of them is the last step tried early.** Take `orb` out of
@@ -336,9 +336,9 @@ change kept.
 
 **And the second, because a `no` there changes the shape.** `Win::sleep` under a
 simulated host cannot advance the clock: a background thread moving the frame loop's own counter would
-break every pacing scenario, each of which asserts about that counter to the microsecond. But a `sleep`
+break every pacing e2e test, each of which asserts about that counter to the microsecond. But a `sleep`
 that records the ask and returns immediately leaves `poll` going round as fast as a core will let it for
-the length of a scenario. So the question is which of those two a simulated host answers with, and it is a
+the length of an e2e test. So the question is which of those two a simulated host answers with, and it is a
 five-line experiment — `Win::sleep` recording and returning, then:
 
 ```sh
@@ -347,11 +347,11 @@ $ cargo xtask test -p orb-e2e -- mode_on_a_winmm_pad
 ```
 
 **Both have to stay green and neither may get materially slower**, which is the whole of the criterion:
-the first is the clock the thread must not move, the second is the scenario the thread runs hardest in.
+the first is the clock the thread must not move, the second is the e2e test the thread runs hardest in.
 Green and no slower, take it — recording the ask is what makes the cadence assertable and no wait is
 needed for that. Slower, and the simulated host waits the milliseconds it was asked for instead, and the
 cadence is still asserted off the record rather than off the wait. **Neither, and the joystick's step is a
-different shape** — the thread's own loop would have to be something a scenario steps rather than something
+different shape** — the thread's own loop would have to be something an e2e test steps rather than something
 it starts, which is a bigger decision than this one and belongs in a document of its own.
 
 **Where it stands, and the commands rather than the numbers**, which are stale the moment the tree moves:
@@ -362,7 +362,7 @@ $ grep -c 'offset_of!' crates/orb-api/src/d3d8.rs crates/orb-api/src/dsound.rs
 $ cargo xtask seam && cargo xtask test
 ```
 
-**And the suite has one known intermittent**, so *green* below means green or that one: a scenario of
+**And the suite has one known intermittent**, so *green* below means green or that one: an e2e test of
 `orb-e2e`'s `the_music_across_a_restore` fails about one run in eight with `no sound has been installed on
 this thread`.
 
@@ -375,7 +375,7 @@ Ordered, and **each step ends with `cargo xtask test` green**.
 1. **The five-line experiment**, also in *Before starting*. Nothing else can start until it answers, and
    what it answers decides what `orb_sim`'s `sleep` does rather than whether the rest happens.
 2. **`clock::sleep` and `thread::below_normal`.** The two seam functions, `orb-sim` answering them —
-   recording the milliseconds asked for, so that a scenario can read the cadence back — and the sampling
+   recording the milliseconds asked for, so that an e2e test can read the cadence back — and the sampling
    thread calling them where it calls `Sleep` and `SetThreadPriority` now. Nothing moves crates yet, so
    this step is the seam widening and the suite unchanged.
 3. **`codepage::text`.** One function in `crates/orb-api/src/codepage.rs`, and `joystick::name` becomes a
@@ -388,7 +388,7 @@ Ordered, and **each step ends with `cargo xtask test` green**.
    The entry is `pub unsafe extern "system" fn answer(device: u32, into: *mut JoyInfo) -> u32` and it stays
    whole: its address is what `install` writes into the import table, and **a game laid out by hand calls it
    too** — `crates/orb-e2e/src/fake/th06.rs` calls `orb::joystick::answer(JOYSTICK_0, &mut info)` where its
-   own read would have gone through that entry, so the signature is a scenario's and must not change. What
+   own read would have gone through that entry, so the signature is an e2e test's and must not change. What
    is left of it here is three lines: start the sampling if it is not started, ask `orb-core` for an answer,
    and where there is none call through the entry the import held.
    - `orb_core::joystick::sampling()` takes the `POLLING` compare-and-exchange and the
@@ -401,7 +401,7 @@ Ordered, and **each step ends with `cargo xtask test` green**.
      address `install` took out of the import table, or the function `install_over` was handed. Both of
      those are `orb`'s, so the static is, and the fall-through is the entry's own last line.
 
-   **The first step a scenario gains something from**: the cadence and the line that names the pad become
+   **The first step an e2e test gains something from**: the cadence and the line that names the pad become
    things one can assert.
 5. **The bar's two seam functions**, `orb-api`'s `real/window.rs` holding `paint` and `fitting_font`, and
    `orb-sim` recording the lines and the rectangle they went in. That file's own opening — *which real
@@ -417,13 +417,13 @@ Ordered, and **each step ends with `cargo xtask test` green**.
    **`GAME_WINDOW` is the one static that has a writer on each side, and it moves.** The rewrite of
    `CreateWindowExA` stores the window it made and stays in `orb`; `letterbox` and `write_beside` read it
    and move. Which window the game got is a fact about the run rather than about the patch, so it goes with
-   the readers — `orb_core::window::window_created(Hwnd)` is what the rewrite calls, and a scenario reading
+   the readers — `orb_core::window::window_created(Hwnd)` is what the rewrite calls, and an e2e test reading
    the letterbox back no longer needs a launch to have happened for the address to be there.
 
-   **The riskiest step**, and the one to write a scenario *before* rather than after. It is the shipped
+   **The riskiest step**, and the one to write an e2e test *before* rather than after. It is the shipped
    path for everything orb says about itself, and `cargo xtask test` staying green says almost nothing
    about it: the suite runs `write_beside` on every frame and it returns at `GetDC` of a handle that is
-   not a window, so the 330 lines being moved are green today whatever is done to them. The scenario that
+   not a window, so the 330 lines being moved are green today whatever is done to them. The e2e test that
    makes the step verifiable is the one the move makes possible — which font height a stack of lines got,
    which of the two bars it went in, where the block landed, and a shorter stack afterwards clearing the
    rows the longer one wrote in.
@@ -470,7 +470,7 @@ Ordered, and **each step ends with `cargo xtask test` green**.
 12. **The dependency and the `rlib`, kept this time.** The same two lines as step 0, and the survey there is
     what says the list is empty: `crates/orb-e2e/Cargo.toml` loses `orb`, `crates/orb/Cargo.toml` loses
     `rlib` from `crate-type`, and it compiles. **This is the step that proves the rest** — it cannot be made
-    to compile while anything a scenario drives is still in `orb` — which is why it is tried at the
+    to compile while anything an e2e test drives is still in `orb` — which is why it is tried at the
     beginning and kept at the end, and why every error it prints at the beginning is a line of the worklist.
 
     **`orb` keeps unit tests of its own after this, and a `cdylib`-only crate still runs them**, which had
@@ -494,21 +494,21 @@ Ordered, and **each step ends with `cargo xtask test` green**.
     makes true, whose step 8 prediction it vindicates, and whose correction #4 it turns from a finding into
     a thing that was true of that step and not of the design.
 
-**What it buys.** Not reach — a scenario runs almost all of this already — but answers where a null handle
+**What it buys.** Not reach — an e2e test runs almost all of this already — but answers where a null handle
 answers now. Four things become askable: how often a pad that is answering is read and how often one that
 is not, what orb says about the device it found, which bar the status line went in and where in it the
 block landed, and that a stack of fewer lines clears the rows the last one wrote in, which is a bug that
 was fixed and has never had a test. And one mechanism goes: with the walk and the bar on the seam's far
 side, the only thing handed from `orb-core` back into `orb` is the device's `Present` slot.
 
-**And what it does not buy.** Not one line of what a scenario runs changes: the fake calls the same
+**And what it does not buy.** Not one line of what an e2e test runs changes: the fake calls the same
 functions at the same points under `orb_core::` names, so `cargo xtask test` passing at step 12 says the
-move was faithful and nothing more. What stops being reachable from a scenario is `DllMain`, `attach`,
-`install_hooks`, `hook`, `pe` and `crash` — which no scenario reaches today either, a laid-out game having
+move was faithful and nothing more. What stops being reachable from an e2e test is `DllMain`, `attach`,
+`install_hooks`, `hook`, `pe` and `crash` — which no e2e test reaches today either, a laid-out game having
 neither an import table nor PE headers. **So the coverage is the same before and after**, and the thing that
 changed is that the crate boundary now says so.
 
 **What it costs.** Step 5 rewrites a shipped drawing path whose far end no test reaches, so until the
-scenario named in that step exists the only witness before and after is a launch: the four lines in the
+e2e test named in that step exists the only witness before and after is a launch: the four lines in the
 black beside the game, at both sizes the bar can be, on a window whose letterbox leaves room for one and on
-one that does not. That is a launch's to answer until the scenario stands behind it.
+one that does not. That is a launch's to answer until the e2e test stands behind it.

@@ -8,7 +8,7 @@
 //! present failed, and from `main`'s own `D3DERR_DEVICENOTRESET` arm. `src/GameWindow.cpp`, `src/main.cpp`.
 //!
 //! **A laid-out game with its device already in place never reaches that hook**, which is why this file
-//! exists: every other scenario here writes the device before orb is attached, so the hook was dead code and
+//! exists: every other e2e test here writes the device before orb is attached, so the hook was dead code and
 //! the phase a real launch spends without one was a phase nothing had ever run. See
 //! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
 //!
@@ -65,7 +65,7 @@ fn orb_draws_nothing_until_the_games_device_setup_runs() {
         );
 
         // And now orb draws: the question it puts over the game's own title menu, which is what every other
-        // scenario in this tree reads off the screen from the first frame.
+        // e2e test in this tree reads off the screen from the first frame.
         //
         // A frame between the overlay and the press, and it is not politeness. Whether a decide is held back
         // for a question is decided in the frame hook and read by the input hook on the frame *after*, and

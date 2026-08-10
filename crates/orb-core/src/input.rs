@@ -16,6 +16,9 @@ pub struct Keyboard {
     reading: bool,
 }
 
+/// Beside `new` because the module is public, and one with nothing read yet is exactly what `new` makes.
+/// Nothing calls it, which is why every coverage run reports it as never entered — the six of these are all
+/// the same one.
 impl Default for Keyboard {
     fn default() -> Self {
         Self::new()

@@ -1,6 +1,6 @@
 //! A keyboard a test presses.
 //!
-//! Every key at once, the way `GetKeyboardState` answers, so what a scenario sets is the state orb
+//! Every key at once, the way `GetKeyboardState` answers, so what an e2e test sets is the state orb
 //! would have read — not a press it has interpreted. Whether two keys down on one frame is a press
 //! of both is then orb's answer to give and not the simulator's.
 
@@ -55,7 +55,7 @@ impl Keyboard {
         self.sent.lock().unwrap()[key as usize] = if sending { DOWN } else { 0 };
     }
 
-    /// Lets everything up, which is what a scenario does between two presses of the same key: a
+    /// Lets everything up, which is what an e2e test does between two presses of the same key: a
     /// press is an edge, so a key held across frames is one press however many frames it is held.
     pub fn release_all(&self) {
         *self.keys.lock().unwrap() = [0; 256];
@@ -87,12 +87,12 @@ impl Keyboard {
     }
 }
 
-/// The virtual-key codes orb's own menus read, so a scenario presses the key somebody would rather
+/// The virtual-key codes orb's own menus read, so an e2e test presses the key somebody would rather
 /// than a number.
 ///
 /// Here rather than in `orb-core`, where the same six are `const` and private: what those are is
-/// orb's business, and a test naming them itself is what makes a scenario fail if orb changes which
-/// key answers.
+/// orb's business, and an e2e test naming them itself is what makes it fail if orb changes which key
+/// answers.
 pub mod keys {
     pub const RETURN: u8 = 0x0d;
     pub const ESCAPE: u8 = 0x1b;

@@ -71,7 +71,7 @@ thread_local! {
     ///
     /// Per thread rather than in a `MainThread`, which is what it was. In the game there is one
     /// frame thread and the two are the same thing; in a test binary there are as many as there
-    /// are scenarios running at once, each of them the frame's thread for its own run, and a
+    /// are e2e tests running at once, each of them the frame's thread for its own run, and a
     /// single buffer between them is two `&mut` to one `Vec`. The cost is a thread-local lookup
     /// twice a frame.
     static HELD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };

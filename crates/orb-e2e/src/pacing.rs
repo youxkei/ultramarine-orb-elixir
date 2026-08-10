@@ -1,7 +1,7 @@
 //! **orb's own frame loop: the shape it has, the rate it holds, and the log it writes about itself.**
 //!
-//! Every scenario over the one subject is here, each in a process of its own —
-//! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so a scenario owns a
+//! Every e2e test over the one subject is here, each in a process of its own —
+//! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so an e2e test owns a
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
 //! `dead_code` allow over it: a helper nothing calls reads as dead, which twelve binaries could not
@@ -63,7 +63,7 @@ macro_rules! a_test_per_rate {
 // able to believe.
 //
 // Roughly the rate rather than the exact turn. The host wakes the waiting thread when it gets round to
-// it and its compositor is slow now and then — see `orb-sim/src/display.rs` — so a scenario that
+// it and its compositor is slow now and then — see `orb-sim/src/display.rs` — so an e2e test that
 // asserted a turn to the microsecond would be asserting that the host is a metronome, which none is.
 //
 // Every one of these takes values: microseconds, the log's own lines, and the message a failure
@@ -86,7 +86,7 @@ macro_rules! a_test_per_rate {
 ///
 /// So the band is what the modelled host does, and it is nowhere near the rates a defect produces: 30
 /// on a latched allowance, 48, 52, 71. What it does not distinguish is a second that lost a refresh
-/// from one that did not — the `shown` line's own count is what says that, and the scenarios read it
+/// from one that did not — the `shown` line's own count is what says that, and the e2e tests read it
 /// where it matters.
 const NEAR_SIXTY: f64 = 6.0;
 
@@ -94,15 +94,15 @@ const NEAR_SIXTY: f64 = 6.0;
 ///
 /// Tight, unlike [`NEAR_SIXTY`], because this is not a tolerance — it is the question "was this second
 /// sixty frames a second or was it not". Half a frame either way is the game running at its own speed;
-/// anything more is a second that lost a refresh or gained one. What the scenarios then assert is the
+/// anything more is a second that lost a refresh or gained one. What the e2e tests then assert is the
 /// *proportion* of seconds that were, which is the shape the answer wants: a run is not "60fps ± 6", it
 /// is 60fps for so much of its length.
 const AT_SIXTY: f64 = 0.5;
 
-/// How many hosts a scenario is held against.
+/// How many hosts an e2e test is held against.
 ///
 /// One is not enough: the wake delays are drawn, so a run is one of many the machine could have given.
-/// A scenario that holds for one seed and not another has found something a real machine can do, which
+/// An e2e test that holds for one seed and not another has found something a real machine can do, which
 /// is a defect and not a flake — so every assertion names the seed it failed on.
 const SEEDS: u64 = 4;
 
@@ -224,7 +224,7 @@ fn assert_every_second_at(handovers_us: &[i64], wanted: f64, seed: u64, said: &s
 
 /// Most of the seconds were sixty, and the run as a whole was.
 ///
-/// For a scenario where something is *meant* to cost a frame its blank now and then: a spike does
+/// For an e2e test where something is *meant* to cost a frame its blank now and then: a spike does
 /// that by definition, and the second it lands in comes out a frame short. What must not happen is
 /// the run losing the rate — a dip is a dip, and a stretch of them is a slow game.
 ///
@@ -297,7 +297,7 @@ const WORST_SECOND: f64 = 47.0;
 
 /// What one of orb's own `frame:` reporting lines says, taken apart.
 ///
-/// Parsed rather than matched as text, so that a scenario says what the numbers have to be — and
+/// Parsed rather than matched as text, so that an e2e test says what the numbers have to be — and
 /// strictly, because the shape of the line is as much of what is being held as the numbers are:
 /// `Pacing::report` is what somebody looking into a stutter has in front of them, and a line that has
 /// stopped saying one of these is a line they can no longer read.
@@ -387,7 +387,7 @@ impl Reported {
     }
 
     /// The rate the line itself says the run came out at, which is the one somebody reads off the log
-    /// rather than off a scenario's own arithmetic.
+    /// rather than off an e2e test's own arithmetic.
     fn fps(&self) -> f64 {
         1_000_000.0 / self.interval_us as f64
     }
@@ -399,13 +399,13 @@ impl Reported {
 }
 
 /// What one of those lines is known by among the rest of the log, and the whole of how the line's own
-/// spelling reaches a scenario: `Pacing::report` is the only writer of it.
+/// spelling reaches an e2e test: `Pacing::report` is the only writer of it.
 const A_REPORT: &str = "us apart";
 
 /// Every `frame:` reporting line orb has written, in the order it wrote them.
 ///
 /// One per `profile::INTERVAL` frames, and only where the launch asked for the pacing log or is at
-/// `normal` or above — which is what a scenario about these has to have set.
+/// `normal` or above — which is what an e2e test about these has to have set.
 fn reports(lines: &[String]) -> Vec<Reported> {
     lines
         .iter()
@@ -417,7 +417,7 @@ fn reports(lines: &[String]) -> Vec<Reported> {
 /// The last of them: the run once whatever had to settle had settled.
 ///
 /// # Panics
-/// Where none was written, since a scenario asserting on one has run far enough for one to exist.
+/// Where none was written, since an e2e test asserting on one has run far enough for one to exist.
 fn reported(lines: &[String]) -> Reported {
     reports(lines).pop().unwrap_or_else(|| {
         panic!(
@@ -505,7 +505,7 @@ impl Shown {
 }
 
 /// What one of those lines is known by among the rest of the log, and the whole of how its own spelling
-/// reaches a scenario: `Pacing::shown` is the only writer of it.
+/// reaches an e2e test: `Pacing::shown` is the only writer of it.
 const PAST_THE_AIM: &str = "refreshes past the blank aimed at";
 /// And what the allowance is known by inside it.
 const GETS: &str = "the compositor gets ";
@@ -605,7 +605,7 @@ fn last_said(lines: &[String]) -> String {
 /// A display whose rate is a whole multiple of sixty: the same number of blanks to every frame.
 ///
 /// orb's own frame loop, driven by a game whose loop calls it — the real `configure`, `settle`,
-/// `wait_for_slot` and `finished`, in the order `render` composes them, over a compositor a scenario
+/// `wait_for_slot` and `finished`, in the order `render` composes them, over a compositor an e2e test
 /// declares. What drove this before was a copy of that loop written in a harness, and nothing held the
 /// copy to the original: the arithmetic was covered and the order it is asked for in was not.
 mod blanks {
@@ -1238,7 +1238,7 @@ mod budget {
 /// spell card starts that call is most of the frame's whole span — the `sound` figure of a `--pacing`
 /// line — so what it costs is a question about the frame the card starts on and not about a rate.
 ///
-/// Which is why the card is a frame the scenario names rather than one in three hundred: the sound is
+/// Which is why the card is a frame the e2e test names rather than one in three hundred: the sound is
 /// declared for one frame, through [`Work::sound_us`], which the fake game spends inside `PlaySounds`
 /// and nowhere else. The turns from that frame on are then read off directly, and which frame paid is
 /// the answer rather than something averaged away.
@@ -1264,7 +1264,7 @@ mod sound {
     /// answer to rather than one the ceiling refuses.
     const SOUND_US: i64 = 9_000;
     /// A second of play after the card, so the frames following it are judged over a stretch the
-    /// scenario names rather than over whatever is left of orb's reporting period.
+    /// e2e test names rather than over whatever is left of orb's reporting period.
     const AFTER: u32 = A_SECOND as u32;
 
     /// The card's own frame loses its blank, and what the run pays for it stops there.
@@ -1658,7 +1658,7 @@ mod compose {
     /// **A compositor with room to spare never moves the allowance**, which is the ratchet's own claim
     /// about itself: it steps for a frame that missed its blank and for nothing else.
     ///
-    /// The form of that question a scenario can ask without the host having to say where each frame landed:
+    /// The form of that question an e2e test can ask without the host having to say where each frame landed:
     /// a run with [`ROOMY_COMPOSE_US`]'s room in it has no frame that *can* miss, so any step at all is a
     /// step taken for a frame that landed where it was aimed. Which is worth being sure of rather than
     /// reasoning about, because a step is never given back — every wrong one is `MISS_STEP_US` of input lag
@@ -2106,7 +2106,7 @@ mod rates {
     /// two refreshes a frame throughout, which is the same thing.
     ///
     /// Here the compositor really is 59 and 119 rather than 59.94 and 119.88, since those are the numbers
-    /// the scenario declares, so the rates to expect are 59 and 59.5.
+    /// the e2e test declares, so the rates to expect are 59 and 59.5.
     #[test]
     fn an_ntsc_rate_gets_the_displays_own_rate() {
         in_its_own_process(|| {
@@ -2895,7 +2895,7 @@ mod log_deferral {
     /// eight of them.
     const HZ: u32 = 60;
 
-    /// What the game's own work takes. Far larger than any other pacing scenario asks for, and that is the
+    /// What the game's own work takes. Far larger than any other pacing e2e test asks for, and that is the
     /// point: the stamps here are milliseconds, so the moment the loop drains and the moment it does the
     /// frame's work have to be milliseconds apart for the log to say which of them the line was written in.
     const WORK_US: i64 = 8_000;
@@ -2965,7 +2965,7 @@ mod log_deferral {
 // ── What the compositor's own counters are worth ─────────────────────────────────────────────────
 //
 // What this holds is that orb reports one of these numbers and that reporting it has to keep saying
-// nothing, which is why it is a scenario rather than a note about what a host was once seen doing.
+// nothing, which is why it is an e2e test rather than a note about what a host was once seen doing.
 //
 // The claim is a negative one, so it is asserted the only way a negative can be: the same frames are run
 // twice, against two hosts that differ in this one answer and in nothing else, and every number orb
@@ -3021,7 +3021,7 @@ mod counters {
     /// are worse: all zero, while `cFrameSubmitted` and `cFrameConfirmed` in the same read moved with the
     /// frames. So the call works and that family is not populated for the desktop query, which is the only
     /// one `DwmGetCompositionTimingInfo` accepts. None of those five is in [`Composition`] at all, which
-    /// is the whole of what that leaves behind: a field orb does not read is a field no scenario can say
+    /// is the whole of what that leaves behind: a field orb does not read is a field no e2e test can say
     /// anything about.
     ///
     /// And `cRefresh` was measured advancing by exactly one per read whether a run of frames had been

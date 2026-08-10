@@ -110,10 +110,10 @@ impl Keys {
     /// The frames left of that. For the tests, which is where holding the keys off at all is
     /// something to be said out loud rather than something a menu does.
     ///
-    /// `feature = "sim"` beside `test` because the scenarios that press keys at one of these menus
-    /// are in another crate, and this crate's own `cfg(test)` is false when it is compiled as their
-    /// dependency.
-    #[cfg(any(test, feature = "sim"))]
+    /// **`cfg(test)` and not `feature = "sim"` as well**, which it was: an e2e test has no way to a
+    /// `Keys` at all — each of the three menus keeps its own privately, and the menu a run is answering
+    /// is inside orb's runtime — so what an e2e test reads instead is the log line the answer wrote.
+    #[cfg(test)]
     pub fn held(&self) -> u32 {
         self.grace
     }

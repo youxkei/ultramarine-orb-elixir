@@ -61,7 +61,7 @@ static SCREEN: MainThread<Screen> = MainThread::new(Screen::Fullscreen);
 ///
 /// **Here rather than with the rewrite that stores it.** `orb::window`'s replacement of
 /// `CreateWindowExA` is the writer and stays there, being a patch; which window the game got is a fact
-/// about the run rather than about the patch, so it lives with the two that read it — and a scenario
+/// about the run rather than about the patch, so it lives with the two that read it — and an e2e test
 /// reading the letterbox back then needs no launch to have happened for the address to be there.
 static GAME_WINDOW: AtomicUsize = AtomicUsize::new(0);
 /// Worked out from the client area on the first present and kept until it changes.
@@ -241,8 +241,8 @@ pub unsafe fn settle(content: (u32, u32), screen: Screen) {
     // against reads as two thirds of itself. The game never asked to be told about scaling, so
     // orb asks for it.
     //
-    // And before the monitor is read rather than merely before the window is made, which is the part a
-    // scenario holds: `orb_sim::Windows::monitor_reads` writes down whether the process had said this
+    // And before the monitor is read rather than merely before the window is made, which is the part an
+    // e2e test holds: `orb_sim::Windows::monitor_reads` writes down whether the process had said this
     // when each read was answered, and a read on the wrong side of it lays the window out against
     // two thirds of the panel.
     let told = orb_api::window::set_process_dpi_aware();
@@ -297,7 +297,7 @@ fn client_area(window: Hwnd) -> Option<Rect> {
 /// The rectangle inside the client area that the game's output belongs in,
 /// recomputed only when the client area changes.
 ///
-/// `pub` for a scenario that says how much black there is beside the game: this is where the 320
+/// `pub` for an e2e test that says how much black there is beside the game: this is where the 320
 /// pixels either side of a 4:3 game on a 2560x1440 client are decided, and nothing else in orb says
 /// so — `orb::window`'s replacement of `Present` hands the rectangle straight to Direct3D and the bar
 /// beside it is written through the GDI.

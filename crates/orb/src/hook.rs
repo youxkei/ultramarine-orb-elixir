@@ -189,8 +189,8 @@ fn hex(bytes: &[u8]) -> String {
 
 /// [`install_import`] over a module synthesized here, which is the only way to reach it at all.
 ///
-/// **Not a scenario.** A laid-out game has no import table for that function to walk — which is why every
-/// scenario turns the memory hooks off, `Fake::attach_declaring` saying so beside the setting — so what
+/// **Not an e2e test.** A laid-out game has no import table for that function to walk — which is why every
+/// e2e test turns the memory hooks off, `Fake::attach_declaring` saying so beside the setting — so what
 /// stands behind it is a test over headers written out by hand. See
 /// [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
 ///

@@ -14,7 +14,7 @@
 //! simulated host answering with the string it baked the mask from. The mode itself is orb's own to
 //! report, and it does: `mode: pointdevice, was normal`.
 //!
-//! Several games in one file, each dropped before the next is attached, because what a scenario needs is a
+//! Several games in one file, each dropped before the next is attached, because what an e2e test needs is a
 //! launch and there is nothing about a launch that outlives it. **What makes the dropping load-bearing is
 //! that orb's own state is the process's**: the runtime, the pacing and the log's handle are statics, and
 //! `Fake`'s own `Drop` is what hands them over — `orb_core::runtime::detached` takes the runtime down and closes the log,
@@ -94,7 +94,7 @@ fn still_asking(game: &Fake) -> bool {
 
 /// How many times orb has reported an outcome for this question — a mode chosen, or neither.
 ///
-/// Counted rather than looked for, because a scenario asks the question more than once and a log line
+/// Counted rather than looked for, because an e2e test asks the question more than once and a log line
 /// once written is written for good: a condition that waits for one to *appear* is a condition already
 /// true the second time round, which is a press nobody made and an answer nobody gave.
 fn outcomes(game: &Fake) -> usize {

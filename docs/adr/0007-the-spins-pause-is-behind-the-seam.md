@@ -24,8 +24,8 @@ seconds and most of the suite's 95.
 **The obvious lever was measured and rejected in 0006.** `Clock::set_read_cost` makes every counter read
 cost more, which reaches the spin — but it also reaches every read *inside a span the game is measuring*,
 and `frame::budget`'s `READS_US = 10` is an allowance derived from a read costing one tick. Measured
-there: at 1µs a read, a span the game spent 4000µs in came back as 4029, and at 10µs as 4203, with a
-scenario failing for exactly that reason. So the knob works and corrupts the thing the scenarios are
+there: at 1µs a read, a span the game spent 4000µs in came back as 4029, and at 10µs as 4203, with an
+e2e test failing for exactly that reason. So the knob works and corrupts the thing the e2e tests are
 about.
 
 **`pause` appears in exactly one place in orb**, which is the observation this rests on. Nothing else
@@ -40,7 +40,7 @@ nothing else at all.
    property `mem::read` is built on.
 2. **The simulated host charges `PAUSE_TICKS = 10` ticks for it**, one microsecond, so a simulated
    frame's spin is 150 turns where it was 15,000.
-3. **The number is the coarsest step that leaves every scenario's answer unchanged**, and that is the
+3. **The number is the coarsest step that leaves every e2e test's answer unchanged**, and that is the
    rule for choosing it rather than a model of anything. A real `pause` is a hundredth of a microsecond;
    charging a hundred times that is deliberate. What it costs is where a frame lands: the loop reads the
    counter each turn and stops once past the deadline, so a landing falls in `[0, PAUSE_TICKS)` past it
@@ -48,12 +48,12 @@ nothing else at all.
 4. **The step above it is recorded because it fails**, and that record is the point. At 100 ticks —
    10µs — `scenario_pacing.rs` is 7.1 seconds instead of 17.5, and
    `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails: seed 3, a second at 46.83 frames
-   against a bound of 47. That is the scenario with a 250ms stage load on a display whose compositor has
+   against a bound of 47. That is the e2e test with a 250ms stage load on a display whose compositor has
    no room, so the one with least to give. **The answer to that failure is not to loosen the bound**, and
    a note saying so lives beside the constant, because a suite whose assertions move to make it faster
    has stopped being a check.
-5. **`Clock::set_pause_cost` exists for a scenario that needs a finer landing than the default**, in the
-   shape of `Display::as_a_metronome` — declared by the scenario that needs it, not tuned globally.
+5. **`Clock::set_pause_cost` exists for an e2e test that needs a finer landing than the default**, in the
+   shape of `Display::as_a_metronome` — declared by the e2e test that needs it, not tuned globally.
    Nothing uses it yet.
 
 ## What was weighed and rejected
@@ -97,5 +97,5 @@ nothing else at all.
 - **The seam is written down as the host's rather than as Win32's**, in `orb-api`'s module doc and in
   `SPEC.md`'s section, both of which said Windows and now say the host. `Win::spin_once` is the only
   member that is not a call, and what admits it is the test that admits every other one — the host doing
-  something to orb that no scenario could otherwise decide. Anything added beside it has to pass that
+  something to orb that no e2e test could otherwise decide. Anything added beside it has to pass that
   test too, and being an instruction is not by itself an argument in either direction.

@@ -1,6 +1,6 @@
 //! One 完全無欠モード run, from the question that starts it to the chapter it is picked up at.
 //!
-//! Every other scenario in the tree takes one mechanism at a time. This one takes the whole of what
+//! Every other e2e test in the tree takes one mechanism at a time. This one takes the whole of what
 //! the mode *is*, in the order somebody playing meets it, because the parts have to agree with each
 //! other and nothing that tests them apart can say whether they do: the chapter a death goes back to
 //! is the one the boundary detector named, the numbers it puts back are the ones the retry menu was
@@ -16,7 +16,7 @@
 //! one — through the `sim` feature — and nothing it drives can have a test-only path in it. Which
 //! crate's `tests/` is then free, and it is this one's because that is where the simulated Windows
 //! lives — see
-//! [docs/adr/0005](../../../docs/adr/0005-every-scenario-lives-in-orb-sims-tests.md).
+//! [docs/adr/0005](../../../docs/adr/0005-every-e2e-test-lives-in-orb-sims-tests.md).
 //!
 //! One `#[test]` in the file because there is one game in a process: orb's runtime, the record of what
 //! a run has pressed and which file its score goes to are one apiece, the way they are in the game.
@@ -30,7 +30,7 @@ use orb_core::menu_ui::{LINE_HEIGHT, NORMAL, SELECTED};
 use orb_core::mode::{Mode, aside, title};
 use orb_sim::keys;
 
-/// The run this scenario plays: Normal, Reimu A, from stage one.
+/// The run this e2e test plays: Normal, Reimu A, from stage one.
 fn the_run() -> RunStart {
     RunStart {
         difficulty: 1,

@@ -1,11 +1,11 @@
-# 9. `orb` injects and nothing else, every COM object orb calls is behind the seam, and the scenarios drive `orb-core` from a crate of their own
+# 9. `orb` injects and nothing else, every COM object orb calls is behind the seam, and the e2e tests drive `orb-core` from a crate of their own
 
 **Status:** accepted and built, and its title made true by
 [0010](0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md). Everything that
 decides what happens to a run is `orb-core`, whose `runtime.rs` holds the eleven hook bodies, `Runtime`
 and `Originals`; `cargo xtask seam` checks it and `orb-sim` for a host with no Windows, so a
 `windows-sys` import there fails to compile. Direct3D, DirectSound and the GDI's glyphs are behind the
-seam — eighteen slots, eight slots and four calls — and the 137 scenarios are `#[cfg(test)]` modules of
+seam — eighteen slots, eight slots and four calls — and the 137 e2e tests are `#[cfg(test)]` modules of
 `crates/orb-e2e/src/`. 356 tests pass, which is the 347 this was written against plus four the declared
 metric brought and five 0010 added.
 
@@ -18,7 +18,7 @@ So a hook body that needed Windows and patched nothing came out on `orb`'s side:
 thread and `window.rs`'s status line, about 250 and 330 lines, with the heap walk a third of the same kind
 reached through a handover. 0010 moves all three and `crates/orb` is nine files and 1346 lines. The rule
 this document sets held throughout and `cargo xtask seam` holds it; what did not hold until 0010 is that
-everything a scenario *ought* to be able to drive is above the seam.
+everything an e2e test *ought* to be able to drive is above the seam.
 
 **Six things the building found, each of which corrects something below.**
 
@@ -61,19 +61,19 @@ everything a scenario *ought* to be able to drive is above the seam.
    walk went to `orb-api`'s `real`, the slot's swap to `mem::replace_word`, and `Patches`,
    `hands_over_the_patches` and `hands_over_the_walk` with them.
 6. **`orb::detached` did not close the log, and that was a defect.** A real launch closes it from
-   `DllMain`'s `DLL_PROCESS_DETACH`; `detached` is the fake's game-closing and the only way out of a
-   scenario. Left open, the next `log::line` wrote through a handle onto a game that had gone — and where
+   `DllMain`'s `DLL_PROCESS_DETACH`; `detached` is the fake's game-closing and the only way out of an
+   e2e test. Left open, the next `log::line` wrote through a handle onto a game that had gone — and where
    the next thing along was another game in the same process, that write landed in *its* log before it had
    opened one, three counter reads at a time. Found by `pacing::counters`'s two runs coming out one
    microsecond apart.
 
 It stands on
-[0005](0005-every-scenario-lives-in-orb-sims-tests.md), which merged the two `tests/` directories and
+[0005](0005-every-e2e-test-lives-in-orb-sims-tests.md), which merged the two `tests/` directories and
 chose `orb-sim` for a reason this replaces, and on
 [0008](0008-the-fake-game-copies-the-game-orb-is-injected-into.md), which is why the fake game is worth
 this much care in the first place. It overturns part of
 [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md) — `Originals` becomes `orb-core`'s,
-and the exception 0002 records stops being one — takes [0003](0003-the-frame-loops-scenarios-are-one-file.md)'s
+and the exception 0002 records stops being one — takes [0003](0003-the-frame-loops-e2e-tests-are-one-file.md)'s
 reason for existing away, and replaces `recording.rs`'s own claim that the drawing needs no seam.
 
 ## Context
@@ -99,12 +99,12 @@ hold all ten up**: `memtrack.rs`, which hooks the exe's imports for the heap, an
 rasterises glyphs through GDI. Everything else they reach is `orb-core`'s already, or `orb_api`'s.
 
 **What the rule should have said.** The property worth having is not that `orb-core` builds on Linux. It
-is that **the code a scenario drives cannot reach Windows except through the seam** — because that is the
-whole of what makes a scenario evidence about a launch. `attach_to` fills the same statics `hook::install`
+is that **the code an e2e test drives cannot reach Windows except through the seam** — because that is the
+whole of what makes an e2e test evidence about a launch. `attach_to` fills the same statics `hook::install`
 fills, so orb's own code is identical in both and the only thing that can differ is what lies past a
-hook; a scenario is then a launch with the far side replaced. Today that property is false of the near
+hook; an e2e test is then a launch with the far side replaced. Today that property is false of the near
 side: `run_calc_chain`, `get_input`, `stage_begun` and the eight beside them live in `orb`, which may name
-`windows_sys` in any function. A hook body that grew a direct `GetAsyncKeyState` would make every scenario
+`windows_sys` in any function. A hook body that grew a direct `GetAsyncKeyState` would make every e2e test
 over it diverge from a launch, and nothing in the workspace would say so.
 
 **And `windows_sys` is not the test the rule can be operated by, which is the hole this decision closes
@@ -128,14 +128,14 @@ buys is not the ability to answer but that `orb-core` cannot reach past it. A CO
 already; what it is not is *this repository's* interface, and what the rule is about is which crate may name
 the far side of one.
 
-**The scenarios live in the simulator's `tests/`, and 0005 gives one reason:**
+**The e2e tests live in the simulator's `tests/`, and 0005 gives one reason:**
 
-> **`orb-sim` is where the thing every one of them installs lives.** A scenario's first act is to put a
+> **`orb-sim` is where the thing every one of them installs lives.** An e2e test's first act is to put a
 > `Sim` in front of `orb_api` and its last is to drop it.
 
 Every consumer of a library installs something of it, and that is not a reason to host that library's
-users' tests. 0005 weighed three alternatives — a `tests/scenario/` subdirectory, two-letter names in
-place of the word, and renaming without moving — and a crate of their own was not among them.
+users' tests. 0005 weighed three alternatives — a subdirectory of `tests/` holding them, two-letter names
+in place of a name, and renaming without moving — and a crate of their own was not among them.
 
 **What their being integration tests of `orb-sim` costs is paid twice, and both payments are written
 down.** `fake/mod.rs` carries a blanket allow over the whole of the fake game:
@@ -147,12 +147,12 @@ down.** `fake/mod.rs` carries a blanket allow over the whole of the fake game:
 > `#![allow(dead_code)]`
 
 Twenty-three binaries, so three thousand lines of fake game compiled twenty-three times and dead code in
-it invisible. And 0003 put sixty-three scenarios in one file for the same reason, in its own words:
+it invisible. And 0003 put sixty-three e2e tests in one file for the same reason, in its own words:
 
 > One file rather than twelve is `fake` compiled once instead of twelve times, and the judging below with
 > no `dead_code` allow over it: a helper nothing calls reads as dead, which twelve binaries could not see.
 
-So the tree already pays a design cost — one file holding sixty-three scenarios over one subject — to buy
+So the tree already pays a design cost — one file holding sixty-three e2e tests over one subject — to buy
 back what a crate would give for nothing.
 
 **And the cycle.** `orb-sim --dev--> orb --> orb-core --(sim)--> orb-sim` closes, which cargo takes
@@ -215,7 +215,7 @@ bare function name. The whole of the `orb-e2e` shape rests on that still selecti
 been tried. It is a five-line experiment and it goes first, because a `no` there changes the shape rather
 than the plan.
 
-**And the suite has one known intermittent**, so *green* below means green or that one: a scenario of
+**And the suite has one known intermittent**, so *green* below means green or that one: an e2e test of
 `scenario_the_music_across_a_restore.rs` fails about one run in eight with `no sound has been installed on
 this thread`, reproduced at `HEAD` before any of this work. A step that fails only that way has not broken
 anything.
@@ -234,7 +234,7 @@ which of them a `Config` asks for.
 What moves to `orb-core` is everything that decides what happens to a run: the ten files that already name
 no `windows_sys`, and out of `lib.rs` the **eleven hook bodies, `Runtime` and `Originals`**. A hook body is
 logic — it reads a `State`, asks `chapter` or `resume` for a decision, and calls through a function pointer
-out of a static. None of that is Windows, and it is precisely what a scenario drives.
+out of a static. None of that is Windows, and it is precisely what an e2e test drives.
 
 Five files are a hook and an arithmetic sharing a file, and each is split along that line: `window` (the
 rewrite of `CreateWindowExA`'s arguments and the letterbox rectangle, against the hooks that reach them),
@@ -274,9 +274,9 @@ about memory — and the drawing seam is the same: `set_render_state`, `capture_
 > Every draw is bracketed by a state block capture and apply. The game sets render states once and assumes
 > they stay set, so leaving so much as the vertex shader changed shows up as the whole scene drawing wrong.
 
-Which render states, how the bracket is made, the FVF and the vertex layout are `orb-core`'s and are what a
-scenario over the drawing is about. A seam that said *draw this text here* would take all of it below the
-line into `orb-api`'s `real`, where no scenario reaches — and the failure it exists to prevent is a scene of
+Which render states, how the bracket is made, the FVF and the vertex layout are `orb-core`'s and are what an
+e2e test over the drawing is about. A seam that said *draw this text here* would take all of it below the
+line into `orb-api`'s `real`, where no e2e test reaches — and the failure it exists to prevent is a scene of
 the game's own drawing wrong, which no test would then be able to see.
 
 **`d3d8.rs` goes with the seam rather than into a crate of its own.** Its 178 lines are `#[repr(C)]`
@@ -289,7 +289,7 @@ has already been paying for.
 **Glyph rasterisation is the third of those objects and not a part of its own.** `text.rs` loads the game's
 `font.ttf` process-private and bakes a coverage mask through GDI; `Win` gains *bake this string at this
 height*, `orb-api`'s `real` keeps the GDI, and `orb-sim` answers by **recording the string it was asked for
-and returning a mask built from a metric a scenario declares**. Two heights, `FONT_HEIGHT` and
+and returning a mask built from a metric an e2e test declares**. Two heights, `FONT_HEIGHT` and
 `MARK_FONT_HEIGHT`, so the ask names which; a mask and its own dimensions, because those are what the quad
 is sized from; and `Font::load`'s `AddFontResourceExW` goes with the baking or the simulator is left holding
 a font it cannot open.
@@ -301,8 +301,8 @@ game's font is installed as, and says why:
 > Windows' own, under the name the game's is installed as — GDI substituting a face is something
 > `Font::load` already survives, and a path that is not a font is not.
 
-So the pixels a scenario matches against today are Arial's, not 紅魔郷's, and *keeping them real* buys a
-fidelity that was never there. A metric a scenario declares is the shape everything else `orb-sim` answers
+So the pixels an e2e test matches against today are Arial's, not 紅魔郷's, and *keeping them real* buys a
+fidelity that was never there. A metric an e2e test declares is the shape everything else `orb-sim` answers
 with already has — `Panel::measured()`'s two sizes, `Work::flat`'s microseconds, `Display::agreed`'s hertz —
 and it takes away the one thing those exist to take away: an answer that depends on which fonts the machine
 happens to have. It also retires what `Screen`'s own doc records as the cost of the substituted face, *a test
@@ -316,7 +316,7 @@ does not arise. `Quad` and `Drawn` go with it as what the implementation records
 
 **`Screen` is deleted.** It exists to hold an `Overlay` and the device it was built on together, because
 `says` had to bake a string a second time through the same font at the same size to recognise it — which is
-why a scenario carries *two* overlays on one device, orb's own that draws and `Screen`'s that never draws.
+why an e2e test carries *two* overlays on one device, orb's own that draws and `Screen`'s that never draws.
 With the simulator recording the string it baked and the quad it was then asked to draw with that mask,
 `says` asks it. No second overlay, no bake held against itself, and no matching by pixel equality that
 works because two strings do not happen to rasterise alike. What `Screen::writes` did — the game drawing a
@@ -327,13 +327,13 @@ already does: install a `Sim`, build an `Overlay` through it, draw, and ask the 
 for. `Screen`'s three traps go with it — the drop order, one device per test, and the substituted face — none
 of which a `Sim` has.
 
-### `orb-e2e` holds the fakes and the scenarios
+### `orb-e2e` holds the fakes and the e2e tests
 
 A crate whose `src/` is the fake games — `mod.rs`'s half of any launch, `th06.rs`, `th07.rs` — and the
-recording device beside them, compiled **once**, with the scenarios as `#[cfg(test)]` modules over it.
+recording device beside them, compiled **once**, with the e2e tests as `#[cfg(test)]` modules over it.
 
 `#[cfg(test)]` is available here where it is not in `orb` or `orb-core`, and that is the whole of why the
-crate is worth making. 0001 and 0005 both give the reason the scenarios had to be integration tests: *a
+crate is worth making. 0001 and 0005 both give the reason the e2e tests had to be integration tests: *a
 crate under test cannot turn a feature on for itself*, so `orb-core`'s `sim` feature — which is how
 `game::th06::image` and the seam's install point are reached — cannot be enabled by `orb-core`'s own
 `#[cfg(test)]`. `orb-e2e` is not under test. It is a consumer, so it depends on
@@ -341,7 +341,7 @@ crate under test cannot turn a feature on for itself*, so `orb-core`'s `sim` fea
 
 **The fake is `pub(crate)`, and that is the condition on the whole thing.** `dead_code` does not fire on
 a `pub` item of a library, so a fake made `pub` to be reachable from `tests/` would delete the blanket
-allow and find nothing — the allow would go and what it was hiding would stay. The scenarios being
+allow and find nothing — the allow would go and what it was hiding would stay. The e2e tests being
 `#[cfg(test)]` modules of the same crate is what makes `pub(crate)` enough, and the two go together: either
 both, or neither buys the check back.
 
@@ -370,7 +370,7 @@ their files are**: what they need in place of a `Screen` is a `Sim`, which `orb-
 
 - **Arming the tripwire instead: a CI job that runs `cargo check -p orb-core --target
   x86_64-unknown-linux-gnu`.** Two lines, and it does check the property the manifest claims. It is worth
-  having either way and is not a substitute: what matters is that the code a scenario drives cannot reach
+  having either way and is not a substitute: what matters is that the code an e2e test drives cannot reach
   Windows, and a Linux check of `orb-core` says nothing at all about the eleven hook bodies in `orb`. It is
   in *What follows from it* as the first step, because it is cheap and it makes the boundary that arrives
   later self-enforcing.
@@ -382,7 +382,7 @@ their files are**: what they need in place of a `Screen` is a `Sim`, which `orb-
   shared bake, the geometry and the colour out of the suite with it.
 - **Abstracting the device rather than mirroring it** — a `Win::draw_text`, or a seam that took a rectangle
   and a colour. It reads better and it moves the render-state bracketing, the FVF and the vertex layout into
-  `orb-api`'s `real`, where nothing a scenario drives reaches them. The failure `overlay.rs`'s state block
+  `orb-api`'s `real`, where nothing an e2e test drives reaches them. The failure `overlay.rs`'s state block
   exists to prevent is the game's own scene drawing wrong, and below the seam no test could see it. Fifteen
   slots is a large trait; it is also the only one that keeps every decision above the line.
 - **Extracting `d3d8`'s declarations into a crate both `orb-core` and `orb-sim` could name.** It was the
@@ -401,18 +401,18 @@ their files are**: what they need in place of a `Screen` is a `Sim`, which `orb-
   the game does not ship, at the price of an answer that varies with the machine and of numbers nobody can
   read. It would also need `orb-api::real::text` made public purely so that a simulator which declares it
   names no `windows-sys` can reach Windows through the front door.
-- **A `tests/scenario/` subdirectory, or renaming without moving.** 0005 weighed both and its reasons
-  still hold; neither addresses the per-binary compilation, which is the cost this is about.
+- **A subdirectory of `tests/` holding them, or renaming without moving.** 0005 weighed both and its
+  reasons still hold; neither addresses the per-binary compilation, which is the cost this is about.
 - **One `orb-e2e` per game.** `fake/mod.rs` is already the half of a launch that both games share, and
-  `th07.rs` is one scenario. Two crates to keep in step for that is a manifest, not a boundary.
-- **Leaving 0003's sixty-three scenarios in one file after the move.** Not rejected — freed. Splitting them
+  `th07.rs` is one e2e test. Two crates to keep in step for that is a manifest, not a boundary.
+- **Leaving 0003's sixty-three e2e tests in one file after the move.** Not rejected — freed. Splitting them
   is then a choice about what a file is for rather than a way of buying dead-code detection back, and 0003
   says so once its reason has gone.
 
 ## What follows from it
 
 Ordered, and **each step ends with `cargo xtask test` green** — 347 tests at the time of writing, of which
-133 are scenarios, and *green* meaning green or the one intermittent *Before starting* names.
+133 are e2e tests, and *green* meaning green or the one intermittent *Before starting* names.
 
 **The order is structure, then seams, then moves**, and it is that way round because the seams rewrite call
 sites in code that ships while the rest moves files that do not. Doing the structural move first means every
@@ -426,7 +426,7 @@ twice.
    Independent of everything below, and it fails loudly the day the rule is broken by hand. That target and
    not a 64-bit one, for the reason *Before starting* measures.
 2. **`orb-e2e`, with the fake as its `src/`.** The crate, the workspace member, `fake/` moved in and made a
-   library and `pub(crate)`, the scenarios moved to `#[cfg(test)]` modules, `#![allow(dead_code)]` deleted
+   library and `pub(crate)`, the e2e tests moved to `#[cfg(test)]` modules, `#![allow(dead_code)]` deleted
    and whatever it was hiding dealt with. `crates/orb-sim/Cargo.toml` loses its dev-dependency on `orb`,
    which is the cycle gone. `recording.rs` stays in `orb` through this step — `orb-e2e` names `orb` until
    the last of the moves anyway, and step 3 is where that file stops being a device of its own.
@@ -452,7 +452,7 @@ twice.
    after step 6, and for the same kind of reason: `lib.rs` reaches every one of the five — nine references
    to `window::`, nine to `score::`, five to `joystick::`. `orb-e2e` stops naming `orb` here, and
    `crates/orb/Cargo.toml`'s `crate-type = ["cdylib", "rlib"]` can drop the `rlib` — its comment says the
-   `rlib` is there so that the scenarios can drive this crate, and after this they do not.
+   `rlib` is there so that the e2e tests can drive this crate, and after this they do not.
 9. **The documents.** `orb-core/src/lib.rs`'s own opening and `orb-core/Cargo.toml`'s reason rewritten to
    the rule this decision sets rather than the Linux one — and the manifest's *built and tested on a Linux
    runner* corrected, since it was not true of the target it implies. `recording.rs`'s own opening, which
@@ -462,10 +462,10 @@ twice.
    can be followed from either end.
 
 **What it buys, and one thing it does not.** No test that cannot be written today passes because of the
-moves: every file that moves is already driven by scenarios through `orb`'s `rlib`, and the fake game
+moves: every file that moves is already driven by e2e tests through `orb`'s `rlib`, and the fake game
 already calls the hook bodies where the real game's code calls them. The seams are different — they make
 `orb-core` unable to reach Windows at all rather than merely unlikely to, which is the property the whole
-decision is for, and they take three things out of the tree on the way: the second overlay a scenario
+decision is for, and they take three things out of the tree on the way: the second overlay an e2e test
 carries so that `says` can bake a comparison, the eight slot numbers `orb-sim/src/sound.rs` writes out
 because it cannot name the layout, and the note in `Screen`'s own doc that a test may ask where the drawing
 put something and not how wide it came out. What also arrives is that dead code in three thousand lines of

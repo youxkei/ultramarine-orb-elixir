@@ -1,6 +1,6 @@
 //! **The window orb makes: the size asked for, the monitor's real pixels, and the black beside the game.**
 //!
-//! What each scenario holds is the layout orb has to come out with on the host it declares — a scaled
+//! What each e2e test holds is the layout orb has to come out with on the host it declares — a scaled
 //! monitor that reads one size to a process which has not asked otherwise and another once it has, with a
 //! frame round a window of a chosen size. Both of those belong to the host and neither is a number a test
 //! could otherwise move, which is why they are declared through [`Panel::scaled`]: `orb_sim::Monitor`
@@ -21,12 +21,12 @@ use orb_sim::{Metric, Written};
 
 /// How far the text keeps from the edges of the window, and how tall a line of it is — the two numbers
 /// every rectangle below is worked out from. Written out rather than read off `orb_core::window`, which keeps
-/// both to itself: what a scenario holds is the geometry that came out, and a test that took its expected
+/// both to itself: what an e2e test holds is the geometry that came out, and a test that took its expected
 /// numbers from the code under test would agree with it whatever either said.
 const BAR_MARGIN: i32 = 8;
 const BAR_TEXT_HEIGHT: i32 = 30;
 
-/// The window in the settings for the scenarios about a chosen size, and the whole window this host
+/// The window in the settings for the e2e tests about a chosen size, and the whole window this host
 /// needs to give it that client: 1280x720 plus the 6x40 frame.
 const CLIENT: (u32, u32) = (1280, 720);
 const WHOLE: (i32, i32) = (1286, 760);
@@ -138,7 +138,7 @@ fn the_window(game: &Fake) -> orb_sim::Made {
 
 /// The stack of lines this host was last asked to write in the black beside the game.
 ///
-/// The last rather than the only one: a launch writes one whenever the lines change, and what a scenario
+/// The last rather than the only one: a launch writes one whenever the lines change, and what an e2e test
 /// asserts about is the one its own call put there.
 ///
 /// # Panics
@@ -556,7 +556,7 @@ fn a_stack_taller_than_the_black_under_the_game_starts_at_the_games_edge() {
         unsafe { orb_core::window::write_beside(&lines) };
         let bar = written(&game).bar;
 
-        // Taller than the black it goes in, which is what this scenario is about: without the clamp the
+        // Taller than the black it goes in, which is what this e2e test is about: without the clamp the
         // stack would start here, and that is inside the game.
         let unclamped = bar.bottom - bar.height * lines.len() as i32;
         assert!(
@@ -591,7 +591,7 @@ fn a_stack_taller_than_the_black_under_the_game_starts_at_the_games_edge() {
 ///
 /// Clipped at the bar's edge a line cannot be read at all, which is worse than small — so the em is
 /// scaled by the ratio the widest line overruns by. How wide a line comes out is the font's business, so
-/// this is the scenario that declares one: at 100 pixels a character the five of `CH 05` are 500 wide in
+/// this is the e2e test that declares one: at 100 pixels a character the five of `CH 05` are 500 wide in
 /// 312 pixels of black, and 30 pixels of em scaled by that is 18.
 #[test]
 fn a_stack_too_wide_for_its_bar_is_written_smaller() {

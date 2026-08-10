@@ -1,11 +1,11 @@
 //! **The music put back where a chapter had it, and the stream believing the file it was given.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine — two of them by ear, which is what the numbers beside them stand in for here.
 //!
 //! What the laid-out game brings is a stage that streams the two songs its data names —
 //! `Fake::plays_its_songs`, the stage's own and the boss's — which is the whole of what the question
-//! *which* chapters put their music back turns on. And where a scenario is about the stream itself
+//! *which* chapters put their music back turns on. And where an e2e test is about the stream itself
 //! rather than about which chapters rewind, `Fake::streams_its_song` gives it a real buffer and a real
 //! pair of winmm functions to call, which is what the seek, the byte-for-byte restore and the margin are
 //! read off.
@@ -15,6 +15,8 @@ use crate::fake::th06::{
 };
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
+use orb_core::game::Game;
+use orb_core::game::th06::Th06;
 use orb_sim::keys;
 
 /// What a chapter's line says about its music: put back with the chapter, or left playing through it.
@@ -42,7 +44,7 @@ fn playing(name: &str, frames: u32) -> Box<Fake> {
 /// What a chapter's line said about its music, for the chapter of that number.
 ///
 /// # Panics
-/// Where no such chapter was taken, with every chapter line: a scenario reading the music of a chapter
+/// Where no such chapter was taken, with every chapter line: an e2e test reading the music of a chapter
 /// that never began is about to assert on a line that is not there.
 fn music_of(game: &Fake, chapter: u32) -> String {
     let lines = game.log().lines();
@@ -177,7 +179,7 @@ fn a_sought_stream_keeps_its_countdown_and_still_takes_its_loop() {
     });
 }
 
-/// How far into the track the sound now audible begins, for the scenario above.
+/// How far into the track the sound now audible begins, for the e2e test above.
 ///
 /// Well inside the file and past a buffer's worth of it, which is what the episode needed to happen: the
 /// real one was **5,900,628** bytes into `th06_02.wav`.
@@ -207,7 +209,7 @@ fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
 
         // A chapter of the midboss's, which the stage's own song plays through — so one whose music is
         // put back rather than left playing. The stream is where the chapter's snapshot found it: nothing
-        // here moves it but a scenario saying so.
+        // here moves it but an e2e test saying so.
         game.frames_until("the chapter the card is", 900, || {
             game.log().said(&format!("at frame {CARD_STARTS}"))
         });
@@ -450,7 +452,7 @@ fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file
         });
         let at_the_chapter = game.stream_now();
 
-        // The streaming thread runs. Its own reads do not go through the game's handle — a scenario says
+        // The streaming thread runs. Its own reads do not go through the game's handle — an e2e test says
         // the thread ran, and what it reads is the file itself — so the position moves even though orb
         // cannot ask where it is.
         game.services_the_buffer();
@@ -484,8 +486,8 @@ fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file
     });
 }
 
-/// How often that scenario's restore comes round, in frames. Its own number: short enough that a chapter
-/// gets its four goes inside a scenario and long enough that the frames between them are frames.
+/// How often that e2e test's restore comes round, in frames. Its own number: short enough that a chapter
+/// gets its four goes inside an e2e test and long enough that the frames between them are frames.
 const RESTORED_EVERY: u32 = 20;
 
 /// And how far the play cursor is ahead of the offset the next chunk goes at. Inside a chunk, which is a
@@ -576,6 +578,72 @@ fn the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss
             music_of(&game, BOSS_ARRIVES_AT_CHAPTER).contains(", boss")
                 && boss[0].contains(", boss"),
             "the two fights are not both fights, so nothing here shows the kind was not the test",
+        );
+    });
+}
+
+/// **A stream whose buffer is no longer a live object is a stage whose chapters hold no sound.**
+///
+/// The word at the buffer's head is the whole of what orb has to tell a live COM object from the stale
+/// pointer a released one left behind, and it looks at it because the alternative is calling through that
+/// pointer: the game releases the buffer the moment it changes track, and a snapshot that copied the object
+/// back would be putting a freed one under the streaming thread.
+///
+/// So `Th06::music` answers nothing, and the whole of what follows is that: the stage waits out the whole of
+/// the wait for a track that will never be readable, takes its first chapter without sound, and plays on.
+/// Which is worth holding orb to because the run is still a run — the chapters rewind, the retry menu works,
+/// and only the music is gone.
+#[test]
+fn a_stream_whose_buffer_has_been_freed_leaves_the_chapters_without_sound() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-freed", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        // A real buffer first, so that what the next line does is take a live one away rather than never
+        // lay one out: a stage with no stream at all is a different launch.
+        game.streams_its_song(0);
+        game.plays_its_songs();
+        assert!(
+            Game::music(&Th06).is_some(),
+            "the stream was not readable before this e2e test freed its buffer",
+        );
+        game.image().frees_the_stream_buffer();
+        assert!(
+            Game::music(&Th06).is_none(),
+            "orb still reads a stream whose buffer is not a live object",
+        );
+
+        // The run goes as it always does, and its first chapter is taken with no sound in it.
+        game.in_a_pointdevice_run();
+        assert_eq!(
+            game.log()
+                .lines()
+                .iter()
+                .filter(|line| line.contains("chapter 1 (stage start)")
+                    && line.contains("music: false"))
+                .count(),
+            1,
+            "the stage's first chapter reports sound it cannot have read:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And the run is still a run: 被弾, チャプターをやり直す, and the chapter comes back.
+        game.frames_until("the card's chapter", CARD_STARTS + 400, || {
+            game.log().said(&format!(
+                "chapter 3 at frame {CARD_STARTS} (script {CARD_STARTS}): a midboss spellcard"
+            ))
+        });
+        let at_the_card = game.state();
+        game.hit();
+        game.frame();
+        assert!(game.log().said("died in chapter 3"));
+        game.press_until(keys::Z, "the retry menu answered", || {
+            game.log().said("retry: the chapter again on the keyboard")
+        });
+        assert_eq!(
+            game.state(),
+            at_the_card,
+            "a chapter with no sound in it did not come back",
         );
     });
 }

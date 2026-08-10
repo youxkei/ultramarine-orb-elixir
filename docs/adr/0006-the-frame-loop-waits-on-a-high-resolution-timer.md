@@ -108,7 +108,7 @@ document proposed to remove the millisecond.
    `Sim::dialogs` and `Sim::exited`. `orb-sim` writes them down instead of putting a modal window up: a
    suite that raised a real `MessageBoxW` would wait for a click that is never coming, and one that
    really exited would take the harness's child with it. Which is this seam's own test for whether a
-   call belongs behind it: there is behaviour here no scenario could otherwise reach.
+   call belongs behind it: there is behaviour here no e2e test could otherwise reach.
 5. **Where the dialog is raised is decided by `DllMain`, not by taste.** `Pacing::configure` runs inside
    it — `DllMain` calls `attach`, which calls `configure` — and a `MessageBoxW` under the loader lock
    loads `comctl32` and `uxtheme` and pumps messages into a process that is not finished starting, which
@@ -135,7 +135,7 @@ document proposed to remove the millisecond.
    given — that dropping the millisecond would otherwise take every log stamp back to the system tick —
    was wrong in a way that only strengthens it: the stamp was *already* at the system tick, 15ms, with
    the millisecond in force. So this is not a consequence of 7 at all. It is a repair of a divergence
-   that was there all along, in which the simulator was kinder than the host and the scenarios that read
+   that was there all along, in which the simulator was kinder than the host and the e2e tests that read
    a stamp were passing over a host that could not say when anything happened.
 
    Done above the seam rather than behind it: `clock::ticks` divides `counter()` by `frequency() / 1000`,
@@ -168,7 +168,7 @@ document proposed to remove the millisecond.
   share — is why. As the answer to a failed creation it is worse than refusing to run, because it is a
   launch that works and paces badly, which nobody reports as a fault against the right thing.
 - **Keeping `Sleep` for the case the timer cannot be made.** It is the smallest possible fallback and it
-  is still a second wait to keep working, a second path for a scenario to cover, and a configuration that
+  is still a second wait to keep working, a second path for an e2e test to cover, and a configuration that
   ships. A host below 1803 is not a host orb runs on, and saying so once is cheaper than supporting it
   quietly forever.
 - **Raising the dialog from `configure`, where the failure is found.** It is inside `DllMain`; see
@@ -218,11 +218,11 @@ document proposed to remove the millisecond.
   Not taken, on what it buys: a core parked that way is still the thread the OS thinks is running, so the
   sound gets nothing back and only the power is saved — 3.4 Gcycles per ten seconds of frames, nothing on
   a desktop and something on a laptop. Against that, inline assembly in a game's DLL, a CPUID branch, a
-  second path for Intel, a seam function, and no scenario able to reach any of it.
+  second path for Intel, a seam function, and no e2e test able to reach any of it.
 - **Making the simulator's counter coarser instead.** `Clock::set_read_cost` exists for this and nothing
   uses it. Measured against the 54.8-second baseline this had before the wait became exact: at 1µs a read
   `scenario_pacing.rs` went from 54.8 to **10.1 seconds**, at 10µs to
-  **5.4**, with exactly one scenario failing either way and failing for the right reason —
+  **5.4**, with exactly one e2e test failing either way and failing for the right reason —
   `budget`'s `READS_US = 10` is the allowance for how much the counter reads *inside* a measured span add
   to it, and it is derived from a read costing one tick. At 1µs a span the game spent 4000µs in reads
   back as 4029, at 10µs as 4203.
@@ -268,9 +268,9 @@ document proposed to remove the millisecond.
   found a second one and took the file to 17.5 seconds — below where it stood before this document.)
 - **`pacing_no_timer.rs` is about a call that no longer exists**, and it went where it had to. It was
   `Pacing::configure` against a host that refuses the millisecond timer; there is no millisecond timer to
-  refuse, so it is now the scenario over decisions 3 to 5 — a simulated host that refuses the creation,
+  refuse, so it is now the e2e test over decisions 3 to 5 — a simulated host that refuses the creation,
   and orb writing the line, putting up the modal and ending the process rather than pacing anyway, with a
-  second scenario asserting that the frame's turn is not waited out after that. Which is only writable
+  second e2e test asserting that the frame's turn is not waited out after that. Which is only writable
   because those two are behind the seam: the same file, asking the new question.
 - **`configure` no longer asks the host for anything**, and the line about coarse waits is gone with the
   question it answered. What a launch's log says about its waiting is now only what the pacing lines say,

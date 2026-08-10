@@ -4,7 +4,7 @@
 //! Far less of one than [`th06::image`](super::super::th06::image), and for the reason the `Th07`
 //! beside it declines almost everything: a frame of orb's own reads three things out of this space —
 //! the device it draws through, the window it asks about, and the chain it calls the update and the
-//! draw at — and the update and the draw themselves are functions a scenario hands over rather than
+//! draw at — and the update and the draw themselves are functions an e2e test hands over rather than
 //! code that would have to be here. Everything a run is made of is read by methods that answer without
 //! looking, so there is nothing of a run to lay out.
 //!
@@ -35,7 +35,7 @@ pub struct Image {
 
 impl Image {
     /// In a host whose non-determinism is drawn from `seed` — the wake delays and the compositor's
-    /// spikes — which a scenario names in its assertions so that a failure can be replayed. The one
+    /// spikes — which an e2e test names in its assertions so that a failure can be replayed. The one
     /// constructor, for the reason `th06`'s says.
     pub fn laid_out_seeded(seed: u64) -> Self {
         Self::mapped(Arc::new(Sim::seeded(seed)))
@@ -73,7 +73,7 @@ impl Image {
         super::G_GAME_WINDOW
     }
 
-    /// The chain the update and the draw are called on. Nothing is laid out at it — a scenario's own
+    /// The chain the update and the draw are called on. Nothing is laid out at it — an e2e test's own
     /// two functions are what orb calls, and this is the argument they are called with — so what it has
     /// to be is an address inside the space, which is what a real one is.
     pub fn chain_object(&self) -> usize {
@@ -81,7 +81,7 @@ impl Image {
     }
 
     /// The whole-output viewport the game keeps in one struct and orb writes as it prepares a frame,
-    /// for a scenario that reads back what orb put there.
+    /// for an e2e test that reads back what orb put there.
     pub fn viewport(&self) -> [u32; 4] {
         let space = self.space();
         [0, 1, 2, 3].map(|word| space.read::<u32>(super::VIEWPORT + word * 4))
@@ -91,7 +91,7 @@ impl Image {
         DATA
     }
 
-    /// The host this game is laid out in, for a scenario that needs more of it than the memory — the
+    /// The host this game is laid out in, for an e2e test that needs more of it than the memory — the
     /// display it declares, or which window is in front.
     pub fn sim(&self) -> &Arc<Sim> {
         &self.sim

@@ -5,7 +5,7 @@
 //! [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
 //!
 //! Behind the seam because a suite that really exited would take the harness's child with it, so
-//! there is behaviour here no scenario could otherwise reach.
+//! there is behaviour here no e2e test could otherwise reach.
 
 /// `ExitProcess`. Does not return on a real host.
 ///

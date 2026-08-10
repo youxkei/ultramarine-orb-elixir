@@ -4,10 +4,10 @@
 //! only the file and the clock behind it answered by a simulated Windows. That is the whole shape
 //! of these suites: orb's code, a host that is not there.
 //!
-//! **A unit test of the log, and not a scenario**, which is why its name does not begin `scenario_`
-//! like the runs beside it: what `log!` formats and which level keeps which line is not something a
-//! game decides, so there is nothing for a game to drive. What *is* a scenario is where the file goes
-//! — beside the game — and that is asserted over a whole run as well.
+//! **A unit test of the log, and not an e2e test**, which is what leaves it here rather than in
+//! `orb-e2e`: what `log!` formats and which level keeps which line is not something a game decides, so
+//! there is nothing for a game to drive. What *is* an e2e test is where the file goes — beside the game —
+//! and that is asserted over a whole run as well.
 //!
 //! One test to a file, because orb's log is process-global by design: the file handle, the level
 //! and the frame's thread are statics, and two tests in one binary would be writing each other's

@@ -1477,6 +1477,11 @@ impl Pacing {
     /// The launcher asks the same question before it injects anything, so the ordinary way an
     /// unsupported host is turned away is with the game never started. This is for the case the
     /// launcher was not the way in.
+    ///
+    /// **No e2e test enters it**, which is what that makes it: a host with no high-resolution timer is one
+    /// no game runs on, so what drives this is a test with no game in it — `orb-sim`'s `pacing_no_timer`,
+    /// which reaches it through the timer that will not be made rather than by name, and whose own header
+    /// says the dialog and the exit being behind the seam is what makes such a test writable at all.
     fn no_timer(&self) {
         log!(
             "frame: the host cannot create a high-resolution timer, which every wait is made on; stopping"

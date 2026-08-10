@@ -15,9 +15,9 @@ pub fn current_id() -> u32 {
 /// **The installation is per thread**, which is why this is here rather than a plain
 /// `std::thread::spawn` at the call site: a thread spawned without it sees no simulated host and falls
 /// through to the real one, and what that costs is the joystick poller reading this machine's own winmm
-/// instead of the one a scenario laid out — a test that cannot fail. Carried at the spawn rather than
+/// instead of the one an e2e test laid out — a test that cannot fail. Carried at the spawn rather than
 /// installed by the body, so that the body is the same code either way; `orb-sim`'s own
-/// `log_off_thread` scenario hands the same `Arc` to the thread it makes, which is the same move from
+/// `log_off_thread` e2e test hands the same `Arc` to the thread it makes, which is the same move from
 /// the other side.
 ///
 /// Nothing to carry in a shipped launch, where `installed()` is `None` and this is

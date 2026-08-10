@@ -1,6 +1,6 @@
 //! **`--collect` and `--judge`: the midstage chapter table built out of a replay.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! A boss's boundaries are found from the game as it is fought, but a stage's waves are a script on a
@@ -20,7 +20,7 @@ use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 
 /// The keys a boundary is looked at and decided with. orb's own names for them are in its `keys` module;
-/// these are the numbers, which is what a scenario presses.
+/// these are the numbers, which is what an e2e test presses.
 const HOLD: u8 = orb_config::keys::SPACE.0;
 const NEXT: u8 = orb_config::keys::RIGHT.0;
 const PREVIOUS: u8 = orb_config::keys::LEFT.0;
@@ -419,5 +419,8 @@ fn a_hand_edited_state_file_is_read_line_by_line_and_names_the_lines_it_cannot()
 /// Where it is not there, naming it: a pass that wrote nothing is a pass with nothing to assert about.
 fn read(game: &Fake, file: &str) -> String {
     let at = game.dir().join(file);
-    std::fs::read_to_string(&at).unwrap_or_else(|error| panic!("{}: {error}", at.display()))
+    game.sim()
+        .files()
+        .text(&at)
+        .unwrap_or_else(|| panic!("{} was not written", at.display()))
 }

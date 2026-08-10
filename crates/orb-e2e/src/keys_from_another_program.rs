@@ -1,6 +1,6 @@
 //! **`--sent-keys`: the game reading keys another program pressed, which is what drives an unwatched run.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! **A key another program sent is not a key a hand is holding, and the difference is which read sees it.**
@@ -19,7 +19,7 @@ use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen};
 use orb_sim::keys;
 
-/// How long a scenario gives the title screen to fall into its attract demo, in frames.
+/// How long an e2e test gives the title screen to fall into its attract demo, in frames.
 const INTO_THE_DEMO: u32 = DEMO_AFTER as u32 * 2;
 
 /// Runs frames until the attract demo is not only asked for but *running*.
@@ -121,6 +121,46 @@ fn an_injected_key_reaches_the_game_only_once_orb_has_released_its_device() {
         // The flag goes with the run when the front end is built, a frame later: it belongs to the run and
         // not to the screen, which is why `read_state` reads it out of the game manager.
         game.frames_until("the front end built over it", 8, || !game.state().demo);
+    });
+}
+
+/// And `--sent-keys` in a launch where the game holds no keyboard device: said as that, and the run goes on.
+///
+/// A state the game already knows how to be in — it is what its own setup leaves behind where the device it
+/// just made cannot be acquired — and there the game is *already* on the `GetKeyboardState` branch, so a
+/// sent key is read without orb doing anything. What orb must not do is let go of a device that is not
+/// there: the pointer it would read the vtable through is nothing.
+#[test]
+fn a_game_holding_no_keyboard_device_is_said_to_be_reading_the_other_way_already() {
+    in_its_own_process(|| {
+        let game = Fake::attach("sent-keys-none", the_run(), |config| {
+            config.sent_keys = true;
+            config.log_level = LogLevel::Verbose;
+        });
+        // Cleared before the first frame, which is where orb asks: the device does not exist until the game
+        // has made one, so the ask is on the frame hook rather than at the attach.
+        game.image().has_no_keyboard_device();
+        game.demos_when_idle();
+
+        game.frames_until("orb's one ask about the device", 8, || {
+            game.log().said("input: the game had no keyboard device")
+        });
+        assert!(
+            game.log().said(
+                "input: the game had no keyboard device to let go of; it was already reading the other way"
+            ),
+            "orb did not say the game had none:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And a sent key drives it all the same, the game being on the read that sees one already.
+        game.at_the_title_menu();
+        into_the_demo(&game);
+        assert!(game.state().demo);
+        game.keyboard().sends(keys::Z, true);
+        game.frames_until("the attract demo ended by a sent key", 8, || {
+            game.image().scene() == Scene::FrontEnd
+        });
     });
 }
 

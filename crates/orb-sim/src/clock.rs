@@ -37,9 +37,9 @@ const READ_TICKS: i64 = 1;
 /// `[0, PAUSE_TICKS)` past it rather than within a tick. Which is small against the wake delay a
 /// flush's return already carries, and against what a real landing was measured at.
 ///
-/// **It is the coarsest step that leaves every scenario's answer unchanged, and the next one up does
+/// **It is the coarsest step that leaves every e2e test's answer unchanged, and the next one up does
 /// not.** Measured by raising it until something failed: one step further and
-/// `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails, which is the scenario with a
+/// `holds::the_whole_multiple_with_no_room_on_a_restless_desktop` fails, which is the e2e test with a
 /// stage load on a display whose compositor has no room, so the one with the least of it to give. That
 /// failure is the reason this is
 /// not larger; whoever wants the suite faster should read it before raising this, and the answer is not
@@ -58,10 +58,10 @@ pub struct Clock {
     /// set it to zero.
     read_cost: AtomicI64,
     /// Whether the high-resolution timer every wait is made on can be created at all. A host that
-    /// cannot is one orb does not run on, and the whole of what happens then is a scenario's to
+    /// cannot is one orb does not run on, and the whole of what happens then is an e2e test's to
     /// drive — see [`refuse_the_timer`](Self::refuse_the_timer).
     timer: AtomicBool,
-    /// What one turn of the spin costs. [`PAUSE_TICKS`] unless a scenario has said otherwise —
+    /// What one turn of the spin costs. [`PAUSE_TICKS`] unless an e2e test has said otherwise —
     /// nothing that spins may set it to zero.
     pause_cost: AtomicI64,
     /// The coarse waits asked for, in order, with a run of equal ones held as one — see
@@ -114,7 +114,7 @@ impl Clock {
     /// Milliseconds since the host started, which is what every log line is stamped with: derived
     /// from the same counter so that the two cannot disagree about how long something took.
     ///
-    /// The same arithmetic `orb_api::clock::ticks` does above the seam, and here for a scenario that
+    /// The same arithmetic `orb_api::clock::ticks` does above the seam, and here for an e2e test that
     /// wants to know what a stamp should read. It used to be a divergence — the real host's stamp was
     /// `GetTickCount`, which advances by the system timer's tick and not by the counter this derives
     /// from — and
@@ -133,7 +133,7 @@ impl Clock {
         self.advance(self.pause_cost.load(Ordering::Relaxed));
     }
 
-    /// What one turn of the spin costs, for a scenario that wants a finer landing than [`PAUSE_TICKS`]
+    /// What one turn of the spin costs, for an e2e test that wants a finer landing than [`PAUSE_TICKS`]
     /// gives — at fifteen thousand turns a frame if it asks for a tick.
     pub fn set_pause_cost(&self, ticks: i64) {
         self.pause_cost.store(ticks, Ordering::Relaxed);
@@ -163,7 +163,7 @@ impl Clock {
     ///
     /// **The counter is not moved**, which is the one thing this may not do: the caller is a thread of
     /// orb's own and the counter is the frame loop's, so a wait here that advanced it would move a
-    /// number every pacing scenario asserts about to the microsecond. Nor is any real time spent —
+    /// number every pacing e2e test asserts about to the microsecond. Nor is any real time spent —
     /// measured both ways, and the suite is neither slower nor different for returning at once: 16.3s
     /// against 16.4s over `orb-e2e`, with `pacing::` unchanged at 15.1s.
     ///
@@ -177,7 +177,7 @@ impl Clock {
         }
     }
 
-    /// The coarse waits asked for, in order and with a run of equal ones as one — what a scenario reads
+    /// The coarse waits asked for, in order and with a run of equal ones as one — what an e2e test reads
     /// a sampling cadence back off. See [`sleep`](Self::sleep) for why the repeats are not kept.
     pub fn sleeps(&self) -> Vec<u32> {
         self.sleeps.lock().unwrap().clone()

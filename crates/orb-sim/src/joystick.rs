@@ -5,7 +5,7 @@
 //! `Image::controller` — so this is the device on the other branch, and the one orb's own menus have to
 //! read to answer to the same pad the game does.
 //!
-//! What a scenario says is what the two calls answer: where the stick is, and what the device is. Which is
+//! What an e2e test says is what the two calls answer: where the stick is, and what the device is. Which is
 //! the state orb would have read rather than a press it has interpreted — whether a stick pushed past its
 //! dead zone is a direction is orb's answer to give, out of the caps below, and not the simulator's.
 
@@ -16,7 +16,7 @@ use orb_api::{JoyCaps, JoyInfo, joyerr};
 /// A joystick 0, or none.
 ///
 /// A socket with nothing in it is what one starts as, and there is nothing here to take a device back
-/// out with: a scenario about the empty socket is one that never plugs anything in, and a pad *unplugged*
+/// out with: an e2e test about the empty socket is one that never plugs anything in, and a pad *unplugged*
 /// mid-run is a third thing again — `JOYERR_UNPLUGGED` rather than `JOYERR_PARMS` — that nothing asks for
 /// yet.
 pub struct Joystick {
@@ -110,7 +110,7 @@ impl Joystick {
         let mut device = self.device.lock().unwrap();
         let device = device
             .as_mut()
-            .expect("a joystick this scenario plugged in");
+            .expect("a joystick this e2e test plugged in");
         device.position.buttons = buttons;
         device.position.y = y;
     }
@@ -124,7 +124,7 @@ impl Joystick {
         let mut device = self.device.lock().unwrap();
         let device = device
             .as_mut()
-            .expect("a joystick this scenario plugged in");
+            .expect("a joystick this e2e test plugged in");
         device.position.pov = pov;
     }
 

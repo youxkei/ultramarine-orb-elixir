@@ -33,7 +33,7 @@ use orb_api::Device;
 /// reads reach — the enemy manager at 0x004b79c8, the cards at 0x005a5ff8, the lasers, the game
 /// manager at 0x0069bca0, the supervisor, the player, the managers — is *inside* this on the machine,
 /// so a snapshot there covers all of them. Windows covering each one separately left the rest outside
-/// what `data()` reported, and a chapter restored in a scenario put back less than the same chapter
+/// what `data()` reported, and a chapter restored in an e2e test put back less than the same chapter
 /// restores on the machine: measured as the script's clock coming back on hardware and not in a test,
 /// which is a simulator disagreeing with the thing it stands for.
 const DATA: Range<usize> = 0x0047_6000..0x006e_79fc;
@@ -117,7 +117,7 @@ const FRONT_END_ELEM: Range<usize> = 0x0300_e000..0x0300_f000;
 ///
 /// The gameplay scene's is the manager's own 4, and it stands in for the five jobs above it that
 /// `GameManager::AddedCallback` registers — the stage at 6, the player at 7, the enemies at 9, the effects
-/// at 10 and the bullets at 11. One job rather than five: they are one function here, and no scenario can
+/// at 10 and the bullets at 11. One job rather than five: they are one function here, and no e2e test can
 /// reach the difference because the memory that comes out of them is the same either way. Which is a
 /// declared stand-in in the sense
 /// [0001](../../../../docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md) means it.
@@ -248,7 +248,7 @@ const MAX_CLEARS: u8 = 99;
 /// what it compares, and clearing on Easy earns nobody an Extra.
 const CLEARS_THAT_COUNT: Range<usize> = 1..4;
 
-/// A stage in progress, as a scenario says it.
+/// A stage in progress, as an e2e test says it.
 ///
 /// Every field is one `read_state` parses back out of the game's memory, which is what makes a test
 /// that writes these and reads a `State` a test of the parse rather than of itself.
@@ -273,7 +273,7 @@ pub struct Playing {
 /// Apart from [`Playing`] because these are not what a frame is judged by — they are the fields of
 /// [`Reproduction`](crate::game::Reproduction), which is the line a run played back into a chapter is
 /// held against. A resume that arrives with any of them different is a resume that has come out of
-/// step, and these are what let a scenario say so.
+/// step, and these are what let an e2e test say so.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct Reproducing {
     pub score: u32,
@@ -471,7 +471,7 @@ pub struct Boss {
 /// A track, as the three numbers of its header that tell one from another: how long its wave file is,
 /// and where it loops — see `Th06::music_identity`, which is what reads them.
 ///
-/// A scenario's own numbers. Which they are does not matter and what matters is that two tracks are two
+/// An e2e test's own numbers. Which they are does not matter and what matters is that two tracks are two
 /// sets of them: a snapshot's music belongs to the track that was playing, and a track that has changed
 /// under it is one to start again rather than copy back.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -500,7 +500,7 @@ pub struct Image {
 
 impl Image {
     /// In a host whose non-determinism is drawn from `seed` — the wake delays and the compositor's
-    /// spikes — which a scenario names in its assertions so that a failure can be replayed.
+    /// spikes — which an e2e test names in its assertions so that a failure can be replayed.
     ///
     /// The seed is always said, there being no second constructor that leaves it out: one that did was
     /// `Sim::seeded(0)` under another name, and a test which does not care what the host does still has
@@ -561,7 +561,7 @@ impl Image {
 
     /// Lays a stage in progress over the game's globals.
     ///
-    /// In the game's own terms rather than as addresses, so that a scenario says what the game is
+    /// In the game's own terms rather than as addresses, so that an e2e test says what the game is
     /// doing and this file stays the only place that knows where any of it is kept. The offsets are
     /// the same constants [`Th06`](super::Th06) reads through, reached as a child module of it —
     /// which is what keeps the writer and the reader from drifting apart.
@@ -658,7 +658,7 @@ impl Image {
     /// makes into the game where the track has been replaced since the chapter was taken: the sound is
     /// torn down through the first and started again through the second.
     ///
-    /// Both together, because neither is reached without the other on that path — a scenario that handed
+    /// Both together, because neither is reached without the other on that path — an e2e test that handed
     /// over one would find the other's address under it.
     pub fn hands_over_the_music_calls(&self, stop_bgm: usize, play_audio: usize) {
         super::set_stop_bgm(stop_bgm);
@@ -748,14 +748,13 @@ impl Image {
         super::G_CHAIN
     }
 
-    /// What one element of it holds, as the walk reads them: which job it is, what to run it on, and the
-    /// one after it.
+    /// What one element of it holds, as the walk reads them: which job it is, and the one after it.
+    ///
+    /// The argument beside them is not read back. It is what *orb* finds an object by — `chain_argument`
+    /// in `th06/mod.rs`, which walks this list for the ending and the result screen — so a reader for it
+    /// here would be an e2e test holding orb's walk against a copy of itself.
     pub fn chain_callback(&self, elem: usize) -> usize {
         self.space().read(elem + super::chain_elem::CALLBACK)
-    }
-
-    pub fn chain_argument(&self, elem: usize) -> usize {
-        self.space().read(elem + super::chain_elem::ARG)
     }
 
     pub fn chain_next(&self, elem: usize) -> usize {
@@ -830,12 +829,6 @@ impl Image {
             at = self.space().read(at + super::chain_elem::NEXT);
         }
         false
-    }
-
-    /// And the shake taking itself down, which it does on the frame its own frames run out — the frame a
-    /// shake cut early never reaches.
-    pub fn cuts_the_shake_from_the_chain(&self) {
-        self.cuts_from_the_chain(SHAKE_ELEM.start);
     }
 
     /// `Chain::Cut`: the element unlinked from the calc chain, which is what the game's own call does and
@@ -1013,6 +1006,22 @@ impl Image {
         );
     }
 
+    /// The stage the game is about to build, written over whatever asked for one.
+    ///
+    /// For an e2e test declaring a game that builds a stage **other than the one it was asked for** — the
+    /// case a resume has to survive, the numbers it is holding belonging to the stage it asked about. Apart
+    /// from [`starts_a_run`](Self::starts_a_run), which writes the whole of a run: this is the one field, and
+    /// it is written where `Th06::start_stage` writes it.
+    ///
+    /// Counted the way that function counts it, from zero, and raised to the game's own numbering by
+    /// [`stage_built`](Self::stage_built) like any other.
+    pub fn builds_stage(&self, stage: i32) {
+        self.space().write::<i32>(
+            super::G_GAME_MANAGER + super::game_manager::CURRENT_STAGE,
+            stage,
+        );
+    }
+
     /// Raises the stage number the way the callback that puts a stage's numbers in place does, and
     /// answers the stage that came up.
     ///
@@ -1174,8 +1183,8 @@ impl Image {
     ///
     /// A byte per record where the game draws 32 `u16`, because a fake cannot draw from the game's
     /// generator and what these are is bytes no name is. Terminated at the end of the span, which a real
-    /// fill leaves terminated only by chance: a name the ranking screen draws has to end somewhere for a
-    /// scenario to read it back.
+    /// fill leaves terminated only by chance: a name the ranking screen draws has to end somewhere for an
+    /// e2e test to read it back.
     pub fn fills_the_card_records(&self) {
         let space = self.space();
         for card in 0..CARDS {
@@ -1395,7 +1404,7 @@ impl Image {
         space.write::<usize>(super::GUI_DRAW_ELEM + super::chain_elem::NEXT, 0);
     }
 
-    /// Whether it is in there, for a scenario reading the same list orb reads.
+    /// Whether it is in there, for an e2e test reading the same list orb reads.
     pub fn gui_in_the_draw_chain(&self) -> bool {
         self.space()
             .read::<usize>(super::G_CHAIN + super::CHAIN_DRAW_LIST + super::chain_elem::NEXT)
@@ -1513,7 +1522,7 @@ impl Image {
     /// A word of that manager just past its texture array, which orb reads nothing of.
     ///
     /// Here for the other half of the claim about the handles: the array is the only part of the block a
-    /// restore leaves alone, so a scenario asking whether it was left alone has to be able to ask whether
+    /// restore leaves alone, so an e2e test asking whether it was left alone has to be able to ask whether
     /// anything else in the same page came back.
     pub fn anm_manager_word(&self) -> usize {
         self.space().read(self.beside_the_textures())
@@ -1548,6 +1557,20 @@ impl Image {
         ] {
             space.write::<usize>(KEYBOARD_VTABLE + slot * size_of::<usize>(), function);
         }
+    }
+
+    /// And the game holding none, which is a state it already knows how to be in: `Controller::GetInput`
+    /// takes its `GetKeyboardState` branch, and the two calls that would touch the device — the shutdown's
+    /// `Unacquire` and `Release` — test the pointer first.
+    ///
+    /// For an e2e test declaring a launch where there is nothing for `--sent-keys` to let go of, which is
+    /// what the game itself leaves behind when the device it just made cannot be set up. Written here rather
+    /// than by leaving [`keyboard_device`](Self::keyboard_device) uncalled, because a game with the vtable
+    /// laid out and the pointer cleared is the game that really happens; one with neither is a game that was
+    /// never finished being laid out.
+    pub fn has_no_keyboard_device(&self) {
+        self.space()
+            .write::<usize>(super::G_SUPERVISOR + super::supervisor::KEYBOARD, 0);
     }
 
     /// Whether the game still holds one, which is what orb clears when it lets it go: the pointer being
@@ -1662,7 +1685,7 @@ impl Image {
     /// like: `ending_script` reads the script through the argument the element carries and filters a zero, so
     /// this is a running ending orb can find no script in.
     ///
-    /// Its own method rather than an argument, because the two are different things a scenario says: one is
+    /// Its own method rather than an argument, because the two are different things an e2e test says: one is
     /// an ending with a script and one is an ending without, and a `bool` at the call site would say neither.
     pub fn registers_the_ending_without_its_script(&self) {
         self.registers_in_the_calc_chain(
@@ -1721,14 +1744,14 @@ impl Image {
         );
     }
 
-    /// And the whole of the sound that track is streamed through, for a scenario about the stream itself:
+    /// And the whole of the sound that track is streamed through, for an e2e test about the stream itself:
     /// the buffer the game plays and the file handle it reads it out of, beside the wave file's own
     /// numbers.
     ///
     /// `left` is the countdown the track's loop is taken on — how many bytes of sound the stream believes
     /// are left before it — which with the file's position is the pair a loop is decided by: the game
     /// subtracts every byte it reads from it and starts the track over when a read comes up short against
-    /// it. So the two are put in together, and a scenario that moved one without the other would be laying
+    /// it. So the two are put in together, and an e2e test that moved one without the other would be laying
     /// out the very fault this is about.
     pub fn streams_a_track(&self, track: Track, sound: &Sound, left: u32) {
         self.plays_a_track(track);
@@ -1754,6 +1777,24 @@ impl Image {
     /// has to move with the file.
     pub fn bytes_left(&self) -> u32 {
         self.space().read(WAVE + super::wave_file::BYTES_LEFT)
+    }
+
+    /// And the same stream with a **buffer that is no longer a live object**: the word at its head points at
+    /// the game's own data rather than into the image, which is the stale pointer a block the allocator did
+    /// not scrub keeps.
+    ///
+    /// Which is a thing that happens, and the reason orb looks at that word at all: once the game has
+    /// changed track it has released the sound buffer, and reading through the pointer it left would be
+    /// calling a COM object that has gone. So `Th06::music` answers nothing, and a chapter taken there holds
+    /// no sound — see `Snapshot::has_music`, which is what the chapter's own line reports.
+    ///
+    /// The wave file's address is what goes in, being allocated, readable, and not code — the same value
+    /// `orb_sim`'s own test of `vtable_in_image` uses for the negative case.
+    pub fn frees_the_stream_buffer(&self) {
+        let space = self.space();
+        let buffers: usize = space.read(STREAM + super::streaming_sound::BUFFERS);
+        let buffer: usize = space.read(buffers);
+        space.write::<usize>(buffer, WAVE);
     }
 
     /// And the same wave file with no handle in it, which is a stream orb cannot move the file of: both
@@ -1952,10 +1993,10 @@ impl Image {
         DATA
     }
 
-    /// The host this game is laid out in, for a scenario that needs more of it than the memory — the
+    /// The host this game is laid out in, for an e2e test that needs more of it than the memory — the
     /// keyboard somebody presses at orb's own menus, or which window is in front.
     ///
-    /// The same one, not another: a scenario pressing keys against one host while the chapters read
+    /// The same one, not another: an e2e test pressing keys against one host while the chapters read
     /// the game through a second would be two processes agreeing about nothing.
     pub fn sim(&self) -> &Arc<Sim> {
         &self.sim

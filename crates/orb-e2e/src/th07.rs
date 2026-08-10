@@ -1,6 +1,6 @@
 //! **A game that declines everything is a game orb does nothing to.**
 //!
-//! One scenario, because one is what says it: a 妖々夢 laid out from what has been read of `th07.exe`,
+//! One e2e test, because one is what says it: a 妖々夢 laid out from what has been read of `th07.exe`,
 //! orb attached to `Th07`, and the game's own frame run with orb's update and draw hooks inside it —
 //! which is what a launch there really is, `Th07::hooks` declining `render`. What it asks is that orb
 //! got in, left the game's own frame alone, and did none of what it does to 紅魔郷: no chapter, no

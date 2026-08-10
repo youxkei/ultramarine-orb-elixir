@@ -1,7 +1,7 @@
 //! One レガシーモード run, which is the same game with none of orb's own work happening in it.
 //!
-//! The scenario beside this one — `pointdevice_run` — is what the mode *does*; this is what answering
-//! the other way costs, and it is worth a scenario of its own because every one of those things is
+//! The e2e test beside this one — `pointdevice_run` — is what the mode *does*; this is what answering
+//! the other way costs, and it is worth an e2e test of its own because every one of those things is
 //! something orb has to *not* do. A run whose chapters were kept anyway would look exactly like this
 //! one until somebody died.
 //!
@@ -17,7 +17,7 @@ use orb_core::menu_ui::{NORMAL, SELECTED};
 use orb_core::mode::{Mode, aside, title};
 use orb_sim::keys;
 
-/// The run this scenario plays, which is the other scenario's: Normal, Reimu A, from stage one.
+/// The run this e2e test plays, which is the other e2e test's: Normal, Reimu A, from stage one.
 fn the_run() -> RunStart {
     RunStart {
         difficulty: 1,
@@ -90,9 +90,9 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // the hook over the moment a stage's numbers are put in place is still in the path, and it keeps
         // nothing.
         //
-        // Which file the score goes to is not something a scenario can read: what decides it is an import
-        // hook on `CreateFileW` that a test cannot install, and the only thing a scenario could hold it to
-        // would be an observer written for the scenario. `score.rs`'s own tests cover the decision; the
+        // Which file the score goes to is not something an e2e test can read: what decides it is an import
+        // hook on `CreateFileW` that a test cannot install, and the only thing an e2e test could hold it to
+        // would be an observer written for the e2e test. `score.rs`'s own tests cover the decision; the
         // line above is what says the mode this run is in, which is the whole of what it turns on.
         game.frames_until("the shot type select ready to act on a press", 90, || {
             game.image().front_end_now().screen == Screen::ShotType
@@ -106,7 +106,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
             log.lines(),
         );
 
-        // ── 3. The stage is played past where the other scenario's first three chapters were, and none of
+        // ── 3. The stage is played past where the other e2e test's first three chapters were, and none of
         // them is here: no snapshot is taken, so there is nothing to go back to and nothing to mark the
         // lives with.
         //
@@ -172,7 +172,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         );
 
         // ── 5. And nothing is left behind for a later launch to offer: the run goes on past where the
-        // other scenario's chapter was written down, and no file appears.
+        // other e2e test's chapter was written down, and no file appears.
         game.frames_until(
             "the stage past where a chapter was written down",
             900,
@@ -193,11 +193,11 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // ranking is shown on the same way it takes a pointdevice run, and what that screen is written
         // from is the game's own count with nothing of orb's added to it.
         //
-        // **Which is the difference the two scenarios are about.** The other one dies on a spell card,
+        // **Which is the difference the two e2e tests are about.** The other one dies on a spell card,
         // goes back to the chapter it was in, and the record ends up holding that attempt as well; here
         // the same death costs a life, nothing is retried, and the only number against the card is the one
         // the card's own start put there. Which of the two files it is written to — `pointdevice_score.dat`
-        // or the game's own — is decided by an import hook on `CreateFileW` that a scenario cannot install,
+        // or the game's own — is decided by an import hook on `CreateFileW` that an e2e test cannot install,
         // and `score.rs`'s own tests are what hold it to that.
         for _ in 0..2 {
             game.hit();

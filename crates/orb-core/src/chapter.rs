@@ -30,7 +30,7 @@ pub enum Judgement {
     /// it to that. Kept rather than deleted because taking a boundary out of the table is a thing
     /// a judging pass has to be able to do, and the missing half is a key to bind, not this.
     ///
-    /// So `Tuning::reject` is the one function of that file no scenario enters, and it stays that way
+    /// So `Tuning::reject` is the one function of that file no e2e test enters, and it stays that way
     /// until there is a key: `orb-e2e`'s `a_chapter_table_collected` takes a boundary out with `DROP`
     /// twice, which is the way a judging pass has.
     #[allow(dead_code)]
@@ -1213,7 +1213,7 @@ mod tests {
     /// land on whichever frame it reached.
     const HELD: bool = true;
 
-    /// The stage every scenario below plays, and the difficulty it is played at: stage one on Normal,
+    /// The stage every e2e test below plays, and the difficulty it is played at: stage one on Normal,
     /// counted from zero the way everything above `Game` counts stages.
     ///
     /// Laid into the game rather than said to the detector, which is what holds the two to the same
@@ -1248,7 +1248,7 @@ mod tests {
 
     /// A frame of the stage, as it is laid into the game's own memory.
     ///
-    /// Every field is one `Th06::read_state` parses back out, which is the whole of why a scenario
+    /// Every field is one `Th06::read_state` parses back out, which is the whole of why an e2e test
     /// says one of these rather than a `State`: the frame the detector is stepped with is read out of
     /// the game the way production reads it — see [`Stage::standing_on`].
     #[derive(Clone, Copy)]
@@ -1402,11 +1402,11 @@ mod tests {
         /// game's own memory, and `Th06::read_state` reading it back out through every offset and
         /// pointer chase of it.
         ///
-        /// Which is what the detector and the judging keys below are handed, and the reason a scenario
+        /// Which is what the detector and the judging keys below are handed, and the reason an e2e test
         /// says a [`Frame`] rather than a `State`. A `State` written beside the memory is a second
         /// answer to what the game is doing, and the one thing two answers cannot show is them
         /// disagreeing — `observe` reading a different stage from the one the image holds is a defect
-        /// no scenario built that way can fail for.
+        /// no e2e test built that way can fail for.
         fn standing_on(&self, frame: Frame) -> State {
             let _entered = self.image.enter();
             self.image.playing(Playing {

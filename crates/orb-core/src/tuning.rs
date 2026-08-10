@@ -294,7 +294,7 @@ impl Tuning {
     }
 
     fn put(&self, path: &Path, contents: &str) {
-        match std::fs::write(path, contents) {
+        match orb_api::fs::write(path, contents.as_bytes()) {
             Ok(()) => log!("tuning: wrote {}", path.display()),
             Err(error) => log!("tuning: cannot write {}: {error}", path.display()),
         }
@@ -369,10 +369,10 @@ impl Tuning {
     /// the first time a stage is looked at.
     fn load(&mut self) {
         let path = self.dir.join(STATE_FILE);
-        let text = match std::fs::read_to_string(&path) {
+        let text = match orb_api::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-            // A file that is there and will not read, which no scenario reaches: what a scenario can hand
+            // A file that is there and will not read, which no e2e test reaches: what an e2e test can hand
             // a launch is *bytes* — `Fake::attach_finding` — and this arm wants something else at the path
             // altogether. The two ways a line can be wrong below are covered.
             Err(error) => return log!("tuning: cannot read {}: {error}", path.display()),

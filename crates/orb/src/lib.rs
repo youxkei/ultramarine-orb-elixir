@@ -129,16 +129,9 @@ fn attach() {
     // process orb has no addresses for is one it must leave exactly as it found it, and every address
     // below this line belongs to one of these entries.
     let name = exe_path.file_name().unwrap_or_default().to_string_lossy();
-    let Some(known) = game::known_by_exe(&name) else {
-        return log!(
-            "game: nothing orb knows is called {name}; it knows {}. orb is doing nothing this run",
-            game::known_named(),
-        );
+    let Some(known) = game::found(&name) else {
+        return;
     };
-    log!(
-        "game: {name}, and every address orb has for it was read off {}",
-        known.version
-    );
     // Stored before a single byte is patched, so that a hook this attach installs has a game to read
     // however the rest of the attach goes — see [`GAME`].
     unsafe { *GAME.get() = Some(known.game) };

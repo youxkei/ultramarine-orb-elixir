@@ -44,8 +44,8 @@ pub struct Config {
     /// For driving a session from a script, which is otherwise impossible: the game takes its
     /// keyboard `DISCL_EXCLUSIVE | DISCL_FOREGROUND` and such a device does not see `SendInput`, so
     /// every screen — the game's menus and the questions orb puts over them — needs a hand. Measured
-    /// rather than assumed, and `orb-e2e`'s `keys_from_another_program` is that measurement as a
-    /// scenario: a key another program sent reaches the game only once orb has let the device go.
+    /// rather than assumed, and `orb-e2e`'s `keys_from_another_program` is that measurement as an
+    /// e2e test: a key another program sent reaches the game only once orb has let the device go.
     pub sent_keys: bool,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
@@ -267,7 +267,7 @@ impl Config {
     pub fn load_beside(module_path: &Path) -> Result<Self, Error> {
         let base_dir = module_path.parent().unwrap_or(Path::new(".")).to_owned();
         let path = base_dir.join(FILE_NAME);
-        match std::fs::read_to_string(&path) {
+        match orb_api::fs::read_to_string(&path) {
             Ok(text) => Self::parse(&path, &text),
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
                 Ok(Self::from_file(base_dir, file::File::default()))
@@ -282,7 +282,7 @@ impl Config {
     /// is a path they meant, and reading the defaults instead would leave them watching for a
     /// setting that was never read.
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
+        let text = orb_api::fs::read_to_string(path).map_err(|source| Error::Read {
             path: path.to_owned(),
             source,
         })?;
@@ -344,7 +344,7 @@ impl Config {
             skip_ending: self.skip_ending,
             ask_at_startup: self.ask_at_startup,
         };
-        std::fs::write(path, file::text(&file)).map_err(|source| Error::Write {
+        orb_api::fs::write(path, file::text(&file).as_bytes()).map_err(|source| Error::Write {
             path: path.to_owned(),
             source,
         })

@@ -1,10 +1,10 @@
 //! Everything that decides what happens to a run.
 //!
-//! **The rule is that the code a scenario drives cannot reach Windows except through the seam**, and
+//! **The rule is that the code an e2e test drives cannot reach Windows except through the seam**, and
 //! that is what this crate is: every hook body, the chapters, the snapshots, the drawing, the menus and
 //! the frame loop, with everything they ask of the host going through [`orb_api`]. So the same code runs
 //! against the real Windows the game is loaded into and against the simulated one `orb-sim` puts in front
-//! of it — which is the whole of what makes a scenario evidence about a launch, [`runtime::attach_to`]
+//! of it — which is the whole of what makes an e2e test evidence about a launch, [`runtime::attach_to`]
 //! filling the same statics `orb`'s own install lists fill.
 //!
 //! **Checked rather than kept by hand.** `cargo xtask seam` builds this crate and `orb-sim` for a host

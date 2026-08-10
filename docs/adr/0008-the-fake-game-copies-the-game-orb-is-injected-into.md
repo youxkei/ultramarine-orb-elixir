@@ -2,7 +2,7 @@
 
 **Status:** accepted and built. `crates/orb-sim/tests/fake/th06.rs` looks like this: `Fake::update` is a
 walk over the calc chain's own priority-ordered list, and every one of the fourteen divergences is either
-fixed or a comment that no longer misstates why. What each fix stands on is a scenario that was watched
+fixed or a comment that no longer misstates why. What each fix stands on is an e2e test that was watched
 failing first, and the three scope decisions taken while building it are in *What was weighed and rejected*
 below — they were taken here rather than in the worklist, because two of them contradict what this document
 said. It stands on
@@ -22,7 +22,7 @@ frame.
 on the real game: the offsets are 紅魔郷's to confirm, each written down beside the offset it was read at.
 That is a good answer for an offset and no answer at all for a behaviour. Where the fake decides *when*
 something happens — which frame a scene's first update falls on, how many numbers a screen shake draws,
-what a stage start puts back — there was no witness of any kind, and a scenario asserting the fake's answer
+what a stage start puts back — there was no witness of any kind, and an e2e test asserting the fake's answer
 would pass whatever that answer was.
 
 **There is now a witness that is not a run.** [GensokyoClub/th06](https://github.com/GensokyoClub/th06)
@@ -43,8 +43,8 @@ the count, which is what a stage starts from* — is `g_Rng.generationCount = 0;
 sitting immediately before `Stage::RegisterChain`, exactly as it says. **The layer 0001 said it could not
 catch is the layer that turned out to be sound.**
 
-**Everything that is a behaviour over time has drift in it.** Fourteen places, of which six change what a
-scenario can catch. The fake reads the score file once per stage where the game reads it once per run; it
+**Everything that is a behaviour over time has drift in it.** Fourteen places, of which six change what an
+e2e test can catch. The fake reads the score file once per stage where the game reads it once per run; it
 resets lives, bombs and power at every stage where a continuous run carries them; it skips every chain job
 on the frame a scene is built where the game runs the new scene's first update in that same frame with the
 input word zeroed; it starts a stage with the player killable where the game starts them spawning and
@@ -79,21 +79,21 @@ on the far side of a hook. Three obligations follow, and they are different obli
 - **What orb never reads or writes, the fake need not have.** This is what keeps the fake a game and not a
   port.
 
-**A divergence is a defect when it makes a scenario pass that the real game would fail.** That is the whole
+**A divergence is a defect when it makes an e2e test pass that the real game would fail.** That is the whole
 test. Everything else is a stand-in, and a stand-in is declared where it stands — which is what 0001
 already does for the generator, the boss's arrival and the rest, and what this adds nothing to.
 
 **Every fidelity fix is red first, and here that is not a working preference.** A fidelity fix has a
 property an ordinary change does not: the behaviour being claimed is already written down outside this
-repository, so the scenario asserting it can be written and watched fail *before* the fake is capable of
+repository, so the e2e test asserting it can be written and watched fail *before* the fake is capable of
 passing it. Doing it that way is what turns a claim read out of somebody else's source into something this
 repository executes.
 
-Landed the other way round — fake first, scenario after — a green scenario proves only that the scenario
+Landed the other way round — fake first, e2e test after — a green e2e test proves only that the e2e test
 agrees with the fake. That is 0001's writer-and-reader-wrong-together in a new place: the offsets got an
 external witness and the behaviours would get their assertions back-derived from the very code under
-suspicion. **So the order is: read the game's own code, write the scenario from it, watch it fail against
-the fake as it is, then change the fake.** A fix whose scenario was never red is a fix with no witness, and
+suspicion. **So the order is: read the game's own code, write the e2e test from it, watch it fail against
+the fake as it is, then change the fake.** A fix whose e2e test was never red is a fix with no witness, and
 should be treated as unmade.
 
 ## What was weighed and rejected
@@ -104,7 +104,7 @@ should be treated as unmade.
   game*, and that relation is legible because `attach_to` and `attach` fill the same statics.
 - **Starting with the chain.** Modelling `Fake::update` as a real walk over priority-ordered jobs is the
   root fix for the build-frame divergence and for the pause menu's early `BREAK`, and it is the last step
-  rather than the first. It moves every scenario's frame accounting, and so does the build-frame fix that
+  rather than the first. It moves every e2e test's frame accounting, and so does the build-frame fix that
   has to happen anyway; doing both at once means re-deriving expectations against two moving things and
   being unable to say which moved them. The chain goes last, once the numbers have settled.
 - **Modelling the pad's merge into the input word.** `Controller::GetInput` returns keyboard **or** pad, so
@@ -128,9 +128,9 @@ should be treated as unmade.
   device until its startup runs*. What was left alone is `creates_its_window`, and the reason is a seam this
   document did not look at: the handle written into the game's memory is a constant the host is told is the
   window in front, while the handle the rewrite produces is the host's own, and the foreground check, the
-  keyboard read and both window scenario files stand on the first. Making them one handle is a piece of work
-  with no scenario-visible fidelity in it, and doing it inside this one would have put every window scenario
-  at risk for nothing. `scenario_the_launch_before_its_device.rs` is the whole of what the hook needed.
+  keyboard read and both window e2e test files stand on the first. Making them one handle is a piece of work
+  with no fidelity an e2e test can see in it, and doing it inside this one would have put every window e2e
+  test at risk for nothing. `scenario_the_launch_before_its_device.rs` is the whole of what the hook needed.
 - **Decomposing the gameplay scene into the five jobs `GameManager::AddedCallback` registers.** The walk is
   real and the jobs are the ones this game has: the supervisor at 0, the front end at 2, the ending at 3, the
   gameplay scene at 4, the result screen at 13 and a shake at 14. The stage, the player, the enemies, the
@@ -141,8 +141,8 @@ should be treated as unmade.
 - **The replay's record fed where 紅魔郷 feeds it.** `ReplayManager::OnUpdate` is priority 15 and
   `OnUpdateDemo` 5 or 16; the fake feeds the record inside the supervisor's own job instead. Nothing can tell:
   the word the stage acts on is the record's either way and the stage's job is its only reader. Moving it
-  would put `a_stage_played_twice_across_a_move_agrees_to_the_last_digit` — the most sensitive scenario in
-  the tree — at risk for a difference no scenario can see. Written down beside the feed.
+  would put `a_stage_played_twice_across_a_move_agrees_to_the_last_digit` — the most sensitive e2e test in
+  the tree — at risk for a difference no e2e test can see. Written down beside the feed.
 - **Leaving the confirmation on a run against the real game, as 0001 did.** A run confirms the offsets and
   cannot confirm a frame boundary: nobody can see, from a running game, which frame its supervisor built a
   scene on. The decompilation can be read for exactly that, and the exe's bytes keep the reading honest.
@@ -151,11 +151,11 @@ should be treated as unmade.
 
 ## What follows from it
 
-Ordered, and **the first step of every item is a scenario that fails.** What has to outlive the work is
+Ordered, and **the first step of every item is an e2e test that fails.** What has to outlive the work is
 here. The fourteen divergences one by one, where in the game's own code each was read so that a finding
 which has moved shows up as a diff, and what the reordering costs in expectations, were a worklist in
 `docs/todo/` — deleted when the work was done, which is why nothing here leans on it. What that worklist
-predicted the churn would be was right: no scenario wrote an absolute frame number, and the three that had to
+predicted the churn would be was right: no e2e test wrote an absolute frame number, and the three that had to
 be rewritten said what they were waiting for when they failed.
 
 **First, because one condition settles three findings.** At the moment `stage_numbers_in_place` runs,
@@ -189,18 +189,18 @@ is written down as the finding rather than an omission.
 today. And write `subRank` and `rank`, which needs setters on `Image` and until then leaves every
 assertion about a restored rank comparing zero with zero.
 
-**Then the hooks with no scenario over them.** `init_d3d_device` is always installed in a real launch and
+**Then the hooks with no e2e test over them.** `init_d3d_device` is always installed in a real launch and
 was not in `Originals` at all: the fake wrote the device at attach, where production attaches before the
 device exists and finds it through this hook. Reaching it means the fake having a phase before its device —
 `Fake::attach_before_its_device` and `Fake::finds_its_device`, and
 `scenario_the_launch_before_its_device.rs`. Pairing that with a startup sequence so that
-`creates_its_window` stops being a scenario poking a hook is **not** what was built, and why is in *What was
-weighed and rejected*. `get_controller_input` and `save_replay` are lighter: an `Originals` entry and a
-scenario each — and both moved a gate, since in a real launch the *installation* is what decides and a game
+`creates_its_window` stops being an e2e test poking a hook is **not** what was built, and why is in *What was
+weighed and rejected*. `get_controller_input` and `save_replay` are lighter: an `Originals` entry and an
+e2e test each — and both moved a gate, since in a real launch the *installation* is what decides and a game
 that hands its own function over has one call site whichever way the launch was configured. That gate is
 `BLOCK_REPLAY_SAVE` and `TIME_JOYSTICK`, set where `attach` decides to install. `hook::install_import`
 cannot be reached by a laid-out game at all — there is no import table to patch — so it has a test of its
-own over headers written out by hand, in `hook.rs`, and `memtrack` stays off in every scenario for the same
+own over headers written out by hand, in `hook.rs`, and `memtrack` stays off in every e2e test for the same
 reason.
 
 **Then the numbers.** Four generator draws per shake frame rather than two, and the three cases per axis
@@ -215,12 +215,12 @@ and fixup leave — magic, version, and every difficulty entry at 1 — with the
 callback does. It is the root fix for the build frame and for the pause menu's early break, and it makes
 three things reachable that are not reachable now: what a walk does when a job asks to be removed, what
 `Chain::Cut` does to a list, and the fact that `g_Chain` and the static chain elements live in `.data` — so
-a chapter's restore rewinds the chain's own linked list, and no scenario has ever asked whether it comes
+a chapter's restore rewinds the chain's own linked list, and no e2e test has ever asked whether it comes
 back.
 
 **What this does not ask for** is anything in the declared-divergence list 0001 already carries. The
 generator stays the fake's own, and so do the boss's arrival, the card's start, the stage's length, the
-tracks and the layouts. What a scenario is about is that the same buttons from the same seed arrive at the
+tracks and the layouts. What an e2e test is about is that the same buttons from the same seed arrive at the
 same place.
 
 ## Re-deriving it

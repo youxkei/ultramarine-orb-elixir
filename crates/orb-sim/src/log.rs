@@ -1,7 +1,7 @@
 //! The log, kept rather than written.
 //!
 //! A test asserting on what orb said is worth more than a temporary file would be: the log is the
-//! instrument orb's own findings are read out of, so a scenario that claims a chapter began can
+//! instrument orb's own findings are read out of, so an e2e test that claims a chapter began can
 //! say so by pointing at the line that announced it.
 
 use std::path::{Path, PathBuf};
@@ -73,19 +73,19 @@ impl Log {
         self.state.lock().unwrap().lines.clone()
     }
 
-    /// Whether any line holds `needle`, which is how a scenario asserts on what orb reported.
+    /// Whether any line holds `needle`, which is how an e2e test asserts on what orb reported.
     pub fn said(&self, needle: &str) -> bool {
         self.lines().iter().any(|line| line.contains(needle))
     }
 
-    /// How many lines orb has written, which is where a scenario marks its place before walking something
+    /// How many lines orb has written, which is where an e2e test marks its place before walking something
     /// it has walked once already.
     pub fn written(&self) -> usize {
         self.state.lock().unwrap().lines.len()
     }
 
     /// And whether any line since that mark holds `needle`. [`said`](Self::said) asks whether a line was
-    /// *ever* written, so a scenario waiting on one for the second time is answered yes by the first — and
+    /// *ever* written, so an e2e test waiting on one for the second time is answered yes by the first — and
     /// waits out nothing at all.
     pub fn said_since(&self, from: usize, needle: &str) -> bool {
         self.lines()

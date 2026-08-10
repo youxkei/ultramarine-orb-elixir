@@ -6,13 +6,13 @@
 //! `a_chapter_table_collected.rs`. The two are different arms of `Chapters::due`, and this is the one
 //! every played run takes.
 //!
-//! **The fight has to be over first**, which is what makes these runs longer than any other scenario's:
+//! **The fight has to be over first**, which is what makes these runs longer than any other e2e test's:
 //! a fight underway outranks the table — the enemy timeline runs on through a midboss, so a slow fight
 //! reaches the boundaries of the waves that come after it and a chapter beginning inside a half-fought
 //! fight is a retry point for neither. So the boss goes down and the stage plays on to the frame the
 //! table names.
 //!
-//! Neither frame is written here: both come out of the table, so a stage tuned again is a scenario that
+//! Neither frame is written here: both come out of the table, so a stage tuned again is an e2e test that
 //! follows it rather than one that has to be edited with it.
 
 use crate::fake::th06::{ATTACK_CHANGES, Fake, STAGES};
@@ -52,7 +52,7 @@ fn the_extra() -> RunStart {
 /// The frame the table's first boundary for that stage falls on, out of the table itself.
 ///
 /// # Panics
-/// On a row with nothing in it: a stage the table has no boundary for is one this scenario has nothing
+/// On a row with nothing in it: a stage the table has no boundary for is one this e2e test has nothing
 /// to wait for.
 fn first_boundary(stage: i32) -> i32 {
     MIDSTAGE[stage as usize]

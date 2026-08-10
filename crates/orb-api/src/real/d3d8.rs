@@ -2,7 +2,7 @@
 //!
 //! **The only code in the workspace that calls a Direct3D vtable.** Every slot here is one line: read
 //! the vtable out of the object, call the slot, hand back what it answered. Nothing decides anything —
-//! which render states the drawing sets and how it brackets a draw are above the seam, where a scenario
+//! which render states the drawing sets and how it brackets a draw are above the seam, where an e2e test
 //! reaches them.
 
 use std::ffi::c_void;

@@ -18,7 +18,7 @@ const TARGET: &str = "i686-pc-windows-gnu";
 /// The host with no Windows on it that the crates above the seam are checked against, which is what makes
 /// the boundary self-enforcing rather than kept by hand.
 ///
-/// The rule is that **the code a scenario drives cannot reach Windows except through the seam** — see
+/// The rule is that **the code an e2e test drives cannot reach Windows except through the seam** — see
 /// [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 /// A host that has no Windows is the only thing that can say so: a grep for `windows-sys` passes a file
 /// that is calling a COM vtable, and a build for [`TARGET`] passes anything at all.
@@ -94,27 +94,41 @@ const LLVM_MINGW: &str = "LLVM_MINGW";
 
 /// Which package's tests the coverage run drives, and why it is only one.
 ///
-/// The scenarios are `orb-sim`'s tests, and what a scenario covers is the question — a line only a unit
-/// test reaches is a line no scenario stands behind. `orb-launcher` is left out for a harder reason: its
-/// artifact dependency pins `orb`'s cdylib to `i686-pc-windows-gnu`, which has no profiler runtime, so a
-/// run that includes it does not compile.
+/// That package holds the e2e tests, and what one of those covers is the question — a line only a unit
+/// test reaches is a line no e2e test stands behind. Which is why it is not `orb-sim`: what is left in
+/// that package's `tests/` is the four no game drives — `log_writes`, `log_overflow`, `log_off_thread`
+/// and `pacing_no_timer` — so a run there answers a question about four tests. `orb-launcher` is left
+/// out for a harder reason: its artifact dependency pins `orb`'s cdylib to `i686-pc-windows-gnu`, which
+/// has no profiler runtime, so a run that includes it does not compile.
 ///
-/// **Read the zeros; ignore the percentage**, which is what a report of this is for. Coverage counts what
-/// was *executed* and not what was *asserted*, and in this suite the two come apart in one direction:
-/// `Th06::read_state` runs on every frame of every scenario, so all of it reads as covered while only some
-/// of its fields are asserted anywhere. A percentage driven upwards buys nothing. What a zero says is
-/// exact, though — nothing in the suite has ever run that line, so no scenario can be relying on it — and
-/// `--missing` is how to find them. Where that flag hands back no ranges, `cargo llvm-cov report --lcov`
-/// and the `DA:` records whose hit count is zero are the same answer.
+/// **Read the missed lines; ignore the percentage**, which is what a report of this is for. Coverage
+/// counts what was *executed* and not what was *asserted*, and in this suite the two come apart in one
+/// direction: `Th06::read_state` runs on every frame of every e2e test, so all of it reads as covered while
+/// only some of its fields are asserted anywhere. A percentage driven upwards buys nothing. What a missed
+/// line says is exact, though — nothing in the suite has ever run it, so no e2e test can be relying on it —
+/// and `--missing` is how to find them. Where that flag hands back no ranges, `cargo llvm-cov report
+/// --lcov` and the `DA:` records whose hit count is zero are the same answer.
 ///
-/// **The zeros a run reports now are all accounted for beside the code they are in**, which is where a
-/// reader meets them rather than in a list of their own: `Boundary::proposed`, which is const-evaluated;
-/// `joystick::install`, the one write over an import table entry; `Music::with_locked_buffer`'s arm for a
-/// buffer DirectSound has taken away and every arm below it that gives up; the retry in
-/// `Snapshot::update`, which wants a streaming thread; `Judgement::Out`, which wants a key; and
-/// `REPORT_READS`, which wants a second of wall clock. Which is what a run is worth reading for: a zero
-/// with no such note beside it is either work or a note somebody has not written.
-const COVERED: &str = "orb-sim";
+/// **Every line and function a run reports as missed is accounted for beside the code it is in**, which is
+/// where a reader meets it rather than in a list of its own. Four kinds of them:
+///
+/// - **const-evaluated in a static**, so what happens is not execution: `game::proposed` and `game::hand`
+///   in the baked table, `sync::MainThread::new`, `resume::Record::new`, `runtime::FrameCall::none`.
+/// - **the patched bytes**, which a laid-out game has none of: `Th06::hooks` and `Th06::frame_calls`, which
+///   only `orb::attach` calls, and `joystick::install`, the one write over an import table entry.
+/// - **what a simulated host answers with nothing**: `snapshot::overlaps` and `snapshot::hash`, which
+///   `fingerprint_untracked` would call per private range and `orb_sim` reports none of; every arm of
+///   `audio.rs` that gives up, `orb_sim::Sound` answering every call; and `REPORT_READS`, which wants a
+///   second of wall clock.
+/// - **what no game reaches at all**: `Pacing::no_timer`, on a host orb does not run on; `note_reentry`,
+///   for a chain walk re-entering itself; `Judgement::Out`, whose key was taken away; and the six `Default`
+///   impls that exist so `new` may.
+///
+/// Which is what a run is worth reading for: a missed line with no such note beside it is either work or a
+/// note somebody has not written. `game/th07` is the one file to read differently — it is at 20.8% because
+/// `orb-e2e`'s `th07` asserts orb does nothing to a game that declines everything, so raising it changes
+/// what is measured rather than what is known. See `docs/adr/0004`.
+const COVERED: &str = "orb-e2e";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -217,7 +231,7 @@ fn coverage(args: Vec<String>) -> ExitCode {
         .partition(|arg| matches!(arg.as_str(), "--html" | "--missing"));
 
     // Two invocations rather than one, because the report is wanted over the whole workspace while only
-    // one package's tests are run: `cargo llvm-cov test -p orb-sim` would narrow the report to that
+    // one package's tests are run: `cargo llvm-cov test -p orb-e2e` would narrow the report to that
     // package as well, and orb-core — the thing the answer is about — would not be in it.
     let mut run = cargo(&clang);
     run.args([
@@ -238,6 +252,21 @@ fn coverage(args: Vec<String>) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // **A file whose line count moved without its source moving is `cargo llvm-cov clean --workspace`
+    // away**, and that is the whole of how this shows itself: the report is read off every object under
+    // `target/llvm-cov-target`, and one built before the last change to a `Cargo.toml` is still an object.
+    // Two builds of one crate then both land in the profile, and llvm-cov groups them by *source path* —
+    // so a file's own functions are counted twice under two crate disambiguators, in **one row**, with its
+    // total and its missed inflated together.
+    //
+    // Which is why it is worth saying: it looks like a file that got worse rather than like a fault.
+    // Watched here — `orb-config/sim` was added to `orb-core`'s features, which changed orb-core's metadata
+    // hash, and `resume.rs` read **559 lines with 64 missed** against the 405 and 47 a clean run gives.
+    // A path renamed out from under a build does it too; this tree's directory was `ultramarine_orb_elixir`
+    // once.
+    //
+    // Not cleaned here, because the clean throws away the whole instrumented build and every run of this
+    // would then pay for one. What to do instead is clean once after a manifest changes.
     let mut report = cargo(&clang);
     report.args(["llvm-cov", "report", "--target", COVERAGE_TARGET]);
     let html = asked.iter().any(|arg| arg == "--html");

@@ -17,7 +17,7 @@ use orb_api::{Hresult, Kind, LockedBuffer, SoundBuffer};
 
 use crate::Sim;
 
-/// The buffer the game's music is played out of, as a scenario's game keeps it.
+/// The buffer the game's music is played out of, as an e2e test's game keeps it.
 ///
 /// Any address — orb reads it out of the game's memory and hands it back to the seam — with a word at it
 /// holding [`BUFFER_VTABLE`], which is what makes `vtable_in_image` say the buffer is live. See
@@ -71,7 +71,7 @@ thread_local! {
 
 /// # An intermittent that is still to find
 ///
-/// One scenario of `orb-e2e`'s `the_music_across_a_restore` fails perhaps one run in eight on the
+/// One e2e test of `orb-e2e`'s `the_music_across_a_restore` fails perhaps one run in eight on the
 /// assertion below, this reading null where the sound was installed on the thread that asked for it.
 /// Held against `HEAD` before the fake's fidelity pass: it flakes there too and at about the same rate,
 /// so it is older than that work and nothing in it.
@@ -123,7 +123,7 @@ impl Sound {
     ///
     /// **Four bytes and one**, deliberately: what the address space has to answer is the pointer at
     /// [`BUFFER`]'s head and that the vtable it names is in an image. A region no bigger than those cannot
-    /// shadow anything else a scenario laid out, which a page-sized one might.
+    /// shadow anything else an e2e test laid out, which a page-sized one might.
     pub fn install(&self, sim: &Sim) {
         sim.load_module(WINMM);
         sim.set_proc_address(WINMM, "mmioSeek", mmio_seek as *const () as usize);
@@ -172,7 +172,7 @@ impl Sound {
     /// The play cursor moved on by `bytes`, wrapping at the buffer's end, which is the mixer playing
     /// what is in there.
     ///
-    /// A scenario saying so, the way [`heard_at`](Sound::heard_at) is: what puts a distance between the
+    /// An e2e test saying so, the way [`heard_at`](Sound::heard_at) is: what puts a distance between the
     /// cursor and the offset the next chunk goes at is a mixer running on its own clock, and that
     /// distance is the whole of what a margin measures.
     pub fn plays_on(&self, bytes: u32) {
@@ -184,7 +184,7 @@ impl Sound {
     ///
     /// The offset is handed in rather than kept here because it is the *game's* — the field
     /// `orb_core::audio::Music::write_offset` names, in the game's own memory — and the same is true of
-    /// the countdown this read moves: what a scenario has to move with the position is the game's to
+    /// the countdown this read moves: what an e2e test has to move with the position is the game's to
     /// move. See `Fake::services_the_buffer`.
     pub fn tops_the_buffer_up(&self, at: u32) -> u32 {
         let mut chunk = vec![0u8; self.notify as usize];
@@ -210,9 +210,9 @@ impl Sound {
     /// Puts the stream where a track that has been playing for a while is: the file that far in, and the
     /// play cursor at the start of a buffer nothing has been played out of yet.
     ///
-    /// Which is what makes the position orb writes down a number worth seeking to. A scenario saying so,
+    /// Which is what makes the position orb writes down a number worth seeking to. An e2e test saying so,
     /// the way it says the player was hit: the streaming thread is a thread, and what it would have done
-    /// over minutes of a track is not something a scenario can wait for.
+    /// over minutes of a track is not something an e2e test can wait for.
     pub fn heard_at(&self, offset: i32) {
         self.at.set(offset);
         self.play.set(0);
@@ -233,8 +233,8 @@ impl Drop for Sound {
 /// what `orb-api` calls and which calls these.
 ///
 /// Reached through [`streaming`] rather than through a field of the `Sim`, the way winmm's two functions
-/// are: the sound is a thread's, because a scenario's game is a thread's. Every one of them refuses a
-/// handle that is not [`BUFFER`] — a scenario that had orb reading some other buffer would be a scenario
+/// are: the sound is a thread's, because an e2e test's game is a thread's. Every one of them refuses a
+/// handle that is not [`BUFFER`] — an e2e test that had orb reading some other buffer would be an e2e test
 /// about nothing.
 pub(crate) mod buffer {
     use super::{

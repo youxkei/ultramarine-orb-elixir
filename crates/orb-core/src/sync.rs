@@ -11,6 +11,9 @@ pub struct MainThread<T>(UnsafeCell<T>);
 unsafe impl<T> Sync for MainThread<T> {}
 
 impl<T> MainThread<T> {
+    /// **`const fn` because every one of these is a static**, which is also why no e2e test can enter
+    /// it: what happens here is const evaluation and not execution, so a coverage run reports it never
+    /// run however many launches there were. See `game::proposed`, which is the same zero.
     pub const fn new(value: T) -> Self {
         Self(UnsafeCell::new(value))
     }

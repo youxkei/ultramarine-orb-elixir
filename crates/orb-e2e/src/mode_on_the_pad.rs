@@ -55,7 +55,7 @@ fn asking(name: &str) -> Box<Fake> {
 }
 
 /// How many outcomes orb has reported for the question, counted rather than looked for: a line once
-/// written stays written, and a scenario that asks twice needs to tell the second answer from the
+/// written stays written, and an e2e test that asks twice needs to tell the second answer from the
 /// first.
 fn outcomes(game: &Fake) -> usize {
     game.log()
@@ -169,6 +169,47 @@ fn the_stick_and_the_hat_both_move_the_cursor() {
         assert!(
             game.log().said("mode: pointdevice, was pointdevice"),
             "the pad chose the mode the cursor had left: {:?}",
+            game.log().lines(),
+        );
+    });
+}
+
+/// A controller that has been lost is acquired again, answers nothing for that frame, and works on the
+/// next one.
+///
+/// `DIERR_INPUTLOST` is what a DirectInput device gives once the window it was acquired for has gone away
+/// or another process has taken it, and it is the ordinary thing to meet after alt-tabbing. What orb must
+/// not do is read the state anyway — the buffer would be whatever was on the stack — so the answer is no
+/// pad this frame and an `Acquire` for the next.
+#[test]
+fn a_controller_that_has_been_lost_is_acquired_again_and_reads_nothing_that_frame() {
+    in_its_own_process(|| {
+        let game = asking("pad-lost");
+        let acquires = game.controller_acquires();
+
+        // Lost, with a button pushed the whole time: what the frames below must not do is answer with it.
+        game.its_controller_poll_fails(true);
+        game.push(Pushed::button(MAPPING.shoot));
+        game.frames(8);
+        assert_eq!(
+            outcomes(&game),
+            0,
+            "a lost controller answered the question: {:?}",
+            game.log().lines(),
+        );
+        assert!(
+            game.controller_acquires() > acquires,
+            "the lost controller was never acquired again",
+        );
+
+        // And back: the device answers its poll, and the button that was down all along is a press on the
+        // frame the device comes back — which is right, the game not having been able to read it before.
+        game.its_controller_poll_fails(false);
+        game.frames_until("the pad's answer", 8, || outcomes(&game) == 1);
+        assert!(
+            game.log()
+                .said(&format!("mode: answered on the {}", By::Pad)),
+            "the pad that came back did not answer: {:?}",
             game.log().lines(),
         );
     });

@@ -5,7 +5,7 @@
 //! own code needs a process to patch and is `orb`'s — `DllMain`, the trampolines, the import table, the
 //! install lists. What a hook then *does* is here: it reads a `State`, asks `chapter` or `resume` for a
 //! decision, and calls through a function pointer out of a static. None of that is Windows, and it is
-//! precisely what a scenario drives. See
+//! precisely what an e2e test drives. See
 //! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 //!
 //! **The install lists fill the statics below**, which is why the ones a hook calls through are `pub`:
@@ -298,7 +298,7 @@ struct Started {
 /// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md)
 /// keeps the frame loop's two calls in statics: a hook is a plain `extern` function with nothing but
 /// the ABI's arguments, so where it would be handed a game it reads one. Filled by [`attach`] before
-/// anything is patched and by [`attach_to`] from what a scenario hands it — so `None` is a process
+/// anything is patched and by [`attach_to`] from what an e2e test hands it — so `None` is a process
 /// orb chose no game for, where none of the readers below was installed and each of them does
 /// nothing of orb's if it was.
 pub static GAME: MainThread<Option<&'static dyn Game>> = MainThread::new(None);
@@ -325,8 +325,8 @@ pub static PACING: MainThread<Option<frame::Pacing>> = MainThread::new(None);
 /// `&mut`, and two of those at once is not a thing that can be reasoned about.
 ///
 /// **Nothing tests this and nothing can**, which is the one thing a simulated Windows is still the
-/// answer to and does not have: the re-entry comes from a message pump, and there is no pump for a
-/// scenario to drive. So the flag is reasoned about rather than asserted.
+/// answer to and does not have: the re-entry comes from a message pump, and there is no pump for an
+/// e2e test to drive. So the flag is reasoned about rather than asserted.
 pub static IN_HOOK: AtomicBool = AtomicBool::new(false);
 
 pub static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
@@ -406,6 +406,9 @@ pub struct FrameCall {
 }
 
 impl FrameCall {
+    /// **`const fn` because both of these are statics**, which is also why no e2e test can enter it: what
+    /// happens here is const evaluation and not execution. See `sync::MainThread::new`, which is the same
+    /// zero for the same reason.
     pub const fn none() -> Self {
         Self {
             function: AtomicUsize::new(0),
@@ -532,7 +535,7 @@ pub struct Originals {
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
 /// then the same runtime [`attach`] leaves behind.
 ///
-/// What [`attach`] does above this and a scenario cannot: read a `.data` section out of the PE, load
+/// What [`attach`] does above this and an e2e test cannot: read a `.data` section out of the PE, load
 /// `orb.yaml` from beside an exe, and patch a call site in the game's code. A game laid out by hand
 /// has none of those — it hands over its own memory's bounds, a `Config` written in the open, and its
 /// own functions where the patches would have pointed.
@@ -554,7 +557,7 @@ pub unsafe fn attach_to(
     log::set_level(config.log_level);
     log::set_pacing(config.pacing_log);
     // Where [`attach`] settles this off the exe's own name, a game laid out by hand is handed over as
-    // itself: there is no file to read the name of, and a scenario that had to name one would be
+    // itself: there is no file to read the name of, and an e2e test that had to name one would be
     // choosing its game twice.
     unsafe { *GAME.get() = Some(game) };
     // The flags a fresh process would have brought, since a game that is not one does not bring it: a
@@ -657,7 +660,7 @@ pub unsafe fn attach_to(
 
 /// Takes the runtime down, which is what closing the game does to it.
 ///
-/// For a scenario that plays one game and then another in the same process: a runtime left standing
+/// For an e2e test that plays one game and then another in the same process: a runtime left standing
 /// would hold the first game's chapters and draw its overlay through a device that has gone. Dropped
 /// here rather than left to `DllMain`'s own detach, where the process is going away and an overlay
 /// released through a device Direct3D has already torn down is a fault on the way out.
@@ -670,7 +673,7 @@ pub unsafe fn detached() {
     // And the log, which a real launch closes from `DllMain`'s `DLL_PROCESS_DETACH` and which this is
     // the whole of the way out of for anything else. Left open it is a handle onto a game that has
     // gone: the next `log::line` writes through it, and where the next thing along is another game in
-    // the same process — which is a scenario file with two launches in it — that write lands in *its*
+    // the same process — which is an e2e test file with two launches in it — that write lands in *its*
     // log, before it has opened one. Three counter reads a line, so it moves that launch's clock too.
     log::close();
 }
@@ -913,6 +916,11 @@ pub unsafe extern "fastcall" fn run_calc_chain(chain: *mut c_void) -> i32 {
 }
 
 /// Once, so a hook that turns out to nest every frame does not fill the log.
+///
+/// **No e2e test reaches it**, and that is what the guard above is for rather than a gap: a laid-out game
+/// calls this hook where the real one's patched prologue is reached, on one thread and never from inside
+/// itself. What would nest it is the game's own code re-entering the chain walk, which is a thing the real
+/// game does and this one is written not to.
 fn note_reentry() {
     static REPORTED: AtomicBool = AtomicBool::new(false);
     if !REPORTED.swap(true, Ordering::Relaxed) {
@@ -1001,7 +1009,7 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     // Calling a null function pointer is undefined, and the compiler turns it into
     // an instruction that only crashes. Handing the frame back is the honest answer.
     //
-    // **The one way out of this loop no scenario reaches, and it can have none**: `attach` and
+    // **The one way out of this loop no e2e test reaches, and it can have none**: `attach` and
     // `attach_to` both fill these two statics as they install, and nothing outside orb can empty
     // them — so a game would have to be laid out with a hole in orb rather than in itself. The other
     // three are the `frame_loop` section of `orb-e2e`'s `pacing`: the frame handed back for want of a

@@ -1,6 +1,6 @@
 //! **A replay played out the same way after being moved between its stages, to the last digit.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine. This is what `--collect` and `--judge` stand on: a pass that builds a midstage chapter table
 //! steps between boundaries and moves between stages, so a replay that stops playing out the same way
 //! makes every boundary it judged afterwards worthless.
@@ -11,7 +11,7 @@
 //! move out to stage 2 and back.
 //!
 //! What the laid-out game plays is a record of its own — `Fake::watches_a_replay_of_its_stages` — and the
-//! comparison is the same one, field for field, over the frames a scenario has the patience for.
+//! comparison is the same one, field for field, over the frames an e2e test has the patience for.
 
 use crate::fake::th06::{Fake, the_run};
 use crate::fake::{Launched, in_its_own_process};
@@ -39,8 +39,8 @@ const INTO_THE_STAGE: u32 = 260;
 
 /// How many updates of the stage the two passes are compared over.
 ///
-/// The real comparison was the whole of stage 1 — 9,011 frames, the boss included. This is what a
-/// scenario has the patience for, and what it is enough of is the claim: the two passes agree from the
+/// The real comparison was the whole of stage 1 — 9,011 frames, the boss included. This is what an
+/// e2e test has the patience for, and what it is enough of is the claim: the two passes agree from the
 /// stage's first update, so a disagreement anywhere would be one this finds.
 const COMPARED: u32 = 400;
 
@@ -75,7 +75,7 @@ fn at_the_stage_built(game: &Fake, stage: i32) -> bool {
 /// stage was built in.
 ///
 /// **On that frame and not one past it**, because that is where a pass over the stage begins: the build
-/// frame is the stage's own first update, so a scenario that ran one more frame would be comparing the
+/// frame is the stage's own first update, so an e2e test that ran one more frame would be comparing the
 /// stage's second update against another pass's first.
 ///
 /// # Panics
@@ -194,7 +194,7 @@ fn starting_a_replay_at_a_stage_puts_the_score_and_the_extra_lives_back_to_nothi
         });
         assert!(
             game.image().reproducing_now().score >= scored,
-            "the score this scenario is about did not survive to the move",
+            "the score this e2e test is about did not survive to the move",
         );
 
         moves_to_the_stage(&game, NEXT, 1);
@@ -285,8 +285,8 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
 /// And a shake left to run its own frames out puts the arcade region back itself, so a move after it has
 /// nothing to take down.
 ///
-/// **Which is what makes the scenario above say anything.** The region coming back there is orb writing
-/// it, and nothing in a scenario that only ever cuts a shake early can tell that from a shake which would
+/// **Which is what makes the e2e test above say anything.** The region coming back there is orb writing
+/// it, and nothing in an e2e test that only ever cuts a shake early can tell that from a shake which would
 /// have done it anyway. So this is the other half: the same bomb, the same stage move, and the shake's own
 /// 80 frames allowed to finish in between.
 #[test]
@@ -391,7 +391,7 @@ const COUNTED: u32 = 40;
 /// frames run out it puts the arcade region back and returns that answer, and `Chain::RunCalcChain`'s switch
 /// is what reads the next element, calls `Cut` on the one that answered, and carries on from there.
 ///
-/// **What no scenario could ask before the walk existed** — see
+/// **What no e2e test could ask before the walk existed** — see
 /// [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), where this
 /// is one of the three things the last step of it makes reachable. The job cutting itself and the walk
 /// cutting it leave the same memory behind, so what this is the record of is that the answer is what does it:
@@ -509,7 +509,7 @@ const SHAKE_FRAMES: u32 = crate::fake::th06::SHAKE_FRAMES as u32;
 ///
 /// **9011 frames**, the whole stage including the boss, with the replay's input clock, the buttons it fed,
 /// the player's position and the count of numbers the generator has given out identical on both sides.
-/// This is the scenario the ones above are the parts of, and the one `--collect` and `--judge` rest on.
+/// This is the e2e test the ones above are the parts of, and the one `--collect` and `--judge` rest on.
 #[test]
 fn a_stage_played_twice_across_a_move_agrees_to_the_last_digit() {
     in_its_own_process(|| {

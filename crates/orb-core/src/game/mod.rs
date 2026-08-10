@@ -84,6 +84,29 @@ pub fn known_by_exe(exe: &str) -> Option<&'static Known> {
         .find(|known| known.exe.eq_ignore_ascii_case(exe))
 }
 
+/// The game a process running an exe of that name is, said out loud — and `None` for a name no entry
+/// holds, with the refusal that names every build orb has addresses for.
+///
+/// **The two log lines are here rather than at the call site**, because there are two call sites and
+/// what they say has to be the same: `orb::attach` reads the name off the exe it woke up inside, and a
+/// game laid out by hand is running under a name of its own. A process orb has no addresses for is one
+/// it must leave exactly as it found it, so this is the line before which nothing of the host has been
+/// touched — see `docs/adr/0004`.
+pub fn found(exe: &str) -> Option<&'static Known> {
+    let Some(known) = known_by_exe(exe) else {
+        crate::log!(
+            "game: nothing orb knows is called {exe}; it knows {}. orb is doing nothing this run",
+            known_named(),
+        );
+        return None;
+    };
+    crate::log!(
+        "game: {exe}, and every address orb has for it was read off {}",
+        known.version
+    );
+    Some(known)
+}
+
 /// The games orb knows, named the way a refusal has to name them: the exe to look for and the build
 /// its addresses were read off.
 ///

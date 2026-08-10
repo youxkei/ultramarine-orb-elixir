@@ -8,7 +8,7 @@
 
 pub mod chapters;
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
-/// crates that drive it — which is where the scenarios live.
+/// crates that drive it — which is where the e2e tests live.
 #[cfg(any(test, feature = "sim"))]
 pub mod image;
 
@@ -59,9 +59,9 @@ const CHAIN_CUT: usize = 0x0041cde0;
 /// game laid out by hand hands over in its place: a reader, a setter, and the slot behind them.
 ///
 /// **Code is the one thing an address space laid out by hand cannot hold**, so every call this file makes
-/// into the game that a scenario reaches has to be answerable — a shake still running at a stage move is
+/// into the game that an e2e test reaches has to be answerable — a shake still running at a stage move is
 /// taken down through one, and a track whose chapter has been left behind is stopped and started again
-/// through two more. A scenario without them would be jumping into memory nothing has mapped. The same
+/// through two more. An e2e test without them would be jumping into memory nothing has mapped. The same
 /// answer `window::install_over` and `score::install_over` are — see
 /// [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 ///
@@ -373,7 +373,7 @@ const PLAY_AUDIO: usize = 0x00424b5d;
 
 // Both handed over, because both are reached from one restore: a chapter whose track has been replaced
 // since it was taken has its sound torn down through the first and started again through the second —
-// see [`Snapshot::restore`](../../../../orb/src/snapshot.rs). Which is a path a scenario walks, so it
+// see [`Snapshot::restore`](../../../../orb/src/snapshot.rs). Which is a path an e2e test walks, so it
 // cannot be two addresses in a game that has no code at them.
 handed_over!(STOP_BGM_AT, stop_bgm, set_stop_bgm, STOP_BGM);
 handed_over!(PLAY_AUDIO_AT, play_audio, set_play_audio, PLAY_AUDIO);
@@ -891,6 +891,11 @@ const DIFFICULTY_EXTRA: i32 = 4;
 const EXTRA_LIVES_IN_EXTRA: i8 = 4;
 
 impl Game for Th06 {
+    /// **No e2e test enters this or [`frame_calls`](Self::frame_calls)**, and neither is a gap: what they
+    /// answer is which prologues to patch and which addresses to call, and `orb::attach` is the only caller
+    /// of either. A game laid out by hand has no import table and no prologue to write over — it hands its
+    /// own functions to `runtime::attach_to` instead, which fills the same statics this list would. The same
+    /// class as `joystick::install`.
     fn hooks(&self) -> Hooks {
         Hooks {
             update: Patch {

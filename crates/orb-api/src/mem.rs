@@ -297,7 +297,7 @@ pub fn count_private_region_again(base: usize) {
 ///
 /// No two entries cover the same pages, a heap region and a reservation being able to name the same
 /// ones. That rule is the answering host's, being a rule about *its* pages: laid-out memory answers with
-/// the objects a scenario put there, and two of those merged because they abut is one range nothing in
+/// the objects an e2e test put there, and two of those merged because they abut is one range nothing in
 /// that space can read.
 pub fn game_regions(data: &std::ops::Range<usize>) -> Vec<(usize, usize)> {
     #[cfg(feature = "sim")]

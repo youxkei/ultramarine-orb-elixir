@@ -208,7 +208,7 @@ pub type CreateFileA = unsafe extern "system" fn(
 ///
 /// The same answer [`crate::window::install_over`] is, and for the same reason — see
 /// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
-/// Which file an open lands in is what every scenario about this file reads, and the path and the access
+/// Which file an open lands in is what every e2e test about this file reads, and the path and the access
 /// are the whole of what has to cross for that: a laid-out game answers with a handle of its own and there
 /// is no file on any disk.
 ///

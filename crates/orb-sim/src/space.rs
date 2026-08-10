@@ -64,6 +64,8 @@ fn reinterpret<T: Copy>(bytes: &[u8]) -> T {
 /// The regions a test has laid out, and the bytes in them.
 pub struct Space {
     regions: Mutex<Vec<Region>>,
+    /// The bases a commit over is refused — see [`refuses_to_commit`](Space::refuses_to_commit).
+    refused: Mutex<Vec<usize>>,
 }
 
 impl Default for Space {
@@ -76,7 +78,20 @@ impl Space {
     pub fn new() -> Self {
         Self {
             regions: Mutex::new(Vec::new()),
+            refused: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Says that a commit reaching `base` is one this host will not make: `VirtualAlloc` coming back null,
+    /// which is the one way a restore can find a region of its own it cannot write to.
+    ///
+    /// An e2e test saying so, the way it says the host refuses `SetProcessDPIAware`. It has to be *said*
+    /// because a commit here always works otherwise — the space owns every page and puts back whatever is
+    /// missing — and what orb does about a refusal is the question: the region is named in the log and the
+    /// rest of the restore still happens, where a restore that gave up on the first refusal would leave the
+    /// game half a chapter back.
+    pub fn refuses_to_commit(&self, base: usize) {
+        self.refused.lock().unwrap().push(base);
     }
 
     /// Commits `len` zeroed bytes at `base`, as the game's static data and its allocations
@@ -108,7 +123,7 @@ impl Space {
     /// space was told. It is not any more — the buffer is answered through the seam — and what asks now is
     /// `orb-e2e`'s `vtable_for`, over the address it lays the device's vtable at: that one is not a real
     /// object either, the slot orb patches being swapped through `orb_api::mem::replace_word`, but the
-    /// address is chosen rather than worked out and a scenario that laid a game out over it should hear so
+    /// address is chosen rather than worked out and an e2e test that laid a game out over it should hear so
     /// there rather than inside [`map`](Space::map).
     pub fn has_room(&self, base: usize, len: usize) -> bool {
         let regions = self.regions.lock().unwrap();
@@ -233,8 +248,17 @@ impl Space {
     ///
     /// Run by run, because a range can be partly there: the hole is not always at the front.
     pub fn commit(&self, address: usize, len: usize) -> bool {
-        let mut regions = self.regions.lock().unwrap();
         let end = address + len;
+        if self
+            .refused
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|base| (address..end).contains(base))
+        {
+            return false;
+        }
+        let mut regions = self.regions.lock().unwrap();
         let mut at = address;
         while at < end {
             match regions

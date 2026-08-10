@@ -14,8 +14,11 @@ publish.workspace = true
 # The test support other crates' tests reach for — `game::th06::image`, the game laid out by hand.
 # A feature as well as `cfg(test)` because `cfg(test)` is false in a crate compiled as a
 # *dependency* of a test binary, which is what this crate is when `orb`'s tests or `orb-sim`'s
-# scenarios drive it. Same reason as `orb-api`'s feature of the same name, and it turns that one on.
-sim = ["orb-api/sim", "dep:orb-sim"]
+# e2e tests drive it. Same reason as `orb-api`'s feature of the same name, and it turns that one on.
+#
+# `orb-config/sim` goes with it because that crate reads and writes `orb.yaml` through the file seam:
+# cargo would union `orb-api/sim` in anyway, and naming it here is what says the chain was meant.
+sim = ["orb-api/sim", "orb-config/sim", "dep:orb-sim"]
 
 [dependencies]
 orb-api = { workspace = true }

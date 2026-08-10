@@ -300,10 +300,10 @@ impl Music {
     unsafe fn with_locked_buffer(&self, body: impl FnOnce(&mut [u8])) -> Option<()> {
         let (mut asked, mut locked) = dsound::lock(self.buffer, 0, self.buffer_size, 0);
         // A buffer DirectSound has taken away, which happens when the device goes: restored once and
-        // locked again, and given up on if that does not take. **No scenario reaches this**, and none can
+        // locked again, and given up on if that does not take. **No e2e test reaches this**, and none can
         // as things are — `orb_sim::Sound` answers every call, and one that refused on demand would be a
         // switch with nothing on the other side of it: what this arm does is give up, which is not a claim
-        // a scenario can hold orb to. The same is true of every other arm here that answers `None`.
+        // an e2e test can hold orb to. The same is true of every other arm here that answers `None`.
         if asked < 0 {
             let (_, status) = dsound::get_status(self.buffer);
             if status & DSBSTATUS_BUFFER_LOST == 0 {
@@ -334,7 +334,7 @@ impl Music {
 unsafe fn mmio_seek(mmio: Mmio, offset: i32, origin: i32) -> i32 {
     static SEEK: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     let seek = *SEEK.get_or_init(|| {
-        // Neither of these two is reached by a scenario, and the reason is the same one both ways round: a
+        // Neither of these two is reached by an e2e test, and the reason is the same one both ways round: a
         // laid-out stream is reached through `orb_sim::Sound::install`, which is what loads the library and
         // puts both functions in it, and orb needs the stream to get as far as this call at all. So the
         // shape this arm wants is a stream with no sound behind it, which nothing else needs.

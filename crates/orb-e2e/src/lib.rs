@@ -1,8 +1,8 @@
-//! The launches: a game playing the game's part, and every scenario that drives orb through one.
+//! The launches: a game playing the game's part, and every e2e test that drives orb through one.
 //!
-//! **A scenario is a launch with the far side of the hooks replaced.** `orb_core::runtime::attach_to`
-//! fills the same statics `orb`'s own install lists fill, so orb's own code is the same code in a scenario as
-//! in a run and the only thing that can differ is what lies past a hook. What lies past them here is
+//! **An e2e test is a launch with the far side of the hooks replaced.** `orb_core::runtime::attach_to`
+//! fills the same statics `orb`'s own install lists fill, so orb's own code is the same code in an e2e
+//! test as in a run and the only thing that can differ is what lies past a hook. What lies past them is
 //! [`fake`], whose address space, scenes and records are the game's own laid out by hand; what lies under
 //! them is `orb-sim`.
 //!
@@ -15,7 +15,7 @@
 //!
 //! **The whole crate is `#[cfg(test)]`, and that is what it is for.** `orb_core::game::th06::image` and
 //! the seam's install point are reached through `orb-core`'s `sim` feature, and a crate under test
-//! cannot turn a feature on for itself — which is why the scenarios were integration tests for as long
+//! cannot turn a feature on for itself — which is why the e2e tests were integration tests for as long
 //! as they lived in a crate that is under test. This one is not: it is a consumer, so it asks for
 //! `orb-core = { features = ["sim"] }` the ordinary way and its own `#[cfg(test)]` is true. See
 //! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
@@ -23,7 +23,7 @@
 //! **Which buys the dead-code check back.** As integration tests the fake was compiled once per
 //! `scenario_*.rs`, twenty-three times, and carried a blanket `#![allow(dead_code)]`: what one file did
 //! not touch was another file's, and `dead_code` is worked out per binary so nothing could see that. One
-//! binary holding the fake and every scenario over it can. [`fake`] is `pub(crate)` for the same reason
+//! binary holding the fake and every e2e test over it can. [`fake`] is `pub(crate)` for the same reason
 //! and the two go together — `dead_code` does not fire on a `pub` item a crate exports, so a fake
 //! reachable from outside would take the allow away and find nothing.
 //!
@@ -36,13 +36,21 @@
 pub(crate) mod fake;
 
 #[cfg(test)]
+mod a_chapter_of_the_stages_own_boss;
+#[cfg(test)]
 mod a_chapter_out_of_the_table;
 #[cfg(test)]
 mod a_chapter_table_collected;
 #[cfg(test)]
+mod a_chapter_under_a_bomb;
+#[cfg(test)]
 mod a_clear_on_demand;
 #[cfg(test)]
+mod a_confirmation_declined;
+#[cfg(test)]
 mod a_practice_run;
+#[cfg(test)]
+mod a_region_a_restore_cannot_write;
 #[cfg(test)]
 mod a_stage_transition;
 #[cfg(test)]
@@ -62,6 +70,8 @@ mod pacing;
 #[cfg(test)]
 mod pointdevice_run;
 #[cfg(test)]
+mod stepping_inside_a_stage;
+#[cfg(test)]
 mod th07;
 #[cfg(test)]
 mod the_ending;
@@ -72,16 +82,26 @@ mod the_handles_a_restore_leaves_alone;
 #[cfg(test)]
 mod the_launch_before_its_device;
 #[cfg(test)]
+mod the_letterbox_presented_into;
+#[cfg(test)]
 mod the_mark_over_the_lives;
 #[cfg(test)]
 mod the_music_across_a_restore;
 #[cfg(test)]
 mod the_player_a_stage_starts;
 #[cfg(test)]
+mod the_process_orb_woke_up_in;
+#[cfg(test)]
+mod the_run_left_behind;
+#[cfg(test)]
 mod the_run_read_back;
 #[cfg(test)]
 mod the_score_file;
 #[cfg(test)]
+mod the_snapshot_held_against_itself;
+#[cfg(test)]
 mod the_window;
 #[cfg(test)]
 mod the_window_going_behind;
+#[cfg(test)]
+mod the_windows_orb_leaves_alone;

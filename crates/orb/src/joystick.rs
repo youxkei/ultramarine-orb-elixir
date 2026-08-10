@@ -1,6 +1,6 @@
 //! The write over the game's own `joyGetPosEx` entry.
 //!
-//! **The one thing in this module no scenario reaches**, which is the whole of what is left here: a game
+//! **The one thing in this module no e2e test reaches**, which is the whole of what is left here: a game
 //! laid out by hand has no import table, so it is handed the entry through
 //! [`orb_core::joystick::install_over`] and calls [`orb_core::joystick::answer`] itself where its own read
 //! would have gone through it. Everything past this line is covered that way — see

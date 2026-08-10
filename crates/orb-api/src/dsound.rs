@@ -3,7 +3,7 @@
 //! **A mirror of the slots and not an abstraction over them**, for the reason [`crate::d3d8`] is: what
 //! must not cross is a decision. Which of the buffer's status bits mean what, that a lock starting at
 //! zero never wraps, and how a capture is rejected where the streaming thread moved under it are all
-//! `orb-core`'s, and are what a scenario over the music is about.
+//! `orb-core`'s, and are what an e2e test over the music is about.
 //!
 //! **Eight of them, which is every slot this file types**, out of `IDirectSoundBuffer`'s twenty-one:
 //!

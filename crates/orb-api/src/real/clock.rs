@@ -99,7 +99,7 @@ pub(crate) fn timer() -> isize {
 mod tests {
     use super::{REFUSED, counter, frequency, timer, wait};
 
-    /// The real calls against the real host, because that is the one thing no scenario reaches: a
+    /// The real calls against the real host, because that is the one thing no e2e test reaches: a
     /// simulated `wait` advances a counter, and whether *these* two calls work at all is a fact about
     /// the machine and the `windows-sys` bindings.
     ///

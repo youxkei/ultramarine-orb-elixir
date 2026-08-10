@@ -1,6 +1,6 @@
 //! **The ending run out inside one frame, and its staff roll left to play.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! **What an ending is made of**, read out of `紅魔郷ED.DAT`: 33 entries, unpacked the way the game
@@ -33,7 +33,7 @@ const A_WHOLE_RUN: u32 = STAGE_FRAMES * STAGES as u32 * 2;
 /// How many updates the ending's own script takes before it hands over.
 ///
 /// Measured: **29,040** on a stage 6 clear, which is what `Fake::lays_out_an_ending` is given so that
-/// the count a scenario reads off the log is the count the real one wrote.
+/// the count an e2e test reads off the log is the count the real one wrote.
 const ENDING_UPDATES: i32 = 29_040;
 
 /// And the frames of waits in the roll's own script, `staff00.end`: **7,830**, a little over two
@@ -49,7 +49,7 @@ const SKIPPED: &str = "ending skipped,";
 /// in — and holding every frame before it to never having found the ending running.
 ///
 /// **Which is what "inside the frame it begins on" means**, and it is asserted here rather than in one
-/// scenario because both of them rest on it: drawing happens once a frame, so a frame of the loop that
+/// e2e test because both of them rest on it: drawing happens once a frame, so a frame of the loop that
 /// found the scene already the ending's would be a frame of the ending that reached the screen.
 ///
 /// `--clear` because that is how an ending is reached without half an hour of playing well, and it is
@@ -98,7 +98,7 @@ fn the_line(game: &Fake, holding: &str) -> String {
 /// How many updates a line of either kind says were run.
 ///
 /// Read out of the line rather than counted here, because the line is what somebody reading a real run's
-/// log has: a scenario that counted its own updates would be asserting about itself.
+/// log has: an e2e test that counted its own updates would be asserting about itself.
 fn updates_in(line: &str) -> i32 {
     line.split_whitespace()
         .find_map(|word| word.parse::<i32>().ok())
@@ -267,7 +267,7 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
 /// can cut short is one `@w1200` whose second argument is 4, and nobody was watching the keyboard for it.
 /// So what is asserted here is the arithmetic over an ending whose waits are known, and the gap is open:
 /// only a clear that keeps its hands off the keyboard through the roll closes it, which is a run against
-/// the real game and nothing a scenario can do.
+/// the real game and nothing an e2e test can do.
 #[test]
 fn the_ending_and_the_roll_together_come_to_the_waits_in_the_script() {
     in_its_own_process(|| {

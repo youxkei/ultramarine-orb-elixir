@@ -1,7 +1,7 @@
 //! **The game's window going behind and coming forward again: the keys, and the device they are read
 //! through.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! **The game keeps running while its window is behind**, which is what `always_draw` is and what a

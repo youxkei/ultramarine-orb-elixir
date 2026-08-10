@@ -10,7 +10,7 @@
 //! attached to a game it has read a frame of gets in, has its two hooks reached inside that game's own
 //! frame, and writes its own account of the run — and paces nothing and draws nothing, there being no
 //! frame loop of orb's here and no font beside the exe to build an overlay from. Over `Launch`, which is
-//! the same half of a launch th06's scenarios run on. See
+//! the same half of a launch th06's e2e tests run on. See
 //! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 //!
 //! Where a number here is 妖々夢's it says so. There are two: the answers its chain walk gives, and what
@@ -44,9 +44,9 @@ pub struct Fake {
     image: Image,
     launch: Launch,
     /// What this game's chain walk answers. [`CHAIN_CARRIED_ON`] for the whole of a launch here: no
-    /// scenario over this game asks it to leave, 妖々夢's half being a frame and nothing else. A `Cell`
+    /// e2e test over this game asks it to leave, 妖々夢's half being a frame and nothing else. A `Cell`
     /// all the same, because what reads it is a bare `extern` function with the ABI's arguments and
-    /// nothing else — the same shape 紅魔郷's is, where a scenario does move it.
+    /// nothing else — the same shape 紅魔郷's is, where an e2e test does move it.
     answers: Cell<i32>,
     /// Held for the process's life, so that every read orb makes lands in this game's memory.
     _installed: orb_api::Installed,
@@ -84,27 +84,29 @@ impl Launched for Fake {
 }
 
 impl Fake {
-    /// Lays the game out on a display a scenario says the whole of, gives it a device, and attaches orb
+    /// Lays the game out on a display an e2e test says the whole of, gives it a device, and attaches orb
     /// to it the way a launch there is attached: **the game's own frame loop, with orb's update and draw
     /// hooks inside it.**
     ///
     /// Not orb's own loop, because `Th07::hooks` declines `render` — a run measured orb's loop taking
-    /// 妖々夢 down on its first frame, and a scenario driving a loop production does not install would be
+    /// 妖々夢 down on its first frame, and an e2e test driving a loop production does not install would be
     /// asserting about a configuration nobody gets. `work` is what the game's own frame costs, which is
     /// what the clock moves by.
     ///
     /// Boxed and never moved for the reason th06's is: the hooks find it through a pointer.
     pub fn attach(display: Display, name: &str, work: Work) -> Box<Self> {
         let dir = scratch(name);
+        // The simulated Windows first, `orb.yaml` being a file of orb's own and so read through the file
+        // seam — the same order 紅魔郷's has, and for the same reason.
+        let image = Image::laid_out_seeded(display.seed);
+        let installed = image.enter();
+        image.sim().files().make(&dir);
         let mut config =
-            Config::load_beside(&dir.join("th07.exe")).expect("a directory with no orb.yaml in it");
+            Config::load_beside(&dir.join(EXE)).expect("a directory with no orb.yaml in it");
         // The memory hooks patch an import table there is none of.
         config.track_memory = false;
         // As `Th07::hooks` leaves it: the game's own frame runs and orb's two hooks are inside it.
         config.own_frame_loop = false;
-
-        let image = Image::laid_out_seeded(display.seed);
-        let installed = image.enter();
         // The font is there for the harness's own device and gone before orb reaches for one: **a 妖々夢
         // install has no `font.ttf` beside its exe.** 紅魔郷 ships one and 妖々夢 keeps its fonts inside
         // `th07.dat`, so orb's overlay cannot be built there — measured on the machine as `overlay:
@@ -116,7 +118,7 @@ impl Fake {
         image.sim().text().remove_font(&font);
         image.shows_through(launch.device(), WINDOW);
         // Where the game is installed, which is where orb writes its log.
-        image.sim().set_host_exe(launch.dir().join("th07.exe"));
+        image.sim().set_host_exe(launch.dir().join(EXE));
         // The display, in front of orb being attached: `configure` reads the desktop's own rate before
         // there is a window to ask about, and a rate written down after that would be read a second
         // late — the first second of the run paced against nothing.
@@ -144,7 +146,7 @@ impl Fake {
         RUNNING.set(&raw const *fake);
         unsafe {
             orb_core::runtime::attach_to(
-                &TH07,
+                the_game_this_is(),
                 config,
                 fake.image.data(),
                 orb_core::runtime::Originals {
@@ -193,8 +195,21 @@ impl Drop for Fake {
     }
 }
 
-/// The one game orb is attached to here, which has to outlive the runtime that holds it.
-static TH07: Th07 = Th07;
+/// The exe this game is running as, which is the file name 妖々夢 ships under, and the `Game` orb is
+/// attached to found out of the table by it.
+///
+/// Asked rather than named for the same reason 紅魔郷's is — see `fake::th06::the_game_this_is`: what says
+/// which game a process is, in a launch and here, is the exe's own name.
+///
+/// # Panics
+/// Where no entry holds that name.
+pub const EXE: &str = "th07.exe";
+
+fn the_game_this_is() -> &'static dyn orb_core::game::Game {
+    orb_core::game::found(EXE)
+        .unwrap_or_else(|| panic!("{EXE} is a game orb knows"))
+        .game
+}
 
 extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
     let fake = running();
@@ -230,7 +245,7 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
     FRAME_KEPT_RUNNING
 }
 
-/// `SoundPlayer::PlaySounds` at 0x44c9c0: the time a scenario says this frame's sounds cost, a laid-out
+/// `SoundPlayer::PlaySounds` at 0x44c9c0: the time an e2e test says this frame's sounds cost, a laid-out
 /// game having no sound system to spend it in.
 ///
 /// Here rather than left out because the frame loop calls it where the game's own loop did, and a frame
@@ -244,7 +259,7 @@ unsafe extern "fastcall" fn play_sounds(_player: usize) {
 
 /// `GameWindow::Present` at 0x4345c0: the frame handed over, which from here is the compositor's.
 ///
-/// Where a scenario counts a frame — the tick it was handed over at, which is what a rate is read off —
+/// Where an e2e test counts a frame — the tick it was handed over at, which is what a rate is read off —
 /// and where the host is told, since the next flush is what waits for this frame to be composed.
 unsafe extern "fastcall" fn present(_window: usize) {
     let fake = running();

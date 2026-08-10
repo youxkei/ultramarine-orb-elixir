@@ -1,25 +1,25 @@
-# 3. The frame loop's scenarios are one file, and what judges a rate is functions in it
+# 3. The frame loop's e2e tests are one file, and what judges a rate is functions in it
 
 **Status:** accepted and built. That file is 2249 lines: the functions that judge a rate at
-its top level, and under them twelve sections holding the 46 scenarios about orb's own frame loop. The
+its top level, and under them twelve sections holding the 46 e2e tests about orb's own frame loop. The
 ten `pacing_*.rs`, `frame_loop.rs`, `log_deferral.rs` and `pacing/mod.rs` are gone; `Fake` has
-the launch, the hand-overs, the refresh period and the wait for a line that those scenarios used to reach
+the launch, the hand-overs, the refresh period and the wait for a line that those e2e tests used to reach
 the host for; and `frame::LOGIC_HZ` is `pub`. What the built shape does differently from the decision
 below is at the end.
 
 **[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) has taken one of the
 two reasons below away, and it is built.** Half of why these were one file is that `fake` was compiled once
-per test binary, so a helper nothing calls read as dead only where the scenarios shared one; `orb-e2e`
-compiles the fake once with every scenario as a `#[cfg(test)]` module over it, and the blanket
-`#![allow(dead_code)]` is gone — it was hiding two accessors of `fake::th07::Fake` that no scenario reached.
-What is left is the other reason — the functions that judge a rate live beside the scenarios that read
+per test binary, so a helper nothing calls read as dead only where the e2e tests shared one; `orb-e2e`
+compiles the fake once with every e2e test as a `#[cfg(test)]` module over it, and the blanket
+`#![allow(dead_code)]` is gone — it was hiding two accessors of `fake::th07::Fake` that no e2e test reached.
+What is left is the other reason — the functions that judge a rate live beside the e2e tests that read
 them — and whether that alone wants one file is now a question about what a file is for rather than a way
 of buying dead-code detection back. The file is `crates/orb-e2e/src/pacing.rs`.
 
 It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which put those
-scenarios in front of a laid-out 紅魔郷 and left them in the shape the harness they replaced had: a file
+e2e tests in front of a laid-out 紅魔郷 and left them in the shape the harness they replaced had: a file
 apiece. It was `orb/tests/pacing.rs` when this was decided;
-[0005](0005-every-scenario-lives-in-orb-sims-tests.md) moved it to
+[0005](0005-every-e2e-test-lives-in-orb-sims-tests.md) moved it to
 `orb-sim/tests/scenario_pacing.rs` without changing a line of it, so the paths below are this decision's
 and not the tree's.
 
@@ -33,7 +33,7 @@ it:
 > a binary of its own, so each of these owns its process.
 
 A file is no longer what owns the process. `fake::in_its_own_process` spawns the test binary again for
-each `#[test]` — `--exact <name> --nocapture --test-threads=1` — so every scenario owns a process
+each `#[test]` — `--exact <name> --nocapture --test-threads=1` — so every e2e test owns a process
 wherever it lives, and the file boundary buys nothing. `pacing_rates.rs` had already noticed the other
 half: "They can share a binary because the pacing is a value now — it was a page of statics, and one
 process could only ever have paced one display."
@@ -50,7 +50,7 @@ ends of is a module that keeps them.
 The same shape put six identical copies of `the_run()` in six files — Normal, Reimu A, stage one,
 five fields each — and had `pacing/mod.rs` re-declare `A_SECOND = 60`, which is `frame::LOGIC_HZ`
 written a second time where `LOGIC_HZ` was private. Sixty is the game's own logic rate and orb is
-injected into the game to hold it there; a scenario with its own idea of a second is a scenario whose
+injected into the game to hold it there; an e2e test with its own idea of a second is an e2e test whose
 idea can drift from the one being paced.
 
 **And `pacing/mod.rs` is doing two unrelated things.** What it is *for* is the reader's side of a run:
@@ -66,7 +66,7 @@ begin a run is a second place that starts a game.
 
 ## Decision
 
-**One file holds every scenario about orb's own frame loop, and the judging is plain functions in it.**
+**One file holds every e2e test about orb's own frame loop, and the judging is plain functions in it.**
 
 - `orb/tests/pacing.rs`, with the ten `pacing_*.rs`, `frame_loop.rs` and `log_deferral.rs` in it: 46
   tests over one subject — the loop's shape, the rate it holds, and the log it writes about itself.
@@ -87,7 +87,7 @@ begin a run is a second place that starts a game.
 
 **What it costs.** One file of 2249 lines, and `cargo test --test pacing_blanks` becomes a filter
 on a test name instead. The names gain their section — `blanks::a_120hz_display_gets_two_blanks…` —
-which `in_its_own_process` hands to `--exact` unchanged, so nothing about the process-per-scenario
+which `in_its_own_process` hands to `--exact` unchanged, so nothing about the process-per-e2e test
 changes.
 
 **What it buys.** Seventeen test binaries become six, and `fake/mod.rs` is compiled six times rather
@@ -95,9 +95,9 @@ than seventeen. The judgement has no `allow(dead_code)` over it, so the next hel
 called says so. And it can be read on its own: every function is arithmetic over a slice, which is
 also what would let it have tests of its own if it ever wants them.
 
-**What stays as it is, deliberately.** `Fake::sim()` stays public and the scenarios go on setting the
+**What stays as it is, deliberately.** `Fake::sim()` stays public and the e2e tests go on setting the
 host up and reading it back to assert — a display declared at the launch, a window moved behind, a
-compositor told to slow down. That is a scenario talking to the host it declared, which is not the same
+compositor told to slow down. That is an e2e test talking to the host it declared, which is not the same
 as the *judgement* reaching around the game; closing it was tried and is not wanted.
 
 **What it rules out.**
@@ -115,7 +115,7 @@ what is asserted: the count is 252 before and after, 46 of them in the one binar
   found by hand while that work landed, so `orb/tests/pacing/mod.rs` never held them. What the allow cost
   is still what the context says: nothing in twelve binaries could have said they were dead.
 - **`launched` and `launched_with` are one function.** `Fake::attach_watching_the_pacing(display, name,
-  work)` takes the `Work` a scenario declares, and a section whose frames all cost the same says
+  work)` takes the `Work` an e2e test declares, and a section whose frames all cost the same says
   `Work::flat(WORK_US)` at the launch. Two names for one launch were two names for `Work::flat`.
 - **The judgement reads the log's lines rather than the game.** `reports`, `reported`, `allowance_us` and
   `last_said` take `&[String]`; the three assertions take the microseconds, the seed and what orb last

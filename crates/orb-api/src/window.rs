@@ -6,7 +6,7 @@
 //! `orb::window` lays out is decided by numbers only the host knows, and a test that cannot move them
 //! cannot reach the layout at all. The frame is the host's and its theme's, and the monitor answers two
 //! different sizes for one panel depending on whether the process has said it is DPI aware. Neither is
-//! a number orb may assume, which is why each is a call here and why a scenario declares its own.
+//! a number orb may assume, which is why each is a call here and why an e2e test declares its own.
 
 use crate::{Bar, Hwnd, Rect};
 

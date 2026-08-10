@@ -1,6 +1,6 @@
 //! **The brush stroke over the count of lives, and the frames either end of a run it has to reach.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine and seen on the screen.
 //!
 //! What the stroke *is* has tests already — `lives_ui.rs`'s `the_stroke_covers_the_count_and_nothing_else`,
@@ -27,7 +27,7 @@ use orb_sim::keys;
 /// and nothing else. See `fake::th06::BOSS_ARRIVES`.
 const STAGE_FRAMES: u32 = 300;
 
-/// How many presses a scenario makes at one of orb's menus before it gives up on it answering.
+/// How many presses an e2e test makes at one of orb's menus before it gives up on it answering.
 ///
 /// Well past the 24 frames the retry menu holds its keys off for, against the two frames a press is.
 /// Counted in presses rather than frames because how long a menu holds them off is the menu's business —
@@ -232,7 +232,7 @@ fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
         game.one_frame();
         assert!(
             !game.says("DISABLE").is_empty(),
-            "the mark was never on the panel, so the line this scenario asks about could not be there \
+            "the mark was never on the panel, so the line this e2e test asks about could not be there \
              for any reason worth reading",
         );
 

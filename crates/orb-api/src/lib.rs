@@ -7,10 +7,22 @@
 //! `orb-core`, `orb-sim` — be built and tested on a host that is not Windows.
 //!
 //! **The host and not Windows**, which is a distinction with one member: [`Win::spin_once`] is the
-//! `pause` instruction and no call at all. What decides whether something belongs here is whether it
-//! is the host doing something to orb that no test could otherwise decide — see
-//! [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md) — and not whether
-//! there is a Win32 function on the other side of it.
+//! `pause` instruction and no call at all — see
+//! [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md). So what decides whether
+//! something belongs here is not whether there is a Win32 function on the other side of it.
+//!
+//! **What it is instead is simply: does orb reach outside itself for it.** Every such reach goes through a
+//! module here, and the two that used to be argued about are settled — the `pause`, which is no call at all,
+//! is in; and the files orb reads and writes of its own are in, through [`fs`].
+//!
+//! That rule replaced a narrower one, and the narrower one is worth reading because of what it let out:
+//! *whether it is the host doing something to orb that no test could otherwise decide.* Files failed that
+//! test, since a test can put a file in a directory it owns — and doing so is how `resume` and `orb.yaml`
+//! were driven for as long as they were `std::fs`. What that cost is the whole of why the rule changed: an
+//! e2e test with a real directory behind it has one to empty before it runs and one left behind when it
+//! fails, and the question it cannot ask at all is *what happens when the write fails*, there being no way
+//! to make `std::fs` refuse except by deforming the machine into a shape where it does. See
+//! [docs/adr/0012](../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
 //!
 //! The call sites keep their shape. `mem::read(address)` is what it was before the seam went
 //! in, and the alternative — making every caller carry a `&dyn Win` — would have rewritten
@@ -26,6 +38,7 @@ pub mod codepage;
 pub mod d3d8;
 pub mod display;
 pub mod dsound;
+pub mod fs;
 pub mod joystick;
 pub mod keyboard;
 pub mod logfile;
@@ -202,7 +215,7 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// No two entries may cover the same pages. That is this side's rule to keep because it is a rule
     /// about *these* pages: a real walk finds a heap region and a reservation naming the same ones and
-    /// merges them, and laid-out memory answers with the objects a scenario put there, two of which
+    /// merges them, and laid-out memory answers with the objects an e2e test put there, two of which
     /// merged because they abut is one range nothing in that space can read.
     fn game_regions(&self, data: &Range<usize>) -> Vec<(usize, usize)>;
 
@@ -297,14 +310,14 @@ pub trait Win: Send + Sync + 'static {
     /// between two reads of a device, and a millisecond is as fine as it needs to be.
     ///
     /// **A simulated host must not advance the clock here.** The caller is the sampling thread, and a
-    /// background thread moving the frame loop's own counter would break every pacing scenario — each
+    /// background thread moving the frame loop's own counter would break every pacing e2e test — each
     /// asserts about that counter to the microsecond. So a simulated host waits and writes down what it
-    /// was asked for, which is what makes the cadence something a scenario can read back.
+    /// was asked for, which is what makes the cadence something an e2e test can read back.
     fn sleep(&self, ms: u32);
 
     // --- the one failure that ends a launch -------------------------------------
     //
-    // Behind the seam because there is behaviour here no scenario could otherwise reach: one that
+    // Behind the seam because there is behaviour here no e2e test could otherwise reach: one that
     // raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
     // exited would take the harness's child with it.
 
@@ -391,6 +404,23 @@ pub trait Win: Send + Sync + 'static {
     fn write_log(&self, file: LogFile, bytes: &[u8]);
     fn close_log(&self, file: LogFile);
 
+    // --- the files orb reads and writes of its own ----------------------------
+    //
+    // Not the game's own: the score file is the game's `CreateFileA` under orb's hook, and the log is
+    // the three above. See [`crate::fs`], and `docs/adr/0012` for why these are here at all.
+    //
+    // `std::io::Result`, which is neither a `windows-sys` type nor a new one: what every call site
+    // does with an error is put it in a line of the log.
+
+    fn read_file(&self, path: &Path) -> std::io::Result<Vec<u8>>;
+    fn read_file_to_string(&self, path: &Path) -> std::io::Result<String>;
+    fn write_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
+    fn create_dir_all(&self, path: &Path) -> std::io::Result<()>;
+    fn remove_file(&self, path: &Path) -> std::io::Result<()>;
+    /// The files directly inside a directory, as their whole paths. See [`crate::fs::files_in`] for why
+    /// files rather than entries.
+    fn files_in(&self, path: &Path) -> std::io::Result<Vec<PathBuf>>;
+
     // --- loaded modules -------------------------------------------------------
 
     /// Where a loaded module's file is; `None` for the exe of this process, which is the game's.
@@ -421,8 +451,8 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// Behind the seam because how thick a frame is belongs to the host and to its theme: the size in
     /// `orb.yaml` is the size of what is *inside* the window, so the frame is what stands between the
-    /// number asked for and the window to ask for, and it is not a number orb can know. The frame a
-    /// scenario charges is `orb_sim::Windows`'s.
+    /// number asked for and the window to ask for, and it is not a number orb can know. The frame an
+    /// e2e test charges is `orb_sim::Windows`'s.
     ///
     /// `None` where the host refused, which leaves the rectangle as the client area — a window a
     /// frame too small rather than no window.
@@ -439,7 +469,7 @@ pub trait Win: Send + Sync + 'static {
     // scene* drawing wrong, which no test below the seam could see. Here there is no such bracket: the
     // black beside the game is orb's alone, Direct3D never touches it, and the one failure below this
     // line is a flicker, which the single blit prevents and which no test could have seen either way.
-    // What a scenario can have an opinion about — which bar the lines went in, which height they got
+    // What an e2e test can have an opinion about — which bar the lines went in, which height they got
     // and where the block landed — is all above. See
     // [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 
@@ -489,8 +519,8 @@ pub trait Win: Send + Sync + 'static {
     /// `MultiByteToWideChar` with `CP_ACP` — bytes a Win32 `-A` call answered, in whatever code page
     /// the machine is set to, as a string the log can hold.
     ///
-    /// A simulated host reads them as UTF-8, lossily, and that is not a gap: what a scenario asks of
-    /// the line this ends up in is which device it names, and the name it names is one the scenario
+    /// A simulated host reads them as UTF-8, lossily, and that is not a gap: what an e2e test asks of
+    /// the line this ends up in is which device it names, and the name it names is one the e2e test
     /// declared.
     fn codepage_text(&self, bytes: &[u8]) -> String;
 
@@ -621,7 +651,7 @@ pub trait Win: Send + Sync + 'static {
 /// A font face at one size, as far as anything baking a string through one can tell.
 ///
 /// On Windows it is what `real::text` boxed to hold the `HFONT` and the path the add was made with;
-/// under a simulated Windows it is which of the faces a scenario declared. Opaque either way — orb
+/// under a simulated Windows it is which of the faces an e2e test declared. Opaque either way — orb
 /// only ever hands one back to the seam.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Face(pub usize);

@@ -31,7 +31,7 @@ use orb_sim::keys;
 const BUTTONS: u32 = 16;
 const TRAVEL: (u32, u32) = (0, 65535);
 
-/// The name the log says that device is, which is what a scenario waits for the sample by: the read
+/// The name the log says that device is, which is what an e2e test waits for the sample by: the read
 /// happens on a thread of orb's own, so what says it has happened is the line that thread writes.
 const NAMED: &str = "joystick: mid=045e pid=02ff";
 
@@ -41,9 +41,9 @@ const NAMED: &str = "joystick: mid=045e pid=02ff";
 const SAMPLED_MS: u32 = 4;
 const LOOKED_FOR_MS: u32 = 1000;
 
-/// How long a scenario gives that thread, in frames with a millisecond of real time each.
+/// How long an e2e test gives that thread, in frames with a millisecond of real time each.
 ///
-/// **Real time and not simulated**, which is the one place a scenario here needs any: the sample is taken
+/// **Real time and not simulated**, which is the one place an e2e test here needs any: the sample is taken
 /// on a thread, that being the whole point of it, so what is being waited for is that thread being
 /// scheduled and not a number of the game's frames. It is orders of magnitude more than the first read
 /// takes — that one being the slow one, winmm's joystick support coming up — and a wait that runs out is
@@ -119,7 +119,7 @@ fn asking(name: &str) -> Box<Fake> {
 /// `joyGetPosEx` of the run is the startup check, and orb spawns on it.
 ///
 /// # Panics
-/// After [`WAITS`], with the log: a scenario waiting for a sample that never came is about to assert on a
+/// After [`WAITS`], with the log: an e2e test waiting for a sample that never came is about to assert on a
 /// pad nothing read.
 fn waits_for_the_sample(game: &Fake) {
     waits_until(game, "orb's own thread reading the pad", || {
@@ -130,7 +130,7 @@ fn waits_for_the_sample(game: &Fake) {
 /// And the same wait for anything a push has to travel through that thread to reach: frames of the game,
 /// a millisecond of real time each, until `done`.
 ///
-/// Which is why a scenario here cannot simply push and run two frames the way the one about the
+/// Which is why an e2e test here cannot simply push and run two frames the way the one about the
 /// controller does: that pad is the game's own memory and orb reads it where it stands, and this one is
 /// sampled every four milliseconds by a thread nothing here drives.
 ///
@@ -311,7 +311,7 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
         });
 
         // A second between reads, and never the four milliseconds a pad gets: the ask goes through the
-        // seam, so the cadence is a number a scenario reads back rather than a wait it sits through.
+        // seam, so the cadence is a number an e2e test reads back rather than a wait it sits through.
         //
         // What is in the record and not what all of it is. The wait is never sooner than the read itself
         // took, and here one clock serves both threads — a read the game's own frames advanced it across

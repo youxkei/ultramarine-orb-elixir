@@ -1,13 +1,13 @@
 //! The glyphs, which a simulated Windows has none of.
 //!
 //! **A declared metric rather than a rasteriser, and the reason is that the real one was already not
-//! the game's.** A scenario's directory used to hold Windows' own Arial under the name 紅魔郷 installs
+//! the game's.** An e2e test's directory used to hold Windows' own Arial under the name 紅魔郷 installs
 //! its font as, because `AddFontResourceExW` takes a path and a path that is not a font is not
-//! something `Font::load` survives — so the pixels a scenario matched against were Arial's. Keeping
+//! something `Font::load` survives — so the pixels an e2e test matched against were Arial's. Keeping
 //! them real bought a fidelity that was never there, at the price of an answer that varied with which
 //! fonts the machine happened to have.
 //!
-//! What a scenario really asks of a baked string is two things, and both of them are here: **which
+//! What an e2e test really asks of a baked string is two things, and both of them are here: **which
 //! string went into a texture**, and **how big the quad round it came out**. The first is the whole of
 //! what `says` is for; the second is what the drawing centres and lays out against. So the mask
 //! carries the one and [`Metric`] declares the other — the same shape everything else in this crate
@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use orb_api::{Face, Mask};
 
-/// How wide and how tall a string comes out at, as a scenario declares it.
+/// How wide and how tall a string comes out at, as an e2e test declares it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Metric {
     /// How many pixels wide one character is.
@@ -29,7 +29,7 @@ pub struct Metric {
 }
 
 impl Metric {
-    /// What an em height comes out as where a scenario has said nothing: half the em wide per
+    /// What an em height comes out as where an e2e test has said nothing: half the em wide per
     /// character, and two pixels over the em tall.
     ///
     /// About what a proportional face measures at that size — GDI's own answer for Arial at
@@ -48,14 +48,14 @@ impl Metric {
     }
 }
 
-/// The fonts a scenario says are there, the faces made of them, and every string baked through one.
+/// The fonts an e2e test says are there, the faces made of them, and every string baked through one.
 ///
 /// **What this cannot hold is the rasterising**, and nothing else does either: a bake here answers from
-/// the metric a scenario declared, so a scenario can ask where the drawing put a string and tell one
+/// the metric an e2e test declared, so an e2e test can ask where the drawing put a string and tell one
 /// string from another, and nothing tells a right metric from a wrong one. What a string actually comes
 /// out as is something only a launch says, in `overlay: font.ttf loaded, GDI is using …`.
 pub struct Glyphs {
-    /// The font files a scenario says are beside the game. A path that is not one of these is one
+    /// The font files an e2e test says are beside the game. A path that is not one of these is one
     /// [`Glyphs::load_face`] refuses — which is 妖々夢, whose fonts are inside `th07.dat` and whose
     /// directory holds no `font.ttf` at all, and is the launch orb says `overlay: unavailable` for.
     installed: Mutex<Vec<PathBuf>>,
@@ -65,7 +65,7 @@ pub struct Glyphs {
     /// Never emptied: a face given back stays here so that a mask baked through it is still readable,
     /// and one launch makes four of them.
     faces: Mutex<Vec<i32>>,
-    /// What a string comes out as at an em height, where a scenario has said other than
+    /// What a string comes out as at an em height, where an e2e test has said other than
     /// [`Metric::for_em`].
     declared: Mutex<HashMap<i32, Metric>>,
     /// Every string baked, in the order it was first asked for. The index is what the mask's own
@@ -79,7 +79,7 @@ pub struct Glyphs {
 /// A real mask is `0x00ffffff` throughout with the glyph's shape in the alpha channel, and the colour
 /// is applied by the vertex colour at draw time — so its own RGB carries nothing and is free to carry
 /// this instead. Which is the one property a simulated bake has to have: two bakes of one string
-/// identical, and two strings never alike, because what a scenario asks of a texture is which string
+/// identical, and two strings never alike, because what an e2e test asks of a texture is which string
 /// went into it.
 fn carrying(baked: usize) -> u32 {
     0xff00_0000 | (baked as u32 & 0x00ff_ffff)
@@ -97,9 +97,9 @@ impl Glyphs {
 
     /// Says a font file is there, which is what makes an overlay over it possible.
     ///
-    /// Declared rather than read off the disk, so that what a scenario asserts about the overlay does
+    /// Declared rather than read off the disk, so that what an e2e test asserts about the overlay does
     /// not depend on a file a directory happens to hold — and so that the launch with no font beside
-    /// its exe is a scenario saying nothing rather than a scenario deleting something.
+    /// its exe is an e2e test saying nothing rather than an e2e test deleting something.
     pub fn install_font(&self, path: impl Into<PathBuf>) {
         self.installed.lock().unwrap().push(path.into());
     }
@@ -116,7 +116,7 @@ impl Glyphs {
             .retain(|installed| installed != path);
     }
 
-    /// Says what a string comes out as at an em height, for a scenario with an opinion about the size
+    /// Says what a string comes out as at an em height, for an e2e test with an opinion about the size
     /// of a baked one.
     pub fn measures(&self, height: i32, metric: Metric) {
         self.declared.lock().unwrap().insert(height, metric);
@@ -168,7 +168,7 @@ impl Glyphs {
     /// when there are no glyphs.
     ///
     /// The height and not the path, though the path is what a face was made from. orb writes this
-    /// answer into its log, and a scenario's font sits in a directory named after the process — so a
+    /// answer into its log, and an e2e test's font sits in a directory named after the process — so a
     /// path here would be a log line that reads differently every run, which is exactly the kind of
     /// answer a simulated host is for not having.
     pub(crate) fn face_name(&self, face: Face) -> Option<String> {
@@ -211,10 +211,10 @@ mod tests {
         (glyphs, face)
     }
 
-    /// A path no scenario declared a font at is a path there is no face of, which is the launch with
+    /// A path no e2e test declared a font at is a path there is no face of, which is the launch with
     /// no `font.ttf` beside its exe.
     #[test]
-    fn a_font_no_scenario_declared_cannot_be_loaded() {
+    fn a_font_no_e2e_test_declared_cannot_be_loaded() {
         let glyphs = Glyphs::new();
         assert!(glyphs.load_face(Path::new("game/font.ttf"), 15).is_none());
         glyphs.install_font("game/font.ttf");
@@ -262,7 +262,7 @@ mod tests {
         super::carrying(usize::from(u16::MAX))
     }
 
-    /// The size a string comes out at is the metric's, and a scenario may say what that is.
+    /// The size a string comes out at is the metric's, and an e2e test may say what that is.
     #[test]
     fn a_strings_size_is_the_declared_metric() {
         let (glyphs, face) = over(Path::new("game/font.ttf"), 15);

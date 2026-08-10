@@ -1,7 +1,7 @@
 # 2. The frame loop's two calls into the game are addresses it hands over
 
 **Status:** accepted and built. `Game::frame_calls` answers with the two, `render` calls through them,
-and a laid-out 紅魔郷 drives the frame loop's scenarios through `render` itself: the `pacing_*` and
+and a laid-out 紅魔郷 drives the frame loop's e2e tests through `render` itself: the `pacing_*` and
 `log_deferral` stopped being tests of `orb-core` against a copy of the loop, and `frame_loop.rs` covered
 the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
 does differently from the plan below is at the end of *Consequences*.
@@ -14,9 +14,9 @@ exception this document calls them. Two of `Originals`' fields changed shape on 
 `HMENU` and `HANDLE`, those being what they are — because the crate that names them may name no
 `windows-sys`.
 
-Where those scenarios are written is no longer a file apiece:
-[0003](0003-the-frame-loops-scenarios-are-one-file.md) put them in one file, a section each, with what
-judges a rate as functions in it, and [0005](0005-every-scenario-lives-in-orb-sims-tests.md) moved that
+Where those e2e tests are written is no longer a file apiece:
+[0003](0003-the-frame-loops-e2e-tests-are-one-file.md) put them in one file, a section each, with what
+judges a rate as functions in it, and [0005](0005-every-e2e-test-lives-in-orb-sims-tests.md) moved that
 file to `orb-sim/tests/scenario_pacing.rs`. Nothing of what they assert changed with either, so the
 paths and file names below are the shape this decision left and not the tree's.
 
@@ -40,7 +40,7 @@ whose teardown it calls through; and its own `GameWindow::InitD3dDevice`, which 
 redirect the device's `Present` before anything is presented through it. A real launch reaches four of those
 by patching the exe's import table and four by patching a prologue, and a laid-out game has neither — so
 the same answer applies eight times over: it hands the functions over and calls the hooks itself.
-`scenario_the_window.rs`'s eight scenarios drive the first and the fourth that way,
+`scenario_the_window.rs`'s eight e2e tests drive the first and the fourth that way,
 `scenario_the_score_file.rs`'s six the second, `scenario_moving_between_a_replays_stages.rs`'s eight the
 third, `scenario_mode_on_a_winmm_pad.rs`'s three the fifth and the sixth,
 `scenario_a_clear_on_demand.rs`'s five the seventh, and
@@ -64,7 +64,7 @@ through: what a laid-out game hands over is the address itself. Each is kept in 
 `cfg(any(test, feature = "sim"))` the laid-out image is behind, so the shipped DLL has the constant and no
 atomic in the path, and the three are written by one `handed_over!` macro rather than three times over.
 Which is the one place the list has crossed out of `orb` into `orb-core`, and the reason is the one this
-document set: code is the one thing an address space laid out by hand cannot hold, and a scenario that
+document set: code is the one thing an address space laid out by hand cannot hold, and an e2e test that
 reached one of those calls would be jumping into memory nothing has mapped.
 `scenario_moving_between_a_replays_stages.rs` drives the first and
 `scenario_the_music_across_a_restore.rs` the other two.
@@ -75,20 +75,20 @@ closed, and the test for adding to it is the one this document set.
 ## Context
 
 [0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a 紅魔郷 that plays the game's part in front of
-orb, and every scenario a game can drive is driven by one now — a whole run in each mode, the question
+orb, and every e2e test a game can drive is driven by one now — a whole run in each mode, the question
 that chooses between them on the keyboard and on a controller the game answers with, a `State` read at
 frames a game was played to. The frame loop was written off in that document as the one thing a game
 could not drive, and that is wrong. This says why it is wrong, and what has to change.
 
-**The twenty-one scenarios over the loop drove a copy of it.** `orb-sim/tests/pacing/mod.rs` was 414
+**The twenty-one e2e tests over the loop drove a copy of it.** `orb-sim/tests/pacing/mod.rs` was 414
 lines and said so itself:
 
-> The game's frame loop, as `orb/lib.rs` composes it, for the pacing scenarios to drive. The order here
+> The game's frame loop, as `orb/lib.rs` composes it, for the pacing e2e tests to drive. The order here
 > is that function's order and the marks are its marks. A harness that waited and handed over in some
 > order of its own would be measuring itself.
 
 Which was honest about what it was and could not fix it: nothing held the copy to the original. What those
-scenarios established was the arithmetic of `frame::Pacing` — the cadence, the rates, the allowance
+e2e tests established was the arithmetic of `frame::Pacing` — the cadence, the rates, the allowance
 climbing, sixty frames a second for every compose time there is room for — and what they could not
 establish is that `render` asks for any of it in the order they assumed. Nothing covered:
 
@@ -107,14 +107,14 @@ measurement on the machine was read off two things: the `fps` on the status line
 line orb writes per reporting period — `frame: 711 frames, 16651us apart, 0 shown late, gaps in
 refreshes 2x711`. Neither was asserted anywhere. The harness even called `report()`, but only to print it
 in a failure message, so a run whose rate was right and whose report of it was wrong would pass. That
-line is already behind the seam, the log being a simulated one in these scenarios, so it costs nothing
+line is already behind the seam, the log being a simulated one in these e2e tests, so it costs nothing
 to hold orb to it.
 
 The status line's `fps` is the same number formatted — `interval_us` is the measured gap between
-handovers, smoothed 31 parts in 32 — and it cannot be read in a scenario at all: `window::write_beside`
+handovers, smoothed 31 parts in 32 — and it cannot be read in an e2e test at all: `window::write_beside`
 wants a window it can `GetClientRect`, and returns without one. Which is a separate thing to want, and a
 smaller one: an average over 32 frames held for 30 more says a run settled at sixty and cannot see the
-second that lost four frames, which is the question these scenarios ask. So the rate stays measured from
+second that lost four frames, which is the question these e2e tests ask. So the rate stays measured from
 the clock, orb's own line is held against it, and the status line is its own piece of work.
 
 **What blocked it was two methods, and nothing else.** Every other call `render` makes was answerable by a
@@ -122,7 +122,7 @@ laid-out game already: the device and the window come out of its memory, `prepar
 through the device's vtable and two writes and a read of the game's own memory, the chain's update and
 draw are reached through `RUN_CALC_CHAIN_TARGET` and `RUN_DRAW_CHAIN_TARGET` — statics `attach_to` can
 fill with the fake game's own hooks — and the clock, the display and the compositor are the simulated
-Windows the pacing scenarios already declared. The two that could not be answered were
+Windows the pacing e2e tests already declared. The two that could not be answered were
 
 ```rust
 unsafe fn play_sounds(&self) {
@@ -138,7 +138,7 @@ unsafe fn present(&self) {
 
 `PLAY_SOUNDS` is 0x00431270 and `PRESENT` is 0x00420b50, and each of those is the whole of the method:
 an address, and what to call it on. A laid-out address space answers reads rather than execution, so
-there is nothing at either for a scenario to reach — and there is nowhere to put anything, the test
+there is nothing at either for an e2e test to reach — and there is nowhere to put anything, the test
 binary preferring 0x400000 with an image of 10.5MB, which contains both.
 
 ## Decision
@@ -153,7 +153,7 @@ handed and stored. These two are the odd ones out, and the inconsistency is not 
 the `Game` seam exists so that porting to another Touhou game means supplying addresses and offsets, and
 a port today has to write the transmute again for these two while writing a number for everything else.
 
-**The frame loop is then a scenario like any other**, and the fake game drives it the way the real game
+**The frame loop is then an e2e test like any other**, and the fake game drives it the way the real game
 does: its own loop calls `render`, which is what `--no-frame-loop` turns off and what every shipped run
 has on.
 
@@ -166,10 +166,10 @@ has on.
   stack, which is the note `run_calc_chain` already carries.
 - `Originals` grows the two, and the frame loop's own entry point becomes reachable: a game with
   `own_frame_loop` on calls `render` per frame instead of the draw and update hooks.
-- The fake game answers both. Its `present` is where a scenario counts a frame handed over — which is
+- The fake game answers both. Its `present` is where an e2e test counts a frame handed over — which is
   what the sim's `presented` already is — and its `play_sounds` is nothing, a laid-out game having no
   sound system.
-- The pacing scenarios move to `orb/tests`, and `pacing/mod.rs`'s 414 lines go: the display a scenario
+- The pacing e2e tests move to `orb/tests`, and `pacing/mod.rs`'s 414 lines go: the display an e2e test
   declares stays, the loop it composed does not.
 
 **What it costs.** Two vtable calls per frame fewer, and two pairs of relaxed loads in their place: the
@@ -178,7 +178,7 @@ four words are asked for once at the attach and kept beside the chain targets, w
 `lib.rs`, which is where the other two transmutes of the game's own functions already are.
 
 **What it does not buy.** The host is still the simulator's: the wake jitter and the compositor's spikes
-are drawn from a seeded stream, and what a scenario asserts is the *rate* rather than a turn to the
+are drawn from a seeded stream, and what an e2e test asserts is the *rate* rather than a turn to the
 microsecond — see `orb-sim/src/display.rs`. Nothing here makes a laid-out game a machine, and the
 measurements beside `frame::Pacing::grid` stay what says the pacing works on one.
 
@@ -193,13 +193,13 @@ alternatives were weighed and are rejected for that reason or a worse one.
   apart. 0001 rejected a second `Game` for the whole suite; there is no reason the frame loop should be
   the exception.
 
-**What the moved scenarios then assert**, which is two things and not one. The rate from the clock, a
+**What the moved e2e tests then assert**, which is two things and not one. The rate from the clock, a
 second at a time, as they did: what share of the seconds were sixty frames a second within half a
 frame, from a few seconds in, over several seeds. And orb's own `frame:` line agreeing with it — the
 count of frames, the interval, how many were shown late, and the histogram of gaps in refreshes — since
 that line is what somebody reading a real run's log has to be able to believe.
 
-**What it unblocks beyond the loop.** `log_deferral` is a scenario about `render` as much as about the
+**What it unblocks beyond the loop.** `log_deferral` is an e2e test about `render` as much as about the
 log: what the pacing writes about itself is held and written on the far side of the flush, where what is
 left of the turn is slack. Driven through a copy of the loop, it says nothing about where the real one
 drains.
@@ -213,23 +213,23 @@ drains.
   `attach_to` stores a laid-out game's own, which is the shape `RUN_CALC_CHAIN_TARGET` beside them
   already had.
 - **`Originals` grew three.** The game's own `Render` is the third, because three of the four ways out of
-  `render` hand the frame back to it — and a scenario that drives one of those ways out with nothing
+  `render` hand the frame back to it — and an e2e test that drives one of those ways out with nothing
   there to hand it back to calls a null pointer.
-- **Everything the moved scenarios read of the pacing, they read out of the log.** The harness held its
+- **Everything the moved e2e tests read of the pacing, they read out of the log.** The harness held its
   own `Pacing` and asked it for the allowance. orb holds the frame loop's, and nothing outside orb does,
   so the allowance is read off the `frame:` line that says what the compositor is being given — which is
   the same line somebody looking into a stutter has, and the half this ADR called the cheaper one.
-  It costs the scenarios one thing: those lines are written once per `profile::INTERVAL` frames and
-  drained on the far side of the *next* frame's flush, so a scenario that wants one waits for it.
+  It costs the e2e tests one thing: those lines are written once per `profile::INTERVAL` frames and
+  drained on the far side of the *next* frame's flush, so an e2e test that wants one waits for it.
 - **Three of the things named uncovered above still are.** A chain target that is null: `attach` and
   `attach_to` both fill those statics and nothing outside orb can empty them, so that one of the four ways
-  out has no scenario. `prepare_frame` before the wait, and the present not being waited on: both are
-  moments *inside* a frame, and what a scenario can read of one is the spans `frame.rs` writes out of the
+  out has no e2e test. `prepare_frame` before the wait, and the present not being waited on: both are
+  moments *inside* a frame, and what an e2e test can read of one is the spans `frame.rs` writes out of the
   marks — which it writes only for a frame that came out off the cadence. What the marks are is held
-  otherwise: the cadence every pacing scenario asserts is read from `presented`, and the lag `pacing_budget`
+  otherwise: the cadence every pacing e2e test asserts is read from `presented`, and the lag `pacing_budget`
   reads off the report line is the game's own work as `waited`..`presented` measured it. The other three
   ways out, the update before the draw, the sounds between them and the chain's two exits are
   `frame_loop.rs`.
 
-The status line is not covered either. It is the same numbers said again in the one place a scenario
+The status line is not covered either. It is the same numbers said again in the one place an e2e test
 cannot reach, and reaching it is a seam of its own.

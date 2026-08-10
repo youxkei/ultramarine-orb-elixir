@@ -1,6 +1,6 @@
 //! **The score file forked per mode: which file each read lands in, and what a missing one costs.**
 //!
-//! What each scenario holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
+//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
 //! machine.
 //!
 //! **The game opens the file and orb decides which one it gets.** The fork is a hook over the exe's
@@ -226,7 +226,7 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
 
         // The trip each answer makes, read as its own two opens: the screen's read on the way up and its
         // write on the way down. The front end's own read when the menu is rebuilt afterwards is the game's
-        // file either way and is not part of this — see the scenario above, which is what says so — so the
+        // file either way and is not part of this — see the e2e test above, which is what says so — so the
         // opens are forgotten between the two halves of each trip.
         let trip = |mode: Mode| {
             game.forget_score_file_opens();
@@ -294,7 +294,7 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
         let game = Fake::attach("the-score-file-the-unlocks", the_run(), |config| {
             config.log_level = LogLevel::Verbose;
         });
-        // The items themselves, which is what this one reads and no other scenario does.
+        // The items themselves, which is what this one reads and no other e2e test does.
         game.draws_its_title_menu();
         game.at_the_title_menu();
         // Not there, which is what a first pointdevice session is looking at: the file arrives when a

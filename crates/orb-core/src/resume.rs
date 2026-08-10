@@ -182,6 +182,9 @@ struct Record {
 }
 
 impl Record {
+    /// **`const fn` because [`RECORD`] is a static**, which is also why no e2e test can enter it: what
+    /// happens here is const evaluation and not execution, so a coverage run reports it never run however
+    /// many runs were written down. See `game::proposed`, which is the same zero.
     const fn new() -> Self {
         Self {
             stage: None,
@@ -511,12 +514,12 @@ pub unsafe fn write(
     // The directory is made where it is written rather than at startup, so an installation nobody
     // has left a run in has nothing of orb's beside the game but the log.
     if let Some(parent) = path.parent()
-        && let Err(error) = std::fs::create_dir_all(parent)
+        && let Err(error) = orb_api::fs::create_dir_all(parent)
     {
         log!("resume: cannot make {}: {error}", parent.display());
         return false;
     }
-    match std::fs::write(&path, encode(&saved)) {
+    match orb_api::fs::write(&path, &encode(&saved)) {
         Ok(()) => {
             detail!("resume: {saved} written to {}", path.display());
             true
@@ -546,7 +549,7 @@ fn slot(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
 /// starting the wrong one.
 pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
     let path = slot(dir, game, run)?;
-    let bytes = match std::fs::read(&path) {
+    let bytes = match orb_api::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
         Err(error) => {
@@ -589,7 +592,7 @@ pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
 /// answer is the same either way — nothing to offer.
 pub fn peek(dir: &Path, slot: &str) -> Option<String> {
     let path = dir.join(DIRECTORY).join(slot).with_extension(EXTENSION);
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = orb_api::fs::read(&path).ok()?;
     Some(decode(&bytes)?.describe())
 }
 
@@ -597,11 +600,9 @@ pub fn peek(dir: &Path, slot: &str) -> Option<String> {
 /// of them the question will offer depends on what is chosen, and this is what says none of them was
 /// there to be offered.
 pub fn left(dir: &Path) -> Vec<String> {
-    let mut slots: Vec<String> = std::fs::read_dir(dir.join(DIRECTORY))
+    let mut slots: Vec<String> = orb_api::fs::files_in(&dir.join(DIRECTORY))
         .into_iter()
         .flatten()
-        .flatten()
-        .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|it| it == EXTENSION))
         .filter_map(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
         .collect();
@@ -614,7 +615,7 @@ pub fn left(dir: &Path) -> Vec<String> {
 /// back to, and an offer to pick up a run that is over is worse than no offer.
 pub fn discard(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
     let path = slot(dir, game, run)?;
-    match std::fs::remove_file(&path) {
+    match orb_api::fs::remove_file(&path) {
         Ok(()) => {
             log!("resume: {} removed", path.display());
             Some(path)

@@ -19,7 +19,7 @@
 //!
 //! **One grid, not two.** A desktop where the compositor times one monitor and the game's window is
 //! on another has two: the compositor's compositions, and the blanks of the panel the pixels appear
-//! on. Only the first is here. That is enough for what the scenarios measure — the frame *rate* is
+//! on. Only the first is here. That is enough for what the e2e tests measure — the frame *rate* is
 //! decided by when `DwmFlush` returns, which is the compositor's grid — and it is why nothing here
 //! can say anything about how those frames land on the other panel.
 //!
@@ -31,17 +31,17 @@
 //!
 //! **The wake delay is modelled, from its measured distribution** — see [`USUAL_US`]. Which makes the
 //! simulator non-deterministic, on purpose: a host that woke a thread the instant a blank came is a
-//! host nobody has, and a scenario that only holds against one is a scenario about arithmetic. A
-//! scenario that fails for some seeds and not others has found something a real machine can do, and
+//! host nobody has, and an e2e test that only holds against one is an e2e test about arithmetic. An
+//! e2e test that fails for some seeds and not others has found something a real machine can do, and
 //! the seed is in the assertion so the run can be replayed.
 //!
 //! **The compose time is a distribution too, and nothing reports it** — see [`Compose`]. No host says
 //! what its compositor takes over a frame; orb knows only what it *allows* it, which is its own
 //! estimate and climbs on a miss. So [`Compose::ordinary`] is a shape declared here — cheap almost
-//! always, rarely several times that, and rarely enough that most scenarios see no spike — and it
-//! remains the thing to vary rather than a number to trust. A scenario asking what the ratchet does
+//! always, rarely several times that, and rarely enough that most e2e tests see no spike — and it
+//! remains the thing to vary rather than a number to trust. An e2e test asking what the ratchet does
 //! sets its own rate, since
-//! at the measured rarity a scenario sees no spike at all.
+//! at the measured rarity an e2e test sees no spike at all.
 
 use std::sync::Mutex;
 
@@ -137,7 +137,7 @@ impl Default for Display {
 }
 
 impl Display {
-    /// `seed` decides the wake delays. A scenario passes it in and names it in every assertion, so a
+    /// `seed` decides the wake delays. An e2e test passes it in and names it in every assertion, so a
     /// failure can be replayed.
     pub fn new(seed: u64) -> Self {
         Self {
@@ -150,7 +150,7 @@ impl Display {
         }
     }
 
-    /// Turns the wake delay off, making the host a metronome — which no host is. Only for a scenario
+    /// Turns the wake delay off, making the host a metronome — which no host is. Only for an e2e test
     /// about arithmetic, and one that says so.
     pub fn as_a_metronome(&self) {
         self.wake.lock().unwrap().0 = false;
@@ -160,7 +160,7 @@ impl Display {
     /// missed the refresh it was aimed at.
     ///
     /// The real one reads zero throughout — see the note at the top — so this is not a machine and
-    /// nothing may be asserted *from* it. What it is for is the opposite claim: a scenario runs the
+    /// nothing may be asserted *from* it. What it is for is the opposite claim: an e2e test runs the
     /// same frames twice, once against a host reading zero and once against this, and holds every
     /// number orb decided to be the same across the two. The loudest answer a compositor could give
     /// rather than a plausible middle, because what is being shown is that no answer reaches a
@@ -256,7 +256,7 @@ impl Display {
             refresh_period: compositor.period,
             refresh: compositor.refresh,
             vblank: compositor.blank_at_or_before(now),
-            // Zero, as the real one reads, unless a scenario asked for the other answer. See the note
+            // Zero, as the real one reads, unless an e2e test asked for the other answer. See the note
             // at the top of this module.
             frames_late: if *self.every_composition_late.lock().unwrap() {
                 compositor.refresh
@@ -311,9 +311,9 @@ impl Display {
 /// exists for the times it is not. A fixed compose time makes every frame expensive, which costs
 /// refreshes a real machine does not lose — measured: a fixed cost lost refreshes steadily through a
 /// simulated run, where a real one goes period after period with none lost at all.
-/// Three sources of unevenness rather than two, and the third is what a scenario about the *rate* wants:
+/// Three sources of unevenness rather than two, and the third is what an e2e test about the *rate* wants:
 /// the usual cost is not one number either, it wanders. `jitter_us` is how far above `usual_us` it may
-/// wander, drawn per frame from the same seeded stream the wake delays come from, so a scenario declares
+/// wander, drawn per frame from the same seeded stream the wake delays come from, so an e2e test declares
 /// how uneven this compositor is and a deterministic one is that spread set to nothing.
 #[derive(Clone, Copy)]
 pub struct Compose {
@@ -333,12 +333,12 @@ impl Compose {
     /// Each field is a declaration and the shape of it is what matters, not the value:
     ///
     /// - `usual_us` with `jitter_us` — an ordinary frame's cost, low enough that the allowance has no
-    ///   reason to climb off its start. A host declared slower than that is a scenario about the climb,
+    ///   reason to climb off its start. A host declared slower than that is an e2e test about the climb,
     ///   which is what `Compose::flat` and the `converges` rows are for.
     /// - `spike_us` — the several-times-that a compositor occasionally takes, which is the thing the
     ///   allowance's ratchet exists for.
-    /// - `spike_one_in` — and how rare that is: rare enough that a scenario of a few thousand frames
-    ///   sees none, which is why a scenario about a spike declares its own rate rather than waiting for
+    /// - `spike_one_in` — and how rare that is: rare enough that an e2e test of a few thousand frames
+    ///   sees none, which is why an e2e test about a spike declares its own rate rather than waiting for
     ///   this one. This is the field the shape was once wrong about, at nine frames in six hundred: that
     ///   figure came from a mixed-rate run whose misses were the pacing's and not the compositor's, and
     ///   being orders of magnitude too often it cost the simulated 60Hz display seconds a real one holds.
@@ -354,7 +354,7 @@ impl Compose {
         }
     }
 
-    /// As [`ordinary`](Self::ordinary), with that cost wandering as far as a scenario says.
+    /// As [`ordinary`](Self::ordinary), with that cost wandering as far as an e2e test says.
     ///
     /// For the rows of a decision table that vary the compositor's unevenness on its own, since what the
     /// spike answers for and what a restless ordinary cost answers for are not the same thing: the
@@ -367,18 +367,18 @@ impl Compose {
         }
     }
 
-    /// As [`ordinary`](Self::ordinary), but spiking often enough that a scenario a few hundred frames
+    /// As [`ordinary`](Self::ordinary), but spiking often enough that an e2e test a few hundred frames
     /// long sees several.
     ///
-    /// A spike as rare as [`ordinary`](Self::ordinary) declares is no spike at all over a scenario a few
-    /// seconds long, and a path nothing reaches is a path nothing tests. So a scenario about the spike
+    /// A spike as rare as [`ordinary`](Self::ordinary) declares is no spike at all over an e2e test a few
+    /// seconds long, and a path nothing reaches is a path nothing tests. So an e2e test about the spike
     /// says how often, and this is the rate that puts a handful inside one run.
     ///
     /// Deliberately not the default. What the default is for is asking whether a display holds sixty
     /// against an ordinary compositor, and one spiking hundreds of times as often is not that question.
     ///
     /// And with the ordinary cost held still, unlike [`ordinary`](Self::ordinary): the allowance answers
-    /// a spike and a restless ordinary cost with the same ratchet, so a scenario that moved both could not
+    /// a spike and a restless ordinary cost with the same ratchet, so an e2e test that moved both could not
     /// say which of them moved it. A row about the wander says so with
     /// [`wandering`](Self::wandering).
     pub fn spiking() -> Self {
@@ -389,7 +389,7 @@ impl Compose {
         }
     }
 
-    /// One value every time, for a scenario about arithmetic rather than about a machine.
+    /// One value every time, for an e2e test about arithmetic rather than about a machine.
     pub fn flat(us: i64) -> Self {
         Self {
             usual_us: us,

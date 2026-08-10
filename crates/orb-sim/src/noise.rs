@@ -2,7 +2,7 @@
 //!
 //! A simulated Windows that answers the same thing every time is not a Windows: the real one wakes a
 //! thread when it gets round to it, and the pacing's behaviour turns on that. So the simulator is
-//! deliberately non-deterministic, and a scenario that only passes for some of it is a scenario whose
+//! deliberately non-deterministic, and an e2e test that only passes for some of it is an e2e test whose
 //! failure would happen on a real machine too.
 //!
 //! Seeded, because a failure has to be reproducible: the seed goes in the assertion message and
@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(noise.up_to(0), 0, "a range of nothing is not a range");
     }
 
-    /// Spread over the range rather than clustered, because a scenario that only fails for a delay
+    /// Spread over the range rather than clustered, because an e2e test that only fails for a delay
     /// near one end has to be able to reach that end.
     #[test]
     fn the_whole_range_is_reached() {
