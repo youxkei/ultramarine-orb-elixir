@@ -40,7 +40,10 @@ unrelated changes, separate commits are better than one long list.
 
 **Each bullet is a summary of its change and not an inventory of it**, in the words the code uses for
 the things it touches: unabbreviated, with no metaphor standing in for a name, no periphrasis where the
-code has a name, and no abstract gesture at an area — *the docs*, *the e2e tests*, *the score file*.
+code has a name, and no abstract gesture at an *area* — *the docs*, *the e2e tests*, *the score file*,
+none of which leaves a reader anything to reconstruct. It is the area that makes those bad and not the
+shortness: a measurable property with one direction to move in is no such area, and naming it with the
+direction it went does say what happened.
 Name the file or the item the bullet is about, say what it now does, and stop: the identifiers, the
 constants, the addresses, the arguments, the call sites and the e2e test names inside that change are
 the diff's, and a bullet that needs a sub-item per name is too detailed rather than too short.
@@ -69,6 +72,11 @@ characters had room for it.
 
 The check the reader cannot make is the one against the code: for every noun phrase, ask whether the code
 has a name for that thing, and where it does, a paraphrase in its place is a defect.
+
+**A rule above refuses a wording only where three things hold**: it is the rule for that part of the
+message, whatever would replace the wording fails it too, and refusing serves the reason the rule gives.
+Where two candidates come out level the ordinary phrasing wins, a technicality being no tiebreak — and a
+line defended over two turns was defended from the letter.
 
 ## The documents
 
