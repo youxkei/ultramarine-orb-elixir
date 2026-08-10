@@ -57,10 +57,27 @@ the diff.
 **The read-back is not yours to do.** Having written the message you cannot read it as the reader it is
 for, who has not seen the diff: you supply the owner a noun phrase left out, so the line reads as
 finished to you and to nobody else. Before committing, hand **the subject line by itself** to an agent
-with an empty context, no sight of the diff and no access to this repository, and ask it three things —
-what the line claims was changed, whose each thing in it is, and which noun phrases it can read more than
-one way. Then compare its answer with what the commit did. Where the two differ the line is wrong and the
-reader is right. Where the subject leans on a bullet, hand that bullet over with it.
+with an empty context, no sight of the diff and no access to this repository, and ask it five things —
+what the line claims was changed, whose each thing in it is, which noun phrases it can read more than
+one way, whether the line is true read as a sentence whose subject is *this commit*, and whether any of it
+is figurative rather than the plain word. Then compare its answer with what the commit did. Where the two
+differ the line is wrong and the reader is right. Where the subject leans on a bullet, hand that bullet
+over with it.
+
+**The last two are asked because the first three pass a line that is not about the commit at all.**
+`hide the mouse pointer once the mouse has been still` came back read correctly — the reader reconstructed
+the wait, the hiding, and the pointer coming back — and it is a description of what orb does per frame
+rather than of what the commit did to this tree: no commit hides anything three seconds after a mouse
+stops, so the sentence has no reading in which its subject is the commit. Asked the fourth question the
+same reader said so outright, and named the shape that does pass — an editing action as the head verb,
+with the behaviour in a clause hanging off the thing that was added, whose subject is that thing and not
+the commit. `give orb the mouse pointer to hide while it rests` failed it too: `give` is no editing action,
+nothing being added, moved, renamed or removed by it.
+
+And the fifth is asked because a metaphor reads as ordinary language to everyone who already knows what
+was meant. `at rest`, in `add hide_mouse, which hides the mouse pointer at rest`, came through the first
+three unremarked and is a figure standing in for the word this code has: `still`, in `STILL_FOR_MS` and in
+every document beside it.
 
 What it reports is judged rather than obeyed: it will also name what no subject line could settle. `cap a commit's subject line at fifty characters in CLAUDE.md` came back read correctly and still
 flagged *a commit* for being any commit rather than one — which is the rule being general — and asked
