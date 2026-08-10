@@ -1,11 +1,15 @@
 //! **orb's own frame loop: the shape it has, the rate it holds, and the log it writes about itself.**
 //!
-//! Sixty-six scenarios over the one subject, each in a process of its own —
+//! Every scenario over the one subject is here, each in a process of its own —
 //! [`fake::in_its_own_process`] spawns this binary again for every `#[test]`, so a scenario owns a
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
 //! `dead_code` allow over it: a helper nothing calls reads as dead, which twelve binaries could not
 //! see. See `docs/adr/0003`.
+//!
+//! **How many that is has no business being written here**, and was wrong twice over while it was:
+//! `cargo xtask test -p orb-e2e pacing::` counts them, and a number in a comment is stale the moment
+//! anybody adds one.
 //!
 //! Each section keeps its own numbers, because they do not share them: `WORK_US` is 700µs in most of
 //! them, 1500µs in two and 4000µs in [`budget`]'s.
@@ -423,33 +427,138 @@ fn reported(lines: &[String]) -> Reported {
     })
 }
 
-/// How long orb is giving the compositor, in microseconds, off its own line about which blanks the
-/// frames reached.
+/// What one of orb's own lines about which blanks the frames reached says, taken apart.
 ///
-/// The allowance: how far before its blank a frame is handed over, which climbs a hundred microseconds
-/// every time one misses a blank and never comes back down. Read out of the log rather than off the
-/// field it is kept in, for the same reason the report line is: the log is where somebody looking into a
-/// stutter finds it, and a number orb has but never says is one they cannot act on.
+/// The other half of a period's account, and the half the ratchet is answerable to: [`Reported`]'s
+/// `gaps` are the spacing of the hand-overs, and these are where each frame landed against the blank it
+/// was aimed at. Parsed rather than matched as text for the same reason as that one — the line is what
+/// somebody looking into a stutter has in front of them.
+#[derive(Debug)]
+struct Shown {
+    /// One entry per count of refreshes past the blank aimed at that happened over the period, with how
+    /// many frames were that far past it. Empty where the line said none was.
+    past_the_aim: Vec<(usize, usize)>,
+    /// The allowance: how far before its blank a frame is handed over, which climbs a step every time
+    /// one misses a blank and never comes back down.
+    allowance_us: i64,
+}
+
+impl Shown {
+    /// # Panics
+    /// On a line that is not one of those, naming what was missing from it.
+    fn of(line: &str) -> Self {
+        // The parts are semicolons: the blanks the frames reached with whatever was not charged against
+        // the compositor, the frames shown early where there were any, the allowance, and the frames the
+        // clock paced. `Pacing::shown` is the only writer, and a part that has moved fails here.
+        let parts: Vec<&str> = line.split("; ").collect();
+        let part = |what: &str, is: fn(&str) -> bool| -> &str {
+            parts
+                .iter()
+                .copied()
+                .find(|part| is(part))
+                .unwrap_or_else(|| panic!("no {what} in {line:?}"))
+        };
+        let count = |text: &str| -> usize {
+            text.parse()
+                .unwrap_or_else(|_| panic!("{text:?} is not a count in {line:?}"))
+        };
+        let past = part("the blanks the frames reached", |part| {
+            part.contains(PAST_THE_AIM)
+        });
+        let gets = part("the allowance", |part| part.starts_with(GETS));
+        // Whatever the line was not charging against the compositor follows the buckets on a comma, and
+        // the buckets themselves hold none.
+        let buckets = past
+            .split_once(PAST_THE_AIM)
+            .expect("the marker just found")
+            .1;
+        let buckets = buckets
+            .split_once(',')
+            .map_or(buckets, |(before, _)| before);
+        let allowance: String = gets[GETS.len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        Self {
+            past_the_aim: buckets
+                .split_whitespace()
+                .filter(|bucket| *bucket != "none")
+                .map(|bucket| {
+                    let (refreshes, count_of) = bucket
+                        .split_once('x')
+                        .unwrap_or_else(|| panic!("{bucket:?} is not a bucket in {line:?}"));
+                    (count(refreshes.trim_end_matches('+')), count(count_of))
+                })
+                .collect(),
+            allowance_us: count(&allowance) as i64,
+        }
+    }
+
+    /// How many frames of the period landed that many refreshes past the blank they were aimed at.
+    fn past_by(&self, refreshes: usize) -> usize {
+        self.past_the_aim
+            .iter()
+            .filter(|(past, _)| *past == refreshes)
+            .map(|(_, count)| count)
+            .sum()
+    }
+}
+
+/// What one of those lines is known by among the rest of the log, and the whole of how its own spelling
+/// reaches a scenario: `Pacing::shown` is the only writer of it.
+const PAST_THE_AIM: &str = "refreshes past the blank aimed at";
+/// And what the allowance is known by inside it.
+const GETS: &str = "the compositor gets ";
+
+/// Every line orb has written about which blanks the frames reached, in the order it wrote them.
+///
+/// One per `profile::INTERVAL` frames, and only where the launch asked for the pacing log: `report` is
+/// written at `normal` as well and this one is not.
+fn shown(lines: &[String]) -> Vec<Shown> {
+    lines
+        .iter()
+        .filter(|line| line.contains(PAST_THE_AIM))
+        .map(|line| Shown::of(line))
+        .collect()
+}
+
+/// How many frames of the whole run landed each count of refreshes past the blank they were aimed at,
+/// summed over every period orb reported: index 0 is the frames that landed on it.
+///
+/// Summed over the run because the allowance is not: it climbs across the periods and each line reports
+/// only its own frames, so what a step is set against is every miss reported since the run began.
+///
+/// Frames of a period orb has not reported yet are not in here, and neither are their steps: a line
+/// carries the buckets and the allowance together, so the last of them is a reading of the same moment.
+fn frames_past_the_aim(lines: &[String]) -> Vec<usize> {
+    let periods = shown(lines);
+    let buckets = || periods.iter().flat_map(|period| period.past_the_aim.iter());
+    let widest = buckets().map(|(past, _)| *past).max();
+    let mut total = vec![0; widest.map_or(0, |widest| widest + 1)];
+    for (past, count) in buckets() {
+        total[*past] += count;
+    }
+    total
+}
+
+/// How long orb is giving the compositor, in microseconds, off the last of those lines.
+///
+/// Read out of the log rather than off the field it is kept in, for the same reason the report line is:
+/// the log is where somebody looking into a stutter finds it, and a number orb has but never says is one
+/// they cannot act on.
 ///
 /// # Panics
 /// Where orb has not written that line yet.
 fn allowance_us(lines: &[String]) -> i64 {
-    const GETS: &str = "the compositor gets ";
-    let said = lines
-        .iter()
-        .rev()
-        .find_map(|line| line.split_once(GETS))
+    shown(lines)
+        .pop()
         .unwrap_or_else(|| {
             panic!(
                 "orb never said what the compositor gets:\n  {}",
                 lines.join("\n  ")
             )
         })
-        .1;
-    let digits: String = said.chars().take_while(char::is_ascii_digit).collect();
-    digits
-        .parse()
-        .unwrap_or_else(|_| panic!("{said:?} does not start with a number of microseconds"))
+        .allowance_us
 }
 
 /// The millisecond orb stamped a line with, which is the moment the line was *written* — not the moment
@@ -1353,9 +1462,14 @@ mod fractional {
 /// A compositor that starts taking longer, and the time it is given following it.
 ///
 /// What the compositor needs is not a threshold but a distribution, and orb's answer is to ratchet: a
-/// frame that missed its blank adds `MISS_STEP_US` to what the compositor is given, and nothing takes it
-/// back down. A compositor that slows under load is the case that ratchet exists for, and it is one no
-/// test could make happen — a real one is not asked to be slow.
+/// frame a refresh past the blank it was aimed at adds `MISS_STEP_US` to what the compositor is given,
+/// and nothing takes it back down. A compositor that slows under load is the case that ratchet exists
+/// for, and it is one no test could make happen — a real one is not asked to be slow.
+///
+/// **Which frames it steps for is the second half of the section**, because a step is never given back:
+/// the last three rows are a compositor with room to spare, one whose composition outlasts a refresh, and
+/// one whose spikes are a refresh late, and between them they say the ratchet steps for the third of those
+/// and for neither of the others.
 mod compose {
     use super::*;
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
@@ -1368,6 +1482,13 @@ mod compose {
     const WORK_US: i64 = 700;
     /// What orb starts by allowing the compositor, before any frame has missed a blank.
     const ALLOWED_AT_FIRST: i64 = 2_500;
+    /// And what it adds to that for each frame it saw miss its blank, which is `MISS_STEP_US`.
+    ///
+    /// Here because the three rows below are about *which* frames it adds it for, and a row saying so has
+    /// to count the steps: the allowance a period reports is where it started plus one of these for every
+    /// miss charged since, so the two together say which of the period's misses were charged and which
+    /// were not.
+    const A_STEP: i64 = 100;
 
     /// A compositor that spikes several times in the run, which is the case the allowance's ratchet is for.
     ///
@@ -1418,22 +1539,21 @@ mod compose {
     ///
     /// | | worst second | seconds off sixty, of eleven | the allowance |
     /// | --- | --- | --- | --- |
-    /// | 60Hz | 58.07 | 1 to 4 | 2500–2700µs |
-    /// | 120Hz | 59.03 | 0 to 1 | 2600–3000µs |
-    /// | 144Hz, 165Hz | 59.93 | none | 2600–3000µs |
-    /// | 240Hz | 59.52 | none | 2600–3000µs |
+    /// | 60Hz | 58.08 | 1 to 4 | 2500–2900µs |
+    /// | 120Hz | 59.03 | 0 to 1 | 2500–2900µs |
+    /// | 144Hz, 165Hz | 59.93 | none | 2500–2900µs |
+    /// | 240Hz | 59.52 | none | 2500–2900µs |
     ///
     /// **60Hz is the rate with no room.** A missed blank there costs a whole refresh, which is a whole frame,
-    /// and the frame after it cannot come early enough to make it back — so the second reads 59.02 and one
-    /// seed lost four of its eleven seconds. From 144Hz up the same spike is absorbed and no second is off at
-    /// all.
+    /// and the frame after it cannot come early enough to make it back — so the worst second reads 58.08 and
+    /// one seed lost four of its eleven. From 144Hz up the same spike is absorbed and no second is off at all.
     ///
-    /// 60Hz is also the rate where the pacing cannot tell a miss from a stage load: a cadence is a whole game
-    /// turn however fast the display is, so at 60Hz one refresh *is* one turn and the smallest miss there is
-    /// lands on the load guard's boundary, with jitter deciding which of the two it gets called. That shows
-    /// here as the allowance — one of the four seeds never moved it off its 2500µs start, its single miss
-    /// having been charged to a load that never happened. See `measure_compose` in `frame.rs`, whose grace is
-    /// one frame for this reason.
+    /// **What it costs the allowance is the same at every one of them**, seed for seed: a spike is a
+    /// composition the allowance was short for, wherever the refreshes fall, so each one buys exactly one
+    /// step and the column above is four rates reporting the same four numbers. What a rate decides is what
+    /// the screen made of the spike and not what orb was told about it. The seed that reports 2500 is a
+    /// stream that drew no spike inside its fifteen seconds at all, which is what the rarity in
+    /// `Compose::spiking` is for.
     #[test]
     fn what_a_spike_costs_depends_on_the_rate_and_never_on_the_run() {
         in_its_own_process(|| {
@@ -1518,6 +1638,227 @@ mod compose {
                     (rate - 60.0).abs() < NEAR_SIXTY,
                     "seed {seed}: {rate} frames a second after the climb — {}",
                     last_said(&game.log().lines())
+                );
+            });
+        });
+    }
+
+    /// What the compositor takes in the rows below where its cost is not the thing being varied: far
+    /// enough inside the allowance that no wake delay the host draws can put a frame past its blank.
+    ///
+    /// The room is what matters and not the number. A frame is handed over [`ALLOWED_AT_FIRST`] before the
+    /// blank it is aimed at and composed this long after that, so what is left over is the room, and a
+    /// flush woken late moves the *anchor* the next aim is measured from by up to `orb_sim::SPIKE_US`. So a
+    /// run whose room is wider than that worst wake cannot lose a refresh at all, whatever the host does.
+    const ROOMY_COMPOSE_US: i64 = 1_000;
+    /// Held rather than remembered, since either number could be changed without the other and the rows
+    /// below would then be about a different question.
+    const _: () = assert!(ALLOWED_AT_FIRST - ROOMY_COMPOSE_US > orb_sim::SPIKE_US);
+
+    /// **A compositor with room to spare never moves the allowance**, which is the ratchet's own claim
+    /// about itself: it steps for a frame that missed its blank and for nothing else.
+    ///
+    /// The form of that question a scenario can ask without the host having to say where each frame landed:
+    /// a run with [`ROOMY_COMPOSE_US`]'s room in it has no frame that *can* miss, so any step at all is a
+    /// step taken for a frame that landed where it was aimed. Which is worth being sure of rather than
+    /// reasoning about, because a step is never given back — every wrong one is `MISS_STEP_US` of input lag
+    /// for the rest of the run.
+    ///
+    /// Every rate a display reports, because the two cases are told apart by rounding the overshoot at half
+    /// a refresh and a fast display is where that half-refresh is shortest: 8333µs at 60Hz against 2083µs at
+    /// 240Hz, and the worst wake delay the host draws is 1300µs. So the fastest rate has the least room
+    /// between a frame that landed and a frame a refresh late, and which rates leave enough is a table
+    /// rather than an argument.
+    #[test]
+    fn a_compositor_with_room_to_spare_never_moves_the_allowance() {
+        in_its_own_process(|| {
+            for hz in [60u32, 120, 144, 165, 240] {
+                for_each_seed(|seed| {
+                    let mut display = Display::agreed(hz);
+                    display.compose = Compose::flat(ROOMY_COMPOSE_US);
+                    display.seed = seed;
+                    let game = Fake::attach_watching_the_pacing(
+                        display,
+                        &format!("room-{hz}-{seed}"),
+                        Work::flat(WORK_US),
+                    );
+                    game.frames(15 * A_SECOND as u32);
+                    let lines = game.log().lines();
+                    let said = last_said(&lines);
+
+                    // No frame was anywhere but on the blank it was aimed at.
+                    let past = frames_past_the_aim(&lines);
+                    assert!(
+                        past[1..].iter().all(|count| *count == 0),
+                        "{hz}Hz, seed {seed}: {past:?} frames per count of refreshes past the blank they \
+                         were aimed at, and this compositor has {}us of room — {said}",
+                        ALLOWED_AT_FIRST - ROOMY_COMPOSE_US,
+                    );
+                    // So the allowance is where it started, to the microsecond.
+                    let allowed = allowance_us(&lines);
+                    assert_eq!(
+                        allowed, ALLOWED_AT_FIRST,
+                        "{hz}Hz, seed {seed}: {allowed}us allowed, and nothing here missed a blank — {said}",
+                    );
+                });
+            }
+        });
+    }
+
+    /// The allowance moved by one step for each frame that landed a refresh past the blank it was aimed
+    /// at, and for nothing else — asked of each reported period against the one before it, and answering
+    /// how many such frames the pairs held between them.
+    ///
+    /// **Period against period rather than over the run, because the first line holds the launch**: the
+    /// frames that build the overlay and start a run draw more than a played one and outgrow their budget,
+    /// which is a miss the ratchet is right not to step for, and `settle` finding the compositor's own
+    /// spacing part-way through resets the allowance to where it started. Every pair after that first line
+    /// is a run at a rate, and a step and the miss it was taken for are counted inside the same period
+    /// whichever frame of it they fell on — `Pacing::shown` and the step are the same frame's work.
+    fn steps_against_frames_a_refresh_late(lines: &[String], seed: u64, said: &str) -> usize {
+        let periods = shown(lines);
+        assert!(
+            periods.len() > 1,
+            "seed {seed}: orb reported {} period(s), so there is no pair of them to read a step off — \
+             {said}",
+            periods.len(),
+        );
+        let mut late = 0;
+        for pair in periods.windows(2) {
+            let (before, period) = (&pair[0], &pair[1]);
+            let a_refresh_late = period.past_by(1);
+            late += a_refresh_late;
+            assert_eq!(
+                period.allowance_us - before.allowance_us,
+                A_STEP * a_refresh_late as i64,
+                "seed {seed}: {}us allowed against the {}us of the period before it, over {a_refresh_late} \
+                 frame(s) a refresh late and {:?} refreshes past the blank aimed at — {said}",
+                period.allowance_us,
+                before.allowance_us,
+                period.past_the_aim,
+            );
+        }
+        late
+    }
+
+    /// 240Hz, for the row below: the rate with the shortest refresh, which is where a composition can
+    /// outlast one and still be a composition.
+    ///
+    /// A refresh is 4167µs there, so a desktop hiccup of a few milliseconds is past it while leaving its
+    /// frame two refreshes out. At 60Hz the same sentence asks for a composition past 16667µs, which is a
+    /// stage load in everything but name and lands its frame fifteen refreshes out — a different row's
+    /// question. It is also the rate whose ceiling is shortest, 3124µs, so nothing about this run is a
+    /// compositor the allowance was ever going to cover.
+    const HZ_WITH_A_SHORT_REFRESH: u32 = 240;
+    /// Longer than that display's 4167µs refresh, and a desktop hiccup rather than a load: one composition
+    /// in three hundred taking as long as most of a game frame.
+    const COMPOSE_PAST_A_REFRESH_US: i64 = 10_000;
+    /// Long enough for a handful of those, at that rarity, in each of the reported periods.
+    const FRAMES: u32 = 3_000;
+
+    /// A composition longer than a whole refresh, which is the one miss no allowance can answer.
+    ///
+    /// **Where the ratchet may step is decided by what a step can do**, and what a step does is hand the
+    /// frame over earlier. `compose_ceiling` holds the allowance under a refresh — hand a frame over
+    /// further ahead than that and the compositor takes it at the blank *before* the one it was aimed at —
+    /// so a composition longer than a refresh puts its frame two refreshes past its aim at every allowance
+    /// the ceiling admits. A step there is bought for a frame it could not have saved, and it is never
+    /// given back: measured before this at 200 to 400µs of input lag over fifteen seconds of play.
+    #[test]
+    fn a_composition_longer_than_a_refresh_does_not_move_the_allowance() {
+        in_its_own_process(|| {
+            for_each_seed(|seed| {
+                let mut display = Display::agreed(HZ_WITH_A_SHORT_REFRESH);
+                display.compose = Compose {
+                    usual_us: ROOMY_COMPOSE_US,
+                    jitter_us: 0,
+                    spike_us: COMPOSE_PAST_A_REFRESH_US,
+                    spike_one_in: 300,
+                };
+                display.seed = seed;
+                let game = Fake::attach_watching_the_pacing(
+                    display,
+                    &format!("past-a-refresh-{seed}"),
+                    Work::flat(WORK_US),
+                );
+                game.frames(FRAMES);
+                // So that the frames of the run are all inside a period orb has reported one of these for:
+                // the buckets and the allowance are read off those lines, and a run that stopped mid-period
+                // would be asking about the frames it happened to have written down.
+                game.frames_until_the_log_holds_another(PAST_THE_AIM);
+                let lines = game.log().lines();
+                let said = last_said(&lines);
+                let past = frames_past_the_aim(&lines);
+
+                // The hiccups happened and cost their frames two refreshes apiece, which is what makes an
+                // allowance that never moved worth reading: a run that saw none would report one too.
+                let beyond: usize = past.iter().skip(2).sum();
+                assert!(
+                    beyond > 0,
+                    "seed {seed}: {past:?} frames per count of refreshes past the blank they were aimed \
+                     at, so no composition here outlasted a refresh — {said}",
+                );
+                // And the allowance stepped for none of them, which is what the pairs say: a step is for a
+                // frame a refresh late, and this run has no frame a refresh late in it to take one.
+                let late = steps_against_frames_a_refresh_late(&lines, seed, &said);
+                assert_eq!(
+                    late, 0,
+                    "seed {seed}: {past:?} — a frame a refresh late is the allowance's to answer, and this \
+                     row is about the ones that are not — {said}",
+                );
+            });
+        });
+    }
+
+    /// And every frame that *was* a refresh late moved it by one step, which at 60Hz they did not.
+    ///
+    /// **60Hz is where a refresh and a whole game turn are the same length**, so it is the rate at which a
+    /// miss can be mistaken for the frame that takes a quarter of a second: the smallest miss there is is
+    /// one refresh, which is one turn, and how late the two flushes either side of it were woken decided
+    /// which of the two it was called. Measured before this: 131 of 160 misses uncharged in a run with no
+    /// load anywhere in it, counting the frames those excused in turn, and each of them a refresh the player
+    /// lost that the allowance was never told about.
+    ///
+    /// A compositor that spikes past the allowance rather than one flatly over it, so the misses arrive a
+    /// few to a period instead of every frame until the climb is done: what the pairs are reading is a step
+    /// against the miss it was taken for, and a climb finished inside one period would leave every pair
+    /// after it with nothing in it.
+    #[test]
+    fn every_frame_a_refresh_late_moves_the_allowance_one_step() {
+        const HZ_WHERE_A_REFRESH_IS_A_TURN: u32 = 60;
+        in_its_own_process(|| {
+            for_each_seed(|seed| {
+                let mut display = Display::agreed(HZ_WHERE_A_REFRESH_IS_A_TURN);
+                display.compose = Compose {
+                    usual_us: ROOMY_COMPOSE_US,
+                    jitter_us: 0,
+                    spike_us: SLOW_COMPOSE_US,
+                    spike_one_in: 300,
+                };
+                display.seed = seed;
+                let game = Fake::attach_watching_the_pacing(
+                    display,
+                    &format!("no-room-{seed}"),
+                    Work::flat(WORK_US),
+                );
+                game.frames(FRAMES);
+                game.frames_until_the_log_holds_another(PAST_THE_AIM);
+                let lines = game.log().lines();
+                let said = last_said(&lines);
+                let past = frames_past_the_aim(&lines);
+
+                // Nothing here landed further out than a refresh, so every miss of the run is one the
+                // allowance answers for and the pairs are reading the case in question.
+                assert!(
+                    past.iter().skip(2).all(|count| *count == 0),
+                    "seed {seed}: {past:?} frames per count of refreshes past the blank they were aimed \
+                     at, against a compositor spiking to {SLOW_COMPOSE_US}us — {said}",
+                );
+                let late = steps_against_frames_a_refresh_late(&lines, seed, &said);
+                assert!(
+                    late > 0,
+                    "seed {seed}: {past:?} — no frame of the pairs was a refresh late, so nothing here \
+                     asked the allowance for a step — {said}",
                 );
             });
         });
@@ -1922,8 +2263,9 @@ mod rates {
 /// **Sixty frames a second is held in every situation, and this is the table of what a situation is.**
 ///
 /// The one claim the pacing exists to make, in one place. Every other section here is about a mechanism
-/// inside it — the budget's climb, the allowance's ratchet, the load guard, the grid's arithmetic — and
-/// each of those can be right while the thing somebody playing cares about is wrong.
+/// inside it — the budget's climb, the allowance's ratchet, what a landing more than a refresh out
+/// excuses, the grid's arithmetic — and each of those can be right while the thing somebody playing cares
+/// about is wrong.
 ///
 /// # Why a table and not every combination
 ///

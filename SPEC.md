@@ -877,21 +877,32 @@ dwelling anywhere long enough to catch a value that only fails sometimes, and ea
 below that edge is paid for by a frame missing its blank on the way back up — a stutter a step,
 for as long as the walk lasts.
 
-Three kinds of miss are counted and only one of them climbs:
+Raised with it, by the same 100µs, is the budget: the budget is the drawing's time and the
+compositor's together, so a share that grew without it starts the frame the step was taken for
+exactly as late as the frame that missed and hands it over exactly as near its blank.
+
+**What a step may be taken for is decided by what a step can do**, which is hand the frame over
+earlier. Four kinds of miss are counted and only the first of them climbs:
 
 | | |
 | --- | --- |
-| overshoot beyond a whole turn | a stage load, or an update that ran long |
+| a frame exactly one refresh past the blank it was aimed at | the share was short, and a step is what answers it |
+| more than one refresh past it | past anything a step could reach: the share is held under a refresh, so a composition longer than one puts its frame there at every share there is |
 | the frame after one of those, and one frame only | still picking itself up, and not the compositor's to answer for |
 | a frame whose own drawing outgrew its budget | late whatever the compositor had been given |
 
-Both of the excused ones are there because a run found them. A stage load stops the game long
-enough that the frame it lands on cannot make its blank however much the compositor was given, and
-the frame after it is still picking itself up — climbing for either raises the lag for the rest of
-the run to answer for something the compositor never did. The drawing's own overrun is worse: a
+The three excused ones are there because a run found them. A stage load stops the game long enough
+that the frame it lands on lands many refreshes out, and the frame after it is aimed off the blank
+grid — the aim is measured from where the last flush returned, and a flush called after its blank
+has gone returns at once rather than at a blank — so climbing for either raises the lag for the rest
+of the run to answer for something the compositor never did. The drawing's own overrun is worse: a
 heavy frame climbed the share to its ceiling, and with the budget capped at the same figure the
 drawing had no allowance left, so every frame afterwards reached the compositor late and asked to
 climb again — a run that never recovers, from one frame.
+
+`orb-e2e`'s `pacing`'s `compose` section holds each of those: a compositor with room to spare never
+moves the share at any rate a display reports, a composition longer than a refresh never moves it,
+and every frame that is a refresh late moves it by exactly one step.
 
 **Two ceilings, and only one of them is a refresh.** The compositor's share has to stay inside one
 refresh, because the frame is handed over that far before the blank it is aimed at: hand it over

@@ -132,6 +132,10 @@ pub struct Pacing {
     /// handed over after the compositor has stopped taking it — which the display shows a
     /// refresh late. So it is measured rather than chosen: what the work has been taking
     /// lately, plus enough to reach the compositor in time.
+    ///
+    /// Which is two things and they move separately: `next_budget` follows the work, and
+    /// [`Self::measure_compose`] raises this by whatever it raised the compositor's share by, that
+    /// share being the other half of what is being budgeted for.
     prepare_us: i64,
 
     /// What it is being given at the moment.
@@ -224,8 +228,8 @@ pub struct Pacing {
     /// nowhere else.
     early: usize,
 
-    /// Whether the last frame overshot by more than a whole turn, so the next one is still
-    /// picking itself up.
+    /// Whether the last frame landed more than one refresh past the blank it was aimed at, so the
+    /// next one is still picking itself up.
     ///
     /// A stage load takes a quarter of a second, and the frame after one misses its blank
     /// through no fault of the compositor — nothing about that says it wants longer. Measured:
@@ -240,7 +244,7 @@ pub struct Pacing {
 
     /// Misses laid at that door rather than at the compositor's, so the exemption is visible
     /// instead of being a silent reason the value stopped climbing.
-    after_load: usize,
+    after_a_frame_past_a_refresh: usize,
 
     /// Whether the last frame's drawing outgrew the budget it was started against.
     ///
@@ -252,7 +256,7 @@ pub struct Pacing {
     /// asked for a climb that could not happen. 120 frames of every 600, for the rest of the run.
     overran: bool,
 
-    /// Misses that were, counted apart for the same reason as the ones after a load.
+    /// Misses that were, counted apart for the same reason as the ones the frame before them excused.
     overrun_drawing: usize,
 
     /// Frames the clock paced rather than the blanks, because there is no blank to have missed
@@ -267,9 +271,12 @@ pub struct Pacing {
     /// shaving only ever tries values never shown to be short, and a stutter costs at most one
     /// frame per value rather than one every couple of minutes for as long as the game runs.
     ///
-    /// This only ratchets upward, so a miss that was not really about the compositor — one the
-    /// whole-turn guard let through — costs lag for the rest of the run. The clamp at half a
-    /// turn is what bounds that.
+    /// This only ratchets upward, so a miss that was not really about the compositor costs lag for the
+    /// rest of the run. What is left of those is a frame that reached the flush after its own blank had
+    /// gone for a reason other than its drawing — `measure_compose` excuses the drawing and the frame
+    /// after a landing more than a refresh out, and nothing has produced one that is neither. It errs
+    /// toward giving the compositor longer, which is the safe direction, and the clamp at three quarters
+    /// of a refresh is what bounds it.
     proven_short_us: i64,
 
     /// A compose time given on the command line, which pins it: 0 to find it while running.
@@ -399,7 +406,7 @@ impl Pacing {
             overshoot_us: 0,
             early: 0,
             recovering: false,
-            after_load: 0,
+            after_a_frame_past_a_refresh: 0,
             overran: false,
             overrun_drawing: 0,
             clock_frames: 0,
@@ -774,7 +781,7 @@ impl Pacing {
         // this moment returned at, against the one it was aimed at. Everything the compose time is
         // driven by comes from those two numbers and neither costs a call.
         if last != 0 {
-            self.measure_compose(period, borne, last + borne, blank);
+            self.measure_compose(period, last + borne, blank);
         }
         // This frame's own turn, worked out now that there is a blank to count it from. The order
         // matters: the count is the blank the grid means minus the blank in hand, so it cannot be
@@ -828,7 +835,17 @@ impl Pacing {
     /// aimed at is the whole answer: nothing to average, and nothing to infer from a gap that
     /// goes wrong for half a dozen unrelated reasons. One frame decides it, because the two
     /// cases are a refresh apart while the aim is good to a few hundred microseconds.
-    fn measure_compose(&mut self, period: i64, cadence: i64, aimed: i64, blank: i64) {
+    ///
+    /// **A frame is a refresh late or it is not, and the half-refresh boundary is the whole of what
+    /// says which.** Both moments are blanks the flush returned at, so the overshoot is a whole
+    /// number of refreshes plus however differently the two returns were woken — and that wake is
+    /// measured in hundreds of microseconds against a half-refresh of 2083µs at 240Hz, the shortest
+    /// any rate anybody plays at has. A tighter window than half was tried on paper and is worse: a
+    /// quarter-refresh at 240Hz is 1042µs, under the worst wake seen, so a real miss would fall
+    /// outside it and go unanswered — which is a stutter left in place to avoid a step, the wrong way
+    /// round. `orb-e2e`'s `pacing`'s `a_compositor_with_room_to_spare_never_moves_the_allowance` is
+    /// the boundary held from the other side, over every rate.
+    fn measure_compose(&mut self, period: i64, aimed: i64, blank: i64) {
         let overshoot = blank - aimed;
         self.overshoot_us = self.micros(overshoot);
         // A frame that landed where it was aimed is a blank worth measuring the next aim from, and
@@ -849,11 +866,26 @@ impl Pacing {
             return;
         }
         let compose = self.compose_us;
-        // Beyond a whole turn is a stage load or an update that ran long, not a frame handed
-        // over too near its blank, and widening the compose time for one buys nothing. This is the
-        // guard the first attempt at driving this from our own gaps did not have, and
-        // without it a run ratchets to seven milliseconds of lag by the third stage.
-        if overshoot > cadence {
+        // A step hands the frame over earlier and that is the whole of what it does, so more than one
+        // refresh out is past anything a step could have reached: `compose_ceiling` holds the allowance
+        // under a refresh — further ahead than that and the compositor takes the frame at the blank
+        // *before* the one it was aimed at — so a composition longer than a refresh puts its frame two
+        // refreshes past its aim at every allowance there is. A stage load is that case many times over,
+        // which is what this branch was written for.
+        //
+        // **Not the whole turn**, which is the tempting way to say the same thing and is a different
+        // number at every rate: a turn is one refresh at 60Hz and four at 240. At 60Hz the smallest miss
+        // there is lands on that boundary and how late the two flushes either side of it were woken
+        // decides which side — measured as 131 of 160 misses in a run with no load in it going uncharged,
+        // 78 of them here where nothing counts them and 53 in the branch below. At 240Hz it is the other
+        // way round: a composition of 10000µs costs its frame two refreshes, well inside the turn, and
+        // bought a step for a frame no allowance could have saved. `orb-e2e`'s `pacing`'s
+        // `every_frame_a_refresh_late_moves_the_allowance_one_step` and
+        // `a_composition_longer_than_a_refresh_does_not_move_the_allowance` are those two.
+        //
+        // Without a guard here at all a run ratchets to seven milliseconds of lag by the third stage,
+        // which is what the first attempt at driving this from our own gaps did.
+        if refreshes > 1 {
             self.recovering = true;
             return;
         }
@@ -863,17 +895,17 @@ impl Pacing {
         // frame ever climbs for, since the line that cleared this sat past the return below and only a
         // landing frame reached it. Measured before this — 60Hz with the compositor at 3200µs, 20,000
         // frames — the rate sat at 30.00 with the allowance frozen at 2800µs and 10,121 of the misses
-        // charged to a load long over.
+        // excused by a flag one frame had set and nothing since had cleared.
         //
-        // What set it in those runs was not a load. A cadence is a whole game turn however fast the
-        // display is, so at 60Hz one refresh is one turn and the smallest miss there is lands on this
-        // guard's boundary; jitter then decides which of the two it is called. A real load is nowhere
-        // near this branch: measured at 60, 120 and 144Hz, a quarter-second frame costs exactly one
-        // frame its blank and the frame after it lands, so nothing is charged here at all.
-        let after_load = std::mem::take(&mut self.recovering);
+        // What it is for is the frame after one that landed far off: the aim is measured from where the
+        // last flush returned, and a flush called after its blank has gone returns at once rather than at
+        // a blank, so the next frame is aimed off the grid and misses for that and not for the
+        // compositor. Measured at 60, 120 and 144Hz: a quarter-second frame costs exactly one frame its
+        // blank and the frame after that one lands.
+        let after_a_frame_past_a_refresh = std::mem::take(&mut self.recovering);
         if refreshes > 0 {
-            if after_load {
-                self.after_load += 1;
+            if after_a_frame_past_a_refresh {
+                self.after_a_frame_past_a_refresh += 1;
                 return;
             }
             // Nor is a frame whose own drawing outgrew its budget. It would have been late whatever
@@ -903,6 +935,20 @@ impl Pacing {
             self.compose_us = self
                 .compose_us
                 .max((compose + MISS_STEP_US).min(self.compose_ceiling(period)));
+            // And the budget with it, by however much the step really came to — nothing, where the
+            // ceiling refused it. The budget is the drawing's time and the compositor's together, so a
+            // step in the one is a step in the other: left where it was, the frame the step was taken for
+            // is started exactly as late as the frame that missed and hands over exactly as near its
+            // blank, so the step does nothing at all until `next_budget` catches up a frame later.
+            //
+            // It also read as the drawing having overrun. `account` measures the frame against the
+            // allowance now in force while the budget was built from the one before it, so every frame
+            // that followed a step came out over its budget by exactly the step — and the next miss was
+            // then charged to a drawing that had not grown by a microsecond, which is a miss the ratchet
+            // never heard about. Measured at 120Hz against a compositor wanting 4000µs: 10 of the climb's
+            // 38 misses.
+            self.prepare_us =
+                (self.prepare_us + self.compose_us - compose).min(self.budget_ceiling());
         }
     }
 
@@ -1350,16 +1396,16 @@ impl Pacing {
         }
         let clock = std::mem::replace(&mut self.clock_frames, 0);
         let short = self.proven_short_us;
-        let after_load = match (
-            std::mem::replace(&mut self.after_load, 0),
+        let excused = match (
+            std::mem::replace(&mut self.after_a_frame_past_a_refresh, 0),
             std::mem::replace(&mut self.overrun_drawing, 0),
         ) {
             (0, 0) => String::new(),
-            (load, 0) => format!(", {load} of them the frame after a load"),
+            (after, 0) => format!(", {after} of them the frame after one more than a refresh out"),
             (0, drawing) => format!(", {drawing} of them a frame whose drawing overran"),
-            (load, drawing) => {
+            (after, drawing) => {
                 format!(
-                    ", {load} after a load and {drawing} whose drawing overran, neither counted against the compositor"
+                    ", {after} after a frame more than a refresh out and {drawing} whose drawing overran, neither counted against the compositor"
                 )
             }
         };
@@ -1370,7 +1416,7 @@ impl Pacing {
             }
         };
         format!(
-            "frame: refreshes past the blank aimed at{blanks}{after_load}{early}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
+            "frame: refreshes past the blank aimed at{blanks}{excused}{early}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
             self.compose_us,
             if self.pinned_compose_us > 0 {
                 " pinned"
