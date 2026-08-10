@@ -1,8 +1,5 @@
 //! **The score file forked per mode: which file each read lands in, and what a missing one costs.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! **The game opens the file and orb decides which one it gets.** The fork is a hook over the exe's
 //! `CreateFileA`, reached in a real launch by patching its import table and here by the game handing its own
 //! over — `Originals::create_file`, the same answer `create_window` is, and see
@@ -114,15 +111,10 @@ fn reads_and_writes(opens: &[Open]) -> (Vec<String>, Vec<String>) {
 
 /// The front end's own read is the game's file, and every other open follows the mode.
 ///
-/// Measured over a session, both halves of the bracket on `MainMenu::AddedCallback`:
-///
-/// - The hook went in, so the six bytes at **0x43a464** were the `push ebp; mov ebp,esp; sub esp,0x10`
-///   expected of it.
-/// - The menu came up with **no `score:` line anywhere in between**, where the same point in a session
-///   before the bracket had one.
-/// - Answering pointdevice at the *Score* item and the screen coming up was then followed by
-///   `score: pointdevice_score.dat opened in place of the game's own`.
-/// - Neither file was written by any of that: both mtimes were unchanged.
+/// Both halves of the bracket on `MainMenu::AddedCallback`, whose prologue at **0x43a464** is the six bytes
+/// `push ebp; mov ebp,esp; sub esp,0x10`: inside it the fork is off, so the front end's read lands in the
+/// game's own file and orb says nothing about it, and outside it every other open follows the mode. Neither
+/// file is written by any of that.
 #[test]
 fn the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode() {
     in_its_own_process(|| {
@@ -173,10 +165,8 @@ fn the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode() 
 
 /// Leaving the ranking screen writes orb's file whether or not a score was entered.
 ///
-/// Measured in the same session, without a run being finished: `pointdevice_score.dat` came out at
-/// **4,224 bytes**, `4f733fc56b8e80d3a511acfc7ba8cb0d`, against `score.dat`'s 8,724. Leaving the ranking
-/// screen is what wrote it — the deleted callback writes whether a score was entered or the ranking was
-/// only looked at — so orb's file appears with an empty record rather than waiting for a clear.
+/// The deleted callback writes whether a score was entered or the ranking was only looked at, so orb's file
+/// appears with an empty record rather than waiting for a clear — no run has to be finished for one to exist.
 #[test]
 fn leaving_the_ranking_writes_orbs_file_with_nothing_entered() {
     in_its_own_process(|| {
@@ -215,10 +205,9 @@ fn leaving_the_ranking_writes_orbs_file_with_nothing_entered() {
 /// Each mode's ranking screen writes its own file, and the mode an answer left behind cannot reach the
 /// other.
 ///
-/// Measured in one session: answering pointdevice at the *Score* item sent both the read and the write
-/// to orb's file; answering the game's own ranking next — `mode: normal, was pointdevice` — read and
-/// wrote `score.dat`, and each file's mtime moved only for its own answer. Every item that opens the file
-/// asks first, which is what makes that safe.
+/// Answering pointdevice at the *Score* item sends both the read and the write to orb's file, and answering
+/// the game's own ranking next reads and writes `score.dat`: each file is touched only for its own answer.
+/// Every item that opens the file asks first, which is what makes one session reaching both safe.
 #[test]
 fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
     in_its_own_process(|| {
@@ -274,12 +263,9 @@ fn each_modes_ranking_screen_writes_its_own_file_in_one_session() {
 /// A missing `pointdevice_score.dat` locks the unlocks rather than leaving them as they were, and the
 /// front end's own read is what keeps them.
 ///
-/// Measured on a launch with no such file and `score.dat` beside it untouched: `Extra Start` came up
-/// **locked** on the title menu with pointdevice chosen, and the log's only score line for that menu was
-/// `score: pointdevice_score.dat opened in place of the game's own`. Which is the session that put the
-/// bracket over
-/// `MainMenu::AddedCallback` there: the menu was being lit from the mode's file, and a mode whose file is
-/// new has nothing in it.
+/// With no such file and `score.dat` beside it untouched, `Extra Start` comes up **locked** on the title
+/// menu with pointdevice chosen: the menu is lit from the mode's file, and a mode whose file is new has
+/// nothing in it. Which is what the bracket over `MainMenu::AddedCallback` is for.
 ///
 /// So a failed read is not a no-op: `clrd`'s parse at **0x42b502** clears its destination before it looks
 /// for the chunk — four records memset at **0x42b535**.
@@ -416,13 +402,9 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
 
 /// What a session counted about spell cards survives a run that ended anywhere but the result screen.
 ///
-/// Watched in play. For a run ended elsewhere the game's own ranking is built and taken down, which is
-/// where it writes: `score: a run ended; what it counted waits for the ranking to be built and taken
-/// down`, then `score.dat opened as the game's own, write`, and `score: the ranking built and taken down
-/// in 84 update(s) — cur=1 wanted=1`. The same shape with `pointdevice_score.dat` for a
-/// pointdevice run. Both modes, and both ways out of a run — orb's retry menu and the game's own `ESC`.
-/// The counts read off the game's own screen afterwards were up: the attempt count against the card a
-/// chapter was retried at, and the capture count for a card taken in a legacy run stopped partway.
+/// For a run ended elsewhere the game's own ranking is built and taken down, that being where it writes.
+/// Both modes, each into its own file, and both ways out of a run that are not the result screen — orb's
+/// retry menu and the game's own `ESC`.
 ///
 /// **Four attempts at this before it worked**, and the shape of each mistake is why the walk is what it
 /// is: writing `curState` — the game's *result* — instead of asking the way the game asks left the front
@@ -580,13 +562,11 @@ fn a_ranking_that_never_comes_up_writes_nothing_and_has_its_request_undone() {
 /// `CARD_HISTORY` — so a card the file holds no record of stands in memory carrying a name nobody wrote, and
 /// the ranking screen draws that name the moment its attempts are not zero (0x42e26e).
 ///
-/// **Watched in play**: `No.37` on the 完全無欠 ranking drawing the generator's own bytes where
-/// 傀符「操りドール」 belongs, against 0 captures and 4 attempts — every one of those four orb's own, `resume:
-/// 4096 byte(s) of captures put back` and `resume: attempt N at this spell card` on the same millisecond,
-/// thirteen such pairs in `th06/orb.log`. A retry cannot heal a row already written wrong: a chapter's
-/// snapshot is taken after the name was copied in, so putting it back never starts the card again. Only the
-/// card starting for real does — the sum at 0x4097e8 then disagrees and both counts go — or a run picked up,
-/// whose playback starts it and whose landing keeps the name that start wrote: see
+/// What that puts on the ranking is a row drawing the generator's own bytes where the card's name belongs,
+/// against no captures and however many attempts orb added. **A retry cannot heal a row already written
+/// wrong**: a chapter's snapshot is taken after the name was copied in, so putting it back never starts the
+/// card again. Only the card starting for real does — the sum at 0x4097e8 then disagrees and both counts go —
+/// or a run picked up, whose playback starts it and whose landing keeps the name that start wrote: see
 /// [`a_run_picked_up_keeps_the_name_its_playback_learned`].
 #[test]
 fn only_a_chapter_with_a_spell_card_up_counts_an_attempt() {
@@ -698,16 +678,11 @@ const NO_CARD_UP: &str = "score: no spell card is up; no attempt counted";
 /// against and a row the ranking screen never draws a name for again: the landing is *inside* the card, so
 /// nothing starts it a second time.
 ///
-/// **Watched in play** with `pointdevice_score.dat` moved aside, which is the state this lays out, and
-/// the walk it was found by is the one this makes: つづきから into stage 5's chapter 12, 被弾, タイトルに戻る,
-/// and the ranking asked for at the title menu's `Score`. What that session showed was `resume: 4096 byte(s)
-/// of captures put back` and `score: card 36 is not one the game has named; no attempt counted` on the same
-/// millisecond, and 傀符「操りドール」 left showing 「？？？？？」 against no attempts at all.
-///
-/// **And watched again with the names kept**: `resume: 4096 byte(s) of captures put back; the playback
-/// counts none of them and keeps the names it wrote` followed on the same millisecond by `resume:
-/// attempt 1 at this spell card` — twice, at stage 5's chapter 12 and at stage 1's chapter 3 — with no
-/// refusal against either card and the name legible on its row afterwards.
+/// **What putting the names back too costs** is the other half of that, and it is what this walk is shaped
+/// to reach: a run picked up into a card's own chapter, given up, and the ranking asked for at the title
+/// menu's `Score`. With the names put back, orb refuses to count against a card the game has no name for and
+/// the row keeps its 「？？？？？」 for good; with them left as the playback wrote them, the attempt is
+/// counted and the name is legible on the row.
 #[test]
 fn a_run_picked_up_keeps_the_name_its_playback_learned() {
     in_its_own_process(|| {

@@ -1,7 +1,7 @@
 //! **The music put back where a chapter had it, and the stream believing the file it was given.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine — two of them by ear, which is what the numbers beside them stand in for here.
+//! Two of the things this is about can only be told by ear, which is what the numbers beside them stand in
+//! for here.
 //!
 //! What the laid-out game brings is a stage that streams the two songs its data names —
 //! `Fake::plays_its_songs`, the stage's own and the boss's — which is the whole of what the question
@@ -68,11 +68,10 @@ fn music_of(game: &Fake, chapter: u32) -> String {
 
 /// A chapter's song position comes back with the chapter, and it is asked of the song rather than the kind.
 ///
-/// Measured over a resumed run: the song was left at the track's opening milliseconds with the position
-/// that had been written down (**`song=5900628`**) never read — the restore was asked of the chapter's
-/// *kind*, and a midboss is not one of the midstage kinds although the stage's own song plays through it.
-/// It is asked of the song now, from the same place a retry asks it, so the two cannot disagree about a
-/// chapter.
+/// Asked of the chapter's *kind*, a run picked up at a midboss came back with the song at the track's
+/// opening and the position that had been written down never read: a midboss is not one of the midstage
+/// kinds, although the stage's own song plays through it. It is asked of the song now, from the same place a
+/// retry asks it, so the two cannot disagree about a chapter.
 ///
 /// **What is asserted here is the question, not the seek**: which chapters have their song put back is what
 /// the kind and the song disagreed about, and a midboss chapter answering *rewind* is that disagreement
@@ -194,10 +193,10 @@ const SONG: i32 = 300_000;
 /// that has moved on, which is audible as a short loop repeating forever — the fault `audio.rs` exists
 /// for.
 ///
-/// Verified by ear over a full 1→6 run, which is what
-/// `the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss` carries the *which* of.
-/// This is the *what*: the four values read either side of a retry, with the stream moved on in between
-/// so that coming back is something that had to happen rather than something nothing disturbed.
+/// Which chapters that happens to is
+/// `the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss`'s. This is the *what*:
+/// the four values read either side of a retry, with the stream moved on in between so that coming back is
+/// something that had to happen rather than something nothing disturbed.
 #[test]
 fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
     in_its_own_process(|| {
@@ -335,9 +334,7 @@ fn the_distance_to_the_next_write_is_reported_and_a_restore_on_a_timer_puts_it_b
 ///
 /// So the sound goes down through the game's own `StopBGM` before the copy — its allocator has to see the
 /// stream being freed — and comes back through its own `PlayAudio` after it, given the path read out of
-/// the memory that was just put back. Measured on a stage 6 run: `restore: the track has changed since
-/// this snapshot; taking the music down`, `music: stopped through the game`, `music: restarting
-/// bgm/th06_12.mid`.
+/// the memory that was just put back.
 ///
 /// Reached here the way a run reaches it: ステージをやり直す from inside the fight the stage ends with,
 /// whose own track is not the one the stage's start was snapshotted with.
@@ -513,15 +510,13 @@ fn gives_the_run_up(game: &Fake) {
 
 /// The track is rewound for the chapters that share the stage's theme and left playing through a boss's.
 ///
-/// Verified by ear over a full 1→6 run: rewound for the midstage and the midboss, which share the stage
-/// theme, and left playing through a boss-fight restore.
+/// Rewound for the midstage and the midboss, which share the stage theme, and left playing through a
+/// boss-fight restore.
 ///
-/// And where the track has changed since the snapshot, it is asked to start again rather than copied back —
-/// measured on a stage 6 run: `restore: the track has changed since this snapshot; taking the music down`,
-/// `music: stopped through the game`, `music: restarting bgm/th06_12.mid`, with `StopBGM` and then
-/// `PlayAudio` given the path read out of the memory the restore had just put back. **That half is the real
-/// game's**: taking the music down and starting it again are calls into 紅魔郷's own `StopBGM` and
-/// `PlayAudio` at their own addresses, and there is no code at those addresses in a game laid out by hand.
+/// And where the track has changed since the snapshot, it is asked to start again rather than copied back:
+/// `StopBGM` and then `PlayAudio`, given the path read out of the memory the restore had just put back.
+/// **That half is the real game's**, taking the music down and starting it again being calls into 紅魔郷's own
+/// two functions at their own addresses, and there is no code at those addresses in a game laid out by hand.
 #[test]
 fn the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss() {
     in_its_own_process(|| {

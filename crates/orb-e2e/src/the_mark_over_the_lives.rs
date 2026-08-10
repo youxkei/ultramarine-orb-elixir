@@ -1,8 +1,5 @@
 //! **The brush stroke over the count of lives, and the frames either end of a run it has to reach.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine and seen on the screen.
-//!
 //! What the stroke *is* has tests already — `lives_ui.rs`'s `the_stroke_covers_the_count_and_nothing_else`,
 //! `the_row_itself_is_left_to_the_game`, `the_stroke_over_the_row_is_a_picture_and_not_a_flat_fill` and the
 //! six beside them — and `pointdevice_run.rs` reads `DISABLE` off the screen over a run. What is
@@ -217,9 +214,9 @@ fn the_mark_stays_on_the_panel_for_the_one_frame_the_game_paints_after_the_run()
 /// Giving the same run up from orb's own retry menu needs none of those frames, the chain being cut
 /// already.
 ///
-/// Measured: no such line at all where a run was given up that way. Which is the other half of what the
-/// count is worth — a line saying one frame is a fact about how the *game* left the run, not a number orb
-/// adds to every ending — and it is why the count is reported rather than assumed.
+/// No such line at all where a run was given up that way, which is the other half of what the count is
+/// worth: a line saying one frame is a fact about how the *game* left the run, not a number orb adds to
+/// every ending, and that is why the count is reported rather than assumed.
 #[test]
 fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
     in_its_own_process(|| {

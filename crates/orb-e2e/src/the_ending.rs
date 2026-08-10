@@ -1,8 +1,5 @@
 //! **The ending run out inside one frame, and its staff roll left to play.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! **What an ending is made of**, read out of `紅魔郷ED.DAT`: 33 entries, unpacked the way the game
 //! does — a table whose every number is two bits of length and then that many bytes, and LZSS over an
 //! 8kB window with 13-bit offsets, 4-bit lengths and the window written from 1. An entry runs to the
@@ -118,10 +115,9 @@ fn tracks_in(line: &str) -> (String, String) {
 
 /// The ending runs out inside the frame it begins on, and stops where it hands over to the roll.
 ///
-/// Measured on a stage 6 clear: **29,040 updates inside the frame it began on**, stopping at
-/// `ending run out in 29040 update(s), where its staff roll begins, track Some(1727006158) ->
-/// Some(3570673472)` — the script and the track changing on the same update, which is the two signals
-/// agreeing on the boundary. Nothing of the ending reached the screen.
+/// The whole of the ending's script inside the frame it began on, stopping where that script hands over —
+/// and the track changing on the same update, which is the two signals agreeing on the boundary rather than
+/// one. Nothing of the ending reaches the screen, drawing happening once a frame.
 #[test]
 fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
     in_its_own_process(|| {
@@ -167,24 +163,17 @@ fn the_ending_runs_out_inside_one_frame_and_stops_at_the_roll() {
 /// The roll plays on its own afterwards, at the rate everything else is paced at, with nothing of orb's
 /// taken out of it.
 ///
-/// Measured over the same clear: **7,286 drawn frames**, held to the cadence with `0 shown late` and the
-/// audio never behind, and the scene after it was 7, the result screen.
-///
 /// The roll's own length is the 7,830 frames of waits in `staff00.end`, and it is played out an update a
 /// frame — the skip does not start again over it, the ending's flag staying set and the scene staying 10
-/// through both. The rate is what the loop paces every other frame at. The audio half is the real run's:
-/// a laid-out game streams no sound.
+/// through both. The rate is what the loop paces every other frame at, and the scene after it is the result
+/// screen. What the roll does to the sound is nothing a laid-out game can be asked: one streams none.
 ///
-/// **240 of those frames used to go on a ranking that could not come up.** The run ended when the ending
-/// began, and what a run that ended waits for is the ranking to be built and taken down; asked for where no
-/// front end is up, that spends its whole allowance of updates saying so — `score: the ranking was not built
-/// after 240 update(s)` — and every one of those was an update of the roll inside a single frame. None is
-/// asked for over an ending any more, a cleared run's own way to the result screen running through one and
-/// that screen being what writes for it, so the roll now plays every frame of its own script. Whether those
-/// 240 were part of what left the real roll **544 frames short** of its 7,830 is not settled here or
-/// anywhere; the rest of that gap is
-/// `the_ending_and_the_roll_together_come_to_the_waits_in_the_script` below, which carries the number and
-/// the 62 frames beside it.
+/// **No ranking is asked for over an ending**, which is what leaves the roll every frame of its own script.
+/// A run ends where its ending begins, and what a run that ended waits for is the ranking to be built and
+/// taken down — asked for where no front end is up, that spends its whole allowance of updates saying so,
+/// and every one of those is an update of the roll inside a single frame. There is nothing to ask for
+/// anyway: a cleared run's own way to the result screen runs through the ending, and that screen is what
+/// writes for it.
 #[test]
 fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
     in_its_own_process(|| {
@@ -253,24 +242,17 @@ fn the_staff_roll_plays_at_sixty_and_the_result_screen_follows_it() {
     });
 }
 
-/// The two ways of measuring an ending agree, and the arithmetic between them is what says so.
-///
-/// The clear above ran the ending alone at 29,040 updates. An earlier clear measured the ending and the
-/// roll together at **36,932 updates** — `ending skipped, 7200 frames run, scene 10 -> 10` five times and
-/// then `932 frames run, scene 10 -> 7`, with the scene after it opening the score file. 36,932 − 29,040 =
-/// **7,892**, against the **7,830** frames of waits in `staff00.end`.
+/// The two ways of running an ending out agree, and the arithmetic between them is what says so.
 ///
 /// **What the two ways are.** The skip stops where the script hands over, and it can only do that where
 /// there is a script to compare: an ending orb finds no script in — one whose job is not in the chain —
-/// is run out to the scene change instead, roll and all. That is what the earlier measurement was, the
-/// skip having stopped at the scene in that build, and it is why both readings are of the same ending.
+/// is run out to the scene change instead, roll and all. So one way counts the ending alone and the other
+/// counts the ending and the roll together, and the difference between them has to be the roll's own script
+/// and nothing else. Which is what makes them two readings of one ending rather than two endings.
 ///
-/// **The 62 frames between 7,892 and 7,830 are still unaccounted for**, and no laid-out game can account
-/// for them: the roll ran 544 frames short of those 7,830 on that clear, the only wait in it that input
-/// can cut short is one `@w1200` whose second argument is 4, and nobody was watching the keyboard for it.
-/// So what is asserted here is the arithmetic over an ending whose waits are known, and the gap is open:
-/// only a clear that keeps its hands off the keyboard through the roll closes it, which is a run against
-/// the real game and nothing an e2e test can do.
+/// The one wait in the roll that input can cut short is an `@w1200` whose second argument is 4, so a roll
+/// somebody pressed a key through is shorter than its script and the arithmetic is over an ending whose
+/// waits are known.
 #[test]
 fn the_ending_and_the_roll_together_come_to_the_waits_in_the_script() {
     in_its_own_process(|| {

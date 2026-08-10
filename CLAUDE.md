@@ -148,9 +148,11 @@ that is:**
   reasoning it settled.
 - **It is why a constant is the number it is** — beside that constant, with how it was found, so that
   whoever changes the number reads what it was measured against first.
-- **It confirmed the code works on the real game** — an e2e test asserting the same thing, which is then
-  the record. A confirmation written as an e2e test is one anybody can repeat on demand, so the e2e test
-  is the work and the write-up comes free.
+- **It confirmed the code works on the real game** — an e2e test asserting the same thing, and **nothing
+  says it was confirmed**. What did not work on the real game is an issue, so what is not an issue works:
+  a comment saying something *was* run there says what the whole tree already says, and says it in a place
+  that goes stale without anybody noticing. So no comment beside the code says it was run on the game, which
+  session it was, or what the log said at the time.
 - **It is ahead of all three** — the issue for that work, named and carried in it. A measurement still
   waiting for a constant or an e2e test to stand beside belongs there.
 

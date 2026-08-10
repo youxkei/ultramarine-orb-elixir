@@ -444,8 +444,8 @@ pub const NOT_TRIED: &str = "？？？？？";
 
 /// How long the high-score name entry a finished run arrives on stands before it is answered.
 ///
-/// Not at once, because the real one is a screen somebody types eight characters into — it stood for a long
-/// stretch between the two scene lines of a cleared run, with the stats screen after it.
+/// Not at once, because the real one is a screen somebody types eight characters into, with the stats screen
+/// after it.
 ///
 /// **Past the 240 updates `runtime`'s `COMMIT_FRAME_LIMIT` allows a ranking to be built in**, which is the
 /// property that matters rather than the number: the real screen never advances on its own at all, so a

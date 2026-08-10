@@ -1,14 +1,13 @@
 //! **A replay played out the same way after being moved between its stages, to the last digit.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine. This is what `--collect` and `--judge` stand on: a pass that builds a midstage chapter table
+//! This is what `--collect` and `--judge` stand on: a pass that builds a midstage chapter table
 //! steps between boundaries and moves between stages, so a replay that stops playing out the same way
 //! makes every boundary it judged afterwards worthless.
 //!
-//! **How it was settled**: a line per update — the replay's input clock, the buttons it fed, the player's
-//! position, and how many numbers the generator has given out — written for two passes over stage 1 and
-//! compared. **9011 frames**, the whole stage including the boss, agreeing **to the last digit** across a
-//! move out to stage 2 and back.
+//! **What playing out the same way is**: a line per update — the replay's input clock, the buttons it fed,
+//! the player's position, and how many numbers the generator has given out — written for two passes over
+//! one stage and compared, the whole stage including its boss, agreeing **to the last digit** across a move
+//! out to the next stage and back.
 //!
 //! What the laid-out game plays is a record of its own — `Fake::watches_a_replay_of_its_stages` — and the
 //! comparison is the same one, field for field, over the frames an e2e test has the patience for.

@@ -1,9 +1,6 @@
 //! **The handles a chapter's restore leaves where it finds them, and everything beside them that it puts
 //! back.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! A chapter comes back by putting every byte of the game's memory back, allocator bookkeeping included,
 //! so that nothing has to understand what a boss's script was in the middle of. **Direct3D and
 //! DirectSound objects are the exception**: they cannot be copied into a snapshot, so a handle to one put

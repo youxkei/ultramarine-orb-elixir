@@ -1,8 +1,5 @@
 //! **`--collect` and `--judge`: the midstage chapter table built out of a replay.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! A boss's boundaries are found from the game as it is fought, but a stage's waves are a script on a
 //! clock, so those boundaries are frame numbers somebody has to choose. `--collect` proposes them — a
 //! second into each gap between waves, with nothing to shoot at and no boss to interrupt — and `--judge`

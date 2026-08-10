@@ -151,11 +151,12 @@ fn written(game: &Fake) -> Written {
         .expect("a stack of lines written beside the game")
 }
 
-/// The client is exactly the size asked for, and the frame this machine adds is outside it.
+/// The client is exactly the size asked for, and whatever frame the host adds is outside it.
 ///
-/// Measured: `screen: 1280x720` came out as `screen: 1280x720 — window at 1277,700 sized 1286x760,
-/// client 1280x720`. The frame is the **6x40** between the two, and the window is centred on a monitor
-/// read as 3840x2160. Still `client 1280x720` when the device was created.
+/// A window is asked for by its client and the frame goes round it: what `orb.yaml` names is how much game
+/// there is, and the window is bigger than that by however much this host's frame costs. Still the size
+/// asked for when the device is created, which is the read that matters — a client resized between the two
+/// is a device made for a size nobody asked for.
 #[test]
 fn the_client_is_the_size_asked_for_and_the_frame_is_outside_it() {
     in_its_own_process(|| {
@@ -203,9 +204,9 @@ fn the_client_is_the_size_asked_for_and_the_frame_is_outside_it() {
 
 /// Display scaling is ignored, which is what makes every size the monitor's real pixels.
 ///
-/// Measured on the same monitor: it reads as **2560x1440** before `SetProcessDPIAware` and **3840x2160**
-/// after. Without the call every size would have been scaled behind the game's back — a 1280x720 client
-/// asked for on a 3840x2160 panel would have been laid out against 2560x1440.
+/// A scaled monitor reads smaller than its panel before `SetProcessDPIAware` and as its real pixels after,
+/// so without the call every size would be scaled behind the game's back — a 1280x720 client asked for on a
+/// 3840x2160 panel laid out against the 2560x1440 a 150% scale reports.
 ///
 /// What is held is which *side* of the call each read fell on, which is the whole of it: the answer being
 /// the real pixels follows, and a read on the wrong side would answer the scaled ones however the
@@ -283,9 +284,9 @@ fn a_refused_dpi_awareness_leaves_the_sizes_scaled_and_says_so() {
 
 /// Borderless fullscreen keeps the aspect ratio and blacks the rest, with no frame to remove.
 ///
-/// Measured: `screen: fullscreen — window at 0,0 sized 3840x2160, client 3840x2160` on that monitor.
-/// The game's own `CreateWindowExA` arguments are rewritten, so there is no frame to take off and
-/// nothing flashes first.
+/// The window is the monitor, at its origin and its whole size, with the game letterboxed inside it. The
+/// game's own `CreateWindowExA` arguments are rewritten, so there is no frame to take off and nothing
+/// flashes first.
 #[test]
 fn borderless_fullscreen_fills_the_monitor_with_no_frame_and_no_flash() {
     in_its_own_process(|| {
@@ -328,10 +329,10 @@ fn borderless_fullscreen_fills_the_monitor_with_no_frame_and_no_flash() {
 
 /// A chosen size is centred exactly, and the status line gets the black either side of a 4:3 game.
 ///
-/// Measured: `screen: 2560x1440 — window at 637,340 sized 2566x1480, client 2560x1440`, centred
-/// exactly — **(3840−2566)/2 = 637** and **(2160−1480)/2 = 340**. The game is letterboxed to
-/// **1920x1440** inside that client, **320 pixels either side**, and the `no black to write in` line a
-/// 4:3 client produces never appeared.
+/// Centred exactly, which is the whole window and not the client against the monitor: half the difference
+/// between the two on each axis, frame included. The game is letterboxed to 4:3 inside that client, leaving
+/// black either side for the status line to be written in — so the `no black to write in` line a 4:3 client
+/// produces is not one this can draw.
 #[test]
 fn a_chosen_size_is_centred_and_leaves_the_status_line_its_black() {
     in_its_own_process(|| {
@@ -524,9 +525,9 @@ fn a_status_line_under_the_game_is_aligned_on_the_games_own_edge() {
 ///
 /// **This is the case a run is in and the one above is not.** `runtime::write_status` pushes a chapter's
 /// name and its retry count only while a run is being chaptered, so a title menu is three lines and a run
-/// is five — and five at 30 pixels is 150 into the 92 rows this client leaves. Watched on the real game at
-/// the title menu, where three lines fit with two rows to spare; the five-line stack is what plays, and
-/// what holds it off the game is the clamp here rather than anything a launch has been read for.
+/// is five — and five at 30 pixels is 150 into the 92 rows this client leaves, where three fit with two rows
+/// to spare. So the stack that overruns is the one a run puts up, and what holds it off the game is the
+/// clamp here.
 ///
 /// The lines themselves are only counted, so what they say is what a run's own are: the numbers are
 /// `write_status`'s, and the clipping is a property of how many there are.
@@ -631,9 +632,8 @@ fn a_stack_too_wide_for_its_bar_is_written_smaller() {
 /// above worth reading.
 ///
 /// A 4:3 window is the game filling every pixel of its client: the letterbox is the whole of it, so
-/// there is no black anywhere and nothing orb can write in. Measured only as arithmetic — nobody has
-/// asked for a 4:3 window on this machine — so what is held is the line, and the numbers in it are the
-/// client's own.
+/// there is no black anywhere and nothing orb can write in. What is held is the line, and the numbers in it
+/// are the client's own.
 #[test]
 fn a_four_three_client_leaves_no_black_and_orb_says_so() {
     in_its_own_process(|| {

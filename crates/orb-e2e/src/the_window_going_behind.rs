@@ -1,9 +1,6 @@
 //! **The game's window going behind and coming forward again: the keys, and the device they are read
 //! through.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! **The game keeps running while its window is behind**, which is what `always_draw` is and what a
 //! launch has by default: a replay or a stress run goes on while attention is elsewhere, and coming back
 //! to it is instant rather than a stale frame. So the keys cannot be dealt with by stopping — they are

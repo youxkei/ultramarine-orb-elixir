@@ -1,8 +1,5 @@
 //! **`--sent-keys`: the game reading keys another program pressed, which is what drives an unwatched run.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! **A key another program sent is not a key a hand is holding, and the difference is which read sees it.**
 //! `orb_sim::Keyboard::sends` is the first — `GetKeyboardState` reports it and
 //! `orb_sim::Keyboard::held` does not — and the laid-out 紅魔郷 reads its keyboard through whichever of the

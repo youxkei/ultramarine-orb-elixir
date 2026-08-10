@@ -1,34 +1,20 @@
 //! **The screen a run's own end arrives on is the game's to walk, and orb writes one state into it.**
 //!
-//! What each e2e test holds is the measurement it has to reproduce, taken off 東方紅魔郷 1.02h on this
-//! machine.
-//!
 //! `ResultScreen` is what a finished run reaches, and it is several screens one after another: the
 //! high-score name entry `ResultScreen::RegisterChain` starts it in, the stats screen, and then the
 //! question about saving a replay. Only the last of those is orb's business — a pointdevice run has
 //! nothing to put in a replay, so the state is written past that question and no part of it is drawn, which
 //! is `a_clear_on_demand.rs`'s subject. Every screen before it belongs to whoever just finished the run.
 //!
-//! **Measured, and this is the run that asked for these e2e tests.** Two sessions in `th06/orb.log`, an
-//! Extra clear and a stage 6 clear, both this shape:
-//!
-//! ```text
-//! run ended after 27 retries
-//! f151268 scene=7->2                                                  the result screen
-//! score: pointdevice_score.dat opened in place of the game's own, read  its added callback
-//! score: the ranking was not built after 240 update(s); nothing written
-//! score: pointdevice_score.dat opened in place of the game's own, write its deleted callback
-//! f151270 scene=1->7                                                  the title menu
-//! ```
-//!
-//! **Two frames**, with the name entry and the stats screen inside them: nobody saw either. What did it was
-//! the ranking a run's end asks for — the front end it is asked of is not up on the result screen, so the
-//! whole allowance of updates went there and the request was then undone, and undoing it wrote
-//! `RESULT_SCREEN_STATE_EXITING` into the screen that *was* up. One screen in 紅魔郷 reached two ways, and
-//! the same field in the same object either way.
+//! **The ranking a run's end asks for is what used to take them away.** The front end it is asked of is not
+//! up on the result screen, so the whole allowance of updates went there and the request was then undone,
+//! and undoing it wrote `RESULT_SCREEN_STATE_EXITING` into the screen that *was* up. One `ResultScreen`
+//! reached two ways is the same field in the same object either way, so what that sent away was the name
+//! entry that had come up a frame earlier — the screen and the stats screen after it gone inside two
+//! frames.
 //!
 //! A run that finished needs no ranking built for it: the screen it finished at is what writes the score
-//! file, by the deleted callback the line above is. `the_score_file.rs` is where that half is.
+//! file, by its own deleted callback. `the_score_file.rs` is where that half is.
 
 use crate::fake::th06::{CARD, Fake, STAGES, the_run};
 use crate::fake::{Launched, in_its_own_process};
