@@ -1005,7 +1005,7 @@ a line and starts nothing; the DLL asks the same on its first wait, for the case
 the way in, and says so and ends the process. See
 [docs/adr/0006](docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
 
-**What a late frame says.** `--pacing` writes a line per frame whose gap was not the cadence,
+**What a late frame says.** The pacing writes a line per frame whose gap was not the cadence,
 and the line accounts for the whole gap in spans that add up to it:
 
 ```
@@ -1036,8 +1036,8 @@ The anchor the arrival is measured against is when the last flush came back, whi
 be a blank and is not checked anywhere else. So the line says how far it sits after the blank
 the compositor reports as its last: a flush that overshoots a real blank and a flush that
 returns on time against an anchor a refresh early are otherwise the same line. That query is
-made only while `--pacing` is on, and after the flush, so it is spent out of the slack rather
-than out of the compositor's own.
+made only while the pacing is being written, and after the flush, so it is spent out of the
+slack rather than out of the compositor's own.
 
 Per period, alongside the gap buckets, the worst arrival against the blank and how many frames
 were past it — the rate being what says whether a stutter is one cause or the weather. Arrivals
@@ -1045,12 +1045,20 @@ beyond a whole turn are counted apart and left out of the worst: the frame after
 is that late through no fault of the compositor, and one of those would otherwise be the
 whole of the worst.
 
-**The log is an instrument and is weighed as one.** A `WriteFile` takes what it takes, and one
-in the millisecond before a handover costs that frame a refresh, so what writing the log cost
-is written down beside what it is reporting — per frame and per period, the frame's own thread
-and orb's kept apart, since the appends serialise on one handle and either can hold a frame up.
-For the same reason the frame loop's own lines are not written where they are worked out: they
-are held and written on the far side of the flush, where what is left of the turn is slack.
+**What a run says while it is being watched is not written where it was worked out.** A
+`WriteFile` takes what it takes, and one in the millisecond before a handover costs that frame a
+refresh — a run stuttering because it was being watched. So everything a level or a switch can
+turn off is held and written on the far side of the flush, where what is left of the turn is
+slack: the pacing's own lines, the summary a second brings and the per-frame detail alike. What
+is written where it stands is what every level keeps — startup, the faults, and where a run got
+to — because a run that ends in a crash or a hang has to have its last lines in the file, and
+the crash filter closing the log writes out whatever the faulting thread was still holding.
+
+**The log is an instrument and is weighed as one all the same.** What writing it cost is written
+down beside what it is reporting, per frame and per period, the frame's own thread and orb's kept
+apart: the appends serialise on one handle, so a line from orb's own thread can still hold up the
+frame's slack write, and a run whose stutters line up with what was written cannot say so unless
+what the writing cost is written down too.
 
 ## Input
 
@@ -1427,7 +1435,7 @@ is 7, the result screen. So the limit on the loop is above a whole ending — fi
 game time — because it is a limit per frame rather than on the skip: the frame the loop stops in
 goes on to draw whatever the ending is showing by then, which at two minutes put five frames of
 it on the screen. What the frame the skip runs in costs is not measured, only that it took five
-refreshes or more — `--pacing` is what would say, its `gap at worst` being that frame.
+refreshes or more — the pacing is what would say, its `gap at worst` being that frame.
 
 **Reaching one at all** takes clearing the game: `GameManager`'s end-of-run branch at 0x418f4e
 sends a replay to state 8 and practice to the result screen, and only a run somebody played gets
@@ -1785,8 +1793,8 @@ word each:
 | `--collect` | propose boundaries over the whole replay, at 64 updates a frame, with nothing stopping and nobody at the keyboard |
 | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
 
-and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--pacing`,
-`--compose=N`, `--self-check`, `--stress=N`, `--sent-keys`, and `--no-chapters`, `--no-memory`,
+and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--compose=N`,
+`--self-check`, `--stress=N`, `--sent-keys`, and `--no-pacing`, `--no-chapters`, `--no-memory`,
 `--no-resume`, `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
 
 **`--sent-keys`** has the game read its keyboard the way it does when DirectInput gave it no device:
@@ -1818,12 +1826,15 @@ options out of that whole command line by the two dashes they begin with, since 
 before them is a path that may hold anything, so a value standing in a word of its own is a
 line the two halves would read differently.
 
-**`--pacing`** writes what every frame that missed the cadence spent its turn on, at whatever
-`--log` says rather than as a tier of it — see *What a late frame says*. Its own switch because
-what the log writes is one of the reasons a frame misses its blank, so it goes with
-`--log=quiet`: nothing in the file but the startup lines and this, and every write in the run is
-one it made. It also turns on the two questions that cost a call each to answer and are asked
-once a frame: whether the anchor is a blank, and which blank the last frame reached.
+**The pacing is written unless a launch says otherwise**, and at whatever `--log` says rather than
+as a tier of it — see *What a late frame says*. Its own switch because it answers a different
+question from how the run is going, and on by default because a run whose frames came out unevenly
+has the account of it without having been launched by somebody who expected that. `--log=quiet`
+leaves nothing in the file but the startup lines and these, which is what a sweep is read off.
+
+**`--no-pacing`** stops it, and with it the one question asked once a frame that costs a call to
+answer: whether the anchor is a blank. That call is made after the flush and the lines are written
+there too, so what it takes back is the call and the lines rather than any of a frame's own time.
 
 **`--compose=N`** pins the time left for the compositor to draw in, which is otherwise found
 while running — see *The compositor's drawing time*. For sweeping it, `N` being what the sweep

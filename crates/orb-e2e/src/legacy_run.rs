@@ -100,6 +100,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         });
         game.press(keys::Z);
         game.frames_until("the stage built", 8, || game.state().playing);
+        game.one_frame_to_drain_the_log();
         assert!(
             log.said("resume: stage 1 of a run orb is not keeping; nothing of it is written down"),
             "the run was written down after all: {:?}",

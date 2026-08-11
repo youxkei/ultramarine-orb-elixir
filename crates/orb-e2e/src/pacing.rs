@@ -1048,7 +1048,7 @@ mod budget {
     /// One frame's own work, where the sound it started took most of it.
     ///
     /// Declared from what a real run showed rather than invented: on the frame a spell card starts,
-    /// `PLAY_SOUNDS.call()` is most of the frame's whole span — the `sound` figure on its own `--pacing`
+    /// `PLAY_SOUNDS.call()` is most of the frame's whole span — the `sound` figure on its own pacing
     /// line — and that happens a handful of times in a session, the worst of them worse than this.
     ///
     /// Spent with the rest of that frame's work rather than through [`Work::sound_us`], because what it
@@ -1235,7 +1235,7 @@ mod budget {
 ///
 /// The sounds are the game's own call, and the frame loop makes it where the game's own loop does:
 /// between the update and the draw, inside the span the frame has to reach its blank in. On the frame a
-/// spell card starts that call is most of the frame's whole span — the `sound` figure of a `--pacing`
+/// spell card starts that call is most of the frame's whole span — the `sound` figure of a pacing
 /// line — so what it costs is a question about the frame the card starts on and not about a rate.
 ///
 /// Which is why the card is a frame the e2e test names rather than one in three hundred: the sound is
@@ -1892,7 +1892,7 @@ mod converges {
     /// What a compositor might take over a frame, in microseconds — the range these rows declare, not a
     /// reading of anywhere. It runs from well under the allowance's start to past the ceiling of the
     /// fastest rate covered, so that between them the rows ask what happens on both sides of every
-    /// boundary the pacing has. What any one host takes is read off `--pacing` and is not a number the
+    /// boundary the pacing has. What any one host takes is read off the pacing and is not a number the
     /// suite has an opinion about.
     const COMPOSE_US: [i64; 8] = [400, 1_000, 2_000, 2_500, 3_000, 3_200, 3_800, 4_000];
 
@@ -1997,7 +1997,7 @@ mod converges {
     /// 240Hz is where the ceiling is shortest — 3124µs — so it is the rate at which a compositor wanting
     /// more than the geometry allows can be asked for at all. Whether a real desktop wants that much is a
     /// separate question and not this one's: the compose time here is pinned, and what a host actually
-    /// takes is read off `--pacing` rather than asserted anywhere. What this holds is the pacing's
+    /// takes is read off the pacing rather than asserted anywhere. What this holds is the pacing's
     /// behaviour when it is asked for more than there is room for: the allowance
     /// climbs to exactly the ceiling and stops, no miss is charged to a load, and the rate settles at 48.00
     /// for the rest of the run — five refreshes a frame against the four a sixtieth is at this rate, so
@@ -2877,15 +2877,17 @@ mod frame_loop {
 ///
 /// The moments between handing a frame over and the blank it is shown at are the ones a write must stay
 /// out of: the next frame has about a millisecond to reach `DwmFlush`, and one that arrives after the
-/// blank has gone waits out another refresh and is shown late. So what the pacing says about itself is
-/// held, and written on the far side of that flush, where what is left of the turn is slack.
+/// blank has gone waits out another refresh and is shown late. So every line a level or a switch can
+/// turn off is held, and written on the far side of that flush, where what is left of the turn is
+/// slack. The pacing's own lines are the ones read here, being what a game driving this can ask for.
 ///
 /// **Which is a claim about where the real loop drains**, and that is why this is driven by a game whose
 /// own loop calls `render`: a harness that deferred and drained in an order of its own would be saying
 /// where *it* drains. The two lines below are read off the log — the moment orb stamped the line with,
 /// against the moments the game was handed its frames over at.
 ///
-/// What covers the writing itself is `log_writes.rs` in `orb-sim`.
+/// What covers the writing itself is `log_writes.rs` in `orb-sim`, and which macro is held rather than
+/// written where it stands is `log_held_for_the_slack.rs` beside it.
 mod log_deferral {
     use super::*;
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};

@@ -1029,6 +1029,8 @@ impl Fake {
     /// what `work` stands for.
     pub fn attach_watching_the_pacing(display: Display, name: &str, work: Work) -> Box<Self> {
         let game = Self::attach_to_display(display, name, the_run(), |config| {
+            // Said here rather than taken from the default it is also on by, so that a launch which
+            // wanted the pacing off would not quietly leave these e2e tests with nothing to read.
             config.pacing_log = true;
         });
         game.frame_takes(work);

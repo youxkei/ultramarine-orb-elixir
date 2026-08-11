@@ -7,6 +7,13 @@
 //! The writing itself is `orb_api::logfile`'s, which on Windows is a bare `WriteFile` rather than
 //! anything of `std::fs`: the first lines are emitted from `DllMain` while the loader lock is
 //! held, so the write must not be one that might take a lock of its own on the way.
+//!
+//! **A line the frame's own thread says is not written where it is said.** A `WriteFile` takes what it
+//! takes, and one that lands in the millisecond a frame has to reach `DwmFlush` in costs that frame a
+//! refresh — a run stuttering because it was being watched. So [`defer`] holds those until [`drain`],
+//! which the frame loop calls where what is left of the turn is slack. [`line`] is the other way in,
+//! for what a log that stops mid-run has to have: startup, the faults, and the panic hook and the
+//! crash filter, none of which has a frame to wait for.
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
@@ -66,8 +73,11 @@ thread_local! {
     /// late. On the far side of that flush there are fourteen milliseconds of slack doing
     /// nothing, so that is where these go.
     ///
-    /// Only what the frame loop says about itself is held back. Startup and faults are
-    /// written as they happen, because a run that ends in a crash must not lose them.
+    /// **What is held is everything a level or a switch can turn off** — `summary!`, `detail!`
+    /// and `pacing!` — which is what a run says while it is being watched, and what is read
+    /// afterwards out of a file that got there. `log!` is written where it stands: it is what
+    /// every level keeps, and a run that ends in a crash or a hang has to have its last lines
+    /// in the file rather than in here.
     ///
     /// Per thread rather than in a `MainThread`, which is what it was. In the game there is one
     /// frame thread and the two are the same thing; in a test binary there are as many as there
@@ -110,35 +120,40 @@ macro_rules! log {
 }
 
 /// How a run is going: a line a second, or a line per scene. Off at `quiet`.
+///
+/// Held for the frame loop's slack, this being written from inside the frame's own work.
 #[macro_export]
 macro_rules! summary {
     ($($arg:tt)*) => {
         if $crate::log::wanted($crate::log::NORMAL) {
-            $crate::log::line(&format!($($arg)*))
+            $crate::log::defer(&format!($($arg)*))
         }
     };
 }
 
 /// Per-frame detail, for finding out why one frame in a hundred was late. Only at
 /// `verbose`, because it is written faster than it can be read.
+///
+/// Held for the frame loop's slack, and the one that most has to be: a line every frame written
+/// where it is worked out is a run whose frames are late because they are being watched.
 #[macro_export]
 macro_rules! detail {
     ($($arg:tt)*) => {
         if $crate::log::wanted($crate::log::VERBOSE) {
-            $crate::log::line(&format!($($arg)*))
+            $crate::log::defer(&format!($($arg)*))
         }
     };
 }
 
-/// What the frame loop says about the pacing, which `--pacing` turns on by itself and
-/// every level writes.
+/// What the frame loop says about the pacing, which every level writes and `--no-pacing` is
+/// what stops.
 ///
-/// Not a tier of the level, because `verbose` also turns on the writers that are among
-/// the suspects: at `--log=quiet --pacing` the file holds the startup lines and these,
-/// and every write in the run is one this made.
+/// Not a tier of the level, because it answers a different question from how the run is going:
+/// what a run spends its frames on is worth writing whether or not that is. `quiet` with it on
+/// is a file holding the startup lines and these and nothing else, which is what a sweep is read
+/// off.
 ///
-/// Held back until the frame loop has slack for it, since writing it where it is worked
-/// out would cost the next frame a refresh — which is the very thing being counted.
+/// Held for the frame loop's slack like the two above it.
 #[macro_export]
 macro_rules! pacing {
     ($($arg:tt)*) => {
@@ -160,12 +175,17 @@ pub fn open() {
 }
 
 pub fn close() {
+    // What is held goes in first: this is the last moment there is, and the crash filter reaches it
+    // on the thread that faulted — which for a fault inside a frame is the one whose held lines say
+    // what the run was doing when it happened.
+    flush();
     let file = FILE.swap(0, Ordering::AcqRel);
     if file != 0 {
         logfile::close(LogFile(file));
     }
 }
 
+/// Writes a line where the caller stands, whatever the frame loop is doing.
 pub fn line(message: &str) {
     let file = FILE.load(Ordering::Acquire);
     if file == 0 {
@@ -249,6 +269,11 @@ pub fn drain() {
         // The first drain, or the frame moved threads. Nothing is held for this one yet.
         return;
     }
+    flush();
+}
+
+/// Writes what the calling thread is holding, wherever it stands.
+fn flush() {
     for message in HELD.with(|held| std::mem::take(&mut *held.borrow_mut())) {
         line(&message);
     }

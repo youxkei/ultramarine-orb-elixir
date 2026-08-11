@@ -343,7 +343,7 @@ impl Compose {
     ///   figure came from a mixed-rate run whose misses were the pacing's and not the compositor's, and
     ///   being orders of magnitude too often it cost the simulated 60Hz display seconds a real one holds.
     ///
-    /// What any one host actually takes is read off `--pacing` and is not written down here: a number in
+    /// What any one host actually takes is read off the pacing and is not written down here: a number in
     /// a comment is one machine's and goes stale the moment anybody else runs it.
     pub fn ordinary() -> Self {
         Self {

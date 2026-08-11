@@ -81,11 +81,11 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "LEVEL", help_heading = FAULT)]
     log: Option<LogLevel>,
 
-    /// write what every frame that missed the cadence spent its turn on, whatever --log says.
-    /// Its own switch because what the log writes is one of the things that makes a frame
-    /// late, so this goes with --log=quiet: nothing in the file but the pacing
+    /// stop writing what every frame that missed the cadence spent its turn on, which is
+    /// written at whatever --log says. What it takes back is one question of the compositor a
+    /// frame and a line per frame that missed, neither of them out of the frame's own time
     #[arg(long, help_heading = FAULT)]
-    pacing: bool,
+    no_pacing: bool,
 
     /// pin at N microseconds the time left for the compositor to draw in, between the frame
     /// being handed over and the blank it is to be shown at, instead of finding it while
@@ -211,8 +211,8 @@ impl Config {
         if let Some(level) = options.log {
             self.log_level = level;
         }
-        if options.pacing {
-            self.pacing_log = true;
+        if options.no_pacing {
+            self.pacing_log = false;
         }
         if let Some(compose_us) = options.compose {
             self.compose_us = compose_us;
@@ -331,15 +331,17 @@ mod tests {
         assert!(!clear.chapter_tuning && !clear.during_replay && !clear.self_check);
     }
 
-    /// The pacing is asked for on its own, and `quiet` is the level to ask for it at: what
-    /// the log writes is one of the reasons a frame misses its blank, so a run watching the
-    /// pacing wants nothing else writing.
+    /// The pacing is written unless the launch says not to, and it is not a tier of the level:
+    /// what a run spends its frames on is a different question from how the run is going, so
+    /// neither level answers it and every level keeps it.
     #[test]
-    fn the_pacing_is_asked_for_apart_from_the_level() {
-        let quiet = with("--pacing --log=quiet");
+    fn the_pacing_is_written_unless_the_launch_says_not_to() {
+        assert!(with("").pacing_log);
+        let quiet = with("--log=quiet");
         assert!(quiet.pacing_log);
         assert_eq!(quiet.log_level, LogLevel::Quiet);
-        assert!(!with("--log=verbose").pacing_log);
+        assert!(!with("--no-pacing").pacing_log);
+        assert!(!with("--no-pacing --log=verbose").pacing_log);
     }
 
     /// What a run pressed is written down unless the launch says not to, and the file cannot say
@@ -367,14 +369,14 @@ mod tests {
     #[test]
     fn the_compositors_drawing_time_is_pinned_in_microseconds() {
         assert_eq!(with("--compose=200").compose_us, 200);
-        assert_eq!(with("--pacing").compose_us, 0);
+        assert_eq!(with("").compose_us, 0);
     }
 
     #[test]
     fn nothing_given_leaves_the_file_alone() {
         let plain = with(r"C:\game\th06.exe");
         assert!(!plain.chapter_tuning && !plain.during_replay && !plain.chapter_stepping);
-        assert!(!plain.fast_clear && !plain.pacing_log);
+        assert!(!plain.fast_clear);
         assert_eq!(plain.log_level, LogLevel::Normal);
         assert_eq!(plain.speed, 1);
     }

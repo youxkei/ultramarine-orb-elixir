@@ -812,7 +812,7 @@ impl Pacing {
             };
         }
 
-        // Everything the last frame worked out about itself goes to the log here, on the far
+        // Everything the run has said since the last frame goes to the log here, on the far
         // side of the flush. What is left of the turn is slack — the work needs the last
         // couple of milliseconds of it and nothing needs the rest — so a write that takes a
         // millisecond takes it out of nothing. On the near side of the flush the same write
@@ -973,7 +973,7 @@ impl Pacing {
     /// nothing has been shown to reach the state: the allowance is a ratchet driven by missed
     /// blanks, so a run that was mispaced for any other reason inflates it directly, and a figure
     /// read off such a run is not a claim about what a compositor wanted. Anyone who suspects the
-    /// ceiling has `--pacing`, whose `frame:` line carries the allowance beside the gaps.
+    /// ceiling has the pacing, whose `frame:` line carries the allowance beside the gaps.
     fn compose_ceiling(&self, period: i64) -> i64 {
         self.micros(period) * 3 / 4
     }
@@ -1318,9 +1318,9 @@ impl Pacing {
     /// show: an average interval hides one frame in six hundred, which is exactly the kind
     /// that gets noticed while playing.
     ///
-    /// Written when `--pacing` is on, so this is also where the ration on the per-frame lines
-    /// is given back — `report` is not written at all at `quiet`, which is the level the
-    /// pacing is meant to be watched at.
+    /// Written where the pacing is, so this is also where the ration on the per-frame lines
+    /// is given back — `report` is not written at all at `quiet`, which is the level a sweep
+    /// is read at.
     pub fn worst(&mut self) -> String {
         let arrival = std::mem::replace(&mut self.worst_arrival, i64::MIN);
         let unspoken = std::mem::replace(&mut self.unspoken, 0);
@@ -1537,8 +1537,8 @@ fn frames_late() -> Option<i64> {
 /// Only for checking the anchor the pacing keeps, which is when `DwmFlush` came back and
 /// is assumed to be a blank. A flush that returns a refresh late and a flush that returns
 /// on time against an anchor which was itself a refresh early produce the same gap, and
-/// the compositor's own timestamp is what tells them apart. Asked for only while
-/// `--pacing` is on, since nothing but that question needs it.
+/// the compositor's own timestamp is what tells them apart. Asked for only while the pacing
+/// is being written, since nothing but that question needs it.
 fn vblank() -> Option<i64> {
     display::composition()
         .filter(|it| it.vblank != 0)

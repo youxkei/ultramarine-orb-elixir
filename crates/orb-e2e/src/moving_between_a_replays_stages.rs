@@ -131,6 +131,7 @@ fn a_stage_teardown_does_not_end_the_recording_being_played_back() {
             game.state().stage_frames > INTO_THE_STAGE
         });
         moves_to_the_stage(&game, NEXT, 1);
+        game.one_frame_to_drain_the_log();
         assert!(
             game.log()
                 .said("replay: the record is being watched, not written; its terminator dropped"),

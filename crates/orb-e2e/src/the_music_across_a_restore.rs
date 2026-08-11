@@ -136,6 +136,7 @@ fn a_sought_stream_keeps_its_countdown_and_still_takes_its_loop() {
         game.frames_until("the chapter the card is", 900, || {
             game.log().said(&format!("at frame {CARD_STARTS}"))
         });
+        game.one_frame_to_drain_the_log();
         assert!(
             game.log().said("(MIDBOSS SPELL 1) at frame"),
             "the chapter the run is picked up into was not written down:\n  {}",
@@ -169,6 +170,7 @@ fn a_sought_stream_keeps_its_countdown_and_still_takes_its_loop() {
             "the countdown was left where it was, which is the stream believing it has more sound \
              left than the file holds",
         );
+        game.one_frame_to_drain_the_log();
         assert!(
             game.log()
                 .said(&format!("music: the track loops at {loops_at}, so")),

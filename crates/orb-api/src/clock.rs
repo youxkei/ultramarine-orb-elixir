@@ -35,7 +35,7 @@ pub fn frequency() -> i64 {
 /// Divided down from [`counter`] rather than read off `GetTickCount`, which follows the system timer
 /// tick and is therefore fifteen milliseconds coarse unless somebody has asked the whole system for
 /// better. Nothing asks any more — the frame loop's wait does not need it — and a stamp that could
-/// not say when anything happened would take `--pacing`'s two-stamp readings with it. Measured: with
+/// not say when anything happened would take the pacing's two-stamp readings with it. Measured: with
 /// no resolution in force `GetTickCount` advances by the system timer's tick and nothing finer, and
 /// the counter is exact to the millisecond either way.
 ///

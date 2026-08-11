@@ -172,18 +172,19 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             1,
             "the game counted its own attempt where the card started",
         );
+        // The frame the chapter begins on, read out of the game's memory: this is what a retry has to put
+        // back, field for field. Before the frame below, which is one more frame of the run.
+        let at_the_card = game.state();
+        assert_eq!(at_the_card.stage_frames, CARD_STARTS);
+        assert_eq!(at_the_card.spellcard, Some(CARD as u32));
+
         // The chapter is written down as it begins, so that whatever ends the session leaves it.
+        game.one_frame_to_drain_the_log();
         assert!(
             log.said("chapter 3 (MIDBOSS SPELL 1) at frame 500, 500 frame(s) of buttons"),
             "the chapter was not written down: {:?}",
             log.lines(),
         );
-
-        // The frame the chapter begins on, read out of the game's memory: this is what a retry has to put
-        // back, field for field.
-        let at_the_card = game.state();
-        assert_eq!(at_the_card.stage_frames, CARD_STARTS);
-        assert_eq!(at_the_card.spellcard, Some(CARD as u32));
 
         // ── 5. 被弾. The game takes a life and counts the death, and orb freezes it on the frame it
         // notices — the retry menu up over a game whose own clock has stopped.
@@ -272,12 +273,14 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         game.frames_until("the chapter after the card", ATTACK_CHANGES + 60, || {
             log.said("chapter 4 at frame 700 (script 700): a midboss nonspell")
         });
+        // Read before the frame below, which is one more frame of the run.
+        let at_the_nonspell = game.state();
+        game.one_frame_to_drain_the_log();
         assert!(
             log.said("chapter 4 (MIDBOSS NONSPELL 2) at frame 700, 700 frame(s) of buttons"),
             "the chapter the run reached was not written down: {:?}",
             log.lines(),
         );
-        let at_the_nonspell = game.state();
 
         // ── 8. やめる. Dying again and giving the run up, which is the one way out of one that leaves the
         // chapter behind — the run did not finish, so nothing takes the file away.

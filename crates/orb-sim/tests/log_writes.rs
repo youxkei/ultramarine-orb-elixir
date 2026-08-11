@@ -53,8 +53,8 @@ fn the_log_is_written_beside_the_game_through_the_seam() {
         sim.log().lines()
     );
 
-    // At `quiet` the file holds the startup lines and the faults and nothing else — which is the
-    // level a run is played at when the log itself is among the suspects.
+    // At `quiet` the file holds the startup lines and the faults and nothing else — which with the
+    // pacing on is the file a sweep is read off.
     orb_core::log::set_level(LogLevel::Quiet);
     orb_core::summary!("a summary nobody asked for");
     orb_core::detail!("a detail nobody asked for");

@@ -635,6 +635,16 @@ pub trait Launched {
         );
     }
 
+    /// One frame more, which is where orb writes what the frame before it said.
+    ///
+    /// What an e2e test runs before asking about a line the last frame worked out: a line the frame's
+    /// own thread says waits for the slack on the far side of the next flush — see
+    /// `orb_core::log::defer` — so a [`frames_until`](Launched::frames_until) that stopped on the frame
+    /// which said it returns with the line still held.
+    fn one_frame_to_drain_the_log(&self) {
+        self.frame();
+    }
+
     /// Presses a key for one frame and lets it go, which is what a press is: an edge.
     ///
     /// The frame is run with the key down and the next with it up, so nothing that reads the

@@ -1916,10 +1916,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     unsafe {
         profile::record(profile::Phase::Update, started);
         if profile::frame() {
-            // Both lines through the held queue when the pacing is what is being watched:
-            // the buckets and the interval say as much about it as the worsts do, `quiet`
-            // has nothing else to write them, and this runs inside the frame's work — the
-            // one place a write costs the frame it is describing.
+            // All of it where the pacing is what is being watched, and `report` alone where it is
+            // not: the buckets and the interval say as much about the pacing as the worsts do, and
+            // `quiet` — the level a sweep is read at — has nothing else to write them.
             if log::pacing_wanted() {
                 pacing!("{}", pacing().report());
                 pacing!("{}", pacing().worst());

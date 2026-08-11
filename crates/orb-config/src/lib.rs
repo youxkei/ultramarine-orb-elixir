@@ -127,12 +127,16 @@ pub struct Config {
     /// Write what every frame that missed the cadence spent its turn on, whatever
     /// `log_level` says.
     ///
-    /// Its own switch rather than a tier of the level, because a frame is late for
-    /// reasons that include what the log itself was writing at the time: `verbose` has
-    /// orb's joystick thread writing twice a second and the tuning pass writing per
-    /// boundary, and those writes serialise against the frame's own. Asking for the
-    /// pacing at `quiet` leaves nothing in the log but this, which is the only way to
-    /// watch the pacing without the watching being one of the causes.
+    /// Its own switch rather than a tier of the level, because it answers a different
+    /// question from how the run is going: what a run spends its frames on is worth
+    /// writing whether or not that is. At `quiet` it leaves nothing in the log but this,
+    /// which is the file a sweep is read off.
+    ///
+    /// **On unless a launch says otherwise**, so that a run whose frames came out unevenly
+    /// has the account of it without having been launched by somebody who expected that. What
+    /// it costs is one question of the compositor a frame and a line per frame that missed the
+    /// cadence, both out of the frame loop's slack: `--no-pacing` is for a run that wants
+    /// neither.
     pub pacing_log: bool,
     /// How long the compositor is left to draw in, between a frame being handed over and
     /// the blank it is to be shown at, in microseconds. 0 to find it while running.
@@ -341,7 +345,7 @@ impl Config {
             screen: file.screen,
             ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
-            pacing_log: false,
+            pacing_log: true,
             compose_us: 0,
             base_dir,
         }
