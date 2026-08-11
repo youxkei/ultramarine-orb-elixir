@@ -3120,6 +3120,91 @@ mod log_deferral {
     }
 }
 
+// ── Where orb paints its own numbers ─────────────────────────────────────────────────────────────
+//
+// The same question as the log's, asked of the other thing orb writes while a frame is in its hands.
+// The status line's numbers are painted with GDI on the window itself, which a real host takes
+// milliseconds over, and they change every `HUD_NUMBER_INTERVAL` frames — so a paint where it is worked
+// out is a frame in thirty that cannot reach its blank.
+//
+// Measured on 紅魔郷 on a handheld, with the paint inside the frame's work: 109 of 176 late frames had
+// spans of 4275µs at the median and 15237µs at the worst in the update the paint sits in, arriving on the
+// 500ms grid that thirty frames at sixty is. Two per cent of the run's frames took three refreshes
+// instead of two, and the budget those frames taught — which is input lag on every frame, not only
+// theirs — sat at 4.1 to 7.5ms against a game whose own work is 2.9.
+mod status_paint {
+    use super::*;
+    use crate::fake::{Display, Launched, Panel, Work, in_its_own_process, th06::Fake};
+
+    const HZ: u32 = 120;
+    /// What the game's own update and draw take, which is what every other pacing row declares.
+    const WORK_US: i64 = 700;
+    /// What painting the numbers costs this host. About the median measured on the handheld, and over half
+    /// a refresh at 120Hz — so a paint inside the frame's work cannot help but cost that frame its blank,
+    /// and a row that passes with this number is a row about where the paint is rather than how big it is.
+    const PAINT_US: i64 = 5_000;
+    /// Long enough for the numbers to change many times over: they change every 30 frames, so this is
+    /// forty paints and more than one reporting period.
+    const FRAMES: u32 = 1_500;
+
+    /// **Painting the status line does not cost a frame its blank**, which is the same claim the log's
+    /// deferral makes: what orb writes while a frame is in its hands goes in the slack after the flush,
+    /// where nothing needs the time, and not in the span the frame has to reach its blank in.
+    ///
+    /// Both halves are asserted because the paint costs two different things. A frame that overran misses
+    /// its blank, which is the stutter; and `next_budget` rises to what a frame took and falls a
+    /// sixty-fourth at a time, so a paint every thirtieth frame holds the budget near the paint for the
+    /// whole run — and the budget is how long before its blank *every* frame is started, which is input
+    /// lag on all of them and not only on the ones that paint.
+    #[test]
+    fn painting_the_status_line_costs_no_frame_its_blank() {
+        in_its_own_process(|| {
+            for_each_seed(|seed| {
+                let mut display = Display::agreed(HZ);
+                display.seed = seed;
+                let game = Fake::attach_watching_the_pacing_on_a_panel(
+                    display,
+                    Panel::scaled(),
+                    &format!("status-paint-{seed}"),
+                    Work::flat(WORK_US),
+                );
+                game.sim().windows().set_text_cost(PAINT_US);
+                game.frames(FRAMES);
+                let lines = game.log().lines();
+                let said = last_said(&lines);
+
+                // The numbers really were painted, and more than once. Without this the row would pass on a
+                // launch that had stopped writing them at all.
+                let painted = game.sim().windows().written().len();
+                assert!(
+                    painted > 1,
+                    "seed {seed}: the numbers were painted {painted} time(s), so nothing here paid for a \
+                     paint — {said}",
+                );
+
+                // No frame landed past the blank it was aimed at, this compositor having room to spare and
+                // the paint being the only thing in the run that could take one.
+                let past = frames_past_the_aim(&lines);
+                assert!(
+                    past[1..].iter().all(|count| *count == 0),
+                    "seed {seed}: {past:?} frames per count of refreshes past the blank they were aimed \
+                     at, over {painted} paint(s) of {PAINT_US}us — {said}",
+                );
+
+                // And the budget was never taught the paint: it sits near the game's own work, so the lag
+                // every frame carries is the work's and not the paint's.
+                let report = reported(&lines);
+                assert!(
+                    report.draw_us < PAINT_US,
+                    "seed {seed}: {}us of budget before the blank against a game whose work is \
+                     {WORK_US}us and a paint of {PAINT_US}us — {said}",
+                    report.draw_us,
+                );
+            });
+        });
+    }
+}
+
 // ── What the compositor's own counters are worth ─────────────────────────────────────────────────
 //
 // What this holds is that orb reports one of these numbers and that reporting it has to keep saying

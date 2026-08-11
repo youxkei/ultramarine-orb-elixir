@@ -528,7 +528,12 @@ impl Win for Sim {
     }
 
     fn write_lines(&self, window: Hwnd, bar: orb_api::Bar, lines: &[String]) -> bool {
-        self.windows.write_lines(window, bar, lines)
+        let painted = self.windows.write_lines(window, bar, lines);
+        // Charged only where something was painted, since what a refused write costs is the finding out.
+        if painted {
+            self.clock.advance_micros(self.windows.text_cost_us());
+        }
+        painted
     }
 
     fn client_rect(&self, window: Hwnd) -> Option<Rect> {

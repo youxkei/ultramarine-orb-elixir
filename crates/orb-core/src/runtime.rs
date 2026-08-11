@@ -3077,7 +3077,9 @@ unsafe fn write_status(runtime: &mut Runtime) {
     if runtime.held {
         lines.push("HOLD".to_owned());
     }
-    unsafe { crate::window::write_beside(&lines) };
+    // Held rather than painted: working the lines out is where the numbers are and costs nothing,
+    // and painting them is GDI on the window and costs milliseconds. See `window::HELD`.
+    unsafe { crate::window::hold_beside(lines) };
 }
 
 #[cfg(test)]

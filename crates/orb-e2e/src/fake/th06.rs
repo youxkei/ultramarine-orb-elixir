@@ -1037,6 +1037,34 @@ impl Fake {
         game
     }
 
+    /// And the same on a monitor whose whole size the host says, with the window made on it.
+    ///
+    /// For the one pacing question that needs the black beside the game: orb paints its own numbers there,
+    /// and a launch with no monitor to letterbox against finds nowhere to paint and paints nothing — which
+    /// is a run that costs nothing for a paint and answers no question about where the paint belongs.
+    ///
+    /// The panel goes in before orb is attached and the window is made after, both for the reasons
+    /// [`attach_to_a_panel`](Fake::attach_to_a_panel) and
+    /// [`creates_its_window`](Fake::creates_its_window) give.
+    pub fn attach_watching_the_pacing_on_a_panel(
+        display: Display,
+        panel: Panel,
+        name: &str,
+        work: Work,
+    ) -> Box<Self> {
+        let game =
+            Self::attach_declaring(display, Some(panel), name, &[], the_run(), true, |config| {
+                config.pacing_log = true;
+                // Fullscreen, that being what puts bars down the sides: the game's 4:3 output on a
+                // widescreen panel leaves the black orb writes in, and a window sized to the game leaves
+                // none of it.
+                config.screen = orb_config::Screen::Fullscreen;
+            });
+        game.creates_its_window();
+        game.frame_takes(work);
+        game
+    }
+
     /// What this game's chain walk answers from here on: [`CHAIN_CARRIED_ON`] until an e2e test says
     /// otherwise, and [`CHAIN_LEFT`] or [`CHAIN_FAILED`] to say the game is going.
     pub fn chain_answers(&self, result: i32) {

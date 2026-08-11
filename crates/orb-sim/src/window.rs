@@ -140,6 +140,14 @@ pub struct Windows {
     reads: Mutex<Vec<(bool, Rect)>>,
     /// Every stack of lines written in the black beside the game, in the order it was written.
     written: Mutex<Vec<Written>>,
+    /// What painting one stack of them costs this host, in microseconds.
+    ///
+    /// Nothing by default, a laid-out host doing no drawing — and an e2e test about *where* orb paints
+    /// says the number, the way one about where it calls `PlaySounds` says `Work::sound_us`. Painting
+    /// text is GDI on the window itself and a real host takes milliseconds over it, which is a cost
+    /// that decides nothing while it is nowhere and decides a refresh once it is inside the span a
+    /// frame has to reach its blank in.
+    text_cost_us: Mutex<i64>,
 }
 
 impl Default for Windows {
@@ -161,7 +169,18 @@ impl Windows {
             next: Mutex::new(0x1_0000),
             reads: Mutex::new(Vec::new()),
             written: Mutex::new(Vec::new()),
+            text_cost_us: Mutex::new(0),
         }
+    }
+
+    /// What painting one stack of lines beside the game costs this host, which an e2e test about where
+    /// orb paints declares the way one about the compositor declares [`Compose`](crate::Compose).
+    pub fn set_text_cost(&self, us: i64) {
+        *self.text_cost_us.lock().unwrap() = us;
+    }
+
+    pub(crate) fn text_cost_us(&self) -> i64 {
+        *self.text_cost_us.lock().unwrap()
     }
 
     /// Puts a monitor there, with the frame this host puts round a window of a chosen size.

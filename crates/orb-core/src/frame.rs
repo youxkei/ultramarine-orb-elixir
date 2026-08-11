@@ -897,6 +897,10 @@ impl Pacing {
         // millisecond takes it out of nothing. On the near side of the flush the same write
         // costs a refresh.
         crate::log::drain();
+        // And the numbers orb paints beside the game, which cost milliseconds of GDI for the same
+        // couple of microseconds' worth of slack. Safe here for the reason the drain is: this runs on
+        // the game's own frame, which is the thread that owns the window, and before the scene.
+        unsafe { crate::window::paint_held() };
 
         // Then wait out almost all of the frame's turn, and do the work at the end of it.
         //
@@ -1193,6 +1197,9 @@ impl Pacing {
         // before the wait only shortens the wait. A frame paced this way still has a whole
         // turn of slack, and lines held for a drain that never comes are lines lost.
         crate::log::drain();
+        // The paint too, and for that same last reason: a display paced this way is one the numbers
+        // would otherwise never reach, there being no flush on this path to reach them on.
+        unsafe { crate::window::paint_held() };
         self.wait_until(target);
     }
 

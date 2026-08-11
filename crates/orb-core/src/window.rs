@@ -414,6 +414,45 @@ fn report_letterbox_failure(result: Hresult) {
     }
 }
 
+/// The lines waiting for the frame loop's slack, which is the whole of why there are two calls below
+/// rather than the one.
+///
+/// Painting is GDI on the window itself and a real host takes milliseconds over it — measured at 4275µs
+/// at the median and 15237µs at the worst on a handheld — while the numbers change every
+/// `HUD_NUMBER_INTERVAL` frames. So a paint where the lines are worked out is a frame in thirty that
+/// cannot reach its blank, and the budget the frame after it is started against rises to what that frame
+/// took: `next_budget` climbs at once and falls a sixty-fourth at a time, so a paint every thirtieth frame
+/// holds it near the paint for the whole run, and that budget is lag on every frame rather than on the
+/// ones that painted. Measured on 紅魔郷: two per cent of frames a refresh late, and a budget of 4.1 to
+/// 7.5ms against a game whose own work is 2.9.
+///
+/// Which is [`log::defer`] and [`log::drain`] again, for the same reason and in the same shape — see the
+/// note beside the drain in `frame::Pacing::wait_for_slot` for what the slack is and why a millisecond
+/// spent there is spent out of nothing.
+static HELD: MainThread<Option<Vec<String>>> = MainThread::new(None);
+
+/// Holds a stack of lines for the slack, replacing whatever was waiting.
+///
+/// Replacing rather than queueing: what is wanted on the screen is the newest reading, and a stack that
+/// went stale before it was ever painted is one nobody needed to see.
+///
+/// # Safety
+/// Must run on the thread that owns the window.
+pub unsafe fn hold_beside(lines: Vec<String>) {
+    *unsafe { HELD.get() } = Some(lines);
+}
+
+/// Paints whatever is held, which is where the milliseconds go.
+///
+/// # Safety
+/// Must run on the thread that owns the window, and outside a scene.
+pub unsafe fn paint_held() {
+    let Some(lines) = unsafe { HELD.get() }.take() else {
+        return;
+    };
+    unsafe { write_beside(&lines) };
+}
+
 /// Writes `lines` in the black beside the game, where the window class paints it.
 ///
 /// Drawn straight onto the window rather than into the game's back buffer, because the
