@@ -95,6 +95,15 @@ message, whatever would replace the wording fails it too, and refusing serves th
 Where two candidates come out level the ordinary phrasing wins, a technicality being no tiebreak — and a
 line defended over two turns was defended from the letter.
 
+**This section is the convention, and the log is not.** The one reason to read a repository's history is to
+learn a convention that is not written down; this one is written down here, so there is nothing in the log to
+learn and no subject in it that settles anything. These rules also arrived after most of the commits under
+them, so it holds lines written to an earlier rule and lines written to none, and nothing in it tells those
+from a line this section would pass — a subject quoted back as *how it is done here* is an argument from a
+sample that includes every mistake this section exists to stop. It is the same circle as justifying a word by
+a sentence added in the same change, and it is worth naming because both look like evidence and neither is.
+What settles a wording is this section and the words the code itself uses for the things the line names.
+
 ## The documents
 
 | | |
