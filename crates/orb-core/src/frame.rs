@@ -284,6 +284,17 @@ pub struct Pacing {
     /// on those and a period of them would otherwise read as a period with nothing wrong.
     clock_frames: usize,
 
+    /// Frames whose count of refreshes came from the sixtieth's grid rather than from a fixed
+    /// number of blanks, counted for the opposite reason to the clock's: those are two refreshes
+    /// and three by design, so a period of them reads as a period of stutters and is not one.
+    ///
+    /// The pacing falls to the grid whenever the reported rate divides into no whole number of
+    /// blanks — which 120Hz does not, until the compositor answers 108 or 109 for a second, and
+    /// then the frames of that second are counted here and in no other number the log carries.
+    /// `clock_frames` does not hold them: a measured spacing at or above 60Hz is paced by the
+    /// blanks whether or not it divides.
+    grid_frames: usize,
+
     /// The most the compositor has ever been seen to want more than, which it is never given
     /// less than again.
     ///
@@ -433,6 +444,7 @@ impl Pacing {
             overran: false,
             overrun_drawing: 0,
             clock_frames: 0,
+            grid_frames: 0,
             proven_short_us: 0,
             pinned_compose_us: 0,
             frames: 0,
@@ -1139,6 +1151,7 @@ impl Pacing {
         if blanks > 0 {
             return blanks;
         }
+        self.grid_frames += 1;
         // Measured from the phase rather than from where the last frame landed, so that a frame
         // which landed late does not become the thing the next aim is built on. The count is then
         // whatever it takes to reach the blank the grid meant, counted from the blank in hand.
@@ -1462,6 +1475,7 @@ impl Pacing {
             blanks.push_str(" none");
         }
         let clock = std::mem::replace(&mut self.clock_frames, 0);
+        let grid = std::mem::replace(&mut self.grid_frames, 0);
         let short = self.proven_short_us;
         // How often the spacing moved under the allowance, beside the allowance it moved. Said even
         // at zero: a period that held still is the answer to whether the display is the reason the
@@ -1475,6 +1489,15 @@ impl Pacing {
             (moves, 0) => format!("; the blanks changed spacing {moves} time(s), costing nothing"),
             (moves, resets) => format!(
                 "; the blanks changed spacing {moves} time(s), {resets} of which gave back what had been found"
+            ),
+        };
+        // Frames the grid counted, which are two refreshes and three by design. Only where there
+        // were any: on a display that divides into 60 there never are, and a nought in the line
+        // every period would be a number nobody has a question about.
+        let grid = match grid {
+            0 => String::new(),
+            grid => format!(
+                "; {grid} frame(s) counted off the sixtieth's grid, which take two refreshes and three by design"
             ),
         };
         let excused = match (
@@ -1497,7 +1520,7 @@ impl Pacing {
             }
         };
         format!(
-            "frame: refreshes past the blank aimed at{blanks}{excused}{early}; the compositor gets {}us{}, never shaved below {}us{}{moved}; {clock} frame(s) paced by the clock, which have no blank to have missed",
+            "frame: refreshes past the blank aimed at{blanks}{excused}{early}; the compositor gets {}us{}, never shaved below {}us{}{moved}; {clock} frame(s) paced by the clock, which have no blank to have missed{grid}",
             self.compose_us,
             if self.pinned_compose_us > 0 {
                 " pinned"

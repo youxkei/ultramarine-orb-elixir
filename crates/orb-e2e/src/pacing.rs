@@ -449,8 +449,8 @@ impl Shown {
     fn of(line: &str) -> Self {
         // The parts are semicolons: the blanks the frames reached with whatever was not charged against
         // the compositor, the frames shown early where there were any, the allowance, how often the
-        // blanks changed spacing under it, and the frames the clock paced. `Pacing::shown` is the only
-        // writer, and a part that has moved fails here.
+        // blanks changed spacing under it, the frames the clock paced, and the frames the grid counted
+        // where there were any. `Pacing::shown` is the only writer, and a part that has moved fails here.
         let parts: Vec<&str> = line.split("; ").collect();
         let part = |what: &str, is: fn(&str) -> bool| -> &str {
             parts
