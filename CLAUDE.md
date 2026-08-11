@@ -27,11 +27,23 @@ this code is answered with an allow and the reason beside it rather than left in
 
 ## Commit messages
 
-**The subject line is a summary in 50 characters**, 72 at the very most. The subject of it is the
-commit, and the line says what that commit does to this repository: the head verb is the editing
-action, lowercase and imperative, with no type prefix and no noun phrase naming the feature. At that
-length one line cannot hold a commit that did seven things, and it is not asked to — it says which
-thing was done to what, and the body carries the rest.
+**The subject line is `type(scope): description`**, which is
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), and the whole of it is a
+summary in 50 characters, 72 at the very most — the prefix is counted, so what the description has is
+whatever the prefix leaves. At that length one line cannot hold a commit that did seven things, and it is
+not asked to: it says which thing was done to what, and the body carries the rest.
+
+`feat` and `fix` are the two the specification gives a meaning of its own. The others this repository uses
+are `docs`, `chore`, `test` and `refactor`, and a type that is not on that list is added to it by the commit
+that first needs one — an open set is a prefix nothing can be read by. The scope is a crate, `orb-core` and
+`orb-e2e` and the rest, and it is left out where the change is not one crate's.
+
+**The description is what the whole line used to be**: its subject is the commit, and it says what that
+commit does to this repository, with the editing action as its head verb, lowercase and imperative. **The
+type does not stand in for that verb.** `feat: hide the pointer while the mouse stays still` is the shape
+the fourth read-back question below exists to refuse — a description that reads as what the program does
+while it runs reads that way with the prefix as well as without it, the prefix being no part of the
+sentence.
 
 **The body opens with what the commit does**: one bullet per change, and a bullet for every change, so
 that a reader learns from the list which changes happened without opening the diff. Picking out the
@@ -56,12 +68,13 @@ the diff.
 
 **The read-back is not yours to do.** Having written the message you cannot read it as the reader it is
 for, who has not seen the diff: you supply the owner a noun phrase left out, so the line reads as
-finished to you and to nobody else. Before committing, hand **the subject line by itself** to an agent
-with an empty context, no sight of the diff and no access to this repository, and ask it five things —
+finished to you and to nobody else. Before committing, hand **the description by itself** — the prefix
+off, it being no part of any sentence — to an agent with an empty context, no sight of the diff and no
+access to this repository, and ask it five things —
 what the line claims was changed, whose each thing in it is, which noun phrases it can read more than
 one way, whether the line is true read as a sentence whose subject is *this commit*, and whether any of it
 is figurative rather than the plain word. Then compare its answer with what the commit did. Where the two
-differ the line is wrong and the reader is right. Where the subject leans on a bullet, hand that bullet
+differ the line is wrong and the reader is right. Where the description leans on a bullet, hand that bullet
 over with it.
 
 **The last two are asked because the first three pass a line that is not about the commit at all.**
