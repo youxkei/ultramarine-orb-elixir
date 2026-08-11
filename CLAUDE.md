@@ -41,9 +41,9 @@ that first needs one — an open set is a prefix nothing can be read by. The sco
 **The description is what the whole line used to be**: its subject is the commit, and it says what that
 commit does to this repository, with the editing action as its head verb, lowercase and imperative. **The
 type does not stand in for that verb.** `feat: hide the pointer while the mouse stays still` is the shape
-the fourth read-back question below exists to refuse — a description that reads as what the program does
-while it runs reads that way with the prefix as well as without it, the prefix being no part of the
-sentence.
+the fourth of the blind read-back's five questions below exists to refuse — a description that reads as
+what the program does while it runs reads that way with the prefix as well as without it, the prefix being
+no part of the sentence.
 
 **The body opens with what the commit does**: one bullet per change, and a bullet for every change, so
 that a reader learns from the list which changes happened without opening the diff. Picking out the
@@ -100,7 +100,25 @@ the file**, and `cut a commit's subject line to fifty characters in CLAUDE.md` a
 file cut down to fifty characters as much as a limit set at fifty — one word each time, and the fifty
 characters had room for it.
 
-The check the reader cannot make is the one against the code: for every noun phrase, ask whether the code
+**The fit is read back as well, and by a second agent that does see the diff.** The blind reader answers
+whether the line can be read; whether it is the line this diff deserves is a comparison against the diff,
+and that one is not yours either — having seen the diff, the name of a mechanism reads to you as the purpose
+it served, which is the same defect as supplying the owner a noun phrase left out, wearing other clothes. So
+hand a second agent the diff and the line and ask it four things: what the diff does, in one sentence of its
+own; whether the line names the thing the commit is *for* or a step on the way to it; whether it is true of
+the whole diff or overclaims a part of it; and whether any word in it is one the diff itself deletes.
+`route summary! and detail! into the log's held queue` passed the blind five and failed the second and the
+fourth: it named the queue two macros were sent to rather than the frame's work they were taken out of, and
+`held queue` was this tree's name for that buffer in one place only — the comment the same diff removed.
+`stop the log making a frame miss its blank` failed the third, `log!` still writing where it stands from
+inside the frame's work.
+
+Neither reader is the other, and a line has to pass both. `stop summary! and detail! making a frame late`
+came back from the blind five with `a frame late` reading as a frame of input lag as readily as a frame
+that missed its blank — and this is a repository whose subject is both, so it is not a question a reader
+holding the diff would think to ask.
+
+The check neither reader can make is the one against the code: for every noun phrase, ask whether the code
 has a name for that thing, and where it does, a paraphrase in its place is a defect.
 
 **A rule above refuses a wording only where three things hold**: it is the rule for that part of the
