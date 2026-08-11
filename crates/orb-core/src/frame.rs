@@ -125,6 +125,27 @@ pub struct Pacing {
     /// the answer has changed. `-1` because no real answer packs to it.
     reported: i64,
 
+    /// How many times the spacing the compositor reports moved over the period, by however little.
+    ///
+    /// Every move and not only the ones `adopt` acts on, because how restless the reading is is a
+    /// property of the host worth having in the log: measured at a move on half of every second's
+    /// reading, on a panel that held 120Hz throughout. Neither the rate nor the allowance can say
+    /// that. `grid` divides a whole second by the spacing in microseconds, so 120Hz — 8333.33µs, on
+    /// the boundary — rounds to 120 or to 119 depending on a tick and `whole_multiple` answers two
+    /// blanks a frame to both, which is a rate that flips while nothing has changed; and the spacing
+    /// moves far more often than the rate flips at all.
+    period_moves: usize,
+
+    /// How many of those were a different spacing rather than a restless reading of one, and had a
+    /// found compose time to throw away with it.
+    ///
+    /// Apart from the count of moves because the two answer different questions — that one is what
+    /// the host's reading does, this one is what orb did about it — and a reset is expensive: the
+    /// only thing that raises the allowance again is a frame missing its blank, so giving back 2900µs
+    /// buys four of them on the way up. A period reporting moves and no resets is the reading being
+    /// restless and orb holding still, which is what it should do.
+    compose_resets: usize,
+
     /// How long before the blank a frame is shown at to start that frame's work, in
     /// microseconds.
     ///
@@ -388,6 +409,8 @@ impl Pacing {
             next_present: 0,
             settle_age: RESYNC_FRAMES,
             reported: -1,
+            period_moves: 0,
+            compose_resets: 0,
             prepare_us: 4000,
             compose_us: COMPOSE_START_US,
             interval_us: 0,
@@ -649,9 +672,53 @@ impl Pacing {
         //
         // Both swaps, and then the test: `||` would skip the second one and leave the period
         // unstored on every change of the blanks.
-        let blanks_changed = std::mem::replace(&mut self.blanks_per_frame, blanks) != blanks;
-        let period_changed = std::mem::replace(&mut self.period, period) != period;
-        if (blanks_changed || period_changed) && self.pinned_compose_us == 0 {
+        let was_blanks = std::mem::replace(&mut self.blanks_per_frame, blanks);
+        let was_period = std::mem::replace(&mut self.period, period);
+        let blanks_changed = was_blanks != blanks;
+        // Not the first adoption, which moves the period off zero and is the value being found
+        // rather than moving. `configure` makes that one, from inside `DllMain`, where there is
+        // nothing to count and nothing to have thrown away yet.
+        if was_period != period && was_period != 0 {
+            self.period_moves += 1;
+        }
+        // **Whether it is a different spacing and not whether it is a different number**, which is
+        // the whole of what the reset can be asked. `qpcRefreshPeriod` is the compositor's own
+        // measurement and it moves like one: measured over five minutes on a 120Hz panel, it moved
+        // on half of every second's reading and 71% of those moves did not change even the
+        // microsecond it rounds to — 8333µs to 8333µs, a handful of the counter's ticks apart, since
+        // the counter runs at ten to the microsecond. Read as a different display, each of those
+        // threw away an allowance of 2600µs to 3200µs that had been climbed to, and the only thing
+        // that climbs it is a frame missing its blank: 65 resets in the run, every one of them
+        // re-bought in stutters. So the same two per cent that `same_rate` holds two *rates* to,
+        // held here to the spacings — a spacing is the rate upside down and the band reads the same
+        // on either.
+        //
+        // It earns its place on a display whose rate is no whole multiple, and nowhere else: for one
+        // that is, `whole_multiple`'s own tolerance is two per cent of the same nominal, so any move
+        // wide enough to fail this fails that too and arrives as `blanks_changed`. A fractional
+        // display has no such second answer — 100Hz to 110Hz is nine per cent with no blank count to
+        // change — and that is the move this is here to catch.
+        let respaced = was_period != 0 && !same_rate(was_period, period);
+        if (blanks_changed || respaced) && self.pinned_compose_us == 0 {
+            // What the reset costs, said where it happens, because the report's own numbers cannot
+            // carry it: `compose_us` is written once per period and a reset can fall anywhere in
+            // between, so a period's one reading of it is no account of what happened to it.
+            //
+            // Only where there was something to lose. A reset of a value already at
+            // `COMPOSE_START_US` with nothing proven short costs nothing.
+            if self.compose_us > COMPOSE_START_US || self.proven_short_us > 0 {
+                self.compose_resets += 1;
+                pacing!(
+                    "frame: the compositor's blanks moved from {}us to {}us apart, {} to {} a frame; \
+                     giving back the {}us found for it and the {}us proven short",
+                    self.micros(was_period),
+                    self.micros(period),
+                    was_blanks,
+                    blanks,
+                    self.compose_us,
+                    self.proven_short_us,
+                );
+            }
             self.proven_short_us = 0;
             self.compose_us = COMPOSE_START_US;
         }
@@ -1396,6 +1463,20 @@ impl Pacing {
         }
         let clock = std::mem::replace(&mut self.clock_frames, 0);
         let short = self.proven_short_us;
+        // How often the spacing moved under the allowance, beside the allowance it moved. Said even
+        // at zero: a period that held still is the answer to whether the display is the reason the
+        // frames are uneven, and a clause that only appears when it did not hold still cannot give
+        // it.
+        let moved = match (
+            std::mem::replace(&mut self.period_moves, 0),
+            std::mem::replace(&mut self.compose_resets, 0),
+        ) {
+            (0, _) => "; the blanks kept their spacing".to_string(),
+            (moves, 0) => format!("; the blanks changed spacing {moves} time(s), costing nothing"),
+            (moves, resets) => format!(
+                "; the blanks changed spacing {moves} time(s), {resets} of which gave back what had been found"
+            ),
+        };
         let excused = match (
             std::mem::replace(&mut self.after_a_frame_past_a_refresh, 0),
             std::mem::replace(&mut self.overrun_drawing, 0),
@@ -1416,7 +1497,7 @@ impl Pacing {
             }
         };
         format!(
-            "frame: refreshes past the blank aimed at{blanks}{excused}{early}; the compositor gets {}us{}, never shaved below {}us{}; {clock} frame(s) paced by the clock, which have no blank to have missed",
+            "frame: refreshes past the blank aimed at{blanks}{excused}{early}; the compositor gets {}us{}, never shaved below {}us{}{moved}; {clock} frame(s) paced by the clock, which have no blank to have missed",
             self.compose_us,
             if self.pinned_compose_us > 0 {
                 " pinned"

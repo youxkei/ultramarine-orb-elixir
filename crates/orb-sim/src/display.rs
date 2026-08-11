@@ -225,6 +225,20 @@ impl Display {
         }
     }
 
+    /// Moves the blanks to a new spacing mid-run, which a panel really does: a handheld dropping its
+    /// refresh rate for the battery, and Windows switching the rate under a window either way.
+    ///
+    /// Anchored on the last blank rather than keeping `origin`, so the blanks already gone stay where
+    /// they were and the new spacing runs on from one of them. Keeping the origin would move every past
+    /// blank as well, and a flush that had already returned at one of those would read afterwards as
+    /// having returned where no blank ever was.
+    pub fn set_compositor_period(&self, now: i64, period: i64) {
+        if let Some(compositor) = self.compositor.lock().unwrap().as_mut() {
+            compositor.origin = compositor.blank_at_or_before(now);
+            compositor.period = period;
+        }
+    }
+
     /// How far apart the blanks are, for a test working out where one should have fallen.
     pub fn compositor_period(&self) -> Option<i64> {
         self.compositor.lock().unwrap().map(|it| it.period)

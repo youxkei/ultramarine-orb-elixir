@@ -448,8 +448,9 @@ impl Shown {
     /// On a line that is not one of those, naming what was missing from it.
     fn of(line: &str) -> Self {
         // The parts are semicolons: the blanks the frames reached with whatever was not charged against
-        // the compositor, the frames shown early where there were any, the allowance, and the frames the
-        // clock paced. `Pacing::shown` is the only writer, and a part that has moved fails here.
+        // the compositor, the frames shown early where there were any, the allowance, how often the
+        // blanks changed spacing under it, and the frames the clock paced. `Pacing::shown` is the only
+        // writer, and a part that has moved fails here.
         let parts: Vec<&str> = line.split("; ").collect();
         let part = |what: &str, is: fn(&str) -> bool| -> &str {
             parts
@@ -1863,6 +1864,161 @@ mod compose {
             });
         });
     }
+
+    /// **A spacing that is still the same rate keeps the allowance**, which is what tells a reading
+    /// that moved from a display that changed under it.
+    ///
+    /// `qpcRefreshPeriod` is the compositor's own measurement of itself and it moves like one. Measured
+    /// over five minutes on a panel holding 120Hz: it moved on half of every second's reading, and 71%
+    /// of those moves did not change even the microsecond it rounds to — 8333µs to 8333µs, a few of the
+    /// counter's ticks apart. Read as a different display, every one of those threw the allowance back
+    /// to where it starts, and the only thing that raises it again is a frame missing its blank. 65
+    /// resets over the run, each re-bought in stutters, on a display nobody had touched.
+    ///
+    /// So the move here is one no display made: a single tick, which is a tenth of a microsecond. What
+    /// is asserted is that orb holds still for it — the allowance where it was, and no reset written —
+    /// while the count of moves still reports it, that count being what says the *host* is restless.
+    #[test]
+    fn a_spacing_of_the_same_rate_keeps_the_allowance() {
+        in_its_own_process(|| {
+            for_each_seed(|seed| {
+                let mut display = Display::agreed(HZ);
+                display.compose = Compose::flat(SLOW_COMPOSE_US);
+                display.seed = seed;
+                let game = Fake::attach_watching_the_pacing(
+                    display,
+                    &format!("same-rate-{seed}"),
+                    Work::flat(WORK_US),
+                );
+
+                // A slow compositor first, so there is a climbed allowance to lose. Without one, holding
+                // still and giving it back look the same.
+                game.frames(2_000);
+                let climbed = allowance_us(&game.log().lines());
+                assert!(
+                    climbed > ALLOWED_AT_FIRST,
+                    "seed {seed}: {climbed}us allowed after 2000 frames against a compositor taking \
+                     {SLOW_COMPOSE_US}us, so there was nothing found for a reset to give back — {}",
+                    last_said(&game.log().lines())
+                );
+
+                // The reading moves by a single tick, several times over, which is what a real host's
+                // does and is no display doing anything.
+                for _ in 0..8 {
+                    let was = game
+                        .sim()
+                        .display()
+                        .compositor_period()
+                        .expect("a compositor was attached");
+                    let now = game.sim().clock().peek();
+                    game.sim().display().set_compositor_period(now, was + 1);
+                    game.frames(A_SECOND as u32 * 2);
+                }
+                game.frames_until_the_log_holds_another(PAST_THE_AIM);
+                let lines = game.log().lines();
+                let said = last_said(&lines);
+
+                // Nothing was given back, so no reset was written and the allowance never went below what
+                // it had climbed to.
+                assert!(
+                    !lines.iter().any(|line| line.contains(RESPACED)),
+                    "seed {seed}: a tick is no respacing, and orb wrote a reset — {said}",
+                );
+                let allowed = allowance_us(&lines);
+                assert!(
+                    allowed >= climbed,
+                    "seed {seed}: {climbed}us was climbed to and {allowed}us is allowed after eight \
+                     one-tick moves — {said}",
+                );
+
+                // And the moves were still counted, that being the host's restlessness and not orb's answer
+                // to it.
+                assert!(
+                    lines
+                        .iter()
+                        .any(|line| line.contains("the blanks changed spacing")
+                            && line.contains("costing nothing")),
+                    "seed {seed}: the moves happened and no period reported them as costing nothing — \
+                     {said}",
+                );
+            });
+        });
+    }
+
+    /// **A spacing that really changed gives the allowance back**, which is what the reset is for: a
+    /// time proven short is proven so of one display, and it only ever ratchets up, so carrying it onto
+    /// another would hold lag there for a fault that belonged to the first.
+    ///
+    /// Asked of a fractional rate, which is the one place the spacing has to answer it alone. For a rate
+    /// that is a whole multiple, `whole_multiple`'s tolerance is the same two per cent, so any move wide
+    /// enough to be a different display changes the count of blanks as well and arrives as that instead.
+    /// 100Hz to 110Hz is nine per cent with no count to change, so nothing but the spacing says so.
+    #[test]
+    fn a_spacing_that_really_changed_gives_the_allowance_back() {
+        in_its_own_process(|| {
+            for_each_seed(|seed| {
+                let mut display = Display::agreed(FRACTIONAL_HZ);
+                display.compose = Compose::flat(SLOW_COMPOSE_US);
+                display.seed = seed;
+                let game = Fake::attach_watching_the_pacing(
+                    display,
+                    &format!("respaced-{seed}"),
+                    Work::flat(WORK_US),
+                );
+
+                game.frames(2_000);
+                let climbed = allowance_us(&game.log().lines());
+                assert!(
+                    climbed > ALLOWED_AT_FIRST,
+                    "seed {seed}: {climbed}us allowed after 2000 frames against a compositor taking \
+                     {SLOW_COMPOSE_US}us, so there was nothing found for the reset to give back — {}",
+                    last_said(&game.log().lines())
+                );
+
+                // The panel's rate really changes, to another that is no whole multiple either.
+                let now = game.sim().clock().peek();
+                let period = game.sim().clock().frequency() / i64::from(RESPACED_HZ);
+                game.sim().display().set_compositor_period(now, period);
+                game.frames_until_the_log_holds_another(RESPACED);
+                let lines = game.log().lines();
+
+                // What it cost, said where it happened, with the allowance that was lost in it. At least
+                // what the last report showed and not that number exactly: this compositor is still
+                // climbing, the allowance only ever ratchets up, and the reset falls between two reports.
+                let moved = lines
+                    .iter()
+                    .find(|line| line.contains(RESPACED))
+                    .expect("the line just waited for");
+                let given: i64 = moved
+                    .split_once("giving back the ")
+                    .unwrap_or_else(|| panic!("nothing given back in {moved:?}"))
+                    .1
+                    .chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or_else(|_| panic!("no allowance in {moved:?}"));
+                assert!(
+                    given >= climbed,
+                    "seed {seed}: {climbed}us had been climbed to and the reset gave back {given}us — \
+                     {moved:?}",
+                );
+                // The count of blanks did not change, so the spacing is the whole of what asked for it.
+                assert!(
+                    moved.contains("0 to 0 a frame"),
+                    "seed {seed}: neither rate is a whole multiple, so both are none blanks a frame — \
+                     {moved:?}",
+                );
+            });
+        });
+    }
+
+    /// What `adopt` writes when the spacing moves out from under a found allowance.
+    const RESPACED: &str = "the compositor's blanks moved from";
+    /// A rate that divides into no whole number of blanks, and another far enough from it to be a
+    /// different display. Nine per cent apart, against the two the reset holds a spacing to.
+    const FRACTIONAL_HZ: u32 = 100;
+    const RESPACED_HZ: u32 = 110;
 }
 
 /// Sixty frames a second, whatever the compositor takes.
