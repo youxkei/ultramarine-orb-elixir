@@ -25,6 +25,12 @@ pub const FREQUENCY: i64 = 10_000_000;
 /// still arrive on the `pause` alone.
 const READ_TICKS: i64 = 1;
 
+thread_local! {
+    /// Whether this thread has put itself below the game's priority, which is a thread whose reads of
+    /// the counter cost the frame nothing — see [`Clock::counter`].
+    static BACKGROUND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// What one turn of the spin costs, in ticks.
 ///
 /// A real `pause` is twenty-odd cycles — a tiny fraction of a microsecond — and this is orders of
@@ -91,9 +97,30 @@ impl Clock {
     /// Reads the counter, and moves it on by what the read cost.
     ///
     /// The value answered is the one before the cost, so two reads in a row differ by exactly it.
+    ///
+    /// **Except on a thread that has put itself below the game's**, which is charged nothing: the
+    /// counter is the frame loop's, and the sampling thread reads it to time its own reads — of every
+    /// socket a pad can be in, as often as a core will let it, `sleep` here being written down rather
+    /// than waited out. Charged, that thread would move a number every pacing e2e test asserts about to
+    /// the microsecond, by an amount that is this machine's clock speed. Which is the same rule
+    /// [`sleep`](Self::sleep) keeps and for the same reason; [`below_normal`](Self::below_normal) is how
+    /// a thread says it is not the frame's.
     pub fn counter(&self) -> i64 {
+        if BACKGROUND.get() {
+            return self.counter.load(Ordering::Relaxed);
+        }
         let cost = self.read_cost.load(Ordering::Relaxed);
         self.counter.fetch_add(cost, Ordering::Relaxed)
+    }
+
+    /// Says this thread is not the frame's, which is what `SetThreadPriority(BELOW_NORMAL)` means where
+    /// orb calls it: there is one caller and it is the sampling thread on itself.
+    ///
+    /// A thread-local rather than the list `Sim` keeps of who has said so, because [`counter`](Self::counter)
+    /// asks this on every read — thousands of times a frame in the spin — and a lock there would be felt
+    /// in the suite's own running time.
+    pub fn below_normal(&self) {
+        BACKGROUND.set(true);
     }
 
     /// The counter without moving it, for a test reading back what a run came out as.

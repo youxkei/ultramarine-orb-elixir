@@ -48,6 +48,8 @@ mod a_clear_on_demand;
 #[cfg(test)]
 mod a_confirmation_declined;
 #[cfg(test)]
+mod a_pad_the_game_has_no_device_for;
+#[cfg(test)]
 mod a_practice_run;
 #[cfg(test)]
 mod a_region_a_restore_cannot_write;
@@ -91,6 +93,8 @@ mod the_mark_over_the_lives;
 mod the_mouse_pointer_over_the_game;
 #[cfg(test)]
 mod the_music_across_a_restore;
+#[cfg(test)]
+mod the_pad_half_of_the_input_read;
 #[cfg(test)]
 mod the_player_a_stage_starts;
 #[cfg(test)]

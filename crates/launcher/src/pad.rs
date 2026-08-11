@@ -162,6 +162,11 @@ const DEVICE: u32 = 0;
 ///
 /// Loaded by name rather than imported, because which of the three is present is a property of the
 /// machine and a load-time import of one that is not there is a launcher that does not start.
+///
+/// The other half of orb loads the same three, through `orb_api::xinput`, and the two are apart rather
+/// than shared: what the DLL reads has to go behind the seam so that an e2e test can put a pad in a
+/// slot, and what this reads is passed in as a function pointer so that a test of this can answer as
+/// four slots without a pad in the machine — see [`read_xinput`].
 const XINPUT_DLLS: [&str; 3] = ["xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"];
 /// How many users XInput has.
 const XINPUT_SLOTS: u32 = 4;
@@ -377,15 +382,23 @@ fn with_nul(name: &str) -> Vec<u8> {
     name.bytes().chain([0]).collect()
 }
 
-/// The first XInput slot with a pad in it, as pushes. `None` where every slot is empty — which is
+/// Every XInput slot with a pad in it, as pushes. `None` where every slot is empty — which is
 /// every slot on a machine whose pad is not an XInput one, and there winmm is what has it.
 ///
-/// The first rather than all four merged: two pads answering at once is two people, and a dialog
-/// driven from both is a dialog neither of them is driving.
+/// **All four and not the first with a pad in it**, which is what a one-player game settles: two pads
+/// plugged in is one in somebody's hands and one on the floor, and which of them is which is not the
+/// slot number. It was the first for a while, on the reasoning that two pads answering at once is two
+/// people — true of a game with two players, and 紅魔郷 has one.
+///
+/// **Merged, where the run reads the pad it last saw pushed** — see `orb_core::joystick`. The two are
+/// the same rule for the two things being asked: what this answers is the *press*, so a stick left
+/// resting past its dead zone is one push of a dialog and then nothing, where the run adds what is held
+/// to every frame's word and a pad on the floor would hold a direction down for the whole of it.
 ///
 /// # Safety
 /// `get` must be XInput's own `XInputGetState`.
 unsafe fn read_xinput(get: XInputGetState, mapping: &Mapping) -> Option<Pushed> {
+    let mut answered: Option<Pushed> = None;
     for slot in 0..XINPUT_SLOTS {
         let mut state = XinputState::default();
         // Anything but `ERROR_SUCCESS` is a slot with nobody in it — 1167,
@@ -397,16 +410,20 @@ unsafe fn read_xinput(get: XInputGetState, mapping: &Mapping) -> Option<Pushed> 
         let buttons = xinput_buttons(pad.buttons);
         let held = |bit: u16| pad.buttons & bit != 0;
         // XInput's Y is measured upwards, which is the opposite of every other axis here.
-        return Some(Pushed([
+        let pushed = Pushed([
             held(XINPUT_DPAD_UP) || pad.left_y > XINPUT_DEADZONE,
             held(XINPUT_DPAD_DOWN) || pad.left_y < -XINPUT_DEADZONE,
             held(XINPUT_DPAD_LEFT) || pad.left_x < -XINPUT_DEADZONE,
             held(XINPUT_DPAD_RIGHT) || pad.left_x > XINPUT_DEADZONE,
             mapping.decides(buttons),
             mapping.cancels(buttons),
-        ]));
+        ]);
+        answered = Some(match answered {
+            Some(before) => before.or(pushed),
+            None => pushed,
+        });
     }
-    None
+    answered
 }
 
 /// XInput's button mask in the numbering the game's configuration names buttons by.
@@ -455,7 +472,12 @@ fn axis(low: u32, high: u32, position: u32) -> (bool, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mapping, Push, Pushed, axis, hat, xinput_buttons};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::{
+        Mapping, Push, Pushed, XINPUT_SLOTS, XinputGamepad, XinputState, axis, hat, read_xinput,
+        xinput_buttons,
+    };
 
     /// Up is up: the Y axis is measured downwards, so its low side is the stick pushed up, and the
     /// dialog moving the wrong way is what getting this backwards looks like.
@@ -523,6 +545,50 @@ mod tests {
         );
         // The d-pad is not a button here: it is read as a direction, the way a hat is.
         assert_eq!(xinput_buttons(0x000f), 0);
+    }
+
+    /// A push on any XInput slot drives the dialog, and not the first slot with a pad in it alone: two
+    /// pads plugged into a one-player game is one somebody is holding and one on the floor, and which of
+    /// them is which is not the slot number.
+    ///
+    /// Which is also what the run does with them — see `orb_core::joystick` — and the dialog and the run
+    /// disagreeing about which pads count is what this closes.
+    #[test]
+    fn a_push_on_any_xinput_slot_drives_the_dialog() {
+        /// A slot with nobody in it, as XInput answers one: 1167, `ERROR_DEVICE_NOT_CONNECTED`.
+        const NOT_CONNECTED: u32 = 1167;
+        /// Which slot the pad being pushed is in, for [`two_pads`] to answer about.
+        static PUSHED_SLOT: AtomicUsize = AtomicUsize::new(0);
+        /// XInput's first slot and one other with a pad in them, only the other being pushed — A held,
+        /// which is the button the game's own defaults call shoot.
+        unsafe extern "system" fn two_pads(slot: u32, state: *mut XinputState) -> u32 {
+            if slot != 0 && slot as usize != PUSHED_SLOT.load(Ordering::Relaxed) {
+                return NOT_CONNECTED;
+            }
+            let buttons = if slot as usize == PUSHED_SLOT.load(Ordering::Relaxed) {
+                0x1000
+            } else {
+                0
+            };
+            unsafe {
+                (*state).pad = XinputGamepad {
+                    buttons,
+                    ..XinputGamepad::default()
+                };
+            }
+            0
+        }
+
+        let mapping = Mapping::read(std::path::Path::new("no such file"));
+        for slot in 1..XINPUT_SLOTS {
+            PUSHED_SLOT.store(slot as usize, Ordering::Relaxed);
+            let pushed = unsafe { read_xinput(two_pads, &mapping) };
+            assert_eq!(
+                pushed,
+                Some(Pushed([false, false, false, false, true, false])),
+                "a push on XInput slot {slot} did not reach the dialog past the pad in slot 0",
+            );
+        }
     }
 
     /// A push seen on either source is a push: whichever pad is in somebody's hands is the one

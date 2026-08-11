@@ -34,11 +34,12 @@ mod sound;
 mod space;
 mod text;
 mod window;
+mod xinput;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
 pub use drawing::{DEVICE, Drawn, Quad, Recording};
 pub use files::Files;
-pub use joystick::{Joystick, POV_CENTERED};
+pub use joystick::{Joystick, POV_CENTERED, SOCKETS};
 pub use keyboard::{Keyboard, keys};
 pub use log::Log;
 pub use mouse::Mouse;
@@ -50,6 +51,9 @@ pub use sound::{BUFFER, BUFFER_VTABLE, Sound};
 pub use space::Space;
 pub use text::{Glyphs, Metric};
 pub use window::{Frame, Made, Monitor, Windows, Written};
+/// The other interface a pad can be on, which is why orb reads two: `button` holds XInput's own mask,
+/// as a host answers with it.
+pub use xinput::{SLOTS, Xinput, button};
 
 /// Where a test's laid-out game is installed. The log and `orb.yaml` are read as siblings of the
 /// exe, so what matters is that it has a directory and a file name and that both come back
@@ -101,9 +105,12 @@ pub struct Sim {
     /// The mouse, and whether its pointer is being drawn — which is the game's window that orb hides
     /// one over, so it is the layout's neighbour rather than the pacing's.
     mouse: Mouse,
-    /// The joystick winmm has, which is not the controller DirectInput has: that one is laid out in the
-    /// game's own memory, and this is the device on the other branch of the game's own read.
+    /// The joysticks winmm has, which are not the controller DirectInput has: that one is laid out in
+    /// the game's own memory, and these are the devices on the other branch of the game's own read.
     joystick: Joystick,
+    /// And the pads XInput has, which are not winmm's either — a pad on one interface is on the other
+    /// only sometimes, and orb reads both.
+    xinput: Xinput,
     /// The fonts an e2e test says are beside the game, and every string baked through one.
     glyphs: Glyphs,
     /// The device the game shows its frames through, keeping what it was asked to draw.
@@ -163,6 +170,7 @@ impl Sim {
             keyboard: Keyboard::new(),
             mouse: Mouse::new(),
             joystick: Joystick::new(),
+            xinput: Xinput::new(),
             glyphs: Glyphs::new(),
             drawing: Recording::new(),
             log: Log::new(),
@@ -224,10 +232,17 @@ impl Sim {
         &self.mouse
     }
 
-    /// And the joystick winmm has, for a test that plugs a pad in — which is the branch the game reads
-    /// a pad through where its own enumeration found no controller.
+    /// And the joysticks winmm has, for a test that plugs a pad in — joystick 0 being the branch the
+    /// game reads a pad through where its own enumeration found no controller, and the rest being pads
+    /// only orb reads.
     pub fn joystick(&self) -> &Joystick {
         &self.joystick
+    }
+
+    /// And the pads XInput has, for a test that puts one in a slot: the interface that has the pad on a
+    /// machine where winmm has only the phantom.
+    pub fn xinput(&self) -> &Xinput {
+        &self.xinput
     }
 
     /// The fonts and the strings baked through them, for an e2e test that says a font is beside the game
@@ -540,6 +555,14 @@ impl Win for Sim {
         self.joystick.caps(device)
     }
 
+    fn joystick_count(&self) -> u32 {
+        self.joystick.count()
+    }
+
+    fn xinput_state(&self, slot: u32) -> Option<orb_api::XinputPad> {
+        self.xinput.state(slot)
+    }
+
     /// UTF-8, lossily. A code page is a property of the machine, so a simulated one would be a table
     /// nobody could check — and the device names an e2e test declares are the names it then reads back.
     fn codepage_text(&self, bytes: &[u8]) -> String {
@@ -561,8 +584,12 @@ impl Win for Sim {
 
     /// Written down and nothing scheduled differently, for the same reason: how a real host schedules a
     /// thread it has been told about is not something a model of one can answer.
+    /// Written down, and told to the clock: nothing here is scheduled differently for it, but a thread
+    /// that is not the frame's is one whose reads of the counter must not move the frame's own — see
+    /// [`Clock::counter`].
     fn below_normal(&self) {
         self.below_normal.lock().unwrap().push(thread_id());
+        self.clock.below_normal();
     }
 
     fn suspend_game_threads(&self, _audio: Option<u32>) -> Vec<u32> {

@@ -10,7 +10,7 @@ use std::mem::offset_of;
 
 use windows_sys::Win32::Media::Multimedia::{
     JOYCAPSA, JOYERR_NOERROR, JOYERR_PARMS, JOYERR_UNPLUGGED, JOYINFOEX, joyGetDevCapsA,
-    joyGetPosEx,
+    joyGetNumDevs, joyGetPosEx,
 };
 
 use crate::{JoyCaps, JoyInfo, joyerr};
@@ -55,4 +55,8 @@ pub fn caps(device: u32) -> Option<JoyCaps> {
     let mut caps: JOYCAPSA = unsafe { std::mem::zeroed() };
     let read = unsafe { joyGetDevCapsA(device as usize, &mut caps, size_of::<JOYCAPSA>() as u32) };
     (read == JOYERR_NOERROR).then(|| unsafe { std::mem::transmute::<JOYCAPSA, JoyCaps>(caps) })
+}
+
+pub fn count() -> u32 {
+    unsafe { joyGetNumDevs() }
 }

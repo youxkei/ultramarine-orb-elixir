@@ -298,6 +298,9 @@ pub struct Reproducing {
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Pushed {
     pub buttons: u32,
+    /// Both axes, in the ±1000 `Supervisor::RegisterChain` set every axis of this device to — measured
+    /// against the two thresholds the configuration keeps, X's and Y's.
+    pub x: i32,
     pub y: i32,
     /// A full circle is 36000; anything above it is the hat at rest, which is what a real one reports.
     pub hat: u32,
@@ -345,7 +348,11 @@ pub unsafe fn joy_state(state: *mut u8, pushed: Pushed) {
     const BUTTONS: usize = HATS + 4 * 4;
     unsafe {
         std::ptr::write_bytes(state, 0, JOY_STATE_BYTES);
-        // The Y axis, which is the second of the six and is measured downwards.
+        // The first two of the six axes: X across, and Y down the screen.
+        state
+            .add(super::AXIS_X * size_of::<i32>())
+            .cast::<i32>()
+            .write_unaligned(pushed.x);
         state
             .add(super::AXIS_Y * size_of::<i32>())
             .cast::<i32>()
@@ -365,10 +372,15 @@ pub unsafe fn joy_state(state: *mut u8, pushed: Pushed) {
 pub struct Mapping {
     pub shoot: i16,
     pub bomb: i16,
+    /// Which button holds the player still. **The same button as `shoot` is a configuration of its own**
+    /// and not a mistake: there the game focuses off the frames that one button has been held rather
+    /// than off a button of its own — see `Th06::buttons_of`.
+    pub focus: i16,
     pub menu: i16,
     pub up: i16,
     pub down: i16,
-    /// How far the stick has to go before the game counts it as pushed, in the ±1000 it gave its axes.
+    /// How far each axis has to go before the game counts it as pushed, in the ±1000 it gave them.
+    pub x_axis: i16,
     pub y_axis: i16,
 }
 
@@ -1121,6 +1133,12 @@ impl Image {
         self.space().read(super::G_LAST_FRAME_INPUT)
     }
 
+    /// `g_IsEigthFrameOfHeldInput`, the count of frames the button that is both shoot and focus has been
+    /// held for — which orb keeps in the game's own field, so this is where an e2e test reads it back.
+    pub fn held_shot_frames(&self) -> u16 {
+        self.space().read(super::G_HELD_SHOT_FRAMES)
+    }
+
     /// The boss of the fight on now, or none.
     ///
     /// Both halves of what orb reads: the pointer the enemy manager keeps, which is where the life
@@ -1597,15 +1615,27 @@ impl Image {
     }
 
     /// The mapping that says which of its buttons the game reads as what.
+    ///
+    /// **Every one of the nine, the four this leaves out written as unmapped**, which is 0xffff in the
+    /// game's own file and what its defaults leave the directions as — a stick being how a pad is pushed.
+    /// Laid-out memory is zeroed, so an entry nothing wrote would name button 0 and make the button that
+    /// shoots move the player left as well.
     pub fn maps_the_pad(&self, mapping: Mapping) {
         use super::supervisor;
+        /// What the game's file holds for a button nobody assigned, as the `i16` the mapping is read as.
+        const UNMAPPED: i16 = -1;
         let space = self.space();
         for (at, button) in [
             (supervisor::CFG_SHOOT_BUTTON, mapping.shoot),
             (supervisor::CFG_BOMB_BUTTON, mapping.bomb),
+            (supervisor::CFG_FOCUS_BUTTON, mapping.focus),
             (supervisor::CFG_MENU_BUTTON, mapping.menu),
             (supervisor::CFG_UP_BUTTON, mapping.up),
             (supervisor::CFG_DOWN_BUTTON, mapping.down),
+            (supervisor::CFG_LEFT_BUTTON, UNMAPPED),
+            (supervisor::CFG_RIGHT_BUTTON, UNMAPPED),
+            (supervisor::CFG_SKIP_BUTTON, UNMAPPED),
+            (supervisor::CFG_PAD_X_AXIS, mapping.x_axis),
             (supervisor::CFG_PAD_Y_AXIS, mapping.y_axis),
         ] {
             space.write::<i16>(super::G_SUPERVISOR + at, button);

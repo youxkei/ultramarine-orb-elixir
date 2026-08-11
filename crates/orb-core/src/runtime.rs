@@ -345,19 +345,24 @@ pub static CREATE_GAME_WINDOW: AtomicUsize = AtomicUsize::new(0);
 pub static INIT_D3D_DEVICE: AtomicUsize = AtomicUsize::new(0);
 pub static RENDER: AtomicUsize = AtomicUsize::new(0);
 pub static GET_INPUT: AtomicUsize = AtomicUsize::new(0);
-pub static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
-/// Whether the two hooks [`attach`] installs **conditionally** are to act.
+/// Where the original of the one hook orb does **not** call through goes: `GetControllerInput`, whose
+/// prologue is patched and whose body never runs again — see [`get_controller_input`], which answers for
+/// every pad itself.
 ///
-/// In a real launch the installation is the gate: no `block_replay_save` and the save is not hooked at all,
-/// no Verbose and the joystick's span is not measured. A game that hands its own functions over cannot be
-/// gated that way — it has one call site whichever way the launch was configured, and a laid-out game whose
-/// saves were dropped without being asked would be orb blocking a write nobody turned off. So the gate moves
-/// here, set by [`attach_to`] where [`attach`] decides whether to install.
+/// Kept because a patched prologue has to be relocated somewhere and the log names where: an offset in a
+/// crash report lands in that trampoline as readily as anywhere else. Nothing reads it.
+pub static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
+/// Whether the one hook [`attach`] installs **conditionally** is to act.
+///
+/// In a real launch the installation is the gate: no `block_replay_save` and the save is not hooked at all.
+/// A game that hands its own functions over cannot be gated that way — it has one call site whichever way
+/// the launch was configured, and a laid-out game whose saves were dropped without being asked would be orb
+/// blocking a write nobody turned off. So the gate moves here, set by [`attach_to`] where [`attach`] decides
+/// whether to install.
 ///
 /// `true` to begin with, which is what leaves a real launch's behaviour exactly as it was: there the hook is
 /// only ever reached because it was installed, and being installed is the decision already taken.
 pub static BLOCK_REPLAY_SAVE: AtomicBool = AtomicBool::new(true);
-pub static TIME_JOYSTICK: AtomicBool = AtomicBool::new(true);
 /// The game's chain functions, which orb has hooked, so calling them from its own
 /// frame loop still runs everything orb does per frame.
 pub static RUN_CALC_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
@@ -524,10 +529,10 @@ pub struct Originals {
     /// the reads it has no sample for. The import entry is what a real launch patches; a laid-out game
     /// hands the entry over and calls the replacement where its own read would have gone through it.
     pub joystick_position: JoyGetPosEx,
-    /// And its own `Controller::GetControllerInput`, which is the tail call inside the keyboard read and
-    /// cannot be told apart from outside it. [`get_controller_input`] is hooked to time it and for nothing
-    /// else, so what a laid-out game hands over is the read the span is measured around.
-    pub get_controller_input: extern "C" fn(u32) -> u16,
+    // And **not** its own `Controller::GetControllerInput`, which is the one hook orb does not call
+    // through: what a pad does to the word is [`get_controller_input`]'s own answer now, so a laid-out
+    // game has nothing to hand over for it. It calls that hook where its keyboard read tail-calls the
+    // function, and that is the whole of the wiring.
     /// And its own `ReplayManager::SaveReplay`, which [`save_replay`] drops the write of while leaving the
     /// teardown the game does through the same function.
     ///
@@ -589,12 +594,8 @@ pub unsafe fn attach_to(
     // And nothing of a run written down, which is the one piece of that state a `Runtime` does not
     // hold: the record lives beside it, for the two hooks that reach it from inside the game's update.
     unsafe { resume::forget() };
-    // The two decisions [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
+    // The decision [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
     BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
-    TIME_JOYSTICK.store(
-        config.log_level >= orb_config::LogLevel::Verbose,
-        Ordering::Relaxed,
-    );
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -606,10 +607,6 @@ pub unsafe fn attach_to(
         (&RENDER, originals.render as usize),
         (&STOP_RECORDING, originals.stop_recording as usize),
         (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
-        (
-            &GET_CONTROLLER_INPUT,
-            originals.get_controller_input as usize,
-        ),
         (&SAVE_REPLAY, originals.save_replay as usize),
         (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
@@ -649,7 +646,7 @@ pub unsafe fn attach_to(
     FORCE_WINDOWED.store(true, Ordering::Relaxed);
     // And the joystick, which is the same story again: the read moves onto a thread of orb's own either
     // way, and what differs is whether the entry it stands in front of was patched or handed over.
-    crate::joystick::install_over(originals.joystick_position, game.joystick_calibration());
+    crate::joystick::install_over(originals.joystick_position);
     log!("joystick: read on a thread of orb's, out of the game's frame");
     // The score file's fork, on the same gate [`attach`] puts it behind: only where a run can be rewound,
     // and always for a clear — there the fork is not what it is for, and being in the path of the write is.
@@ -809,7 +806,7 @@ impl Runtime {
     }
 }
 
-/// What the pad is doing, for a menu of orb's own.
+/// What the pads are doing, for a menu of orb's own.
 ///
 /// Asked of the game, and read as *its* buttons, because the frames these menus are up are frames
 /// the game's own input is not running on — so a pad does nothing on them unless orb does this.
@@ -1231,35 +1228,11 @@ pub extern "system" fn get_input() -> u16 {
     let started = profile::now();
     let buttons = original();
     unsafe { profile::record(profile::Phase::Input, started) };
-    // And the d-pad, which the game's own read has just left out: it reads a pad's axes and neither of
-    // the two fields a hat reports in, so a d-pad does nothing in the game while driving orb's own
-    // menus and the launcher's dialog. Added here rather than in [`get_controller_input`], where the
-    // game merges a pad itself: that hook is installed only at Verbose, so a launch that wanted the
-    // d-pad would have to be one whose log was being read closely.
-    //
-    // Into the word the read hands back and before it is written down, so that a direction pushed on
-    // the d-pad is a direction the run recorded — added past [`noted`] it would be a run that played
-    // itself back without it, which is a resumed run diverging from the one somebody played. And after
-    // the read rather than before, because the game's own poll of its controller is what gets a device
-    // back that was lost while the window was away: orb reads the same device a moment later, and a
-    // read that came first would be the one that met it unacquired.
-    let buttons = buttons | unsafe { dpad(game) };
+    // The pads are inside that read rather than added to what it answered: `Controller::GetInput`
+    // tail-calls the pad half, and orb stands in front of that half — see [`get_controller_input`]. So
+    // the word arriving here already has every pad in it, and it has them before it is written down,
+    // which is what makes a direction pushed on a pad a direction the run recorded.
     unsafe { noted(game, frame, held_back(game, buttons)) }
-}
-
-/// The direction the pad's d-pad is pushed, as the bits the game's own input word names them by —
-/// nothing where the setting is off, and nothing from a pad pushed nowhere.
-///
-/// Which of a game's ways to a pad it is read through is the game's business, as it is for the menus
-/// orb puts up: see [`Game::dpad`].
-///
-/// # Safety
-/// Must run on the game's main thread.
-unsafe fn dpad(game: &dyn Game) -> u16 {
-    if !DPAD_MOVES.load(Ordering::Relaxed) {
-        return 0;
-    }
-    unsafe { game.dpad(joystick::reading()) }
 }
 
 /// The word the game reads, with the front end's own decide taken out of it while orb has a question
@@ -1414,25 +1387,33 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
     original(stage)
 }
 
-/// The joystick half of the input read, which is a tail call inside the keyboard half and so
-/// cannot be told apart from outside it. Hooked to time it, and for nothing else: what made
-/// it worth nine milliseconds a frame is answered from a sample of orb's own now — see
-/// [`joystick`] — and this is how the perf line says so.
+/// **The pad half of the input read, which is orb's and not the game's.** A tail call inside the keyboard
+/// half, so it cannot be told apart from outside it — and it is not called through: what the buttons and
+/// the axes of every pad mean to this frame is [`Game::pad_word`], for the device the game holds as much
+/// as for the pads it has none of.
+///
+/// Replacing it rather than adding to what it answered is what puts one thing in one place, and one thing
+/// is why: where the mapping puts focus on the shot button, the game holds the player still off a count of
+/// the frames that button has been held, and the count is fed by whichever pad the read looked at. Fed
+/// from the game's read of its own device, a pad orb read for itself never reaches it — and orb cannot
+/// raise it from outside either, that read having already brought it down for this frame.
+///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
 /// keyboard read tail-calls that function, there being no prologue to patch — see
 /// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 pub extern "C" fn get_controller_input(buttons: u32) -> u16 {
-    let original: extern "C" fn(u32) -> u16 =
-        unsafe { std::mem::transmute(GET_CONTROLLER_INPUT.load(Ordering::Relaxed)) };
-    // Which a real launch decides by not installing the hook — see [`BLOCK_REPLAY_SAVE`], which the same
-    // reasoning belongs to.
-    if !TIME_JOYSTICK.load(Ordering::Relaxed) {
-        return original(buttons);
-    }
+    // Nothing of orb's in a process the attach settled on no game in, the same as [`get_input`]: what a
+    // pad means is a `Game`'s answer, and the keyboard's word is the whole of the read without one.
+    let Some(game) = (unsafe { chosen() }) else {
+        return buttons as u16;
+    };
+    // Timed because it is the read the game paid nine milliseconds a frame for, and what it costs now is
+    // the thing to watch: the `joystick=` span of the perf line, inside the `input=` it is part of.
     let started = profile::now();
-    let all = original(buttons);
+    let word = buttons as u16
+        | unsafe { game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed)) };
     unsafe { profile::record(profile::Phase::Joystick, started) };
-    all
+    word
 }
 
 /// Replaces `th06::ReplayManager::SaveReplay`, dropping the write while leaving

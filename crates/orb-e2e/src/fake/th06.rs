@@ -75,9 +75,12 @@ pub const FRAME_FAILED: i32 = 2;
 /// orb reads them through are made of these — `menu_decide` is `SHOOT | ENTER`, `menu_cancel` is
 /// `BOMB | MENU`, and `run_input` is every one of these but those two. [`Fake::attach`] holds them to
 /// exactly that.
-mod button {
+pub(crate) mod button {
     pub const SHOOT: u16 = 0x0001;
     pub const BOMB: u16 = 0x0002;
+    /// What holds the player still, and the one of these the game sets from something other than a
+    /// button where the mapping puts focus and shoot on one — see `Th06::buttons_of`.
+    pub const FOCUS: u16 = 0x0004;
     pub const MENU: u16 = 0x0008;
     pub const UP: u16 = 0x0010;
     pub const DOWN: u16 = 0x0020;
@@ -1006,12 +1009,14 @@ impl Fake {
                     stop_recording,
                     create_game_window: game_window_create,
                     joystick_position,
-                    get_controller_input,
                     save_replay,
                     init_d3d_device,
                 },
             )
         };
+        // And the game's startup check, which is the one read of a joystick it does for itself — after the
+        // attach, orb's replacement of that import entry being what answers it.
+        fake.checks_for_a_joystick();
         fake
     }
 
@@ -2882,22 +2887,17 @@ impl Fake {
         });
     }
 
-    /// `Controller::GetControllerInput`'s other branch: where the game's own enumeration found no game
-    /// controller it asks winmm for joystick 0, once a frame.
+    /// The game's startup check: `joyGetPosEx(0, JOY_RETURNALL)` once, to find out whether there is a
+    /// joystick at all.
     ///
-    /// **Through orb's replacement of that import entry**, which is the whole subject: with nothing
-    /// plugged in that one call takes 8.7ms and spends nearly all of it on the CPU, which against a
-    /// 16.67ms frame was the whole of the frame-pacing trouble — so orb answers it out of a sample taken
-    /// on a thread of its own.
+    /// **Through orb's replacement of that import entry**, which is what that read is for: with nothing
+    /// plugged in the call takes most of a frame and spends nearly all of it on the CPU, and orb answers it
+    /// out of a sample taken on a thread of its own.
     ///
-    /// What a sample *means* is left to the game and this game does no more with one than it does with its
-    /// controller's state — see [`read_state`]: which button is shot and where an axis becomes a direction
-    /// is the game's own arithmetic, and none of it is orb's to reimplement or this game's to stand in for.
-    /// What is here is the read, because the read is what orb replaced.
-    fn reads_its_joystick(&self) {
-        if self.image.holds_a_controller() {
-            return;
-        }
+    /// Once and not once a frame, which is what the real game does with it now that orb answers the pad
+    /// half of the input read itself: `Controller::GetControllerInput` is where the per-frame read was, and
+    /// that function is hooked and not called through. The startup check is the game's own and stays.
+    fn checks_for_a_joystick(&self) {
         let mut info = orb_api::JoyInfo {
             size: size_of::<orb_api::JoyInfo>() as u32,
             flags: RETURN_ALL,
@@ -3022,8 +3022,14 @@ pub const MAPPING: Mapping = Mapping {
     menu: 2,
     up: 3,
     down: 4,
-    // A quarter of the ±1000 the game gives an axis, which is far enough that the middle is not it.
-    y_axis: 250,
+    // A button of its own, which is the configuration the game's own defaults are: shoot 0, bomb 1,
+    // focus 2, skip 3, menu 4. What the *other* configuration does — focus on the shoot button — is
+    // `a_pad_the_game_has_no_device_for.rs`'s, which maps the two together itself.
+    focus: 5,
+    // A quarter of the ±1000 the game gives an axis, which is far enough that the middle is not it. The
+    // two differ so that a test pushing one axis past the other's threshold would be seen doing it.
+    x_axis: 250,
+    y_axis: 400,
 };
 
 /// What comes up where a stage was asked for, as an e2e test declares it — see [`Fake::comes_up_as`].
@@ -3295,26 +3301,11 @@ extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
 }
 
 extern "system" fn input() -> u16 {
-    // `Controller::GetInput`'s own tail call, through orb's hook over it: the keyboard's word goes in and
-    // the pad's read happens inside. Which is why there is no joystick read anywhere else in this file —
-    // the game has one, and it is here.
+    // `Controller::GetInput`'s own tail call — `Controller::GetControllerInput` (0x41cfc0) — which orb hooks
+    // and does not call through: the keyboard's word goes in and what every pad does to it comes back. So
+    // this game has no pad arithmetic of its own to be right or wrong, which is what leaves
+    // `the_pad_half_of_the_input_read.rs` asserting about orb.
     orb_core::runtime::get_controller_input(u32::from(running().read_the_keyboard()))
-}
-
-/// `Controller::GetControllerInput` (0x41b6b0): the pad half of the input read, which is a tail call inside
-/// the keyboard half and cannot be told apart from outside it.
-///
-/// What is here is the winmm read — see [`reads_its_joystick`](Fake::reads_its_joystick) — and the word
-/// handed straight back. **The merge is deliberately not here**: where an axis becomes a direction is the
-/// game's own arithmetic and `docs/adr/0008` refuses to have it written twice, so a pad moves the player in a
-/// real launch and answers only orb's own menus here.
-///
-/// Reached because orb hooks this to *time* it and for nothing else, which is the whole of what it is in
-/// `Originals` for: with nothing plugged in the read took 8.7ms of a 16.67ms frame, and the perf line saying
-/// so is how anybody found out.
-extern "C" fn get_controller_input(buttons: u32) -> u16 {
-    running().reads_its_joystick();
-    buttons as u16
 }
 
 /// `ReplayManager::SaveReplay` (0x42a5c0): the record written out under the name it was given.

@@ -286,22 +286,20 @@ fn attach() {
     }
     // Loud rather than fatal: what it costs is the frame paying for the read again, which is
     // what every run before this did.
-    match unsafe { joystick::install(exe, game.joystick_calibration()) } {
+    match unsafe { joystick::install(exe) } {
         Ok(()) => log!("joystick: read on a thread of orb's, out of the game's frame"),
         Err(error) => log!("joystick: {error}; the read stays in the game's frame"),
     }
-    match patches.joystick {
-        // Only to time it, when the log is being read closely enough to want the split out
-        // of `input`.
-        Some(patch) if config.log_level >= orb_config::LogLevel::Verbose => {
-            hooks.push((
-                "joystick",
-                patch,
-                hook::address(get_controller_input as _),
-                &GET_CONTROLLER_INPUT,
-            ));
-        }
-        _ => {}
+    if let Some(patch) = patches.joystick {
+        // Always, and not called through: the pad half of the input read is orb's, for every pad the
+        // machine has — see `orb_core::runtime::get_controller_input`. A launch that skipped it would be
+        // one where no pad did anything at all.
+        hooks.push((
+            "joystick",
+            patch,
+            hook::address(get_controller_input as _),
+            &GET_CONTROLLER_INPUT,
+        ));
     }
     match patches.save_replay {
         Some(patch) if config.block_replay_save => {

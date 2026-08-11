@@ -19,7 +19,7 @@ use orb_api::Hwnd;
 
 use crate::audio::Music;
 use crate::game::{
-    Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
+    Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
     Reproduction, RunStart, RunState, State,
 };
 use crate::log;
@@ -459,19 +459,69 @@ const BUTTON_UP: u16 = 0x0010;
 const BUTTON_DOWN: u16 = 0x0020;
 const BUTTON_LEFT: u16 = 0x0040;
 const BUTTON_RIGHT: u16 = 0x0080;
-/// The bounds inside [`G_JOY_CAPS`] that an axis is measured against, which is where the game
-/// takes the centre of one and its dead zone from.
-mod joy_caps {
-    pub const Y_MIN: usize = 0x2c;
-    pub const Y_MAX: usize = 0x30;
-}
 
-/// `JOYCAPSA g_JoyCaps`, the 0x194 bytes `joyGetDevCapsA` fills. `GetControllerInput` reads
-/// `wXmin`/`wXmax` (+0x24, +0x28) and `wYmin`/`wYmax` (+0x2c, +0x30) out of it every frame to
-/// place the centre of each axis and a dead zone of a quarter of its travel. This address
-/// appears once in the whole exe — the one `joyGetDevCapsA` call, at startup, and only where
-/// a joystick answered `joyGetPosEx` first — so nothing the game does fills it later.
-const G_JOY_CAPS: usize = 0x0069d760;
+/// And the five the game's `ControllerMapping` names buttons for, which is what a pad orb read for
+/// itself is added to the word as — see [`MAPPED_BUTTONS`], where each of them stands beside the
+/// mapping entry it belongs to.
+const BUTTON_SHOOT: u16 = 0x0001;
+const BUTTON_BOMB: u16 = 0x0002;
+const BUTTON_FOCUS: u16 = 0x0004;
+const BUTTON_MENU: u16 = 0x0008;
+const BUTTON_SKIP: u16 = 0x0100;
+
+/// Which bit of that word each entry of the game's own `ControllerMapping` sets, in the mapping's own
+/// order.
+///
+/// Read off both of `GetControllerInput`'s branches, which set the same nine bits from the same nine
+/// numbers: the winmm branch calls `SetButtonFromControllerInputs` (0x41d600) at 0x41d01b, 0x41d0d5,
+/// 0x41d04a, 0x41d0ef, 0x41d109, 0x41d123, 0x41d13d, 0x41d15a and 0x41d177, and the DirectInput branch
+/// calls `SetButtonFromDirectInputJoystate` (0x41d580) at 0x41d34e, 0x41d40d, 0x41d37f, 0x41d42a,
+/// 0x41d447, 0x41d464, 0x41d481, 0x41d4a1 and 0x41d4c1 — the bit being the third argument of each and
+/// the mapping entry the second.
+///
+/// **The winmm branch takes shoot and focus out of the copy at 0x4765a0 rather than out of the
+/// configuration**, and that is the same eighteen bytes: `MainMenu`'s option screens copy the mapping
+/// both ways between 0x4765a0 and 0x6c6e2c — 4 `movsl` and a `movsw` apiece, at 0x424714, 0x42484b and
+/// 0x424885 — so which of the two a branch reads changes no number. Reading the configuration's own is
+/// what [`Th06::pad_from`] already does.
+///
+/// **Focus is not here**, and [`Th06::focusing`] says why: the game sets it from that button only
+/// where shoot is a different button, and otherwise from a count of the frames shoot has been held.
+const MAPPED_BUTTONS: [(usize, u16); 8] = [
+    (supervisor::CFG_SHOOT_BUTTON, BUTTON_SHOOT),
+    (supervisor::CFG_BOMB_BUTTON, BUTTON_BOMB),
+    (supervisor::CFG_MENU_BUTTON, BUTTON_MENU),
+    (supervisor::CFG_UP_BUTTON, BUTTON_UP),
+    (supervisor::CFG_DOWN_BUTTON, BUTTON_DOWN),
+    (supervisor::CFG_LEFT_BUTTON, BUTTON_LEFT),
+    (supervisor::CFG_RIGHT_BUTTON, BUTTON_RIGHT),
+    (supervisor::CFG_SKIP_BUTTON, BUTTON_SKIP),
+];
+
+/// What the game counts to, and what it holds the player still from: `g_IsEigthFrameOfHeldInput` is raised
+/// while the button is held until it reaches sixteen (`cmp $0x10` at 0x41d06e and 0x41d3a4) and the player
+/// is held still from the eighth of them (`cmp $0x8` at 0x41d08e and 0x41d3c3). Let go, it comes back down
+/// by eight a frame while it is above eight and to nothing below that (0x41d0ac and 0x41d3e3) — which is
+/// what makes a tap of the button keep the player still and a proper release let them go.
+const HELD_FRAMES_COUNTED: u16 = 16;
+const HELD_FRAMES_TO_FOCUS: u16 = 8;
+
+/// `u16 g_IsEigthFrameOfHeldInput`, the count of frames the button that is both shoot and focus has been
+/// held for: the four bytes after [`G_JOY_CAPS`].
+///
+/// **The only code in the exe that touches it is `GetControllerInput`** — 0x41d068 to 0x41d0c6 in the
+/// branch that reads winmm and 0x41d39d to 0x41d3fb in the one that polls the device the game holds, and
+/// nowhere else — which is what makes it orb's to keep now that the read is orb's. In the game's own field
+/// rather than a static of orb's, so that a chapter restored rewinds it with the rest of `.data`.
+const G_HELD_SHOT_FRAMES: usize = 0x0069d8f4;
+
+// `JOYCAPSA g_JoyCaps` was here, at 0x69d760: the 0x194 bytes the game's startup check filled with
+// `joyGetDevCapsA` and measured an axis against — `wXmin`/`wXmax` at +0x24 and +0x28, `wYmin`/`wYmax` at
+// +0x2c and +0x30, read at 0x41d18b to 0x41d22f and nowhere else in the exe. Every one of those reads was
+// in `GetControllerInput`'s winmm branch, which orb answers itself now, measuring each pad against the
+// bounds that pad's own caps report — so nothing reads the struct any more and orb's write into it is
+// gone. Named here because [`G_HELD_SHOT_FRAMES`] is the four bytes after it and says it is.
+//
 /// `ItemManager g_ItemManager`, whose `Item items[513]` of 0x144 bytes each are followed
 /// by `nextIndex` and then `itemCount` — 513 * 0x144 = 0x28944, and the struct is
 /// 0x2894c. Nothing on the way into a stage puts it back: the bullet manager is built
@@ -578,7 +628,9 @@ mod dinput_device {
     pub const POLL: usize = 25;
 }
 
-/// `lY` — the second of the six axes, and the one a menu is driven by.
+/// `lX` and `lY` — the first two of the six axes, which are the two the game reads: across the screen
+/// and down it, each against a threshold of its own. A menu of orb's is a list and reads the second.
+const AXIS_X: usize = 0;
 const AXIS_Y: usize = 1;
 
 /// `DIJOYSTATE2`, the format the game set on its controller. All of it, because its size is what
@@ -616,13 +668,21 @@ mod supervisor {
     /// to the game, and the copy `Controller::GetControllerInput` itself reads every frame.
     pub const CFG_SHOOT_BUTTON: usize = 0x114;
     pub const CFG_BOMB_BUTTON: usize = 0x116;
+    pub const CFG_FOCUS_BUTTON: usize = 0x118;
     pub const CFG_MENU_BUTTON: usize = 0x11a;
     pub const CFG_UP_BUTTON: usize = 0x11c;
     pub const CFG_DOWN_BUTTON: usize = 0x11e;
-    /// `cfg.padYAxis`, how far a stick has to go before the game counts it as pushed — in the
-    /// ±1000 it gave the controller's axes. Past the mapping, the version, and the eight bytes of
-    /// counts and switches: `windowed` at 0x132 is the seventh of those, which is what fixes the
-    /// two axis thresholds at 0x134 and 0x136.
+    pub const CFG_LEFT_BUTTON: usize = 0x120;
+    pub const CFG_RIGHT_BUTTON: usize = 0x122;
+    pub const CFG_SKIP_BUTTON: usize = 0x124;
+    /// `cfg.padXAxis` and `cfg.padYAxis`, how far a stick has to go before the game counts it as
+    /// pushed — in the ±1000 it gave the controller's axes, one threshold per axis. Past the mapping,
+    /// the version, and the eight bytes of counts and switches: `windowed` at 0x132 is the seventh of
+    /// those, which is what fixes the two at 0x134 and 0x136.
+    ///
+    /// Which axis is which is read off `GetControllerInput`'s own use of them: 0x134 stands against `lX`
+    /// at 0x41d4de and 0x41d507, and 0x136 against `lY` at 0x41d52b and 0x41d551.
+    pub const CFG_PAD_X_AXIS: usize = 0x134;
     pub const CFG_PAD_Y_AXIS: usize = 0x136;
     /// `wantedState`, the field before `curState`. Assigned from `curState` at the end of every
     /// `Supervisor::OnUpdate`, so the two differing is a scene change that has been asked for and
@@ -1267,10 +1327,6 @@ impl Game for Th06 {
         true
     }
 
-    fn joystick_calibration(&self) -> Option<usize> {
-        Some(G_JOY_CAPS)
-    }
-
     fn content_size(&self) -> (u32, u32) {
         let present = G_SUPERVISOR + supervisor::PRESENT_PARAMETERS;
         let size = unsafe { (mem::read::<u32>(present), mem::read::<u32>(present + 4)) };
@@ -1899,46 +1955,56 @@ impl Game for Th06 {
         }
     }
 
-    /// Both of the ways the game reads a pad, in the order it tries them.
+    /// Both the pads there are to read: the one the game's own enumeration found, and the one orb
+    /// sampled last saw pushed.
     ///
-    /// `Controller::GetControllerInput` asks winmm for joystick 0 only where its own enumeration
-    /// found no game controller; where it found one it polls that through DirectInput and never
-    /// asks winmm at all. So a menu of orb's has to read the same device, or it answers to a pad
-    /// the game has not got — which is what a pad in XInput's second slot does: DirectInput has it,
-    /// and winmm's joystick 0 is a phantom reporting no buttons and no axes. Which reading is a pad
-    /// at all is [`crate::joystick::Sample::is_a_pad`].
-    unsafe fn pad(&self, winmm: Option<Reading>) -> Pad {
-        unsafe { self.controller_pad() }
-            .or_else(|| winmm.map(|reading| self.winmm_pad(reading)))
-            .unwrap_or_default()
+    /// **Merged rather than one standing behind the other**, which is what 紅魔郷 being a one-player
+    /// game settles: either is that one player's, and a menu that answered to one of the two in front of
+    /// somebody is a menu ignoring the pad in their hands. Which is also why the game's own device
+    /// cannot simply be left out — orb's sampling never sees it, `Supervisor::RegisterChain` having
+    /// taken it `DISCL_EXCLUSIVE` — and why `pad` cannot: the device the game holds is settled at
+    /// startup, and a pad plugged in afterwards is one it has none for.
+    ///
+    /// `pad` may be that device as well: winmm's joystick 0 where the game found no controller, or the
+    /// XInput slot holding the very device it enumerated. The same push merged twice is the same push.
+    /// Which reading is a pad at all is [`crate::joystick::Sample::is_a_pad`].
+    unsafe fn pad(&self, pad: Option<Reading>) -> Pad {
+        let sampled = pad.map(|reading| self.pad_from_reading(&reading));
+        match (unsafe { self.controller_pad() }, sampled) {
+            (Some(controller), Some(sampled)) => controller.or(sampled),
+            (one, other) => one.or(other).unwrap_or_default(),
+        }
     }
 
-    /// The same two devices in the same order, and the hat out of whichever of them answers.
+    /// Both of the pads there are, as the whole of what `Controller::GetControllerInput` would have made
+    /// of them — which is orb's to make, that function being hooked and not called through.
     ///
-    /// The controller is read again here rather than the game's own read of it being reached into,
-    /// because there is nothing to reach: `GetControllerInput` fills a `DIJOYSTATE2` on its own
-    /// stack and hands back a word with the axes already turned into bits, so the hat it read is
-    /// gone by the time anything of orb's sees the word. What that costs is a second `Poll` and
-    /// `GetDeviceState` in the frame, which is the read of a device that is there — the fast case,
-    /// what the read [`crate::joystick`] moved off the frame charged for being the looking rather
-    /// than the reading — and it is paid only where the setting asks for it.
-    unsafe fn dpad(&self, winmm: Option<Reading>) -> u16 {
-        let pov = unsafe { self.controller_state() }
-            .map(|state| state.hats[0])
-            .or_else(|| winmm.map(|reading| reading.pov));
-        let Some(pov) = pov else {
-            return 0;
+    /// **Two devices and two rules for an axis**, both of them the game's own: the device it holds reports
+    /// its axes in the ±1000 `Supervisor::RegisterChain` set them to and is measured against the two
+    /// thresholds beside its mapping, and every other pad against the travel its own caps report. The
+    /// buttons are one rule — a mask in the numbering the mapping names them by — so the two devices'
+    /// masks are merged and read once, which is also what makes the count behind a held shot button one
+    /// count.
+    ///
+    /// The device the game holds is read here rather than the game's own read of it being reached into,
+    /// because there is nothing to reach: it fills a `DIJOYSTATE2` on its own stack and hands back a word
+    /// with the axes already turned into bits. Once a frame, which is what that function did.
+    unsafe fn pad_word(&self, pad: Option<Reading>, hats: bool) -> u16 {
+        let controller = unsafe { self.controller_state() };
+        // Nothing held where there is nothing to read, rather than nothing done at all: the count of
+        // frames a button that is both shoot and focus has been held runs back down on the frames it is
+        // not, and a pad let go of, lost or unplugged is one that is not being held any more.
+        let buttons = controller.map_or(0, |state| buttons_mask(&state))
+            | pad.map_or(0, |reading| reading.buttons);
+        let sticks = controller.map_or(0, |state| unsafe { self.controller_stick(&state) })
+            | pad.map_or(0, |reading| stick(reading.x, reading.y));
+        let hats = if hats {
+            controller.map_or(0, |state| directions(hat(state.hats[0])))
+                | pad.map_or(0, |reading| directions(hat(reading.pov)))
+        } else {
+            0
         };
-        let (up, down, left, right) = hat(pov);
-        [
-            (up, BUTTON_UP),
-            (down, BUTTON_DOWN),
-            (left, BUTTON_LEFT),
-            (right, BUTTON_RIGHT),
-        ]
-        .into_iter()
-        .filter(|(pushed, _)| *pushed)
-        .fold(0, |word, (_, button)| word | button)
+        sticks | hats | unsafe { self.buttons_of(buttons) }
     }
 
     /// What `StageMenu::OnUpdateGameMenu` writes where its own quit is answered yes: the two
@@ -2022,8 +2088,8 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
-    /// The game's own mapping, read where `Controller::GetControllerInput` reads it, and the axis
-    /// read the way that function reads it.
+    /// One pad orb sampled, in the terms a menu of orb's needs it: the game's own mapping, read where
+    /// `Controller::GetControllerInput` reads it, and the axis read the way that function reads it.
     ///
     /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do:
     /// `TH_BUTTON_SELECTMENU` is `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is
@@ -2034,38 +2100,47 @@ impl Th06 {
     /// question rather than answering it took three launches to find. That is the thing to look for
     /// if a menu of orb's starts cancelling itself, and the launcher printing the mapping it read is
     /// where to look: on the pad this is written against, shoot is button 0 and menu is button 1.
-    ///
-    /// An unmapped button is 0xffff in that mapping, which as an `i16` is negative and names no bit
-    /// — which is what the directions usually are, a stick being how a pad is pushed.
-    fn winmm_pad(&self, reading: Reading) -> Pad {
+    fn pad_from_reading(&self, reading: &Reading) -> Pad {
         // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
         // hat rather than on the axes at all.
-        let (stick_up, stick_down) = axis(joy_caps::Y_MIN, joy_caps::Y_MAX, reading.y);
+        let (stick_up, stick_down) = axis(reading.y);
         let (hat_up, hat_down, ..) = hat(reading.pov);
         self.pad_from(reading.buttons, stick_up || hat_up, stick_down || hat_down)
     }
 
     /// The pad the game itself polls, where its own enumeration found one. `None` where there is no
-    /// such device or the read did not come off, and then the winmm sample is what is left.
+    /// such device or the read did not come off, and then what orb sampled for itself is all there is.
     unsafe fn controller_pad(&self) -> Option<Pad> {
         let state = unsafe { self.controller_state() }?;
-        // Every button as one mask, in the numbering the mapping names them in: DirectInput gives a
-        // byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that array
-        // with the very same number `SetButtonFromControllerInputs` shifts a winmm mask by.
-        let buttons = state
-            .buttons
-            .iter()
-            .take(u32::BITS as usize)
-            .enumerate()
-            .filter(|(_, held)| **held & 0x80 != 0)
-            .fold(0, |mask, (button, _)| mask | 1 << button);
         // The axes are the ±1000 the game gave every one of them, against the threshold it keeps
         // beside that mapping — not the winmm caps, which describe another device entirely.
         let threshold =
             i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_Y_AXIS) });
         let (hat_up, hat_down, ..) = hat(state.hats[0]);
         let y = state.axes[AXIS_Y];
-        Some(self.pad_from(buttons, y < -threshold || hat_up, y > threshold || hat_down))
+        Some(self.pad_from(
+            buttons_mask(&state),
+            y < -threshold || hat_up,
+            y > threshold || hat_down,
+        ))
+    }
+
+    /// Which way that device's stick is pushed, as the word's own direction bits.
+    ///
+    /// Each axis against the threshold the configuration keeps for it, in the ±1000 the game gave every
+    /// axis of this device: right where `lX` is above `cfg.padXAxis` and left where it is below its
+    /// negative (0x41d4de and 0x41d507), down and up the same way on `lY` against `cfg.padYAxis`
+    /// (0x41d52b and 0x41d551). Not the `JOYCAPSA` at 0x69d760, which this branch of the game's own read
+    /// never touches: it describes whatever winmm has, which is another device.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, the mapping being read out of the game's memory.
+    unsafe fn controller_stick(&self, state: &JoyState) -> u16 {
+        let threshold = |at: usize| i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) });
+        let across = threshold(supervisor::CFG_PAD_X_AXIS);
+        let down = threshold(supervisor::CFG_PAD_Y_AXIS);
+        let (x, y) = (state.axes[AXIS_X], state.axes[AXIS_Y]);
+        directions((y < -down, y > down, x < -across, x > across))
     }
 
     /// One read of that device: `Poll` and then `GetDeviceState` into the `DIJOYSTATE2` the format it
@@ -2100,22 +2175,81 @@ impl Th06 {
         Some(state)
     }
 
-    /// What a frame's buttons and directions mean to a menu, whichever of the two devices they
+    /// What a frame's buttons and directions mean to a menu, whichever of the devices they
     /// were read from. Only the directions differ between them: a button is a button by the same
     /// number either way.
     fn pad_from(&self, buttons: u32, up: bool, down: bool) -> Pad {
-        let held = |at: usize| {
-            u32::try_from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) })
-                .ok()
-                .filter(|button| *button < u32::BITS)
-                .is_some_and(|button| buttons & (1 << button) != 0)
-        };
         Pad {
-            up: up || held(supervisor::CFG_UP_BUTTON),
-            down: down || held(supervisor::CFG_DOWN_BUTTON),
-            decide: held(supervisor::CFG_SHOOT_BUTTON),
-            cancel: held(supervisor::CFG_BOMB_BUTTON) || held(supervisor::CFG_MENU_BUTTON),
+            up: up || self.held(supervisor::CFG_UP_BUTTON, buttons),
+            down: down || self.held(supervisor::CFG_DOWN_BUTTON, buttons),
+            decide: self.held(supervisor::CFG_SHOOT_BUTTON, buttons),
+            cancel: self.held(supervisor::CFG_BOMB_BUTTON, buttons)
+                || self.held(supervisor::CFG_MENU_BUTTON, buttons),
         }
+    }
+
+    /// And what they mean to the game: the bits of its own input word, through its own mapping — see
+    /// [`MAPPED_BUTTONS`], and [`Self::focusing`] for the one of the nine that is not a button becoming a
+    /// bit.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread: the mapping and the count behind a held shot button are both
+    /// the game's own memory.
+    unsafe fn buttons_of(&self, buttons: u32) -> u16 {
+        let held = MAPPED_BUTTONS
+            .iter()
+            .filter(|(at, _)| self.held(*at, buttons))
+            .fold(0, |word, (_, button)| word | button);
+        if unsafe { self.focusing(buttons) } {
+            held | BUTTON_FOCUS
+        } else {
+            held
+        }
+    }
+
+    /// Whether the player is being held still, which the game answers two ways.
+    ///
+    /// Where the mapping gives focus a button of its own the game sets 0x4 from it — at 0x41d04a and
+    /// 0x41d37f — and so does this.
+    ///
+    /// **Where focus and shoot are the same button there is no focus button to read.** The game holds the
+    /// player still off the frames that one button has been held instead, counted in
+    /// `g_IsEigthFrameOfHeldInput` — see [`G_HELD_SHOT_FRAMES`] and [`HELD_FRAMES_COUNTED`] — which is
+    /// what makes holding the shot button a way to move slowly, and the whole reason anybody maps the two
+    /// together. That count is what the read coming into orb was for: it is fed by whichever pad is being
+    /// read, so with every pad read here there is one count of one thing, kept in the game's own field.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, the count being read and written in the game's memory.
+    unsafe fn focusing(&self, buttons: u32) -> bool {
+        let shoot = unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_SHOOT_BUTTON) };
+        let focus = unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_FOCUS_BUTTON) };
+        if focus != shoot {
+            return self.held(supervisor::CFG_FOCUS_BUTTON, buttons);
+        }
+        let held = self.held(supervisor::CFG_SHOOT_BUTTON, buttons);
+        let counted = unsafe { mem::read::<u16>(G_HELD_SHOT_FRAMES) };
+        let counted = match held {
+            true => (counted + 1).min(HELD_FRAMES_COUNTED),
+            false if counted > HELD_FRAMES_TO_FOCUS => counted - HELD_FRAMES_TO_FOCUS,
+            false => 0,
+        };
+        unsafe { mem::write::<u16>(G_HELD_SHOT_FRAMES, counted) };
+        // Held as well as counted to, since letting go of a long hold leaves the count at the very frame
+        // it holds the player still from — which is the tap that keeps them still and not a release that
+        // does.
+        held && counted >= HELD_FRAMES_TO_FOCUS
+    }
+
+    /// Whether the button the mapping names at that offset is down in a pad's mask.
+    ///
+    /// An unmapped button is 0xffff there, which as an `i16` is negative and names no bit — which is
+    /// what the directions usually are, a stick being how a pad is pushed.
+    fn held(&self, at: usize, buttons: u32) -> bool {
+        u32::try_from(unsafe { mem::read::<i16>(G_SUPERVISOR + at) })
+            .ok()
+            .filter(|button| *button < u32::BITS)
+            .is_some_and(|button| buttons & (1 << button) != 0)
     }
 
     /// Takes down any screen shake still running, and puts the play field's rectangle back
@@ -2198,23 +2332,61 @@ impl Th06 {
 /// Whether an axis is pushed past its dead zone, as `(low, high)` in the position it reports —
 /// which for the Y axis, measured downwards, is `(up, down)`.
 ///
-/// The centre is halfway between the caps' bounds and the dead zone is a quarter of the travel
+/// The centre is halfway between the axis' own bounds and the dead zone is a quarter of the travel
 /// either side of it, which is what `Controller::GetControllerInput` does with the same two
-/// numbers. Nothing where the bounds say nothing, since a device whose travel is zero has no
-/// middle to be off.
-fn axis(low_at: usize, high_at: usize, position: u32) -> (bool, bool) {
-    let (low, high) = unsafe {
-        (
-            mem::read::<u32>(G_JOY_CAPS + low_at),
-            mem::read::<u32>(G_JOY_CAPS + high_at),
-        )
-    };
+/// numbers — `(wXmax - wXmin) / 4` at 0x41d18b, off the `JOYCAPSA` at 0x69d760. Nothing where the
+/// bounds say nothing, since a device whose travel is zero has no middle to be off.
+///
+/// The bounds are the reading's rather than that `JOYCAPSA`'s, because that one is joystick 0's — see
+/// [`Axis`].
+fn axis(axis: Axis) -> (bool, bool) {
+    let Axis {
+        at,
+        min: low,
+        max: high,
+    } = axis;
     if high <= low {
         return (false, false);
     }
     let centre = low + (high - low) / 2;
     let dead = (high - low) / 4;
-    (position + dead < centre, position > centre + dead)
+    (at + dead < centre, at > centre + dead)
+}
+
+/// Every button of the device the game holds as one mask, in the numbering the mapping names them in.
+///
+/// DirectInput gives a byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that
+/// array with the very same number `SetButtonFromControllerInputs` shifts a winmm mask by — which is what
+/// lets one mask stand for either device.
+fn buttons_mask(state: &JoyState) -> u32 {
+    state
+        .buttons
+        .iter()
+        .take(u32::BITS as usize)
+        .enumerate()
+        .filter(|(_, held)| **held & 0x80 != 0)
+        .fold(0, |mask, (button, _)| mask | 1 << button)
+}
+
+/// And which way a sampled pad's stick is pushed, each axis against the travel that pad's own caps report
+/// — see [`axis`], and [`Th06::controller_stick`] for the other rule.
+fn stick(x: Axis, y: Axis) -> u16 {
+    let (up, down) = axis(y);
+    let (left, right) = axis(x);
+    directions((up, down, left, right))
+}
+
+/// The four directions as the bits the game's own input word names them by.
+fn directions((up, down, left, right): (bool, bool, bool, bool)) -> u16 {
+    [
+        (up, BUTTON_UP),
+        (down, BUTTON_DOWN),
+        (left, BUTTON_LEFT),
+        (right, BUTTON_RIGHT),
+    ]
+    .into_iter()
+    .filter(|(pushed, _)| *pushed)
+    .fold(0, |word, (_, button)| word | button)
 }
 
 /// Which way a hat — a d-pad — is pushed, as `(up, down, left, right)`.
@@ -2349,14 +2521,15 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        BUTTON_DOWN, BUTTON_LEFT, BUTTON_RIGHT, BUTTON_UP, CARD_HISTORY, CARD_HISTORY_BYTES,
-        CATK_ATTEMPTS, CATK_MAGIC, CATK_NAME, CATK_NAME_BYTES, CATK_NAME_SUM, CURRENT_CARD,
-        G_ENEMY_MANAGER, G_GAME_MANAGER, G_REPLAY_MANAGER, G_SUPERVISOR, RANKING_STATE,
-        RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT,
-        STATE_MAINMENU, ending_script, enemy_manager, game_manager, hat, name_sum, replay_manager,
-        supervisor,
+        BUTTON_BOMB, BUTTON_DOWN, BUTTON_FOCUS, BUTTON_LEFT, BUTTON_MENU, BUTTON_RIGHT,
+        BUTTON_SHOOT, BUTTON_SKIP, BUTTON_UP, CARD_HISTORY, CARD_HISTORY_BYTES, CATK_ATTEMPTS,
+        CATK_MAGIC, CATK_NAME, CATK_NAME_BYTES, CATK_NAME_SUM, CURRENT_CARD, G_ENEMY_MANAGER,
+        G_GAME_MANAGER, G_HELD_SHOT_FRAMES, G_REPLAY_MANAGER, G_SUPERVISOR, HELD_FRAMES_COUNTED,
+        HELD_FRAMES_TO_FOCUS, RANKING_STATE, RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER,
+        STATE_GAMEMANAGER_REINIT, STATE_MAINMENU, ending_script, enemy_manager, game_manager, hat,
+        name_sum, replay_manager, supervisor,
     };
-    use crate::game::{Game, Reading, RunStart, th06::Th06};
+    use crate::game::{Axis, Game, Reading, RunStart, th06::Th06};
     use orb_api::Kind;
     use orb_sim::Sim;
 
@@ -2418,30 +2591,233 @@ mod tests {
     }
 
     /// And the direction it points becomes the bits the game's own input word names the four by,
-    /// out of the winmm sample where the game has no controller of its own to poll.
+    /// out of a pad orb sampled where the game has no controller of its own to poll.
     #[test]
     fn the_dpad_is_added_as_the_words_own_direction_bits() {
         let sim = image();
         let _installed = sim.enter();
+        unmapped(sim.space());
         // The controller pointer is inside the region over the supervisor and reads as null, which
         // is a game whose own enumeration found nothing attached.
-        let pushed = |pov| Reading {
-            buttons: 0,
-            y: 0,
-            pov,
-        };
-        assert_eq!(unsafe { Th06.dpad(Some(pushed(0))) }, BUTTON_UP);
-        assert_eq!(unsafe { Th06.dpad(Some(pushed(9000))) }, BUTTON_RIGHT);
-        assert_eq!(unsafe { Th06.dpad(Some(pushed(18000))) }, BUTTON_DOWN);
-        assert_eq!(unsafe { Th06.dpad(Some(pushed(27000))) }, BUTTON_LEFT);
-        assert_eq!(
-            unsafe { Th06.dpad(Some(pushed(31500))) },
-            BUTTON_UP | BUTTON_LEFT
-        );
+        let pushed = |pov| unsafe { Th06.pad_word(Some(Reading { pov, ..at_rest() }), true) };
+        assert_eq!(pushed(0), BUTTON_UP);
+        assert_eq!(pushed(9000), BUTTON_RIGHT);
+        assert_eq!(pushed(18000), BUTTON_DOWN);
+        assert_eq!(pushed(27000), BUTTON_LEFT);
+        assert_eq!(pushed(31500), BUTTON_UP | BUTTON_LEFT);
         // A hat pushed nowhere, and no pad at all: both are nothing added to the word.
-        assert_eq!(unsafe { Th06.dpad(Some(pushed(0xffff))) }, 0);
-        assert_eq!(unsafe { Th06.dpad(None) }, 0);
+        assert_eq!(pushed(HAT_AT_REST), 0);
+        assert_eq!(unsafe { Th06.pad_word(None, true) }, 0);
+        // And with the setting off it is the one thing left out, the hat being what the game reads on
+        // no device at all.
+        assert_eq!(
+            unsafe {
+                Th06.pad_word(
+                    Some(Reading {
+                        pov: 18000,
+                        ..at_rest()
+                    }),
+                    false,
+                )
+            },
+            0,
+        );
     }
+
+    /// Every mapping entry unmapped, which is what laid-out memory is not: it reads as zero, and zero
+    /// names button 0.
+    fn unmapped(space: &orb_sim::Space) {
+        for at in [
+            supervisor::CFG_SHOOT_BUTTON,
+            supervisor::CFG_BOMB_BUTTON,
+            supervisor::CFG_FOCUS_BUTTON,
+            supervisor::CFG_MENU_BUTTON,
+            supervisor::CFG_UP_BUTTON,
+            supervisor::CFG_DOWN_BUTTON,
+            supervisor::CFG_LEFT_BUTTON,
+            supervisor::CFG_RIGHT_BUTTON,
+            supervisor::CFG_SKIP_BUTTON,
+        ] {
+            space.write::<i16>(G_SUPERVISOR + at, -1);
+        }
+    }
+
+    /// A pad the game has no device for goes into that word whole: the buttons its own mapping names,
+    /// and the directions its own read makes of a stick.
+    ///
+    /// Which is the difference between a d-pad that moves the player and a pad that plays the game —
+    /// shoot, bomb, focus and the rest are what somebody holding it presses.
+    #[test]
+    fn a_pad_the_game_has_no_device_for_is_added_to_the_word_whole() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        // The mapping the game keeps, with a button for each of the nine it names.
+        for (at, button) in [
+            (supervisor::CFG_SHOOT_BUTTON, 2i16),
+            (supervisor::CFG_BOMB_BUTTON, 5),
+            (supervisor::CFG_FOCUS_BUTTON, 4),
+            (supervisor::CFG_MENU_BUTTON, 7),
+            (supervisor::CFG_UP_BUTTON, -1),
+            (supervisor::CFG_DOWN_BUTTON, -1),
+            (supervisor::CFG_LEFT_BUTTON, -1),
+            (supervisor::CFG_RIGHT_BUTTON, -1),
+            (supervisor::CFG_SKIP_BUTTON, 1),
+        ] {
+            space.write::<i16>(G_SUPERVISOR + at, button);
+        }
+
+        let held = |buttons| unsafe {
+            Th06.pad_word(
+                Some(Reading {
+                    buttons,
+                    ..at_rest()
+                }),
+                true,
+            )
+        };
+        assert_eq!(held(1 << 2), BUTTON_SHOOT);
+        assert_eq!(held(1 << 5 | 1 << 4), BUTTON_BOMB | BUTTON_FOCUS);
+        assert_eq!(held(1 << 7 | 1 << 1), BUTTON_MENU | BUTTON_SKIP);
+        // A button the mapping names nothing for is a button that does nothing.
+        assert_eq!(held(1 << 3), 0);
+        // The stick, against the travel the reading itself carries: past a quarter of it either way,
+        // which is what the game's own read does with the same two numbers for a pad on winmm.
+        let pushed = |x, y| unsafe {
+            Th06.pad_word(
+                Some(Reading {
+                    x: Axis { at: x, ..AXIS },
+                    y: Axis { at: y, ..AXIS },
+                    ..at_rest()
+                }),
+                true,
+            )
+        };
+        assert_eq!(pushed(0, CENTRE), BUTTON_LEFT);
+        assert_eq!(pushed(65535, CENTRE), BUTTON_RIGHT);
+        assert_eq!(pushed(CENTRE, 0), BUTTON_UP);
+        assert_eq!(pushed(CENTRE, 65535), BUTTON_DOWN);
+        assert_eq!(pushed(CENTRE, CENTRE), 0);
+        // And nothing at all where there is no pad to read.
+        assert_eq!(unsafe { Th06.pad_word(None, true) }, 0);
+    }
+
+    /// One button that is both shoot and focus holds the player still from the frame the game holds them
+    /// still from, and lets them go the way the game does: the count comes down by eight a frame while it
+    /// is above eight, so a tap keeps them still and a release lets them go.
+    ///
+    /// The count is the game's own field, so this test starts it where a launch does and reads it back
+    /// there.
+    #[test]
+    fn one_button_that_is_both_holds_the_player_still_from_the_frame_the_game_does() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        unmapped(space);
+        space.write::<i16>(G_SUPERVISOR + supervisor::CFG_SHOOT_BUTTON, 0);
+        space.write::<i16>(G_SUPERVISOR + supervisor::CFG_FOCUS_BUTTON, 0);
+        space.write::<u16>(G_HELD_SHOT_FRAMES, 0);
+        let held = || unsafe {
+            Th06.pad_word(
+                Some(Reading {
+                    buttons: 1,
+                    ..at_rest()
+                }),
+                true,
+            )
+        };
+        let nothing = || unsafe { Th06.pad_word(Some(at_rest()), true) };
+
+        // Shooting, and not held still, for every frame up to the one the game counts to.
+        for frame in 1..HELD_FRAMES_TO_FOCUS {
+            assert_eq!(
+                held(),
+                BUTTON_SHOOT,
+                "the player was held still on frame {frame} of the hold",
+            );
+        }
+        assert_eq!(
+            held(),
+            BUTTON_SHOOT | BUTTON_FOCUS,
+            "the player was not held still on the frame the game holds them still from",
+        );
+        assert_eq!(
+            space.read::<u16>(G_HELD_SHOT_FRAMES),
+            HELD_FRAMES_TO_FOCUS,
+            "the frames held are not counted in the field the game counts them in",
+        );
+
+        // Held on for as long as anybody holds it, which is where the count stops.
+        for _ in 0..HELD_FRAMES_COUNTED {
+            held();
+        }
+        assert_eq!(space.read::<u16>(G_HELD_SHOT_FRAMES), HELD_FRAMES_COUNTED);
+
+        // And let go: the count is above eight, so the frame after a tap of the button is still a frame
+        // the player is held still on.
+        assert_eq!(nothing(), 0, "let go is not held");
+        assert_eq!(held(), BUTTON_SHOOT | BUTTON_FOCUS);
+
+        // And let go properly, which takes the count under eight and then to nothing.
+        for _ in 0..HELD_FRAMES_COUNTED {
+            nothing();
+        }
+        assert_eq!(space.read::<u16>(G_HELD_SHOT_FRAMES), 0);
+        assert_eq!(
+            held(),
+            BUTTON_SHOOT,
+            "the player was held still on the first frame of a fresh hold",
+        );
+    }
+
+    /// And where focus has a button of its own, it is that button and no count at all.
+    #[test]
+    fn a_focus_button_of_its_own_holds_the_player_still_at_once() {
+        let sim = image();
+        let _installed = sim.enter();
+        let space = sim.space();
+        unmapped(space);
+        space.write::<i16>(G_SUPERVISOR + supervisor::CFG_SHOOT_BUTTON, 0);
+        space.write::<i16>(G_SUPERVISOR + supervisor::CFG_FOCUS_BUTTON, 1);
+        let shooting = Some(Reading {
+            buttons: 1,
+            ..at_rest()
+        });
+        let both = Some(Reading {
+            buttons: 0b11,
+            ..at_rest()
+        });
+        assert_eq!(
+            unsafe { Th06.pad_word(both, true) },
+            BUTTON_SHOOT | BUTTON_FOCUS
+        );
+        // And the shot button held on its own is no focus, however long it is held: this configuration
+        // has a button for that.
+        for _ in 0..HELD_FRAMES_COUNTED {
+            assert_eq!(unsafe { Th06.pad_word(shooting, true) }, BUTTON_SHOOT);
+        }
+    }
+
+    /// A pad with nothing pushed: both sticks centred in a travel of a device's own, and the hat where
+    /// one that has one leaves it.
+    fn at_rest() -> Reading {
+        Reading {
+            buttons: 0,
+            x: Axis { at: CENTRE, ..AXIS },
+            y: Axis { at: CENTRE, ..AXIS },
+            pov: HAT_AT_REST,
+        }
+    }
+
+    /// The travel an Xbox pad's axes report on this machine, and the middle of it.
+    const AXIS: Axis = Axis {
+        at: CENTRE,
+        min: 0,
+        max: 65535,
+    };
+    const CENTRE: u32 = 32767;
+    /// `JOY_POVCENTERED`, which is a hat pushed nowhere.
+    const HAT_AT_REST: u32 = 0xffff;
 
     /// The frame a stage is on is the game manager's own count, and it is only that while a stage
     /// is the scene: the manager is a global that keeps whatever it was left holding, so the count

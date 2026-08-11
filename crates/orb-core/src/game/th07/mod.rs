@@ -350,13 +350,6 @@ impl Game for Th07 {
         false
     }
 
-    /// Nothing is written into the game's own copy of a joystick's caps. Where 妖々夢 keeps one, or
-    /// whether it asks the device every time, has not been read — and writing 404 bytes into an address
-    /// that is not that is how a game's memory gets scribbled on.
-    fn joystick_calibration(&self) -> Option<usize> {
-        None
-    }
-
     /// The whole-output viewport the game sets at this point in its own frame.
     ///
     /// 0,0,640,480 written into the game's own `D3DVIEWPORT8` at 0x575a18 at 0x4347ad and set through
@@ -452,16 +445,16 @@ impl Game for Th07 {
     }
 
     /// A pad that is doing nothing, which drives the menus orb has here: none.
-    unsafe fn pad(&self, _winmm: Option<Reading>) -> Pad {
+    unsafe fn pad(&self, _pad: Option<Reading>) -> Pad {
         Pad::default()
     }
 
-    /// And no direction added to the word, `dpad_moves` or not: which bits 妖々夢's input read names
-    /// its directions by has not been read, and a word built from 紅魔郷's would be four bits out of
-    /// another game put into this one's. Nothing reaches this anyway — [`Hooks::input`] is `None`
-    /// here, so the read orb adds to is one it is not standing in front of — and the number is the
-    /// one thing that would still be wrong the day it does.
-    unsafe fn dpad(&self, _winmm: Option<Reading>) -> u16 {
+    /// And no pad in the word at all, `dpad_moves` or not: which bits 妖々夢's input read names its
+    /// buttons and directions by has not been read, and a word built from 紅魔郷's would be bits out of
+    /// another game put into this one's. Nothing reaches this anyway — [`Hooks::joystick`] is `None`
+    /// here, so the read orb would be standing in for is one it is not standing in front of — and the
+    /// numbers are the one thing that would still be wrong the day it does.
+    unsafe fn pad_word(&self, _pad: Option<Reading>, _hats: bool) -> u16 {
         0
     }
 

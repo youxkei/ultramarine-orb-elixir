@@ -49,6 +49,7 @@ pub mod process;
 pub mod text;
 pub mod thread;
 pub mod window;
+pub mod xinput;
 
 #[cfg(windows)]
 mod real;
@@ -528,6 +529,20 @@ pub trait Win: Send + Sync + 'static {
     /// failed, which orb reads as a device it cannot describe.
     fn joystick_caps(&self, device: u32) -> Option<JoyCaps>;
 
+    /// `joyGetNumDevs` — how many devices winmm has room for, which is how many indices there are
+    /// to ask about. Not how many are plugged in: every index up to it answers, with
+    /// `JOYERR_UNPLUGGED` for the ones with nothing in them.
+    fn joystick_count(&self) -> u32;
+
+    /// `XInputGetState` — the pad in that slot, and `None` for a slot with nobody in it or a host
+    /// with no XInput at all.
+    ///
+    /// Beside winmm rather than instead of it, because which interface has a pad is a property of
+    /// the machine: a pad in XInput's second slot leaves winmm's joystick 0 a phantom and is on
+    /// none of winmm's other indices either — measured, beside `orb_core::joystick`'s
+    /// `Sample::is_a_pad`.
+    fn xinput_state(&self, slot: u32) -> Option<XinputPad>;
+
     // --- the machine's code page -------------------------------------------------
 
     /// `MultiByteToWideChar` with `CP_ACP` — bytes a Win32 `-A` call answered, in whatever code page
@@ -843,6 +858,26 @@ impl Default for JoyCaps {
             oem_driver: [0; 260],
         }
     }
+}
+
+/// A pad XInput has, in the fields orb reads of one: which of its buttons are down, and where its
+/// left stick is.
+///
+/// **Not the whole of `XINPUT_GAMEPAD`**, which is what makes this unlike [`JoyInfo`] beside it: that
+/// one is winmm's own layout because it is handed to the game, and nothing here is — what is done with
+/// one of these is a word of the game's own input built out of it. So the triggers and the right stick,
+/// which 紅魔郷 names nowhere and orb reads nowhere, are not carried.
+///
+/// The buttons are XInput's own mask and not the numbering the game's mapping names buttons by:
+/// translating one into the other is [`crate::xinput`]'s caller's, since it is the game's mapping that
+/// makes the order matter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct XinputPad {
+    pub buttons: u16,
+    /// Both axes in XInput's own ±32768, measured rightwards and **upwards** — which is the opposite
+    /// way from every axis winmm reports.
+    pub left_x: i16,
+    pub left_y: i16,
 }
 
 /// What the two calls above answer where they worked, and the two failures orb tells apart: no such

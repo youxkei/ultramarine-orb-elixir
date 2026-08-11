@@ -216,8 +216,10 @@ pub struct Hooks {
     /// orb keeps updating while the window is not in front, and a game that carried
     /// on reading the keyboard then would act on keys meant for something else.
     pub input: Option<Patch>,
-    /// The part of the input read that goes to a joystick, if the game keeps it
-    /// separate. Hooked only to find out what it costs.
+    /// The part of the input read that goes to a joystick, if the game keeps it separate. Hooked and
+    /// **not called through**: what every pad does to the word is [`Game::pad_word`], so a launch that
+    /// left this out is a launch where no pad does anything. `None` for a game whose pad read has not
+    /// been measured, which is a game orb reads no pad in at all.
     pub joystick: Option<Patch>,
 }
 
@@ -239,20 +241,36 @@ pub enum Menu {
     Scores,
 }
 
-/// A pad as `joyGetPosEx` reports it — which are the numbers the game's own menus are driven from.
+/// One pad as `joyGetPosEx` reports one — which are the numbers the game's own read of a pad works in,
+/// and an XInput pad is translated into them rather than into a decision.
 ///
 /// Here beside [`Pad`] rather than with the thread that samples it, because it is what a `Game` is
 /// handed: the sampling is orb's own business and the mapping of these numbers onto a decision is
 /// the game's, and this is the boundary between them.
 ///
-/// No `x`: the menus orb puts up are lists, so up and down are the whole of what a stick has to
-/// say to them, and a field nothing reads is a field somebody will one day trust.
+/// **Both axes**, because a pad the game has no device for is one orb stands in for the whole read of:
+/// a menu of orb's is a list and up and down are the whole of what it needs, and a player moves in
+/// four directions.
 #[derive(Clone, Copy)]
 pub struct Reading {
     pub buttons: u32,
-    pub y: u32,
+    pub x: Axis,
+    pub y: Axis,
     /// Where the hat — the d-pad — points, which is its own field and not the axes.
     pub pov: u32,
+}
+
+/// Where one axis of a pad is, and the travel it is measured against.
+///
+/// **The bounds travel with the position** because the pads orb reads are no longer only the one the
+/// game measures for itself: `GetControllerInput` places the centre of an axis halfway between the
+/// bounds in the `JOYCAPSA` at 0x69d760, which is joystick 0's, so every other pad measured against
+/// them would be measured against a device it is not.
+#[derive(Clone, Copy)]
+pub struct Axis {
+    pub at: u32,
+    pub min: u32,
+    pub max: u32,
 }
 
 /// What a pad is doing, in the terms a menu of orb's needs.
@@ -266,6 +284,19 @@ pub struct Pad {
     pub down: bool,
     pub decide: bool,
     pub cancel: bool,
+}
+
+impl Pad {
+    /// Two pads' worth of pushing as one. 紅魔郷 is a one-player game, so every pad on the machine is
+    /// that one player's and which of them a push came from is nothing a menu has any use for.
+    pub fn or(self, other: Self) -> Self {
+        Self {
+            up: self.up || other.up,
+            down: self.down || other.down,
+            decide: self.decide || other.decide,
+            cancel: self.cancel || other.cancel,
+        }
+    }
 }
 
 /// The tile the game paints its status panel's background with: a texture it has already loaded,
@@ -511,15 +542,6 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, with the game past initialisation.
     unsafe fn take_sent_keys(&self) -> bool;
 
-    /// Where the game keeps the `JOYCAPSA` it measures a joystick's axes against, if it
-    /// keeps one at all.
-    ///
-    /// Needed because a game may read those caps once and never again — 紅魔郷 reads them
-    /// at startup, and only if a joystick answered then — while an axis it never calibrated
-    /// against is one whose centre reads as far over. `None` for a game that asks the
-    /// device every time, which has no such window to be wrong in.
-    fn joystick_calibration(&self) -> Option<usize>;
-
     /// The device setup the game does before its update: the full-output viewport,
     /// and the background clear its options may ask for.
     ///
@@ -705,34 +727,44 @@ pub trait Game {
     /// What the pad is doing, in the terms a menu of orb's needs: which way it is being pushed,
     /// and whether it is deciding or cancelling.
     ///
-    /// Asked of the game rather than worked out from a reading, because *where* a pad is read is
-    /// the game's business too. A game may reach one some way orb's own sampling does not — and
-    /// then a menu of orb's driven from the sample answers to a pad the game has not got, which
-    /// looks exactly like orb's menus ignoring a pad that plainly works. Which is what it was.
+    /// Asked of the game rather than worked out from a reading, because *which button is which* is
+    /// the game's mapping and *where* a pad is read is the game's business too: the device its own
+    /// enumeration found is one orb's sampling never sees — it is taken `DISCL_EXCLUSIVE` — and a menu
+    /// driven from the samples alone would ignore the pad the game is being played with. Which is what
+    /// it did.
     ///
-    /// `winmm` is orb's own last sample, or `None` while no pad is answering there. Handed in
-    /// rather than fetched, because taking the sample is orb's business and not the game's: a
-    /// `Game` that went looking for one would be reaching past the seam for a thread of orb's.
+    /// `pad` is the pad orb's own sampling last saw pushed, and `None` while none is answering. Handed
+    /// in rather than fetched, because taking the samples is orb's business and not the game's: a
+    /// `Game` that went looking for one would be reaching past the seam for a thread of orb's. Merged
+    /// with the game's own device rather than standing behind it — every pad on the machine is the one
+    /// player's — and it may be that same device again, which merges to the same answer.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn pad(&self, winmm: Option<Reading>) -> Pad;
+    unsafe fn pad(&self, pad: Option<Reading>) -> Pad;
 
-    /// Which way the pad's d-pad is pushed, as the bits of the word the game's own input read hands
-    /// back — nothing where none is pushed, and nothing from a game whose word has not been read.
+    /// **The pad half of the game's own input read**, which orb does instead of the game: every pad, as
+    /// the bits of the word the game acts on.
     ///
-    /// Its own answer rather than [`Pad`]'s, because these are two different things asked of one
-    /// device: a menu of orb's is a list, so up and down are the whole of what it needs, and a
-    /// player moves in four directions. And the bits are the game's own, which is why the game is
-    /// what turns a direction into them.
+    /// The game's own function that did this is hooked and not called through, so what this answers is
+    /// the whole of what a pad does to a frame — the buttons its mapping names, the directions its own
+    /// arithmetic makes of an axis, and the hat it reads on no device at all. Which is why it is one
+    /// answer and not several: the device the game holds is read once here, where a second question
+    /// about the same device would be a second `Poll` and `GetDeviceState` in the frame.
     ///
-    /// `winmm` is orb's own last sample, handed in for the reason [`Self::pad`]'s is, and read for
-    /// the same reason: a game reaching a pad some way orb's sampling does not is a game whose
-    /// d-pad has to be read where the game reads one.
+    /// `pad` is the pad orb's own sampling last saw pushed, and `None` while none is answering — handed
+    /// in rather than fetched, because taking the samples is orb's business and not the game's: a `Game`
+    /// that went looking for one would be reaching past the seam for a thread of orb's. The device the
+    /// game's own enumeration found is not handed in, orb's sampling never seeing it: it is taken
+    /// `DISCL_EXCLUSIVE`, so reading it is something only a `Game` can do.
+    ///
+    /// `hats` is `dpad_moves` out of `orb.yaml`, and it gates the one thing here the game would not have
+    /// produced from the same pads: a d-pad. Everything else is what its own read would have made of
+    /// them, which is why nothing else is behind a setting.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn dpad(&self, winmm: Option<Reading>) -> u16;
+    unsafe fn pad_word(&self, pad: Option<Reading>, hats: bool) -> u16;
 
     /// Gives the run up, and says whether there was one to give up.
     ///

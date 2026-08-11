@@ -19,3 +19,4 @@ pub mod process;
 pub mod text;
 pub mod thread;
 pub mod window;
+pub mod xinput;

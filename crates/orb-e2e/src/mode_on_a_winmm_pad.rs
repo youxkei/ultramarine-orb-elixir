@@ -33,7 +33,10 @@ const TRAVEL: (u32, u32) = (0, 65535);
 
 /// The name the log says that device is, which is what an e2e test waits for the sample by: the read
 /// happens on a thread of orb's own, so what says it has happened is the line that thread writes.
-const NAMED: &str = "joystick: mid=045e pid=02ff";
+///
+/// Named by the socket it is in as well as by what it is, orb reading every socket a pad can be in —
+/// see `a_pad_the_game_has_no_device_for.rs`.
+const NAMED: &str = "joystick: winmm 0 is mid=045e pid=02ff";
 
 /// What the thread asks the host to wait between two reads, in milliseconds: four while a pad is
 /// answering, which is four samples a frame, and a second while none is — the read costing most of a
@@ -49,47 +52,6 @@ const LOOKED_FOR_MS: u32 = 1000;
 /// takes — that one being the slow one, winmm's joystick support coming up — and a wait that runs out is
 /// a failure naming what it was waiting for.
 const WAITS: u32 = 3000;
-
-/// And the span the game's own read costs reaches the `perf:` line, which is the whole of what orb's hook
-/// over `Controller::GetControllerInput` is for.
-///
-/// That read is a tail call inside `Controller::GetInput` and cannot be told apart from outside it, so
-/// timing it means standing in front of it — which is what the hook does and the only thing it does. What
-/// this file's own head records about that read is what that line said, and a launch whose perf line has
-/// no joystick span in it is a launch where nobody could have found it out.
-///
-/// Verbose, because that is the gate: a real launch installs this hook only at Verbose and leaves the read
-/// untimed otherwise. A game that hands the function over cannot be gated by an installation — it has one
-/// call site whichever way the launch was configured — so the gate is a flag orb sets at the attach, and this
-/// is the launch that asks for it.
-#[test]
-fn the_span_the_games_own_joystick_read_costs_reaches_the_perf_line() {
-    in_its_own_process(|| {
-        let game = Fake::attach("a-winmm-pad-the-perf-line", the_run(), |config| {
-            config.log_level = LogLevel::Verbose;
-        });
-        game.image().no_controller();
-        game.sim().joystick().attach(BUTTONS, TRAVEL.0, TRAVEL.1);
-        game.frames_until_the_log_holds_another("perf:");
-        let perf = game
-            .log()
-            .lines()
-            .into_iter()
-            .rev()
-            .find(|line| line.contains("perf:"))
-            .expect("the perf line just waited for");
-        assert!(
-            perf.contains("joystick="),
-            "the perf line has no joystick span in it: {perf}",
-        );
-        // Beside the read it is *inside* and not additional to it, which is the one thing the line has to
-        // say for the number to be readable at all.
-        assert!(
-            perf.contains("input="),
-            "the perf line has a joystick span and no input span to be inside: {perf}",
-        );
-    });
-}
 
 /// A game whose own enumeration found no controller, with a pad on the host, sitting at its title menu
 /// with the question up and orb's own thread having sampled that pad at least once.
@@ -165,27 +127,17 @@ fn outcomes(game: &Fake) -> usize {
 /// A pad winmm has answers the question, and the axis it is read through is measured against the caps of
 /// the device that answered.
 ///
-/// **The calibration is the half that cannot be left to the game.** `GetControllerInput` places the centre
-/// of each axis at `(wXmin + wXmax) / 2` with a dead zone of a quarter of the travel, read out of the
-/// `JOYCAPSA` at 0x69d760 — an address that appears exactly once in the whole exe, in the
-/// `joyGetDevCapsA` call the startup check makes, and that check only reads it where a joystick answered
-/// `joyGetPosEx` first. So a pad that turns up after that is measured against zeros: its centred axes,
-/// 32767 of a 65535 travel, both read as far over, and the game spends the rest of the run with two
-/// directions held. Watched happening on this machine, and watched not happening once the caps were
-/// handed over with the sample they belong to.
+/// **Against that device's own caps and not the game's copy of some device's.** `GetControllerInput` placed
+/// the centre of each axis at `(wXmin + wXmax) / 2` with a dead zone of a quarter of the travel, read out
+/// of the `JOYCAPSA` at 0x69d760 — which the game's startup check filled once, and only where a joystick
+/// answered `joyGetPosEx` first. So a pad that turned up after that was measured against zeros: its centred
+/// axes, 32767 of a 65535 travel, both read as far over, and the run spent the rest of itself with two
+/// directions held. Watched happening on this machine. What closes it is that the pad half of that read is
+/// orb's now and every pad carries its own bounds — see `the_pad_half_of_the_input_read.rs`.
 #[test]
 fn a_pad_winmm_has_answers_the_question_and_its_axis_is_measured_against_its_own_caps() {
     in_its_own_process(|| {
         let game = asking("winmm-pad-answers");
-
-        // The game's own copy of the caps is this device's, written from the sample rather than left as
-        // the startup check found it.
-        assert!(
-            game.log()
-                .said("joystick: the game's axis calibration was not this device's"),
-            "the caps were not handed over to the game:\n  {}",
-            game.log().lines().join("\n  ")
-        );
 
         // Down to レガシーモード on the stick, past the dead zone the caps make: a quarter of the travel
         // either side of the middle, which is what the game's own read does with the same two numbers.
@@ -232,8 +184,9 @@ fn a_pad_winmm_has_answers_the_question_and_its_axis_is_measured_against_its_own
 /// Windows can leave exactly one of these on joystick 0 whenever the pad it has sits in XInput's second
 /// slot: a device answering `joyGetPosEx` successfully with every field zero. Measured by asking all
 /// three interfaces at once — winmm has the phantom at index 0 and nothing on the rest, while
-/// DirectInput and XInput both have the real pad. Believing the phantom costs a line in the log claiming
-/// a pad answered, and the game's axis calibration written from a device that has no axes.
+/// DirectInput and XInput both have the real pad. Believing the phantom costs a line in the log claiming a
+/// pad answered, and a run played with the axes of a device that has none: bounds of zero, which no
+/// position is inside.
 #[test]
 fn a_device_with_no_buttons_and_no_axes_drives_nothing() {
     in_its_own_process(|| {
@@ -252,19 +205,19 @@ fn a_device_with_no_buttons_and_no_axes_drives_nothing() {
         }
         assert!(
             game.log().said(
-                "joystick 0 is mid=413d pid=2104 \"USB Gaming Controller\" with no buttons and no \
-                 axes, which is no pad; orb's own menus will not be driven from it"
+                "joystick: winmm 0 is mid=413d pid=2104 \"USB Gaming Controller\" with no buttons \
+                 and no axes, which is no pad; nothing of orb's will be driven from it"
             ),
             "orb did not say what answered:\n  {}",
             game.log().lines().join("\n  ")
         );
-        // And nothing of the game's own calibration was written from it, which is the cost of believing
-        // one: axes it has not got, with the game measuring against them for the rest of the run.
+        // And it is not the pad the run is played with either, which is what that line says it will not
+        // be: no socket answered with a pad, so orb read none.
         assert!(
             !game
                 .log()
-                .said("joystick: the game's axis calibration was not this device's"),
-            "the game's axes were calibrated from a device with none:\n  {}",
+                .said("is the pad the run is played with, it being the last pushed"),
+            "the phantom was taken for the pad somebody is holding:\n  {}",
             game.log().lines().join("\n  ")
         );
 
@@ -295,9 +248,8 @@ fn a_device_with_no_buttons_and_no_axes_drives_nothing() {
 ///
 /// So the thread asks once a second while nothing answers rather than four times a frame, which is what
 /// bounds how late a pad plugged in mid-session is picked up. Watched happening: a run that started with
-/// the pad asleep — the first read the slow one, winmm's joystick support coming up — had it wake
-/// mid-run, took the calibration on the next frame, and was then driven through the menus with nothing
-/// drifting.
+/// the pad asleep — the first read the slow one, winmm's joystick support coming up — had it wake mid-run,
+/// was read on the next frame, and was then driven through the menus with nothing drifting.
 #[test]
 fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
     in_its_own_process(|| {
@@ -306,8 +258,15 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
         });
         game.image().no_controller();
         game.at_the_title_menu();
-        waits_until(&game, "orb saying the socket is empty", || {
-            game.log().said("joystick: there is no joystick 0")
+        // One line for the machine rather than one per socket: orb reads every socket a pad can be in,
+        // and sixteen of them saying that nothing has ever been plugged into them is sixteen lines
+        // saying nothing — see `a_pad_the_game_has_no_device_for.rs`.
+        waits_until(&game, "orb saying there is no pad anywhere", || {
+            game.log().said(&format!(
+                "joystick: no pad on any of winmm's {} devices or XInput's {} slots",
+                orb_sim::SOCKETS,
+                orb_sim::SLOTS,
+            ))
         });
 
         // A second between reads, and never the four milliseconds a pad gets: the ask goes through the

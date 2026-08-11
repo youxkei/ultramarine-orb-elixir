@@ -6,6 +6,11 @@ and a laid-out 紅魔郷 drives the frame loop's e2e tests through `render` itse
 the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
 does differently from the plan below is at the end of *Consequences*.
 
+**[0013](0013-the-pad-half-of-the-input-read-is-orbs.md) has taken one of the handed-over functions off the
+list below**: `Controller::GetControllerInput` is hooked and not called through, so there is nothing to hand
+over for it and the eight are seven. What this document says of it — *the hook exists to time it and does
+nothing else to it* — was true when it was written and is not now.
+
 **[0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md) has overturned one
 thing this says, and it is built**: `Originals` is `orb_core::runtime`'s along with the eleven hook bodies,
 so the three calls below that *had already crossed out of `orb` into `orb-core`* are no longer the

@@ -113,6 +113,11 @@ should be treated as unmade.
   comment refuses, on the grounds that where an axis becomes a direction is the game's business and not a
   thing to reimplement twice. It stays refused, and what changes is that the refusal gets written down
   beside `input()` as a *why not*, where somebody tempted back to it will read it.
+
+  **The premise moved and the refusal did not**, in
+  [0013](0013-the-pad-half-of-the-input-read-is-orbs.md): that arithmetic is orb's now, `GetControllerInput`
+  being hooked and not called through, so a pad moves the player in the fake as well — through orb. There
+  is still one implementation of it and the fake still has none.
 - **Modelling the game's own pause and retry menus, so that `GameManager::OnUpdate`'s early `BREAK` can
   be reached.** The menus are absent by design and `gives_the_run_up_at_its_own_pause` is a declared verb
   standing in for them. The early break arrives for free once the chain is a walk, so this is not work of

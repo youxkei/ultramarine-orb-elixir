@@ -27,6 +27,17 @@ pub fn caps(device: u32) -> Option<JoyCaps> {
     host::caps(device)
 }
 
+/// `joyGetNumDevs()` — how many indices there are to ask about, which is not how many pads are
+/// plugged in. The game only ever asks about joystick 0; orb asks about all of them, a second pad
+/// being that same player's second pad.
+pub fn count() -> u32 {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.joystick_count();
+    }
+    host::count()
+}
+
 #[cfg(windows)]
 use crate::real::joystick as host;
 
@@ -39,5 +50,8 @@ mod host {
     }
     pub fn caps(_device: u32) -> Option<JoyCaps> {
         no_windows("joystick::caps")
+    }
+    pub fn count() -> u32 {
+        no_windows("joystick::count")
     }
 }

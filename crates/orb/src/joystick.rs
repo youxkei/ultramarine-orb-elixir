@@ -13,12 +13,11 @@ use orb_core::joystick::{JoyGetPosEx, answer, install_over};
 
 use crate::hook;
 
-/// Points the game's `joyGetPosEx` at orb, and takes the address of the caps it measures
-/// axes against so that a device arriving mid-run can be described to it.
+/// Points the game's `joyGetPosEx` at orb, and hands the entry it replaced over to be fallen through to.
 ///
 /// # Safety
 /// `module` must be the game exe, and nothing may be executing its import table.
-pub unsafe fn install(module: usize, calibration: Option<usize>) -> Result<(), hook::Error> {
+pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
     let previous = unsafe {
         hook::install_import(
             module,
@@ -27,9 +26,6 @@ pub unsafe fn install(module: usize, calibration: Option<usize>) -> Result<(), h
             hook::address(answer as _),
         )
     }?;
-    install_over(
-        unsafe { std::mem::transmute::<usize, JoyGetPosEx>(previous) },
-        calibration,
-    );
+    install_over(unsafe { std::mem::transmute::<usize, JoyGetPosEx>(previous) });
     Ok(())
 }

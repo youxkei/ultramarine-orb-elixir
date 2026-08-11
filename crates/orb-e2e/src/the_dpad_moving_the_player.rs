@@ -41,7 +41,7 @@ const HELD: u32 = 3;
 /// push has arrived is not a number of frames.
 const BUTTONS: u32 = 16;
 const TRAVEL: (u32, u32) = (0, 65535);
-const NAMED: &str = "joystick: mid=045e pid=02ff";
+const NAMED: &str = "joystick: winmm 0 is mid=045e pid=02ff";
 
 /// How long an e2e test gives that thread, in frames with a millisecond of real time each.
 const WAITS: u32 = 3000;
