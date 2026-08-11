@@ -11,9 +11,6 @@ Download `orb.exe` from the
 [latest release](https://github.com/youxkei/ultramarine-orb-elixir/releases/latest), put it in the
 folder the game's exe is in, and start the game with it instead.
 
-The first launch asks how much of the screen the game gets and a few other things, and remembers
-the answers.
-
 ## Which games
 
 | | |
