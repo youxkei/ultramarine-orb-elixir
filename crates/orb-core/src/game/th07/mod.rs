@@ -456,6 +456,15 @@ impl Game for Th07 {
         Pad::default()
     }
 
+    /// And no direction added to the word, `dpad_moves` or not: which bits 妖々夢's input read names
+    /// its directions by has not been read, and a word built from 紅魔郷's would be four bits out of
+    /// another game put into this one's. Nothing reaches this anyway — [`Hooks::input`] is `None`
+    /// here, so the read orb adds to is one it is not standing in front of — and the number is the
+    /// one thing that would still be wrong the day it does.
+    unsafe fn dpad(&self, _winmm: Option<Reading>) -> u16 {
+        0
+    }
+
     /// No run to give up, the retry menu that would ask being one orb does not put up here.
     unsafe fn leave_run(&self) -> bool {
         false

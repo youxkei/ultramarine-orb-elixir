@@ -465,7 +465,7 @@ const REPLAY_QUESTION_FRAMES: i32 = 90;
 const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 
 /// How far the player moves in a frame, which is this game's own.
-const SPEED: f32 = 4.0;
+pub const SPEED: f32 = 4.0;
 
 /// And the box they are held inside, which is 紅魔郷's own `(8, 16)` and `(368, 416)` —
 /// `playerMovementAreaTopLeftPos` and `playerMovementAreaSize`, written in the branch

@@ -1088,6 +1088,16 @@ table. The DirectInput branch beside it is only entered where the game's `EnumDe
 an attached game controller at startup — where none was, `g_Supervisor.controller` (0x6c6d2c)
 stays null and every frame goes to winmm.
 
+**Which is settled at startup and never again.** That pointer is written in one place in the whole
+exe: the enumeration's own callback at 0x423da0, which calls `CreateDevice` only while it is still
+null. The enumeration is `EnumDevices(DI8DEVCLASS_GAMECTRL, …, DIEDFL_ATTACHEDONLY)` at 0x423d12,
+reached from the one call at 0x423a1f, in the startup that also creates the keyboard device. So a pad
+attached before the game starts is one the game holds a DirectInput device for all run, and a pad
+plugged in afterwards is one nothing ever creates a device for — the run reads winmm for it instead,
+and so does everything of orb's that asks the game where a pad is. Which decides nothing on a machine
+whose winmm has the pad, and decides everything on one where winmm has only the phantom a pad in
+XInput's second slot leaves behind.
+
 Where nothing answers, that call was measured taking a large fraction of a frame and spending nearly
 all of it on the CPU, so being work rather than waiting there is nowhere cheap in the frame to put it.
 Where a joystick
@@ -1143,9 +1153,36 @@ held over. So orb writes the answering device's caps there, with every sample it
 rather than once when the device appeared: the caps are in `.data`, and restoring a chapter
 from before the pad arrived puts the zeros back.
 
-There is no setting for any of this. There was one — the read cost most of a frame and turning
-it off was the only way out — and now that the frame pays a copy there is nothing left for it
-to be off for. `GetControllerInput` is still hooked at `verbose`, to time what it now costs.
+There is no setting for the read. There was one — it cost most of a frame and turning it off was the
+only way out — and now that the frame pays a copy there is nothing left for it to be off for.
+`GetControllerInput` is still hooked at `verbose`, to time what it now costs.
+
+**The d-pad moves the player, which the game itself does not.** `GetControllerInput` reads a pad's two axes
+and neither of the two fields a d-pad reports in: not winmm's `dwPOV`, at +0x28 of the `JOYINFOEX` it
+fills on its own stack, and not DirectInput's `rgdwPOV[0]`, at +0x20 of the `DIJOYSTATE2` its other
+branch fills. The whole function was read for both and reads neither, so a d-pad does nothing in the
+game at all — while driving the launcher's settings dialog and orb's own menus, both of which read
+one, which is a pad that works everywhere except where it is being played with.
+
+So orb adds the direction the hat is pushed to the word the game's own read handed back, in the bits
+that word names the four directions by: 0x10 up, 0x20 down, 0x40 left, 0x80 right, read off
+`Controller::GetInput`'s `GetKeyboardState` branch at 0x41d86d, 0x41d899, 0x41d8c7 and 0x41d8f4 and
+off both of `GetControllerInput`'s own branches. `dpad_moves` in `orb.yaml` is the switch, on by
+default, and `false` hands the game the word its own read produced.
+
+**In the input hook and not in the joystick one**, although the joystick hook is where the game merges
+a pad itself: that one is installed only at `verbose`, so the d-pad would work only in a launch whose
+log was being read closely. It goes into the word before the word is written down, so a direction
+pushed on the d-pad is a direction the run recorded — added afterwards it would be a resumed run
+playing itself back without it — and after the game's own read rather than before, since that read is
+what gets a controller that was lost back.
+
+Which device the hat is read from is the game's own answer, the same one a menu of orb's gets: the
+controller the game polls where it has one, and the winmm sample where it has none. The controller is
+read again rather than the game's own read of it being reached into, there being nothing to reach — it
+fills a `DIJOYSTATE2` on its own stack and hands back a word with the axes already turned into bits —
+so the frame pays a second `Poll` and `GetDeviceState`, which is a read of a device that is there and
+so the fast case, and pays it only where the setting asks for it.
 
 ## How much of the screen the game gets
 
@@ -1582,14 +1619,14 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 and leaves set; a launch's arguments hold what is different every time it is run; and the mode a
 run is in is asked inside the game, where the run is started — see *Pointdevice and normal*.
 
-`orb.yaml` is six keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash`, `hide_mouse` and
-`ask_at_startup`. YAML read with serde; five switches written `true` or `false`, and `screen`
-written `fullscreen` or a size like `1280x720`. `deny_unknown_fields`, so a key nobody reads is
-an error naming it — including one that used to be a key, which is a file to edit rather than one
-to pass over quietly. A setting that is not read is a setting somebody thinks is on.
+`orb.yaml` is seven keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash`, `hide_mouse`,
+`dpad_moves` and `ask_at_startup`. YAML read with serde; six switches written `true` or `false`, and
+`screen` written `fullscreen` or a size like `1280x720`. `deny_unknown_fields`, so a key nobody
+reads is an error naming it — including one that used to be a key, which is a file to edit rather
+than one to pass over quietly. A setting that is not read is a setting somebody thinks is on.
 
-**The launcher asks for all six before it starts the game**, and writes back what it is told.
-Which is why they are the six they are: each is about the machine the game is being played on,
+**The launcher asks for all seven before it starts the game**, and writes back what it is told.
+Which is why they are the seven they are: each is about the machine the game is being played on,
 and somebody who has just installed one file has nothing to edit. It is orb's own window rather
 than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for ten
 controls — with the system's own message font asked for rather than a face named, since a face
@@ -1669,7 +1706,7 @@ somebody typed is one they meant, and answering it with the defaults would leave
 a setting nothing read.
 
 The file is written out as text with a comment over each key rather than through a serialiser,
-which would leave six bare keys and nothing beside them to say what any of it is for. There is
+which would leave seven bare keys and nothing beside them to say what any of it is for. There is
 no copy of it in this repository to install: it is written by the thing that asks, and a second
 hand-kept copy is one that goes stale.
 
@@ -2333,6 +2370,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/pointdevice_run.rs`, `orb-e2e`'s `legacy_run` | the two e2e tests over a whole run, which press keys and read back the game's memory, its records and orb's log |
 | `orb-e2e/src/pacing.rs` | every e2e test about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
 | `orb-e2e/src/mode_question.rs`, `orb-e2e`'s `mode_on_the_pad`, `orb-e2e`'s `mode_on_a_winmm_pad` | the question over the game's title menu answered on the keyboard, answered on a controller the game owns, and answered on a pad winmm has where the game owns none — with the empty socket and the pad that turns up in it later beside it |
+| `orb-e2e/src/the_dpad_moving_the_player.rs` | the player moved by the d-pad on both of the devices the game reads a pad on, in the direction it points and by the step a held direction moves them every frame, with the pad at rest moving nothing and `dpad_moves: false` handing the game the word its own read produced |
 | `orb-e2e/src/the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
 | `orb-e2e/src/the_window.rs` | the window orb makes on a monitor the e2e test declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, the black either side of a 4:3 game, and the status line written in it — which of the two bars, at which height, where the block landed, and a shorter stack afterwards clearing the rows the longer one wrote in |
 | `orb-e2e/src/the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended — and the panel's own tile the strips beside the count are painted with |

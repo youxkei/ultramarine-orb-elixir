@@ -443,6 +443,22 @@ const MENU_DECIDE: u16 = 0x1001;
 /// its cursor on `Quit` — and both are things orb has to keep from happening on the frame one of its
 /// own questions was cancelled with that very key.
 const MENU_CANCEL: u16 = 0x000a;
+/// And the four directions, which is what orb adds a d-pad's to the word as.
+///
+/// Read off all three places the game makes them: `Controller::GetInput`'s `GetKeyboardState` branch
+/// sets them from `VK_UP`, `VK_DOWN`, `VK_LEFT` and `VK_RIGHT` — the four `and` masks at 0x41d86d,
+/// 0x41d899, 0x41d8c7 and 0x41d8f4, each against the byte at that virtual key's index of the buffer it
+/// filled — and `GetControllerInput` sets the same four from a pad's two axes, at 0x41d1b3 and
+/// 0x41d1dd from winmm's `dwXpos` and 0x41d217 and 0x41d23f from its `dwYpos`, and at 0x41d4e8,
+/// 0x41d511, 0x41d535 and 0x41d55b from DirectInput's `lX` and `lY`.
+///
+/// **The hat is in none of them**, which is why this is here at all: nothing in `GetControllerInput`
+/// reads winmm's `dwPOV` — its `JOYINFOEX` local's +0x28, `[ebp-0xc]` — or DirectInput's `rgdwPOV[0]`
+/// — its `DIJOYSTATE2` local's +0x20, `[ebp-0x138]` — so a d-pad moves nothing in this game.
+const BUTTON_UP: u16 = 0x0010;
+const BUTTON_DOWN: u16 = 0x0020;
+const BUTTON_LEFT: u16 = 0x0040;
+const BUTTON_RIGHT: u16 = 0x0080;
 /// The bounds inside [`G_JOY_CAPS`] that an axis is measured against, which is where the game
 /// takes the centre of one and its dead zone from.
 mod joy_caps {
@@ -542,6 +558,13 @@ mod stage_header {
 /// found something, `Supervisor::RegisterChain` gives it `c_dfDIJoystick2`, takes it
 /// `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, and sets every axis' range to ±1000 — so a state read
 /// off it is in those units and needs no calibration of orb's.
+///
+/// **Which of the two it is, is settled at startup and never again**, and that is what puts winmm
+/// second in [`Th06::pad`] and [`Th06::dpad`] rather than beside it: this is written in one place in
+/// the whole exe — the enumeration's callback at 0x423da0, which calls `CreateDevice` only while it
+/// is still null — and that enumeration is the one call at 0x423d12, reached from 0x423a1f in the
+/// startup that also creates the keyboard device. So a pad plugged in after the game started is a pad
+/// no device is ever made for, and reading a pad through the game means reading winmm for that one.
 const G_CONTROLLER: usize = 0x006c6d2c;
 
 /// The slots of `IDirectInputDevice8A`'s vtable that orb calls. Slot 7 is the one the keyboard's
@@ -1890,6 +1913,34 @@ impl Game for Th06 {
             .unwrap_or_default()
     }
 
+    /// The same two devices in the same order, and the hat out of whichever of them answers.
+    ///
+    /// The controller is read again here rather than the game's own read of it being reached into,
+    /// because there is nothing to reach: `GetControllerInput` fills a `DIJOYSTATE2` on its own
+    /// stack and hands back a word with the axes already turned into bits, so the hat it read is
+    /// gone by the time anything of orb's sees the word. What that costs is a second `Poll` and
+    /// `GetDeviceState` in the frame, which is the read of a device that is there — the fast case,
+    /// what the read [`crate::joystick`] moved off the frame charged for being the looking rather
+    /// than the reading — and it is paid only where the setting asks for it.
+    unsafe fn dpad(&self, winmm: Option<Reading>) -> u16 {
+        let pov = unsafe { self.controller_state() }
+            .map(|state| state.hats[0])
+            .or_else(|| winmm.map(|reading| reading.pov));
+        let Some(pov) = pov else {
+            return 0;
+        };
+        let (up, down, left, right) = hat(pov);
+        [
+            (up, BUTTON_UP),
+            (down, BUTTON_DOWN),
+            (left, BUTTON_LEFT),
+            (right, BUTTON_RIGHT),
+        ]
+        .into_iter()
+        .filter(|(pushed, _)| *pushed)
+        .fold(0, |word, (_, button)| word | button)
+    }
+
     /// What `StageMenu::OnUpdateGameMenu` writes where its own quit is answered yes: the two
     /// menu flags cleared and `g_Supervisor.curState = MAINMENU`. `Supervisor::OnUpdate` then
     /// cuts the run's chain — the game manager, the player, the stage, the recording — and
@@ -1990,22 +2041,43 @@ impl Th06 {
         // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
         // hat rather than on the axes at all.
         let (stick_up, stick_down) = axis(joy_caps::Y_MIN, joy_caps::Y_MAX, reading.y);
-        let (hat_up, hat_down) = hat(reading.pov);
+        let (hat_up, hat_down, ..) = hat(reading.pov);
         self.pad_from(reading.buttons, stick_up || hat_up, stick_down || hat_down)
     }
 
-    /// The pad the game itself polls, where its own enumeration found one: `Poll` and then
-    /// `GetDeviceState` into the `DIJOYSTATE2` the format it set fills, which is what
-    /// `Controller::GetControllerInput` does on those frames. `None` where there is no such device
-    /// or the read did not come off, and then the winmm sample is what is left.
+    /// The pad the game itself polls, where its own enumeration found one. `None` where there is no
+    /// such device or the read did not come off, and then the winmm sample is what is left.
+    unsafe fn controller_pad(&self) -> Option<Pad> {
+        let state = unsafe { self.controller_state() }?;
+        // Every button as one mask, in the numbering the mapping names them in: DirectInput gives a
+        // byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that array
+        // with the very same number `SetButtonFromControllerInputs` shifts a winmm mask by.
+        let buttons = state
+            .buttons
+            .iter()
+            .take(u32::BITS as usize)
+            .enumerate()
+            .filter(|(_, held)| **held & 0x80 != 0)
+            .fold(0, |mask, (button, _)| mask | 1 << button);
+        // The axes are the ±1000 the game gave every one of them, against the threshold it keeps
+        // beside that mapping — not the winmm caps, which describe another device entirely.
+        let threshold =
+            i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_Y_AXIS) });
+        let (hat_up, hat_down, ..) = hat(state.hats[0]);
+        let y = state.axes[AXIS_Y];
+        Some(self.pad_from(buttons, y < -threshold || hat_up, y > threshold || hat_down))
+    }
+
+    /// One read of that device: `Poll` and then `GetDeviceState` into the `DIJOYSTATE2` the format it
+    /// set fills, which is what `Controller::GetControllerInput` does on those frames.
     ///
-    /// The acquire after a lost device is orb's to do here, because the frames this runs on are
-    /// exactly the frames the game's own read is frozen out of: the device is taken
+    /// The acquire after a lost device is orb's to do here, because a menu of orb's runs on exactly
+    /// the frames the game's own read is frozen out of: the device is taken
     /// `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, so anything that took the foreground away — which is
     /// how somebody arrives at a menu of orb's with the window behind — leaves it unacquired. Asked
     /// for once and the frame given up, the way the game asks: it is a menu, and the next frame is
     /// a sixtieth of a second away.
-    unsafe fn controller_pad(&self) -> Option<Pad> {
+    unsafe fn controller_state(&self) -> Option<JoyState> {
         let device = mem::read_committed::<usize>(G_CONTROLLER).filter(|device| *device != 0)?;
         let vtable = mem::read_committed::<usize>(device)?;
         let slot = |index: usize| {
@@ -2025,23 +2097,7 @@ impl Th06 {
         if unsafe { read(device, size_of::<JoyState>() as u32, &mut state) } < 0 {
             return None;
         }
-        // Every button as one mask, in the numbering the mapping names them in: DirectInput gives a
-        // byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that array
-        // with the very same number `SetButtonFromControllerInputs` shifts a winmm mask by.
-        let buttons = state
-            .buttons
-            .iter()
-            .take(u32::BITS as usize)
-            .enumerate()
-            .filter(|(_, held)| **held & 0x80 != 0)
-            .fold(0, |mask, (button, _)| mask | 1 << button);
-        // The axes are the ±1000 the game gave every one of them, against the threshold it keeps
-        // beside that mapping — not the winmm caps, which describe another device entirely.
-        let threshold =
-            i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_Y_AXIS) });
-        let (hat_up, hat_down) = hat(state.hats[0]);
-        let y = state.axes[AXIS_Y];
-        Some(self.pad_from(buttons, y < -threshold || hat_up, y > threshold || hat_down))
+        Some(state)
     }
 
     /// What a frame's buttons and directions mean to a menu, whichever of the two devices they
@@ -2161,23 +2217,29 @@ fn axis(low_at: usize, high_at: usize, position: u32) -> (bool, bool) {
     (position + dead < centre, position > centre + dead)
 }
 
-/// Whether a hat — a d-pad — is pushed up or down.
+/// Which way a hat — a d-pad — is pushed, as `(up, down, left, right)`.
 ///
 /// Its own field rather than the axes, because that is where a d-pad reports: hundredths of a degree
 /// clockwise from straight up, and `JOY_POVCENTERED` — 0xffff, past a full circle — for pushed
-/// nowhere. A diagonal counts as its two, so a hat held up-and-left still moves up. The game itself
-/// reads none of this; orb's own menus are the only thing here a hat drives.
-fn hat(pov: u32) -> (bool, bool) {
+/// nowhere. A diagonal counts as its two, so a hat held up-and-left moves up and left both. The game
+/// itself reads none of this — see [`BUTTON_UP`] for where that was read — so everything a hat does
+/// here is orb's: it drives orb's own menus, and with `dpad_moves` it moves the player.
+///
+/// All four although a menu of orb's is a list and reads two: the player moves in four, and a `hat`
+/// that answered up and down alone would be one the other two had to be worked out beside.
+fn hat(pov: u32) -> (bool, bool, bool, bool) {
     /// A full circle, and an eighth of one either side of each direction.
     const CIRCLE: u32 = 36000;
     const EIGHTH: u32 = CIRCLE / 8;
 
     if pov > CIRCLE {
-        return (false, false);
+        return (false, false, false, false);
     }
     (
         pov <= EIGHTH || pov >= CIRCLE - EIGHTH,
         (CIRCLE / 2 - EIGHTH..=CIRCLE / 2 + EIGHTH).contains(&pov),
+        (CIRCLE * 3 / 4 - EIGHTH..=CIRCLE * 3 / 4 + EIGHTH).contains(&pov),
+        (CIRCLE / 4 - EIGHTH..=CIRCLE / 4 + EIGHTH).contains(&pov),
     )
 }
 
@@ -2287,13 +2349,14 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        CARD_HISTORY, CARD_HISTORY_BYTES, CATK_ATTEMPTS, CATK_MAGIC, CATK_NAME, CATK_NAME_BYTES,
-        CATK_NAME_SUM, CURRENT_CARD, G_ENEMY_MANAGER, G_GAME_MANAGER, G_REPLAY_MANAGER,
-        G_SUPERVISOR, RANKING_STATE, RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER,
-        STATE_GAMEMANAGER_REINIT, STATE_MAINMENU, ending_script, enemy_manager, game_manager,
-        name_sum, replay_manager, supervisor,
+        BUTTON_DOWN, BUTTON_LEFT, BUTTON_RIGHT, BUTTON_UP, CARD_HISTORY, CARD_HISTORY_BYTES,
+        CATK_ATTEMPTS, CATK_MAGIC, CATK_NAME, CATK_NAME_BYTES, CATK_NAME_SUM, CURRENT_CARD,
+        G_ENEMY_MANAGER, G_GAME_MANAGER, G_REPLAY_MANAGER, G_SUPERVISOR, RANKING_STATE,
+        RANKING_STATES_KEEPING_THE_RECORD, STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT,
+        STATE_MAINMENU, ending_script, enemy_manager, game_manager, hat, name_sum, replay_manager,
+        supervisor,
     };
-    use crate::game::{Game, RunStart, th06::Th06};
+    use crate::game::{Game, Reading, RunStart, th06::Th06};
     use orb_api::Kind;
     use orb_sim::Sim;
 
@@ -2338,6 +2401,46 @@ mod tests {
     fn a_card_is_up(space: &orb_sim::Space, card: i32) {
         space.write::<i32>(A_CARD_IS_UP, 1);
         space.write::<i32>(CURRENT_CARD, card);
+    }
+
+    /// A hat points where it says, in hundredths of a degree clockwise from straight up, and a diagonal
+    /// is both of its two — so a d-pad held up-and-left moves up and left both, which is what a player
+    /// crossing a corner is doing.
+    #[test]
+    fn a_hat_points_where_it_says() {
+        assert_eq!(hat(0), (true, false, false, false));
+        assert_eq!(hat(9000), (false, false, false, true));
+        assert_eq!(hat(18000), (false, true, false, false));
+        assert_eq!(hat(27000), (false, false, true, false));
+        assert_eq!(hat(31500), (true, false, true, false));
+        // `JOY_POVCENTERED`, which is past a full circle: pushed nowhere.
+        assert_eq!(hat(0xffff), (false, false, false, false));
+    }
+
+    /// And the direction it points becomes the bits the game's own input word names the four by,
+    /// out of the winmm sample where the game has no controller of its own to poll.
+    #[test]
+    fn the_dpad_is_added_as_the_words_own_direction_bits() {
+        let sim = image();
+        let _installed = sim.enter();
+        // The controller pointer is inside the region over the supervisor and reads as null, which
+        // is a game whose own enumeration found nothing attached.
+        let pushed = |pov| Reading {
+            buttons: 0,
+            y: 0,
+            pov,
+        };
+        assert_eq!(unsafe { Th06.dpad(Some(pushed(0))) }, BUTTON_UP);
+        assert_eq!(unsafe { Th06.dpad(Some(pushed(9000))) }, BUTTON_RIGHT);
+        assert_eq!(unsafe { Th06.dpad(Some(pushed(18000))) }, BUTTON_DOWN);
+        assert_eq!(unsafe { Th06.dpad(Some(pushed(27000))) }, BUTTON_LEFT);
+        assert_eq!(
+            unsafe { Th06.dpad(Some(pushed(31500))) },
+            BUTTON_UP | BUTTON_LEFT
+        );
+        // A hat pushed nowhere, and no pad at all: both are nothing added to the word.
+        assert_eq!(unsafe { Th06.dpad(Some(pushed(0xffff))) }, 0);
+        assert_eq!(unsafe { Th06.dpad(None) }, 0);
     }
 
     /// The frame a stage is on is the game manager's own count, and it is only that while a stage

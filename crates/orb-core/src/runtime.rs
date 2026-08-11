@@ -372,6 +372,14 @@ pub static PLAY_SOUNDS: FrameCall = FrameCall::none();
 pub static PRESENT: FrameCall = FrameCall::none();
 /// Whether the window-creation hook should override the game's display setting.
 pub static FORCE_WINDOWED: AtomicBool = AtomicBool::new(false);
+/// Whether the d-pad is to move the player, which is `dpad_moves` out of `orb.yaml`.
+///
+/// A static rather than the `Config` the runtime holds, for the reason every flag around it is one:
+/// the input hook is entered from inside the game's own update, where a frame of orb's is already
+/// holding the `Runtime` as `&mut`. Written by [`attached`], which is the one place both a real launch
+/// and a game laid out by hand pass through — so the default here is only what a process has before
+/// orb has read a setting, which is a process with no game in it yet.
+pub static DPAD_MOVES: AtomicBool = AtomicBool::new(false);
 /// Whether the game was last given the keys, so the change can be logged once
 /// rather than every frame.
 pub static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
@@ -732,6 +740,17 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
     // is where it was anyway.
     score::fork(mode == Mode::Pointdevice);
+    // What the input hook adds to the word the game read, which is a setting rather than an
+    // installation: the hook goes in whatever it says, there being every other reason for it to.
+    DPAD_MOVES.store(config.dpad_moves, Ordering::Relaxed);
+    log!(
+        "joystick: the d-pad {}",
+        if config.dpad_moves {
+            "moves the player, which the game's own read of a pad does not"
+        } else {
+            "is left as the game has it, which is doing nothing"
+        }
+    );
 
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
@@ -1212,7 +1231,35 @@ pub extern "system" fn get_input() -> u16 {
     let started = profile::now();
     let buttons = original();
     unsafe { profile::record(profile::Phase::Input, started) };
+    // And the d-pad, which the game's own read has just left out: it reads a pad's axes and neither of
+    // the two fields a hat reports in, so a d-pad does nothing in the game while driving orb's own
+    // menus and the launcher's dialog. Added here rather than in [`get_controller_input`], where the
+    // game merges a pad itself: that hook is installed only at Verbose, so a launch that wanted the
+    // d-pad would have to be one whose log was being read closely.
+    //
+    // Into the word the read hands back and before it is written down, so that a direction pushed on
+    // the d-pad is a direction the run recorded — added past [`noted`] it would be a run that played
+    // itself back without it, which is a resumed run diverging from the one somebody played. And after
+    // the read rather than before, because the game's own poll of its controller is what gets a device
+    // back that was lost while the window was away: orb reads the same device a moment later, and a
+    // read that came first would be the one that met it unacquired.
+    let buttons = buttons | unsafe { dpad(game) };
     unsafe { noted(game, frame, held_back(game, buttons)) }
+}
+
+/// The direction the pad's d-pad is pushed, as the bits the game's own input word names them by —
+/// nothing where the setting is off, and nothing from a pad pushed nowhere.
+///
+/// Which of a game's ways to a pad it is read through is the game's business, as it is for the menus
+/// orb puts up: see [`Game::dpad`].
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn dpad(game: &dyn Game) -> u16 {
+    if !DPAD_MOVES.load(Ordering::Relaxed) {
+        return 0;
+    }
+    unsafe { game.dpad(joystick::reading()) }
 }
 
 /// The word the game reads, with the front end's own decide taken out of it while orb has a question

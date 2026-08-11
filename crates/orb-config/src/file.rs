@@ -9,7 +9,7 @@
 //!
 //! Written as well as read, because these are what the launcher asks about before it starts
 //! the game. Written out as text with its comments rather than through a serialiser, which
-//! would leave six bare keys and nothing beside them to say what any of it is for.
+//! would leave seven bare keys and nothing beside them to say what any of it is for.
 
 use serde::Deserialize;
 
@@ -23,6 +23,7 @@ pub(crate) struct File {
     pub boundary_flash: bool,
     pub skip_ending: bool,
     pub hide_mouse: bool,
+    pub dpad_moves: bool,
     pub ask_at_startup: bool,
 }
 
@@ -36,6 +37,7 @@ impl Default for File {
             boundary_flash: true,
             skip_ending: true,
             hide_mouse: true,
+            dpad_moves: true,
             ask_at_startup: true,
         }
     }
@@ -91,6 +93,13 @@ boundary_flash: {boundary_flash}
 # whenever it moves.
 hide_mouse: {hide_mouse}
 
+# Move the player with a gamepad's d-pad as well as with its stick. The game itself reads only the
+# stick, so the d-pad does nothing in it at all — while moving through the window this file was
+# written from and through the questions orb asks inside the game, which both read one. So orb adds
+# the direction the d-pad is pushed to the buttons the game read. false leaves the pad as the game
+# has it.
+dpad_moves: {dpad_moves}
+
 # Ask for all of the above again at the next launch. false keeps what is written here and
 # starts the game straight away; `orb --settings` asks whichever way this is set.
 ask_at_startup: {ask_at_startup}
@@ -100,6 +109,7 @@ ask_at_startup: {ask_at_startup}
         always_draw = file.always_draw,
         boundary_flash = file.boundary_flash,
         hide_mouse = file.hide_mouse,
+        dpad_moves = file.dpad_moves,
         ask_at_startup = file.ask_at_startup,
     )
 }

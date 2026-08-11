@@ -109,6 +109,13 @@ pub struct Config {
     /// orb does about the pointer is own the host's display counter, and there is nothing to own where
     /// the pointer is not being taken off.
     pub hide_mouse: bool,
+    /// Add the direction a pad's d-pad is pushed to the buttons the game read, so that the player
+    /// moves on it as well as on the stick.
+    ///
+    /// The game reads a pad's two axes and neither of the two fields a d-pad reports in, so without
+    /// this a d-pad does nothing in the game — while driving the launcher's own dialog and orb's own
+    /// menus, both of which read it. Off hands the game the word its own read produced.
+    pub dpad_moves: bool,
     /// How big the game's window is, the game's aspect ratio kept either way.
     pub screen: Screen,
     /// Ask for the settings above before starting the game, and write down what was
@@ -330,6 +337,7 @@ impl Config {
             boundary_flash: file.boundary_flash,
             skip_ending: file.skip_ending,
             hide_mouse: file.hide_mouse,
+            dpad_moves: file.dpad_moves,
             screen: file.screen,
             ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
@@ -351,6 +359,7 @@ impl Config {
             boundary_flash: self.boundary_flash,
             skip_ending: self.skip_ending,
             hide_mouse: self.hide_mouse,
+            dpad_moves: self.dpad_moves,
             ask_at_startup: self.ask_at_startup,
         };
         orb_api::fs::write(path, file::text(&file).as_bytes()).map_err(|source| Error::Write {
@@ -382,6 +391,7 @@ mod tests {
         assert!(config.boundary_flash);
         assert!(config.skip_ending);
         assert!(config.hide_mouse);
+        assert!(config.dpad_moves);
         assert_eq!(config.screen, Screen::Fullscreen);
         assert!(config.ask_at_startup);
         assert!(config.chapters);
@@ -418,6 +428,7 @@ mod tests {
         assert!(config.always_draw);
         assert!(config.boundary_flash);
         assert!(config.hide_mouse);
+        assert!(config.dpad_moves);
         assert!(config.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -441,6 +452,7 @@ mod tests {
         config.boundary_flash = false;
         config.skip_ending = false;
         config.hide_mouse = false;
+        config.dpad_moves = false;
         config.ask_at_startup = false;
         config.save(&path).unwrap();
 
@@ -450,6 +462,7 @@ mod tests {
         assert!(!read.boundary_flash);
         assert!(!read.skip_ending);
         assert!(!read.hide_mouse);
+        assert!(!read.dpad_moves);
         assert!(!read.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();

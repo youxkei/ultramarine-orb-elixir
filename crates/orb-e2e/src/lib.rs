@@ -74,6 +74,8 @@ mod stepping_inside_a_stage;
 #[cfg(test)]
 mod th07;
 #[cfg(test)]
+mod the_dpad_moving_the_player;
+#[cfg(test)]
 mod the_ending;
 #[cfg(test)]
 mod the_frame_a_scene_is_built_on;

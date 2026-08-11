@@ -718,6 +718,22 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn pad(&self, winmm: Option<Reading>) -> Pad;
 
+    /// Which way the pad's d-pad is pushed, as the bits of the word the game's own input read hands
+    /// back — nothing where none is pushed, and nothing from a game whose word has not been read.
+    ///
+    /// Its own answer rather than [`Pad`]'s, because these are two different things asked of one
+    /// device: a menu of orb's is a list, so up and down are the whole of what it needs, and a
+    /// player moves in four directions. And the bits are the game's own, which is why the game is
+    /// what turns a direction into them.
+    ///
+    /// `winmm` is orb's own last sample, handed in for the reason [`Self::pad`]'s is, and read for
+    /// the same reason: a game reaching a pad some way orb's sampling does not is a game whose
+    /// d-pad has to be read where the game reads one.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn dpad(&self, winmm: Option<Reading>) -> u16;
+
     /// Gives the run up, and says whether there was one to give up.
     ///
     /// For the retry menu's third choice. Asked of the game rather than done by hand, because

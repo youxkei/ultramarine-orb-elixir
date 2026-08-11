@@ -57,13 +57,14 @@ const ATOM_BUTTON: u16 = 0x0080;
 const ATOM_STATIC: u16 = 0x0082;
 const ATOM_COMBOBOX: u16 = 0x0085;
 
-/// What the settings were answered with, which is the six keys of `orb.yaml`.
+/// What the settings were answered with, which is the seven keys of `orb.yaml`.
 pub struct Answers {
     pub screen: Screen,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
     pub hide_mouse: bool,
+    pub dpad_moves: bool,
     pub ask_at_startup: bool,
 }
 
@@ -74,6 +75,7 @@ impl Answers {
         config.boundary_flash = self.boundary_flash;
         config.skip_ending = self.skip_ending;
         config.hide_mouse = self.hide_mouse;
+        config.dpad_moves = self.dpad_moves;
         config.ask_at_startup = self.ask_at_startup;
     }
 }
@@ -169,7 +171,7 @@ struct Switch {
 }
 
 /// The switches, in the order they are stacked. Each is one key of `orb.yaml`.
-const SWITCHES: [Switch; 5] = [
+const SWITCHES: [Switch; 6] = [
     Switch {
         text: "エンディングをスキップする",
         shown: |config| config.skip_ending,
@@ -189,6 +191,11 @@ const SWITCHES: [Switch; 5] = [
         text: "時間経過でマウスカーソルを消す",
         shown: |config| config.hide_mouse,
         answered: |answers, on| answers.hide_mouse = on,
+    },
+    Switch {
+        text: "ゲームパッドの十字キーでも移動する",
+        shown: |config| config.dpad_moves,
+        answered: |answers, on| answers.dpad_moves = on,
     },
     Switch {
         text: "起動時に毎回訊ねる",
@@ -526,6 +533,7 @@ unsafe fn take_answers(dialog: HWND) {
         boundary_flash: false,
         skip_ending: false,
         hide_mouse: false,
+        dpad_moves: false,
         ask_at_startup: false,
     };
     for (index, switch) in SWITCHES.iter().enumerate() {
@@ -620,9 +628,9 @@ fn template(font: &Font) -> Vec<u32> {
     // used to say `A で決定`, and on the pad this was written for decide is button 0 or 1.
     //
     // Left and right are left out although they do something on two of the rows — the size, and
-    // moving between the two buttons — because they do nothing on the four switches, and a line
-    // that is wrong for four rows out of six is worse than one thing fewer to read. The decide
-    // button is what turns a switch over, and that is said.
+    // moving between the two buttons — because they do nothing on any of the switches, and a line
+    // that is wrong for every switch in the dialog is worse than one thing fewer to read. The
+    // decide button is what turns a switch over, and that is said.
     .chain(std::iter::once(Item {
         class: ATOM_STATIC,
         style: WS_CHILD | WS_VISIBLE,
@@ -804,6 +812,7 @@ mod tests {
                 boundary_flash: false,
                 skip_ending: false,
                 hide_mouse: false,
+                dpad_moves: false,
                 ask_at_startup: false,
             };
             for (other, answering) in SWITCHES.iter().enumerate() {
