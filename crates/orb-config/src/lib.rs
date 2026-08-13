@@ -118,6 +118,20 @@ pub struct Config {
     pub dpad_moves: bool,
     /// How big the game's window is, the game's aspect ratio kept either way.
     pub screen: Screen,
+    /// Put the translation patch installed beside the game into the game orb starts.
+    ///
+    /// The launcher's own question: by the time the DLL is inside the game, the patch is either in there
+    /// with it or was never going to be. Off leaves the game as it comes, which is what somebody who
+    /// wants the game in Japanese with the patch still installed for another launcher wants.
+    pub thcrap: bool,
+    /// Which language orb writes its own screens in, and `None` for the machine's own — which is what
+    /// the file says by default and what the settings dialog offers first.
+    ///
+    /// Kept as the file said it rather than answered here, because both are read: what orb draws with
+    /// is the language, and what the settings dialog has to show as chosen — and write back — is
+    /// whether it was asked for by name or left to the machine. [`Language::of_the_machine`] is the
+    /// other half, called by whoever needs the answer.
+    pub language: Option<Language>,
     /// Ask for the settings above before starting the game, and write down what was
     /// answered. The launcher's question alone: the DLL is inside a game that has already
     /// started.
@@ -153,6 +167,71 @@ pub struct Config {
     // a frame; that read is on a thread of orb's own now and costs the frame nothing, so
     // there is nothing left to turn off. A file still carrying the key is rejected by name,
     // which says what to delete better than quietly ignoring it would.
+}
+
+/// Which language orb writes its own screens in.
+///
+/// Two, and which two follows from what orb is: the mode it brings over is 紺珠伝's and the game it
+/// brings it to is Japanese, so Japanese is the language every screen was written in first — and
+/// English is what somebody playing 紅魔郷 in any other language is already playing it in, the
+/// translation patches being English. A third language is words nobody in this repository can write.
+///
+/// **The log is not one of the screens** and stays English whichever this is: it is read by whoever
+/// is looking into a fault, next to a source tree written in English, and a file that changed
+/// language with the machine it was written on would be one no two reports could be compared across.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Language {
+    Japanese,
+    English,
+}
+
+impl Language {
+    /// The language the machine shows its own windows in, as far as orb has words for it.
+    ///
+    /// Every language but Japanese is answered English, which is the honest answer rather than a
+    /// fallback: a machine in German is one orb has no German for, and whoever is playing 紅魔郷 on it
+    /// is reading either the game's own Japanese or an English patch over it.
+    ///
+    /// The LANGID and the two numbers it is read with are the seam's — `orb_api::locale` — because a
+    /// number Windows has a name for is held against Windows' own name for it below the seam. What is
+    /// here is the reading of it, which is a decision about words.
+    pub fn of_the_machine() -> Self {
+        let language = orb_api::locale::ui_language() & orb_api::locale::PRIMARY_LANGUAGE;
+        if language == orb_api::locale::JAPANESE {
+            Self::Japanese
+        } else {
+            Self::English
+        }
+    }
+}
+
+impl fmt::Display for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Japanese => "japanese",
+            Self::English => "english",
+        })
+    }
+}
+
+impl FromStr for Language {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        // Case-folded the way [`Screen`]'s `fullscreen` is, these being words somebody types into a
+        // file rather than anything orb wrote.
+        let text = text.trim();
+        for language in [Self::Japanese, Self::English] {
+            if text.eq_ignore_ascii_case(&language.to_string()) {
+                return Ok(language);
+            }
+        }
+        Err(format!(
+            "{text:?} is not {}, {} or auto",
+            Self::Japanese,
+            Self::English
+        ))
+    }
 }
 
 /// How much detail the log carries.
@@ -343,6 +422,8 @@ impl Config {
             hide_mouse: file.hide_mouse,
             dpad_moves: file.dpad_moves,
             screen: file.screen,
+            language: file.language,
+            thcrap: file.thcrap,
             ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
             pacing_log: true,
@@ -359,6 +440,8 @@ impl Config {
     pub fn save(&self, path: &Path) -> Result<(), Error> {
         let file = file::File {
             screen: self.screen,
+            language: self.language,
+            thcrap: self.thcrap,
             always_draw: self.always_draw,
             boundary_flash: self.boundary_flash,
             skip_ending: self.skip_ending,
@@ -375,7 +458,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, LogLevel, Screen};
+    use super::{Config, Language, LogLevel, Screen};
     use std::path::{Path, PathBuf};
 
     fn parse(text: &str) -> Config {
@@ -397,6 +480,8 @@ mod tests {
         assert!(config.hide_mouse);
         assert!(config.dpad_moves);
         assert_eq!(config.screen, Screen::Fullscreen);
+        // The machine's own, which is the one answer that needs nobody to have set anything.
+        assert_eq!(config.language, None);
         assert!(config.ask_at_startup);
         assert!(config.chapters);
         assert!(config.track_memory);
@@ -428,6 +513,7 @@ mod tests {
         let config = Config::load_beside(&dir.join("orb.exe")).unwrap();
         assert_eq!(config.game_dir, dir);
         assert_eq!(config.screen, Screen::Fullscreen);
+        assert_eq!(config.language, None);
         assert!(config.skip_ending);
         assert!(config.always_draw);
         assert!(config.boundary_flash);
@@ -452,6 +538,7 @@ mod tests {
             width: 1440,
             height: 1080,
         };
+        config.language = Some(Language::English);
         config.always_draw = false;
         config.boundary_flash = false;
         config.skip_ending = false;
@@ -462,6 +549,7 @@ mod tests {
 
         let read = Config::load(&path).unwrap();
         assert_eq!(read.screen, config.screen);
+        assert_eq!(read.language, Some(Language::English));
         assert!(!read.always_draw);
         assert!(!read.boundary_flash);
         assert!(!read.skip_ending);
@@ -496,6 +584,48 @@ mod tests {
         );
     }
 
+    /// One of the two languages by name, or `auto` — which is not the name of a language but where
+    /// the answer comes from, and which is what a file with nothing to say about it says.
+    #[test]
+    fn a_language_is_one_of_the_two_or_the_machines_own() {
+        assert_eq!(
+            parse("language: japanese\n").language,
+            Some(Language::Japanese)
+        );
+        assert_eq!(
+            parse("language: english\n").language,
+            Some(Language::English)
+        );
+        assert_eq!(parse("language: auto\n").language, None);
+        // Written back the way it is read, the machine's own included: a file written on a machine
+        // whose language was followed is one that follows the next machine too.
+        assert_eq!(Language::Japanese.to_string(), "japanese");
+        assert_eq!(Language::English.to_string(), "english");
+
+        let dir = std::env::temp_dir().join(format!("orb-config-language-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(super::FILE_NAME);
+        let config = parse("");
+        assert_eq!(config.language, None);
+        config.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap().language, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A language orb has no words for is not answered with the ones it has: a file naming it is a
+    /// file to edit, and the refusal says which three words there are.
+    #[test]
+    fn a_language_that_is_neither_says_so() {
+        for text in ["german", "ja", "日本語", ""] {
+            let error = match Config::parse(Path::new("orb.yaml"), &format!("language: {text:?}\n"))
+            {
+                Err(error) => error.to_string(),
+                Ok(config) => panic!("{text:?} was read as {:?}", config.language),
+            };
+            assert!(error.contains("auto"), "{text:?}: {error}");
+        }
+    }
+
     #[test]
     fn a_screen_that_is_neither_says_so() {
         for text in ["window", "1280", "1280x", "x720", "1280x720x60", "8x8", ""] {
@@ -520,8 +650,11 @@ mod tests {
         assert!(error.contains("orb-config-no-such-file.yaml"), "{error}");
     }
 
-    /// What the shipped file is made of: a comment per key, a blank line between them, and a
-    /// comment after a value on the same line as it.
+    /// A file somebody has written comments into is read as readily as the bare keys orb writes: a
+    /// comment over a key, a comment after a value on the same line as it, and a blank line between.
+    ///
+    /// Worth a test of its own now that nothing orb writes has a comment in it, since a file with one
+    /// is then a file only a person makes.
     #[test]
     fn reads_the_file_as_it_is_written() {
         let config = parse(

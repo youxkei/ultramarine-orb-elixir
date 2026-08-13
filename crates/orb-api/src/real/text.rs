@@ -18,13 +18,13 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
 use windows_sys::Win32::Graphics::Gdi::{
-    ANTIALIASED_QUALITY, AddFontResourceExW, BI_RGB, BITMAPINFO, BITMAPINFOHEADER,
-    CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, DEFAULT_PITCH,
-    DIB_RGB_COLORS, DeleteDC, DeleteObject, FR_PRIVATE, GetTextExtentPoint32W, GetTextFaceW, HFONT,
-    OPAQUE, OUT_TT_PRECIS, RemoveFontResourceExW, SHIFTJIS_CHARSET, SelectObject, SetBkColor,
-    SetBkMode, SetTextColor, TextOutW,
+    ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CLIP_DEFAULT_PRECIS,
+    CreateCompatibleDC, CreateDIBSection, DEFAULT_PITCH, DIB_RGB_COLORS, DeleteDC, DeleteObject,
+    FR_PRIVATE, HFONT, OPAQUE, OUT_TT_PRECIS, RemoveFontResourceExW, SHIFTJIS_CHARSET,
+    SelectObject, SetBkColor, SetBkMode, SetTextColor,
 };
 
+use crate::real::gdi;
 use crate::{Face, Mask};
 
 const FW_NORMAL: i32 = 400;
@@ -48,7 +48,9 @@ struct Loaded {
 
 pub fn load_face(path: &Path, height: i32) -> Option<Face> {
     let wide = wide(path);
-    if unsafe { AddFontResourceExW(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) } == 0 {
+    let added =
+        unsafe { (gdi::text().add_font_resource)(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) };
+    if added == 0 {
         return None;
     }
 
@@ -69,7 +71,7 @@ pub fn load_face(path: &Path, height: i32) -> Option<Face> {
         *slot = unit;
     }
 
-    let handle = unsafe { CreateFontIndirectW(&description) };
+    let handle = unsafe { (gdi::text().create_font_indirect)(&description) };
     if handle.is_null() {
         unsafe { RemoveFontResourceExW(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) };
         return None;
@@ -87,7 +89,7 @@ pub fn face_name(face: Face) -> Option<String> {
     }
     let previous = unsafe { SelectObject(dc, loaded.handle as _) };
     let mut buffer = [0u16; 64];
-    let length = unsafe { GetTextFaceW(dc, buffer.len() as i32, buffer.as_mut_ptr()) };
+    let length = unsafe { (gdi::text().text_face)(dc, buffer.len() as i32, buffer.as_mut_ptr()) };
     unsafe {
         SelectObject(dc, previous);
         DeleteDC(dc);
@@ -109,7 +111,7 @@ pub fn bake(face: Face, text: &str) -> Option<Mask> {
 
     let mut extent = unsafe { std::mem::zeroed() };
     let measured =
-        unsafe { GetTextExtentPoint32W(dc, wide.as_ptr(), wide.len() as i32, &mut extent) };
+        unsafe { (gdi::text().text_extent)(dc, wide.as_ptr(), wide.len() as i32, &mut extent) };
     // Antialiasing and italic overhang can reach a pixel past the extent.
     let width = if measured == 0 {
         0
@@ -159,7 +161,7 @@ pub fn bake(face: Face, text: &str) -> Option<Mask> {
             SetBkMode(dc, OPAQUE as i32);
             SetBkColor(dc, BLACK);
             SetTextColor(dc, WHITE);
-            TextOutW(dc, 1, 1, wide.as_ptr(), wide.len() as i32);
+            (gdi::text().text_out)(dc, 1, 1, wide.as_ptr(), wide.len() as i32);
         }
         let rendered =
             unsafe { std::slice::from_raw_parts(bits as *const u32, (width * height) as usize) };

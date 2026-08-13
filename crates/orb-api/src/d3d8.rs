@@ -9,13 +9,13 @@
 //! is the game's own scene drawing wrong. See
 //! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 //!
-//! **Eighteen of them, which is every slot this file types.** Direct3D 8 has no metadata in Windows'
+//! **Every slot this file types, and nothing besides.** Direct3D 8 has no metadata in Windows'
 //! own, so the vtables are declared here — and only the methods that get called are typed, the rest
-//! being pointer-sized padding. So the count comes out of the declarations themselves:
+//! being pointer-sized padding. So how many that is comes out of the declarations themselves, and is
+//! asked rather than written down:
 //!
 //! ```sh
 //! $ grep -c 'offset_of!' crates/orb-api/src/d3d8.rs
-//! 18
 //! ```
 //!
 //! Counted off the slot asserts rather than off the declarations: the layouts carry a padding field per

@@ -34,7 +34,7 @@ use orb_core::game::th06::image::{
 };
 use orb_core::game::{Game, RunStart};
 use orb_sim::Quad;
-use orb_sim::keys;
+use orb_sim::{keys, langid};
 
 use super::{
     DRAW, Display, Launch, Launched, PRESENT, Panel, READS_KEYS_AFTER, SOUND, UPDATE, WINDOW, Work,
@@ -711,6 +711,30 @@ impl Fake {
         Self::attach_to_display(Display::ordinary(), name, run, settings)
     }
 
+    /// And on a machine whose own windows are in the language `ui_language` names — `orb_sim::langid`
+    /// holds the two worth declaring.
+    ///
+    /// For the one scenario that is about which language orb writes its screens in: with nothing in
+    /// `orb.yaml` saying, that is the machine's, and the machine is the only place the answer can come
+    /// from. Every other scenario is on [`LANGUAGE`](crate::fake::LANGUAGE)'s machine.
+    pub fn attach_on_a_machine_in(
+        ui_language: u16,
+        name: &str,
+        run: RunStart,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(
+            Display::ordinary(),
+            ui_language,
+            None,
+            name,
+            &[],
+            run,
+            true,
+            settings,
+        )
+    }
+
     /// And with that directory already holding what an earlier launch left in it: `left` is a file name
     /// and its contents, written before orb is attached.
     ///
@@ -724,7 +748,16 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(Display::ordinary(), None, name, left, run, true, settings)
+        Self::attach_declaring(
+            Display::ordinary(),
+            langid::JAPANESE,
+            None,
+            name,
+            left,
+            run,
+            true,
+            settings,
+        )
     }
 
     /// And on a display an e2e test says the whole of, for the ones the frame loop's pacing is about.
@@ -734,7 +767,16 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, name, &[], run, true, settings)
+        Self::attach_declaring(
+            display,
+            langid::JAPANESE,
+            None,
+            name,
+            &[],
+            run,
+            true,
+            settings,
+        )
     }
 
     /// And on a monitor an e2e test says the whole of too, for the ones about the window orb makes.
@@ -749,6 +791,7 @@ impl Fake {
     ) -> Box<Self> {
         Self::attach_declaring(
             Display::ordinary(),
+            langid::JAPANESE,
             Some(panel),
             name,
             &[],
@@ -767,7 +810,16 @@ impl Fake {
         run: RunStart,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(Display::ordinary(), None, name, &[], run, false, settings)
+        Self::attach_declaring(
+            Display::ordinary(),
+            langid::JAPANESE,
+            None,
+            name,
+            &[],
+            run,
+            false,
+            settings,
+        )
     }
 
     /// And the same with a monitor declared, which is the launch a letterbox exists in: the window is laid
@@ -781,6 +833,7 @@ impl Fake {
     ) -> Box<Self> {
         Self::attach_declaring(
             Display::ordinary(),
+            langid::JAPANESE,
             Some(panel),
             name,
             &[],
@@ -790,8 +843,14 @@ impl Fake {
         )
     }
 
+    /// Every host fact a launch is declared with, in one place: the wrappers above are what an e2e test
+    /// calls, each naming the one it is about and passing the rest as what an ordinary machine has. So
+    /// the argument count is the number of things a host can be declared to be, and not something
+    /// anybody has to hold in their head at a call site — which is what the lint is about.
+    #[allow(clippy::too_many_arguments)]
     fn attach_declaring(
         display: Display,
+        ui_language: u16,
         panel: Option<Panel>,
         name: &str,
         left: &[(&str, &str)],
@@ -827,6 +886,9 @@ impl Fake {
         // [`scratch`](super::scratch).
         let image = Image::laid_out_seeded(display.seed);
         let installed = image.enter();
+        // Before the attach, that being where orb settles which language its screens are in: a machine
+        // declared after it is one nothing asked.
+        image.sim().set_ui_language(ui_language);
         // The directory the game is installed in, which is there because the game is: orb writes a tuning
         // pass's two files straight into it, and a write wants its directory here as on a real host.
         image.sim().files().make(&dir);
@@ -1052,14 +1114,22 @@ impl Fake {
         name: &str,
         work: Work,
     ) -> Box<Self> {
-        let game =
-            Self::attach_declaring(display, Some(panel), name, &[], the_run(), true, |config| {
+        let game = Self::attach_declaring(
+            display,
+            langid::JAPANESE,
+            Some(panel),
+            name,
+            &[],
+            the_run(),
+            true,
+            |config| {
                 config.pacing_log = true;
                 // Fullscreen, that being what puts bars down the sides: the game's 4:3 output on a
                 // widescreen panel leaves the black orb writes in, and a window sized to the game leaves
                 // none of it.
                 config.screen = orb_config::Screen::Fullscreen;
-            });
+            },
+        );
         game.creates_its_window();
         game.frame_takes(work);
         game

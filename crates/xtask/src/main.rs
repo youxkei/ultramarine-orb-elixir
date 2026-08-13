@@ -32,7 +32,7 @@ const TARGET: &str = "i686-pc-windows-gnu";
 ///     --> crates/orb-core/src/game/th06/mod.rs:1977:32
 /// ```
 ///
-/// The three are the `handed_over!` calls, which transmute to `extern "thiscall"` — a convention MSVC6
+/// What raises it are the `handed_over!` calls, which transmute to `extern "thiscall"` — a convention MSVC6
 /// compiled the game's own methods with, and one that exists on x86 and nowhere else. So a 64-bit check
 /// would fail on arrival over the ABI while saying nothing about the host.
 const SEAM_TARGET: &str = "i686-unknown-linux-gnu";

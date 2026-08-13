@@ -9,7 +9,7 @@
 //! game's own record of the card, and what orb put in the log.
 
 use crate::fake::th06::{ATTACK_CHANGES, CARD, CARD_STARTS, Fake, lives_row};
-use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen, item};
 use orb_core::game::{Menu, RunStart};
@@ -69,12 +69,13 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         );
         assert_eq!(pointdevice[0].color, NORMAL);
         assert_eq!(
-            game.says(aside(Menu::Run, Mode::Normal)[0]).len(),
+            game.says(aside(Menu::Run, Mode::Normal, LANGUAGE)[0]).len(),
             1,
             "what レガシーモード means is not said under it",
         );
         assert!(
-            game.says(aside(Menu::Run, Mode::Pointdevice)[0]).is_empty(),
+            game.says(aside(Menu::Run, Mode::Pointdevice, LANGUAGE)[0])
+                .is_empty(),
             "the lines under the other choice are still on the screen",
         );
         game.press_until(keys::Z, "the mode question answered", || {
@@ -245,7 +246,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         );
         game.forget();
         game.frame();
-        assert_eq!(game.says(title(Menu::Scores)).len(), 1);
+        assert_eq!(game.says(title(Menu::Scores, LANGUAGE)).len(), 1);
         game.press_until(keys::Z, "レガシーのスコア画面", || {
             game.image().scene() == Scene::Ranking
         });

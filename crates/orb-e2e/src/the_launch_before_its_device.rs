@@ -18,7 +18,7 @@
 //! drew nothing and went on drawing nothing would pass it.
 
 use crate::fake::th06::{Fake, the_run};
-use crate::fake::{Launched, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::mode::title;
@@ -77,7 +77,7 @@ fn orb_draws_nothing_until_the_games_device_setup_runs() {
         game.press(keys::Z);
         game.one_frame();
         assert!(
-            !game.says(title(Menu::Run)).is_empty(),
+            !game.says(title(Menu::Run, LANGUAGE)).is_empty(),
             "orb drew nothing once the device was there:\n  {}",
             game.log().lines().join("\n  ")
         );

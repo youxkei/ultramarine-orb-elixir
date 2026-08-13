@@ -74,6 +74,13 @@ impl Process {
         self.id
     }
 
+    /// The process and its main thread, for the one thing orb hands to somebody else: the translation
+    /// patch beside the game, which runs the process to its entry point and loads itself into it — see
+    /// [`crate::thcrap`]. Borrowed rather than given away, both handles being this value's to close.
+    pub fn handles(&self) -> (HANDLE, HANDLE) {
+        (self.process, self.main_thread)
+    }
+
     pub fn load_library(&self, dll: &Path) -> io::Result<()> {
         let path = wide(dll);
         let bytes = size_of::<u16>() * path.len();

@@ -1,4 +1,4 @@
-//! How the three questions orb puts on the screen are drawn: a list of items with a cursor on one
+//! How the questions orb puts on the screen are drawn: a list of items with a cursor on one
 //! of them, over a wash of what is underneath.
 //!
 //! Here rather than three times over for the same reason as the keys it re-exports below — the
@@ -9,7 +9,7 @@
 use crate::overlay::{Frame, Label};
 
 /// The keys these menus read, unchanged at every call site: `menu_ui::moved`, `menu_ui::Keys` and
-/// the rest are what the three questions were written against, and which side of the seam they now
+/// the rest are what those questions were written against, and which side of the seam they now
 /// live on is not something those three have an opinion about.
 pub use crate::menu::{By, Keys, Pressed, moved};
 

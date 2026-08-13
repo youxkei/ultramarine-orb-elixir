@@ -21,7 +21,7 @@
 //! so the next game opens its own.
 
 use crate::fake::th06::Fake;
-use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Screen, item};
 use orb_core::game::{Menu, RunStart};
@@ -57,7 +57,7 @@ fn ask(game: &Fake) {
     game.press(keys::Z);
     game.one_frame();
     assert!(
-        !game.says(title(Menu::Run)).is_empty(),
+        !game.says(title(Menu::Run, LANGUAGE)).is_empty(),
         "the press did not put the question up: {:?}",
         game.log().lines(),
     );
@@ -74,7 +74,8 @@ fn ask(game: &Fake) {
 fn under_the_cursor(game: &Fake) -> Mode {
     game.one_frame();
     let mut on = None;
-    for (mode, text) in orb_core::mode::CHOICES {
+    for mode in orb_core::mode::CHOICES {
+        let text = mode.name(LANGUAGE);
         let drawn = game.says(text);
         assert_eq!(drawn.len(), 1, "{text} is not on the screen once");
         if drawn[0].color == SELECTED {
@@ -89,7 +90,7 @@ fn under_the_cursor(game: &Fake) -> Mode {
 /// Whether the question is still on the screen, which is what "nothing was answered" looks like.
 fn still_asking(game: &Fake) -> bool {
     game.one_frame();
-    !game.says(title(Menu::Run)).is_empty()
+    !game.says(title(Menu::Run, LANGUAGE)).is_empty()
 }
 
 /// How many times orb has reported an outcome for this question — a mode chosen, or neither.
@@ -252,7 +253,7 @@ fn the_press_it_went_up_on_does_not_answer_it_and_a_held_key_answers_once() {
         // Held from before the question and never let go: the press that put it up.
         game.keyboard().set(keys::Z, true);
         game.frames_until("the question", 8, || {
-            !game.says(title(Menu::Run)).is_empty()
+            !game.says(title(Menu::Run, LANGUAGE)).is_empty()
         });
         for _ in 0..90 {
             game.frame();
@@ -360,13 +361,13 @@ fn the_ranking_is_asked_the_same_way_and_says_it_is_about_a_ranking() {
         game.press(keys::Z);
         game.one_frame();
         assert_eq!(
-            game.says(title(Menu::Scores)).len(),
+            game.says(title(Menu::Scores, LANGUAGE)).len(),
             1,
             "the question over a ranking is not the one asked about a ranking: {:?}",
             game.log().lines(),
         );
         assert!(
-            game.says(title(Menu::Run)).is_empty(),
+            game.says(title(Menu::Run, LANGUAGE)).is_empty(),
             "the question over a ranking is the one asked about a run",
         );
         assert_eq!(under_the_cursor(&game), Mode::Pointdevice);

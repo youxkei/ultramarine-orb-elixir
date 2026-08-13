@@ -41,6 +41,7 @@ pub mod dsound;
 pub mod fs;
 pub mod joystick;
 pub mod keyboard;
+pub mod locale;
 pub mod logfile;
 pub mod mem;
 pub mod module;
@@ -466,7 +467,7 @@ pub trait Win: Send + Sync + 'static {
 
     // --- the status line, in the black beside the game ---------------------------
     //
-    // Two, and **coarser than the drawing seam's eighteen on purpose**. That one is a mirror of the
+    // Two, and **coarser than the drawing seam on purpose**. That one is a mirror of the
     // device's slots because the failure a state-block bracket exists to prevent is the *game's own
     // scene* drawing wrong, which no test below the seam could see. Here there is no such bracket: the
     // black beside the game is orb's alone, Direct3D never touches it, and the one failure below this
@@ -500,7 +501,7 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// The whole array rather than a key at a time, because that is what the call answers: asking
     /// per key would be several reads of a state that may have moved between them, and orb's menus
-    /// read six keys a frame.
+    /// read more than one key a frame.
     fn keyboard_state(&self) -> Option<[u8; 256]>;
 
     // --- the mouse pointer ------------------------------------------------------
@@ -553,6 +554,15 @@ pub trait Win: Send + Sync + 'static {
     /// declared.
     fn codepage_text(&self, bytes: &[u8]) -> String;
 
+    // --- the machine's display language -------------------------------------------
+
+    /// `GetUserDefaultUILanguage` — the LANGID of the language Windows shows its own windows in, which
+    /// is the one orb writes its screens in where `orb.yaml` names none.
+    ///
+    /// Apart from [`Win::codepage_text`] because Windows keeps the two apart: a code page is which
+    /// bytes a `-A` call answered in, and this is which language a person reads.
+    fn ui_language(&self) -> u16;
+
     // --- loaded modules --------------------------------------------------------
 
     /// The address of a function exported by an already-loaded module — `mmioSeek` out of the
@@ -600,8 +610,8 @@ pub trait Win: Send + Sync + 'static {
 
     // --- the device the game shows its frames through ---------------------------
     //
-    // Eighteen slots, which is every one `crates/orb-api/src/d3d8.rs` types — fifteen of
-    // `IDirect3DDevice8` and three of `IDirect3DTexture8`. **A mirror of them and not an abstraction
+    // Every slot `crates/orb-api/src/d3d8.rs` types, of `IDirect3DDevice8` and of
+    // `IDirect3DTexture8`. **A mirror of them and not an abstraction
     // over them**, which is the whole of the design and the one way it can be got wrong: what must not
     // cross is a decision. See that module, and
     // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).

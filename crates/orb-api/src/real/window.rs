@@ -4,16 +4,17 @@
 use windows_sys::Win32::Foundation::{POINT, RECT, SIZE};
 use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, BLACKNESS, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap,
-    CreateCompatibleDC, CreateFontW, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC, DeleteObject,
-    ExtTextOutW, FW_NORMAL, GetDC, GetMonitorInfoW, GetTextExtentPoint32W, HDC, HFONT, HGDIOBJ,
-    MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC,
-    SRCCOPY, SelectObject, SetBkMode, SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
+    CreateCompatibleDC, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC, DeleteObject, FW_NORMAL, GetDC,
+    GetMonitorInfoW, HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextAlign,
+    SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRect, GetClientRect, GetForegroundWindow, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
     MB_SYSTEMMODAL, MessageBoxW, SetProcessDPIAware,
 };
 
+use crate::real::gdi;
 use crate::{Bar, Hwnd, Rect};
 
 // The two alignments, written out above the seam and held against Windows' own numbers here. Which way
@@ -63,9 +64,13 @@ pub fn client_rect(window: Hwnd) -> Option<Rect> {
 
 /// A font at `em` pixels of em, in whatever face the host substitutes for no name at all: the lines
 /// beside the game are orb's own text and not the game's, so nothing here asks for the game's font.
+///
+/// Through [`gdi::text`] rather than this DLL's import of it, which is where every call below that carries
+/// a string or a font goes — see that module for what a translation patch injected into the same game does
+/// to them.
 fn font(em: i32) -> HFONT {
     unsafe {
-        CreateFontW(
+        (gdi::text().create_font)(
             em,
             0,
             0,
@@ -98,7 +103,9 @@ pub fn measure_lines(lines: &[String], em: i32) -> (i32, i32) {
     for text in lines {
         let wide: Vec<u16> = text.encode_utf16().collect();
         let mut size = SIZE { cx: 0, cy: 0 };
-        if unsafe { GetTextExtentPoint32W(dc, wide.as_ptr(), wide.len() as i32, &mut size) } != 0 {
+        let measured =
+            unsafe { (gdi::text().text_extent)(dc, wide.as_ptr(), wide.len() as i32, &mut size) };
+        if measured != 0 {
             widest = widest.max(size.cx);
             line = line.max(size.cy);
         }
@@ -164,7 +171,7 @@ unsafe fn paint(dc: HDC, bar: &Bar, font: HFONT, lines: &[String]) -> bool {
         for (index, line) in lines.iter().rev().enumerate() {
             let top = bar.bottom - bar.height * (index as i32 + 1) - bar.area.top;
             let wide: Vec<u16> = line.encode_utf16().collect();
-            ExtTextOutW(
+            (gdi::text().ext_text_out)(
                 memory,
                 bar.x - bar.area.left,
                 top,

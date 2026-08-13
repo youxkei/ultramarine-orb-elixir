@@ -3,6 +3,8 @@
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! orb asks share.
 
+use orb_config::Language;
+
 use crate::game::{Pad, Rect};
 use crate::input::Keyboard;
 use crate::log;
@@ -32,7 +34,8 @@ pub enum Choice {
 }
 
 impl Choice {
-    /// For the log, in the English the rest of it is in — the menu itself is in Japanese.
+    /// For the log, in the English the rest of it is in — and it stays this wording whichever language
+    /// the menu is in, a log being read beside a source tree rather than by whoever is playing.
     pub fn label(self) -> &'static str {
         match self {
             Self::Chapter => "the chapter again",
@@ -40,16 +43,26 @@ impl Choice {
             Self::Quit => "the run given up",
         }
     }
+
+    /// What the item says on screen.
+    ///
+    /// The third says where it ends up rather than what it gives up, because that is the part
+    /// somebody reading the item does not know: the run ending is the obvious half, and that the game
+    /// itself carries on is not.
+    fn text(self, language: Language) -> &'static str {
+        match (self, language) {
+            (Self::Chapter, Language::Japanese) => "チャプターをやり直す",
+            (Self::Chapter, Language::English) => "Retry the chapter",
+            (Self::Stage, Language::Japanese) => "ステージをやり直す",
+            (Self::Stage, Language::English) => "Retry the stage",
+            (Self::Quit, Language::Japanese) => "タイトルに戻る",
+            (Self::Quit, Language::English) => "Back to the title screen",
+        }
+    }
 }
 
-/// The third says where it ends up rather than what it gives up, because that is the part
-/// somebody reading the item does not know: the run ending is the obvious half, and that the game
-/// itself carries on is not.
-const CHOICES: [(Choice, &str); 3] = [
-    (Choice::Chapter, "チャプターをやり直す"),
-    (Choice::Stage, "ステージをやり直す"),
-    (Choice::Quit, "タイトルに戻る"),
-];
+/// The three ways on, in the order they are offered. The words are [`Choice::text`]'s.
+const CHOICES: [Choice; 3] = [Choice::Chapter, Choice::Stage, Choice::Quit];
 
 /// The second question a choice asks, where it asks one.
 ///
@@ -65,18 +78,30 @@ const CHOICES: [(Choice, &str); 3] = [
 /// The question is the whole of what is said. A line under it spelling out what would be lost
 /// was tried and taken out: the question already names what is about to happen, and a screen
 /// somebody meets by dying is not the place to be read at.
-fn question(choice: Choice) -> Option<&'static str> {
-    match choice {
-        Choice::Chapter => None,
-        Choice::Stage => Some("ステージの最初からやり直す？"),
-        Choice::Quit => Some("やめてタイトルに戻る？"),
+fn question(choice: Choice, language: Language) -> Option<&'static str> {
+    match (choice, language) {
+        (Choice::Chapter, _) => None,
+        (Choice::Stage, Language::Japanese) => Some("ステージの最初からやり直す？"),
+        (Choice::Stage, Language::English) => Some("Start the stage over from the beginning?"),
+        (Choice::Quit, Language::Japanese) => Some("やめてタイトルに戻る？"),
+        (Choice::Quit, Language::English) => Some("Give up and go back to the title screen?"),
     }
 }
 
 /// Yes above no, with the cursor starting on no — which is where the game's own quit
 /// question puts it, and it is what makes a press on the frame the grace ends cost nothing.
-const ANSWERS: [(bool, &str); 2] = [(true, "はい"), (false, "いいえ")];
+const ANSWERS: [bool; 2] = [true, false];
 const NO: usize = 1;
+
+/// What an answer says on screen.
+fn answer(yes: bool, language: Language) -> &'static str {
+    match (yes, language) {
+        (true, Language::Japanese) => "はい",
+        (true, Language::English) => "Yes",
+        (false, Language::Japanese) => "いいえ",
+        (false, Language::English) => "No",
+    }
+}
 
 /// What the menu is showing.
 #[derive(Clone, Copy)]
@@ -92,6 +117,9 @@ pub struct RetryMenu {
     selection: usize,
     /// Which answer the cursor is on, while a confirmation is up.
     answer: usize,
+    /// Which language its words are in, kept for the same reason [`crate::mode_ui::ModeMenu`] keeps
+    /// it: what the menu decides is the same either way, and every word of it is a function of this.
+    language: Language,
     keys: Keys,
     chapter: Label,
     retry: Label,
@@ -101,20 +129,13 @@ pub struct RetryMenu {
     cursor: Label,
 }
 
-/// Beside `new` because the module is public to `orb-e2e` now, and a menu with nothing chosen yet is
-/// exactly what `new` makes.
-impl Default for RetryMenu {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RetryMenu {
-    pub fn new() -> Self {
+    pub fn new(language: Language) -> Self {
         Self {
             showing: Showing::Choices,
             selection: 0,
             answer: NO,
+            language,
             keys: Keys::new(INPUT_GRACE_FRAMES),
             chapter: Label::new(),
             retry: Label::new(),
@@ -144,8 +165,8 @@ impl RetryMenu {
             Showing::Choices => {
                 self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
                 pressed.decide?;
-                let chosen = CHOICES[self.selection].0;
-                if question(chosen).is_none() {
+                let chosen = CHOICES[self.selection];
+                if question(chosen, self.language).is_none() {
                     return Some(chosen);
                 }
                 self.showing = Showing::Confirming(chosen);
@@ -161,7 +182,7 @@ impl RetryMenu {
                     return None;
                 }
                 pressed.decide?;
-                if ANSWERS[self.answer].0 {
+                if ANSWERS[self.answer] {
                     return Some(choice);
                 }
                 self.back_to_choices(choice, "answered no");
@@ -194,16 +215,16 @@ impl RetryMenu {
             self.cursor.set(overlay, "▶");
             match self.showing {
                 Showing::Choices => {
-                    for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
-                        label.set(overlay, text);
+                    for (label, choice) in self.choices.iter_mut().zip(CHOICES) {
+                        label.set(overlay, choice.text(self.language));
                     }
                 }
                 Showing::Confirming(choice) => {
-                    if let Some(asked) = question(choice) {
+                    if let Some(asked) = question(choice, self.language) {
                         self.asked.set(overlay, asked);
                     }
-                    for (label, (_, text)) in self.answers.iter_mut().zip(ANSWERS) {
-                        label.set(overlay, text);
+                    for (label, yes) in self.answers.iter_mut().zip(ANSWERS) {
+                        label.set(overlay, answer(yes, self.language));
                     }
                 }
             }
@@ -258,7 +279,12 @@ mod tests {
     use crate::game::Rect;
     use crate::menu_ui::{By, DIM_FIELD, LINE_HEIGHT, SELECTED};
     use crate::overlay::Drawing;
+    use orb_config::Language;
     use orb_sim::Quad;
+
+    /// The language every menu below is read in. Which one changes nothing these tests assert — what
+    /// a press means, and where a line lands — so it is the one the game itself is in.
+    const LANGUAGE: Language = Language::Japanese;
 
     /// A frame nothing was pressed on.
     fn nothing() -> Pressed {
@@ -295,7 +321,7 @@ mod tests {
     /// here starts: what is being watched is what the presses mean, not that they are held
     /// off first.
     fn open() -> RetryMenu {
-        let mut menu = RetryMenu::new();
+        let mut menu = RetryMenu::new(LANGUAGE);
         menu.keys.hold(0);
         menu
     }
@@ -304,7 +330,7 @@ mod tests {
     fn choose(menu: &mut RetryMenu, choice: Choice) -> Option<Choice> {
         let at = CHOICES
             .iter()
-            .position(|(item, _)| *item == choice)
+            .position(|item| *item == choice)
             .expect("the menu offers it");
         while menu.selection != at {
             assert_eq!(menu.step(&down()), None);
@@ -329,7 +355,9 @@ mod tests {
     fn the_chapter_is_not_asked_about() {
         let mut menu = open();
         assert_eq!(choose(&mut menu, Choice::Chapter), Some(Choice::Chapter));
-        assert!(question(Choice::Chapter).is_none());
+        for language in [Language::Japanese, Language::English] {
+            assert!(question(Choice::Chapter, language).is_none());
+        }
     }
 
     /// The other two ask first, and neither has happened when the question goes up: it takes
@@ -343,7 +371,7 @@ mod tests {
 
             read_it(&mut menu);
             assert_eq!(menu.step(&down()), None);
-            assert!(ANSWERS[menu.answer].0, "on yes");
+            assert!(ANSWERS[menu.answer], "on yes");
             assert_eq!(menu.step(&decide()), Some(choice));
         }
     }
@@ -355,13 +383,13 @@ mod tests {
         let mut menu = open();
         assert_eq!(choose(&mut menu, Choice::Quit), None);
         assert_eq!(menu.answer, NO);
-        assert!(!ANSWERS[menu.answer].0);
+        assert!(!ANSWERS[menu.answer]);
 
         read_it(&mut menu);
         assert_eq!(menu.step(&decide()), None);
         assert!(matches!(menu.showing, Showing::Choices));
         // And the cursor is still on the item that was asked about, not moved by the answering.
-        assert_eq!(CHOICES[menu.selection].0, Choice::Quit);
+        assert_eq!(CHOICES[menu.selection], Choice::Quit);
     }
 
     /// The way out of a question asked by mistake, which is the whole point of `x` here: the
@@ -392,7 +420,7 @@ mod tests {
         read_it(&mut menu);
 
         assert_eq!(menu.step(&down()), None);
-        assert!(ANSWERS[menu.answer].0, "on yes");
+        assert!(ANSWERS[menu.answer], "on yes");
         assert_eq!(
             menu.step(&Pressed {
                 up: true,
@@ -400,7 +428,7 @@ mod tests {
             }),
             None
         );
-        assert!(!ANSWERS[menu.answer].0, "back on no");
+        assert!(!ANSWERS[menu.answer], "back on no");
     }
 
     /// The play field, as the game's own output measures it.

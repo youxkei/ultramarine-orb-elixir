@@ -32,12 +32,21 @@ use orb_api::d3d8::{
 };
 use orb_api::text::Font;
 use orb_api::{Device, Hwnd};
+use orb_config::Language;
 use orb_core::profile;
 use orb_sim::{Clock, Compose, DEVICE, Drawn, Log, Quad};
 
 /// The game's window. Any handle: what it is for is that the host says it is the one in front, which
 /// is what makes a key down a key the game and orb both read.
 pub const WINDOW: Hwnd = Hwnd(0x1234);
+
+/// The language every scenario here reads orb's own screens in, and the one the simulated host is set
+/// to unless a scenario says otherwise.
+///
+/// Japanese because the game is: a scenario looking for a menu item looks for the words somebody
+/// playing 紅魔郷 sees. That orb writes those words in English on an English machine is one scenario's
+/// subject — `the_screens_in_english` — and it declares the machine itself.
+pub const LANGUAGE: Language = Language::Japanese;
 
 /// The names a frame's own record uses for the calls a loop makes into the game — see
 /// [`Launched::asked`].

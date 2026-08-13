@@ -21,7 +21,7 @@ use std::ffi::c_void;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 
-use orb_config::Config;
+use orb_config::{Config, Language};
 
 use crate::game::{Game, Pad, RunStart, State};
 use crate::input::Keyboard;
@@ -62,7 +62,7 @@ const HUD_NUMBER_INTERVAL: u32 = 30;
 /// How many frames to keep trying to build the overlay for.
 ///
 /// More than one because what one failure costs is the whole run: no retry menu and none of the
-/// three questions, each of them being skipped where there is no overlay. Not forever, because
+/// questions orb asks, each of them being skipped where there is no overlay. Not forever, because
 /// the failure to expect is `font.ttf` missing, and that answer does not change however often it
 /// is asked — so this is a handful of tries and then the line saying it is unavailable.
 const OVERLAY_ATTEMPTS: u32 = 8;
@@ -283,6 +283,10 @@ pub struct Runtime {
     /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
     /// which is asked once and cannot be asked before the device exists.
     sent_keys: bool,
+    /// Which language every screen of orb's own is written in, settled at the attach: `orb.yaml` says,
+    /// or the machine does where it says nothing. Kept here rather than read per screen because it
+    /// cannot change while a process runs and the machine's own is a call to the host.
+    language: Language,
 }
 
 /// A run the resume question has been answered for, waiting for the game to get to it.
@@ -749,6 +753,18 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
         }
     );
 
+    // Which language every screen of orb's own is in, settled once here: the file says, or the machine
+    // does where it says nothing. Said in the log because a screenshot of a menu somebody could not
+    // read is otherwise the only evidence of which it came out as.
+    let language = config.language.unwrap_or_else(Language::of_the_machine);
+    log!(
+        "language: {language}, {}",
+        match config.language {
+            None => "which is what this machine's own windows are in",
+            Some(_) => "which is what orb.yaml asks for",
+        }
+    );
+
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
     unsafe {
@@ -784,11 +800,12 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             rolling: false,
             given_up: false,
             asking_resume: None,
-            mark: resume_ui::Mark::new(),
+            mark: resume_ui::Mark::new(language),
             started: None,
             kept: None,
             starting: 0,
             sent_keys: false,
+            language,
         });
     }
 }
@@ -1778,7 +1795,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             .is_some_and(|previous| state.deaths > previous.deaths);
     if died && runtime.chaptering() && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
-        runtime.retry = Some(RetryMenu::new());
+        runtime.retry = Some(RetryMenu::new(runtime.language));
     }
 
     // The question after the character select, where a run has been chosen and a chapter of that
@@ -1868,7 +1885,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             }
             (_, _, Some(menu)) => {
                 log!("menu: {menu:?} is under the cursor, asking which mode");
-                runtime.asking = Some(ModeMenu::new(menu, runtime.mode));
+                runtime.asking = Some(ModeMenu::new(menu, runtime.mode, runtime.language));
             }
             // An item orb has nothing to ask about, which is four of the title menu's eight and every
             // frame the cursor has moved off one it does ask about. The press goes to the front end
@@ -1974,7 +1991,7 @@ fn ask_where_to_start(
         }
         Some(saved) => {
             log!("resume: {slot} was left; asking where to start");
-            let menu = resume_ui::ResumeMenu::new(saved.describe(), cancels);
+            let menu = resume_ui::ResumeMenu::new(saved.describe(), cancels, runtime.language);
             runtime.asking_resume = Some((menu, saved));
             true
         }

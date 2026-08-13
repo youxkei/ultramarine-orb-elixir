@@ -28,7 +28,7 @@
 //! pointdevice run would put a chapter's frames between the push and the player.
 
 use crate::fake::th06::{Fake, MAPPING, SPEED, button, the_run};
-use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::game::th06::image::Mapping;
@@ -427,7 +427,7 @@ fn a_question_of_orbs_is_answered_on_the_pad_the_game_cannot_reach() {
         game.press(orb_sim::keys::Z);
         game.one_frame();
         assert!(
-            !game.says(title(Menu::Run)).is_empty(),
+            !game.says(title(Menu::Run, LANGUAGE)).is_empty(),
             "the press did not put the question up:\n  {}",
             game.log().lines().join("\n  ")
         );
@@ -456,7 +456,8 @@ fn a_question_of_orbs_is_answered_on_the_pad_the_game_cannot_reach() {
 fn under_the_cursor(game: &Fake) -> Mode {
     game.one_frame();
     let mut on = None;
-    for (mode, text) in orb_core::mode::CHOICES {
+    for mode in orb_core::mode::CHOICES {
+        let text = mode.name(LANGUAGE);
         let drawn = game.says(text);
         assert_eq!(drawn.len(), 1, "{text} is not on the screen once");
         if drawn[0].color == orb_core::menu_ui::SELECTED {

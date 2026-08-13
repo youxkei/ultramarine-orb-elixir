@@ -1,4 +1,4 @@
-//! The keys the three questions orb puts on the screen read, and where a cursor over them goes.
+//! The keys the questions orb puts on the screen read, and where a cursor over them goes.
 //!
 //! Each of those questions is up on frames the game is frozen on, which means its own input handling
 //! is not running either — so each reads the keyboard itself and takes the pad from the sample orb's

@@ -16,6 +16,8 @@
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! share.
 
+use orb_config::Language;
+
 use crate::game::Pad;
 use crate::input::Keyboard;
 use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, Keys, LINE_HEIGHT, NORMAL, Pressed, SELECTED};
@@ -52,19 +54,56 @@ pub enum Cancels {
     Nothing,
 }
 
-const CHOICES: [(Answer, &str); 2] = [
-    (Answer::Continue, "つづきから"),
-    (Answer::Beginning, "はじめから"),
-];
+/// The two items, in the order they are offered. Their words are [`Answer::text`]'s.
+const CHOICES: [Answer; 2] = [Answer::Continue, Answer::Beginning];
+
+impl Answer {
+    /// What the item says on screen, and `None` for the one that is not an item: cancelling is what a
+    /// cancel does to this question, not something offered on it.
+    fn text(self, language: Language) -> Option<&'static str> {
+        match (self, language) {
+            (Self::Continue, Language::Japanese) => Some("つづきから"),
+            (Self::Continue, Language::English) => Some("Continue"),
+            (Self::Beginning, Language::Japanese) => Some("はじめから"),
+            (Self::Beginning, Language::English) => Some("From the beginning"),
+            (Self::Cancelled, _) => None,
+        }
+    }
+}
 
 /// What starting again costs, said under that item: the run left unfinished is written over as soon
 /// as the new one reaches a chapter, and this is the last moment anybody is told so.
-const OVERWRITES: &str = "中断データは上書きされます";
+fn overwrites(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "中断データは上書きされます",
+        Language::English => "The run left unfinished will be written over",
+    }
+}
+
+/// What the question itself asks.
+fn title(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "どこから始める",
+        Language::English => "Where to start",
+    }
+}
+
+/// What the mark on the shot type select says of a run with a chapter written down.
+fn has_a_run_left(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "中断データあり",
+        Language::English => "A run left unfinished",
+    }
+}
 
 pub struct ResumeMenu {
     selection: usize,
     keys: Keys,
     cancels: Cancels,
+    /// Which language its words are in, kept for the same reason [`crate::mode_ui::ModeMenu`] keeps
+    /// it: what the question decides is the same either way, and every word of it is a function of
+    /// this.
+    language: Language,
     /// Which chapter the run was left in, for the line under the choices.
     left: String,
     title: Label,
@@ -80,11 +119,12 @@ impl ResumeMenu {
     /// two mistakes cost: a run picked up by accident is a run put back where it was, while a fresh
     /// run started by accident writes its own first chapter over the file and the one left
     /// unfinished is gone.
-    pub fn new(left: String, cancels: Cancels) -> Self {
+    pub fn new(left: String, cancels: Cancels, language: Language) -> Self {
         Self {
             selection: 0,
             keys: Keys::new(INPUT_GRACE_FRAMES),
             cancels,
+            language,
             left,
             title: Label::new(),
             choices: [Label::new(), Label::new()],
@@ -114,24 +154,28 @@ impl ResumeMenu {
         if pressed.cancel.is_some() && self.cancels == Cancels::TheRun {
             return Some(Answer::Cancelled);
         }
-        pressed.decide.map(|_| CHOICES[self.selection].0)
+        pressed.decide.map(|_| CHOICES[self.selection])
     }
 
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
-        let said = match CHOICES[self.selection].0 {
+        let said = match CHOICES[self.selection] {
             Answer::Continue => self.left.as_str(),
             // `Cancelled` is not one of the two items and so never under the cursor: it is what a
             // cancel answers, and the items are what a decide does.
-            Answer::Beginning | Answer::Cancelled => OVERWRITES,
+            Answer::Beginning | Answer::Cancelled => overwrites(self.language),
         };
         unsafe {
-            self.title.set(overlay, "どこから始める");
+            self.title.set(overlay, title(self.language));
             self.aside.set(overlay, said);
             self.cursor.set(overlay, "▶");
-            for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
-                label.set(overlay, text);
+            for (label, answer) in self.choices.iter_mut().zip(CHOICES) {
+                // Every item of this question is an item, so each has words: `Cancelled` is the one
+                // answer that is not offered and it is not in [`CHOICES`].
+                if let Some(text) = answer.text(self.language) {
+                    label.set(overlay, text);
+                }
             }
         }
 
@@ -170,6 +214,7 @@ pub struct Mark {
     /// and not on every frame the screen is up.
     about: Option<String>,
     said: Option<String>,
+    language: Language,
     title: Label,
     aside: Label,
 }
@@ -179,19 +224,12 @@ pub struct Mark {
 const MARK_LEFT: f32 = 24.0;
 const MARK_BOTTOM: f32 = SCREEN_HEIGHT - 20.0;
 
-/// Beside `new` because the module is public now, and one with nothing baked or chosen yet is exactly
-/// what `new` makes.
-impl Default for Mark {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Mark {
-    pub const fn new() -> Self {
+    pub const fn new(language: Language) -> Self {
         Self {
             about: None,
             said: None,
+            language,
             title: Label::new(),
             aside: Label::new(),
         }
@@ -211,13 +249,17 @@ impl Mark {
     /// Must run on the device's thread, inside the scene the game draws into.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
         let Self {
-            said, title, aside, ..
+            said,
+            language,
+            title,
+            aside,
+            ..
         } = self;
         let Some(said) = said else {
             return;
         };
         unsafe {
-            title.set(overlay, "中断データあり");
+            title.set(overlay, has_a_run_left(*language));
             aside.set(overlay, said);
         }
         let Some(frame) = (unsafe { overlay.frame() }) else {
@@ -234,13 +276,18 @@ mod tests {
     use crate::menu_ui::{By, LINE_HEIGHT};
     use crate::overlay::Drawing;
     use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
+    use orb_config::Language;
+
+    /// The language every screen below is read in. Which one changes nothing these tests assert — what
+    /// a press answers, and where a line lands — so it is the one the game itself is in.
+    const LANGUAGE: Language = Language::Japanese;
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.
     #[test]
     fn a_slot_is_looked_up_when_the_cursor_reaches_it_and_not_every_frame() {
         let mut looked = Vec::new();
-        let mut mark = Mark::new();
+        let mut mark = Mark::new(LANGUAGE);
         for slot in ["normal-reimu-a", "normal-reimu-a", "normal-reimu-b"] {
             for _ in 0..3 {
                 mark.pointing(Some(slot), |slot| {
@@ -260,7 +307,11 @@ mod tests {
     }
 
     fn opened(cancels: Cancels) -> ResumeMenu {
-        let mut menu = ResumeMenu::new("STAGE 4  BOSS SPELL 2  RETRY 42".to_owned(), cancels);
+        let mut menu = ResumeMenu::new(
+            "STAGE 4  BOSS SPELL 2  RETRY 42".to_owned(),
+            cancels,
+            LANGUAGE,
+        );
         menu.keys.hold(0);
         menu
     }
@@ -353,7 +404,7 @@ mod tests {
     /// a screen with nothing on it.
     #[test]
     fn nothing_is_said_about_a_run_with_no_chapter() {
-        let mut mark = Mark::new();
+        let mut mark = Mark::new(LANGUAGE);
         mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 1".to_owned()));
         assert!(mark.said.is_some());
         mark.pointing(Some("normal-reimu-b"), |_| None);
@@ -364,7 +415,12 @@ mod tests {
     /// chose the shot type is still down.
     #[test]
     fn it_holds_its_keys_off_first() {
-        assert!(ResumeMenu::new(String::new(), Cancels::TheRun).keys.held() > 0);
+        assert!(
+            ResumeMenu::new(String::new(), Cancels::TheRun, LANGUAGE)
+                .keys
+                .held()
+                > 0
+        );
     }
 
     /// The mark on the shot type select is a line in the bottom-left corner, which is the one part of
@@ -374,7 +430,7 @@ mod tests {
     #[test]
     fn the_mark_sits_in_the_corner_the_screen_leaves_free() {
         let drawing = Drawing::new();
-        let mut mark = Mark::new();
+        let mut mark = Mark::new(LANGUAGE);
         mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
         let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay) });
 
@@ -396,7 +452,7 @@ mod tests {
     #[test]
     fn a_run_with_no_chapter_draws_nothing() {
         let drawing = Drawing::new();
-        let mut mark = Mark::new();
+        let mut mark = Mark::new(LANGUAGE);
         mark.pointing(Some("normal-reimu-b"), |_| None);
         assert!(
             drawing
@@ -410,7 +466,7 @@ mod tests {
     #[test]
     fn the_marks_two_lines_are_a_line_apart() {
         let drawing = Drawing::new();
-        let mut mark = Mark::new();
+        let mut mark = Mark::new(LANGUAGE);
         mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
         let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay) });
 

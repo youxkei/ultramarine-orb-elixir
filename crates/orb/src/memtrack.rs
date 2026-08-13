@@ -9,7 +9,7 @@
 //! Heap contents are saved together with the allocator's own bookkeeping, which
 //! is what makes a restored snapshot hand back the identical addresses.
 //!
-//! **Six import hooks and nothing else.** What a region is and how two of them are held apart is
+//! **Import hooks and nothing else.** What a region is and how two of them are held apart is
 //! [`orb_core::memtrack`], where a snapshot reads them; the walk of what these noticed is behind the
 //! seam, `HeapLock`, `HeapWalk` and `VirtualQuery` being the host's and a laid-out game answering the
 //! same question out of its own address space. So each hook hands the handle or the range over as it

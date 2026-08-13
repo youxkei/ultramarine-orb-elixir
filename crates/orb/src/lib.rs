@@ -3,7 +3,7 @@
 //! **What is here is code whose subject is another module's memory**: `DllMain`, the jump written over a
 //! prologue and the import table entry swapped ([`hook`]), the PE headers those are read out of ([`pe`]),
 //! the crash handler that names a module and an offset when a fault happens in the process this was
-//! injected into ([`crash`]), the six heap imports ([`memtrack`]), the `CreateThread` import
+//! injected into ([`crash`]), the heap imports ([`memtrack`]), the `CreateThread` import
 //! ([`threads`]), the two window imports and the black brush one of those rewrites swaps in ([`window`]),
 //! the `CreateFileA` import ([`score`]), the `joyGetPosEx` entry ([`joystick`]) — and the install lists
 //! below, which say which prologue goes with which hook and which of them a `Config` asks for.

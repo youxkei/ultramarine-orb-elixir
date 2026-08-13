@@ -108,6 +108,8 @@ mod the_score_file;
 #[cfg(test)]
 mod the_screen_a_finished_run_ends_at;
 #[cfg(test)]
+mod the_screens_in_english;
+#[cfg(test)]
 mod the_snapshot_held_against_itself;
 #[cfg(test)]
 mod the_window;

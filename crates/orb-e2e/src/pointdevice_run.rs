@@ -22,7 +22,7 @@
 //! a run has pressed and which file its score goes to are one apiece, the way they are in the game.
 
 use crate::fake::th06::{ATTACK_CHANGES, CARD, CARD_STARTS, Fake, lives_row};
-use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen, item};
 use orb_core::game::{Menu, RunStart};
@@ -77,7 +77,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         // left on the same line, and under them the lines that say what that choice means.
         game.forget();
         game.frame();
-        let asked = game.says(title(Menu::Run));
+        let asked = game.says(title(Menu::Run, LANGUAGE));
         let pointdevice = game.says("完全無欠モード");
         let legacy = game.says("レガシーモード");
         let cursor = game.says("▶");
@@ -98,7 +98,8 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         );
         assert!(cursor[0].right() <= pointdevice[0].x, "and not beside it");
         assert_eq!(
-            game.says(aside(Menu::Run, Mode::Pointdevice)[0]).len(),
+            game.says(aside(Menu::Run, Mode::Pointdevice, LANGUAGE)[0])
+                .len(),
             1,
             "the choice under the cursor does not say what it means",
         );
@@ -355,12 +356,12 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         game.forget();
         game.frame();
         assert_eq!(
-            game.says(title(Menu::Scores)).len(),
+            game.says(title(Menu::Scores, LANGUAGE)).len(),
             1,
             "the question over a ranking is the one asked about a run",
         );
         assert!(
-            game.says(title(Menu::Run)).is_empty(),
+            game.says(title(Menu::Run, LANGUAGE)).is_empty(),
             "the question over a ranking is the one asked about a run",
         );
         game.press_until(keys::Z, "完全無欠のスコア画面", || {

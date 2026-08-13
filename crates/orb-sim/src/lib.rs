@@ -67,6 +67,17 @@ fn host_exe() -> PathBuf {
     PathBuf::from("game").join("th06.exe")
 }
 
+/// The LANGIDs a test declares a machine's display language with.
+///
+/// Two, because orb has words in two languages: what a third would declare is a machine orb answers
+/// in English, and that is what any LANGID but the first of these already is.
+pub mod langid {
+    /// `MAKELANGID(LANG_JAPANESE, SUBLANG_JAPANESE_JAPAN)`.
+    pub const JAPANESE: u16 = 0x0411;
+    /// `MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)`.
+    pub const ENGLISH: u16 = 0x0409;
+}
+
 /// Which thread this is, as far as the seam can tell.
 ///
 /// Handed out on first ask rather than derived from the real thread id, so it is the same number
@@ -133,6 +144,10 @@ pub struct Sim {
     /// own said so, and that the frame's did not.
     below_normal: Mutex<Vec<u32>>,
     host_exe: Mutex<PathBuf>,
+    /// The language this machine shows its own windows in, which is what orb writes its screens in
+    /// where the settings name none. Japanese unless a test says otherwise: the game is Japanese, and
+    /// so is every screen the scenarios written before this one read back.
+    ui_language: Mutex<u16>,
     /// What `module::proc_address` finds, keyed by module and name. Empty by default: a test that
     /// has not said `mmioSeek` is there is a test of what orb does without it, which is a case orb
     /// has to have an answer for.
@@ -180,6 +195,7 @@ impl Sim {
             noticed: Mutex::new(Noticed::default()),
             below_normal: Mutex::new(Vec::new()),
             host_exe: Mutex::new(host_exe()),
+            ui_language: Mutex::new(langid::JAPANESE),
             procs: Mutex::new(HashMap::new()),
             modules: Mutex::new(Vec::new()),
             dialogs: Mutex::new(Vec::new()),
@@ -333,6 +349,12 @@ impl Sim {
     /// in.
     pub fn set_host_exe(&self, path: impl Into<PathBuf>) {
         *self.host_exe.lock().unwrap() = path.into();
+    }
+
+    /// Which language this machine shows its own windows in — [`langid`] holds the two worth
+    /// declaring — for a test whose settings leave the language to the machine.
+    pub fn set_ui_language(&self, langid: u16) {
+        *self.ui_language.lock().unwrap() = langid;
     }
 
     /// Says a module is loaded, without saying what it exports — which is the case orb tells apart
@@ -574,6 +596,10 @@ impl Win for Sim {
         String::from_utf8_lossy(bytes).into_owned()
     }
 
+    fn ui_language(&self) -> u16 {
+        *self.ui_language.lock().unwrap()
+    }
+
     fn current_thread_id(&self) -> u32 {
         thread_id()
     }
@@ -685,7 +711,7 @@ impl Win for Sim {
     //
     // Which device is nothing to any of these: a simulated host has the one an e2e test's game shows
     // through, and the handle is there because a real one has several and the game says which.
-    // `Recording` is where the record is; these are the eighteen slots reaching it.
+    // `Recording` is where the record is; the slots below are what reaches it.
 
     fn create_texture(
         &self,

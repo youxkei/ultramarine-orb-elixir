@@ -8,8 +8,8 @@
 //! ask again.
 //!
 //! **A real dialog**, class `#32770`, from a template built in memory rather than from a
-//! resource: a resource means a `.rc` and a resource compiler in the build, and the template is
-//! ten controls. Being one rather than merely looking like one is what matters — a window manager
+//! resource: a resource means a `.rc` and a resource compiler in the build, for a list of controls
+//! short enough to write out here. Being one rather than merely looking like one is what matters — a window manager
 //! decides whether to leave a window alone by asking what it is, and the dialog class is the
 //! answer it looks for. One built out of `CreateWindowExW` with a dialog's styles carries its own
 //! class whatever it looks like, and gets tiled.
@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use orb_config::{Config, Screen};
+use orb_config::{Config, Language, Screen};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGPIXELSY, ReleaseDC};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -57,9 +57,12 @@ const ATOM_BUTTON: u16 = 0x0080;
 const ATOM_STATIC: u16 = 0x0082;
 const ATOM_COMBOBOX: u16 = 0x0085;
 
-/// What the settings were answered with, which is the seven keys of `orb.yaml`.
+/// What the settings were answered with, which is every key of `orb.yaml`.
 pub struct Answers {
     pub screen: Screen,
+    /// `None` for the machine's own, which is what the row offers first.
+    pub language: Option<Language>,
+    pub thcrap: bool,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
@@ -71,6 +74,8 @@ pub struct Answers {
 impl Answers {
     pub fn apply(&self, config: &mut Config) {
         config.screen = self.screen;
+        config.language = self.language;
+        config.thcrap = self.thcrap;
         config.always_draw = self.always_draw;
         config.boundary_flash = self.boundary_flash;
         config.skip_ending = self.skip_ending;
@@ -164,47 +169,153 @@ pub fn answered_with() -> &'static str {
 /// switch up the dialog cannot quietly move somebody's answer to another key.
 struct Switch {
     /// What the key does rather than what it is called, since nobody reading this dialog has read
-    /// the file.
-    text: &'static str,
+    /// the file — and in the language the person answering reads.
+    text: fn(Language) -> &'static str,
     shown: fn(&Config) -> bool,
     answered: fn(&mut Answers, bool),
 }
 
 /// The switches, in the order they are stacked. Each is one key of `orb.yaml`.
-const SWITCHES: [Switch; 6] = [
+const SWITCHES: [Switch; 7] = [
     Switch {
-        text: "エンディングをスキップする",
+        text: |language| match language {
+            Language::Japanese => "インストールされている翻訳パッチを使う",
+            Language::English => "Use the translation patch installed beside the game",
+        },
+        shown: |config| config.thcrap,
+        answered: |answers, on| answers.thcrap = on,
+    },
+    Switch {
+        text: |language| match language {
+            Language::Japanese => "エンディングをスキップする",
+            Language::English => "Skip the ending",
+        },
         shown: |config| config.skip_ending,
         answered: |answers, on| answers.skip_ending = on,
     },
     Switch {
-        text: "背面でもゲームを止めない",
+        text: |language| match language {
+            Language::Japanese => "背面でもゲームを止めない",
+            Language::English => "Keep playing while another window is in front",
+        },
         shown: |config| config.always_draw,
         answered: |answers, on| answers.always_draw = on,
     },
     Switch {
-        text: "チャプターの切り替わりにフラッシュする",
+        text: |language| match language {
+            Language::Japanese => "チャプターの切り替わりにフラッシュする",
+            Language::English => "Flash the play field where a chapter begins",
+        },
         shown: |config| config.boundary_flash,
         answered: |answers, on| answers.boundary_flash = on,
     },
     Switch {
-        text: "時間経過でマウスカーソルを消す",
+        text: |language| match language {
+            Language::Japanese => "時間経過でマウスカーソルを消す",
+            Language::English => "Hide the mouse pointer once the mouse is still",
+        },
         shown: |config| config.hide_mouse,
         answered: |answers, on| answers.hide_mouse = on,
     },
     Switch {
-        text: "ゲームパッドの十字キーでも移動する",
+        text: |language| match language {
+            Language::Japanese => "ゲームパッドの十字キーでも移動する",
+            Language::English => "Move on a gamepad's d-pad as well as its stick",
+        },
         shown: |config| config.dpad_moves,
         answered: |answers, on| answers.dpad_moves = on,
     },
     Switch {
-        text: "起動時に毎回訊ねる",
+        text: |language| match language {
+            Language::Japanese => "起動時に毎回訊ねる",
+            Language::English => "Ask all of this at every launch",
+        },
         shown: |config| config.ask_at_startup,
         answered: |answers, on| answers.ask_at_startup = on,
     },
 ];
 
+/// The three the language row offers, in the order they are stacked.
+///
+/// The machine's own first, that being what a file with nothing in it says and what nobody has to
+/// choose.
+const LANGUAGES: [Option<Language>; 3] = [None, Some(Language::Japanese), Some(Language::English)];
+
+/// What each item of that row says.
+///
+/// **The two languages are named in themselves and not translated**, the way every language picker
+/// names them: somebody looking for English is looking for the word `English`, whichever language the
+/// dialog they are reading is in. Only the machine's own is a word this dialog has to say.
+fn language_text(item: Option<Language>, language: Language) -> &'static str {
+    match (item, language) {
+        (None, Language::Japanese) => "自動",
+        (None, Language::English) => "Automatic",
+        (Some(Language::Japanese), _) => "日本語",
+        (Some(Language::English), _) => "English",
+    }
+}
+
+/// What the two labels down the left say.
+fn screen_label(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "画面",
+        Language::English => "Screen",
+    }
+}
+
+fn language_label(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "言語",
+        Language::English => "Language",
+    }
+}
+
+/// What one item of the list of sizes says.
+///
+/// The ratio is said after the size so that a list of them says which of the two shapes each is
+/// without anybody dividing it out — see [`ratio`].
+fn screen_text(choice: Screen, language: Language) -> String {
+    match (choice, language) {
+        (Screen::Fullscreen, Language::Japanese) => "フルスクリーン".to_owned(),
+        (Screen::Fullscreen, Language::English) => "Fullscreen".to_owned(),
+        (Screen::Window { width, height }, Language::Japanese) => {
+            format!("ウィンドウ {width}x{height} ({})", ratio(width, height))
+        }
+        (Screen::Window { width, height }, Language::English) => {
+            format!("Window {width}x{height} ({})", ratio(width, height))
+        }
+    }
+}
+
+/// The line about the pad.
+///
+/// The two buttons are named by what they are in the game rather than by a letter on a pad, because
+/// that is what they are: which physical button decides is read out of the game's own configuration —
+/// see [`Mapping`] — so a line naming one cannot be right for two pads.
+fn pad_hint(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "パッド: 上下で移動  ショットで決定  ボムでやめる",
+        Language::English => "Pad: up and down to move, shoot to decide, bomb to quit",
+    }
+}
+
+/// What the two buttons say: the one that starts the game and the one that starts none.
+fn start_text(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "はじめる",
+        Language::English => "Start",
+    }
+}
+
+fn quit_text(language: Language) -> &'static str {
+    match language {
+        Language::Japanese => "やめる",
+        Language::English => "Quit",
+    }
+}
+
 const SCREEN_ID: u16 = 100;
+const LANGUAGE_ID: u16 = 150;
 const SWITCH_ID: u16 = 200;
 
 /// The dialog, in dialog units — a quarter of the font's average character width across and an
@@ -220,17 +331,31 @@ const MARGIN: (i16, i16) = (10, 8);
 const LINE: i16 = 16;
 /// And one line of text: a label, a switch's own box, the line about the pad.
 const TEXT: i16 = 10;
-const LABEL: i16 = 26;
 const BUTTON: (i16, i16) = (56, 16);
 /// The whole of a combo box including its dropped list, which is what its height measures — not
 /// the box shown while it is closed.
 const COMBO: i16 = 90;
-/// Where the switches start, which is under the row the sizes are on.
-const SWITCHES_TOP: i16 = MARGIN.1 + LINE + 6;
+/// Where the language row is, which is under the row the sizes are on.
+const LANGUAGE_TOP: i16 = MARGIN.1 + LINE;
+/// And where the switches start, under both of the rows with a list on them.
+const SWITCHES_TOP: i16 = LANGUAGE_TOP + LINE + 6;
 /// And the line about the pad, under the last of them.
 const HINT_TOP: i16 = SWITCHES_TOP + LINE * SWITCHES.len() as i16 + 4;
 /// The top of the two buttons, which are the last row.
 const BUTTONS_TOP: i16 = DIALOG.1 - MARGIN.1 - BUTTON.1;
+
+/// The column the two labels are written in, and so where the lists beside them start.
+///
+/// As wide as the longer label in whichever language it is: `画面` is two characters where `Language`
+/// is eight, and a dialog unit across is a quarter of the font's average character width — so the
+/// English column is the wider one. A number for both would be a column with `Language` running into
+/// the list beside it, or a Japanese dialog with a hand's width of nothing down its left.
+fn label_width(language: Language) -> i16 {
+    match language {
+        Language::Japanese => 26,
+        Language::English => 44,
+    }
+}
 
 // The rows held against the dialog they are stacked in: every switch above the line about the pad, that
 // line above the two buttons, and the buttons inside the dialog. A `const` block rather than a test
@@ -256,6 +381,16 @@ static BY_PAD: AtomicBool = AtomicBool::new(false);
 struct Setup {
     choices: Vec<Screen>,
     screen: Screen,
+    /// Which language the dialog's own words are in — what `orb.yaml` says, or the machine's where it
+    /// says nothing — and which item of the language row is therefore shown as chosen.
+    ///
+    /// **The words are settled when the dialog is built and do not follow the row being answered.**
+    /// Every label is in the template, which the dialog manager has already read by the time anybody
+    /// can choose anything; rebuilding the dialog under the hand that is answering it would be a
+    /// window that vanishes and comes back mid-answer. What the row asks for is what the game and the
+    /// next launch are in.
+    language: Language,
+    chosen_language: Option<Language>,
     switches: [bool; SWITCHES.len()],
     /// The game's own configuration file, which is where the pad's buttons are read from so that
     /// this dialog answers to the ones the game will.
@@ -281,16 +416,19 @@ pub fn ask(config: &Config, game_cfg: &Path) -> Result<Option<Answers>, Box<dyn 
     for (shown, switch) in switches.iter_mut().zip(&SWITCHES) {
         *shown = (switch.shown)(config);
     }
+    let language = config.language.unwrap_or_else(Language::of_the_machine);
     *SETUP.lock().unwrap() = Some(Setup {
         choices,
         screen: config.screen,
+        language,
+        chosen_language: config.language,
         switches,
         game_cfg: game_cfg.to_owned(),
     });
     *ANSWERS.lock().unwrap() = None;
 
     let font = unsafe { message_font() };
-    let template = template(&font);
+    let template = template(&font, language);
     let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
     // Modal, and its own message loop: what a dialog is for. The value is whatever `EndDialog`
     // was given, and -1 is the dialog not having been created at all.
@@ -329,12 +467,7 @@ unsafe extern "system" fn procedure(
             pad::watch(dialog, Mapping::read(&setup.game_cfg));
             let screen = unsafe { GetDlgItem(dialog, SCREEN_ID as i32) };
             for choice in &setup.choices {
-                let text = match choice {
-                    Screen::Fullscreen => "フルスクリーン".to_owned(),
-                    Screen::Window { width, height } => {
-                        format!("ウィンドウ {width}x{height} ({})", ratio(*width, *height))
-                    }
-                };
+                let text = screen_text(*choice, setup.language);
                 unsafe { SendMessageW(screen, CB_ADDSTRING, 0, wide(&text).as_ptr() as LPARAM) };
             }
             // What the file says, if it is still a size this monitor can show; fullscreen
@@ -345,6 +478,19 @@ unsafe extern "system" fn procedure(
                 .position(|choice| *choice == setup.screen)
                 .unwrap_or(0);
             unsafe { SendMessageW(screen, CB_SETCURSEL, selected, 0) };
+
+            let languages = unsafe { GetDlgItem(dialog, LANGUAGE_ID as i32) };
+            for item in LANGUAGES {
+                let text = wide(language_text(item, setup.language));
+                unsafe { SendMessageW(languages, CB_ADDSTRING, 0, text.as_ptr() as LPARAM) };
+            }
+            // What the file says, which for a file that says nothing is the machine's own — the first
+            // item, and the one every install starts on.
+            let selected = LANGUAGES
+                .iter()
+                .position(|item| *item == setup.chosen_language)
+                .unwrap_or(0);
+            unsafe { SendMessageW(languages, CB_SETCURSEL, selected, 0) };
             for (index, on) in setup.switches.iter().enumerate() {
                 if *on {
                     let switch = unsafe { GetDlgItem(dialog, (SWITCH_ID + index as u16) as i32) };
@@ -390,30 +536,60 @@ unsafe extern "system" fn procedure(
 /// wherever a mouse or the tab key left off.
 fn row(id: u16) -> usize {
     match id {
-        SCREEN_ID => 0,
+        SCREEN_ID => SCREEN_ROW,
+        LANGUAGE_ID => LANGUAGE_ROW,
         _ if (SWITCH_ID..SWITCH_ID + SWITCHES.len() as u16).contains(&id) => {
-            1 + (id - SWITCH_ID) as usize
+            SWITCHES_ROW + (id - SWITCH_ID) as usize
         }
         _ => BUTTON_ROW,
     }
 }
 
-/// The last row: the two buttons.
-const BUTTON_ROW: usize = 1 + SWITCHES.len();
+/// The rows, in the order the pad walks them: the two with a list on them, then one per switch, and
+/// the two buttons sharing the last.
+const SCREEN_ROW: usize = 0;
+const LANGUAGE_ROW: usize = 1;
+const SWITCHES_ROW: usize = 2;
+const BUTTON_ROW: usize = SWITCHES_ROW + SWITCHES.len();
+
+/// The list a row holds, where it holds one — the sizes and the languages — and `None` for a row that
+/// is a switch or the buttons.
+///
+/// # Safety
+/// `dialog` must be the settings dialog, on its own thread.
+unsafe fn list_on(dialog: HWND, at: usize) -> Option<HWND> {
+    let id = match at {
+        SCREEN_ROW => SCREEN_ID,
+        LANGUAGE_ROW => LANGUAGE_ID,
+        _ => return None,
+    };
+    let list = unsafe { GetDlgItem(dialog, id as i32) };
+    (!list.is_null()).then_some(list)
+}
+
+/// Whichever list is open, where one is.
+///
+/// # Safety
+/// `dialog` must be the settings dialog, on its own thread.
+unsafe fn dropped(dialog: HWND) -> Option<HWND> {
+    [SCREEN_ROW, LANGUAGE_ROW].into_iter().find_map(|at| {
+        let list = unsafe { list_on(dialog, at) }?;
+        (unsafe { SendMessageW(list, CB_GETDROPPEDSTATE, 0, 0) } != 0).then_some(list)
+    })
+}
 
 /// # Safety
 /// `dialog` must be the settings dialog, on its own thread — which is where its messages arrive.
 unsafe fn pushed(dialog: HWND, push: Push) {
-    let screen = unsafe { GetDlgItem(dialog, SCREEN_ID as i32) };
     // A dropped list has the whole pad while it is open: up and down move inside it, and either
     // button closes it on whatever it is showing — which for a dropdown list is already the
     // selection, since moving inside one changes it.
-    if unsafe { SendMessageW(screen, CB_GETDROPPEDSTATE, 0, 0) } != 0 {
+    if let Some(open) = unsafe { dropped(dialog) } {
         match push {
-            Push::Previous => unsafe { key(screen, VK_UP) },
-            Push::Next => unsafe { key(screen, VK_DOWN) },
+            Push::Previous => unsafe { key(open, VK_UP) },
+            Push::Next => unsafe { key(open, VK_DOWN) },
             Push::Decide | Push::Cancel => unsafe {
-                SendMessageW(screen, CB_SHOWDROPDOWN, 0, 0);
+                SendMessageW(open, CB_SHOWDROPDOWN, 0, 0);
             },
             _ => {}
         }
@@ -428,12 +604,12 @@ unsafe fn pushed(dialog: HWND, push: Push) {
             let wanted = (at as isize + step).clamp(0, BUTTON_ROW as isize) as usize;
             unsafe { focus(dialog, wanted, focused) };
         }
-        // Sideways is what a row holds more than one of: the sizes, and the two buttons. A switch
+        // Sideways is what a row holds more than one of: the two lists, and the two buttons. A switch
         // is on or off, and turning it over is what the decide button is for.
         Push::Less | Push::More => {
             let forward = push == Push::More;
-            if at == 0 {
-                unsafe { pick(screen, forward) };
+            if let Some(list) = unsafe { list_on(dialog, at) } {
+                unsafe { pick(list, forward) };
             } else if at == BUTTON_ROW {
                 let other = if forward { IDCANCEL } else { IDOK };
                 unsafe { focus_control(dialog, GetDlgItem(dialog, other)) };
@@ -441,11 +617,11 @@ unsafe fn pushed(dialog: HWND, push: Push) {
         }
         // The decide button does what the row it is on has to be done to it: a list is opened, a
         // switch is turned over, and a button is pressed.
-        Push::Decide => match at {
-            0 => unsafe {
-                SendMessageW(screen, CB_SHOWDROPDOWN, 1, 0);
+        Push::Decide => match unsafe { list_on(dialog, at) } {
+            Some(list) => unsafe {
+                SendMessageW(list, CB_SHOWDROPDOWN, 1, 0);
             },
-            _ => unsafe {
+            None => unsafe {
                 // Noted before the click, since a button's is what ends the dialog.
                 BY_PAD.store(true, Ordering::Relaxed);
                 SendMessageW(focused, BM_CLICK, 0, 0);
@@ -464,8 +640,9 @@ unsafe fn pushed(dialog: HWND, push: Push) {
 /// `dialog` must be the settings dialog and `focused` what has the focus now.
 unsafe fn focus(dialog: HWND, wanted: usize, focused: HWND) {
     let id = match wanted {
-        0 => SCREEN_ID as i32,
-        row if row < BUTTON_ROW => (SWITCH_ID + (row - 1) as u16) as i32,
+        SCREEN_ROW => SCREEN_ID as i32,
+        LANGUAGE_ROW => LANGUAGE_ID as i32,
+        row if row < BUTTON_ROW => (SWITCH_ID + (row - SWITCHES_ROW) as u16) as i32,
         // Arriving at the buttons lands on the one that starts the game, which is the answer this
         // dialog is usually given; going sideways from there reaches the other.
         _ if row(unsafe { GetDlgCtrlID(focused) } as u16) == BUTTON_ROW => {
@@ -523,12 +700,22 @@ unsafe fn take_answers(dialog: HWND) {
     };
     let screen = unsafe { GetDlgItem(dialog, SCREEN_ID as i32) };
     let chosen = unsafe { SendMessageW(screen, CB_GETCURSEL, 0, 0) };
+    let languages = unsafe { GetDlgItem(dialog, LANGUAGE_ID as i32) };
+    let chosen_language = unsafe { SendMessageW(languages, CB_GETCURSEL, 0, 0) };
     let mut answers = Answers {
         screen: setup
             .choices
             .get(chosen.max(0) as usize)
             .copied()
             .unwrap_or(Screen::Fullscreen),
+        // Read back off its switch like every other, which is what the pair in `Switch` is for.
+        thcrap: false,
+        // A selection this row does not hold is the machine's own, which is the item nobody has to
+        // choose and the one a file that says nothing means.
+        language: LANGUAGES
+            .get(chosen_language.max(0) as usize)
+            .copied()
+            .unwrap_or(None),
         always_draw: false,
         boundary_flash: false,
         skip_ending: false,
@@ -610,24 +797,29 @@ fn system_dpi() -> i32 {
 ///
 /// A `Vec<u32>` rather than a `Vec<u8>` because the template has to start on a four-byte boundary
 /// and so does every control in it, and a byte vector's buffer promises neither.
-fn template(font: &Font) -> Vec<u32> {
+fn template(font: &Font, language: Language) -> Vec<u32> {
+    let label = label_width(language);
     let mut bytes = Vec::new();
     let items: Vec<Item> = std::iter::once(Item {
         class: ATOM_STATIC,
         style: WS_CHILD | WS_VISIBLE | WS_GROUP,
         id: 0,
-        at: (MARGIN.0, MARGIN.1 + 2, LABEL, TEXT),
-        text: "画面".to_owned(),
+        at: (MARGIN.0, MARGIN.1 + 2, label, TEXT),
+        text: screen_label(language).to_owned(),
     })
+    .chain(std::iter::once(Item {
+        class: ATOM_STATIC,
+        style: WS_CHILD | WS_VISIBLE,
+        id: 0,
+        at: (MARGIN.0, LANGUAGE_TOP + 2, label, TEXT),
+        text: language_label(language).to_owned(),
+    }))
     // Said, because a dialog that answers to a pad is not something anybody expects one to do, and
     // what its buttons do here is worth a line even to somebody who guesses that they do anything.
+    // The line used to say `A で決定`, and on the pad this was written for decide is button 0 or 1 —
+    // see [`pad_hint`] for why it names neither.
     //
-    // The two buttons are named by what they are in the game rather than by a letter on a pad,
-    // because that is what they are: which physical button decides is read out of the game's own
-    // configuration — see `Mapping` — so a line naming one cannot be right for two pads. The line
-    // used to say `A で決定`, and on the pad this was written for decide is button 0 or 1.
-    //
-    // Left and right are left out although they do something on two of the rows — the size, and
+    // Left and right are left out although they do something on three of the rows — the two lists, and
     // moving between the two buttons — because they do nothing on any of the switches, and a line
     // that is wrong for every switch in the dialog is worse than one thing fewer to read. The
     // decide button is what turns a switch over, and that is said.
@@ -636,16 +828,20 @@ fn template(font: &Font) -> Vec<u32> {
         style: WS_CHILD | WS_VISIBLE,
         id: 0,
         at: (MARGIN.0, HINT_TOP, DIALOG.0 - MARGIN.0 * 2, TEXT),
-        text: "パッド: 上下で移動  ショットで決定  ボムでやめる".to_owned(),
+        text: pad_hint(language).to_owned(),
     }))
-    .chain(std::iter::once(Item {
+    .chain([SCREEN_ID, LANGUAGE_ID].into_iter().map(move |id| Item {
         class: ATOM_COMBOBOX,
         style: WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
-        id: SCREEN_ID,
+        id,
         at: (
-            MARGIN.0 + LABEL,
-            MARGIN.1,
-            DIALOG.0 - MARGIN.0 * 2 - LABEL,
+            MARGIN.0 + label,
+            if id == SCREEN_ID {
+                MARGIN.1
+            } else {
+                LANGUAGE_TOP
+            },
+            DIALOG.0 - MARGIN.0 * 2 - label,
             COMBO,
         ),
         text: String::new(),
@@ -660,7 +856,7 @@ fn template(font: &Font) -> Vec<u32> {
             DIALOG.0 - MARGIN.0 * 2,
             TEXT,
         ),
-        text: switch.text.to_owned(),
+        text: (switch.text)(language).to_owned(),
     }))
     .chain([
         Item {
@@ -673,7 +869,7 @@ fn template(font: &Font) -> Vec<u32> {
                 BUTTON.0,
                 BUTTON.1,
             ),
-            text: "はじめる".to_owned(),
+            text: start_text(language).to_owned(),
         },
         Item {
             class: ATOM_BUTTON,
@@ -685,7 +881,7 @@ fn template(font: &Font) -> Vec<u32> {
                 BUTTON.0,
                 BUTTON.1,
             ),
-            text: "やめる".to_owned(),
+            text: quit_text(language).to_owned(),
         },
     ])
     .collect();
@@ -778,8 +974,15 @@ fn wide(text: &str) -> Vec<u16> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ATOM_BUTTON, Answers, DIALOG, Font, SWITCHES, ratio, sizes, template};
-    use orb_config::Config;
+    use super::{
+        ATOM_BUTTON, Answers, DIALOG, Font, LANGUAGES, SWITCHES, language_text, ratio, sizes,
+        template,
+    };
+    use orb_config::{Config, Language};
+
+    /// The language the dialog below is built in. Both, wherever what is being asked could come out
+    /// differently in one of them — the template is laid out from the words in it.
+    const LANGUAGES_TO_READ: [Language; 2] = [Language::Japanese, Language::English];
 
     /// Every key at what a file that is not there gives it, which is on for every switch — and no
     /// directory is made, the read of a file that is not there being the whole of what this needs.
@@ -795,12 +998,16 @@ mod tests {
     /// would look wrong.
     #[test]
     fn each_switch_answers_the_key_it_shows() {
+        /// The language the switches are named in for what this test says about them, which is not
+        /// something either language changes.
+        const IN: Language = Language::English;
+
         let shown = defaults();
         for switch in &SWITCHES {
             assert!(
                 (switch.shown)(&shown),
                 "{}: not shown as on with every key at its default",
-                switch.text,
+                (switch.text)(IN),
             );
         }
         for (index, switch) in SWITCHES.iter().enumerate() {
@@ -808,6 +1015,8 @@ mod tests {
             // per switch — this one off and every other on.
             let mut answers = Answers {
                 screen: shown.screen,
+                language: shown.language,
+                thcrap: false,
                 always_draw: false,
                 boundary_flash: false,
                 skip_ending: false,
@@ -824,14 +1033,54 @@ mod tests {
             let off: Vec<&str> = SWITCHES
                 .iter()
                 .filter(|switch| !(switch.shown)(&config))
-                .map(|switch| switch.text)
+                .map(|switch| (switch.text)(IN))
                 .collect();
             assert_eq!(
                 off,
-                [switch.text],
+                [(switch.text)(IN)],
                 "{}: the key that came out off is not the one this switch shows",
-                switch.text,
+                (switch.text)(IN),
             );
+        }
+    }
+
+    /// The language row offers the machine's own first and then the two languages, each named in
+    /// itself: somebody looking for English is looking for the word `English`, whichever language the
+    /// dialog they are reading is in.
+    #[test]
+    fn the_language_row_offers_the_machines_own_first_and_names_each_language_in_itself() {
+        assert_eq!(LANGUAGES[0], None);
+        for language in LANGUAGES_TO_READ {
+            assert_eq!(language_text(Some(Language::Japanese), language), "日本語");
+            assert_eq!(language_text(Some(Language::English), language), "English");
+            // And the machine's own is the one item this dialog says in its own words.
+            assert_ne!(
+                language_text(None, Language::Japanese),
+                language_text(None, Language::English),
+            );
+        }
+    }
+
+    /// Every answer the dialog can be given is a value `orb.yaml` holds, the language included: an
+    /// answer this row could give that the file could not keep would be a setting somebody chose and
+    /// does not get.
+    #[test]
+    fn every_language_the_row_offers_is_one_the_file_keeps() {
+        for item in LANGUAGES {
+            let mut config = defaults();
+            let answers = Answers {
+                screen: config.screen,
+                language: item,
+                thcrap: true,
+                always_draw: true,
+                boundary_flash: true,
+                skip_ending: true,
+                hide_mouse: true,
+                dpad_moves: true,
+                ask_at_startup: true,
+            };
+            answers.apply(&mut config);
+            assert_eq!(config.language, item);
         }
     }
 
@@ -885,34 +1134,42 @@ mod tests {
     /// control out of the middle of the one before it.
     #[test]
     fn the_template_says_what_it_holds() {
-        let built = template(&Font {
-            face: "Segoe UI".to_owned(),
-            points: 9,
-        });
-        let bytes: Vec<u8> = built.iter().flat_map(|word| word.to_le_bytes()).collect();
-        // style, exstyle, then the count.
-        let count = u16::from_le_bytes([bytes[8], bytes[9]]);
-        // Two labels and a list of sizes, the switches, and the two buttons.
-        assert_eq!(count as usize, SWITCHES.len() + 5);
+        for language in LANGUAGES_TO_READ {
+            let built = template(
+                &Font {
+                    face: "Segoe UI".to_owned(),
+                    points: 9,
+                },
+                language,
+            );
+            let bytes: Vec<u8> = built.iter().flat_map(|word| word.to_le_bytes()).collect();
+            // style, exstyle, then the count.
+            let count = u16::from_le_bytes([bytes[8], bytes[9]]);
+            // Three labels, the two lists, the switches, and the two buttons.
+            assert_eq!(count as usize, SWITCHES.len() + 7);
+            // The size the header asks for, which is in dialog units and not pixels. The same either
+            // way: what the language changes is the column the labels are written in, inside it.
+            let cx = i16::from_le_bytes([bytes[14], bytes[15]]);
+            assert_eq!(cx, DIALOG.0);
+            // Every control names its class by ordinal, and one of them is a button.
+            assert!(
+                bytes
+                    .windows(4)
+                    .any(|four| four[0..2] == 0xffff_u16.to_le_bytes()
+                        && four[2..4] == ATOM_BUTTON.to_le_bytes())
+            );
+        }
+
         // Everything the pad walks through is on a row of its own, and the two buttons share the
         // last one: `row` maps the controls onto that, and nothing may fall off the end.
-        assert_eq!(super::row(super::SCREEN_ID), 0);
-        assert_eq!(super::row(super::SWITCH_ID), 1);
+        assert_eq!(super::row(super::SCREEN_ID), super::SCREEN_ROW);
+        assert_eq!(super::row(super::LANGUAGE_ID), super::LANGUAGE_ROW);
+        assert_eq!(super::row(super::SWITCH_ID), super::SWITCHES_ROW);
         assert_eq!(
             super::row(super::SWITCH_ID + SWITCHES.len() as u16 - 1),
-            SWITCHES.len()
+            super::BUTTON_ROW - 1
         );
         assert_eq!(super::row(super::IDOK as u16), super::BUTTON_ROW);
         assert_eq!(super::row(super::IDCANCEL as u16), super::BUTTON_ROW);
-        // The size the header asks for, which is in dialog units and not pixels.
-        let cx = i16::from_le_bytes([bytes[14], bytes[15]]);
-        assert_eq!(cx, DIALOG.0);
-        // Every control names its class by ordinal, and the last of them is a button.
-        assert!(
-            bytes
-                .windows(4)
-                .any(|four| four[0..2] == 0xffff_u16.to_le_bytes()
-                    && four[2..4] == ATOM_BUTTON.to_le_bytes())
-        );
     }
 }

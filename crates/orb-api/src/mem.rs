@@ -290,7 +290,7 @@ pub fn count_private_region_again(base: usize) {
 
 /// The committed regions the game owns, as `(base, len)`, with the data range first.
 ///
-/// The real host walks the heaps and the reservations the six import hooks noticed — see
+/// The real host walks the heaps and the reservations the import hooks noticed — see
 /// [`note_heap`] — and a simulated one answers out of laid-out memory, that *being* the game's. So this
 /// is the seam and nothing else: it used to answer `None` for a real process and `orb_core::memtrack`
 /// branched on that to reach a walk handed the other way, which was the walk being on the wrong side.

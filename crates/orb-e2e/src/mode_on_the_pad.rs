@@ -16,7 +16,7 @@
 //! stick against the threshold the game keeps, and the mapping that says which button is which.
 
 use crate::fake::th06::{Fake, MAPPING};
-use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
+use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::Menu;
 use orb_core::game::RunStart;
@@ -46,7 +46,7 @@ fn asking(name: &str) -> Box<Fake> {
     game.press(keys::Z);
     game.one_frame();
     assert!(
-        !game.says(title(Menu::Run)).is_empty(),
+        !game.says(title(Menu::Run, LANGUAGE)).is_empty(),
         "the press did not put the question up: {:?}",
         game.log().lines(),
     );
@@ -108,7 +108,7 @@ fn a_button_held_from_before_the_question_does_not_answer_it() {
         game.push(Pushed::button(MAPPING.shoot));
         game.press(keys::Z);
         game.frames_until("the question", 8, || {
-            !game.says(title(Menu::Run)).is_empty()
+            !game.says(title(Menu::Run, LANGUAGE)).is_empty()
         });
         for _ in 0..READS_KEYS_AFTER + 60 {
             game.frame();
@@ -219,7 +219,8 @@ fn a_controller_that_has_been_lost_is_acquired_again_and_reads_nothing_that_fram
 fn under_the_cursor(game: &Fake) -> Mode {
     game.one_frame();
     let mut on = None;
-    for (mode, text) in orb_core::mode::CHOICES {
+    for mode in orb_core::mode::CHOICES {
+        let text = mode.name(LANGUAGE);
         let drawn = game.says(text);
         assert_eq!(drawn.len(), 1, "{text} is not on the screen once");
         if drawn[0].color == orb_core::menu_ui::SELECTED {

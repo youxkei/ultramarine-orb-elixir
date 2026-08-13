@@ -21,8 +21,8 @@ use orb_api::{Device, Hwnd, Texture};
 
 use crate::audio::Music;
 
-/// A game orb knows how to run inside: what its exe is called, the build every address in it was
-/// read off, and the [`Game`] those addresses are in.
+/// A game orb knows how to run inside: what its exe is called, the builds of it every address in it
+/// was read off, and the [`Game`] those addresses are in.
 ///
 /// Here rather than a constant apiece in the DLL and in the launcher, so that the two cannot
 /// disagree about which games exist: the launcher starts nothing it finds no entry for, and orb
@@ -35,16 +35,29 @@ pub struct Known {
     /// pad button the game takes as shoot and which as bomb, so the settings dialog answers to the
     /// same two.
     pub cfg: &'static str,
-    /// The md5 of the one build every address was read off.
+    /// The builds this entry's addresses hold for, newest first, and a launch is refused any exe that
+    /// is none of them.
+    pub builds: &'static [Build],
+    pub game: &'static dyn Game,
+}
+
+/// One build of a game orb has addresses for: the md5 of that exe, and what the build is called.
+///
+/// **A list rather than the one build, because a translation patch makes another one.** orb reads the
+/// game's state through absolute addresses, so what an entry has to hold is every exe those addresses
+/// are right for — and an exe with the game's text swapped out is a different file with the same code
+/// in it. Each one here is a build somebody has had orb's addresses read against; what is not here is
+/// refused, whatever it says about itself.
+pub struct Build {
+    /// The md5 of the exe.
     ///
     /// Checked by the launcher and not at the attach: a run has no reason to read six hundred
     /// kilobytes back off the disk to learn what it is already inside, and a game started some other
     /// way is one nobody checked the exe of either.
     pub md5: &'static str,
-    /// What that build is called where anybody says it out loud, so that a refusal and a log line
-    /// name something somebody can go and look for.
+    /// What the build is called where anybody says it out loud, so that a refusal and a log line name
+    /// something somebody can go and look for.
     pub version: &'static str,
-    pub game: &'static dyn Game,
 }
 
 /// Every game orb knows, in the order a directory is searched for one.
@@ -55,8 +68,10 @@ pub const KNOWN: &[Known] = &[
     Known {
         exe: "東方紅魔郷.exe",
         cfg: "東方紅魔郷.cfg",
-        md5: "fa3d64768b1bfc50703dedc2db92f7fa",
-        version: "1.02h",
+        builds: &[Build {
+            md5: "fa3d64768b1bfc50703dedc2db92f7fa",
+            version: "1.02h",
+        }],
         game: &th06::Th06,
     },
     // A game orb gets into and does nothing to: [`th07::Th07`] answers what has been read of one frame
@@ -68,8 +83,10 @@ pub const KNOWN: &[Known] = &[
     Known {
         exe: "th07.exe",
         cfg: "th07.cfg",
-        md5: "0126afce1e805370d36c3482445e98da",
-        version: "the build of md5 0126afce",
+        builds: &[Build {
+            md5: "0126afce1e805370d36c3482445e98da",
+            version: "the build of md5 0126afce",
+        }],
         game: &th07::Th07,
     },
 ];
@@ -102,20 +119,35 @@ pub fn found(exe: &str) -> Option<&'static Known> {
     };
     crate::log!(
         "game: {exe}, and every address orb has for it was read off {}",
-        known.version
+        known.builds_named()
     );
     Some(known)
 }
 
-/// The games orb knows, named the way a refusal has to name them: the exe to look for and the build
-/// its addresses were read off.
+impl Known {
+    /// The builds of this game, named the way a refusal and a log line name them.
+    ///
+    /// `or` between them rather than a comma, because that is what a list of them is: one exe is one
+    /// of these builds, and which one the DLL cannot say — the md5 is the launcher's to read, and a
+    /// process is past the moment for it.
+    pub fn builds_named(&self) -> String {
+        self.builds
+            .iter()
+            .map(|build| build.version)
+            .collect::<Vec<_>>()
+            .join(" or ")
+    }
+}
+
+/// The games orb knows, named the way a refusal has to name them: the exe to look for and the builds
+/// of it its addresses were read off.
 ///
 /// One spelling for both sides, so that what the launcher prints and what the log says of a process
 /// orb does nothing in are the same list.
 pub fn known_named() -> String {
     KNOWN
         .iter()
-        .map(|known| format!("{} {}", known.exe, known.version))
+        .map(|known| format!("{} {}", known.exe, known.builds_named()))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -1175,7 +1207,7 @@ impl fmt::Display for State {
 
 #[cfg(test)]
 mod tests {
-    use super::{KNOWN, known_by_exe, known_named};
+    use super::{Build, KNOWN, Known, known_by_exe, known_named, th06};
 
     /// Every entry is reachable by the name its exe has, which is the whole of how a process is
     /// recognised: an entry no name finds is a game orb carries addresses for and never uses.
@@ -1183,8 +1215,7 @@ mod tests {
     fn every_game_in_the_table_is_found_by_its_own_exe() {
         for known in KNOWN {
             let found = known_by_exe(known.exe).expect("an entry found by its own exe");
-            assert_eq!(found.md5, known.md5);
-            assert_eq!(found.version, known.version);
+            assert_eq!(found.builds_named(), known.builds_named());
         }
     }
 
@@ -1210,19 +1241,47 @@ mod tests {
         }
     }
 
-    /// What a refusal on either side of the table names: the exe to look for and the build its
+    /// What a refusal on either side of the table names: the exe to look for and every build its
     /// addresses were read off, one entry apiece.
     #[test]
-    fn the_games_are_named_by_exe_and_version() {
+    fn the_games_are_named_by_exe_and_build() {
         let named = known_named();
         for known in KNOWN {
-            assert!(
-                named.contains(known.exe) && named.contains(known.version),
-                "{named:?} does not name {} {}",
-                known.exe,
-                known.version,
-            );
+            for build in known.builds {
+                assert!(
+                    named.contains(known.exe) && named.contains(build.version),
+                    "{named:?} does not name {} {}",
+                    known.exe,
+                    build.version,
+                );
+            }
         }
         assert_eq!(named.matches(", ").count(), KNOWN.len() - 1);
+    }
+
+    /// A game with more than one build names them all, since which of them an exe is is not something
+    /// the DLL can tell: the md5 is read before a process exists, and by the attach there is nothing
+    /// left to read it off.
+    #[test]
+    fn a_game_of_more_than_one_build_names_every_one_of_them() {
+        let patched = Known {
+            exe: "東方紅魔郷.exe",
+            cfg: "東方紅魔郷.cfg",
+            builds: &[
+                Build {
+                    md5: "fa3d64768b1bfc50703dedc2db92f7fa",
+                    version: "1.02h",
+                },
+                Build {
+                    md5: "d41d8cd98f00b204e9800998ecf8427e",
+                    version: "1.02h with its text swapped out",
+                },
+            ],
+            game: &th06::Th06,
+        };
+        assert_eq!(
+            patched.builds_named(),
+            "1.02h or 1.02h with its text swapped out"
+        );
     }
 }

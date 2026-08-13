@@ -6,6 +6,8 @@
 //! something a test can drive. What is here is the labels it draws them with, which needs the GDI
 //! and a Direct3D device.
 
+use orb_config::Language;
+
 use crate::game::{Menu, Pad};
 use crate::input::Keyboard;
 use crate::menu_ui::{self, ASIDE, By, DIM_SCREEN, LINE_HEIGHT, NORMAL};
@@ -21,6 +23,9 @@ const ASIDE_LINES: usize = 3;
 
 pub struct ModeMenu {
     question: Question,
+    /// Which language its words are in, kept because it is drawn and not decided: what a menu decides
+    /// is the same in either language, and every string it puts on the screen is a function of this.
+    language: Language,
     title: Label,
     choices: [Label; CHOICES.len()],
     aside: [Label; ASIDE_LINES],
@@ -30,9 +35,10 @@ pub struct ModeMenu {
 impl ModeMenu {
     /// `current` is what orb is in now, which is where the cursor starts: the answer most likely
     /// to be wanted is the one that was wanted last time.
-    pub fn new(asked: Menu, current: Mode) -> Self {
+    pub fn new(asked: Menu, current: Mode, language: Language) -> Self {
         Self {
             question: Question::new(asked, current),
+            language,
             title: Label::new(),
             choices: [Label::new(), Label::new()],
             aside: [const { Label::new() }; ASIDE_LINES],
@@ -51,12 +57,12 @@ impl ModeMenu {
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
         let asked = self.question.asked();
-        let said = aside(asked, self.question.selected());
+        let said = aside(asked, self.question.selected(), self.language);
         unsafe {
-            self.title.set(overlay, title(asked));
+            self.title.set(overlay, title(asked, self.language));
             self.cursor.set(overlay, "▶");
-            for (label, (_, text)) in self.choices.iter_mut().zip(CHOICES) {
-                label.set(overlay, text);
+            for (label, mode) in self.choices.iter_mut().zip(CHOICES) {
+                label.set(overlay, mode.name(self.language));
             }
             for (label, line) in self.aside.iter_mut().zip(said.iter().copied()) {
                 label.set(overlay, line);
@@ -91,7 +97,7 @@ impl ModeMenu {
 
 #[cfg(test)]
 mod tests {
-    use super::{ASIDE_LINES, Mode, ModeMenu};
+    use super::{ASIDE_LINES, Language, Mode, ModeMenu};
     use crate::game::Menu;
     use crate::menu_ui::{ASIDE, DIM_SCREEN};
     use crate::mode::aside;
@@ -99,14 +105,23 @@ mod tests {
     use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
     use orb_sim::Quad;
 
+    /// The language the screens below are read in. Which one changes no measurement here — what is
+    /// asserted is where the lines land and what colour they are — so the drawing is asked about in
+    /// the one the game itself is in.
+    const LANGUAGE: Language = Language::Japanese;
+
     /// Every description fits the labels the menu keeps for one: a line past those is a line
     /// nothing draws. Here rather than beside `aside` itself, `ASIDE_LINES` being how many labels
     /// this menu holds and so a fact about the drawing.
+    ///
+    /// Both languages, a translation being where a fourth line would come from.
     #[test]
     fn no_description_is_longer_than_the_labels_kept_for_it() {
         for asked in [Menu::Run, Menu::Scores] {
             for mode in [Mode::Pointdevice, Mode::Normal] {
-                assert!(aside(asked, mode).len() <= ASIDE_LINES);
+                for language in [Language::Japanese, Language::English] {
+                    assert!(aside(asked, mode, language).len() <= ASIDE_LINES);
+                }
             }
         }
     }
@@ -120,7 +135,10 @@ mod tests {
     #[test]
     fn the_whole_screen_is_dimmed_under_the_question() {
         let drawing = Drawing::new();
-        let quads = frame(&drawing, &mut ModeMenu::new(Menu::Run, Mode::Normal));
+        let quads = frame(
+            &drawing,
+            &mut ModeMenu::new(Menu::Run, Mode::Normal, LANGUAGE),
+        );
 
         let wash = *quads.first().expect("something was drawn first");
         assert_eq!((wash.x, wash.y), (0.0, 0.0));
@@ -137,11 +155,17 @@ mod tests {
 
         // The cursor starts on the mode the run is already in, so what is described is that one's.
         // One quad a line: a label's drop shadow is drawn in the shadow's colour, not the aside's.
-        let run = frame(&drawing, &mut ModeMenu::new(Menu::Run, Mode::Normal));
+        let run = frame(
+            &drawing,
+            &mut ModeMenu::new(Menu::Run, Mode::Normal, LANGUAGE),
+        );
         let described = run.iter().filter(|quad| quad.color == ASIDE).count();
-        assert_eq!(described, aside(Menu::Run, Mode::Normal).len());
+        assert_eq!(described, aside(Menu::Run, Mode::Normal, LANGUAGE).len());
 
-        let scores = frame(&drawing, &mut ModeMenu::new(Menu::Scores, Mode::Normal));
+        let scores = frame(
+            &drawing,
+            &mut ModeMenu::new(Menu::Scores, Mode::Normal, LANGUAGE),
+        );
         assert!(
             !scores.iter().any(|quad| quad.color == ASIDE),
             "a ranking is asked with nothing under either choice",

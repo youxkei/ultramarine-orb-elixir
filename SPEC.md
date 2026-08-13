@@ -15,14 +15,23 @@ e2e test that asserts it; what is left is in the repository's issues.
 ## Which game a launch is
 
 **One table names every game orb knows, and both halves read it.** `orb_core::game::KNOWN` holds,
-per game, the exe's own file name, the file the game keeps its configuration in, the md5 of the one
-build the addresses were read off, what that build is called, and the [`Game`] those addresses are
-in. The launcher finds the game by which entry's exe is in the directory it was pointed at, and
-refuses a build whose md5 is not that entry's, naming every game and version orb knows. The DLL is
-already inside the process by the time it can ask anything, so it matches on the exe's own file
-name — case-insensitively over the ASCII of it — and names in the log the build its addresses were
-read off. A process no entry names is one where orb patches nothing, says which games it knows, and
-does nothing else.
+per game, the exe's own file name, the file the game keeps its configuration in, the builds the
+addresses were read off — an md5 and what that build is called, apiece — and the [`Game`] those
+addresses are in. The launcher finds the game by which entry's exe is in the directory it was pointed
+at, and refuses an exe that is none of that entry's builds, naming every game and build orb knows; the
+build it *is* is what the line a launch prints names, since a report of a fault is read against what
+was played and the file's own name does not say which. The DLL is already inside the process by the
+time it can ask anything, so it matches on the exe's own file name — case-insensitively over the ASCII
+of it — and names in the log every build its addresses were read off, which of them this one is being
+the md5's to say and the md5 being read before the process existed. A process no entry names is one
+where orb patches nothing, says which games it knows, and does nothing else.
+
+**A list of builds rather than the one build, because a translation patch makes another one.** orb
+reads the game's state through absolute addresses, so what an entry has to hold is every exe those
+addresses are right for — and an exe with the game's text swapped out is a different file with the same
+code in it. Each build in the table is one somebody has had orb's addresses read against; what is not
+in it is refused, whatever it says about itself. Today every entry holds one build, so the exe orb
+accepts is the exe it always accepted.
 
 The choice is made once, at the attach, and kept in a static the hooks read: a hook is a plain
 `extern` function with nothing but the ABI's arguments, so where it would be handed a game it reads
@@ -165,13 +174,14 @@ on — so the frame the player died on stays on the screen behind the menu, and 
 viewport has to be set by orb because the game's own frame setup is part of the update being held
 back.
 
-Three ways on, and the chapter is the first of them:
+Three ways on, and the chapter is the first of them — each in whichever language orb's screens are in;
+see *The language orb writes its screens in*:
 
 | | |
 | --- | --- |
-| チャプターをやり直す | the snapshot taken where this chapter began |
-| ステージをやり直す | the snapshot taken where the stage began, which is chapter 1 |
-| タイトルに戻る | the run given up, and the game on its way to the title menu |
+| チャプターをやり直す / `Retry the chapter` | the snapshot taken where this chapter began |
+| ステージをやり直す / `Retry the stage` | the snapshot taken where the stage began, which is chapter 1 |
+| タイトルに戻る / `Back to the title screen` | the run given up, and the game on its way to the title menu |
 
 The third is named for where it ends up rather than for what it gives up, that being the half of
 it somebody reading the item does not already know: that the run is over is the obvious part, and
@@ -183,7 +193,7 @@ question in front of it would be answered without being read, and that trains th
 answers the other two. Those two are one press away from that hand and neither can be taken back:
 the stage's start throws away everything the stage has gained since it, and giving up throws away
 the run. So each of them puts up a second question naming what it is about to do, with the cursor
-on いいえ, which is where the game's own quit question puts it.
+on いいえ / `No`, which is where the game's own quit question puts it.
 
 The question is the whole of what is said there. A line under it spelling out what would be lost
 was tried and taken out: the question already names what is about to happen, and a screen somebody
@@ -195,7 +205,7 @@ arrives at by dying is not the place to be read at.
 them and both lost it: the keys are the game's own — `z` shoots and `x` bombs, which is what its own
 menus take as decide and back — so the line was telling somebody playing 紅魔郷 the one thing they
 already know. Where a way out is worth pointing at, the screen does it with an item rather than with
-a key: a confirmation's cursor sits on いいえ, and the retry menu's third item says where it goes.
+a key: a confirmation's cursor sits on its no, and the retry menu's third item says where it goes.
 
 **Both graces are keys being held off, for two different reasons.** The menu itself waits 24
 frames because the player was holding a direction and the shot key when they died, and those
@@ -442,7 +452,8 @@ leaves it: starting a long theme over every attempt is worse than the jump in it
 looped within a buffer's length of the reading — and a resume then leaves the music as the stage
 started it. So is a file written before the field existed.
 
-**What is asked, and where.** `どこから始める`, with `つづきから` and `はじめから`, on the game's own shot
+**What is asked, and where.** `どこから始める` / `Where to start`, with `つづきから` / `Continue` and
+`はじめから` / `From the beginning`, on the game's own shot
 type select — on the press that would have started the run, which orb holds back. Asked there rather
 than beside the mode question because which run this is includes the character and the shot, and the
 mode question is two screens too early to know them; that screen knows all three, the first two being
@@ -477,7 +488,8 @@ reaches one; this is the last moment anybody is told so. The cursor starts on `�
 because it is the likelier answer but because of what the two mistakes cost: a run picked up by
 accident is a run put back where it was, while a fresh run started by accident is the file gone.
 
-**And said before the press, as a mark rather than a question.** `中断データあり`, with the
+**And said before the press, as a mark rather than a question.** `中断データあり` /
+`A run left unfinished`, with the
 stage, the chapter and the retries under it, in the bottom left of that same screen while the cursor is
 on a shot a run was left in. Nothing is frozen and nothing is asked for it: the screen carries on
 running underneath and the line follows the cursor between the two shots.
@@ -550,10 +562,11 @@ button out of the run started next, and out of what a resumed run writes down as
 
 | | |
 | --- | --- |
-| 完全無欠モード | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, and `pointdevice_score.dat` |
-| レガシーモード | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
+| 完全無欠モード / `Pointdevice Mode` | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, and `pointdevice_score.dat` |
+| レガシーモード / `Legacy Mode` | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
 
-On screen they are 紺珠伝's own two names, since that is where the mode comes from and those are
+On screen they are 紺珠伝's own two names, in whichever of the two languages that game itself calls
+them, since that is where the mode comes from and those are
 the names somebody who wants it knows. In the code, the log and the file it writes they are
 pointdevice and normal — the English of the first, and what the second actually is.
 
@@ -1377,6 +1390,14 @@ the midstage table*. That is a different question from what the chapter is, and 
 having while what is being decided is whether the boundary belongs in the table: the name would
 say the same thing about a boundary to keep and a boundary to throw away.
 
+**The GDI it is written with is gdi32's own and not this DLL's import of it.** A translation patch
+injected into the same game rewrites the import table of every module in the process, orb's included, and
+puts its own replacement in the text calls — one written for the game's `-A` calls, which takes a `-W`
+call's count of characters for a count of bytes. So the calls that carry a string or hand back a
+font are read out of gdi32's export directory instead, which is the loader's own and is not rewritten;
+the overlay's glyphs go the same way. See
+[docs/adr/0015](docs/adr/0015-orbs-own-text-leaves-through-gdi32s-exports.md).
+
 **Each draw clears what it is going to write in, and everything the last draw wrote in, to
 black first.** A stack with fewer lines than the one before it, or a smaller font, does not
 reach every row that already had text in it. Clearing and writing are two operations, so both
@@ -1692,21 +1713,23 @@ frame-loop code into every DLL and make the launcher carry several payloads.
 and leaves set; a launch's arguments hold what is different every time it is run; and the mode a
 run is in is asked inside the game, where the run is started — see *Pointdevice and normal*.
 
-`orb.yaml` is seven keys: `screen`, `skip_ending`, `always_draw`, `boundary_flash`, `hide_mouse`,
-`dpad_moves` and `ask_at_startup`. YAML read with serde; six switches written `true` or `false`, and
-`screen` written `fullscreen` or a size like `1280x720`. `deny_unknown_fields`, so a key nobody
+`orb.yaml`'s keys are `screen`, `language`, `thcrap`, `skip_ending`, `always_draw`,
+`boundary_flash`, `hide_mouse`, `dpad_moves` and `ask_at_startup`. YAML read with serde; every one but
+the first two is a switch written `true` or
+`false`, `screen` is written `fullscreen` or a size like `1280x720`, and `language` is written `japanese`,
+`english` or `auto`. `deny_unknown_fields`, so a key nobody
 reads is an error naming it — including one that used to be a key, which is a file to edit rather
 than one to pass over quietly. A setting that is not read is a setting somebody thinks is on.
 
-**The launcher asks for all seven before it starts the game**, and writes back what it is told.
-Which is why they are the seven they are: each is about the machine the game is being played on,
+**The launcher asks for every one of them before it starts the game**, and writes back what it is told.
+Which is why they are the keys they are: each is about the machine the game is being played on,
 and somebody who has just installed one file has nothing to edit. It is orb's own window rather
-than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for ten
-controls — with the system's own message font asked for rather than a face named, since a face
-named here is one that is missing on somebody's machine and the text is Japanese.
+than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for a list of
+controls this short — with the system's own message font asked for rather than a face named, since a face
+named here is one that is missing on somebody's machine and the text may be Japanese.
 
 **A real dialog, class `#32770`**, from a `DLGTEMPLATE` built in memory: a resource would mean a
-`.rc` and a resource compiler in the build, and this is ten controls. It is as tall as what is
+`.rc` and a resource compiler in the build, and the controls are few enough to write out. It is as tall as what is
 stacked in it rather than a height of its own, so a switch added to the list takes the dialog with
 it instead of being drawn over the buttons. Being one rather than looking
 like one is the point — a window manager decides whether to leave a window alone by asking what it
@@ -1716,8 +1739,10 @@ showed up.
 Its measurements are therefore in dialog units, a quarter of the font's average character width
 across and an eighth of its height down, so the whole of it scales with the font the system gives
 it and nothing in it is in pixels — which is also why display scaling costs the dialog nothing. The
-dialog manager brings the rest: tab between the controls, return on `はじめる`, escape on
-`やめる`. The window sizes
+one measurement the language changes is the column the two labels are written in, `画面` being two
+characters where `Language` is eight. The
+dialog manager brings the rest: tab between the controls, return on `はじめる` / `Start`, escape on
+`やめる` / `Quit`. The window sizes
 offered are 16:9 and then 4:3 at the heights monitors have, biggest of each first and the game's
 own 640x480 last, filtered to those that fit the primary monitor with a window frame's worth of
 room to spare. 16:9 above because that is the ratio that leaves black for the status line, and
@@ -1741,10 +1766,11 @@ which turns it into what the dialog manager and the controls already answer to.
 
 **What the pad does is a menu's, not a dialog's.** Up and down move a row at a time, and the two
 buttons are one row — left and right choose between them, the way a menu with two answers on one
-line works. Left and right otherwise change what the row holds more than one of, which is the list
-of sizes; a switch is on or off, so turning one over is the decide button's job rather than a
+line works. Left and right otherwise change what the row holds more than one of, which is either of
+the two lists — the sizes and the languages; a switch is on or off, so turning one over is the decide
+button's job rather than a
 sideways push, which does nothing there. The decide button does whatever the row it is on needs
-doing to it: a list is opened, a switch is turned over, a button is pressed. While the list is open
+doing to it: a list is opened, a switch is turned over, a button is pressed. While a list is open
 it has the whole pad — up and down move inside it and either button closes it, a dropped list's
 selection already being whatever it is showing. The row is worked out from whatever has the focus
 rather than remembered, so the pad picks up wherever a mouse or the tab key left off, and the focus
@@ -1778,10 +1804,14 @@ afterwards. A file that `--config=PATH` names and does not find is an error even
 somebody typed is one they meant, and answering it with the defaults would leave them watching for
 a setting nothing read.
 
-The file is written out as text with a comment over each key rather than through a serialiser,
-which would leave seven bare keys and nothing beside them to say what any of it is for. There is
-no copy of it in this repository to install: it is written by the thing that asks, and a second
-hand-kept copy is one that goes stale.
+**Nothing but the keys and their values is written.** What each of them is for is said by the dialog
+that asked all of them, in the language the person answering reads — so a comment over each key would
+be the one thing orb installs that is in one language whoever gets it may not have. A file somebody
+has written comments into keeps them until the dialog writes that file back, which is the same moment
+every value in it is replaced by what was just answered. It is written by hand rather than through a
+serialiser even so: `screen` is a word or a size and `language` is a word or `auto`, and both are
+written exactly as they are read back. There is no copy of the file in this repository to install: it
+is written by the thing that asks, and a second hand-kept copy is one that goes stale.
 
 Everything to do with building the midstage table, reaching an ending, or looking into a fault
 is an argument to `orb.exe` instead — `--help` lists them — because a file is the wrong
@@ -1809,8 +1839,8 @@ front end without a hand on the keyboard. `orb-e2e`'s `keys_from_another_program
 it: the game holding the device and refusing a sent key, and the game reading `GetKeyboardState` once orb
 has let the device go and being driven by one.
 
-`--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own
-four, and the only ones it does not hand on: each answers a question the DLL, being inside a game
+`--game-dir=PATH`, `--orb-dll=PATH`, `--config=PATH` and `--settings` are the launcher's own,
+and the only ones it does not hand on: each answers a question the DLL, being inside a game
 that has already started, never has to ask. Keeping them here is also what keeps a path with a
 space in it off the line the DLL reads.
 
@@ -1875,6 +1905,116 @@ more thing that can be wrong.
 `orb.log` is appended to rather than started over, because a run worth looking at is usually
 over before anyone looks. A crash adds a line naming the faulting module and offset.
 
+## The language orb writes its screens in
+
+**`language` decides every word orb puts on the screen, and `auto` — what a file with nothing in it
+says — is the language Windows itself is in.** `GetUserDefaultUILanguage` answers that, and orb reads
+the primary language out of the LANGID it gives: `LANG_JAPANESE` is Japanese and every other language
+is English. Which is the honest answer rather than a fallback — a machine in German is one orb has no
+German for, and whoever is playing 紅魔郷 on it is reading either the game's own Japanese or an English
+patch over it. The user locale is *not* what is read: that one carries the regional formats, which are
+set apart from the language Windows shows its own windows in.
+
+**The answer is settled once, at the attach, and said in the log** — `language: english, which is what
+this machine's own windows are in` — because a screenshot of a menu somebody could not read is
+otherwise the only evidence of which language it came out as.
+
+Every screen orb puts up is in it: the question over the title menu with both modes and the lines
+under them, the menu where a chapter was lost with the two questions its items ask, the question about
+a run left unfinished with the mark that goes up before it, and the launcher's settings dialog. What
+each screen says in either language is beside the screen itself — `mode.rs`, `retry_ui.rs`,
+`resume_ui.rs`, `launcher/settings.rs` — as a `match` over the language, so a screen added without a
+wording in both is a build that stops rather than a line nobody can read. 完全無欠モード and
+レガシーモード are 紺珠伝's own names for the two modes, and `Pointdevice Mode` and `Legacy Mode` are that
+game's own names for them in English.
+
+**The log is not one of the screens** and stays English whichever language is chosen: it is read beside
+a source tree written in English, and a file that changed language with the machine it was written on
+is one no two reports of a defect could be compared across. So does every line the launcher prints,
+for the same reason and to the same reader.
+
+**A refusal says the same thing twice, then.** The line is that English, and the dialog put up where
+nothing is going to read a line is in the machine's language and in sentences — a printed line being
+terse where a dialog holds a paragraph. Two of them are refusals somebody playing meets: no game where
+orb was pointed, and an exe that is no build orb knows. The timer is the third and is refused before any
+file has been read, so its dialog is in the machine's own language whatever a file would have said.
+What is left — a file that cannot be read, a process that will not start — says whatever Windows said,
+in a dialog that gets the line as it stands.
+
+**The settings dialog is in whatever the file said when it was built**, and the row that changes the
+language does not change the dialog's own words: every label is in the template the dialog manager has
+already read, and rebuilding the window under the hand answering it would be a dialog that vanishes
+mid-answer. What the row asks for is what the game and the next launch are in. The two languages are
+named in themselves — `日本語` and `English` — the way every language picker names them; only the
+machine's own is a word the dialog translates, `自動` or `Automatic`.
+
+**Which language the *game* is in is not orb's**, and orb does not touch it: 紅魔郷 draws its own text
+from its own data files, and an English one is a patch over the game — see *Which game a launch is* for
+what orb accepts as the exe.
+
+How the answer reaches each screen, and what was weighed against threading it there, is
+[docs/adr/0014](docs/adr/0014-a-language-is-threaded-into-every-screen-and-the-machines-comes-through-the-seam.md).
+
+## The translation patch beside the game
+
+**The game's own words are thcrap's, and `orb.exe` is the only file started.** Somebody who has
+installed both otherwise has two launchers for one game and has to pick: through thcrap and there is no
+orb in the process, through orb and there is no translation. So a launch looks in the game's directory
+for a thcrap, brings its patch stack up to date, and hands it the game orb has just created — the same
+launch, whichever of the two the player thinks of as the launcher. `thcrap: false` is how somebody who
+has one installed and does not want it in this game says so; `true` is what a file with nothing in it
+says, since a thcrap installed beside a game is one somebody installed to play that game with.
+
+**Where thcrap is comes out of the launcher its own configuration tool wrote.** That tool leaves
+`th06 (en).exe` in the game's directory, whose string resources 0, 1 and 2 are the `bin` it runs from,
+the command line it runs, and the exe it runs — and resource 2 naming `thcrap_loader.exe` is what says a
+file is one of those rather than the game's own exe or orb's. So the patch stack, the run configuration
+and the game id are read out of what thcrap wrote about itself, and orb reproduces no step of thcrap's
+own installation. Every exe in the directory is asked, in the order the names sort, since which patch
+stack it is is in the name and orb has no more idea than the player which of two is meant.
+
+**Two of thcrap's own exports do the injection, in the order its own loader calls them.** A process
+created suspended has not had the loader initialisation Windows does before an entry point, and thcrap
+put into one in that state leaves the game standing — measured, a game with thcrap's DLLs in it and no
+window. `WaitUntilEntryPoint` is thcrap's answer, exported for this: it runs the process to its entry
+point, which is after Windows' initialisation and before any of the game's code, and stops it there.
+`thcrap_inject_into_running` then takes the process and the run configuration and does the rest itself.
+Both are cdecl — `THCRAP_API` names no convention — and called as stdcall instead the stack comes back
+short and orb dies with the game left at its entry point, which is what it did.
+
+**orb's own DLL goes in second.** The two rewrite some of the same import entries, `CreateWindowExA`
+among them — orb's to size the window, thcrap's to read its title as UTF-8 — and whichever is second
+owns the entry. orb's rewrite calls through to what was there and thcrap's does not, so orb second
+leaves both working and orb first leaves the window the size the game asked for with orb's letterbox
+holding no client. Measured, as a launch that came up in the game's own 640x480 with `screen:
+fullscreen` in the file.
+
+**The patch stack is brought up to date the way thcrap's loader does it**: `runconfig_thcrap_dir_set`
+with the installation, then the run configuration, then `stack_update_wrapper` twice — the
+game-independent files under thcrap's global filter and this game's under its games filter, which is
+what keeps a machine with one game from fetching the translations of thirty. thcrap's own
+`update_at_exit` decides when: before the game starts unless that box is ticked, in which case the pass
+after the game is running is the one that fetches, and the next launch is the one that plays with the
+new files. `thcrap_update.dll` is loaded by orb first, with the same altered search path, because the
+wrapper in `thcrap.dll` loads it *by name* — from orb's directory, where it is not — and answers with a
+fallback that updates nothing when it cannot: measured, a launch that fetched none of two files deleted
+by hand.
+
+**Nothing is passed where thcrap's progress callback goes**, and a launch says only that the update ran.
+Giving it one corrupted the process's heap — `0xc0000374` first, then the same access violation 477
+times and a stack overflow to finish, on two runs out of two with files to fetch — where the same two
+calls with nothing there fetched the same thirty files and came back.
+
+**A failure anywhere in this does not stop the launch.** The game is orb's business and the words in it
+are thcrap's, so a patch that cannot be found, loaded or injected is a game somebody plays in Japanese,
+which is the game they had before installing either. What each step did is in the line the launcher
+prints.
+
+What is supported is a thcrap whose configuration tool left one of its launchers in the game's directory,
+and *Not supported* is where the rest of its wizard's choices are. Why the whole of this is read out of
+that one file, and what each step of it was measured against, is
+[docs/adr/0016](docs/adr/0016-the-game-is-handed-to-a-thcrap-installed-beside-it.md).
+
 ## Building the midstage table
 
 Boss boundaries need no table; a stage's waves are a script on a clock, so those boundaries are
@@ -1937,7 +2077,7 @@ each of which is `--tune --replay` and one more decision:
 
 The keys, read while a run is being tracked, which under `--replay` includes a replay. They are
 fixed in the code rather than settings, since whoever is building a table is the only person who
-presses them. The three stepping keys are a replay's alone — holding a run someone is playing
+presses them. The stepping keys are a replay's alone — holding a run someone is playing
 still is what the retry menu is for:
 
 | | |
@@ -2229,7 +2369,7 @@ the offset it was read at — see `orb_core::game::th06::image`. Everything buil
 is what the space is for.
 
 It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took
-from the OS, which the six import hooks hand over as they see them; a laid-out space *is* the game's
+from the OS, which the import hooks hand over as they see them; a laid-out space *is* the game's
 memory, so it says which regions those are itself. Either way `memtrack` asks `mem::game_regions` like
 every other host call, since a branch on `cfg(test)` there is a branch an e2e test does not reach — and
 holding the answer to no two regions covering the same pages is the answering host's, a heap region and a
@@ -2288,7 +2428,8 @@ through where it has no sample of its own; `ReplayManager::SaveReplay`, whose wr
 cleared run refuses; `GameWindow::InitD3dDevice`, which orb gets in front of to redirect the device's
 `Present`; `Chain::Cut`, which takes a screen shake down at a stage move; and `SoundPlayer::StopBGM` and
 `Supervisor::PlayAudio`, which a restore puts the sound down and starts it again through where the track has
-been replaced since the chapter was taken. The first seven are `Originals`', the last three are `Th06`'s
+been replaced since the chapter was taken. Those it reaches through a hook are `Originals`', and those it
+calls in the game are `Th06`'s
 own — see [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 
 **`Controller::GetControllerInput` is not among them**, and that is the one hook orb does not call through:
@@ -2385,7 +2526,8 @@ game's entry point and the memory hooks see the first allocation.
 | | |
 | --- | --- |
 | `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
-| `launcher/settings.rs` | the dialog that asks for the six settings before the game starts |
+| `launcher/settings.rs` | the dialog that asks for every setting in `orb.yaml` before the game starts |
+| `launcher/thcrap.rs` | the translation patch installed beside the game: what its own launcher says about where it is, its patch stack brought up to date, and the game handed to it |
 | `launcher/pad.rs` | reading the pads on the launcher's side — winmm's joystick 0 and every XInput slot — so that dialog answers to one |
 | `crates/orb-config` | `orb.yaml` — read by both halves, written by the launcher — and the command line |
 | `crates/orb-api` | the seam: the `Win` trait, the neutral types, and the facades every host call goes through |
@@ -2393,7 +2535,7 @@ game's entry point and the memory hooks see the first allocation.
 | `crates/orb-core` | everything that decides what happens to a run, over that seam and with no `windows-sys` anywhere in it — 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions. `cargo xtask seam` holds it to that |
 | `orb-core/frame.rs` | the frame loop's pacing and its measurements |
 | `orb-core/input.rs` | the keyboard orb reads for itself, and what it does when the game is not the window in front |
-| `orb-core/menu.rs` | the keys the three questions read, whose press each is, and where a cursor over them goes |
+| `orb-core/menu.rs` | the keys orb's questions read, whose press each is, and where a cursor over them goes |
 | `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
 | `crates/orb-sim` | the simulated Windows: the memory, the clock, the display, the keyboard, the mouse, the pad, the sound, the device orb draws through and the strings it bakes. In its `tests/` are the four no game drives |
 | `crates/orb-e2e` | the launches: a game playing the game's part in `src/fake/`, compiled once, with every e2e test a `#[cfg(test)]` module beside it |
@@ -2404,9 +2546,9 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
 | `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
 | `orb/lib.rs` | `DllMain` and the install lists: which prologue goes with which hook, and which of them a `Config` asks for |
-| `orb-core/runtime.rs` | what those hooks *do*: the eleven bodies, the `Runtime` they carry between frames, `Originals` — the game's own calls each one goes on to make, all but the pad read, which is the one nothing goes on to — and `attach_to`, which is how a game laid out by hand is attached to with no process to patch |
+| `orb-core/runtime.rs` | what those hooks *do*: their bodies, the `Runtime` they carry between frames, `Originals` — the game's own calls each one goes on to make, all but the pad read, which is the one nothing goes on to — and `attach_to`, which is how a game laid out by hand is attached to with no process to patch |
 | `orb/hook.rs` | trampoline and import-table hooks |
-| `orb/memtrack.rs` | the six import hooks that notice the heaps and reservations the game takes from the OS, each handing over what it saw |
+| `orb/memtrack.rs` | the import hooks that notice the heaps and reservations the game takes from the OS, each handing over what it saw |
 | `orb-core/memtrack.rs` | the set those make up, as a snapshot asks for it |
 | `orb-core/snapshot.rs` | save and restore of `.data`, those regions, and the music |
 | `orb/threads.rs` | the `CreateThread` import, which is the only way to know which of the process's threads are the game's. Suspending them is `orb-api`'s |
@@ -2420,7 +2562,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/build.rs`, `orb-core/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
 | `orb-core/mode_ui.rs` | that question drawn — the labels and the wash. What it decides is `orb-core/mode.rs` |
 | `orb-core/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
-| `orb-core/menu_ui.rs` | the list those three draw, and the colours they draw it in |
+| `orb-core/menu_ui.rs` | the list they draw, and the colours they draw it in |
 | `orb/score.rs` | the write over the `CreateFileA` import |
 | `orb-core/score.rs` | that entry's replacement, the walk of the path the game handed over, and which file the open lands in: the fork's choice of name, and the refusing of a clear run's write |
 | `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
@@ -2429,6 +2571,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-api/mouse.rs` | where the pointer is, and the display counter the host draws it by |
 | `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, the wait to a frame's own deadline, and the coarse one a thread nobody is waiting for takes between two reads of a device |
 | `orb-api/codepage.rs` | `MultiByteToWideChar`, for the one string a Win32 `-A` call answers in the machine's own code page: the name winmm gives a pad |
+| `orb-api/locale.rs` | `GetUserDefaultUILanguage`, which is the language orb writes its screens in where `orb.yaml` names none — apart from the code page because Windows keeps the two apart |
+| `orb-api/real/gdi.rs` | the GDI calls that carry orb's own text, read out of gdi32's export directory rather than called through this DLL's imports, which something else injected into the game rewrites — see [docs/adr/0015](docs/adr/0015-orbs-own-text-leaves-through-gdi32s-exports.md). Below the seam and reached from `real/window.rs` and `real/text.rs` alone |
 | `orb-api/joystick.rs` | the joysticks winmm has: joystick 0, which is the one the game's own startup check asks about, and every other index it will answer about |
 | `orb-api/xinput.rs` | the pads XInput has, which is where the pad is on a machine whose winmm has only the phantom. The library it is read through is loaded by name, which of the three being the machine's business |
 | `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
@@ -2438,7 +2582,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-core/mouse.rs` | how long the mouse has to have been still for the pointer to go, the read that follows it, and that entry's replacement — the game's own ask answered rather than passed on |
 | `orb-core/window.rs` | how big that window is and where it goes — the style, the centring, and the rectangle a 4:3 game is presented into — the device's `Present` slot redirected into it, and where orb's own lines go in the black beside it |
 | `orb-core/overlay.rs` | drawing over the game's frame: the state block round every draw, the quads, and the labels and pictures baked into textures |
-| `orb-api/d3d8.rs`, `orb-api/real/d3d8.rs` | the eighteen slots of the game's device orb calls, and the only code in the tree that calls a Direct3D vtable |
+| `orb-api/d3d8.rs`, `orb-api/real/d3d8.rs` | the slots of the game's device orb calls, and the only code in the tree that calls a Direct3D vtable |
 | `orb-api/dsound.rs`, `orb-api/real/dsound.rs` | the eight of the buffer its music is played out of, the same way |
 | `orb-api/text.rs`, `orb-api/real/text.rs` | a string baked to a coverage mask, and the GDI that bakes one |
 | `orb-sim/drawing.rs` | a device that keeps what it was asked to draw, so an e2e test can say what is on the screen — and which string went into each texture |
@@ -2475,7 +2619,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/the_frame_a_scene_is_built_on.rs` | a scene's own first update falling on the frame it was built, at a stage's transition and at the front end alike, with the input word zeroed there so a button still held reads as a fresh press on the frame after |
 | `orb-e2e/src/the_player_a_stage_starts.rs` | the player a stage starts: invulnerable with the first of 240 frames already spent, and the 240th the one a bullet sitting on them kills on |
 | `orb-e2e/src/the_launch_before_its_device.rs` | a launch orb is attached to before the game has a Direct3D device, which is every real one: nothing drawn until the game's own setup runs, and the overlay ready once it has |
-| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the four that no game drives, which is what their being `orb-sim`'s rather than `orb-e2e`'s says |
+| `orb-e2e/src/the_screens_in_english.rs` | a launch on a machine whose own windows are English with nothing in `orb.yaml` about the language: the question over the title menu, the menu where a chapter was lost with the question one of its items asks, and the question about a run left unfinished with the mark before it — each read back in English with none of its Japanese anywhere on the screen |
+| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the ones no game drives, which is what their being `orb-sim`'s rather than `orb-e2e`'s says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.
@@ -2494,3 +2639,20 @@ and offsets.
   to save one is skipped rather than the write being refused. Its score is kept, in orb's own
   file — see *The score file*. A normal run saves replays the way the game always did.
 - Sound effects cut off on a restore rather than rewinding. Only the music is restored.
+- An exe orb's addresses have not been read against, whatever put it there: a translation patch that
+  rewrote the exe, a build of the game orb has not been taught, another game under a name orb reads.
+  The launch is refused naming every game and build orb knows — see *Which game a launch is*. A patch
+  that leaves the exe alone is not this: what orb reads off the file is its md5, and a patch applied
+  while the game runs does not change one.
+- Making the game itself run on a machine whose code page is not Japanese. 紅魔郷 opens its own data
+  files through `CreateFileA` with their names held in the exe as Shift-JIS bytes — `紅魔郷ST.dat` at
+  file offset 0x6af74 and five more like it — and rasterises its own text through `CreateFontA` and
+  `TextOutA`, so a machine whose code page reads those bytes as something else is a game that cannot
+  find its own data. That is what a locale emulator or thcrap's own locale independence is for, and orb
+  does nothing about it either way: it hooks that import for one thing only, which is which file the
+  score goes in — see *The score file*.
+- A thcrap that left no launcher of its own in the game's directory. Its configuration tool also offers
+  shortcuts instead of wrapper exes, and the desktop and the start menu instead of the game's directory,
+  and orb looks in none of those: the game starts untranslated and the line says none is installed where
+  the game is. A wrapper exe copied into the game's directory is read like any other — see *The translation
+  patch beside the game*.

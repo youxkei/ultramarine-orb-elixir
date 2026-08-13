@@ -51,10 +51,10 @@ fn a_process_no_entry_names_is_refused_and_every_build_orb_knows_is_named() {
         );
         for known in KNOWN {
             assert!(
-                said.contains(&format!("{} {}", known.exe, known.version)),
+                said.contains(&format!("{} {}", known.exe, known.builds_named())),
                 "the refusal does not name {} {}:\n{said}",
                 known.exe,
-                known.version,
+                known.builds_named(),
             );
         }
         assert!(
@@ -80,7 +80,7 @@ fn every_game_in_the_table_is_found_by_the_name_its_exe_has() {
 
         for known in KNOWN {
             let by_name = found(known.exe).expect("an entry found by its own exe");
-            assert_eq!(by_name.md5, known.md5);
+            assert_eq!(by_name.builds_named(), known.builds_named());
             assert!(
                 found(&known.exe.to_ascii_uppercase()).is_some(),
                 "{} is not found under the name a copied exe often has",
@@ -89,7 +89,8 @@ fn every_game_in_the_table_is_found_by_the_name_its_exe_has() {
             // And the line it wrote says which build every address orb has for it was read off, which is
             // the one thing a report of a defect has to carry: two builds of one game read differently.
             assert!(
-                sim.log().said(&format!("was read off {}", known.version)),
+                sim.log()
+                    .said(&format!("was read off {}", known.builds_named())),
                 "nothing said which build {}'s addresses came from:\n  {}",
                 known.exe,
                 sim.log().lines().join("\n  ")
