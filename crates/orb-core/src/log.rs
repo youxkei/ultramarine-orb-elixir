@@ -164,14 +164,40 @@ macro_rules! pacing {
 }
 
 pub fn open() {
+    if held() {
+        line("---- new run ----");
+    }
+}
+
+/// One line for a launch that was refused, with the file opened and closed around it.
+///
+/// **The launcher's, and the only line here not written from inside a game.** Every other one comes
+/// out of a run, where the log is open for as long as the run lasts; a refusal has no run to hold it
+/// open.
+///
+/// It goes here because the file is the only one of the three places a refusal is said that is still
+/// there afterwards: the printed line needs a console, which a launch from a shortcut has none of, and
+/// the dialog is gone the moment it is answered. A launch that never started and left nothing behind
+/// is one nobody can be asked what happened — measured, as `--pacing` for `--no-pacing` making orb
+/// exit with an empty log and nothing on the screen.
+pub fn refused(message: &str) {
+    if held() {
+        line(&format!("launch refused: {message}"));
+        close();
+    }
+}
+
+/// The log opened and its handle held for the writers above, or `false` where the host would not open
+/// it at all.
+fn held() -> bool {
     let Some(exe) = orb_api::module::host_exe() else {
-        return;
+        return false;
     };
     let Some(file) = logfile::open(&exe.with_file_name("orb.log"), MAX_BYTES) else {
-        return;
+        return false;
     };
     FILE.store(file.0, Ordering::Release);
-    line("---- new run ----");
+    true
 }
 
 pub fn close() {

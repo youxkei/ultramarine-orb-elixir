@@ -1937,9 +1937,17 @@ for the same reason and to the same reader.
 nothing is going to read a line is in the machine's language and in sentences — a printed line being
 terse where a dialog holds a paragraph. Two of them are refusals somebody playing meets: no game where
 orb was pointed, and an exe that is no build orb knows. The timer is the third and is refused before any
-file has been read, so its dialog is in the machine's own language whatever a file would have said.
-What is left — a file that cannot be read, a process that will not start — says whatever Windows said,
-in a dialog that gets the line as it stands.
+file has been read, so its dialog is in the machine's own language whatever a file would have said. A
+command line orb cannot read is the fourth, and what clap wrote about it is kept rather than replaced:
+the option it suggests instead is the useful half of it. What is left — a file that cannot be read, a
+process that will not start — says whatever Windows said, in a dialog that gets the line as it stands.
+
+**And every one of them goes into `orb.log` as well, before the dialog goes up.** Which is the only
+one of the three that is still there afterwards: the line needs a console, and a launch from a shortcut
+has none — `--pacing` for `--no-pacing` ended a launch with nothing on the screen and nothing written
+down. So the log holds `launch refused:` and that line, beside `orb.exe` where a run's own log is, and
+the launcher writes nothing else to it. Before the dialog because that call does not return until
+somebody answers it, and a dialog left standing and then killed would otherwise leave nothing at all.
 
 **The settings dialog is in whatever the file said when it was built**, and the row that changes the
 language does not change the dialog's own words: every label is in the template the dialog manager has
@@ -2620,7 +2628,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/the_player_a_stage_starts.rs` | the player a stage starts: invulnerable with the first of 240 frames already spent, and the 240th the one a bullet sitting on them kills on |
 | `orb-e2e/src/the_launch_before_its_device.rs` | a launch orb is attached to before the game has a Direct3D device, which is every real one: nothing drawn until the game's own setup runs, and the overlay ready once it has |
 | `orb-e2e/src/the_screens_in_english.rs` | a launch on a machine whose own windows are English with nothing in `orb.yaml` about the language: the question over the title menu, the menu where a chapter was lost with the question one of its items asks, and the question about a run left unfinished with the mark before it — each read back in English with none of its Japanese anywhere on the screen |
-| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | the ones no game drives, which is what their being `orb-sim`'s rather than `orb-e2e`'s says |
+| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `log_refused.rs`, `pacing_no_timer.rs` | the ones no game drives, which is what their being `orb-sim`'s rather than `orb-e2e`'s says |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.

@@ -100,6 +100,37 @@ fn no_timer_text(language: Language) -> &'static str {
 const NO_TIMER_LINE: &str = "this host cannot create a high-resolution waitable timer, which orb \
      paces the game's frames on — Windows 10 1803 or later is needed, and the game was not started";
 
+/// A command line orb could not read, in the two forms every refusal has.
+///
+/// **What clap said is kept and not rewritten**, because the useful half of it is the argument it
+/// names and the one it suggests instead — `--pacing` comes back with `--no-pacing` beside it — and
+/// nothing orb could write in its place knows which argument was meant. Its first line is the line,
+/// the whole of it goes in the dialog under a sentence saying what happened, and that sentence is in
+/// the machine's language: this is before `orb.yaml` has been read, so a language asked for by name is
+/// not known yet.
+fn bad_command_line(refused: &clap::Error) -> Refused {
+    let said = refused.render().to_string();
+    let said = said.trim();
+    let first = said
+        .lines()
+        .next()
+        .unwrap_or("this command line cannot be read")
+        // clap's own leading word, dropped because the line it goes into already says as much.
+        .trim_start_matches("error: ");
+    Refused {
+        line: format!("{first}, and the game was not started"),
+        text: match Language::of_the_machine() {
+            Language::Japanese => format!(
+                "orb.exe に渡された引数を読めませんでした。ゲームは起動していません。\n\n{said}"
+            ),
+            Language::English => format!(
+                "orb.exe could not read the arguments it was given, and the game has not been \
+                 started.\n\n{said}"
+            ),
+        },
+    }
+}
+
 /// A refusal that has words of its own for the dialog, beside the line it prints.
 ///
 /// **Two wordings because they are read by two people.** The line goes to whoever ran orb from a shell
@@ -205,6 +236,10 @@ fn not_started(line: &str, text: &str, lines_are_read: bool) -> ExitCode {
     // Windows 11, and worth knowing under `panic = "abort"`, where a print that failed instead would
     // be the launcher taken down by a line nobody was going to see.
     eprintln!("orb: {line}");
+    // Before the dialog and not after it, that being a call which does not return until somebody
+    // answers: a launch whose dialog is left standing and then killed would otherwise be the one
+    // launch that left nothing behind, and it is the file that is read afterwards.
+    orb_core::log::refused(line);
     if !lines_are_read {
         cannot_run(text);
     }
@@ -246,9 +281,27 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    // Read here as well as in the DLL, so that anything unreadable is said before a game
-    // starts rather than into a log inside one.
-    let launch = Launch::parse();
+    // Read here as well as in the DLL, so that anything unreadable is said before a game starts rather
+    // than into a log inside one — and **asked for rather than taken**, because `Parser::parse` answers
+    // a command line it cannot read by writing to standard error and ending the process itself, which
+    // is past the dialog and past the log both. Measured, as `--pacing` for `--no-pacing`: a launch
+    // from a shortcut that showed nothing and left nothing.
+    let launch = match Launch::try_parse() {
+        Ok(launch) => launch,
+        // `--help` and `--version` are answers and not refusals. clap carries both as errors and
+        // `use_stderr` is what tells them apart, so these are printed where they were asked for and
+        // the launch ends having done what it was told.
+        Err(asked) if !asked.use_stderr() => {
+            asked.print()?;
+            return Ok(());
+        }
+        // Printed as clap wrote it before the refusal goes on to say its own line, because what it
+        // wrote is longer than a line and the argument it suggests instead is the useful part of it.
+        Err(refused) => {
+            refused.print()?;
+            return Err(bad_command_line(&refused).into());
+        }
+    };
 
     let exe = std::env::current_exe()?;
     // Settled before the settings are asked for, because the pad they can be answered with is
@@ -563,7 +616,10 @@ fn load_library(process: &inject::Process, dll: &Path) -> Result<(), Box<dyn Err
 
 #[cfg(test)]
 mod tests {
-    use super::{Refused, config_path, game_in, no_timer_text, verify_game_exe};
+    use super::{
+        Launch, Refused, bad_command_line, config_path, game_in, no_timer_text, verify_game_exe,
+    };
+    use clap::Parser;
     use orb_config::Language;
     use orb_core::game;
     use std::path::{Path, PathBuf};
@@ -735,5 +791,37 @@ mod tests {
             ),
             PathBuf::from(r"E:\mine.yaml"),
         );
+    }
+
+    /// An argument orb has no option for is refused, and the two wordings a refusal has are what say
+    /// it: one line for the log and the terminal, and the whole of what clap wrote for the dialog —
+    /// which is where the argument it suggests instead has to survive, that being what tells somebody
+    /// which option they meant.
+    #[test]
+    fn an_argument_orb_has_no_option_for_names_it_and_the_one_orb_has() {
+        let refused = Launch::try_parse_from(["orb", "--pacing"])
+            .expect_err("an option orb does not have was accepted");
+        let refused = bad_command_line(&refused);
+
+        assert_eq!(refused.line.lines().count(), 1);
+        assert!(
+            refused.line.contains("--pacing"),
+            "the line does not name the argument: {}",
+            refused.line
+        );
+        assert!(
+            refused.text.contains("--no-pacing"),
+            "the dialog does not name the option orb has: {}",
+            refused.text
+        );
+    }
+
+    /// And what is not a refusal at all: clap carries the help as an error too, and answering it with
+    /// a dialog saying no game started would be orb refusing to do what it was asked.
+    #[test]
+    fn asking_for_the_help_is_not_a_refusal() {
+        let asked =
+            Launch::try_parse_from(["orb", "--help"]).expect_err("the help came back as options");
+        assert!(!asked.use_stderr());
     }
 }
