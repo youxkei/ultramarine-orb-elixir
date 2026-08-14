@@ -177,6 +177,20 @@ someone back to it, not into `SPEC.md`.
 - **The why not is in the comments.** The alternative rejected, the constraint that is not obvious,
   the reason the straightforward approach was avoided.
 
+**How many of something there are is not written down.** Not in a comment and not in `SPEC.md`: a
+count beside a list is a second place to edit every time the list grows, and it is the place nothing
+fails when it is wrong — `settings.rs` said its dialog template was ten controls where the template
+had fourteen, and `d3d8.rs` pasted the output of the `grep -c` that counts its slots beside the
+command. So the list is named and not numbered, and where the number is worth having, what goes in
+is the command that answers it.
+
+Three kinds of number are not this. One the game or Windows fixes — `RECT`'s four fields,
+`IUnknown`'s three slots, 紅魔郷's six endings — does not move when this tree grows, and saying which
+of them is which is the whole content of the sentence it is in. One in a test *is* the expected
+behaviour, which is what a test is for. And `docs/adr/` and the commit log are records of what was
+decided or done at a time, which nothing goes back to update, so a count in them never becomes a
+diff.
+
 Nothing machine-specific in anything committed. Scripts take what varies as an argument or
 from the environment, and fail with a usage line when given neither.
 
