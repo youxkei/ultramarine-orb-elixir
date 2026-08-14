@@ -3,8 +3,9 @@
 **Status:** accepted and built. `launcher::thcrap` reads a thcrap out of the launcher its own
 configuration tool left in the game's directory, brings its patch stack up to date through
 `stack_update_wrapper`, and hands the suspended game to `WaitUntilEntryPoint` and
-`thcrap_inject_into_running` before `inject::load_library` puts orb's own DLL in. `thcrap: false` in
-`orb.yaml` turns the whole of it off. What orb draws in either language is
+`thcrap_inject_into_running` before `inject::load_library` puts orb's own DLL in. `thcrap` in `orb.yaml`
+turns the whole of it on or off, and says `auto` until somebody answers it — which is the language orb
+writes its own screens in deciding. What orb draws in either language is
 [0014](0014-a-language-is-threaded-into-every-screen-and-the-machines-comes-through-the-seam.md), and what
 thcrap's presence did to orb's own text is [0015](0015-orbs-own-text-leaves-through-gdi32s-exports.md).
 
@@ -33,6 +34,20 @@ Windows is in English is a machine whose 紅魔郷 is very likely under thcrap.
 **A launch finds the thcrap beside the game and does thcrap's work itself, through what thcrap publishes
 about itself.** Nothing here reproduces a step of thcrap's own installation, and nothing asks the player
 to arrange the two.
+
+**Whether it wants one at all is the language orb writes its own screens in, where `thcrap` says
+`auto`** — off where that is Japanese and on where it is anything else, which is
+`Config::thcrap_wanted`. That answer and not `GetUserDefaultUILanguage` directly, so `language:
+japanese` on an English machine turns the patch off too: somebody who says which language they read has
+said it about the patch as well. It is 0014's question with the same answer: Japanese is somebody reading the words 紅魔郷 already
+has, and a patch putting English over them would be orb translating a game away from the language its
+owner reads. The alternative was a switch that defaults to on for everybody, which is what this was
+built as: it makes a Japanese machine with thcrap installed for some other game start 紅魔郷 in English,
+and a translation nobody asked for is worse than a translation somebody has to ask for. Defaulting off
+for everybody was rejected the other way — it leaves whoever installed thcrap to play this game in
+English playing it in Japanese until they find a checkbox, which is the arrangement this whole document
+exists to spare them. Neither default is a guess that persists: the dialog shows it as the box it starts
+from, and what comes back is written to `orb.yaml` by name.
 
 **Discovery is the wrapper exe's string resources.** Resource 0 is the `bin` thcrap runs from, 1 is the
 command line, 2 is the exe it runs; resource 2 naming `thcrap_loader.exe` is what tells one of those

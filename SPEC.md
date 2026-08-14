@@ -1715,9 +1715,10 @@ run is in is asked inside the game, where the run is started — see *Pointdevic
 
 `orb.yaml`'s keys are `screen`, `language`, `thcrap`, `skip_ending`, `always_draw`,
 `boundary_flash`, `hide_mouse`, `dpad_moves` and `ask_at_startup`. YAML read with serde; every one but
-the first two is a switch written `true` or
-`false`, `screen` is written `fullscreen` or a size like `1280x720`, and `language` is written `japanese`,
-`english` or `auto`. `deny_unknown_fields`, so a key nobody
+the first three is a switch written `true` or
+`false`, `screen` is written `fullscreen` or a size like `1280x720`, `language` is written `japanese`,
+`english` or `auto`, and `thcrap` is a switch that takes `auto` as well — the two whose answer the
+machine can give. `deny_unknown_fields`, so a key nobody
 reads is an error naming it — including one that used to be a key, which is a file to edit rather
 than one to pass over quietly. A setting that is not read is a setting somebody thinks is on.
 
@@ -1969,9 +1970,18 @@ How the answer reaches each screen, and what was weighed against threading it th
 installed both otherwise has two launchers for one game and has to pick: through thcrap and there is no
 orb in the process, through orb and there is no translation. So a launch looks in the game's directory
 for a thcrap, brings its patch stack up to date, and hands it the game orb has just created — the same
-launch, whichever of the two the player thinks of as the launcher. `thcrap: false` is how somebody who
-has one installed and does not want it in this game says so; `true` is what a file with nothing in it
-says, since a thcrap installed beside a game is one somebody installed to play that game with.
+launch, whichever of the two the player thinks of as the launcher. `thcrap: true` and `false` are how
+somebody says which they want whatever their machine is.
+
+**And `auto` — what a file with nothing in it says — is answered by the language orb writes its own
+screens in: off where that is Japanese and on where it is anything else.** Japanese is somebody who reads
+the words the game already has, and putting an English patch over them would be orb translating a game
+away from the language its owner reads; anything else is somebody who cannot read those words, and a
+thcrap installed beside the game is what they installed it for. It is that answer and not
+`GetUserDefaultUILanguage` directly, so `language` decides this too where it names a language: somebody
+who says which language they read has said it about the patch as well. Neither answer is a guess that
+stands: the settings dialog shows it as the box it starts from, and whatever comes back from it is
+written down by name, so one launch through that dialog settles it for good.
 
 **Where thcrap is comes out of the launcher its own configuration tool wrote.** That tool leaves
 `th06 (en).exe` in the game's directory, whose string resources 0, 1 and 2 are the `bin` it runs from,

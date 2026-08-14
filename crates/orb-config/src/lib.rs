@@ -118,12 +118,17 @@ pub struct Config {
     pub dpad_moves: bool,
     /// How big the game's window is, the game's aspect ratio kept either way.
     pub screen: Screen,
-    /// Put the translation patch installed beside the game into the game orb starts.
+    /// Put the translation patch installed beside the game into the game orb starts, and `None` for
+    /// the answer the machine's own language gives — see [`Config::thcrap_wanted`].
     ///
     /// The launcher's own question: by the time the DLL is inside the game, the patch is either in there
     /// with it or was never going to be. Off leaves the game as it comes, which is what somebody who
     /// wants the game in Japanese with the patch still installed for another launcher wants.
-    pub thcrap: bool,
+    ///
+    /// Kept as the file said it rather than answered here, for the same reason [`Config::language`] is:
+    /// what the settings dialog has to show as chosen — and write back — is the answer, and whether
+    /// there was one.
+    pub thcrap: Option<bool>,
     /// Which language orb writes its own screens in, and `None` for the machine's own — which is what
     /// the file says by default and what the settings dialog offers first.
     ///
@@ -432,6 +437,25 @@ impl Config {
         }
     }
 
+    /// Whether the translation patch beside the game goes into it: what [`Config::thcrap`] says where
+    /// the file answered it, and otherwise whether `language` came out as anything but Japanese.
+    ///
+    /// **Which is the language orb writes its own screens in deciding**, and so the machine's where the
+    /// file left that to the machine. Japanese is somebody reading the words 紅魔郷 already has, and a
+    /// patch putting English over them would be orb translating a game away from the language its owner
+    /// reads; anything else is somebody who cannot read those words, and thcrap installed beside the game
+    /// is what they installed it for. Read off the answer rather than off `GetUserDefaultUILanguage`
+    /// because the answer is the one that can be argued with: `language: japanese` on an English machine
+    /// is somebody saying which language they read, and the patch is the same question.
+    ///
+    /// Either way one answer in the dialog settles it for good, that answer being written back by name.
+    ///
+    /// Here rather than at the two places that ask — the launcher's discovery and its settings dialog —
+    /// because a rule written twice is a rule that can be changed once.
+    pub fn thcrap_wanted(&self, language: Language) -> bool {
+        self.thcrap.unwrap_or(language != Language::Japanese)
+    }
+
     /// Writes the keys of `orb.yaml` back, which is what the launcher does with the answers to
     /// the settings it asked for.
     ///
@@ -610,6 +634,49 @@ mod tests {
         config.save(&path).unwrap();
         assert_eq!(Config::load(&path).unwrap().language, None);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The patch beside the game is used or not by name, or left to the machine's own language — which
+    /// answers it off where that language is Japanese and on where it is anything else. Somebody whose
+    /// Windows is Japanese reads the game's own words, and whoever's is not installed thcrap to read
+    /// something.
+    #[test]
+    fn the_patch_is_used_by_name_or_by_the_machines_language() {
+        assert_eq!(parse("thcrap: true\n").thcrap, Some(true));
+        assert_eq!(parse("thcrap: false\n").thcrap, Some(false));
+        assert_eq!(parse("thcrap: auto\n").thcrap, None);
+        assert_eq!(parse("").thcrap, None);
+
+        // Answered by name, and the language does not come into it either way.
+        for language in [Language::Japanese, Language::English] {
+            assert!(parse("thcrap: true\n").thcrap_wanted(language));
+            assert!(!parse("thcrap: false\n").thcrap_wanted(language));
+        }
+        // Left to the machine, and this is the whole of the rule.
+        assert!(!parse("").thcrap_wanted(Language::Japanese));
+        assert!(parse("").thcrap_wanted(Language::English));
+
+        // And `auto` is written back as `auto`, so a file that follows the machine goes on following
+        // whichever machine reads it next.
+        let dir = std::env::temp_dir().join(format!("orb-config-thcrap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(super::FILE_NAME);
+        let config = parse("");
+        config.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap().thcrap, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// And a `thcrap` that is none of the three words is refused naming them, the way a language is.
+    #[test]
+    fn a_patch_switch_that_is_neither_says_so() {
+        for text in ["yes", "on", "japanese", ""] {
+            let error = match Config::parse(Path::new("orb.yaml"), &format!("thcrap: {text:?}\n")) {
+                Err(error) => error.to_string(),
+                Ok(config) => panic!("{text:?} was read as {:?}", config.thcrap),
+            };
+            assert!(error.contains("auto"), "{text:?}: {error}");
+        }
     }
 
     /// A language orb has no words for is not answered with the ones it has: a file naming it is a

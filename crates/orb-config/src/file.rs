@@ -25,8 +25,9 @@ use serde::Deserialize;
 
 use crate::{Language, Screen};
 
-/// The word `language` takes for the machine's own, which is not the name of a language: it says
-/// where the answer comes from, and by the time a screen is drawn it has been answered.
+/// The word `language` and `thcrap` take for the machine's own, which is neither the name of a language
+/// nor a switch: it says where the answer comes from, and by the time a screen is drawn or a game is
+/// started it has been answered.
 const AUTO: &str = "auto";
 
 #[derive(Deserialize, PartialEq, Eq, Debug)]
@@ -35,7 +36,8 @@ pub(crate) struct File {
     pub screen: Screen,
     #[serde(deserialize_with = "language")]
     pub language: Option<Language>,
-    pub thcrap: bool,
+    #[serde(deserialize_with = "switch_or_auto")]
+    pub thcrap: Option<bool>,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
@@ -51,7 +53,7 @@ impl Default for File {
         Self {
             screen: Screen::Fullscreen,
             language: None,
-            thcrap: true,
+            thcrap: None,
             always_draw: true,
             boundary_flash: true,
             skip_ending: true,
@@ -76,6 +78,28 @@ fn language<'de, D: serde::Deserializer<'de>>(
     text.parse().map(Some).map_err(serde::de::Error::custom)
 }
 
+/// A switch that has [`AUTO`] as well as the two words every other switch is written with, the answer
+/// then coming from the same place the language's does.
+///
+/// Read as a string like the language above, YAML's own `true` and `false` included: a switch and a
+/// word cannot both arrive as one type any other way, and the three words this accepts are the three a
+/// reader of the file sees.
+fn switch_or_auto<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    let text = text.trim();
+    if text.eq_ignore_ascii_case(AUTO) {
+        return Ok(None);
+    }
+    match text.parse::<bool>() {
+        Ok(switch) => Ok(Some(switch)),
+        Err(_) => Err(serde::de::Error::custom(format!(
+            "{text:?} is not true, false or {AUTO}"
+        ))),
+    }
+}
+
 /// The file as orb writes it: every key and the value it was given.
 pub(crate) fn text(file: &File) -> String {
     format!(
@@ -91,7 +115,10 @@ dpad_moves: {dpad_moves}
 ask_at_startup: {ask_at_startup}
 ",
         screen = file.screen,
-        thcrap = file.thcrap,
+        thcrap = match file.thcrap {
+            None => AUTO.to_owned(),
+            Some(switch) => switch.to_string(),
+        },
         language = match file.language {
             None => AUTO.to_owned(),
             Some(language) => language.to_string(),

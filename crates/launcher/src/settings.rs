@@ -75,7 +75,11 @@ impl Answers {
     pub fn apply(&self, config: &mut Config) {
         config.screen = self.screen;
         config.language = self.language;
-        config.thcrap = self.thcrap;
+        // By name, where the file may have left it to the machine's language: a box that was in front of
+        // somebody and came back either way is an answer, and the next launch is not to go looking for
+        // one again. Which is the row above's difference too — a language row offers the machine's own as
+        // an item, and a box has no room for a third state.
+        config.thcrap = Some(self.thcrap);
         config.always_draw = self.always_draw;
         config.boundary_flash = self.boundary_flash;
         config.skip_ending = self.skip_ending;
@@ -171,7 +175,10 @@ struct Switch {
     /// What the key does rather than what it is called, since nobody reading this dialog has read
     /// the file — and in the language the person answering reads.
     text: fn(Language) -> &'static str,
-    shown: fn(&Config) -> bool,
+    /// Where the box starts from, which for the one switch whose default the machine's own language
+    /// decides is that answer rather than the file's — a box shown unticked and a launch that patches
+    /// the game anyway would be the dialog lying about what pressing start does.
+    shown: fn(&Config, Language) -> bool,
     answered: fn(&mut Answers, bool),
 }
 
@@ -182,7 +189,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "インストールされている翻訳パッチを使う",
             Language::English => "Use the translation patch installed beside the game",
         },
-        shown: |config| config.thcrap,
+        shown: |config, language| config.thcrap_wanted(language),
         answered: |answers, on| answers.thcrap = on,
     },
     Switch {
@@ -190,7 +197,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "エンディングをスキップする",
             Language::English => "Skip the ending",
         },
-        shown: |config| config.skip_ending,
+        shown: |config, _| config.skip_ending,
         answered: |answers, on| answers.skip_ending = on,
     },
     Switch {
@@ -198,7 +205,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "背面でもゲームを止めない",
             Language::English => "Keep playing while another window is in front",
         },
-        shown: |config| config.always_draw,
+        shown: |config, _| config.always_draw,
         answered: |answers, on| answers.always_draw = on,
     },
     Switch {
@@ -206,7 +213,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "チャプターの切り替わりにフラッシュする",
             Language::English => "Flash the play field where a chapter begins",
         },
-        shown: |config| config.boundary_flash,
+        shown: |config, _| config.boundary_flash,
         answered: |answers, on| answers.boundary_flash = on,
     },
     Switch {
@@ -214,7 +221,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "時間経過でマウスカーソルを消す",
             Language::English => "Hide the mouse pointer once the mouse is still",
         },
-        shown: |config| config.hide_mouse,
+        shown: |config, _| config.hide_mouse,
         answered: |answers, on| answers.hide_mouse = on,
     },
     Switch {
@@ -222,7 +229,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "ゲームパッドの十字キーでも移動する",
             Language::English => "Move on a gamepad's d-pad as well as its stick",
         },
-        shown: |config| config.dpad_moves,
+        shown: |config, _| config.dpad_moves,
         answered: |answers, on| answers.dpad_moves = on,
     },
     Switch {
@@ -230,7 +237,7 @@ const SWITCHES: [Switch; 7] = [
             Language::Japanese => "起動時に毎回訊ねる",
             Language::English => "Ask all of this at every launch",
         },
-        shown: |config| config.ask_at_startup,
+        shown: |config, _| config.ask_at_startup,
         answered: |answers, on| answers.ask_at_startup = on,
     },
 ];
@@ -412,11 +419,12 @@ pub fn ask(config: &Config, game_cfg: &Path) -> Result<Option<Answers>, Box<dyn 
                 .map(|(width, height)| Screen::Window { width, height }),
         )
         .collect();
+    // Settled before the boxes, one of which starts from it.
+    let language = config.language.unwrap_or_else(Language::of_the_machine);
     let mut switches = [false; SWITCHES.len()];
     for (shown, switch) in switches.iter_mut().zip(&SWITCHES) {
-        *shown = (switch.shown)(config);
+        *shown = (switch.shown)(config, language);
     }
-    let language = config.language.unwrap_or_else(Language::of_the_machine);
     *SETUP.lock().unwrap() = Some(Setup {
         choices,
         screen: config.screen,
@@ -998,14 +1006,16 @@ mod tests {
     /// would look wrong.
     #[test]
     fn each_switch_answers_the_key_it_shows() {
-        /// The language the switches are named in for what this test says about them, which is not
-        /// something either language changes.
+        /// The language the switches are named in for what this test says about them — and the one the
+        /// patch switch's own default is read against, that being the switch whose default the
+        /// machine's language decides. English is the side of it that starts on, which is what lets
+        /// every box below be asserted the same way.
         const IN: Language = Language::English;
 
         let shown = defaults();
         for switch in &SWITCHES {
             assert!(
-                (switch.shown)(&shown),
+                (switch.shown)(&shown, IN),
                 "{}: not shown as on with every key at its default",
                 (switch.text)(IN),
             );
@@ -1032,7 +1042,7 @@ mod tests {
 
             let off: Vec<&str> = SWITCHES
                 .iter()
-                .filter(|switch| !(switch.shown)(&config))
+                .filter(|switch| !(switch.shown)(&config, IN))
                 .map(|switch| (switch.text)(IN))
                 .collect();
             assert_eq!(
