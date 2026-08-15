@@ -171,17 +171,22 @@ to a chapter of the stage's waves. Only where the track the game restarted is th
 sound was in: an offset means nothing in another wav.
 
 **The chapters of the stage are kept from its start up to the one being played**, since every one of
-them is a place the retry menu offers to go back to. Eight of them at once, because a chapter's
-snapshot is five or six regions and twenty megabytes or so and a stage divides into a few dozen
-chapters — a gigabyte of a two-gigabyte address space. Eight reaches back across a fight, 紅魔郷's
-bosses having eight or nine attacks, so the chapter a fight began at is usually still there to be gone
-back to from the one it is being lost in. When a ninth is due **the oldest above the stage's own start
-goes**: that one stays whatever else does, being the way out of the whole stage, and what a death
-wants is the chapters around the one it happened in.
+them is a place the retry menu offers to go back to. Eight of them at once, which reaches back across a
+fight — 紅魔郷's bosses have eight or nine attacks, so the chapter a fight began at is usually still
+there to be gone back to from the one it is being lost in. When a ninth is due **the oldest above the
+stage's own start goes**: that one stays whatever else does, being the way out of the whole stage, and
+what a death wants is the chapters around the one it happened in.
+
+What eight cost is measured rather than guessed, and the log is the instrument: a chapter is written
+down with the size of its own snapshot, and a session over stages 1 to 5 came out at **five to nine
+regions and 4.2 to 7.2 megabytes** a chapter — so forty to fifty-five megabytes for the eight, against
+a two-gigabyte address space. Those are the same numbers wherever it runs, what a snapshot covers being
+the game's own memory. What a boundary costs the *frame* is not, and no figure for it is written down
+anywhere here: the `snapshot` phase of the `perf:` line is where that is asked, of the machine asking.
 
 Going back to a chapter drops the ones after it, the run not having played them yet — and their
 buffers are kept to be written over rather than freed, because the run is about to play those frames
-again and reach those boundaries again. Freed, each of those boundaries would have twenty megabytes of
+again and reach those boundaries again. Freed, each of those boundaries would have a chapter's worth of
 fresh pages to fault in between two frames.
 
 **They are this stage's chapters only** — a snapshot of an earlier one would name Direct3D

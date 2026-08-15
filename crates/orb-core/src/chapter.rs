@@ -52,11 +52,22 @@ const STAGE_SETTLE_FRAMES: u32 = 8;
 
 /// How many chapters of a stage there are snapshots of at once, the stage's own start among them.
 ///
-/// A cap because a chapter's snapshot is the game's memory copied — five or six regions, twenty
-/// megabytes or so — and a stage divides into a few dozen chapters, which is a gigabyte of a
-/// two-gigabyte address space. Eight reaches back across a fight: 紅魔郷's bosses have eight or nine
-/// attacks, so the chapter a fight began at is usually still there to be gone back to from the one it
-/// is being lost in, and a hundred and sixty megabytes is what that costs.
+/// **Eight because it reaches back across a fight**: 紅魔郷's bosses have eight or nine attacks, so the
+/// chapter a fight began at is usually still there to be gone back to from the one it is being lost in.
+///
+/// What that costs is measured rather than guessed, and the log is the instrument: every chapter is
+/// written down with the size of its own snapshot — `{} region(s) of {} bytes` in
+/// [`begin_chapter`](Chapters::begin_chapter) — and a session over stages 1 to 5 of 紅魔郷 1.02h came
+/// out at **five to nine regions and 4.2 to 7.2 megabytes** a chapter. So eight of them is forty to
+/// fifty-five megabytes, which is nothing beside a two-gigabyte address space. The same numbers on any
+/// machine: what a snapshot covers is the game's own memory, and the game is the same game.
+///
+/// What a boundary costs the *frame* is not, and is no number to write down here — it is the
+/// `snapshot` phase of the log's own `perf:` line, on the machine being asked.
+///
+/// A cap all the same, and this is not the number to raise without a reason of its own: a stage
+/// divides into a few dozen chapters, and what would be gained past a fight's worth of them is going
+/// back further than anybody grinding a chapter reaches for.
 const KEPT_CHAPTERS: usize = 8;
 
 /// How much longer to wait for the music to come up before giving up on it.
@@ -132,9 +143,9 @@ struct Checkpoint {
 ///
 /// **Those buffers are kept rather than freed**, because going back is what they are for: a restore
 /// drops every chapter after the one it puts back, and the run then plays those frames again and
-/// reaches those boundaries again. Freed, each of those boundaries would have twenty megabytes of
-/// fresh pages to fault in between two frames — which is the cost [`take`] reuses a snapshot's
-/// buffers to avoid, and a frame that misses its blank is what it buys.
+/// reaches those boundaries again. Freed, each of those boundaries would have a chapter's worth of
+/// fresh pages to fault in between two frames — several megabytes, see [`KEPT_CHAPTERS`] for what one
+/// measures — which is the cost [`take`] reuses a snapshot's buffers to avoid.
 struct Snapshots {
     kept: Vec<Checkpoint>,
     /// How many of `kept` are chapters of the run as it stands. The rest are those buffers.

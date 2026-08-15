@@ -847,7 +847,7 @@ fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
     resume::keep(runtime.keeping());
-    // Nothing kept of a run that will not be rewound: a stage's snapshots are twenty megabytes a
+    // Nothing kept of a run that will not be rewound: a stage's snapshots are several megabytes a
     // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
     // Its buttons go with them — a run that cannot be rewound has nothing a chapter would be
     // resumed into.
