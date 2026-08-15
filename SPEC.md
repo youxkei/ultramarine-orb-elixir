@@ -2595,11 +2595,15 @@ it. See [docs/adr/0002](docs/adr/0002-the-frame-loops-two-calls-into-the-game-ar
 
 Everything a game can drive is driven that way: the question that chooses a mode, on the keyboard and on
 a controller the game answers with, the whole of a `State` read at frames a game reached by being played
-to them, and the frame loop. **Every one of them is a `#[cfg(test)]` module of `crates/orb-e2e/src/`**, and the four
-files beside them that do not begin that way are the ones no game drives — the log, and one `Pacing` that
-is handed numbers rather than run. What `log!` formats and which level keeps which line is the log's own
+to them, and the frame loop. **Every one of them is a `#[cfg(test)]` module of `crates/orb-e2e/src/`**, and
+what sits in `orb-sim`'s `tests/` instead is what no game drives — the log, and one `Pacing` that is
+handed numbers rather than run. What `log!` formats and which level keeps which line is the log's own
 business, and no game decides it. See
 [docs/adr/0005](docs/adr/0005-every-e2e-test-lives-in-orb-sims-tests.md).
+
+**The one thing no launch here reaches is the write over winmm's `joyGetPosEx` entry.** What a laid-out
+game's own pad read reaches is that entry's replacement, so what nothing drives is the write over the
+import table and not what it answers with.
 
 ## Holding the game still, checked against real threads
 
@@ -2642,105 +2646,14 @@ game's entry point and the memory hooks see the first allocation.
 
 | | |
 | --- | --- |
-| `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it |
-| `launcher/settings.rs` | the dialog that asks for every setting in `orb.yaml` before the game starts |
-| `launcher/thcrap.rs` | the translation patch installed beside the game: what its own launcher says about where it is, its patch stack brought up to date, and the game handed to it |
-| `launcher/pad.rs` | reading the pads on the launcher's side — winmm's joystick 0 and every XInput slot — so that dialog answers to one |
+| `crates/launcher` | checks the exe, starts it suspended, injects `orb`, resumes it — and before any of that asks for every setting in `orb.yaml`, reading the pads itself so that dialog answers to one, and hands the game to the translation patch installed beside it |
+| `crates/orb` | the DLL: `DllMain`, the install lists — which prologue goes with which hook, and which of them a `Config` asks for — the trampoline and import-table hooks themselves, and the handler that names the module and offset a fault happened at. What each hook *does* once it is in is `orb-core`'s |
 | `crates/orb-config` | `orb.yaml` — read by both halves, written by the launcher — and the command line |
-| `crates/orb-api` | the seam: the `Win` trait, the neutral types, and the facades every host call goes through |
-| `orb-api/real/` | the Windows behind it — `#[cfg(windows)]`, and the only part of the crate that is |
-| `crates/orb-core` | everything that decides what happens to a run, over that seam and with no `windows-sys` anywhere in it — 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions. `cargo xtask seam` holds it to that |
-| `orb-core/frame.rs` | the frame loop's pacing and its measurements |
-| `orb-core/input.rs` | the keyboard orb reads for itself, and what it does when the game is not the window in front |
-| `orb-core/menu.rs` | the keys orb's questions read, whose press each is, and where a cursor over them goes |
-| `orb-core/mode.rs` | the two modes, the question that chooses between them, and what each choice says |
-| `crates/orb-sim` | the simulated Windows: the memory, the clock, the display, the keyboard, the mouse, the pad, the sound, the device orb draws through and the strings it bakes. In its `tests/` are the four no game drives |
-| `crates/orb-e2e` | the launches: a game playing the game's part in `src/fake/`, compiled once, with every e2e test a `#[cfg(test)]` module beside it |
-| `orb-sim/display.rs` | a monitor and a compositor a test declares: the refresh period, what the compose takes and how often it spikes, and the blank a flush returns at |
-| `orb-sim/window.rs` | the panel a test declares and the window manager over it: the two sizes one monitor reports either side of `SetProcessDPIAware`, the frame it costs to get a client of a given size, the windows it has been asked to make, and every stack of lines it has been asked to write in the black beside the game |
-| `orb-sim/keyboard.rs` | the keys a test holds down, the keys another program sent — which `GetKeyboardState` reports and an exclusive foreground device does not — and a host that refuses to say what is down at all |
-| `orb-sim/mouse.rs` | the pointer a test moves, the display counter `ShowCursor` keeps and how many times it has been asked to move it, and a host that refuses to say where the pointer is |
-| `orb-sim/noise.rs` | the seeded stream the host's delays are drawn from, so a run that fails replays |
-| `orb-sim/space.rs` | an address space laid out by hand, which is how a test has a game to read |
-| `orb/lib.rs` | `DllMain` and the install lists: which prologue goes with which hook, and which of them a `Config` asks for |
-| `orb-core/runtime.rs` | what those hooks *do*: their bodies, the `Runtime` they carry between frames, `Originals` — the game's own calls each one goes on to make, all but the pad read, which is the one nothing goes on to — and `attach_to`, which is how a game laid out by hand is attached to with no process to patch |
-| `orb/hook.rs` | trampoline and import-table hooks |
-| `orb/memtrack.rs` | the import hooks that notice the heaps and reservations the game takes from the OS, each handing over what it saw |
-| `orb-core/memtrack.rs` | the set those make up, as a snapshot asks for it |
-| `orb-core/snapshot.rs` | save and restore of `.data`, those regions, and the music |
-| `orb/threads.rs` | the `CreateThread` import, which is the only way to know which of the process's threads are the game's. Suspending them is `orb-api`'s |
-| `orb/joystick.rs` | the write over the `joyGetPosEx` entry, which is the one thing here no e2e test reaches |
-| `orb-core/joystick.rs` | the thread that samples every socket a pad can be in off the game's own, the entry's replacement answered out of joystick 0's last sample, and what a sample means: whether what answered is a pad, which of the pads was last pushed, and what the word and orb's own menus read off it |
-| `orb-core/audio.rs` | the sound buffer and file position, which live outside the game's memory |
-| `orb-core/chapter.rs` | where chapters begin, and which snapshots are kept |
-| `orb-core/resume.rs` | the buttons a run has pressed, and the file that lets its chapter be played to again |
-| `orb-core/retry_ui.rs` | the menu shown where the chapter was lost |
-| `orb-core/lives_ui.rs` | the brush stroke over the game's count of lives, for a run that cannot lose one |
-| `orb-core/build.rs`, `orb-core/brush.png` | that stroke, and the bake that turns the picture of it into coverage |
-| `orb-core/mode_ui.rs` | that question drawn — the labels and the wash. What it decides is `orb-core/mode.rs` |
-| `orb-core/resume_ui.rs` | the question after the character select: from where it stopped, or from the beginning |
-| `orb-core/menu_ui.rs` | the list they draw, and the colours they draw it in |
-| `orb/score.rs` | the write over the `CreateFileA` import |
-| `orb-core/score.rs` | that entry's replacement, the walk of the path the game handed over, and which file the open lands in: the fork's choice of name, and the refusing of a clear run's write |
-| `orb-api/mem.rs` | the reads and writes of the game's memory, and what makes an address safe to read |
-| `orb-api/real/mem.rs` | the page operations behind that — committing what a restore needs, unprotecting it, swapping a word in a page that is read-only — and the walk of the heaps and reservations the game took, which is what a chapter is a copy of |
-| `orb-api/window.rs` | which window is in front, the sizes the host decides — what the monitor measures, the frame it puts round a client area, and the client a created window came out with — the GDI a stack of lines is measured and written to the window with, and the modal orb puts up itself |
-| `orb-api/mouse.rs` | where the pointer is, and the display counter the host draws it by |
-| `orb-api/clock.rs` | the counter, the stamp every log line carries divided down from it, the wait to a frame's own deadline, and the coarse one a thread nobody is waiting for takes between two reads of a device |
-| `orb-api/codepage.rs` | `MultiByteToWideChar`, for the one string a Win32 `-A` call answers in the machine's own code page: the name winmm gives a pad |
-| `orb-api/locale.rs` | `GetUserDefaultUILanguage`, which is the language orb writes its screens in where `orb.yaml` names none — apart from the code page because Windows keeps the two apart |
-| `orb-api/real/gdi.rs` | the GDI calls that carry orb's own text, read out of gdi32's export directory rather than called through this DLL's imports, which something else injected into the game rewrites — see [docs/adr/0015](docs/adr/0015-orbs-own-text-leaves-through-gdi32s-exports.md). Below the seam and reached from `real/window.rs` and `real/text.rs` alone |
-| `orb-api/joystick.rs` | the joysticks winmm has: joystick 0, which is the one the game's own startup check asks about, and every other index it will answer about |
-| `orb-api/xinput.rs` | the pads XInput has, which is where the pad is on a machine whose winmm has only the phantom. The library it is read through is loaded by name, which of the three being the machine's business |
-| `orb-api/process.rs` | ending the process, for the one host orb declines to run on |
-| `orb-core/tuning.rs` | building the midstage table |
-| `orb/window.rs` | the writes over the two window imports, and the black brush the rewrite of `RegisterClassA` swaps in |
-| `orb/mouse.rs` | the write over the `ShowCursor` import, which is what leaves the display counter orb's |
-| `orb-core/mouse.rs` | how long the mouse has to have been still for the pointer to go, the read that follows it, and that entry's replacement — the game's own ask answered rather than passed on |
-| `orb-core/window.rs` | how big that window is and where it goes — the style, the centring, and the rectangle a 4:3 game is presented into — the device's `Present` slot redirected into it, and where orb's own lines go in the black beside it |
-| `orb-core/overlay.rs` | drawing over the game's frame: the state block round every draw, the quads, and the labels and pictures baked into textures |
-| `orb-api/d3d8.rs`, `orb-api/real/d3d8.rs` | the slots of the game's device orb calls, and the only code in the tree that calls a Direct3D vtable |
-| `orb-api/dsound.rs`, `orb-api/real/dsound.rs` | the eight of the buffer its music is played out of, the same way |
-| `orb-api/text.rs`, `orb-api/real/text.rs` | a string baked to a coverage mask, and the GDI that bakes one |
-| `orb-sim/drawing.rs` | a device that keeps what it was asked to draw, so an e2e test can say what is on the screen — and which string went into each texture |
-| `orb-sim/text.rs` | the fonts an e2e test says are there, and what a string comes out as: a declared metric rather than a rasteriser |
-| `orb-core/log.rs`, `profile.rs` | the log and its levels, and where a frame's time went |
-| `orb/crash.rs` | the handler that names the module and offset a fault happened at |
-| `orb-core/game/mod.rs` | `Game` and `State`: everything above is written against these |
-| `orb-core/game/th06/` | the addresses and offsets that make it 東方紅魔郷 |
-| `orb-core/game/th06/image.rs` | those addresses laid out in a simulated Windows, so the real `Th06` has something to read — and where each thing a game does to its own memory is written |
-| `orb-e2e/src/fake/` | the games that play the game's part. `mod.rs` is the half any launch has — the display, the device orb draws through, what a frame's own work costs, and `in_its_own_process`; `th06.rs` is 紅魔郷's own memory, front end and stage, with orb's hooks called where the real game's code calls them, and `th07.rs` is as much of 妖々夢 as `Th07` reads |
-| `orb-e2e/src/pointdevice_run.rs`, `orb-e2e`'s `legacy_run` | the two e2e tests over a whole run, which press keys and read back the game's memory, its records and orb's log |
-| `orb-e2e/src/pacing.rs` | every e2e test about orb's own frame loop, in a section apiece, over the functions that judge a rate: the moments the game was handed its frames over at, and orb's own `frame:` line taken apart |
-| `orb-e2e/src/mode_question.rs`, `orb-e2e`'s `mode_on_the_pad`, `orb-e2e`'s `mode_on_a_winmm_pad` | the question over the game's title menu answered on the keyboard, answered on a controller the game owns, and answered on a pad winmm has where the game owns none — with the empty socket and the pad that turns up in it later beside it |
-| `orb-e2e/src/the_dpad_moving_the_player.rs` | the player moved by the d-pad on both of the devices the game reads a pad on, in the direction it points and by the step a held direction moves them every frame, with the pad at rest moving nothing and `dpad_moves: false` handing the game the word its own read produced |
-| `orb-e2e/src/a_pad_the_game_has_no_device_for.rs` | a pad the game holds no device for driving the run: its d-pad, its stick and its buttons in the word, the player held still on a focus button and on one button that is both focus and shoot held for the frames the game counts, a pad at a winmm index the game never asks about, a question of orb's answered on the pad in XInput's second slot where winmm has only the phantom — and two pads in front of one person, where the run is played with the one last pushed and the other is not merged into it |
-| `orb-e2e/src/the_pad_half_of_the_input_read.rs` | the other half of that: what reading a pad produces, over the device the game's own enumeration found — every mapped button as its bit, each axis against its own threshold, the player held still off one button that is both, a device whose poll fails leaving the word as the keyboard read it and being asked for again, the hat as the only thing `dpad_moves` takes out, and what the read costs reaching the `perf:` line |
-| `orb-e2e/src/the_run_read_back.rs` | `Th06::read_state` — every offset, every pointer chase — over a game that got where it is by being played |
-| `orb-e2e/src/the_window.rs` | the window orb makes on a monitor the e2e test declares: the client being the size asked for whatever the frame costs, the monitor's real pixels once the process says it is DPI aware, the black either side of a 4:3 game, and the status line written in it — which of the two bars, at which height, where the block landed, and a shorter stack afterwards clearing the rows the longer one wrote in |
-| `orb-e2e/src/the_mark_over_the_lives.rs` | the two edges of the mark over the count of lives — the one frame a stage transition takes, the frame a chapter is put back on, and the frame the game paints after the run has ended — and the panel's own tile the strips beside the count are painted with |
-| `orb-e2e/src/a_clear_on_demand.rs` | `--clear` through six stages with a bullet sitting on the player, the screen that saves a replay written past rather than answered, and neither score file written |
-| `orb-e2e/src/the_score_file.rs` | which of the two files each of the game's own opens lands in: the front end's read, which is the game's own file whatever the mode, and each mode's ranking screen reading and writing its own |
-| `orb-e2e/src/th07.rs` | a laid-out 妖々夢 with orb attached to `Th07`, which asks that orb got in and did none of what it does to 紅魔郷 |
-| `orb-e2e/src/keys_from_another_program.rs` | `--sent-keys`: a key another program sent, refused by the keyboard device the game holds exclusively and seen once orb has let that device go, and the two moments in the front end that spend a press on nothing |
-| `orb-e2e/src/the_ending.rs` | the ending run out inside the frame it begins on, stopping where its script hands over to the staff roll and the track changes on the same update, and the roll left to play at sixty |
-| `orb-e2e/src/moving_between_a_replays_stages.rs` | a replay moved between its stages: the teardown's write into the record held back, the score and the extra lives put back to nothing, a screen shake taken down before it reaches the next stage, and two passes over one stage agreeing to the last digit |
-| `orb-e2e/src/the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind; a seek that moves the countdown with the file so the track loops where it did; the buffer, the play cursor and the file position coming back byte for byte with a chapter; the track that has gone since taken down and started again through the game; and a file handle orb cannot read, where the buffer comes back and the file is left where it is |
-| `orb-e2e/src/a_chapter_further_back.rs` | the chapters behind the one that was lost: listed by name behind 更に前からやり直す with the one that was lost not among them, the run put back at one of them field for field with the file following it there, the chapters after the one restored gone from what the next death lists, the way out of that screen, and no item for it at all where the run has reached no other chapter |
-| `orb-e2e/src/the_card_name_across_a_restore.rs` | the name of the spell card a chapter is put back inside, baked onto its plate again out of the card's own record — which is what a chapter reached from a later card would otherwise be fought under |
-| `orb-e2e/src/the_run_written_down_off_the_frame.rs` | the chapter's file written from a thread of orb's own and not in the frame, read off which thread the write came from, with the run then picked up out of what that thread wrote; and a disk that takes longer than a frame over that file said out loud at the level a run is ordinarily logged at, with the run played on through the write |
-| `orb-e2e/src/a_chapter_table_collected.rs` | `--collect` and `--judge`: the gap in a stage's waves proposed, the boundary judged out and stepped back to and back into the table, one placed by hand and taken away again, both files written, what one sitting decided read back by the next, and a hand-edited state file whose unreadable lines are named by path and line |
-| `orb-e2e/src/a_chapter_out_of_the_table.rs` | the boundary the baked table holds for a stage beginning a chapter, with the fight won first so that nothing outranks the table, and the Extra reading the row of its own |
-| `orb-e2e/src/a_practice_run.rs` | one stage practised: the mode question over its own item of the title menu, the chapter put back after a death, and nothing written down for a run the game keeps no slot for |
-| `orb-e2e/src/the_handles_a_restore_leaves_alone.rs` | a texture handle the game holds left where a restore finds it, and the rest of the block it is in put back |
-| `orb-e2e/src/the_window_going_behind.rs` | the keys dropped while the game's window is behind, and the keyboard device taken again — as many times as it takes — when it comes forward |
-| `orb-e2e/src/the_mouse_pointer_over_the_game.rs` | the pointer taken off the screen three seconds after the mouse was last moved and put back on the frame it moves again, with the wait running from that movement rather than from the launch; the display counter one step from where it started; the pointer put back for as long as the game's window is behind, and the wait run again from the frame it comes forward; the game's own ask for the pointer answered without reaching the host; and a host that will not say where the pointer is left alone |
-| `orb-e2e/src/a_stage_transition.rs` | what a stage transition carries and what only the start of a run puts in place: the lives, the bombs, the power and the deaths a run walks through six stages with, the one read of the score file a run makes, the rank its difficulty is played at, the arcade region, and the box the player is held inside |
-| `orb-e2e/src/the_frame_a_scene_is_built_on.rs` | a scene's own first update falling on the frame it was built, at a stage's transition and at the front end alike, with the input word zeroed there so a button still held reads as a fresh press on the frame after |
-| `orb-e2e/src/the_player_a_stage_starts.rs` | the player a stage starts: invulnerable with the first of 240 frames already spent, and the 240th the one a bullet sitting on them kills on |
-| `orb-e2e/src/the_launch_before_its_device.rs` | a launch orb is attached to before the game has a Direct3D device, which is every real one: nothing drawn until the game's own setup runs, and the overlay ready once it has |
-| `orb-e2e/src/the_screens_in_english.rs` | a launch on a machine whose own windows are English with nothing in `orb.yaml` about the language: the question over the title menu, the menu where a chapter was lost with the question one of its items asks, and the question about a run left unfinished with the mark before it — each read back in English with none of its Japanese anywhere on the screen |
-| `orb-sim/tests/log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `log_refused.rs`, `pacing_no_timer.rs` | the ones no game drives, which is what their being `orb-sim`'s rather than `orb-e2e`'s says |
+| `crates/orb-api` | the seam: the `Win` trait, the neutral types, and the facades every host call goes through, with the Windows behind them the only part of the crate that is `#[cfg(windows)]` |
+| `crates/orb-core` | everything that decides what happens to a run — the frame loop, the input, the chapters and their snapshots, the screens orb draws, the fork of the score file, the log — over that seam and with no `windows-sys` anywhere in it, 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions. `cargo xtask seam` holds it to that |
+| `crates/orb-sim` | the simulated Windows every test runs against: the memory, the clock, the display, the keyboard, the mouse, the pads, the sound, the device orb draws through and the strings it bakes |
+| `crates/orb-e2e` | the launches: a game playing the game's part, compiled once, with every e2e test a `#[cfg(test)]` module beside it |
+| `crates/xtask` | the tasks that name the target, there being no `[build] target` to name it for them: `build`, `test`, `clippy`, `seam` and `coverage` |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.
