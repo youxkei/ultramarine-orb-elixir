@@ -15,6 +15,13 @@
 //! anything in it. So that read alone is left pointed at the game's own file — [`reading_unlocks`],
 //! set from the one callback that fills the globals the front end lights its items from.
 //!
+//! **Half of what that read brings back is a record after all**, and it is the score beside each
+//! practice stage: the callback fills what the menu offers and those scores out of the one file, and a
+//! score practised in a chapter that can be played again is no more the game's record than a capture
+//! is. One read cannot land in two files, so orb makes a fourth: `Game::read_practice_scores` reads the
+//! mode's own file wherever the mode is settled and puts its practice scores over the ones the front
+//! end's read left — the unlocks beside them untouched.
+//!
 //! **Which file is open is a runtime switch, not a setting.** The mode is chosen inside the
 //! game — at the item that starts a run, and at the one that shows the ranking — so the fork
 //! follows it: a normal run and the ranking of normal runs are the game's own file, which is
@@ -37,13 +44,16 @@
 //! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 
 use std::borrow::Cow;
-use std::ffi::c_void;
+use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::log;
 
 /// The game's file, as the game asks for it.
-const THEIRS: &[u8] = b"score.dat";
+///
+/// Terminated, because one open of it is orb's own — see [`asked_for`] — and `CreateFileA` takes a
+/// terminated string.
+const THEIRS: &CStr = c"score.dat";
 /// orb's, beside it and named for the mode whose runs are in it, so that a directory listing
 /// says which is which.
 ///
@@ -155,6 +165,10 @@ pub fn asked(access: u32) -> &'static str {
 /// the game makes nowhere near a write, and the exe reaches its score write from one place only —
 /// the ranking screen on its way out. So a write while pointdevice mode is on is that screen's, a
 /// score entered into it or a ranking that was only looked at and written back as it was read.
+///
+/// **The read that exception is made for brings the practice scores back with the unlocks**, and those
+/// are the mode's: orb reads them again out of the file this answers with, which is the one open of it
+/// that is orb's own rather than the game's — see [`asked_for`].
 pub fn redirected() -> bool {
     FORKED.load(Ordering::Relaxed) && !UNLOCKS.load(Ordering::Relaxed)
 }
@@ -172,7 +186,18 @@ pub fn theirs(path: &[u8]) -> Option<&[u8]> {
         .rposition(|byte| *byte == b'\\' || *byte == b'/')
         .map_or(0, |at| at + 1);
     let (directory, name) = path.split_at(cut);
-    name.eq_ignore_ascii_case(THEIRS).then_some(directory)
+    name.eq_ignore_ascii_case(THEIRS.to_bytes())
+        .then_some(directory)
+}
+
+/// The name to ask for the score file by, for the one open of it orb makes itself: a game filling its
+/// practice scores out of whichever file the mode points at — see `Game::read_practice_scores`.
+///
+/// The game's own name and not orb's, because which of the two files an open lands in is decided from
+/// the name and the mode by [`create_file_a`] — so an open orb makes is forked the same way the game's
+/// three are, and there is one place that decision is taken.
+pub fn asked_for() -> *const u8 {
+    THEIRS.as_ptr().cast()
 }
 
 /// orb's file in that directory, terminated for the open it is about to be handed to.

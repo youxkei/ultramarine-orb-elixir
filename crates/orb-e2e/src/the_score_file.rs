@@ -16,13 +16,19 @@
 //! `a_stage_transition.rs`) and the ranking screen's added callback (0x42f47f) read all four
 //! chunks, ranking and captures included. The write has one caller in the whole exe, 0x42f5cd in that
 //! screen's deleted callback.
+//!
+//! **A fourth read is orb's own**, and it is the same helper called for one chunk: the practice scores that
+//! came out of the game's file with the unlocks, read again out of the file the mode points at. What the
+//! screen they are drawn on then shows is
+//! [`the_practice_scores_shown_are_the_answered_modes_own`].
 
 use crate::fake::th06::{
-    CARD, CARD_NAME, CARD_STARTS, Fake, NOT_TRIED, Open, UNNAMED_CARD, the_run,
+    CARD, CARD_NAME, CARD_STARTS, Fake, NOT_TRIED, Open, STAGES, UNNAMED_CARD, the_run,
 };
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
-use orb_core::game::th06::image::{Scene, Screen, attempts_in, item};
+use orb_core::game::RunStart;
+use orb_core::game::th06::image::{EASY, Image, Scene, Screen, attempts_in, item};
 use orb_core::mode::Mode;
 use orb_sim::keys;
 
@@ -49,6 +55,10 @@ fn launched(name: &str) -> Box<Fake> {
 ///
 /// The walk somebody makes: every item that opens the file asks first, which is what makes one session
 /// reaching both files safe.
+///
+/// **The opens are forgotten where the answer goes in**, because the answer is a read of its own now — the
+/// practice scores out of the file it chose, which is the same file the screen is about to read and so a
+/// second entry saying nothing. What follows this call is the ranking screen's own opens.
 fn asks_for_the_ranking(game: &Fake, mode: Mode) {
     let log = game.log();
     game.frames_until("the title menu ready to act on a press", 120, || {
@@ -80,6 +90,10 @@ fn asks_for_the_ranking(game: &Fake, mode: Mode) {
         game.frames(READS_KEYS_AFTER);
         game.press(keys::DOWN);
     }
+    game.press_until(keys::Z, "the mode answered", || {
+        game.log().said(&format!("mode: {mode}, was "))
+    });
+    game.forget_score_file_opens();
     game.press_until(keys::Z, "the ranking asked for", || {
         game.image().scene() == Scene::Ranking
     });
@@ -280,8 +294,8 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
         let game = Fake::attach("the-score-file-the-unlocks", the_run(), |config| {
             config.log_level = LogLevel::Verbose;
         });
-        // The items themselves, which is what this one reads and no other e2e test does.
-        game.draws_its_title_menu();
+        // The items themselves, which is what this one reads off the front end.
+        game.draws_its_front_end();
         game.at_the_title_menu();
         // Not there, which is what a first pointdevice session is looking at: the file arrives when a
         // ranking screen writes one, and nothing seeds it from the game's own.
@@ -310,7 +324,7 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
         // What that failed read cost: the destination is cleared before the chunk is looked for, so what
         // the menu would be lit from is gone — nothing was *left as it was*. What it is left with is not
         // zeros either, which is `ParseClrd`'s own fixup: a record with the magic, the version and every
-        // clear count at 1, and 1 is not the 99 the Extra is behind.
+        // entry at 1, which is stage 1 reached and is not the 99 the Extra is behind.
         assert_eq!(
             game.image().unlocks(),
             fixed_up_by_a_failed_read(),
@@ -318,7 +332,7 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
         );
         assert!(
             !game.image().has_reached_max_clears(0, 0),
-            "a record whose clear counts are the failed read's own says the game has been cleared",
+            "a record whose entries are the failed read's own says the game has been cleared",
         );
 
         // And the front end's own read putting them back, which is the whole of what the bracket buys: the
@@ -341,8 +355,8 @@ fn a_missing_pointdevice_score_file_locks_the_unlocks() {
 ///
 /// Written out here rather than asked of the game, because asking the game would be asking the thing under
 /// test. `ParseClrd` at 0x42b502 memsets each of the four records and then writes the magic, both lengths,
-/// the version, the shot the record is about, and **1** into every one of the ten clear counts — which is a
-/// record that looks like a record and says nobody has cleared anything.
+/// the version, the shot the record is about, and **1** into every one of the ten entries its two arrays are
+/// — which is a record that looks like a record and says the shot has got as far as stage 1.
 fn fixed_up_by_a_failed_read() -> Vec<u8> {
     let mut records = Vec::new();
     for shot in 0..4u8 {
@@ -363,7 +377,7 @@ fn fixed_up_by_a_failed_read() -> Vec<u8> {
 ///
 /// Which is the first launch of a fresh installation, and the one case where the front end's *own* read —
 /// the game's file whichever mode orb is in — has nothing to find either. So the whole of what the menu
-/// could be lit from is what `ParseClrd`'s fixup leaves: every clear count at 1.
+/// could be lit from is what `ParseClrd`'s fixup leaves: every entry at 1.
 ///
 /// **Both halves, because the outcome alone would pass on the wrong mechanism.** A gate on "the record holds
 /// anything at all" would light the Extra from a fixup that says nobody has cleared anything; a gate on the
@@ -374,7 +388,7 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
         let game = Fake::attach("the-score-file-a-first-launch", the_run(), |config| {
             config.log_level = LogLevel::Verbose;
         });
-        game.draws_its_title_menu();
+        game.draws_its_front_end();
         // Nothing on any disk, which is what a fresh installation is. Before any frame, because the front
         // end is built on the launch's first one and its read is inside that build.
         game.has_no_score_file(THEIRS);
@@ -392,10 +406,10 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
             "the read that found nothing left something other than its own memset and fixup",
         );
         // And the item is off the menu for the reason the game has and not for want of a record: what is
-        // there is a whole one, and every clear count in it is 1.
+        // there is a whole one, and every entry in it is 1.
         assert!(
             !game.image().has_reached_max_clears(0, 0),
-            "a record whose clear counts are the failed read's own says the game has been cleared",
+            "a record whose entries are the failed read's own says the game has been cleared",
         );
     });
 }
@@ -846,4 +860,309 @@ fn wrote_what_the_run_counted(game: &Fake, name: &str, attempts: u16) {
         attempts,
         "the record in memory was left holding something else",
     );
+}
+
+/// The stage these practice runs are of, and one the two files hold nothing for: what a mode's own file
+/// says about a stage nobody has practised in it is zero, and that is a row on the screen too.
+const THE_STAGE: i32 = 2;
+const A_STAGE_NEITHER_FILE_HOLDS: i32 = 4;
+
+/// What each file holds for that stage, told apart by nothing but being different numbers: which of them is
+/// on the screen is the whole question.
+const IN_THE_GAMES_FILE: u32 = 12_345_670;
+const IN_ORBS_FILE: u32 = 890;
+
+/// The run the practice stage select is reached through: that stage practised, on the difficulty and with
+/// the shot every other run in this file is played with.
+///
+/// A practice run because that is what sends the front end to that screen at all — the shot type select
+/// goes there instead of into the run where `isInPracticeMode` is set (0x436dc5).
+fn the_practice_run() -> RunStart {
+    RunStart {
+        practice: true,
+        stage: THE_STAGE,
+        ..the_run()
+    }
+}
+
+/// A row of that screen as the game draws one: `STAGE %d  %.9d` at 0x46c4c8, the stage counted from one and
+/// the score in nine digits.
+fn practice_row(stage: i32, score: u32) -> String {
+    format!("STAGE {}  {score:09}", stage + 1)
+}
+
+/// What the block those rows are drawn from holds, a stage at a time, for a failure to say with: `says`
+/// answers whether a string was drawn and there is no asking it what *was*.
+fn scores_in_memory(game: &Fake) -> String {
+    (0..STAGES)
+        .map(|stage| game.image().practice_score(stage).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Walks the title menu's cursor to `Practice Start`, answers orb's question with `mode`, and goes on
+/// through the shot type select to the stage select the practice scores are drawn on.
+///
+/// The walk somebody makes, and the answer is the point of it: the mode is settled at that question, which
+/// is the last thing before this screen.
+fn asks_for_a_practice_stage(game: &Fake, mode: Mode) {
+    let log = game.log();
+    let from = log.written();
+    game.frames_until("the title menu ready to act on a press", 120, || {
+        let front = game.image().front_end_now();
+        front.screen == Screen::Title && front.acts_on_a_press()
+    });
+    let cursor = game.image().front_end_now().cursor;
+    for _ in cursor..item::PRACTICE {
+        game.press(keys::DOWN);
+    }
+    for _ in item::PRACTICE..cursor {
+        game.press(keys::UP);
+    }
+    assert_eq!(
+        game.image().front_end_now().cursor,
+        item::PRACTICE,
+        "the cursor is not on the item a practice stage is started from",
+    );
+    game.press(keys::Z);
+    assert!(
+        log.said_since(from, "menu: Run is under the cursor, asking which mode"),
+        "the press over Practice Start put no question up:\n  {}",
+        log.lines().join("\n  ")
+    );
+    // 完全無欠モード is the item the cursor starts on, and レガシーモード is one press down — after the
+    // frames the question holds its keys off for, a list of two being on the other item every press.
+    if mode == Mode::Normal {
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
+    }
+    game.press_until(keys::Z, "the mode answered", || {
+        log.said_since(from, &format!("mode: {mode}, was "))
+    });
+    game.frames_until("the shot type select", 120, || {
+        let front = game.image().front_end_now();
+        front.screen == Screen::ShotType && front.acts_on_a_press()
+    });
+    game.press(keys::Z);
+    game.frames_until("the practice stage select", 120, || {
+        game.image().front_end_now().screen == Screen::PracticeStage
+    });
+}
+
+/// And back out of it, the way that screen's own cancel goes: the shot type select, and the title menu
+/// behind that.
+fn leaves_the_practice_stages(game: &Fake) {
+    game.press(keys::X);
+    game.frames_until("the shot type select again", 120, || {
+        game.image().front_end_now().screen == Screen::ShotType
+    });
+    game.press(keys::X);
+    game.frames_until("the title menu again", 120, || {
+        game.image().front_end_now().screen == Screen::Title
+    });
+}
+
+/// **The score a practice stage is offered with is the answered mode's own.**
+///
+/// 完全無欠モード's practice runs are written to orb's file, so the score that mode shows for a stage is
+/// that file's — and it was `score.dat`'s, the front end reading the practice scores in the very read its
+/// own items are lit from. That read has to stay pointed at the game's file, so the scores are read again
+/// out of the mode's: `Game::read_practice_scores`, at the question over `Practice Start`.
+///
+/// Both answers in one session, the same screen reached twice with a different number for that stage in
+/// each file — and a stage neither file holds a record for, which is the zero a mode nobody has practised
+/// in has everywhere.
+///
+/// **What the answer must not reach is the unlocks beside them**: they come out of the game's own file
+/// whichever mode is chosen, and a read of orb's that landed on `clrd` as well would lock what an
+/// installation has earned. `a_missing_pointdevice_score_file_locks_the_unlocks` is where that half is read
+/// back, off the title menu after a pointdevice run.
+#[test]
+fn the_practice_scores_shown_are_the_answered_modes_own() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            "the-score-file-the-practice-scores",
+            the_practice_run(),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        // The rows themselves, which is where a practice score reaches somebody at all.
+        game.draws_its_front_end();
+        // Two files an earlier session in each mode left, differing in what that stage was practised for.
+        // Before any frame, because the front end's own read is inside the build on the launch's first one:
+        // what that read finds is the number this bug put on the screen.
+        game.has_practice_scores_in(
+            THEIRS,
+            &Image::practice_record(&the_practice_run(), THE_STAGE, IN_THE_GAMES_FILE),
+        );
+        game.has_practice_scores_in(
+            OURS,
+            &Image::practice_record(&the_practice_run(), THE_STAGE, IN_ORBS_FILE),
+        );
+        game.at_the_title_menu();
+
+        // ── 完全無欠モード, whose runs are in orb's file: the row shows what that file holds, and the
+        // number in the game's own file is on no row of the screen.
+        game.forget_score_file_opens();
+        asks_for_a_practice_stage(&game, Mode::Pointdevice);
+        game.forget();
+        game.frame();
+        assert_eq!(
+            game.says(&practice_row(THE_STAGE, IN_ORBS_FILE)).len(),
+            1,
+            "the stage's row is not the score orb's file holds for it:\n  {}",
+            scores_in_memory(&game)
+        );
+        assert!(
+            game.says(&practice_row(THE_STAGE, IN_THE_GAMES_FILE))
+                .is_empty(),
+            "a row of the screen shows what the game's own file holds:\n  {}",
+            scores_in_memory(&game)
+        );
+        assert_eq!(
+            game.says(&practice_row(A_STAGE_NEITHER_FILE_HOLDS, 0))
+                .len(),
+            1,
+            "a stage neither file has practised is not zero:\n  {}",
+            scores_in_memory(&game)
+        );
+        // And the one open that number came out of, which is the answer's own read and lands in that file.
+        let (reads, writes) = reads_and_writes(&game.score_file_opens());
+        assert_eq!(
+            reads,
+            vec![OURS.to_owned()],
+            "the read the answer made did not land in the file that mode's runs are in",
+        );
+        assert!(writes.is_empty(), "answering the question wrote a file");
+
+        // ── And レガシーモード, answered at the same item in the same session: the game's own file, which
+        // is what a run somebody could have played is ranked in.
+        leaves_the_practice_stages(&game);
+        game.forget_score_file_opens();
+        asks_for_a_practice_stage(&game, Mode::Normal);
+        game.forget();
+        game.frame();
+        assert_eq!(
+            game.says(&practice_row(THE_STAGE, IN_THE_GAMES_FILE)).len(),
+            1,
+            "the stage's row is not the score the game's own file holds for it:\n  {}",
+            scores_in_memory(&game)
+        );
+        assert!(
+            game.says(&practice_row(THE_STAGE, IN_ORBS_FILE)).is_empty(),
+            "the mode answered before this one left its scores on the screen:\n  {}",
+            scores_in_memory(&game)
+        );
+        let (reads, _) = reads_and_writes(&game.score_file_opens());
+        assert_eq!(
+            reads,
+            vec![THEIRS.to_owned()],
+            "the read the second answer made did not land in the game's own file",
+        );
+    });
+}
+
+/// How far the shot has got in the file the launch below reads, and the stage it practises: inside that,
+/// so the run the front end is answered for is one the stage select offers.
+const REACHED: u8 = 3;
+
+/// **The two arrays of a `clrd` record answer two different questions, and both are read off the screen.**
+///
+/// A record holds, per shot and difficulty, how far that shot has got — one array counting every run
+/// (0x41bf01) and the other only runs that used no continue (0x41beb8), with 99 in place of a stage where
+/// the game was cleared (0x410c7d and 0x410c41). What reads which is the whole of the difference:
+/// `GameManager::HasReachedMaxClears` at 0x43a736 asks the no-continue array about Normal, Hard and
+/// Lunatic, which is what `Extra Start` is behind, and the practice stage select counts its rows out of the
+/// other (0x4399e8), held under six.
+///
+/// So a shot that has reached stage 3 with a continue and cleared nothing without one offers **three**
+/// practice stages and no Extra — one fact from each array, and a record that had been cleared could not
+/// tell them apart, both of its arrays holding 99.
+///
+/// And Easy has a row fewer than its count: 紅魔郷 ends an Easy run at stage 5, so a cleared record offers
+/// six stages on Normal and five there (0x439a1b).
+#[test]
+fn the_practice_stages_offered_are_how_far_the_shot_has_got() {
+    in_its_own_process(|| {
+        // ── Reached stage 3, with a continue: three rows, and no Extra on the menu behind them.
+        {
+            let game = Fake::attach(
+                "the-score-file-how-far-the-shot-has-got",
+                the_practice_run(),
+                |config| {
+                    config.log_level = LogLevel::Verbose;
+                },
+            );
+            game.draws_its_front_end();
+            game.has_unlocks_in(
+                THEIRS,
+                &Image::reached_record(the_practice_run().shot_type, REACHED),
+            );
+            game.at_the_title_menu();
+            game.one_frame();
+            assert_eq!(
+                game.says(EXTRA_START).len(),
+                0,
+                "a shot that has cleared nothing without a continue was offered the Extra",
+            );
+
+            asks_for_a_practice_stage(&game, Mode::Pointdevice);
+            game.forget();
+            game.frame();
+            assert_eq!(
+                rows_offered(&game),
+                REACHED as i32,
+                "the stage select offers something other than the stages that shot has reached",
+            );
+        }
+
+        // ── And a cleared record, which is every stage on Normal and one fewer on Easy.
+        {
+            let game = Fake::attach("the-score-file-a-cleared-record", the_practice_run(), |c| {
+                c.log_level = LogLevel::Verbose;
+            });
+            game.draws_its_front_end();
+            game.at_the_title_menu();
+            asks_for_a_practice_stage(&game, Mode::Pointdevice);
+            game.forget();
+            game.frame();
+            assert_eq!(
+                rows_offered(&game),
+                STAGES,
+                "a cleared record does not offer every stage",
+            );
+        }
+        {
+            let game = Fake::attach("the-score-file-a-cleared-record-on-easy", on_easy(), |c| {
+                c.log_level = LogLevel::Verbose;
+            });
+            game.draws_its_front_end();
+            game.at_the_title_menu();
+            asks_for_a_practice_stage(&game, Mode::Pointdevice);
+            game.forget();
+            game.frame();
+            assert_eq!(
+                rows_offered(&game),
+                STAGES - 1,
+                "Easy offers as many stages as the difficulties that have a stage 6",
+            );
+        }
+    });
+}
+
+/// The same practice run on Easy, whose last stage is the fifth.
+fn on_easy() -> RunStart {
+    RunStart {
+        difficulty: EASY,
+        ..the_practice_run()
+    }
+}
+
+/// How many rows the stage select drew, counted off the screen: with no practice score in either file every
+/// row is that stage at zero, so the rows are what these strings are.
+fn rows_offered(game: &Fake) -> i32 {
+    (0..STAGES)
+        .filter(|stage| !game.says(&practice_row(*stage, 0)).is_empty())
+        .count() as i32
 }

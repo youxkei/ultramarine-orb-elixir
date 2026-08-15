@@ -114,13 +114,12 @@ const GENERIC_WRITE: u32 = 0x4000_0000;
 const NO_HANDLE: isize = -1;
 
 /// What this game's score file holds in its `clrd` chunk where the game has been cleared: one `Clrd` record
-/// for the shot this game's runs are played with, cleared the **99** times `HasReachedMaxClears` compares
-/// against.
+/// for the shot this game's runs are played with, holding the **99** `HasReachedMaxClears` compares against.
 ///
-/// A whole record and not a magic, because the gate is a count and not a flag: a record with the right magic
-/// and its clear counts at anything else is a record the front end reads as a game nobody has cleared, which
-/// is exactly what a failed read leaves behind — see `Image::parses_the_unlocks`. What the bytes *are* is
-/// `Image::cleared_record`'s, the layout being that file's business.
+/// A whole record and not a magic, because what the gate reads is how far the shot has got and not a flag: a
+/// record with the right magic and a stage in it is a record the front end reads as a game nobody has
+/// cleared, which is exactly what a failed read leaves behind — see `Image::parses_the_unlocks`. What the
+/// bytes *are* is `Image::cleared_record`'s, the layout being that file's business.
 fn cleared() -> Vec<u8> {
     Image::cleared_record(the_run().shot_type)
 }
@@ -135,18 +134,21 @@ pub struct Open {
     pub write: bool,
 }
 
-/// What one of this game's score files holds: the record about spell cards, and beside it what has
-/// been cleared.
+/// What one of this game's score files holds: the record about spell cards, what has been cleared, and
+/// the score practised on each stage.
 ///
-/// Two of the four chunks a real one holds, and they are here because the three reads of the file are
-/// told apart by which chunks each parses: the front end's own takes the unlocks and nothing else,
-/// and the stage's and the ranking's take both. `hscr`, the ranking itself, is not modelled — nothing
-/// above the game reads it.
+/// Three of the four chunks a real one holds, and they are here because the reads of the file are told
+/// apart by which chunks each parses: the front end's own takes the unlocks and the practice scores, the
+/// stage's and the ranking's take all of it, and the one orb makes for itself takes the practice scores
+/// alone. `hscr`, the ranking itself, is not modelled — nothing above the game reads it.
 #[derive(Clone, Default)]
 struct ScoreFile {
     /// The bytes `Game::captures` and `Game::set_captures` are the two halves of.
     captures: Vec<u8>,
     unlocks: Vec<u8>,
+    /// `pscr`'s records, which is what the practice stage select draws a stage's row from — see
+    /// [`has_practice_scores_in`](Fake::has_practice_scores_in).
+    practice_scores: Vec<u8>,
 }
 
 /// What the game asks `CreateWindowExA` for, and every one of these is replaced.
@@ -431,6 +433,11 @@ const TITLE_TOP: f32 = 152.0;
 const TITLE_LINE: f32 = 20.0;
 const TITLE_LEFT: f32 = 224.0;
 
+/// And where its practice stage select puts a stage's row. Its own layout too.
+const PRACTICE_TOP: f32 = 128.0;
+const PRACTICE_LINE: f32 = 24.0;
+const PRACTICE_LEFT: f32 = 192.0;
+
 /// Where this game's ranking screen puts its rows, and the colour it writes them in. Its own layout:
 /// what an e2e test reads off it is which text is at which of these, and the numbers themselves are
 /// nothing but somewhere to put them.
@@ -574,9 +581,9 @@ pub struct Fake {
     /// The ending a cleared run reaches, or `None` for the scene with nothing in it — see
     /// [`lays_out_an_ending`](Fake::lays_out_an_ending).
     ending: Cell<Option<Ending>>,
-    /// Whether the front end draws its own items — see
-    /// [`draws_its_title_menu`](Fake::draws_its_title_menu).
-    draws_the_menu: Cell<bool>,
+    /// Whether the front end draws what its screens say — see
+    /// [`draws_its_front_end`](Fake::draws_its_front_end).
+    draws_the_front_end: Cell<bool>,
     /// How many frames of a bomb's screen shake are left to run — see [`bombs`](Fake::bombs).
     shake_frames: Cell<i32>,
     /// Whether its stages stream the two songs their data names — see
@@ -971,6 +978,13 @@ impl Fake {
         // And its own text drawing, which is what a chapter put back inside a spell card bakes that
         // card's name onto the plate through.
         image.hands_over_the_text_drawing(draw_string as *const () as usize);
+        // And the read of the score file it makes three times over, which orb makes a fourth of: the
+        // practice scores out of whichever file the mode points at.
+        image.hands_over_the_score_file_read(
+            read_score_file as *const () as usize,
+            parse_practice_scores as *const () as usize,
+            release_score_file as *const () as usize,
+        );
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what an e2e test
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
@@ -1001,11 +1015,14 @@ impl Fake {
         // clear of its own — 0x42b466 against `clrd`'s memset at 0x42b502 — so what it leaves standing is
         // `GameManager::AddedCallback`'s own fill, and a card this file does not name is one the ranking
         // would draw the fill's bytes for. See `Image::fills_the_card_records`.
+        // And with no practice score in it either, which every e2e test that wants one puts there — see
+        // `Fake::has_practice_scores_in`.
         let files = RefCell::new(HashMap::from([(
             SCORE_FILE.to_string_lossy().into_owned(),
             ScoreFile {
                 captures: Vec::new(),
                 unlocks: cleared(),
+                practice_scores: Vec::new(),
             },
         )]));
         // Where the game starts: its front end, on the title menu, on the item that starts a run — and not
@@ -1037,7 +1054,7 @@ impl Fake {
             bullet: Cell::new(false),
             stage_frames: Cell::new(None),
             ending: Cell::new(None),
-            draws_the_menu: Cell::new(false),
+            draws_the_front_end: Cell::new(false),
             shake_frames: Cell::new(0),
             plays_songs: Cell::new(false),
             fights_boss_out: Cell::new(false),
@@ -1551,14 +1568,15 @@ impl Fake {
         body(sound.as_ref().expect("a sound this e2e test asked for"))
     }
 
-    /// Has the front end draw its own items, which is how an e2e test reads back what the score file
-    /// unlocked: `Extra Start` is on the menu or it is not, and no log can see a menu.
+    /// Has the front end draw what its screens say, which is how an e2e test reads back what the score
+    /// file's chunks came to: `Extra Start` is on the title menu or it is not, and the practice stage
+    /// select's rows carry the score each stage has been practised for. No log can see either.
     ///
     /// Off unless an e2e test asks, and that is not tidiness. Baking eight labels a frame is real work, and
     /// the runs that sit on the title menu for thousands of frames are the ones measuring what a frame
     /// costs: with the menu drawn on every one of them, `pacing.rs` went from 18 seconds to 616.
-    pub fn draws_its_title_menu(&self) {
-        self.draws_the_menu.set(true);
+    pub fn draws_its_front_end(&self) {
+        self.draws_the_front_end.set(true);
     }
 
     /// Gives the run an ending to reach: a `.end` script of that many frames of waits, the staff roll's
@@ -1653,6 +1671,35 @@ impl Fake {
     /// written down under `pointdevice_resume/` is still there to be picked up.
     pub fn has_no_score_file(&self, path: &str) {
         self.files.borrow_mut().remove(path);
+    }
+
+    /// Puts a `clrd` chunk in the file of that name: the record the front end's items and the practice
+    /// stage select's rows are counted out of, which `Image::cleared_record` and `Image::reached_record`
+    /// are each one of.
+    ///
+    /// The game's own file is attached with a cleared one already — that being what an installation
+    /// somebody has played is — so what this is for is a file that says something else: a shot that has
+    /// only reached a stage, and reached it with a continue.
+    pub fn has_unlocks_in(&self, path: &str, record: &[u8]) {
+        self.files
+            .borrow_mut()
+            .entry(path.to_owned())
+            .or_default()
+            .unlocks = record.to_vec();
+    }
+
+    /// Puts a `pscr` chunk in the file of that name: the records the practice stage select draws its rows
+    /// from, which `Image::practice_record` is one of.
+    ///
+    /// A file of that name if there is none — which orb's own is until something writes one, so this is a
+    /// file an earlier session in that mode left. What it is for is two files whose practice scores differ,
+    /// there being no other way to say which of them a number on that screen came out of.
+    pub fn has_practice_scores_in(&self, path: &str, records: &[u8]) {
+        self.files
+            .borrow_mut()
+            .entry(path.to_owned())
+            .or_default()
+            .practice_scores = records.to_vec();
     }
 
     /// The record of spell cards the file of that name holds, or `None` for a file that is not there —
@@ -2189,6 +2236,17 @@ impl Fake {
                 },
                 None,
             ),
+            // A practice run is answered for once more before it starts, at the stage select this screen
+            // sends it to instead of into the run — the branch at 0x436dc5 on `isInPracticeMode`, which
+            // is after the shot because the practice scores drawn there are that shot's.
+            Screen::ShotType if decide && self.run.practice => (
+                FrontEnd {
+                    screen: Screen::PracticeStage,
+                    cursor: self.run.stage,
+                    frames: 0,
+                },
+                None,
+            ),
             // What the item that starts a run writes: the shot under the cursor, and the scene it
             // wants. The supervisor has already made its copy this frame, so this update ends with
             // the two disagreeing and nothing of the run built.
@@ -2200,6 +2258,24 @@ impl Fake {
                     screen: Screen::Title,
                     cursor: item::GAME_START,
                     frames: 0,
+                },
+                None,
+            ),
+            // The stage under the cursor started, which is the last answer a practice run needs.
+            Screen::PracticeStage if decide => (front, Some(Scene::Playing)),
+            // And back to the shot type select, which is where that screen's own cancel goes (0x437242).
+            Screen::PracticeStage if self.pressed(Th06.menu_cancel()) => (
+                FrontEnd {
+                    screen: Screen::ShotType,
+                    cursor: self.run.shot_type,
+                    frames: 0,
+                },
+                None,
+            ),
+            Screen::PracticeStage => (
+                FrontEnd {
+                    frames: front.frames + 1,
+                    ..front
                 },
                 None,
             ),
@@ -2730,21 +2806,25 @@ impl Fake {
             self.spends_the_panels_flags();
         }
         match self.image.scene() {
-            Scene::FrontEnd => self.draws_the_title_menu(),
+            // Two of the front end's screens, each drawn where it is the one up.
+            Scene::FrontEnd => {
+                self.draws_the_title_menu();
+                self.draws_the_practice_stages();
+            }
             Scene::Ranking => self.draws_the_ranking(),
             _ => {}
         }
     }
 
     /// The title menu's own items, each on a row of its own, where an e2e test asked for them — see
-    /// [`draws_its_title_menu`](Fake::draws_its_title_menu).
+    /// [`draws_its_front_end`](Fake::draws_its_front_end).
     ///
     /// `Extra Start` among them only where the score file's `clrd` chunk left the front end something to
     /// light it from, which is what makes a read that failed cost something an e2e test can see: the
     /// destination is cleared before the chunk is looked for, so a menu built after one offers a stage
     /// nobody can reach.
     fn draws_the_title_menu(&self) {
-        if !self.draws_the_menu.get() || self.image.front_end_now().screen != Screen::Title {
+        if !self.draws_the_front_end.get() || self.image.front_end_now().screen != Screen::Title {
             return;
         }
         // `GameManager::HasReachedMaxClears`, asked of every record rather than of one: what the item says
@@ -2759,6 +2839,33 @@ impl Fake {
             }
             let y = TITLE_TOP + row as f32 * TITLE_LINE;
             self.launch.writes(name, TITLE_LEFT, y, INK);
+        }
+    }
+
+    /// The practice stage select's own rows: a stage apiece, with the score the block `pscr` was parsed
+    /// into holds for it — `STAGE %d  %.9d` at 0x46c4c8, drawn from 0x439a9b.
+    ///
+    /// Which is the one screen a practice score reaches, so it is the only place an e2e test can read one:
+    /// the number is drawn out of memory that both files can have filled, and which file filled it is what
+    /// `the_score_file.rs` asks.
+    ///
+    /// **As many rows as `clrd` says the shot has reached**, which is the other of that record's two arrays
+    /// and the one thing on this screen a mode decides nothing about — see `Image::practice_stages`. So the
+    /// rows say which stages the game offers and the numbers on them say which file the mode pointed at.
+    fn draws_the_practice_stages(&self) {
+        if !self.draws_the_front_end.get()
+            || self.image.front_end_now().screen != Screen::PracticeStage
+        {
+            return;
+        }
+        for stage in 0..self.image.practice_stages() {
+            let y = PRACTICE_TOP + stage as f32 * PRACTICE_LINE;
+            let row = format!(
+                "STAGE {}  {:09}",
+                stage + 1,
+                self.image.practice_score(stage)
+            );
+            self.launch.writes(&row, PRACTICE_LEFT, y, INK);
         }
     }
 
@@ -2790,10 +2897,17 @@ impl Fake {
     /// Answers the name the open landed in, which is orb's decision and not this game's, or `None` where
     /// the open failed — a file that is not there, or orb refusing a write.
     fn opens_the_score_file(&self, write: bool) -> Option<String> {
+        self.opens_the_file_named(SCORE_FILE.as_ptr().cast(), write)
+    }
+
+    /// And the same open for a name the game was handed rather than one it chose: the read orb makes for
+    /// itself passes the name along, and which of the two files the open lands in is decided from it — so a
+    /// read asked for by any other name is one this game opens by that other name.
+    fn opens_the_file_named(&self, name: *const u8, write: bool) -> Option<String> {
         let access = if write { GENERIC_WRITE } else { 0 };
         let handle = unsafe {
             orb_core::score::create_file_a(
-                SCORE_FILE.as_ptr().cast(),
+                name,
                 access,
                 0,
                 std::ptr::null(),
@@ -2827,6 +2941,10 @@ impl Fake {
     /// is the one read the front end's own items are lit from, and the record of spell cards is not what
     /// it is for.
     ///
+    /// Both of those chunks, because both are what that read is for: the unlocks its items are lit from,
+    /// and the score its practice stage select draws beside each stage. Which is the whole of why orb
+    /// reads that second one again — this open is the game's own file whichever mode orb is in.
+    ///
     /// Answers what the open found, so that the read above can take the captures out of the same one.
     fn reads_the_unlocks(&self) -> ScoreFile {
         let read = self
@@ -2834,6 +2952,7 @@ impl Fake {
             .and_then(|path| self.files.borrow().get(&path).cloned())
             .unwrap_or_default();
         self.image.parses_the_unlocks(&read.unlocks);
+        self.image.parses_the_practice_scores(&read.practice_scores);
         read
     }
 
@@ -2847,6 +2966,7 @@ impl Fake {
         let written = ScoreFile {
             captures: unsafe { Th06.captures() },
             unlocks: self.image.unlocks(),
+            practice_scores: self.image.practice_scores(),
         };
         if let Some(path) = self.opens_the_score_file(true) {
             self.files.borrow_mut().insert(path, written);
@@ -3604,6 +3724,58 @@ extern "C" fn ranking_read(_screen: *mut c_void) -> i32 {
         _ => fake.reads_the_score_file(),
     }
     0
+}
+
+/// The read of the score file every one of the game's own three makes — the helper at 0x42b0d9 — called
+/// here by orb rather than by this game: the practice scores out of whichever file the mode points at.
+///
+/// **Opened by the name it was handed**, which is what decides where the open lands: orb asks by the name
+/// the game asks by and the fork answers with the mode's file. A file that is not there is not a failure
+/// here either — the real read answers a header with no chunks in it — so what comes back is an empty
+/// chunk and the parse below then clears every score.
+///
+/// What it answers is the file as read, which for this one read is `pscr` and nothing else: the parse orb
+/// makes is that chunk's, and the other three are for reads the game makes itself.
+///
+/// The chunk goes back as the address of a block this game allocated, which is what the real one answers
+/// with and what the free below takes: an address orb carries as a number and hands on untouched, so the
+/// provenance is exposed here and claimed again there.
+extern "C" fn read_score_file(path: *const u8) -> usize {
+    let fake = running();
+    let chunk = fake
+        .opens_the_file_named(path, false)
+        .and_then(|path| {
+            fake.files
+                .borrow()
+                .get(&path)
+                .map(|file| file.practice_scores.clone())
+        })
+        .unwrap_or_default();
+    Box::into_raw(Box::new(chunk)).expose_provenance()
+}
+
+/// `pscr`'s own parse at 0x42b65e, which puts that chunk in the block the practice stage select draws
+/// from.
+///
+/// **The destination is held against this game's own**, because it is an argument orb decides: a parse
+/// pointed anywhere else would be scores written over whatever is at that address, which in a real launch
+/// is the game's own memory and here is nothing this game would ever read.
+extern "C" fn parse_practice_scores(file: usize, at: usize) -> i32 {
+    let fake = running();
+    assert_eq!(
+        at,
+        fake.image.practice_scores_at(),
+        "the parse was pointed somewhere other than the game's own practice scores",
+    );
+    let chunk = unsafe { &*std::ptr::with_exposed_provenance::<Vec<u8>>(file) };
+    fake.image.parses_the_practice_scores(chunk);
+    0
+}
+
+/// And the free of what the read allocated, 0x42b7dc: the game calls it after its own parses and orb after
+/// the one above.
+extern "C" fn release_score_file(file: usize) {
+    drop(unsafe { Box::from_raw(std::ptr::with_exposed_provenance_mut::<Vec<u8>>(file)) });
 }
 
 /// The game's own `CreateFileA`, which the score file's fork calls through with the name it decided.

@@ -1676,24 +1676,59 @@ carrying the captures in memory is right.
 `opened in place of the game's own` or `opened as the game's own`, and `write`, `read`, or `read for
 the front end's unlocks`. Both sides rather than the redirected ones alone, because a line that is
 only written when the file was swapped makes the absence of a line carry the meaning — and an
-absence is equally what a read that never happened looks like. The three reads cannot be told apart
-past the one that is bracketed, so the line says which of them it is and no more.
+absence is equally what a read that never happened looks like. The reads cannot be told apart past
+the one that is bracketed, so the line says which of them it is and no more. The one orb makes for
+itself says so on the line after — `the practice scores read out of the mode's own file` — that
+being a read orb knows it is making rather than one it is guessing at from a callback.
 
 **One read is not the mode's, and it is the one that is not a record.** 紅魔郷 keeps four things in
-the one file: `hscr`, the ranking; `catk`, which spell cards have been captured; `clrd`, what has
-been cleared; `pscr`, which stages may be practised. The ranking and the captures are the mode's
-own — a card captured in a chapter that can be played again is not the capture the game's record is
-a record of, for the same reason the score is not that score. What the front end *offers* is not a
-record of anything, though: a stage that has been reached has been reached, and answering that
-question out of a new file locks the game back to stage 1 for want of anything in it. So that one
-read is left pointed at `score.dat` whatever the mode. The three reads are told apart by which
-callback is running:
+the one file: `hscr`, the ranking; `catk`, which spell cards have been captured; `clrd`, how far each
+shot has got on each difficulty, which is what the Extra and the practice stages are behind; `pscr`,
+what each of those stages has been practised for. The ranking and the captures are the mode's own — a
+card captured in a chapter that
+can be played again is not the capture the game's record is a record of, for the same reason the
+score is not that score. What the front end *offers* is not a record of anything, though: a stage
+that has been reached has been reached, and answering that question out of a new file locks the game
+back to stage 1 for want of anything in it. So that one read is left pointed at `score.dat` whatever
+the mode. The three reads are told apart by which callback is running:
 
 | read | what it is for | which file |
 | --- | --- | --- |
-| `MainMenu::AddedCallback`, 0x43a5c0 | `clrd` and `pscr` into `g_GameManager` at 0x69ccd0 and 0x69cd30, the only place the front end's `Extra Start` and practice stages are lit from | the game's own, always |
+| `MainMenu::AddedCallback`, 0x43a5c0 | `clrd` and `pscr` into `g_GameManager` at 0x69ccd0 and 0x69cd30, the only place the front end's `Extra Start`, its practice stages and their scores come from | the game's own, always |
 | `GameManager::AddedCallback`, 0x41bcdc, once per stage | the run's own record: the score to beat, and the spell cards it can add a capture to | the mode's |
 | the ranking screen's added callback, 0x42f47f | the ranking on screen, and the record a score is entered into | the mode's |
+| **orb's own**, wherever the mode is settled | `pscr` alone, over what the read above left | the mode's |
+
+**The fourth read is there because half of the first one is a record after all.** `pscr` is a score,
+one per shot, difficulty and stage, and a stage practised in a chapter that can be played again was
+not practised for that score — so what 完全無欠モード shows beside a practice stage belongs in orb's
+file with the rest of that mode's runs, and it was `score.dat`'s number, the front end reading the
+scores in the very read its items are lit from. One read lands in one file, so the score is read
+again: at the answer to the mode question, orb calls the game's own read helper for the file the fork
+now points at, parses `pscr` out of it into 0x69cd30, and gives the buffer back — 0x42b0d9, 0x42b65e
+and 0x42b7dc, the three calls `MainMenu::AddedCallback` makes in that order. `clrd` is not parsed
+with it: that is what the front end is lit from, and a read of orb's landing there would lock what an
+installation has earned.
+
+**At the answer, because that is the last thing before the screen those scores are drawn on.** The
+practice stage select is `MainMenu`'s state 17, which the shot type select goes to instead of starting
+a run where the run is a practice one (0x436dc5), and its rows are `STAGE %d  %.9d` — the score out of
+`pscr` at 0x439a9b, for the shot and the difficulty already answered for. Nothing between that answer
+and those rows reads the file again, and every item the screen is behind asks the question first.
+Which stages are on it is not `pscr` at all: the count comes out of `clrd`, read at 0x4399e8 and held
+under six, five of them on Easy. So what a mode decides here is the number on a row and never which rows
+there are.
+
+**A `clrd` record holds how far a shot has got, twice over, and the two are read by different screens.**
+Per shot and difficulty there are two arrays of five: `GameManager::AddedCallback` raises the second at
+every stage (0x41bf01) and the first only where the run has used no continue (0x41beb8, on the count at
+`g_GameManager+0x1818` that a continue puts up at 0x402f0f), and a clear writes 99 — no stage's number —
+into the first under that same condition (0x410c41) and into the second whatever happened (0x410c7d). The
+Extra is behind the first: `GameManager::HasReachedMaxClears` at 0x43a736 compares Normal, Hard and
+Lunatic against that 99, which is why clearing 紅魔郷 on a continue earns no Extra. The practice stage
+select counts its rows out of the second, so a stage reached on a continue can be practised. `ParseClrd`'s
+fixup leaves every entry of both at 1 where it found no chunk, which is stage 1 reached: one practice
+stage, and no Extra.
 
 The one write needs no telling apart: the exe reaches it from a single place, the ranking screen's
 deleted callback on its way out, so a write while pointdevice mode is on is that screen's — a score
@@ -1711,7 +1746,8 @@ fails, and the game takes that the way it takes a first launch. A copy would put
 record at the top of a ranking none of it belongs to — what a `score.dat` says has been cleared
 was cleared by runs nobody could rewind, which is the one thing keeping these two files apart.
 Where a copy was what kept a pointdevice session's unlocks, the reads above are: the file being new
-costs a ranking its history and nothing else.
+costs a ranking its history and the practice rows their scores, which is what a mode nobody has
+played in has to say, and nothing else.
 
 **At the exe's import of `CreateFileA`**, not at the game's own score code, because that
 import is where both of the game's own paths to the file end up. `score.dat` is one string, at
@@ -1723,11 +1759,16 @@ statically linked, so the open reaches the OS at the exe's own import, IAT slot 
 slot is called from exactly two places: the CRT's open at 0x4677fa, and a file class at
 0x43ceea that the score file never goes through.
 
+orb's own read of the practice scores goes through that import with the rest, and it asks by the same
+name — bytes of orb's rather than the string at 0x46af94, since which of the two files an open lands in
+is decided from the name and the mode. So there is one place that decision is taken and the read orb
+makes is forked the way the game's three are.
+
 So the redirect itself knows nothing about the game: no offset, and nothing about the format or the
 encryption. It is the seam `memtrack` hooks for the heap calls, and d3d8's and dsound's own
 opens go through their own imports and are not in the path.
 
-**One address is needed, and only to tell the front end's read from the others**:
+**One address is needed to tell the front end's read from the others**:
 `MainMenu::AddedCallback` at 0x43a464, hooked so that the game's own file answers the read made
 while it runs and the mode's file answers the rest. It is registered at 0x43a3c4 as the `+0x8` of
 the chain element at `menu+0x8234`, and it is the callback that starts the title theme:
@@ -1736,8 +1777,17 @@ each read: `hscr` at 0x42b280, `catk` at 0x42b466, `clrd` at 0x42b502, `pscr` at
 callback calls only the last two, and the ranking screen picks `hscr` into a table of five
 difficulties by four shots at screen+0x3ab0. Nothing but which file an open lands in rides on that
 address, and a game orb has no such address for lights its front end from whichever file the mode
-points at — which for a mode whose file is new is nothing at all, and is the reason this is one
-address rather than none.
+points at — which for a mode whose file is new is nothing at all, and is the reason it is hooked at
+all.
+
+**And three more to read the practice scores back**, which are the calls that read rather than a hook
+over one: the helper at 0x42b0d9, `pscr`'s parse at 0x42b65e and the free at 0x42b7dc, called in that
+order with the destination 0x69cd30 — where a record is 0x14 bytes and sits at `shot * 0x1e0 + stage *
+0x50 + difficulty * 0x14` (the arithmetic the parse itself indexes with at 0x42b783). A file that is
+not there needs nothing extra: the helper answers a header with no chunks in it, allocated at 0x42b0f4,
+and the parse clears every record it was going to fill — so a mode nobody has practised in shows zero
+rather than the other mode's numbers. A game orb has none of these addresses for keeps whatever its own
+front end read.
 
 **Only the open is redirected, which is enough here and would not be everywhere.** That other
 file class truncates a `"w"` by calling `DeleteFileA` on the name before creating it — at

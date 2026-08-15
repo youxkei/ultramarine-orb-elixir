@@ -22,7 +22,7 @@ use crate::game::{
     Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
     Reproduction, RunStart, RunState, State,
 };
-use crate::{detail, log};
+use crate::{detail, log, score};
 use orb_api::d3d8::{self, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER};
 use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
@@ -184,15 +184,56 @@ const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x28]
 /// | `GameManager::AddedCallback`, once per stage | ✓ | ✓ | ✓ | ✓ |
 /// | the ranking screen's added callback at 0x42f060 | into a 5×4 table of difficulty by shot at screen+0x3ab0 | ✓ | ✓ | ✓ |
 ///
-/// The two globals this one fills are what the front end lights `Extra Start` and its practice
-/// stages from, and it is the only read that fills them — which is what makes this the one read
-/// that has to stay pointed at the game's own file. See [`crate::score`].
+/// The first of the two globals this one fills is what the front end lights `Extra Start` and its
+/// practice stages from, and it is the only read that fills it — which is what makes this the one
+/// read that has to stay pointed at the game's own file. The second is only the score drawn beside
+/// each of those stages, which belongs to the mode: orb reads it again out of the mode's own file
+/// once the mode is settled. See [`crate::score`] and [`Th06::read_practice_scores`].
 ///
 /// The write is not bracketed and does not need to be: the whole exe reaches it from one place,
 /// 0x42f5cd in the ranking screen's deleted callback (0x42f5bc, the `+0xc` beside its added).
 const MAIN_MENU_ADDED: usize = 0x0043a464;
 /// `push ebp; mov ebp,esp; sub esp,0x10` — position-independent, 6 bytes.
 const MAIN_MENU_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x10];
+
+/// The read every one of those three makes, `__cdecl` taking the path: the file read, its checksum
+/// held against what it carries, and its contents decrypted, which is what the parses are then handed.
+///
+/// **A file that is not there is not a failure.** The read of one answers a header with no chunks in
+/// it — 0x14 bytes off the allocator at 0x42b0f4, both its lengths written to its own size — so the
+/// parses find nothing and clear what they would have filled. It is a whole buffer all the same, the
+/// empty list its tail hangs on it at 0x42b248 included, so the free has the same work to do either
+/// way. Which is why orb can call this for a file no run has written yet, and why the game itself can
+/// on a first launch.
+const READ_SCORE_FILE: usize = 0x0042b0d9;
+/// `pscr`'s own parse, `__cdecl` taking that and where to put it: 0x42b65e, the last of the four and
+/// the one read of the score file orb makes for itself.
+const PARSE_PRACTICE_SCORES: usize = 0x0042b65e;
+/// And the free of what the read allocated, `__cdecl`, which the game calls after its own parses —
+/// 0x43a5ef, the call right after this file's `pscr` parse in `MainMenu::AddedCallback`.
+const RELEASE_SCORE_FILE: usize = 0x0042b7dc;
+
+// All three handed over, because all three are reached from one read of orb's: the mode's file is read
+// through the first, the block the practice stage select draws from is filled through the second, and
+// what the first allocated goes back through the third. See [`Th06::read_practice_scores`].
+handed_over!(
+    READ_SCORE_FILE_AT,
+    read_score_file,
+    set_read_score_file,
+    READ_SCORE_FILE
+);
+handed_over!(
+    PARSE_PRACTICE_SCORES_AT,
+    parse_practice_scores,
+    set_parse_practice_scores,
+    PARSE_PRACTICE_SCORES
+);
+handed_over!(
+    RELEASE_SCORE_FILE_AT,
+    release_score_file,
+    set_release_score_file,
+    RELEASE_SCORE_FILE
+);
 
 /// The added callback of the screen a ranking is shown on, `__cdecl` taking the screen. Registered
 /// at 0x42d7ec as the `+0x8` of the chain element that screen makes, and the read at 0x42f47f is
@@ -579,6 +620,14 @@ mod game_manager {
     pub const DIFFICULTY: usize = 0x10;
     pub const IS_IN_REPLAY: usize = 0x1c;
     pub const DEATHS: usize = 0x20;
+    /// `pscr`'s destination, 0x69cd30: the score the practice stage select draws beside each stage,
+    /// one record per shot, difficulty and stage.
+    ///
+    /// Here rather than beside the layout of a record, which is `image`'s, because this is the one
+    /// thing about the block orb itself needs — [`Th06::read_practice_scores`] hands it to the game's
+    /// own parse. `clrd`'s destination is the 0x60 of four records before it and orb hands that to
+    /// nothing.
+    pub const PRACTICE_SCORES: usize = 0x1090;
     pub const CURRENT_POWER: usize = 0x1810;
     /// `pointItemsCollected`, which is what the end of a stage is scored on.
     pub const POINT_ITEMS: usize = 0x1816;
@@ -931,10 +980,10 @@ const STATE_GAMEMANAGER_REINIT: i32 = 3;
 const STATE_RESULTSCREEN_FROMGAME: i32 = 7;
 const STATE_ENDING: i32 = 10;
 
-/// `th06::GameState`, the front end's own state, of which orb watches two.
+/// `th06::GameState`, the front end's own state, of which orb watches two and names a third.
 ///
 /// `MainMenu::OnUpdate` switches on it through the table at 0x4374d0, one entry per state, and the
-/// two below are entry 2 and entry 11 of it.
+/// three below are entry 2, entry 11 and entry 17 of it.
 ///
 /// The title menu with its eight items live. Its own handler is a function of its own, 0x437b41,
 /// called from the state's block at 0x435972.
@@ -944,6 +993,19 @@ const MENU_STATE_TITLE: i32 = 2;
 /// and 0x436dae; the character select — entry 9, 0x4364e0 — is what sets this state, at 0x4368fd,
 /// right after writing the character it was asked for.
 const MENU_STATE_SHOT_TYPE: i32 = 0xb;
+/// And the practice stage select, which is where a practice run is answered for at last: the shot type
+/// select sets this state instead of starting a run where the run is a practice one — the branch at
+/// 0x436dc5 on `isInPracticeMode`, writing the state at 0x436fd9 — and its handler is entry 17,
+/// 0x437179, whose cancel goes back to the shot type select at 0x437242.
+///
+/// The one screen the score file's practice scores are drawn on: a row per stage, `STAGE %d  %.9d` at
+/// 0x46c4c8 drawn at 0x439ab2 with the score taken out of the block at 0x439a9b, for the shot and the
+/// difficulty already answered for. Behind
+/// the same gate the laid-out image is, because orb asks nothing at this screen and a game laid out by
+/// hand has to put it up all the same — what number is on those rows is what `the_score_file.rs`'s
+/// practice scores read back.
+#[cfg(any(test, feature = "sim"))]
+const MENU_STATE_PRACTICE: i32 = 0x11;
 
 /// Which item of the title menu is which, as its cursor counts them: `MainMenu+0x81a0` bounded to
 /// 0..=7 at 0x437c5c and jumped through the table at 0x4381cc.
@@ -956,14 +1018,18 @@ const TITLE_ITEM_EXTRA: i32 = 1;
 const TITLE_ITEM_PRACTICE: i32 = 2;
 const TITLE_ITEM_SCORE: i32 = 4;
 
-/// The frames each of the two screens ignores its own decide for, counted in `stateTimer`: the title
-/// menu at 0x437c0e and the shot type select at 0x436c0a.
+/// The frames each of these screens ignores its own decide for, counted in `stateTimer`: the title
+/// menu at 0x437c0e, the shot type select at 0x436c0a and the practice stage select at 0x437203.
 ///
-/// What they are needed for is that orb holds the decide back on both — a press it read where the
-/// screen would have ignored it is a press the screen then acts on when it is handed back, which is
-/// a run started by a keypress the game had thrown away.
+/// What the first two are needed for is that orb holds the decide back on both — a press it read where
+/// the screen would have ignored it is a press the screen then acts on when it is handed back, which is
+/// a run started by a keypress the game had thrown away. Orb holds nothing back on the third, having
+/// nothing to ask there; the number is here for the screen a laid-out game puts up, a press inside those
+/// frames being one the real screen does nothing with.
 const MENU_TITLE_GRACE_FRAMES: i32 = 0x14;
 const MENU_SHOT_TYPE_GRACE_FRAMES: i32 = 0x1e;
+#[cfg(any(test, feature = "sim"))]
+const MENU_PRACTICE_GRACE_FRAMES: i32 = 0x1e;
 /// And how far ahead of either of them orb starts holding: one frame.
 ///
 /// What decides the holding is read after the game's update and applies to the *next* read, so a screen
@@ -2013,6 +2079,31 @@ impl Game for Th06 {
         // none of them.
         unsafe { mem::fill_bytes(CARD_HISTORY, 0, CARD_HISTORY_BYTES) };
         log!("score: the captures in memory cleared for the ranking about to be read");
+    }
+
+    /// The read the game makes three times, made a fourth: the file the fork now points at, `pscr` out
+    /// of it, and the buffer given back.
+    ///
+    /// **Asked for by the name the game asks for it by**, which is what puts the answer in the mode's
+    /// file: the fork is over `CreateFileA` and decides by the file's name, so this open lands where
+    /// every other open of `score.dat` lands — and the bracket that sends the front end's own read to
+    /// the game's file is not up, this being outside that callback.
+    ///
+    /// Only `pscr`. `hscr` and `catk` are the run's own record and the ranking's, filled by the two reads
+    /// that already follow the mode, and `clrd` is what the front end lights its items from — parsed here
+    /// it would put a file that may not exist over the unlocks an installation has earned, which is the
+    /// thing [`crate::score`]'s bracket exists to stop.
+    unsafe fn read_practice_scores(&self) {
+        let read: unsafe extern "cdecl" fn(*const u8) -> usize =
+            unsafe { std::mem::transmute(read_score_file()) };
+        let parse: unsafe extern "cdecl" fn(usize, usize) -> i32 =
+            unsafe { std::mem::transmute(parse_practice_scores()) };
+        let release: unsafe extern "cdecl" fn(usize) =
+            unsafe { std::mem::transmute(release_score_file()) };
+        let file = unsafe { read(score::asked_for()) };
+        unsafe { parse(file, G_GAME_MANAGER + game_manager::PRACTICE_SCORES) };
+        unsafe { release(file) };
+        log!("score: the practice scores read out of the mode's own file");
     }
 
     /// The item under the title menu's cursor, and only while the front end is what the game is

@@ -69,9 +69,17 @@ fn a_practice_run_is_rewound_and_nothing_is_written_down_for_it() {
         // ── 2. The stage the practice screen chose, which is the one the run is played in — and the run
         // says it is a practice one, which is the whole of what tells it from a full run that has reached
         // the same stage.
+        //
+        // Two screens rather than one: the shot type select sends a practice run to the stage select
+        // instead of into the run, that being where the stage it is played in is answered for.
         game.frames_until("the shot type select", 90, || {
             let front = game.image().front_end_now();
             front.screen == Screen::ShotType && front.acts_on_a_press()
+        });
+        game.press(keys::Z);
+        game.frames_until("the practice stage select", 90, || {
+            let front = game.image().front_end_now();
+            front.screen == Screen::PracticeStage && front.acts_on_a_press()
         });
         game.press(keys::Z);
         game.frames_until("the stage built", 8, || {

@@ -847,9 +847,18 @@ unsafe fn pad(game: &dyn Game) -> Pad {
 /// pointdevice runs are written to. What the game has unlocked is not part of that answer — the
 /// menu is lit from `score.dat` whichever mode is chosen, since a stage reached is a stage
 /// reached.
-fn choose(runtime: &mut Runtime, mode: Mode) {
+///
+/// **The practice scores are part of it**, and they came out of `score.dat` with the unlocks: the front
+/// end reads both in one go, before anybody has been asked. So they are read again here, out of the file
+/// this answer just chose — which is the moment before the screen they are drawn on, a practice stage
+/// being chosen after this question. See [`Game::read_practice_scores`].
+///
+/// # Safety
+/// Must run on the game's main thread, between frames: that read goes through the game's own code.
+unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
+    unsafe { runtime.game.read_practice_scores() };
     resume::keep(runtime.keeping());
     // Nothing kept of a run that will not be rewound: a stage's snapshots are several megabytes a
     // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
@@ -1587,7 +1596,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 // that the menu chooses the item itself.
                 Answer::Chosen(mode) => {
                     log!("mode: answered on the {by}");
-                    choose(runtime, mode);
+                    unsafe { choose(runtime, mode) };
                     FEED_DECIDE.store(true, Ordering::Relaxed);
                 }
                 // The item is not chosen: the press that would have chosen it was held back, so the

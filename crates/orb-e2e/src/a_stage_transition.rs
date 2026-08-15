@@ -143,13 +143,18 @@ fn a_run_carries_its_lives_bombs_and_power_across_a_stage_boundary() {
     });
 }
 
-/// And it reads the score file once, at the run's start, rather than once per stage.
+/// And it reads the score file at the run's start rather than once per stage.
 ///
 /// The read is `ResultScreen::OpenScore("score.dat")` inside the same branch, so a transition makes none.
 /// **What it costs is not the open**: that read is also what calls `Th06::set_captures`, so the record of
 /// spell cards was written back from the file as often as the file was opened — and a resume plays a run's
 /// buttons in with that record held across the playback (`resume::hold_captures`). A run whose stage moves
 /// each re-read the file is a run whose captures each landed on the file's version.
+///
+/// Two reads at the start and not one, and only the second is the stage's: answering the mode question is a
+/// read of its own — the practice scores out of the file that answer chose, `Game::read_practice_scores` —
+/// and it is in front of the run. What this is about is that neither of them happens again at the
+/// transition.
 #[test]
 fn a_stage_transition_makes_no_read_of_the_score_file() {
     in_its_own_process(|| {
@@ -164,8 +169,8 @@ fn a_stage_transition_makes_no_read_of_the_score_file() {
         let at_the_start = reads(&game.score_file_opens());
         assert_eq!(
             at_the_start.len(),
-            1,
-            "the run's first stage did not read the score file exactly once: {at_the_start:?}",
+            2,
+            "the run's start did not read the score file the twice its start is: {at_the_start:?}",
         );
 
         game.frames_until("the stage after the first", STAGE_FRAMES + 60, || {

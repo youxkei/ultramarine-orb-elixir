@@ -198,12 +198,12 @@ pub const RECORD_ENDS_AT: i32 = 9_999_999;
 
 /// Where `clrd` is parsed into, as an offset in the game manager: 0x69ccd0, which is what the front
 /// end lights `Extra Start` and its practice stages from. `pscr`'s destination is the 0x69cd30 after
-/// it, so what lies between the two is `clrd`'s four records at 0x18 apiece.
+/// it — `game_manager::PRACTICE_SCORES` — so what lies between the two is `clrd`'s four records at
+/// 0x18 apiece.
 ///
-/// Here rather than beside the offsets [`Th06`](super::Th06) reads through, because orb reads
-/// neither of them: what reads them is the game's own front end, and this file is where the game's
-/// part is laid out. Which of the three reads of the score file fills them is `MAIN_MENU_ADDED`'s
-/// table.
+/// Here rather than beside the offsets [`Th06`](super::Th06) reads through, because orb reads none of
+/// this one: what reads it is the game's own front end, and this file is where the game's part is laid
+/// out. Which of the three reads of the score file fills them is `MAIN_MENU_ADDED`'s table.
 const CLEARED: usize = 0x1030;
 const CLEARED_BYTES: usize = CLEARED_RECORDS * CLEARED_RECORD_BYTES;
 
@@ -223,8 +223,41 @@ const TH6K_LEN: usize = 0x4;
 const TH6K_UNK_LEN: usize = 0x6;
 const TH6K_VERSION_AT: usize = 0x8;
 const TH6K_VERSION: u8 = 16;
-const CLEARED_WITH_RETRIES: usize = 0xc;
-const CLEARED_WITHOUT_RETRIES: usize = 0x11;
+/// The two arrays of five, and **which of them is which is settled by what writes them**:
+/// `GameManager::AddedCallback` raises the second at every stage (0x41bf01) and the first only where the
+/// run has used no continue (0x41beb8, on the count at `manager+0x1818` that the continue at 0x402f0f
+/// puts up), and a clear writes [`MAX_CLEARS`] into the first under the same condition (0x410c41) and
+/// into the second whatever happened (0x410c7d).
+///
+/// So the first is how far the shot has got **without a continue** and the second how far it has got at
+/// all — and each has a reader of its own: the Extra is behind the first
+/// ([`has_reached_max_clears`](Image::has_reached_max_clears)) and the practice stage select counts its
+/// rows out of the second ([`practice_stages`](Image::practice_stages)).
+const CLEARED_WITHOUT_RETRIES: usize = 0xc;
+const CLEARED_WITH_RETRIES: usize = 0x11;
+
+/// `pscr`'s block, laid out as `ParsePscr`'s own three loops walk it (0x42b686 to 0x42b716): a record per
+/// shot, then per stage, then per difficulty, and a record is 0x14 — the `ZUN_ASSERT_SIZE(Pscr, 0x14)`
+/// the decompilation holds it to.
+///
+/// Where a record sits is [`practice_at`], which is the arithmetic the parse indexes with at 0x42b783 and
+/// the practice stage select repeats at 0x439a7c: the four difficulties are the innermost and the shot is
+/// the outermost.
+const PRACTICE_SHOTS: usize = 4;
+const PRACTICE_STAGES: usize = 6;
+const PRACTICE_DIFFICULTIES: usize = 4;
+const PRACTICE_RECORD_BYTES: usize = 0x14;
+const PRACTICE_BYTES: usize =
+    PRACTICE_SHOTS * PRACTICE_STAGES * PRACTICE_DIFFICULTIES * PRACTICE_RECORD_BYTES;
+
+/// Inside one: the same `Th6k base` as a `clrd` record, then the score, then the three indices the
+/// record is of — the shot, the difficulty and the stage, in that order, which is what the fixup writes
+/// at 0x42b6fd, 0x42b706 and 0x42b70f.
+const PSCR_MAGIC: &[u8; 4] = b"PSCR";
+const PRACTICE_SCORE: usize = 0xc;
+const PRACTICE_SHOT: usize = 0x10;
+const PRACTICE_DIFFICULTY: usize = 0x11;
+const PRACTICE_STAGE: usize = 0x12;
 
 /// A record of a spell card is 0x40 and there are as many as the block holds, which is the count
 /// `GameManager::AddedCallback`'s fill walks at 0x41bc6e and the write at 0x42b9ed copies.
@@ -246,18 +279,28 @@ const NOT_A_NAME: u8 = 0x9d;
 const CLEARED_DIFFICULTIES: usize = 5;
 const CLEARED_SHOT_TYPE: usize = 0x16;
 
-/// What `GameManager::HasReachedMaxClears` compares a clear count against, which is `MAX_CLEARS`: 99.
+/// What `GameManager::HasReachedMaxClears` compares an entry against, which is `MAX_CLEARS`: 99.
 ///
-/// A clear count and not a flag, and the number is what makes a failed read cost something: `ParseClrd`
-/// leaves every entry at **1** where it found no chunk, and 1 is not 99 — so the Extra is behind a gate a
-/// cleared record opens and a memset-and-fixup does not.
+/// **What an entry holds is how far the shot has got**, which is why 99 rather than a flag: the run's own
+/// callback writes the stage it is on and a clear writes this — a number no stage is — so one value carries
+/// both the progress the practice stage select counts and the clear the Extra is behind.
+///
+/// And it is what makes a failed read cost something: `ParseClrd` leaves every entry at **1** where it
+/// found no chunk, which is stage 1 reached and is not 99 — so a memset-and-fixup opens neither gate.
 const MAX_CLEARS: u8 = 99;
 
 /// The difficulties that gate goes over: Normal, Hard and Lunatic.
 ///
-/// Easy is left out because the game leaves it out — `difficultyClearedWithRetries[1]`, `[2]` and `[3]` is
-/// what it compares, and clearing on Easy earns nobody an Extra.
+/// Easy is left out because the game leaves it out — 0x43a74d, 0x43a769 and 0x43a785 are entries 1, 2 and
+/// 3, and clearing on Easy earns nobody an Extra.
 const CLEARS_THAT_COUNT: Range<usize> = 1..4;
+
+/// And Easy itself, as the game numbers its difficulties: the practice stage select has one row fewer of
+/// it, 紅魔郷 ending an Easy run a stage early, so a count of six there is five stages — 0x439a1b, which
+/// asks for that difficulty and that count.
+///
+/// `pub` because a run is declared above the seam and one on Easy is what an e2e test about that row needs.
+pub const EASY: i32 = 0;
 
 /// A stage in progress, as an e2e test says it.
 ///
@@ -401,6 +444,9 @@ pub enum Screen {
     /// The ranking, which is what orb asks the front end for on the way out of a run so that what
     /// the run counted is written — see [`Game::show_ranking`](crate::game::Game::show_ranking).
     Ranking,
+    /// The practice stage select, which the shot type select goes to instead of starting a run where
+    /// the run is a practice one, and the one screen the score file's practice scores are drawn on.
+    PracticeStage,
     /// Any other of its screens, as the number it is: the difficulty and the character select are
     /// two, and orb has nothing to ask over either.
     Other(i32),
@@ -435,13 +481,16 @@ impl FrontEnd {
     /// Whether this screen is past the frames it ignores its own decide for.
     ///
     /// Here rather than in whatever is driving the game, because the numbers are the game's own —
-    /// see `MENU_TITLE_GRACE_FRAMES` — and orb holds a press back over exactly these frames.
+    /// see `MENU_TITLE_GRACE_FRAMES`. Over the first two of them orb holds a press back for exactly
+    /// these frames; the practice stage select is a screen it asks nothing at and a laid-out game
+    /// still has to ignore a press over.
     pub fn acts_on_a_press(&self) -> bool {
         self.frames
             >= match self.screen {
                 Screen::Title => super::MENU_TITLE_GRACE_FRAMES,
                 Screen::ShotType => super::MENU_SHOT_TYPE_GRACE_FRAMES,
-                // Neither has a decide of its own that orb has anything to say about.
+                Screen::PracticeStage => super::MENU_PRACTICE_GRACE_FRAMES,
+                // None of the rest has a decide of its own that anything here is about.
                 _ => return false,
             }
     }
@@ -709,6 +758,18 @@ impl Image {
     /// out by hand has to be able to answer the call that bakes one.
     pub fn hands_over_the_text_drawing(&self, draw_string: usize) {
         super::set_draw_string(draw_string);
+    }
+
+    /// And the three its read of a score file is made of — the read, `pscr`'s parse, and the free of what
+    /// the read allocated — which is the one read of that file orb makes for itself: the practice scores
+    /// out of whichever file the mode points at. See `Game::read_practice_scores`.
+    ///
+    /// All three together, because one read is all three: a game that handed over fewer would be jumping
+    /// into memory nothing has mapped halfway through one.
+    pub fn hands_over_the_score_file_read(&self, read: usize, parse: usize, release: usize) {
+        super::set_read_score_file(read);
+        super::set_parse_practice_scores(parse);
+        super::set_release_score_file(release);
     }
 
     /// The vm a spell card's name is baked into, which is what that call has to be given: the panel's
@@ -1305,15 +1366,16 @@ impl Image {
     }
 
     /// `clrd`'s parse at 0x42b502: every record memset and then fixed up — the magic, the two lengths, the
-    /// version, the shot it is about and **every clear count at 1** — and then whatever the read found
-    /// written over the top.
+    /// version, the shot it is about and **every entry of both arrays at 1** — and then whatever the read
+    /// found written over the top.
     ///
     /// **The clear is the half worth laying out**, and 1 is not zero. A read that failed leaves the front
-    /// end a record that looks like a record and says nobody has cleared anything, so a file that is not
-    /// there locks what an earlier one had earned rather than leaving it as it was — which is why the one
-    /// read the menu's items come out of has to be pointed at the game's own file whichever mode orb is in.
-    /// What makes 1 cost something is the gate: `HasReachedMaxClears` compares against
-    /// [`MAX_CLEARS`] — see [`has_reached_max_clears`](Image::has_reached_max_clears).
+    /// end a record that looks like a record and says the shot has got as far as stage 1 and no further, so
+    /// a file that is not there locks what an earlier one had earned rather than leaving it as it was —
+    /// which is why the one read the menu's items come out of has to be pointed at the game's own file
+    /// whichever mode orb is in. What makes 1 cost something is what reads it: the Extra is behind
+    /// [`MAX_CLEARS`] — see [`has_reached_max_clears`](Image::has_reached_max_clears) — and the practice
+    /// stage select offers one stage, [`practice_stages`](Image::practice_stages).
     ///
     /// `catk`'s parse at 0x42b466 has no clear of its own, which is the difference
     /// [`set_captures`](crate::game::Game::set_captures) is read against.
@@ -1343,29 +1405,70 @@ impl Image {
             .read_bytes(super::G_GAME_MANAGER + CLEARED, CLEARED_BYTES)
     }
 
-    /// `GameManager::HasReachedMaxClears`: whether the record for a character's shot has been cleared
-    /// [`MAX_CLEARS`] times on any of [`CLEARS_THAT_COUNT`], which is what the Extra is behind.
+    /// `GameManager::HasReachedMaxClears` at 0x43a736, `__thiscall` on the game manager: whether the
+    /// record for a character's shot holds [`MAX_CLEARS`] on any of [`CLEARS_THAT_COUNT`], in the array a
+    /// continue keeps out of — which is what the Extra is behind.
     ///
-    /// Here rather than in the game that draws the menu, because the layout is here: a record is
-    /// `shotType + character * 2` of the four, and which byte of one a clear count is is this file's
-    /// business.
+    /// The three reads are 0x43a74d, 0x43a769 and 0x43a785, one difficulty apiece, and the record they
+    /// index is `shotType + character * 2` of the four.
+    ///
+    /// Here rather than in the game that draws the menu, because the layout is here: which byte of a
+    /// record answers which question is this file's business.
     pub fn has_reached_max_clears(&self, character: i32, shot_type: i32) -> bool {
         let record = super::G_GAME_MANAGER
             + CLEARED
             + (shot_type + character * 2) as usize * CLEARED_RECORD_BYTES;
         CLEARS_THAT_COUNT.clone().any(|difficulty| {
             self.space()
-                .read::<u8>(record + CLEARED_WITH_RETRIES + difficulty)
+                .read::<u8>(record + CLEARED_WITHOUT_RETRIES + difficulty)
                 == MAX_CLEARS
         })
     }
 
+    /// How many stages the practice stage select offers, which is the other array's answer: how far the
+    /// shot being started has got on this difficulty, at most [`PRACTICE_STAGES`] of them — and one fewer
+    /// on Easy, which 紅魔郷 ends a stage early.
+    ///
+    /// The game's own arithmetic, 0x4399e8 to 0x439a2a: the byte read, held under six, and then the Easy
+    /// case, which is that difficulty and a count of exactly six. The shot and the difficulty come out of
+    /// the game manager rather than being handed in, for the same reason
+    /// [`practice_score`](Self::practice_score)'s do — that is where the screen takes them from.
+    pub fn practice_stages(&self) -> i32 {
+        use super::game_manager;
+        let space = self.space();
+        let shot = space.read::<u8>(super::G_GAME_MANAGER + game_manager::CHARACTER) as i32 * 2
+            + space.read::<u8>(super::G_GAME_MANAGER + game_manager::SHOT_TYPE) as i32;
+        let difficulty: i32 = space.read(super::G_GAME_MANAGER + game_manager::DIFFICULTY);
+        let record = super::G_GAME_MANAGER + CLEARED + shot as usize * CLEARED_RECORD_BYTES;
+        let reached = space
+            .read::<u8>(record + CLEARED_WITH_RETRIES + difficulty as usize)
+            .min(PRACTICE_STAGES as u8) as i32;
+        if difficulty == EASY && reached == PRACTICE_STAGES as i32 {
+            return reached - 1;
+        }
+        reached
+    }
+
     /// And what a score file holds for a shot that *has* cleared the game, as the bytes one of its `clrd`
-    /// records is: the same fixup with the clear counts at [`MAX_CLEARS`] instead of 1.
+    /// records is: the same fixup with [`MAX_CLEARS`] in both arrays instead of 1.
     ///
     /// Here for the same reason the read is — the layout is here — and it is what a game whose front end
     /// offers an Extra has to have in the file it reads.
     pub fn cleared_record(shot_type: i32) -> Vec<u8> {
+        Self::clrd_record(shot_type, MAX_CLEARS, MAX_CLEARS)
+    }
+
+    /// And what it holds for a shot that has only got as far as a stage, with a continue: that stage in
+    /// the array a continue is allowed in and nothing in the other.
+    ///
+    /// Which is the record the two arrays can be told apart by — every practice stage up to it offered and
+    /// no Extra — and the one a `cleared_record` cannot tell them apart with, both of its being 99.
+    pub fn reached_record(shot_type: i32, reached: u8) -> Vec<u8> {
+        Self::clrd_record(shot_type, 0, reached)
+    }
+
+    /// One `clrd` record: the fixup its parse writes, with a byte apiece for the two arrays.
+    fn clrd_record(shot_type: i32, without_retries: u8, with_retries: u8) -> Vec<u8> {
         let mut record = vec![0; CLEARED_RECORD_BYTES];
         record[..CLRD_MAGIC.len()].copy_from_slice(CLRD_MAGIC);
         record[TH6K_LEN..TH6K_LEN + 2]
@@ -1375,9 +1478,109 @@ impl Image {
         record[TH6K_VERSION_AT] = TH6K_VERSION;
         record[CLEARED_SHOT_TYPE] = shot_type as u8;
         for difficulty in 0..CLEARED_DIFFICULTIES {
-            record[CLEARED_WITH_RETRIES + difficulty] = MAX_CLEARS;
-            record[CLEARED_WITHOUT_RETRIES + difficulty] = MAX_CLEARS;
+            record[CLEARED_WITHOUT_RETRIES + difficulty] = without_retries;
+            record[CLEARED_WITH_RETRIES + difficulty] = with_retries;
         }
+        record
+    }
+
+    /// `pscr`'s parse at 0x42b65e: every record of the block memset and then fixed up — the magic, the
+    /// two lengths, the version and the three indices it is the record of — and then each record the
+    /// read found copied into the slot its own indices name.
+    ///
+    /// **The clear is what makes a file that is not there cost the scores rather than leave them**, the
+    /// same way `clrd`'s does: a read that found no chunk leaves every practice score at zero, which for
+    /// a mode nobody has practised in is what it has practised.
+    ///
+    /// A record naming a slot the block has no room for is dropped. The game's own bounds are looser than
+    /// its block on two of the three — difficulty against 5 and stage against 7, in the three compares
+    /// from 0x42b75d, where the block holds four and six — so a record of either writes over the record
+    /// after; nothing this game writes names one.
+    pub fn parses_the_practice_scores(&self, chunk: &[u8]) {
+        let space = self.space();
+        let at = super::G_GAME_MANAGER + super::game_manager::PRACTICE_SCORES;
+        for shot in 0..PRACTICE_SHOTS {
+            for stage in 0..PRACTICE_STAGES {
+                for difficulty in 0..PRACTICE_DIFFICULTIES {
+                    let record = at + practice_at(shot, stage, difficulty);
+                    space.fill_bytes(record, 0, PRACTICE_RECORD_BYTES);
+                    space.write_bytes(record, PSCR_MAGIC);
+                    space.write::<u16>(record + TH6K_LEN, PRACTICE_RECORD_BYTES as u16);
+                    space.write::<u16>(record + TH6K_UNK_LEN, PRACTICE_RECORD_BYTES as u16);
+                    space.write::<u8>(record + TH6K_VERSION_AT, TH6K_VERSION);
+                    space.write::<u8>(record + PRACTICE_SHOT, shot as u8);
+                    space.write::<u8>(record + PRACTICE_DIFFICULTY, difficulty as u8);
+                    space.write::<u8>(record + PRACTICE_STAGE, stage as u8);
+                }
+            }
+        }
+        for record in chunk.as_chunks::<PRACTICE_RECORD_BYTES>().0 {
+            let shot = record[PRACTICE_SHOT] as usize;
+            let difficulty = record[PRACTICE_DIFFICULTY] as usize;
+            let stage = record[PRACTICE_STAGE] as usize;
+            if shot >= PRACTICE_SHOTS
+                || stage >= PRACTICE_STAGES
+                || difficulty >= PRACTICE_DIFFICULTIES
+            {
+                continue;
+            }
+            space.write_bytes(at + practice_at(shot, stage, difficulty), record);
+        }
+    }
+
+    /// What that parse left the practice stage select to draw beside one of its stages: the score the
+    /// block holds for it, for the shot and the difficulty the front end has already been answered with.
+    ///
+    /// Those two rather than arguments, because they are where the game takes them from — 0x439a7c reads
+    /// `character`, `shotType` and `difficulty` out of the game manager and 0x439a9b takes the score out
+    /// of the record at +0xc.
+    pub fn practice_score(&self, stage: i32) -> u32 {
+        use super::game_manager;
+        let space = self.space();
+        let shot = space.read::<u8>(super::G_GAME_MANAGER + game_manager::CHARACTER) as usize * 2
+            + space.read::<u8>(super::G_GAME_MANAGER + game_manager::SHOT_TYPE) as usize;
+        let difficulty =
+            space.read::<i32>(super::G_GAME_MANAGER + game_manager::DIFFICULTY) as usize;
+        space.read(
+            super::G_GAME_MANAGER
+                + game_manager::PRACTICE_SCORES
+                + practice_at(shot, stage as usize, difficulty)
+                + PRACTICE_SCORE,
+        )
+    }
+
+    /// Where that block is, which is the argument the game's own `pscr` parse is called with: a game laid
+    /// out by hand answers that call itself, so this is what it holds the address it was handed against.
+    pub fn practice_scores_at(&self) -> usize {
+        super::G_GAME_MANAGER + super::game_manager::PRACTICE_SCORES
+    }
+
+    /// The whole block, which is what the write copies into whichever file the open landed in — 0x42ba5e,
+    /// beside the three other chunks it packs.
+    pub fn practice_scores(&self) -> Vec<u8> {
+        self.space().read_bytes(
+            super::G_GAME_MANAGER + super::game_manager::PRACTICE_SCORES,
+            PRACTICE_BYTES,
+        )
+    }
+
+    /// And one record of a file's own `pscr` chunk: a stage practised for a score, by the shot and on the
+    /// difficulty a run is.
+    ///
+    /// Here for the same reason [`cleared_record`](Self::cleared_record) is — the layout is here — and it
+    /// is what a file whose practice scores an e2e test needs to tell from another file's has to hold.
+    pub fn practice_record(run: &RunStart, stage: i32, score: u32) -> Vec<u8> {
+        let mut record = vec![0; PRACTICE_RECORD_BYTES];
+        record[..PSCR_MAGIC.len()].copy_from_slice(PSCR_MAGIC);
+        record[TH6K_LEN..TH6K_LEN + 2]
+            .copy_from_slice(&(PRACTICE_RECORD_BYTES as u16).to_le_bytes());
+        record[TH6K_UNK_LEN..TH6K_UNK_LEN + 2]
+            .copy_from_slice(&(PRACTICE_RECORD_BYTES as u16).to_le_bytes());
+        record[TH6K_VERSION_AT] = TH6K_VERSION;
+        record[PRACTICE_SCORE..PRACTICE_SCORE + 4].copy_from_slice(&score.to_le_bytes());
+        record[PRACTICE_SHOT] = (run.character * 2 + run.shot_type) as u8;
+        record[PRACTICE_DIFFICULTY] = run.difficulty as u8;
+        record[PRACTICE_STAGE] = stage as u8;
         record
     }
 
@@ -2075,6 +2278,13 @@ fn record_of(stage: i32) -> usize {
     RECORDS.start + stage.max(0) as usize * RECORD_BYTES
 }
 
+/// Where a practice score sits in `pscr`'s block, as an offset into it: the shot strides 0x1e0, the stage
+/// 0x50 and the difficulty 0x14, which is what the parse computes at 0x42b783 and the practice stage
+/// select at 0x439a7c.
+fn practice_at(shot: usize, stage: usize, difficulty: usize) -> usize {
+    ((shot * PRACTICE_STAGES + stage) * PRACTICE_DIFFICULTIES + difficulty) * PRACTICE_RECORD_BYTES
+}
+
 /// How many attempts a saved record of captures holds against `card`.
 ///
 /// The same 0x40-byte records [`Image::card_attempts`] reads in memory, read out of the bytes a score
@@ -2163,6 +2373,7 @@ fn screen_of(screen: Screen) -> i32 {
         Screen::Title => super::MENU_STATE_TITLE,
         Screen::ShotType => super::MENU_STATE_SHOT_TYPE,
         Screen::Ranking => super::MENU_STATE_SCORE,
+        Screen::PracticeStage => super::MENU_STATE_PRACTICE,
         Screen::Other(state) => state,
     }
 }
@@ -2172,6 +2383,7 @@ fn screen_from(state: i32) -> Screen {
         super::MENU_STATE_TITLE => Screen::Title,
         super::MENU_STATE_SHOT_TYPE => Screen::ShotType,
         super::MENU_STATE_SCORE => Screen::Ranking,
+        super::MENU_STATE_PRACTICE => Screen::PracticeStage,
         state => Screen::Other(state),
     }
 }

@@ -749,6 +749,27 @@ pub trait Game {
     /// Must run on the game's main thread, before the game's own read of the ranking.
     unsafe fn forget_captures(&self, screen: *mut c_void);
 
+    /// Fills the game's own practice scores out of the file the mode now points at, which is a read of
+    /// that file the game itself does not make.
+    ///
+    /// **The score beside a practice stage is the mode's and what a stage select *offers* is not.** The
+    /// game takes both out of one read — the front end's own, which is pointed at the game's own file so
+    /// that a mode whose file is new does not lock what an installation has earned — and the score in
+    /// that file is a legacy run's. Which left 完全無欠モード showing legacy practice scores on a screen
+    /// whose runs go in orb's file. One read cannot land in two files, so the score is read again: the
+    /// front end's read stands as it is, and this puts the mode's own numbers over the half of it that is
+    /// a record rather than an unlock.
+    ///
+    /// Called wherever the mode is settled, which is the last thing before the screen those numbers are
+    /// drawn on: a practice stage is chosen after the question orb puts over `Practice Start`.
+    ///
+    /// Nothing where the game keeps no such score, which leaves whatever its own read found standing.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames: it reads a file through the game's own code
+    /// and writes what the game's own front end draws from.
+    unsafe fn read_practice_scores(&self);
+
     /// What the game's own title menu is *pointing* at, where that is something orb has a question
     /// about, so the question can go on the press rather than after it.
     ///

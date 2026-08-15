@@ -438,6 +438,11 @@ impl Game for Th07 {
 
     unsafe fn forget_captures(&self, _screen: *mut c_void) {}
 
+    /// And no practice score read again: where 妖々夢 keeps one and which read of its score file fills it
+    /// has not been read, so the mode leaves whatever that read found standing. Which is the answer the
+    /// rest of this file gives — 妖々夢 has no fork over its score file at all.
+    unsafe fn read_practice_scores(&self) {}
+
     /// Nothing orb has a question about is ever under the cursor, so no press is ever held back and
     /// every one of 妖々夢's own menus works as it does without orb.
     unsafe fn menu_pointed_at(&self) -> Option<Menu> {
