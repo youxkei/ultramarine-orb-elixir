@@ -129,6 +129,16 @@ copy has to have somewhere to write — writes each region back, and resumes. Th
 is left running; the music is handled separately, rewound for the midstage and the midboss and
 left playing through a boss-fight restore.
 
+**The name of the spell card being fought is put back by asking the game to write it again.** It is
+not memory: the declaration hands the name to `AnmManager::DrawStringFormat` through
+`Gui::SetSpellcardName` (0x417bfd, called at 0x409636), which bakes it into a vm's own sprite and keeps
+no copy of the string — so a chapter put back where a *later* card has been declared since is fought
+under that later card's name. Measured on the real game, going back from a boss's spell card to the
+midboss's: the plate said the boss's until the next card started. So a restore bakes it again through
+the same call, out of the copy the game itself made in that card's record — the one copy of the name
+that is memory, and one a restore already carries across for the counts beside it. Nothing where no
+card is up, and nothing for a record the game has not named, whose bytes are the generator's.
+
 **A track change is handled by the game, not by the copy.** Restoring a snapshot taken under
 another track — the stage's start, once a boss has brought its own music — cannot put that
 track back: the game freed its stream and released its sound buffer, and no memory copy brings a
@@ -148,22 +158,42 @@ So the game is asked to do it:
 - `backgroundMusic` and `backgroundMusicThreadHandle` cleared, because the restored state names
   the stream that was playing when the snapshot was taken and that one is long gone;
 - `Supervisor::PlayAudio` (0x424b5d) with `g_Stage.stdData->songPaths[0]`, the stage's own
-  track, read out of the memory that was just restored.
+  track, read out of the memory that was just restored;
+- and the song put where that chapter had it, as a file offset seeked to with the buffer filled from
+  there — `Music::play_from`, the same seek a resume does for the chapter it lands in.
 
-The track therefore starts again from its beginning rather than from where it was, which is what
-a midstage restore does to the music anyway.
+**That seek is what the offset is for.** The stream that held the place has been freed with the track
+that was playing, so the buffer, the cursor in it and the position are an object's that has gone; the
+offset in the track's own file is the one thing left that means anything to the stream the game has just
+made. Without it the track starts at its beginning, which is the whole of a stage's music away from
+where a chapter deep in that stage had it — heard the first time a run went back from a boss's own music
+to a chapter of the stage's waves. Only where the track the game restarted is the one the chapter's
+sound was in: an offset means nothing in another wav.
 
-Two generations are kept: the current chapter and the stage's start, matching the two items of
-the retry menu that put anything back. Of this stage only — a snapshot of an earlier one would name Direct3D
+**The chapters of the stage are kept from its start up to the one being played**, since every one of
+them is a place the retry menu offers to go back to. Eight of them at once, because a chapter's
+snapshot is five or six regions and twenty megabytes or so and a stage divides into a few dozen
+chapters — a gigabyte of a two-gigabyte address space. Eight reaches back across a fight, 紅魔郷's
+bosses having eight or nine attacks, so the chapter a fight began at is usually still there to be gone
+back to from the one it is being lost in. When a ninth is due **the oldest above the stage's own start
+goes**: that one stays whatever else does, being the way out of the whole stage, and what a death
+wants is the chapters around the one it happened in.
+
+Going back to a chapter drops the ones after it, the run not having played them yet — and their
+buffers are kept to be written over rather than freed, because the run is about to play those frames
+again and reach those boundaries again. Freed, each of those boundaries would have twenty megabytes of
+fresh pages to fault in between two frames.
+
+**They are this stage's chapters only** — a snapshot of an earlier one would name Direct3D
 textures the game released when it loaded this stage, and reloading them is not enough to make
 it whole: an `AnmVm` holds its script as a raw pointer into the file's buffer, so a file
 loaded again at another address leaves every live one of them pointing at nothing. Measured as
 a jump to 0x00000000 on the frame after such a restore.
 
-It is kept across a stage transition, which is not the run ending however much it looks like
+They are kept across a stage transition, which is not the run ending however much it looks like
 one from outside: the game leaves the gameplay scene for `GAMEMANAGER_REINIT` while it tears
 the last stage's managers down and builds the next one's. Only leaving the run for good takes
-it.
+them.
 
 ## Where the chapter was lost
 
@@ -174,38 +204,68 @@ on — so the frame the player died on stays on the screen behind the menu, and 
 viewport has to be set by orb because the game's own frame setup is part of the update being held
 back.
 
-Three ways on, and the chapter is the first of them — each in whichever language orb's screens are in;
+Four ways on, and the chapter is the first of them — each in whichever language orb's screens are in;
 see *The language orb writes its screens in*:
 
 | | |
 | --- | --- |
 | チャプターをやり直す / `Retry the chapter` | the snapshot taken where this chapter began |
+| 更に前からやり直す / `Retry from further back` | the chapters the stage has behind this one, listed on a screen of their own |
 | ステージをやり直す / `Retry the stage` | the snapshot taken where the stage began, which is chapter 1 |
 | タイトルに戻る / `Back to the title screen` | the run given up, and the game on its way to the title menu |
 
-The third is named for where it ends up rather than for what it gives up, that being the half of
+The last is named for where it ends up rather than for what it gives up, that being the half of
 it somebody reading the item does not already know: that the run is over is the obvious part, and
 that the game carries on into its own front end is not.
 
-**The chapter acts on the press; the other two ask first.** A fight worth grinding loses a
-chapter every few seconds, so the first item is answered hundreds of times in a session — a
-question in front of it would be answered without being read, and that trains the hand which then
-answers the other two. Those two are one press away from that hand and neither can be taken back:
-the stage's start throws away everything the stage has gained since it, and giving up throws away
-the run. So each of them puts up a second question naming what it is about to do, with the cursor
-on いいえ / `No`, which is where the game's own quit question puts it.
+**The second is a screen rather than a place.** Under どこからやり直す / `Where to start again` it lists
+the chapters the stage has behind the one that was lost, nearest first, with the stage's own start the
+last of them; `x`, escape or the pad's cancel goes back to the four. Each is named the way the status
+line names it — which part of the stage it is and which one of those — and that name is the same in
+either language, being what the log calls it too. A pass building the table is shown `CHAPTER 7`
+instead, for the same reason the status line shows a number there: what a chapter is called is settled
+by boundaries the pass is still judging. **A death with nothing behind the chapter it happened in
+leaves that item out**, since what is behind it would be an empty screen.
 
-The question is the whole of what is said there. A line under it spelling out what would be lost
-was tried and taken out: the question already names what is about to happen, and a screen somebody
-arrives at by dying is not the place to be read at.
+**A screen of its own rather than the four ways on becoming that list.** The first item is answered
+hundreds of times in a session and is one press with nothing to read; the chapters are what somebody
+reads when that item is not the answer, and a list of names in place of the four would put reading in
+front of the press this menu exists for.
 
-`x`, escape or the pad's cancel takes a confirmation back to the three items.
+**The chapter that was lost acts on the press; everything else asks first.** A fight worth grinding
+loses a chapter every few seconds, so the first item is answered hundreds of times — a question in
+front of it would be answered without being read, and that trains the hand which then answers what is
+below it. None of the others can be taken back: going back to a chapter drops the ones after it, the
+stage's start drops everything the stage has gained since it, and giving up throws away the run. So
+each of them puts up a second question naming what it is about to do, with the cursor on いいえ / `No`,
+which is where the game's own quit question puts it. The stage's own start is the last of the chapters
+listed as well as a way on of its own, and it asks the same question in both places: one act cannot be
+guarded on one screen and not on the other.
+
+**A question about a chapter names it** — `MIDBOSS NONSPELL 1 からやり直す？` — rather than saying *this
+chapter*: the item it was chosen from is not on the screen the question replaces it with, and the line
+under the question is about another chapter.
+
+**Under the two that go back, what answering them leaves behind**: `今のチャプターには戻れません` /
+`There is no going back to the chapter you are in`. The chapters after the one put back go with the
+restore, so what looked like stepping back one attack is the fight from that chapter onwards again —
+which is the half of what is about to happen that neither the item nor the question says. Nothing under
+giving up, whose cost is the run and whose chapter is written down for a later launch, and nothing at
+all where the stage's own start *is* the chapter the run is in, which leaves nothing behind.
+
+The line the questions used to have was a different line and stays out: it spelled out what a stage's
+worth of progress was, which the question naming the stage's start already says. A screen somebody
+arrives at by dying is not the place to be read at, and one line that says what nothing else on it does
+is the whole of what earns its place.
+
+`x`, escape or the pad's cancel takes a confirmation back to the items it was asked from, which for the
+stage's own start is either of the two screens it is on.
 
 **Neither of orb's menus writes its keys on the screen.** Both had a `Z 決定    X 戻る` line under
 them and both lost it: the keys are the game's own — `z` shoots and `x` bombs, which is what its own
 menus take as decide and back — so the line was telling somebody playing 紅魔郷 the one thing they
 already know. Where a way out is worth pointing at, the screen does it with an item rather than with
-a key: a confirmation's cursor sits on its no, and the retry menu's third item says where it goes.
+a key: a confirmation's cursor sits on its no, and the retry menu's last item says where it goes.
 
 **Both graces are keys being held off, for two different reasons.** The menu itself waits 24
 frames because the player was holding a direction and the shot key when they died, and those
@@ -213,7 +273,9 @@ presses belong to the run. A confirmation waits 12, and not for that: the press 
 an edge and so already spent, which is why this is a few frames rather than a fifth of a second —
 what it buys is that a question cannot be answered on the frame it appeared on, since an answer
 that fast is one nobody read. The cursor starting on いいえ is what makes such a press cost
-nothing but the question closing.
+nothing but the question closing. The chapters wait the same 12 and for the whole of that reason:
+one of them is acted on the press that lands on it, so a press left over from opening that screen
+would send the run back to whichever chapter the cursor started on.
 
 **Giving up is what the game's own quit does**: `isInGameMenu` and `isInRetryMenu` cleared and
 `g_Supervisor.curState = MAINMENU`, which is `StageMenu::OnUpdateGameMenu`'s answer to yes.
@@ -249,6 +311,13 @@ holds: which run it is, the run's numbers as the stage it is in began, and the b
 from that stage's first to the frame the chapter began on. One is written **every time a chapter
 begins**, because there is no moment a session ends at — the window closed, the game killed and a
 crash all leave nothing to write from.
+
+**And on the frame the retry menu sends the run back to a chapter behind the one it was in**, which is
+the same thing said the other way: what the file holds is where the run is standing, and a run sent
+back to a chapter is standing there. Written on that frame and not the one after it, because the song
+position and the reproduction line that go in with it belong to the chapter's own frame — which the
+restore has just put the game on. The buttons need nothing done to them: the record is one entry per
+stage frame, so the entries under any chapter are the ones that reached it.
 
 **MessagePack, through the same serde the settings go through, and with the field names in it** —
 `to_vec_named`, not the positional arrays rmp-serde writes by default. Packed because the file is the
@@ -1921,8 +1990,10 @@ this machine's own windows are in` — because a screenshot of a menu somebody c
 otherwise the only evidence of which language it came out as.
 
 Every screen orb puts up is in it: the question over the title menu with both modes and the lines
-under them, the menu where a chapter was lost with the two questions its items ask, the question about
-a run left unfinished with the mark that goes up before it, and the launcher's settings dialog. What
+under them, the menu where a chapter was lost with the questions its items ask and the line under the
+two that go back, the question about a run left unfinished with the mark that goes up before it, and
+the launcher's settings dialog. A chapter's name is not one of those words — see *Where the chapter was
+lost*, whose list is named the way the status line names them. What
 each screen says in either language is beside the screen itself — `mode.rs`, `retry_ui.rs`,
 `resume_ui.rs`, `launcher/settings.rs` — as a `match` over the language, so a screen added without a
 wording in both is a build that stops rather than a line nobody can read. 完全無欠モード and
@@ -2627,6 +2698,8 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/the_ending.rs` | the ending run out inside the frame it begins on, stopping where its script hands over to the staff roll and the track changes on the same update, and the roll left to play at sixty |
 | `orb-e2e/src/moving_between_a_replays_stages.rs` | a replay moved between its stages: the teardown's write into the record held back, the score and the extra lives put back to nothing, a screen shake taken down before it reaches the next stage, and two passes over one stage agreeing to the last digit |
 | `orb-e2e/src/the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind; a seek that moves the countdown with the file so the track loops where it did; the buffer, the play cursor and the file position coming back byte for byte with a chapter; the track that has gone since taken down and started again through the game; and a file handle orb cannot read, where the buffer comes back and the file is left where it is |
+| `orb-e2e/src/a_chapter_further_back.rs` | the chapters behind the one that was lost: listed by name behind 更に前からやり直す with the one that was lost not among them, the run put back at one of them field for field with the file following it there, the chapters after the one restored gone from what the next death lists, the way out of that screen, and no item for it at all where the run has reached no other chapter |
+| `orb-e2e/src/the_card_name_across_a_restore.rs` | the name of the spell card a chapter is put back inside, baked onto its plate again out of the card's own record — which is what a chapter reached from a later card would otherwise be fought under |
 | `orb-e2e/src/a_chapter_table_collected.rs` | `--collect` and `--judge`: the gap in a stage's waves proposed, the boundary judged out and stepped back to and back into the table, one placed by hand and taken away again, both files written, what one sitting decided read back by the next, and a hand-edited state file whose unreadable lines are named by path and line |
 | `orb-e2e/src/a_chapter_out_of_the_table.rs` | the boundary the baked table holds for a stage beginning a chapter, with the fight won first so that nothing outranks the table, and the Extra reading the row of its own |
 | `orb-e2e/src/a_practice_run.rs` | one stage practised: the mode question over its own item of the title menu, the chapter put back after a death, and nothing written down for a run the game keeps no slot for |

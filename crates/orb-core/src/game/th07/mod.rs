@@ -422,6 +422,10 @@ impl Game for Th07 {
         None
     }
 
+    /// And no plate to put a name back on: what 妖々夢 shows a card's name with has not been read, and
+    /// nothing here restores a chapter for it to be wrong in.
+    unsafe fn redraw_card_name(&self) {}
+
     /// No record to hold across anything, which leaves the game's own alone through every snapshot and
     /// every ranking read — there being neither.
     unsafe fn captures(&self) -> Vec<u8> {

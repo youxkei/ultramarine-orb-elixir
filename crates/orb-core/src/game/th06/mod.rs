@@ -22,7 +22,7 @@ use crate::game::{
     Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
     Reproduction, RunStart, RunState, State,
 };
-use crate::log;
+use crate::{detail, log};
 use orb_api::d3d8::{self, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER};
 use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
@@ -306,6 +306,18 @@ pub(super) fn name_in(span: &[u8]) -> Option<&[u8]> {
     Some(&span[..end])
 }
 
+/// The record the game keeps for a card, and `None` for a number that is not one of the 64 or a slot
+/// with no record in it at all.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn card_record(card: i32) -> Option<usize> {
+    let record = CARD_HISTORY + usize::try_from(card).ok()? * 0x40;
+    (record + 0x40 <= CARD_HISTORY + CARD_HISTORY_BYTES
+        && unsafe { mem::read::<u32>(record) } == CATK_MAGIC)
+        .then_some(record)
+}
+
 /// Whether the game has named the card a record is for, asked the way the game asks it: the sum the
 /// record holds against the name it holds, which is the comparison at 0x4097e8.
 ///
@@ -379,6 +391,28 @@ const PLAY_AUDIO: usize = 0x00424b5d;
 // cannot be two addresses in a game that has no code at them.
 handed_over!(STOP_BGM_AT, stop_bgm, set_stop_bgm, STOP_BGM);
 handed_over!(PLAY_AUDIO_AT, play_audio, set_play_audio, PLAY_AUDIO);
+
+/// `th06::AnmManager::DrawStringFormat`, `__cdecl` taking the manager, the vm the string is baked into,
+/// a colour, a second colour, and the text as a format string.
+///
+/// The one place a spell card's name reaches the screen. `Gui::SetSpellcardName` (0x417bfd, `__thiscall`
+/// on [`G_GUI`] with the plate's sprite and the name) calls it at 0x417cc0 with the five arguments
+/// [`redraw_card_name`](Th06::redraw_card_name) passes: `[0x6d4588]`, the vm at
+/// [`gui::IMPL_CARD_NAME_VM`], [`CARD_NAME_COLOUR`], zero, and the name the declaration carries.
+/// Nothing keeps the string afterwards — the plate's own vm holds a baked sprite and the caller only
+/// measures the name to place it (0x417cef) — which is why a restore has to bake it again.
+///
+/// **The whole of it is a format string**, `vsprintf` into a buffer at 0x434c8f: what the game hands it
+/// is a name out of its own ECL, and what orb hands it is the copy of that name the game itself made in
+/// the card's record.
+const DRAW_STRING: usize = 0x00434c40;
+/// The colour that call is made with, `0x00fff0f0` at 0x417ca9, and the zero beside it at 0x417ca7.
+const CARD_NAME_COLOUR: u32 = 0x00ff_f0f0;
+const CARD_NAME_SHADOW: u32 = 0;
+
+// Handed over for the same reason the two above are: a chapter put back inside a spell card bakes its
+// name again through this one, which is a path an e2e test walks.
+handed_over!(DRAW_STRING_AT, draw_string, set_draw_string, DRAW_STRING);
 
 /// `th06::Controller::GetInput`, `__stdcall`, no arguments, returns the buttons
 /// held this frame. `Supervisor::OnUpdate` calls it once a frame, so it is the one
@@ -747,6 +781,11 @@ mod gui {
     pub const BOSS_PRESENT: usize = 0x20;
     /// Inside `GuiImpl`, at `msg.currentMsgIdx`.
     pub const IMPL_CURRENT_MSG_IDX: usize = 0x253c;
+    /// And the vm a spell card's name is baked into, which `Gui::SetSpellcardName` reaches the same
+    /// way: `this->impl` plus this, at 0x417c65. The plate it is drawn on is the vm at 0x1ed4 beside
+    /// it, whose sprite the same function picks — and that one is memory a snapshot puts back, where
+    /// what is baked into this one is a texture and is not.
+    pub const IMPL_CARD_NAME_VM: usize = 0x20f4;
 }
 
 /// `th06::ChainElem`, 0x20 bytes: the priority and the heap flag, then the three
@@ -1805,12 +1844,7 @@ impl Game for Th06 {
             return None;
         }
         let card = unsafe { mem::read::<i32>(CURRENT_CARD) };
-        let record = CARD_HISTORY + usize::try_from(card).ok()? * 0x40;
-        if record + 0x40 > CARD_HISTORY + CARD_HISTORY_BYTES
-            || unsafe { mem::read::<u32>(record) } != CATK_MAGIC
-        {
-            return None;
-        }
+        let record = unsafe { card_record(card) }?;
         // The magic alone would not do: every one of the 64 slots carries it from the moment a run starts,
         // and the name beside it is the generator's until the card itself is started. A count against one of
         // those is what the ranking screen draws those bytes for.
@@ -1825,6 +1859,50 @@ impl Game for Th06 {
         let attempts = unsafe { mem::read::<u16>(record + CATK_ATTEMPTS) }.saturating_add(1);
         unsafe { mem::write::<u16>(record + CATK_ATTEMPTS, attempts) };
         Some(attempts)
+    }
+
+    unsafe fn redraw_card_name(&self) {
+        // Only while a card is up, which is the only time the plate is on the screen — and the same
+        // read `count_card_attempt` asks the restored memory, so the two agree about which chapter
+        // has a card in it.
+        if unsafe { mem::read::<i32>(G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE) } == 0 {
+            return;
+        }
+        let card = unsafe { mem::read::<i32>(CURRENT_CARD) };
+        let Some(record) = (unsafe { card_record(card) }) else {
+            return;
+        };
+        // The name out of the card's own record, which is the copy the game made of the declaration's
+        // when the card started: the declaration itself is an instruction the interpreter has long
+        // moved past, and nothing keeps a pointer to it. Only one the game wrote — the bytes a record
+        // holds otherwise are the generator's, and baking those onto the plate would put a line of
+        // noise where the name goes.
+        if !unsafe { named(record) } {
+            return log!(
+                "card: card {card} is not one the game has named; the plate is left as it is"
+            );
+        }
+        let Some(implementation) =
+            mem::read_committed::<usize>(G_GUI + gui::IMPL).filter(|it| *it != 0)
+        else {
+            return;
+        };
+        let Some(manager) = mem::read_committed::<usize>(G_ANM_MANAGER).filter(|it| *it != 0)
+        else {
+            return;
+        };
+        let draw: unsafe extern "cdecl" fn(usize, usize, u32, u32, usize) =
+            unsafe { std::mem::transmute(draw_string()) };
+        unsafe {
+            draw(
+                manager,
+                implementation + gui::IMPL_CARD_NAME_VM,
+                CARD_NAME_COLOUR,
+                CARD_NAME_SHADOW,
+                record + CATK_NAME,
+            )
+        };
+        detail!("card: the name of card {card} is on its plate again");
     }
 
     unsafe fn captures(&self) -> Vec<u8> {

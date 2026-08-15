@@ -30,7 +30,7 @@ use crate::menu_ui::By;
 use crate::mode_ui::{Answer, Mode, ModeMenu};
 use crate::mouse::Mouse;
 use crate::overlay::{FONT_HEIGHT, MARK_FONT_HEIGHT, Overlay};
-use crate::retry_ui::{Choice, RetryMenu};
+use crate::retry_ui::{self, Choice, RetryMenu};
 use crate::sync::MainThread;
 use orb_api::d3d8;
 
@@ -847,9 +847,10 @@ fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
     resume::keep(runtime.keeping());
-    // Nothing kept of a run that will not be rewound: a stage's snapshots are forty megabytes or
-    // so, and normal mode is the game as it was. Its buttons go with them — a run that cannot be
-    // rewound has nothing a chapter would be resumed into.
+    // Nothing kept of a run that will not be rewound: a stage's snapshots are twenty megabytes a
+    // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
+    // Its buttons go with them — a run that cannot be rewound has nothing a chapter would be
+    // resumed into.
     if mode == Mode::Normal {
         runtime.chapters.forget();
         unsafe { resume::forget() };
@@ -940,6 +941,33 @@ unsafe fn give_up(game: &dyn Game) -> bool {
     unsafe { game.swallow_input() };
     log!("retry: the run is given up; the game is on its way to the title");
     true
+}
+
+/// The chapters the retry menu lists behind the one that was lost, in the order it lists them: the
+/// ones the stage has a snapshot of, each by the name the status line calls it.
+///
+/// The chapter being played is left out, which is the first of what `offers` answers: that one is a way
+/// on of its own and needs no place in the list behind it.
+///
+/// By number in a pass building the table, where every number on screen is one to hold against the
+/// log — and where a name is settled by boundaries the pass is still judging, so it would move under
+/// whoever is reading it.
+fn offered(runtime: &Runtime) -> Vec<retry_ui::Chapter> {
+    runtime
+        .chapters
+        .offers()
+        .into_iter()
+        .skip(1)
+        .map(|offer| retry_ui::Chapter {
+            at: offer.at,
+            name: if runtime.config.chapter_tuning {
+                format!("CHAPTER {}", offer.number)
+            } else {
+                offer.name.to_string()
+            },
+            stage_start: offer.stage_start,
+        })
+        .collect()
 }
 
 /// Replaces `th06::Chain::RunCalcChain`. `__thiscall` with a single argument is
@@ -1510,6 +1538,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             log!("retry: {} on the {by}", choice.label());
             let acted = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },
+                Choice::Further(at) => unsafe { runtime.chapters.retry_kept(runtime.game, at) },
                 Choice::Stage => unsafe { runtime.chapters.retry_stage(runtime.game) },
                 Choice::Quit => {
                     let left = unsafe { give_up(runtime.game) };
@@ -1524,6 +1553,15 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 // run was given up — so nothing about it should be compared against that
                 // frame.
                 runtime.previous = None;
+                // The chapter written down follows the run back, so that a session closed after going
+                // back offers the chapter the run is standing in rather than the one it left. Here
+                // because this is the chapter's own frame: the restore has just put the game on it, and
+                // the song position and the reproduction line that go into the file with it are only
+                // that frame's — by the update after this one the stage has moved on and
+                // `keep_chapter` refuses. Nothing is written where the run has not moved, the file
+                // already describing the chapter it was in.
+                let state = unsafe { runtime.game.read_state() };
+                unsafe { keep_chapter(runtime, &state) };
             }
         }
         return CHAIN_BREAK;
@@ -1795,7 +1833,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             .is_some_and(|previous| state.deaths > previous.deaths);
     if died && runtime.chaptering() && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
-        runtime.retry = Some(RetryMenu::new(runtime.language));
+        let chapters = offered(runtime);
+        runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
     }
 
     // The question after the character select, where a run has been chosen and a chapter of that
@@ -2942,6 +2981,9 @@ unsafe fn draw_overlay() {
         // The chapter by name, which is what the menu is offering to put the player back at —
         // and by number in a pass building the table, where every number on screen is one to
         // hold against the log.
+        //
+        // The chapters behind it were settled where the menu went up: the game is frozen under it, so
+        // what the stage has cannot change while it is being read — see `RetryMenu::new`.
         let chapter = match runtime
             .chapters
             .name()

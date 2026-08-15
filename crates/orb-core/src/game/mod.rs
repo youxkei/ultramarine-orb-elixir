@@ -679,6 +679,22 @@ pub trait Game {
     /// Must run on the game's main thread, between frames.
     unsafe fn count_card_attempt(&self) -> Option<u16>;
 
+    /// Puts the name of the spell card that is up back on the plate it is shown on, where the game
+    /// baked it into a sprite when the card was declared.
+    ///
+    /// **A name on the screen is not memory.** The declaration hands the name to the game's own text
+    /// drawing, which bakes it into a sprite — a Direct3D texture, which no snapshot holds — so a
+    /// chapter put back where a *later* card has been declared since shows that later card's name over
+    /// the card the run is now fighting. Which is what going back more than one chapter reaches: from a
+    /// boss's spell card to the midboss's, the plate said the boss's until the next card started.
+    ///
+    /// Nothing where no card is up, and nothing where the game keeps no name of its own to bake.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the memory the name comes out of
+    /// already put back.
+    unsafe fn redraw_card_name(&self);
+
     /// The game's own record of which spell cards have been captured, as the bytes it keeps it in.
     ///
     /// Taken and put back rather than read field by field: orb has no use for the shape of it, only

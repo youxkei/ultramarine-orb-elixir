@@ -1,8 +1,9 @@
 //! Where chapters begin, and the snapshot taken at each one.
 //!
-//! Two snapshots are kept: the current chapter and the start of the stage, which
-//! are the two things the retry menu offers. Chapter 1 *is* the stage start, so
-//! it has no snapshot of its own.
+//! A stage's chapters are kept from its start up to the one being played, as many
+//! of them as [`KEPT_CHAPTERS`], and every one of them is a place the retry menu
+//! offers to go back to. Chapter 1 *is* the stage start, so the oldest of them is
+//! that.
 //!
 //! Boundaries are found by watching the game rather than by consulting a script,
 //! so difficulty differences need no separate handling: a boss with an extra
@@ -49,6 +50,15 @@ const MIN_CHAPTER_FRAMES: u32 = 60;
 /// snapshot describes a stage that is actually loaded.
 const STAGE_SETTLE_FRAMES: u32 = 8;
 
+/// How many chapters of a stage there are snapshots of at once, the stage's own start among them.
+///
+/// A cap because a chapter's snapshot is the game's memory copied — five or six regions, twenty
+/// megabytes or so — and a stage divides into a few dozen chapters, which is a gigabyte of a
+/// two-gigabyte address space. Eight reaches back across a fight: 紅魔郷's bosses have eight or nine
+/// attacks, so the chapter a fight began at is usually still there to be gone back to from the one it
+/// is being lost in, and a hundred and sixty megabytes is what that costs.
+const KEPT_CHAPTERS: usize = 8;
+
 /// How much longer to wait for the music to come up before giving up on it.
 ///
 /// A snapshot without the music still rewinds the streaming bookkeeping in the
@@ -70,9 +80,8 @@ pub struct Chapters {
     retries: u32,
     /// Describes the chapter now being played.
     mark: Mark,
-    /// `None` while chapter 1 is current, since that is the stage start.
-    chapter: Option<Checkpoint>,
-    stage_start: Option<Checkpoint>,
+    /// Where inside this stage the run can be sent back to.
+    snapshots: Snapshots,
     seen: Seen,
     /// Set by a restore: the state jumped, so this frame's differences are not
     /// chapter boundaries.
@@ -116,6 +125,105 @@ enum Fight {
 struct Checkpoint {
     snapshot: Snapshot,
     mark: Mark,
+}
+
+/// The snapshots a stage has: one per chapter, its own start first and the chapter being played last,
+/// and behind them the buffers of the chapters a restore has gone back past.
+///
+/// **Those buffers are kept rather than freed**, because going back is what they are for: a restore
+/// drops every chapter after the one it puts back, and the run then plays those frames again and
+/// reaches those boundaries again. Freed, each of those boundaries would have twenty megabytes of
+/// fresh pages to fault in between two frames — which is the cost [`take`] reuses a snapshot's
+/// buffers to avoid, and a frame that misses its blank is what it buys.
+struct Snapshots {
+    kept: Vec<Checkpoint>,
+    /// How many of `kept` are chapters of the run as it stands. The rest are those buffers.
+    depth: usize,
+}
+
+impl Snapshots {
+    fn new() -> Self {
+        Self {
+            kept: Vec::new(),
+            depth: 0,
+        }
+    }
+
+    fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// The chapter `at` places up from the stage's start, and `None` where the stage has no such
+    /// chapter kept.
+    fn at(&self, at: usize) -> Option<&Checkpoint> {
+        self.kept.get(..self.depth)?.get(at)
+    }
+
+    /// Which of them the chapter being played is.
+    fn newest(&self) -> Option<usize> {
+        self.depth.checked_sub(1)
+    }
+
+    /// How many of them are still chapters of the run: a restore keeps the chapter it put back and
+    /// everything under it, and a stage beginning keeps none of them. What is left above is the
+    /// buffers the note on this struct is about.
+    fn keeping(&mut self, chapters: usize) {
+        self.depth = chapters.min(self.kept.len());
+    }
+
+    /// The buffers for the snapshot about to be taken, where there are any: the newest chapter gone
+    /// back past, the oldest above the stage's start once the stage has as many chapters as it keeps,
+    /// or nothing at all while it is still filling.
+    fn spare(&mut self) -> Option<Checkpoint> {
+        if self.depth < self.kept.len() {
+            return Some(self.kept.remove(self.depth));
+        }
+        if self.depth < KEPT_CHAPTERS {
+            return None;
+        }
+        // The stage's own start is the one that stays whatever else goes: it is the way out of the
+        // whole stage, and what a death wants is the chapters around the one it happened in.
+        self.depth -= 1;
+        Some(self.kept.remove(1))
+    }
+
+    /// Puts the chapter that snapshot was taken for on top.
+    fn push(&mut self, checkpoint: Checkpoint) {
+        self.kept.insert(self.depth, checkpoint);
+        self.depth += 1;
+    }
+
+    /// What the chapter being played was taken with, for the one thing about a chapter that is
+    /// settled after it began: the name of the attack, where the game declares a spellcard a frame
+    /// or two into the chapter its own timer began.
+    fn newest_mark(&mut self) -> Option<&mut Mark> {
+        let at = self.newest()?;
+        Some(&mut self.kept[at].mark)
+    }
+
+    /// Takes the chapter being played out, for a snapshot about to be taken again over its own
+    /// buffers and pushed back.
+    fn take_newest(&mut self) -> Option<Checkpoint> {
+        self.depth = self.newest()?;
+        Some(self.kept.remove(self.depth))
+    }
+
+    fn forget(&mut self) {
+        self.kept.clear();
+        self.depth = 0;
+    }
+}
+
+/// A chapter there is a snapshot to go back to, which is what the retry menu offers.
+pub struct Offer {
+    /// Which of the stage's snapshots it is, which is what asking for that one back names.
+    pub at: usize,
+    /// The chapter's own number, for a pass building the table: what a chapter is called there is
+    /// settled by boundaries the pass is still judging.
+    pub number: u32,
+    pub name: Name,
+    /// Whether it is the stage's own start.
+    pub stage_start: bool,
 }
 
 /// Everything about a chapter that lives in `orb` rather than in the game, and
@@ -280,8 +388,8 @@ enum Due {
 /// retry point — one kills whoever restores it and the other hands them a cleared screen and
 /// two seconds of invulnerability. A boundary the fight really has is worth more than a
 /// boundary that is always comfortable, and the way out of a bad start is the chapter before
-/// it. What that leans on is being able to go back further than one chapter, which stepping
-/// does and the retry menu does not yet.
+/// it. What that leans on is being able to go back further than one chapter, which the retry
+/// menu offers every chapter the stage has kept for.
 ///
 /// A bomb was guarded against on the strength of a boundary seen where a bomb had cleared a
 /// boss's bullets, taken at the time for one the detector had proposed. It cannot have been:
@@ -317,8 +425,7 @@ impl Chapters {
                 midstage_upto: i32::MIN,
                 cause: Cause::StageStart,
             },
-            chapter: None,
-            stage_start: None,
+            snapshots: Snapshots::new(),
             seen: Seen {
                 boss_present: false,
                 boss_timer: None,
@@ -360,10 +467,13 @@ impl Chapters {
     /// question — why the chapter changed here — and is the one worth having while what is
     /// being decided is whether the boundary belongs in the table at all.
     pub fn name(&self) -> Option<Name> {
-        if self.mark.number == 0 {
-            return None;
-        }
-        let kind = Kind::of(self.mark.cause);
+        (self.mark.number > 0).then(|| self.named(&self.mark))
+    }
+
+    /// And what to call the chapter that began at a mark, which is what the chapters kept beside the
+    /// one being played are listed by.
+    fn named(&self, mark: &Mark) -> Name {
+        let kind = Kind::of(mark.cause);
         // Counted out of the chapter starts this stage has recorded rather than kept in a
         // counter of its own, because a restore and a step back put the mark back and then
         // play the same chapters again: a counter would make the second time through the
@@ -372,9 +482,9 @@ impl Chapters {
         let index = self
             .starts
             .iter()
-            .filter(|(at, cause)| *at <= self.mark.started_at && Kind::of(*cause) == kind)
+            .filter(|(at, cause)| *at <= mark.started_at && Kind::of(*cause) == kind)
             .count();
-        Some(Name { kind, index })
+        Name { kind, index }
     }
 
     pub fn retries(&self) -> u32 {
@@ -389,7 +499,28 @@ impl Chapters {
     }
 
     pub fn can_retry(&self) -> bool {
-        self.stage_start.is_some()
+        self.snapshots.depth() > 0
+    }
+
+    /// The chapters there is a snapshot to go back to, the one being played first: what the retry menu
+    /// lists, in the order it lists them.
+    ///
+    /// Newest first because that is the order they are wanted in: the chapter just lost is what a death
+    /// is usually answered with, so it is the item the cursor starts on and each press down goes one
+    /// chapter further back.
+    pub fn offers(&self) -> Vec<Offer> {
+        (0..self.snapshots.depth())
+            .rev()
+            .filter_map(|at| {
+                let mark = self.snapshots.at(at)?.mark;
+                Some(Offer {
+                    at,
+                    number: mark.number,
+                    name: self.named(&mark),
+                    stage_start: at == 0,
+                })
+            })
+            .collect()
     }
 
     /// Whether what is being tracked is a run somebody is playing.
@@ -796,6 +927,12 @@ impl Chapters {
                 {
                     self.starts[at].1 = named;
                 }
+                // And in the snapshot taken where the chapter began, which is the mark a restore of
+                // it puts back: left as it was, going back to this chapter would take its name away
+                // again and the menu offering it would call it the nonspell it arrived as.
+                if let Some(mark) = self.snapshots.newest_mark() {
+                    mark.cause = named;
+                }
                 log!(
                     "stage {} chapter {} at frame {}: the attack it began has a name after all",
                     state.stage + 1,
@@ -887,11 +1024,14 @@ impl Chapters {
             tuning.write(game);
             tuning.begin_stage(state.stage);
         }
-        self.chapter = None;
+        // Nothing of the stage before this one is a chapter any more, its start included: what a
+        // snapshot of it names was released when this stage loaded. The buffers stay to be written
+        // over, this one first.
+        self.snapshots.keeping(0);
 
         let snapshot = unsafe {
             take(
-                self.stage_start.take(),
+                self.snapshots.spare(),
                 game,
                 data,
                 self_check,
@@ -916,7 +1056,7 @@ impl Chapters {
             state.deaths,
             state.random_seed,
         );
-        self.stage_start = Some(Checkpoint {
+        self.snapshots.push(Checkpoint {
             snapshot,
             mark: self.mark,
         });
@@ -947,7 +1087,8 @@ impl Chapters {
         let audio = self.audio_for(game, state);
         let keeps_music = matches!(audio.policy, Music::KeepPlaying);
         let live = unsafe { game.live_handles() };
-        let snapshot = unsafe { take(self.chapter.take(), game, data, self_check, audio, &live) };
+        let snapshot =
+            unsafe { take(self.snapshots.spare(), game, data, self_check, audio, &live) };
         // The run's own numbers with every boundary: a replay that has come out of step
         // says so here, by reaching the same frame with different lives or power than
         // the pass before it.
@@ -969,7 +1110,7 @@ impl Chapters {
             snapshot.regions(),
             snapshot.bytes(),
         );
-        self.chapter = Some(Checkpoint {
+        self.snapshots.push(Checkpoint {
             snapshot,
             mark: self.mark,
         });
@@ -989,7 +1130,7 @@ impl Chapters {
         data: &Range<usize>,
         self_check: bool,
     ) {
-        let Some(checkpoint) = self.chapter.take() else {
+        let Some(checkpoint) = self.snapshots.take_newest() else {
             return;
         };
         let mark = checkpoint.mark;
@@ -1000,16 +1141,29 @@ impl Chapters {
             "chapter {} taken again with the sound as it is now",
             mark.number
         );
-        self.chapter = Some(Checkpoint { snapshot, mark });
+        self.snapshots.push(Checkpoint { snapshot, mark });
     }
 
-    /// Restores the start of the current chapter. Returns false when there is
+    /// Restores the start of the chapter being played. Returns false when there is
     /// nothing to go back to.
     ///
     /// # Safety
     /// Must run on the game's main thread, between frames.
     pub unsafe fn retry_chapter(&mut self, game: &dyn Game) -> bool {
-        let Some(checkpoint) = self.chapter.as_ref().or(self.stage_start.as_ref()) else {
+        let Some(at) = self.snapshots.newest() else {
+            return false;
+        };
+        unsafe { self.retry_kept(game, at) }
+    }
+
+    /// And the start of any of the chapters this stage has kept, which is what the retry menu asks
+    /// for: the chapters after it are no longer chapters of the run, since the run has not played
+    /// them yet.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    pub unsafe fn retry_kept(&mut self, game: &dyn Game, at: usize) -> bool {
+        let Some(checkpoint) = self.snapshots.at(at) else {
             return false;
         };
         let mark = checkpoint.mark;
@@ -1021,6 +1175,7 @@ impl Chapters {
         {
             log!("retry: attempt {attempts} at this spell card");
         }
+        self.snapshots.keeping(at + 1);
         self.after_restore(mark);
         self.retries += 1;
         log!("retry chapter {} (retry {})", mark.number, self.retries);
@@ -1049,12 +1204,12 @@ impl Chapters {
     /// # Safety
     /// Must run on the game's main thread, between frames.
     pub unsafe fn rewind_stage(&mut self, game: &dyn Game) -> bool {
-        let Some(checkpoint) = self.stage_start.as_ref() else {
+        let Some(checkpoint) = self.snapshots.at(0) else {
             return false;
         };
         let mark = checkpoint.mark;
         unsafe { put_back(game, checkpoint) };
-        self.chapter = None;
+        self.snapshots.keeping(1);
         self.after_restore(mark);
         true
     }
@@ -1113,8 +1268,7 @@ impl Chapters {
         }
         self.stage = None;
         self.retries = 0;
-        self.chapter = None;
-        self.stage_start = None;
+        self.snapshots.forget();
         self.settling_until = None;
         self.somebody_playing = false;
         self.mark = Mark {
@@ -1141,6 +1295,14 @@ unsafe fn put_back(game: &dyn Game, checkpoint: &Checkpoint) {
     let captures = unsafe { game.captures() };
     unsafe { checkpoint.snapshot.restore(game) };
     unsafe { game.set_captures(&captures) };
+    // And the name of the card this chapter is inside put back on the plate it is shown on, which the
+    // game baked into a sprite where that card was declared and no snapshot holds. Left as it was, a
+    // chapter reached from a *later* card — which is what going back more than one chapter reaches —
+    // would be fought under the later card's name.
+    //
+    // After the records are back, since the name is baked out of the one the game copied into this
+    // card's own record: the records above are what carry it across the restore.
+    unsafe { game.redraw_card_name() };
 }
 
 /// Reuses `previous`'s buffers when there is one, so a boundary costs a copy
@@ -1201,7 +1363,8 @@ impl Seen {
 #[cfg(test)]
 mod tests {
     use super::{
-        Cause, Chapters, Due, Judgement, MUSIC_WAIT_FRAMES, Mark, STAGE_SETTLE_FRAMES, Seen,
+        Cause, Chapters, Due, Judgement, KEPT_CHAPTERS, MUSIC_WAIT_FRAMES, Mark,
+        STAGE_SETTLE_FRAMES, Seen,
     };
     use crate::game::th06::Th06;
     use crate::game::th06::image::{Boss, Image, Player, Playing, Track};
@@ -1469,6 +1632,31 @@ mod tests {
             let _entered = self.image.enter();
             unsafe { self.chapters.retry_stage(&Th06) }
         }
+
+        /// And the real `retry_kept`, which is the chapter an item of the retry menu asks for.
+        fn goes_back_to(&mut self, at: usize) -> bool {
+            let _entered = self.image.enter();
+            unsafe { self.chapters.retry_kept(&Th06, at) }
+        }
+
+        /// Whether the byte written all over `at` before a chapter was taken is what stands there now.
+        fn holds(&self, at: usize, byte: u8) -> bool {
+            self.image
+                .space()
+                .read_bytes(at, 0x100)
+                .iter()
+                .all(|read| *read == byte)
+        }
+    }
+
+    /// What the retry menu would list, in the order it lists them: what each chapter is called, and
+    /// which of the stage's snapshots puts it back.
+    fn offered(chapters: &Chapters) -> Vec<(String, usize)> {
+        chapters
+            .offers()
+            .iter()
+            .map(|offer| (offer.name.to_string(), offer.at))
+            .collect()
     }
 
     /// The frame `n` frames into the stage, as the game's own clocks read it.
@@ -1530,14 +1718,127 @@ mod tests {
         stage.image.space().fill_bytes(at, 0xc3, 0x100);
         assert!(stage.retry_stage());
 
-        assert!(
-            stage
-                .image
-                .space()
-                .read_bytes(at, 0x100)
-                .iter()
-                .all(|byte| *byte == 0xa1),
+        assert!(stage.holds(at, 0xa1));
+    }
+
+    /// Every chapter the stage has reached is one to go back to, the one being played first and the
+    /// stage's own start last — which is the order the retry menu lists them in.
+    #[test]
+    fn every_chapter_of_the_stage_is_one_to_go_back_to() {
+        let mut stage = Stage::tuned("orb-chapter-offered");
+        assert_eq!(stage.play(1200), [259, 659, 1059]);
+
+        assert_eq!(
+            offered(&stage.chapters),
+            [
+                ("MIDSTAGE 4".to_owned(), 3),
+                ("MIDSTAGE 3".to_owned(), 2),
+                ("MIDSTAGE 2".to_owned(), 1),
+                ("MIDSTAGE 1".to_owned(), 0),
+            ],
         );
+        // And the stage's own start is the one of them said to be that, which is what the menu puts a
+        // question in front of.
+        let offers = stage.chapters.offers();
+        assert!(offers.last().expect("the stage has chapters").stage_start);
+        assert!(!offers.iter().rev().skip(1).any(|offer| offer.stage_start));
+    }
+
+    /// Going back to one leaves the chapters after it behind: the run has not played them, so they are
+    /// nothing to go back to until it reaches them again — which it then does, and they are offered
+    /// again.
+    #[test]
+    fn going_back_to_a_chapter_leaves_the_ones_after_it_behind() {
+        let mut stage = Stage::tuned("orb-chapter-back-drops-the-rest");
+        assert_eq!(stage.play(1200), [259, 659, 1059]);
+
+        assert!(stage.goes_back_to(1));
+        assert_eq!(
+            offered(&stage.chapters),
+            [("MIDSTAGE 2".to_owned(), 1), ("MIDSTAGE 1".to_owned(), 0)],
+        );
+        // Which is the chapter the run is in again, and the retry it cost.
+        assert_eq!(stage.chapters.number(), 2);
+        assert_eq!(stage.chapters.retries(), 1);
+
+        assert_eq!(stage.play_from(300, 1200), [659, 1059]);
+        assert_eq!(
+            offered(&stage.chapters),
+            [
+                ("MIDSTAGE 4".to_owned(), 3),
+                ("MIDSTAGE 3".to_owned(), 2),
+                ("MIDSTAGE 2".to_owned(), 1),
+                ("MIDSTAGE 1".to_owned(), 0),
+            ],
+        );
+    }
+
+    /// And a chapter left standing still holds its own memory once the run has played the chapters
+    /// above it again: what a later snapshot is written over is the memory of a chapter gone back
+    /// past, never one that is still there to go back to.
+    #[test]
+    fn a_chapter_left_standing_still_holds_the_memory_it_was_taken_with() {
+        // Laid out rather than begun, so that the stage's own memory is what this test says it is
+        // before the first chapter is taken — and tuned, the gaps between waves being what divides a
+        // stage this far into it.
+        let mut stage = Stage::laid_out(Some(scratch("orb-chapter-standing")), false);
+        let at = stage.image.data().start + 0x2f00;
+
+        // A byte apiece: what the stage's memory held as each of its first four chapters was taken.
+        stage.image.space().fill_bytes(at, 0xa1, 0x100);
+        stage.settle(empty);
+        stage.image.space().fill_bytes(at, 0xb2, 0x100);
+        assert_eq!(stage.play_from(0, 300), [259]);
+        stage.image.space().fill_bytes(at, 0xc3, 0x100);
+        assert_eq!(stage.play_from(300, 700), [659]);
+        stage.image.space().fill_bytes(at, 0xd4, 0x100);
+        assert_eq!(stage.play_from(700, 1100), [1059]);
+
+        // Back to the second of them, and the stage played forward from there with its memory holding
+        // something else: the two chapters it reaches again are taken over the buffers of the two it
+        // went back past.
+        assert!(stage.goes_back_to(1));
+        assert!(stage.holds(at, 0xb2));
+        stage.image.space().fill_bytes(at, 0xe5, 0x100);
+        assert_eq!(stage.play_from(300, 1100), [659, 1059]);
+
+        // Every chapter still there is the memory it was taken with, the two that were taken again
+        // included. Newest first, because going back to one drops the chapters after it: each is asked
+        // for from under the last, which is the run walking down what the stage kept.
+        for (chapter, byte) in [(3, 0xe5), (2, 0xe5), (1, 0xb2), (0, 0xa1)] {
+            assert!(stage.goes_back_to(chapter));
+            assert!(
+                stage.holds(at, byte),
+                "chapter {chapter} does not hold {byte:#04x}",
+            );
+        }
+    }
+
+    /// A stage with more chapters than there are snapshots for drops the oldest above its own start,
+    /// which stays: it is the way out of the whole stage, and what a death wants is the chapters
+    /// around the one it happened in.
+    #[test]
+    fn a_stage_with_more_chapters_than_it_keeps_drops_the_oldest_above_its_start() {
+        let mut stage = Stage::tuned("orb-chapter-cap");
+        // A gap for every chapter the stage keeps, which with its own start is one chapter more than
+        // that: the first gap falls at 259 and the rest 400 frames apart.
+        let gaps = KEPT_CHAPTERS;
+        let played = stage.play(260 + 400 * (gaps as u32 - 1));
+        assert_eq!(played.len(), gaps);
+
+        // The chapter being played and the ones behind it, and then the stage's own start: what went is
+        // the chapters between.
+        let newest = gaps + 1;
+        let mut expected: Vec<(String, usize)> = (0..KEPT_CHAPTERS - 1)
+            .map(|back| {
+                (
+                    format!("MIDSTAGE {}", newest - back),
+                    KEPT_CHAPTERS - 1 - back,
+                )
+            })
+            .collect();
+        expected.push(("MIDSTAGE 1".to_owned(), 0));
+        assert_eq!(offered(&stage.chapters), expected);
     }
 
     /// A frame of a fight, with the boss's timer and whichever attack it is on.

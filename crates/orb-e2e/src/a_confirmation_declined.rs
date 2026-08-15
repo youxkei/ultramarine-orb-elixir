@@ -1,14 +1,14 @@
 //! **The two items of the retry menu that ask first, and the two ways of saying no to them.**
 //!
 //! ステージをやり直す throws away everything the stage has gained since its start and タイトルに戻る throws
-//! away the run, and both are one press away from the hand that has just answered チャプターをやり直す for
+//! away the run, and both are two presses from the hand that has just answered チャプターをやり直す for
 //! the fortieth time in a fight. So each asks, and `retry_ui`'s own comment says what has to be true of
 //! the answer: a confirmation exists to stop something, and a session that lost a stage anyway has to be
 //! able to see whether the stop happened. That is a line in the log, and this is what holds orb to it.
 //!
 //! Two ways of declining, because they are different presses and not one: **いいえ** is the cursor left
 //! where the question puts it and decide pressed again, and **cancel** is the key that closes anything.
-//! Either goes back to the three items with nothing thrown away, and the menu is still the menu — which
+//! Either goes back to the ways on with nothing thrown away, and the menu is still the menu — which
 //! is what the チャプターをやり直す at the end of this is evidence of.
 
 use crate::fake::th06::{CARD_STARTS, Fake, the_run};
@@ -67,13 +67,14 @@ fn asks_about(game: &Fake, down: u32, asked: &str) {
     });
 }
 
-/// The three items back on the screen with the cursor still on the one that was asked about, which is
-/// what going back to the choices looks like from outside the log.
+/// The four ways on back on the screen with the cursor still on the one that was asked about, which is
+/// what going back to them looks like from outside the log.
 fn the_choices_are_back(game: &Fake, under_the_cursor: &str) {
     game.forget();
     game.frame();
     let items = [
         "チャプターをやり直す",
+        "更に前からやり直す",
         "ステージをやり直す",
         "タイトルに戻る",
     ];
@@ -105,14 +106,21 @@ fn answering_no_to_the_stage_goes_back_to_the_choices_with_the_stage_kept() {
         let log = game.log();
         let at_the_death = game.state();
 
-        asks_about(&game, 1, "the stage again");
+        asks_about(&game, 2, "the stage again");
         // The question, and its two answers with the cursor on the one that costs nothing.
         game.forget();
         game.frame();
         assert_eq!(
             game.says("ステージの最初からやり直す？").len(),
             1,
-            "the second item asked nothing",
+            "the third item asked nothing",
+        );
+        // And what it says under the question: what going back to the stage's start leaves behind is
+        // the chapter the run is in, which nothing else on the screen says.
+        assert_eq!(
+            game.says("今のチャプターには戻れません").len(),
+            1,
+            "the question does not say what answering はい leaves behind",
         );
         let no = game.says("いいえ");
         assert_eq!(no.len(), 1);
@@ -134,8 +142,8 @@ fn answering_no_to_the_stage_goes_back_to_the_choices_with_the_stage_kept() {
             "something was put back by a question that was answered no",
         );
 
-        // And the menu is still the menu: チャプターをやり直す from here is the item that was always one
-        // press away, and it puts the chapter back. Down twice from ステージをやり直す, three items
+        // And the menu is still the menu: チャプターをやり直す from here is the item that was always two
+        // presses away, and it puts the chapter back. Down twice from ステージをやり直す, four items
         // wrapping.
         game.frames(READS_KEYS_AFTER);
         game.press(keys::DOWN);
@@ -151,15 +159,15 @@ fn answering_no_to_the_stage_goes_back_to_the_choices_with_the_stage_kept() {
     });
 }
 
-/// And cancel, which is the way out of a question asked by mistake — the menu underneath has none of its
-/// own, the player being dead and its three items the only ways on.
+/// And cancel, which is the way out of a question asked by mistake — the ways on underneath have no
+/// cancel of their own, the player being dead and those items the only ways on.
 #[test]
 fn cancelling_the_question_about_giving_up_leaves_the_run_running() {
     in_its_own_process(|| {
         let game = lost_the_card("declined-cancel");
         let log = game.log();
 
-        asks_about(&game, 2, "the run given up");
+        asks_about(&game, 3, "the run given up");
         game.frames(READS_KEYS_AFTER);
         game.press(keys::X);
         assert!(
@@ -175,7 +183,7 @@ fn cancelling_the_question_about_giving_up_leaves_the_run_running() {
         );
 
         // The run is still there to be retried, which is the whole of what the cancel bought: down once
-        // from タイトルに戻る wraps onto チャプターをやり直す.
+        // from タイトルに戻る wraps onto the chapter that was lost.
         game.frames(READS_KEYS_AFTER);
         game.press(keys::DOWN);
         game.press_until(keys::Z, "the chapter again", || {

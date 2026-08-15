@@ -11,7 +11,8 @@
 //! read off.
 
 use crate::fake::th06::{
-    CARD_STARTS, Fake, STAGE_BOSS_ARRIVES, STREAM_BUFFER, STREAM_NOTIFY, the_run,
+    CARD_STARTS, Fake, INVULNERABLE_AFTER_SPAWNING, STAGE_BOSS_ARRIVES, STREAM_BUFFER,
+    STREAM_NOTIFY, the_run,
 };
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
@@ -367,7 +368,9 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             || game.state().stage_frames > STAGE_BOSS_ARRIVES,
         );
 
-        // 被弾, and then ステージをやり直す — the retry menu's second item, one press down from the first.
+        // 被弾, and then ステージをやり直す — the retry menu's third item, two presses down from the first:
+        // this stage has chapters behind the one that was lost, so the item that lists those is between
+        // them.
         let log = game.log();
         game.hit();
         game.frame();
@@ -377,6 +380,7 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             log.lines().join("\n  ")
         );
         game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
         game.press(keys::DOWN);
         game.press_until(keys::Z, "the stage asking", || {
             log.said("retry: asking about the stage again")
@@ -417,6 +421,47 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             game.music_started(),
             vec![STAGE_SONG.to_owned()],
             "the track was started again by some other path than the one the stage names",
+        );
+
+        // And it was put where that chapter had the song rather than left at the track's opening: the
+        // stream that held the place has been freed, so what is left of it is the offset in the track's
+        // own file — which is what a resume puts a landing's song back with, for the same reason.
+        assert!(
+            log.said(&format!("restore: the song picked up at {SONG}")),
+            "the track was started again at its beginning:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.stream_now().position - SONG,
+            STREAM_BUFFER as i32,
+            "the file is not one buffer past the sound that is audible",
+        );
+
+        // ── And the chapter holds that stream from now on: 被弾 again where the restore left the run,
+        // and the sound comes back the ordinary way — the buffer and the cursor put back over a stream
+        // that is still there. Taken again after the restart, it would otherwise name the stream the
+        // game freed for ever, and every death in this chapter would take the track down again.
+        //
+        // Past the frames a stage starts its player invulnerable for, and still inside the chapter the
+        // restore put back: the next boundary of this stage is the fight at 900.
+        game.frames_until("the player killable again", 300, || {
+            game.state().stage_frames > INVULNERABLE_AFTER_SPAWNING as u32
+        });
+        let from = log.written();
+        game.hit();
+        game.frame();
+        game.press_until(keys::Z, "the chapter again", || {
+            log.said_since(from, "retry: the chapter again on the keyboard")
+        });
+        assert!(
+            !log.said_since(from, "taking the music down"),
+            "the track was taken down a second time for a chapter whose stream is playing:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.music_stops(),
+            1,
+            "the game's own StopBGM was called again for a chapter that could be rewound",
         );
     });
 }

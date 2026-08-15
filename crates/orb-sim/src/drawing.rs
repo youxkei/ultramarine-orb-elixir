@@ -1,8 +1,8 @@
 //! A device that keeps what it was asked to draw instead of drawing it.
 //!
 //! What is kept is the request — the quads with their rectangles and colours, in the order they were
-//! drawn, and which texture each went through. Enough to say that the retry menu put three items on the
-//! screen with the cursor on the second, or that the mark over the lives covers the row and nothing
+//! drawn, and which texture each went through. Enough to say that the retry menu put its ways on the
+//! screen with the cursor on one of them, or that the mark over the lives covers the row and nothing
 //! beside it.
 //!
 //! **And which string went into each texture**, which is what makes [`Recording::says`] possible. A

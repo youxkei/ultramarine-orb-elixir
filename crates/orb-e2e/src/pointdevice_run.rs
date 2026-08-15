@@ -211,13 +211,15 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         );
 
         // The menu itself, read off the screen: the chapter it is offering to put back — by the name the
-        // detector gave it — the rewinds this run has cost so far, and the three ways on a line apart with
-        // the cursor on the first.
+        // detector gave it — the rewinds this run has cost so far, and the four ways on a line apart with
+        // the cursor on the first. The second of them is there because this stage has chapters behind the
+        // one that was lost; what lies behind that item is `a_chapter_further_back.rs`.
         game.forget();
         game.frame();
         let chapter = game.says("MIDBOSS SPELL 1");
         let retries = game.says("RETRY 0");
         let again = game.says("チャプターをやり直す");
+        let further = game.says("更に前からやり直す");
         let stage = game.says("ステージをやり直す");
         let quit = game.says("タイトルに戻る");
         assert_eq!(
@@ -225,18 +227,23 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
                 chapter.len(),
                 retries.len(),
                 again.len(),
+                further.len(),
                 stage.len(),
-                quit.len()
+                quit.len(),
             ),
-            (1, 1, 1, 1, 1),
+            (1, 1, 1, 1, 1, 1),
             "the menu over the frozen game is not the one the mode puts there",
         );
         assert_eq!(
             again[0].color, SELECTED,
             "the cursor is not on チャプターをやり直す",
         );
-        assert_eq!((stage[0].color, quit[0].color), (NORMAL, NORMAL));
-        assert_eq!(stage[0].y - again[0].y, LINE_HEIGHT);
+        assert_eq!(
+            (further[0].color, stage[0].color, quit[0].color),
+            (NORMAL, NORMAL, NORMAL),
+        );
+        assert_eq!(further[0].y - again[0].y, LINE_HEIGHT);
+        assert_eq!(stage[0].y - further[0].y, LINE_HEIGHT);
         assert_eq!(quit[0].y - stage[0].y, LINE_HEIGHT);
         assert!(
             chapter[0].y < again[0].y,
@@ -288,7 +295,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         game.hit();
         game.frame();
         assert!(log.said("died in chapter 4"));
-        // Up once, which from the first of three items is the last of them: タイトルに戻る. After the
+        // Up once, which from the item the cursor starts on is the last of them: タイトルに戻る. After the
         // frames the menu reads nothing over, since a direction pressed inside those is one nothing moved
         // on — see `READS_KEYS_AFTER`.
         game.frames(READS_KEYS_AFTER);

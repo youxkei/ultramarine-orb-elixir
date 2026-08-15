@@ -633,6 +633,15 @@ pub struct Fake {
     /// the restore these happen either side of would rewind the record of them.
     music_stops: Cell<u32>,
     music_starts: RefCell<Vec<String>>,
+    /// The name on the plate a spell card's is shown on — see
+    /// [`card_name_on_the_plate`](Fake::card_name_on_the_plate).
+    ///
+    /// **Beside the memory and not in it, which is the whole of what this stands for.** The game bakes
+    /// the name into a sprite where the card is declared, and a sprite is a Direct3D texture: no
+    /// snapshot holds one, so a chapter put back leaves whatever was baked last on the screen. A game
+    /// laid out by hand has no textures, so what stands in for one is a string outside the address
+    /// space — which a restore does not touch either.
+    card_plate: RefCell<String>,
     /// How many times orb has asked this game's keyboard device to be acquired again, which is what an
     /// e2e test reads instead of a log line — see [`keyboard_acquires`](Fake::keyboard_acquires).
     ///
@@ -959,6 +968,9 @@ impl Fake {
             stop_bgm as *const () as usize,
             play_audio as *const () as usize,
         );
+        // And its own text drawing, which is what a chapter put back inside a spell card bakes that
+        // card's name onto the plate through.
+        image.hands_over_the_text_drawing(draw_string as *const () as usize);
         // A controller, mapped the way this game's configuration maps one. The numbers are its own —
         // a real one's come out of the file the game's own options screen writes — and what an e2e test
         // needs of them is that orb reads a pad's buttons through this mapping and not around it.
@@ -1043,6 +1055,7 @@ impl Fake {
             window: Cell::new(orb_api::Hwnd::NULL),
             music_stops: Cell::new(0),
             music_starts: RefCell::new(Vec::new()),
+            card_plate: RefCell::new(String::new()),
             keyboard_acquires: Cell::new(0),
             refuses_the_acquire: Cell::new(false),
             answers: Cell::new(CHAIN_CARRIED_ON),
@@ -1506,6 +1519,15 @@ impl Fake {
     /// same reason it says the stream ran at all.
     pub fn plays_the_buffer_on(&self, bytes: u32) {
         self.with_the_sound(|sound| sound.plays_on(bytes));
+    }
+
+    /// What the plate a spell card's name is shown on says, which is the last name baked into its sprite
+    /// — by the card's own declaration, or by a chapter being put back inside one.
+    ///
+    /// Read instead of the screen, because a laid-out game draws no sprite of its own: what an e2e test
+    /// can say is which string was baked, and the plate showing it is the game's own drawing.
+    pub fn card_name_on_the_plate(&self) -> String {
+        self.card_plate.borrow().clone()
     }
 
     /// The whole of what the stream a track is playing looks like from outside the game's memory, which
@@ -2273,7 +2295,7 @@ impl Fake {
                     attack_frames: 0,
                 }));
                 self.image.card(Some(CARD));
-                self.image.starts_the_card(CARD, CARD_NAME);
+                self.declares_the_card(CARD, CARD_NAME);
             }
             // The card over and the fight going on: the clock back to nothing with no card up, which
             // is a nonspell.
@@ -2301,8 +2323,7 @@ impl Fake {
                     attack_frames: 0,
                 }));
                 self.image.card(Some(STAGE_BOSS_CARD));
-                self.image
-                    .starts_the_card(STAGE_BOSS_CARD, STAGE_BOSS_CARD_NAME);
+                self.declares_the_card(STAGE_BOSS_CARD, STAGE_BOSS_CARD_NAME);
             }
             STAGE_BOSS_ATTACK_CHANGES if self.fights_boss_out.get() => {
                 self.image.boss(Some(Boss {
@@ -2315,8 +2336,7 @@ impl Fake {
             // as on any other frame: nothing began on this one, and a reset would say something did.
             STAGE_BOSS_NAMES_ITS_CARD if self.fights_boss_out.get() => {
                 self.image.card(Some(STAGE_BOSS_LATE_CARD));
-                self.image
-                    .starts_the_card(STAGE_BOSS_LATE_CARD, STAGE_BOSS_LATE_CARD_NAME);
+                self.declares_the_card(STAGE_BOSS_LATE_CARD, STAGE_BOSS_LATE_CARD_NAME);
                 self.advance_the_attack();
             }
             // The attack's own clock, which the two frames above put back to nothing: a reset is what
@@ -2633,6 +2653,19 @@ impl Fake {
             running: Scene::FrontEnd,
             wanted: Scene::Result,
         });
+    }
+
+    /// A spell card declared, which is two things the game does in the one instruction: the name copied
+    /// into the card's own record — where the attempt it counts is counted — and the same name baked onto
+    /// the plate it is shown on.
+    ///
+    /// Together here because they are together in the game: `EnemyManager::RunEclInstruction` calls
+    /// `Gui::SetSpellcardName` at 0x409636 and copies the name into the record at 0x409720, out of the
+    /// same declaration. What tells them apart is where each ends up — the record is memory a snapshot
+    /// holds, and the plate is a sprite.
+    fn declares_the_card(&self, card: i32, name: &str) {
+        self.image.starts_the_card(card, name);
+        *self.card_plate.borrow_mut() = name.to_owned();
     }
 
     fn advance_the_attack(&self) {
@@ -3481,6 +3514,28 @@ unsafe extern "thiscall" fn play_audio(_supervisor: usize, path: usize) -> i32 {
     fake.music_starts.borrow_mut().push(path_at(path));
     fake.image.plays_a_track(STAGE_TRACK);
     0
+}
+
+/// `AnmManager::DrawStringFormat` (0x434c40): the text baked into the vm's own sprite.
+///
+/// What a laid-out game keeps of it is the string, beside the memory: a sprite is a texture, and the
+/// point of it here is that a restore of the game's memory does not put one back. Which vm it was baked
+/// into is held against the one the panel keeps its card name in, so a call that named another vm would
+/// fail here rather than read as the plate.
+unsafe extern "cdecl" fn draw_string(
+    _manager: usize,
+    vm: usize,
+    _colour: u32,
+    _shadow: u32,
+    text: usize,
+) {
+    let fake = running();
+    assert_eq!(
+        vm,
+        fake.image.card_name_vm(),
+        "a string was baked into a vm that is not the one the card's name is shown on",
+    );
+    *fake.card_plate.borrow_mut() = path_at(text);
 }
 
 /// The path at an address in the game's own memory, as the game reads one: bytes up to the terminator.

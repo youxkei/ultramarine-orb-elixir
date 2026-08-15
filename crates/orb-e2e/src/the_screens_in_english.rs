@@ -62,17 +62,19 @@ fn on_an_english_machine(name: &str) -> Box<Fake> {
 /// Japanese anywhere.
 ///
 /// `lit` names the one line that has to be under the cursor, which is what makes the screen answerable —
-/// a menu with nothing lit is one nobody could choose from.
+/// a menu with nothing lit is one nobody could choose from. `None` where the line under the cursor is not
+/// one of these: the retry menu's is a chapter's name, which is the same in both languages and so is read
+/// back beside the call.
 ///
 /// # Panics
 /// Naming whichever line is missing, doubled, or in the language this machine is not in.
-fn reads(game: &Fake, said: &[(&str, &str)], lit: &str) {
+fn reads(game: &Fake, said: &[(&str, &str)], lit: Option<&str>) {
     game.forget();
     game.frame();
     for (english, japanese) in said {
         let drawn = game.says(english);
         assert_eq!(drawn.len(), 1, "{english:?} is not on the screen once");
-        if *english == lit {
+        if lit == Some(english) {
             assert_eq!(
                 drawn[0].color, SELECTED,
                 "{english:?} is not under the cursor"
@@ -120,7 +122,11 @@ fn the_question_over_the_title_menu_is_in_english() {
             ))
             .map(|(english, japanese)| (*english, *japanese));
         said.extend(lines);
-        reads(&game, &said, Mode::Pointdevice.name(Language::English));
+        reads(
+            &game,
+            &said,
+            Some(Mode::Pointdevice.name(Language::English)),
+        );
     });
 }
 
@@ -148,13 +154,56 @@ fn the_menu_where_a_chapter_was_lost_is_in_english() {
             &game,
             &[
                 ("Retry the chapter", "チャプターをやり直す"),
+                ("Retry from further back", "更に前からやり直す"),
                 ("Retry the stage", "ステージをやり直す"),
                 ("Back to the title screen", "タイトルに戻る"),
             ],
-            "Retry the chapter",
+            Some("Retry the chapter"),
         );
 
-        // And the question the second item asks, which is a screen of its own inside the same field.
+        // The screen behind the second item, which is a screen of its own with a question of its own
+        // above what it lists. The chapters it lists are named by the boundary detector — the names the
+        // status line and the log call them by — and those stay as they are in either language.
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
+        game.press_until(keys::Z, "the chapters behind it", || {
+            log.said("retry: asking which chapter further back")
+        });
+        reads(&game, &[("Where to start again", "どこからやり直す")], None);
+        let midstage = game.says("MIDSTAGE 1");
+        assert_eq!(midstage.len(), 1, "the stage's own start is not listed");
+
+        // And the question one of them asks, which names the chapter in whichever language the rest of
+        // the line is in, and says under it what going back leaves behind.
+        game.frames(READS_KEYS_AFTER);
+        game.press_until(keys::Z, "the chapter asked about", || {
+            log.said("retry: asking about a chapter further back")
+        });
+        reads(
+            &game,
+            &[
+                (
+                    "Start again from MIDBOSS NONSPELL 1?",
+                    "MIDBOSS NONSPELL 1 からやり直す？",
+                ),
+                (
+                    "There is no going back to the chapter you are in",
+                    "今のチャプターには戻れません",
+                ),
+                ("Yes", "はい"),
+                ("No", "いいえ"),
+            ],
+            // The cursor starts on no, which is what makes a press on the frame the question begins
+            // reading keys on cost nothing.
+            Some("No"),
+        );
+
+        // Back to the ways on, and the question the third of them asks: the same line under it, since
+        // the stage's own start leaves everything the stage has gained behind as well.
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::X);
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::X);
         game.frames(READS_KEYS_AFTER);
         game.press(keys::DOWN);
         game.press_until(keys::Z, "the stage asked about", || {
@@ -167,12 +216,14 @@ fn the_menu_where_a_chapter_was_lost_is_in_english() {
                     "Start the stage over from the beginning?",
                     "ステージの最初からやり直す？",
                 ),
+                (
+                    "There is no going back to the chapter you are in",
+                    "今のチャプターには戻れません",
+                ),
                 ("Yes", "はい"),
                 ("No", "いいえ"),
             ],
-            // The cursor starts on no, which is what makes a press on the frame the question begins
-            // reading keys on cost nothing.
-            "No",
+            Some("No"),
         );
     });
 }
@@ -236,7 +287,7 @@ fn the_question_about_a_run_left_unfinished_is_in_english() {
             ],
             // The cursor starts on the chapter that was left: a run picked up by accident is a run put
             // back where it was, where a fresh one writes over what was left.
-            "Continue",
+            Some("Continue"),
         );
         // And what the other item costs, which is said only while the cursor is on it.
         game.frames(READS_KEYS_AFTER);

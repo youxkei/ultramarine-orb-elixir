@@ -146,6 +146,13 @@ const ANM_TEXTURES: Range<usize> = 0x0300_b000..0x0300_c000;
 /// Which puts the manager itself below the space's own first block, where nothing reads it.
 const ANM_MANAGER: usize = ANM_TEXTURES.start - super::anm_manager::TEXTURES;
 
+/// `GuiImpl`, the block the panel keeps its own vms in, reached through the pointer at `g_Gui`'s `impl`.
+///
+/// Big enough to hold both of the fields orb reaches through it — the dialogue's index and the vm a
+/// spell card's name is baked into, at 0x253c and 0x20f4 — because a read past the end of a mapped
+/// block is a read of nothing, and one of those two would then answer whatever nothing answers.
+const GUI_IMPL: Range<usize> = 0x0302_0000..0x0302_3000;
+
 /// And one page for the head of the stage's own `.std` file, reached through the pointer `g_Stage` keeps.
 /// What orb reads out of it is one string at +0x290: the path of the track the stage names first, which
 /// is what it hands back to the game to start that track again.
@@ -557,7 +564,25 @@ impl Image {
             .map(ANM_TEXTURES.start, ANM_TEXTURES.len(), Kind::Private);
         sim.space()
             .map(STAGE_DATA.start, STAGE_DATA.len(), Kind::Private);
-        Self { sim }
+        sim.space()
+            .map(GUI_IMPL.start, GUI_IMPL.len(), Kind::Private);
+        let image = Self { sim };
+        // The panel's own block, reached through the pointer rather than at an address of its own —
+        // and with no dialogue running in it: a zeroed block reads as message 0, which is a dialogue,
+        // and a dialogue is a frame no chapter may begin on.
+        image
+            .space()
+            .write::<usize>(super::G_GUI + super::gui::IMPL, GUI_IMPL.start);
+        image
+            .space()
+            .write::<i32>(GUI_IMPL.start + super::gui::IMPL_CURRENT_MSG_IDX, -1);
+        // And the sprite manager, which every launch has from its first frame: what a stage loads into
+        // it is a sheet in a slot — see [`loads_the_front_sheet`](Image::loads_the_front_sheet) — and
+        // what orb reaches through it is that array's bounds and the call that bakes a string.
+        image
+            .space()
+            .write::<usize>(super::G_ANM_MANAGER, ANM_MANAGER);
+        image
     }
 
     /// Puts this image in front of the real address space for as long as the answer is held, which
@@ -677,6 +702,19 @@ impl Image {
     pub fn hands_over_the_music_calls(&self, stop_bgm: usize, play_audio: usize) {
         super::set_stop_bgm(stop_bgm);
         super::set_play_audio(play_audio);
+    }
+
+    /// And its own text drawing, which is the call a chapter put back inside a spell card bakes that
+    /// card's name onto the plate through: what the name on the screen *is* is a sprite, so a game laid
+    /// out by hand has to be able to answer the call that bakes one.
+    pub fn hands_over_the_text_drawing(&self, draw_string: usize) {
+        super::set_draw_string(draw_string);
+    }
+
+    /// The vm a spell card's name is baked into, which is what that call has to be given: the panel's
+    /// own block plus the offset the game reaches it at.
+    pub fn card_name_vm(&self) -> usize {
+        GUI_IMPL.start + super::gui::IMPL_CARD_NAME_VM
     }
 
     /// `g_Stage.stdData->songPaths[0]`: the head of the stage's own `.std` file, with the path of the
@@ -1524,9 +1562,7 @@ impl Image {
     /// and hands the array's bounds to a snapshot as a range to leave alone, so what it has to be is a
     /// number that comes back out as it went in.
     pub fn loads_the_front_sheet(&self, texture: usize) {
-        let space = self.space();
-        space.write::<usize>(super::G_ANM_MANAGER, ANM_MANAGER);
-        space.write::<usize>(self.front_sheet_at(), texture);
+        self.space().write::<usize>(self.front_sheet_at(), texture);
     }
 
     /// What is in that slot now, which is what a restore must not have put back: a handle to a texture

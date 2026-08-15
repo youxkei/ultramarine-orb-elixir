@@ -200,11 +200,29 @@ impl Music {
             return None;
         }
         let write = self.token()?;
+        let position = unsafe { mmio_seek(self.mmio, 0, SEEK_CUR) };
+        self.audible(position, write, play)
+    }
+
+    /// And the same of a capture rather than of the stream now playing, which is what is left of a
+    /// chapter's sound once the stream that held it has been freed: the buffer and the cursor in it
+    /// belong to an object that has gone, and the file is the same file.
+    pub fn offset_of(&self, saved: &Saved) -> Option<i32> {
+        self.audible(saved.file_position, saved.token, saved.play_cursor)
+    }
+
+    /// Where in the wav the sound audible at that instant begins, out of the three numbers that say
+    /// it: how far the file has been read, where the next chunk goes in the buffer, and where the
+    /// mixer is playing from.
+    ///
+    /// One function for the live stream and for a capture, so the two cannot work it out differently:
+    /// a resume seeks to the second and a restore under another track to the first, and a chapter
+    /// reached either way is the same place in the song.
+    fn audible(&self, position: i32, write: u32, play: u32) -> Option<i32> {
         if self.buffer_size == 0 || play >= self.buffer_size || write >= self.buffer_size {
             return None;
         }
         let unplayed = (write + self.buffer_size - play) % self.buffer_size;
-        let position = unsafe { mmio_seek(self.mmio, 0, SEEK_CUR) };
         // Negative is `mmioSeek` refusing to say. Less than a buffer in is a song that has looped
         // since the position was read, and the offset before its own start is no place to seek to.
         u32::try_from(position)

@@ -368,6 +368,7 @@ impl Snapshot {
             Some((music, saved)) if same_track => unsafe { music.restore(saved) },
             _ if !same_track => {
                 unsafe { game.restart_stage_music() };
+                unsafe { self.pick_the_song_up(game) };
             }
             _ => {}
         }
@@ -378,6 +379,43 @@ impl Snapshot {
                 region.len
             );
         }
+    }
+
+    /// Puts the song where this chapter had it, the track having just been started again from its
+    /// beginning.
+    ///
+    /// The stream that held that place has been freed with the track that was playing, so what is left
+    /// of it is the offset in the track's own file — which is the one thing about a chapter's sound
+    /// that means anything to another stream. The same seek a resume does for a chapter it lands in,
+    /// for the same reason: a chapter reached by going back to it from a boss's own music is the same
+    /// place in the stage's song as the chapter it was taken at.
+    ///
+    /// Only where the track the game has started is the one this chapter's sound was in, since an
+    /// offset means nothing in another file: the game restarts the stage's own song, and a chapter
+    /// snapshotted under any other is one whose position is in another wav.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with no thread suspended: the seek locks
+    /// the sound buffer, which the streaming thread can be inside DirectSound holding.
+    unsafe fn pick_the_song_up(&self, game: &dyn crate::game::Game) {
+        if game.music_identity() != self.identity {
+            return;
+        }
+        let Some((music, saved)) = &self.music else {
+            return;
+        };
+        let Some(offset) = music.offset_of(saved) else {
+            return;
+        };
+        let Some(live) = game.music() else { return };
+        log!(
+            "restore: the song {} at {offset} in the track's own file",
+            if unsafe { live.play_from(offset) } {
+                "picked up"
+            } else {
+                "could not be put"
+            },
+        );
     }
 
     /// Compares memory against the snapshot without changing anything.

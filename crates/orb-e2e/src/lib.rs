@@ -36,6 +36,8 @@
 pub(crate) mod fake;
 
 #[cfg(test)]
+mod a_chapter_further_back;
+#[cfg(test)]
 mod a_chapter_of_the_stages_own_boss;
 #[cfg(test)]
 mod a_chapter_out_of_the_table;
@@ -75,6 +77,8 @@ mod pointdevice_run;
 mod stepping_inside_a_stage;
 #[cfg(test)]
 mod th07;
+#[cfg(test)]
+mod the_card_name_across_a_restore;
 #[cfg(test)]
 mod the_dpad_moving_the_player;
 #[cfg(test)]
