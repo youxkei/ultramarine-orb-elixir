@@ -1861,6 +1861,15 @@ impl Game for Th06 {
         Some(attempts)
     }
 
+    /// **Not `Gui::SetSpellcardName` (0x417bfd), which is what the game itself calls**, and that is the
+    /// obvious way to do this. It takes a second argument orb cannot recover: the plate's own sprite,
+    /// which the declaration carries as a word of the ECL instruction at its +0xc, and the instruction
+    /// is one the interpreter moved past frames ago. What that argument sets is the vm at
+    /// `GuiImpl+0x1ed4` — memory, which a snapshot puts back — so calling it would set again the one
+    /// part of the plate that is already right, and it is the part orb has no number for.
+    ///
+    /// What is *not* memory is the sprite a string was baked into, so what a restore has to do again is
+    /// the baking, which is the call underneath that function and takes only the name.
     unsafe fn redraw_card_name(&self) {
         // Only while a card is up, which is the only time the plate is on the screen — and the same
         // read `count_card_attempt` asks the restored memory, so the two agree about which chapter
