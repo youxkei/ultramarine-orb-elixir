@@ -202,6 +202,10 @@ fn the_chapters_behind_the_one_that_was_lost_are_listed_and_are_where_choosing_o
         // ── The midboss arriving, which is two chapters back, and the question it asks before it acts:
         // named, since the item it was chosen from is not on the screen the question replaces it with,
         // and under it what going back costs — the chapter the run is in is not one it can come back to.
+        //
+        // Where the log stands first, this run having been through that chapter once already: what is
+        // read back below has to be what going back to it wrote, not what reaching it did.
+        let going_back = log.written();
         chooses(&game, 1, "retry: asking about a chapter further back");
         game.forget();
         game.frame();
@@ -236,19 +240,15 @@ fn the_chapters_behind_the_one_that_was_lost_are_listed_and_are_where_choosing_o
         // And the file this run is written down in follows it back, so a session closed here picks the
         // run up at the chapter it went back to. Nothing of the record has to be dropped for that: it is
         // one entry per stage frame, and the frames under a chapter are the ones that reached it.
-        let landed = log.written();
-        game.one_frame_to_drain_the_log();
-        assert!(
-            log.said_since(
-                landed,
-                &format!(
-                    "chapter 2 ({THE_MIDBOSS}) at frame {BOSS_ARRIVES}, \
-                     {BOSS_ARRIVES} frame(s) of buttons"
-                ),
-            ),
-            "the chapter written down is not the one the run went back to:\n  {}",
-            log.lines().join("\n  ")
+        // Waited for rather than read at once, and held against the mark taken before the restore: the
+        // write is a thread of orb's own — see `the_run_written_down_off_the_frame` — so the line lands
+        // whenever that thread is given a turn, which can be the same instant the restore was.
+        let written = format!(
+            "chapter 2 ({THE_MIDBOSS}) at frame {BOSS_ARRIVES}, {BOSS_ARRIVES} frame(s) of buttons"
         );
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said_since(going_back, &written)
+        });
 
         // ── And the stage played on from there. What the list holds now is what the stage still has: the
         // chapters that came after the one restored went with it, so the card's chapter — reached again —

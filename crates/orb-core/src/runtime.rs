@@ -688,6 +688,10 @@ pub unsafe fn attach_to(
 /// its memory and the device it draws through — still there.
 pub unsafe fn detached() {
     unsafe { *RUNTIME.get() = None };
+    // Before the log, since the writer says what it wrote: a line from it afterwards would go into
+    // whatever log this process opens next. See `resume::stop_writing` for why waiting for it is this
+    // path's to do and not `DllMain`'s.
+    resume::stop_writing();
     // And the log, which a real launch closes from `DllMain`'s `DLL_PROCESS_DETACH` and which this is
     // the whole of the way out of for anything else. Left open it is a handle onto a game that has
     // gone: the next `log::line` writes through it, and where the next thing along is another game in

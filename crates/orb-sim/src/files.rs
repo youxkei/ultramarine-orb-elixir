@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// What a path answers instead of the bytes it holds, where a test has declared one.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -29,6 +30,15 @@ struct State {
     files: HashMap<PathBuf, Vec<u8>>,
     directories: HashSet<PathBuf>,
     refused: Vec<(PathBuf, Refuses)>,
+    /// How long writing each of these paths takes — see [`writes_slowly`](Files::writes_slowly).
+    slow: HashMap<PathBuf, Duration>,
+    /// Which thread each file was last written from.
+    ///
+    /// Kept because *where* a write happens is a property of the code and not of the file: a write in
+    /// the game's own frame costs that frame whatever the disk takes, and the only thing that says one
+    /// is not there is the thread it came from. Nothing but a test reads this — see
+    /// [`written_from`](Files::written_from).
+    wrote_from: HashMap<PathBuf, u32>,
 }
 
 #[derive(Default)]
@@ -113,6 +123,20 @@ impl Files {
         self.refuse(path, Refuses::Write);
     }
 
+    /// And that writing it *takes* that long, which is the machine this matters on: a slow disk, an
+    /// antivirus reading every write, a folder being synced.
+    ///
+    /// A real sleep, because what is being measured is a real clock: whoever writes the file times the
+    /// write and says so where it was slow, and a simulated delay no clock can see would prove nothing.
+    /// Kept to the one path a test names, so nothing else pays for it.
+    pub fn writes_slowly(&self, path: impl AsRef<Path>, takes: Duration) {
+        self.state
+            .lock()
+            .unwrap()
+            .slow
+            .insert(path.as_ref().to_path_buf(), takes);
+    }
+
     /// And that the directory cannot be made, which is what a path with a file already at it does.
     pub fn refuses_to_make(&self, path: impl AsRef<Path>) {
         self.refuse(path, Refuses::Make);
@@ -176,7 +200,31 @@ impl Files {
             ));
         }
         state.files.insert(path.to_path_buf(), bytes.to_vec());
+        state
+            .wrote_from
+            .insert(path.to_path_buf(), crate::thread_id());
+        // Held for as long as a test said this path takes, with nothing locked: a write nobody else is
+        // waiting for is what a slow disk gives whoever is writing, and a lock held across it would
+        // make every other write wait for this one instead.
+        let takes = state.slow.get(path).copied();
+        drop(state);
+        if let Some(takes) = takes {
+            std::thread::sleep(takes);
+        }
         Ok(())
+    }
+
+    /// Which thread a file was last written from, and `None` for one nothing has written.
+    ///
+    /// What a test asks of a write that must not be in the game's frame: the frame runs on the test's
+    /// own thread, so a write from any other is one that happened somewhere else.
+    pub fn written_from(&self, path: impl AsRef<Path>) -> Option<u32> {
+        self.state
+            .lock()
+            .unwrap()
+            .wrote_from
+            .get(path.as_ref())
+            .copied()
     }
 
     pub fn create_dir_all(&self, path: &Path) -> io::Result<()> {

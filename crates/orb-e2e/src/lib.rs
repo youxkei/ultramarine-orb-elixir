@@ -108,6 +108,8 @@ mod the_run_left_behind;
 #[cfg(test)]
 mod the_run_read_back;
 #[cfg(test)]
+mod the_run_written_down_off_the_frame;
+#[cfg(test)]
 mod the_score_file;
 #[cfg(test)]
 mod the_screen_a_finished_run_ends_at;

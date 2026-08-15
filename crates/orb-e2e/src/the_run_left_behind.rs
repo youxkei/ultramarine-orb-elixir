@@ -374,11 +374,11 @@ fn a_directory_the_file_cannot_go_in_is_named_and_the_run_plays_on() {
         // The first chapter of the run is where the write is tried, so getting that far is what asks the
         // question.
         game.in_a_pointdevice_run();
-        assert!(
-            log.said(&format!("resume: cannot make {}", at.display())),
-            "the directory that could not be made was not named:\n  {}",
-            log.lines().join("\n  ")
-        );
+        // Waited for rather than read at once: the write is not the frame's, so the refusal is the
+        // writer's own line — see `the_run_written_down_off_the_frame`.
+        game.frames_until_a_thread("the directory refused out loud", || {
+            log.said(&format!("resume: cannot make {}", at.display()))
+        });
 
         // And it cost the run nothing but the chapter not being written down: the chapter itself happened,
         // the game is still being played, and there is nothing to offer a later launch.
@@ -412,11 +412,11 @@ fn a_file_that_cannot_be_written_is_named_and_the_run_plays_on() {
         game.sim().files().refuses_to_write(&at);
 
         game.in_a_pointdevice_run();
-        assert!(
-            log.said(&format!("resume: cannot write {}", at.display())),
-            "the file that could not be written was not named:\n  {}",
-            log.lines().join("\n  ")
-        );
+        // The write is not the frame's, so the refusal is a line the writer says a frame or two after
+        // the chapter handed it over — see `the_run_written_down_off_the_frame`.
+        game.frames_until_a_thread("the write refused out loud", || {
+            log.said(&format!("resume: cannot write {}", at.display()))
+        });
         assert!(log.said("stage 1 chapter 1 (stage start)"));
         let from = game.state().stage_frames;
         game.frames(30);

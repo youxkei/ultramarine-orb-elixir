@@ -46,6 +46,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex};
 
 use crate::game::{Game, RunStart, RunState};
 use crate::sync::MainThread;
@@ -511,6 +512,170 @@ pub unsafe fn write(
         landing: unsafe { game.reproduction() }.to_string(),
         buttons: record.buttons[..at as usize].to_vec(),
     };
+    handed_over(path, saved);
+    true
+}
+
+/// What the thread that writes chapters down is waiting for.
+///
+/// **One chapter and not a queue.** What the file holds is where the run is *now*, so a chapter still
+/// waiting when the next one arrives is one nothing wants: the newer answers the same question, and a
+/// queue would spend a slow disk's time writing places the run has already left.
+struct Waiting {
+    next: Option<(PathBuf, Saved)>,
+    /// Whether the writer has been asked to stop, and whether it has — see [`stop_writing`].
+    stopping: bool,
+    stopped: bool,
+}
+
+static WAITING: Mutex<Waiting> = Mutex::new(Waiting {
+    next: None,
+    stopping: false,
+    stopped: false,
+});
+/// What the writer waits on for a chapter and the stopper waits on for the writer, so that neither
+/// costs anything while nothing is happening.
+static CHANGED: Condvar = Condvar::new();
+/// Whether there is a writer. Cleared by [`stop_writing`], so that a launch after one that was taken
+/// out gets a thread of its own rather than handing chapters to a thread that has gone.
+static WRITING: AtomicBool = AtomicBool::new(false);
+
+/// How long [`stop_writing`] waits for the writer to finish what it holds, in milliseconds.
+///
+/// Long enough for a write that is slow — which is what this whole arrangement is about — and not long
+/// enough to hold a game that is closing behind a disk that has stopped answering. A chapter lost to
+/// that is the chapter before it still being on the disk, which is the arrangement anyway.
+const STOP_WAIT_MS: u64 = 2_000;
+
+/// Where a write is slow enough to be worth a line at the level a run is ordinarily logged at, in
+/// microseconds.
+///
+/// A frame at sixty a second, because that is the unit the thing being watched for is measured in: a
+/// write that fits inside one would have cost the frame nothing even in the frame, and one that does not
+/// is the reason the write is not in the frame any more.
+const SLOW_WRITE_US: i64 = 16_666;
+
+/// Hands the chapter to the thread that writes it, and starts that thread the first time.
+///
+/// **Not in the frame**, where it was: `WriteFile` takes what a disk, an antivirus reading every write or
+/// a folder being synced decides, none of which orb can ask about beforehand, and a frame that waits for
+/// one waits that long. What only the frame can do is the *reading* — the numbers, the song's position
+/// and the reproduction line are that frame's — so that is the frame's part and no more of it.
+///
+/// **Not held for the frame's own slack** either, which is what [`crate::log`] does with its lines and
+/// is the answer that suggests itself here: `defer` keeps them and `drain` writes them where what is left
+/// of the turn is nobody's. The slack is what remains of one frame's turn, so a write of about a second
+/// put there misses the next frame's blank instead of this one's — the same stutter, one frame later.
+///
+/// Where no thread can be made, the write happens here instead: a chapter written down in the frame is
+/// worse than a frame, and a chapter not written down at all is a run nobody can pick up.
+fn handed_over(path: PathBuf, saved: Saved) {
+    if WRITING
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+        // Through the seam, which carries whatever simulated Windows this thread reads through onto
+        // the one being made — see `orb_api::thread::spawn`.
+        && orb_api::thread::spawn(writing).is_err()
+    {
+        log!("resume: cannot start a thread; chapters are written down in the frame");
+        WRITING.store(false, Ordering::Relaxed);
+        written(&path, &saved);
+        return;
+    }
+    let Ok(mut waiting) = WAITING.lock() else {
+        return log!("resume: the writer left its own state locked; nothing more is written down");
+    };
+    let overwritten = waiting.next.replace((path, saved));
+    drop(waiting);
+    CHANGED.notify_all();
+    if let Some((_, overwritten)) = overwritten {
+        detail!(
+            "resume: chapter {} was still waiting to be written; the newer one is what the file wants",
+            overwritten.chapter,
+        );
+    }
+}
+
+/// The thread that writes them, one at a time, until it is stopped.
+///
+/// Below the game's priority, because a chapter written a millisecond later costs nobody anything and
+/// a late frame costs the thing orb was written for.
+///
+/// Nothing is held while the write happens: the chapter is taken out from under the lock and the lock
+/// let go of before the disk is touched, so a frame handing the next one over never waits for a write.
+fn writing() {
+    orb_api::thread::below_normal();
+    loop {
+        let Ok(mut waiting) = WAITING.lock() else {
+            return;
+        };
+        while waiting.next.is_none() && !waiting.stopping {
+            match CHANGED.wait(waiting) {
+                Ok(next) => waiting = next,
+                Err(_) => return,
+            }
+        }
+        // Whatever is waiting goes first, stopping or not: a chapter handed over and then dropped is a
+        // run somebody would be offered the chapter before.
+        if let Some((path, saved)) = waiting.next.take() {
+            drop(waiting);
+            written(&path, &saved);
+            continue;
+        }
+        waiting.stopped = true;
+        drop(waiting);
+        CHANGED.notify_all();
+        return;
+    }
+}
+
+/// Stops the writer once it has written what it holds, and waits for it.
+///
+/// Called where orb is going away — see [`crate::runtime::detached`] — for two reasons. A line written
+/// after the log has been closed goes into whatever log this process opens next, and a thread carrying
+/// the simulated Windows of a launch that has gone would write the next launch's chapters into it. What
+/// is waiting is written first, this being the one moment there is to write it.
+///
+/// **The way out of a real launch does not come through here**: `DllMain`'s `DLL_PROCESS_DETACH` closes
+/// the log and lets the process end, and waiting for a thread from inside the loader lock is the
+/// deadlock every note about that lock is about. What waits here is a launch being taken out by hand,
+/// which is what an e2e test does at the end of one.
+pub fn stop_writing() {
+    if !WRITING.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let Ok(mut waiting) = WAITING.lock() else {
+        return log!("resume: the writer left its own state locked; it is not being waited for");
+    };
+    waiting.stopping = true;
+    CHANGED.notify_all();
+    let waited = CHANGED.wait_timeout_while(
+        waiting,
+        std::time::Duration::from_millis(STOP_WAIT_MS),
+        |waiting| !waiting.stopped,
+    );
+    let Ok((mut waiting, timed_out)) = waited else {
+        return log!("resume: the writer left its own state locked; it is not being waited for");
+    };
+    if timed_out.timed_out() {
+        log!(
+            "resume: the writer has not finished in {STOP_WAIT_MS}ms; what it holds goes unwritten"
+        );
+    }
+    // Whatever came of it, the next launch in this process starts a writer of its own.
+    *waiting = Waiting {
+        next: None,
+        stopping: false,
+        stopped: false,
+    };
+}
+
+/// Writes one of them where it stands, and says what it cost.
+///
+/// The microseconds are the point of the line as much as the chapter is: the write being slow enough
+/// to stop a frame is what took it off the frame, and this is where that is read.
+fn written(path: &Path, saved: &Saved) -> bool {
+    let started = crate::profile::now();
     // The directory is made where it is written rather than at startup, so an installation nobody
     // has left a run in has nothing of orb's beside the game but the log.
     if let Some(parent) = path.parent()
@@ -519,9 +684,20 @@ pub unsafe fn write(
         log!("resume: cannot make {}: {error}", parent.display());
         return false;
     }
-    match orb_api::fs::write(&path, &encode(&saved)) {
+    match orb_api::fs::write(path, &encode(saved)) {
         Ok(()) => {
-            detail!("resume: {saved} written to {}", path.display());
+            let us = crate::profile::since(started);
+            // Not left to `verbose` alone, where this line was: a session on the machine a slow write
+            // is about was played through at the ordinary level and said nothing about the disk,
+            // because nobody knew there was a level to ask for. Nor said at the ordinary level every
+            // time, which is a line a chapter about a disk that is behaving.
+            if us >= SLOW_WRITE_US {
+                log!(
+                    "resume: writing {} took longer than a frame: {us}us",
+                    path.display(),
+                );
+            }
+            detail!("resume: {saved} written to {} in {us}us", path.display(),);
             true
         }
         Err(error) => {

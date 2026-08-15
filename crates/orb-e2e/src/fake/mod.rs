@@ -73,6 +73,13 @@ pub const PRESENT: &str = "present";
 /// answers wait out.
 pub const READS_KEYS_AFTER: u32 = 30;
 
+/// How many frames [`Launched::frames_until_a_thread`] gives a thread of orb's own to do something in,
+/// one turn of the host's scheduler apiece.
+///
+/// Far more than a thread that is ready needs — the first turn is usually enough — and a bound, because
+/// a test that waits for something which never happens has to say so rather than hang.
+const TURNS_FOR_A_THREAD: u32 = 600;
+
 /// How many presses an e2e test makes before it gives up on a menu answering.
 ///
 /// Well past the longest any of orb's own menus holds its keys off for — the retry menu's 24 frames,
@@ -611,6 +618,27 @@ pub trait Launched {
             self.frame();
         }
         panic!("{what} did not happen in {limit} frame(s)");
+    }
+
+    /// Runs frames until `done`, giving a thread of orb's own a turn between them.
+    ///
+    /// What an e2e test has to do about work that is not the frame's — the chapter written down, which
+    /// is a thread's — because **frames here are not sixteen milliseconds apart**: they are as fast as
+    /// the host runs them, so sixty of them go by inside a millisecond and a thread that has not been
+    /// scheduled in that time has done nothing. Yielding rather than sleeping, since what is being
+    /// waited for is a thread that is ready to run.
+    ///
+    /// # Panics
+    /// After [`TURNS_FOR_A_THREAD`] of them, naming what was being waited for.
+    fn frames_until_a_thread(&self, what: &str, done: impl Fn() -> bool) {
+        for _ in 0..TURNS_FOR_A_THREAD {
+            if done() {
+                return;
+            }
+            self.frame();
+            std::thread::yield_now();
+        }
+        panic!("{what} did not happen in {TURNS_FOR_A_THREAD} turn(s) of a thread of orb's own");
     }
 
     /// Runs frames until orb has written one more line holding `what`.

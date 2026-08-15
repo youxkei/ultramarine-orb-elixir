@@ -319,10 +319,33 @@ crash all leave nothing to write from.
 
 **And on the frame the retry menu sends the run back to a chapter behind the one it was in**, which is
 the same thing said the other way: what the file holds is where the run is standing, and a run sent
-back to a chapter is standing there. Written on that frame and not the one after it, because the song
+back to a chapter is standing there. Read on that frame and not the one after it, because the song
 position and the reproduction line that go in with it belong to the chapter's own frame — which the
 restore has just put the game on. The buttons need nothing done to them: the record is one entry per
 stage frame, so the entries under any chapter are the ones that reached it.
+
+**Read on the frame and written off it.** The frame's own part is the reading, which only the frame can
+do; encoding and writing are nobody's frame's, and `WriteFile` takes what it takes — a disk, an
+antivirus reading every write, a folder being synced. On one machine the boundaries stopped the game
+for about a second each. So the frame hands the chapter to a thread of orb's own, which is the answer
+the joystick read has: below the game's priority, holding one chapter and not a queue — what the file
+holds is where the run is *now*, so a chapter still waiting when the next arrives is one nothing wants —
+and taking it out from under its lock before touching the disk, so that handing the next one over never
+waits for a write. The line it writes says how long the write took,
+that being the number this arrangement is about — and where the write took longer than a frame it says so
+at the level a run is ordinarily logged at, since a machine whose disk does that is one nobody knew to
+ask `verbose` of.
+
+**Not held for the frame's slack**, which is what the log does with its own lines: that is the answer for
+a hundred bytes, and the slack is what is left of one frame's turn. A write of about a second put there
+misses the next frame's blank instead of this one's, which is the same stutter a frame later.
+
+The thread is stopped where orb is taken out of a launch, having written what it holds: a line written
+after the log is closed would go into whatever log the process opens next. **A real launch does not come
+that way** — `DllMain`'s detach closes the log and the process ends — because waiting for a thread from
+inside the loader lock is the deadlock that lock's every rule is about. What a session that ends with a
+chapter still waiting loses is that chapter, and the file still holds the one before it, which is the
+arrangement anyway.
 
 **MessagePack, through the same serde the settings go through, and with the field names in it** —
 `to_vec_named`, not the positional arrays rmp-serde writes by default. Packed because the file is the
@@ -2705,6 +2728,7 @@ game's entry point and the memory hooks see the first allocation.
 | `orb-e2e/src/the_music_across_a_restore.rs` | which of a stage's chapters put their song back, asked of the song rather than of the chapter's kind; a seek that moves the countdown with the file so the track loops where it did; the buffer, the play cursor and the file position coming back byte for byte with a chapter; the track that has gone since taken down and started again through the game; and a file handle orb cannot read, where the buffer comes back and the file is left where it is |
 | `orb-e2e/src/a_chapter_further_back.rs` | the chapters behind the one that was lost: listed by name behind 更に前からやり直す with the one that was lost not among them, the run put back at one of them field for field with the file following it there, the chapters after the one restored gone from what the next death lists, the way out of that screen, and no item for it at all where the run has reached no other chapter |
 | `orb-e2e/src/the_card_name_across_a_restore.rs` | the name of the spell card a chapter is put back inside, baked onto its plate again out of the card's own record — which is what a chapter reached from a later card would otherwise be fought under |
+| `orb-e2e/src/the_run_written_down_off_the_frame.rs` | the chapter's file written from a thread of orb's own and not in the frame, read off which thread the write came from, with the run then picked up out of what that thread wrote; and a disk that takes longer than a frame over that file said out loud at the level a run is ordinarily logged at, with the run played on through the write |
 | `orb-e2e/src/a_chapter_table_collected.rs` | `--collect` and `--judge`: the gap in a stage's waves proposed, the boundary judged out and stepped back to and back into the table, one placed by hand and taken away again, both files written, what one sitting decided read back by the next, and a hand-edited state file whose unreadable lines are named by path and line |
 | `orb-e2e/src/a_chapter_out_of_the_table.rs` | the boundary the baked table holds for a stage beginning a chapter, with the fight won first so that nothing outranks the table, and the Extra reading the row of its own |
 | `orb-e2e/src/a_practice_run.rs` | one stage practised: the mode question over its own item of the title menu, the chapter put back after a death, and nothing written down for a run the game keeps no slot for |
