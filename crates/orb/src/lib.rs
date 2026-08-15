@@ -50,11 +50,12 @@ pub(crate) use orb_core::{game, log};
 // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 use orb_core::runtime::{
     CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT, INIT_D3D_DEVICE,
-    PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET,
+    PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET,
     RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN, STAGE_BUILDING,
-    STOP_RECORDING, UNLOCKS_READ, attached, create_game_window, get_controller_input, get_input,
-    init_d3d_device, pacing, ranking_read, render, run_calc_chain, run_draw_chain, save_replay,
-    stage_begun, stage_building, stop_recording, unlocks_read,
+    STOP_RECORDING, UNLOCKS_READ, attached, create_game_window, get_controller_input,
+    get_controller_input_in_ecx, get_input, init_d3d_device, pacing, pad_buttons, ranking_read,
+    render, run_calc_chain, run_draw_chain, save_replay, stage_begun, stage_building,
+    stop_recording, unlocks_read,
 };
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
@@ -198,13 +199,15 @@ fn attach() {
 
     // Only where the score file might have to be somewhere other than the game's own: with
     // `--no-chapters` nothing can rewind, so every run belongs in the game's own ranking and
-    // there is nothing to fork. Loud rather than fatal if the import is not there, since what it
-    // costs is which file scores land in and not a run that cannot be played.
+    // there is nothing to fork — and the same where the *game* has nothing orb can rewind, which is
+    // what left a `pointdevice_score.dat` in a 妖々夢 install. See `Game::rewinds`. Loud rather than
+    // fatal if the import is not there, since what it costs is which file scores land in and not a run
+    // that cannot be played.
     //
     // A clear installs it whichever way that is set, because there the fork is not what it is
     // for: the file that must not be written is whichever this run would write, and refusing the
     // write means being in the path of it.
-    if config.chapters || config.fast_clear {
+    if (config.chapters && game.rewinds()) || config.fast_clear {
         if config.fast_clear {
             orb_core::score::refuse_writes();
         }
@@ -290,14 +293,24 @@ fn attach() {
         Ok(()) => log!("joystick: read on a thread of orb's, out of the game's frame"),
         Err(error) => log!("joystick: {error}; the read stays in the game's frame"),
     }
-    if let Some(patch) = patches.joystick {
+    if let Some(read) = &patches.joystick {
         // Always, and not called through: the pad half of the input read is orb's, for every pad the
         // machine has — see `orb_core::runtime::get_controller_input`. A launch that skipped it would be
         // one where no pad did anything at all.
+        //
+        // Which of the two entry points goes over it is the convention the game's own read has, and
+        // nothing else about the two differs — see `orb_core::game::PadRead`.
+        let entry = match read {
+            game::PadRead::OnTheStack(_) => hook::address(get_controller_input as _),
+            game::PadRead::InEcx(_) => hook::address(get_controller_input_in_ecx as _),
+        };
         hooks.push((
             "joystick",
-            patch,
-            hook::address(get_controller_input as _),
+            game::Patch {
+                target: read.patch().target,
+                prologue: read.patch().prologue,
+            },
+            entry,
             &GET_CONTROLLER_INPUT,
         ));
     }
@@ -386,6 +399,17 @@ fn attach() {
             patch,
             hook::address(init_d3d_device as _),
             &INIT_D3D_DEVICE,
+        ));
+    }
+    // Always where the game has such a read, and called through: what a key config screen reads is the
+    // pad's buttons by number, and a pad orb supplies is one the game has no device for — see
+    // `orb_core::runtime::pad_buttons`.
+    if let Some(patch) = patches.pad_buttons {
+        hooks.push((
+            "pad buttons",
+            patch,
+            hook::address(pad_buttons as _),
+            &PAD_BUTTONS,
         ));
     }
     for (name, patch, replacement, original) in hooks {

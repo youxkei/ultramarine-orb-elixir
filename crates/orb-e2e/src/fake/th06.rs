@@ -37,8 +37,8 @@ use orb_sim::Quad;
 use orb_sim::{keys, langid};
 
 use super::{
-    DRAW, Display, Launch, Launched, PRESENT, Panel, READS_KEYS_AFTER, SOUND, UPDATE, WINDOW, Work,
-    scratch,
+    DRAW, Display, Launch, Launched, PRESENT, Panel, Presented, READS_KEYS_AFTER, SOUND, UPDATE,
+    WINDOW, Work, scratch,
 };
 
 /// What the game's own chain walk answers while the game is running.
@@ -924,7 +924,12 @@ impl Fake {
         // and this says so. In front of the launch and not after it, because the launch's own device
         // bakes through the same seam and a face made before this is one nothing declared.
         image.sim().text().install_font(dir.join("font.ttf"));
-        let launch = Launch::new(image.sim(), dir, display.seed, config.own_frame_loop);
+        let launch = Launch::new(
+            image.sim(),
+            dir,
+            display.seed,
+            super::orbs_own_loop(&config, the_game_this_is()),
+        );
         // The window the game has made, and the device it shows through where an e2e test says the setup has
         // already run. A launch that says otherwise gets the window and no device, which is what a process is
         // between `GameWindow::Create` and `InitD3dDevice`.
@@ -1101,6 +1106,7 @@ impl Fake {
                     stop_recording,
                     create_game_window: game_window_create,
                     joystick_position,
+                    pad_buttons,
                     save_replay,
                     init_d3d_device,
                 },
@@ -3534,18 +3540,6 @@ unsafe extern "system" fn device_present(
 const S_OK: orb_api::Hresult = 0;
 const STRETCH_REFUSED: orb_api::Hresult = 0x8876_0827u32 as i32;
 
-/// One present the game's device was asked for: the two rectangles, with `None` for a null.
-///
-/// Which is the whole of what orb's replacement of that slot decides — the back buffer's whole surface into
-/// a rectangle of the game's own ratio — and what no other instrument can see: the rectangle is handed
-/// straight to Direct3D, so an e2e test that only read `letterbox()` would be reading orb's arithmetic
-/// rather than what reached the device.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Presented {
-    pub source: Option<orb_api::Rect>,
-    pub destination: Option<orb_api::Rect>,
-}
-
 extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
     let fake = running();
     fake.launch.asked_for(DRAW);
@@ -3601,6 +3595,14 @@ const REPLAY_NAME: &CStr = c"ORB";
 /// device's `Present` before anything is presented through it, and the hook is the whole reason the call is
 /// in `Originals`: a game whose device was already there when orb attached would never reach it. See
 /// [`Fake::finds_its_device`].
+/// And its read of the pad's buttons by number, which is never called: `Th06::hooks` declines
+/// `pad_buttons`, 紅魔郷 having no screen that reads a pad that way — its buttons are `custom.exe`'s to
+/// write. Here to fill an `Originals` and for nothing more, and it answers a null the way a game with no
+/// such array would.
+extern "C" fn pad_buttons() -> *mut c_void {
+    std::ptr::null_mut()
+}
+
 extern "C" fn init_d3d_device() {}
 
 /// `Chain::Cut` (0x41cde0): the element unlinked, which is one of the three calls into the game orb makes

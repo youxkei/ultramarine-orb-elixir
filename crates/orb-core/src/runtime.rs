@@ -356,6 +356,9 @@ pub static GET_INPUT: AtomicUsize = AtomicUsize::new(0);
 /// Kept because a patched prologue has to be relocated somewhere and the log names where: an offset in a
 /// crash report lands in that trampoline as readily as anywhere else. Nothing reads it.
 pub static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
+/// And the game's own read of the pad's buttons by number, which [`pad_buttons`] *does* call through — see
+/// [`Hooks::pad_buttons`].
+pub static PAD_BUTTONS: AtomicUsize = AtomicUsize::new(0);
 /// Whether the one hook [`attach`] installs **conditionally** is to act.
 ///
 /// In a real launch the installation is the gate: no `block_replay_save` and the save is not hooked at all.
@@ -533,6 +536,9 @@ pub struct Originals {
     /// the reads it has no sample for. The import entry is what a real launch patches; a laid-out game
     /// hands the entry over and calls the replacement where its own read would have gone through it.
     pub joystick_position: JoyGetPosEx,
+    /// And its own read of the pad's buttons by number, which [`pad_buttons`] calls through to — the one
+    /// hook of this list orb does not answer the whole of.
+    pub pad_buttons: extern "C" fn() -> *mut c_void,
     // And **not** its own `Controller::GetControllerInput`, which is the one hook orb does not call
     // through: what a pad does to the word is [`get_controller_input`]'s own answer now, so a laid-out
     // game has nothing to hand over for it. It calls that hook where its keyboard read tail-calls the
@@ -613,6 +619,7 @@ pub unsafe fn attach_to(
         (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
         (&SAVE_REPLAY, originals.save_replay as usize),
         (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
+        (&PAD_BUTTONS, originals.pad_buttons as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -654,7 +661,7 @@ pub unsafe fn attach_to(
     log!("joystick: read on a thread of orb's, out of the game's frame");
     // The score file's fork, on the same gate [`attach`] puts it behind: only where a run can be rewound,
     // and always for a clear — there the fork is not what it is for, and being in the path of the write is.
-    if config.chapters || config.fast_clear {
+    if (config.chapters && game.rewinds()) || config.fast_clear {
         if config.fast_clear {
             crate::score::refuse_writes();
         }
@@ -709,8 +716,12 @@ pub unsafe fn detached() {
 /// Must run on the game's main thread, before any of orb's hooks are reached.
 pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usize>) {
     // Which mode a launch starts in, before anybody has been asked: pointdevice, since that is
-    // what orb is for, and normal where `--no-chapters` has left it nothing to be.
-    let mode = if config.chapters {
+    // what orb is for, and normal where `--no-chapters` has left it nothing to be — or where the game
+    // itself has nothing orb can rewind, which is a game orb has read no run of. See [`Game::rewinds`]
+    // for the file that came of not asking.
+    let rewinds = game.rewinds();
+    let chapters = config.chapters && rewinds;
+    let mode = if chapters {
         Mode::Pointdevice
     } else {
         Mode::Normal
@@ -718,11 +729,13 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // The question is only put to somebody who is there to answer it. A pass over a replay has
     // nobody at the keyboard, and neither has a clear: those take the mode they are given.
     let asks_mode =
-        config.chapters && !config.during_replay && !config.chapter_tuning && !config.fast_clear;
+        chapters && !config.during_replay && !config.chapter_tuning && !config.fast_clear;
     log!(
         "mode: {mode} to start with; {}",
         if asks_mode {
             "the menu asks which"
+        } else if !rewinds {
+            "there is no other here, nothing of this game's runs having been read"
         } else {
             "nobody is asked"
         }
@@ -1158,7 +1171,20 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
 
     let (drawn, held) = unsafe {
         d3d8::begin_scene(device);
+        // What the game's own frame does around its own draw chain, inside its own scene. Nothing at all
+        // for 紅魔郷, whose frame has nothing there; 妖々夢's queue of quads is emptied by the first and
+        // drawn by the second, and a frame missing either is a frame that writes a quad through a null
+        // pointer or draws one outside the scene it was queued in. See `Game::begin_drawing`.
+        game.begin_drawing(device);
         draw(chain);
+        // On the far side of `draw`, which is the hook: orb's own overlay is drawn inside that call, so
+        // what a game queues and has drawn here is drawn *over* the overlay. Nothing today — 妖々夢 is
+        // the game with a queue and it has no font beside its exe to build an overlay from — and the
+        // day it has one this is the line that decides it: the flush moves into the draw hook, ahead of
+        // `after_draw`, which puts it where the game's own frame has it relative to everything drawn
+        // inside the chain. Left here until then, because that is where the game's frame has it relative
+        // to the chain and nothing yet says which of the two the overlay wants.
+        game.end_drawing(device);
         d3d8::end_scene(device);
         d3d8::set_texture(device, 0, None);
         let drawn = frame::now();
@@ -1460,16 +1486,50 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
 /// keyboard read tail-calls that function, there being no prologue to patch — see
 /// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
 pub extern "C" fn get_controller_input(buttons: u32) -> u16 {
+    with_the_pad_added(buttons as u16)
+}
+
+/// The game's own read of the pad's buttons by number, with the pads orb read for itself added to what it
+/// found: a key config screen reads that array to learn which button was pressed, so a pad the game has no
+/// device for is one nothing could be mapped from.
+///
+/// **Called through, unlike the pad word above**: what the game's own device says is already right, and
+/// what is missing is only the pads it has none of — see [`Game::add_pad_buttons`]. The cost of the call
+/// through is nothing to a run: one screen reaches it, and never per frame.
+///
+/// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
+/// screen calls that function.
+pub extern "C" fn pad_buttons() -> *mut c_void {
+    let original: extern "C" fn() -> *mut c_void =
+        unsafe { std::mem::transmute(PAD_BUTTONS.load(Ordering::Relaxed)) };
+    let buttons = original();
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { game.add_pad_buttons(buttons, joystick::reading()) };
+    }
+    buttons
+}
+
+/// The same read where the game takes that word in `ecx` — 妖々夢's, at 0x4303f0. See
+/// [`game::PadRead`]: which of the two a game has is what the seam says, and this is the other entry
+/// point it says it with.
+///
+/// An entry point apiece rather than one function told which, because a hook is entered by its ABI: what
+/// installs one writes a jump over a prologue, and the convention is settled by then.
+pub extern "fastcall" fn get_controller_input_in_ecx(buttons: u16) -> u16 {
+    with_the_pad_added(buttons)
+}
+
+fn with_the_pad_added(buttons: u16) -> u16 {
     // Nothing of orb's in a process the attach settled on no game in, the same as [`get_input`]: what a
     // pad means is a `Game`'s answer, and the keyboard's word is the whole of the read without one.
     let Some(game) = (unsafe { chosen() }) else {
-        return buttons as u16;
+        return buttons;
     };
     // Timed because it is the read the game paid nine milliseconds a frame for, and what it costs now is
     // the thing to watch: the `joystick=` span of the perf line, inside the `input=` it is part of.
     let started = profile::now();
-    let word = buttons as u16
-        | unsafe { game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed)) };
+    let word =
+        buttons | unsafe { game.pad_word(joystick::reading(), DPAD_MOVES.load(Ordering::Relaxed)) };
     unsafe { profile::record(profile::Phase::Joystick, started) };
     word
 }

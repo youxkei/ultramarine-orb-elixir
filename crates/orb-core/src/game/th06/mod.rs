@@ -18,10 +18,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use orb_api::Hwnd;
 
 use crate::audio::Music;
+// The rule for an axis' dead zone and a hat's angle, which both games are read for and neither owns — see
+// `crate::joystick::axis`.
 use crate::game::{
-    Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading, Rect,
-    Reproduction, RunStart, RunState, State,
+    Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PadRead, PanelTile, Patch, Reading,
+    Rect, Reproduction, RunStart, RunState, State,
 };
+use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
 use orb_api::d3d8::{self, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER};
 use orb_api::{Device, SoundBuffer, Texture, Viewport};
@@ -55,42 +58,10 @@ const SAVE_REPLAY_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x81, 0xec, 0xa8, 0x00, 
 /// draw chain's, which also fixes `Chain`'s layout.
 const CHAIN_CUT: usize = 0x0041cde0;
 
-/// Where to call one of the game's own functions, which is its address in a real process and whatever a
-/// game laid out by hand hands over in its place: a reader, a setter, and the slot behind them.
-///
-/// **Code is the one thing an address space laid out by hand cannot hold**, so every call this file makes
-/// into the game that an e2e test reaches has to be answerable — a shake still running at a stage move is
-/// taken down through one, and a track whose chapter has been left behind is stopped and started again
-/// through two more. An e2e test without them would be jumping into memory nothing has mapped. The same
-/// answer `window::install_over` and `score::install_over` are — see
-/// [docs/adr/0002](../../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
-///
-/// The slot is behind the same gate `image` is, so the shipped DLL has the constant and no atomic in the
-/// path. The setter is not `install_`, which everything wearing that name in this tree does by writing
-/// over something — an import table entry or a prologue: this patches nothing and records where a
-/// function is.
-macro_rules! handed_over {
-    ($slot:ident, $at:ident, $set:ident, $real:ident) => {
-        #[cfg(any(test, feature = "sim"))]
-        static $slot: AtomicUsize = AtomicUsize::new($real);
-
-        #[cfg(any(test, feature = "sim"))]
-        fn $at() -> usize {
-            $slot.load(Ordering::Relaxed)
-        }
-
-        #[cfg(not(any(test, feature = "sim")))]
-        fn $at() -> usize {
-            $real
-        }
-
-        #[cfg(any(test, feature = "sim"))]
-        fn $set(address: usize) {
-            $slot.store(address, Ordering::Relaxed);
-        }
-    };
-}
-
+// A track whose chapter has been left behind is stopped and started again through two of these, a shake
+// still running at a stage move is taken down through this one, and the read of a score file orb makes
+// for itself is three more. `handed_over!` is the parent module's — see it for why every one of them is
+// a slot rather than the constant.
 handed_over!(CHAIN_CUT_AT, chain_cut, set_chain_cut, CHAIN_CUT);
 
 /// `th06::ScreenEffect::ShakeScreen`, matched against a job's callback rather than called.
@@ -1146,11 +1117,22 @@ impl Game for Th06 {
                 target: GET_INPUT,
                 prologue: GET_INPUT_PROLOGUE,
             }),
-            joystick: Some(Patch {
+            joystick: Some(PadRead::OnTheStack(Patch {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
-            }),
+            })),
+            // No screen of 紅魔郷's reads a pad by button number: what its buttons are is `custom.exe`'s
+            // to write into `東方紅魔郷.cfg`, and the game reads that mapping and never the pad's own
+            // numbering. So there is no such read to get in front of.
+            pad_buttons: None,
         }
+    }
+
+    /// Every method below this one is why: the midstage table, the two moments a stage's numbers go back,
+    /// the snapshot a chapter is, the retry the trait offers a death. 紅魔郷 is the game orb was written
+    /// against.
+    fn rewinds(&self) -> bool {
+        true
     }
 
     unsafe fn read_state(&self) -> State {
@@ -1523,6 +1505,14 @@ impl Game for Th06 {
         // per frame, however fast the frames are being produced.
         unsafe { mem::write::<f32>(G_SUPERVISOR + supervisor::FRAMERATE_MULTIPLIER, 1.0) };
     }
+
+    /// Nothing either side of the draw chain, which is 紅魔郷's frame and not a gap in what has been read
+    /// of it: `GameWindow::Render` goes `IDirect3DDevice8::BeginScene` at 0x4207d1, `Chain::RunDrawChain`
+    /// at 0x4207dc and `EndScene` at 0x4207ef, with nothing between any of them. The clear its options
+    /// ask for and the viewport are above that, before the update, which is [`Th06::prepare_frame`].
+    unsafe fn begin_drawing(&self, _device: Device) {}
+
+    unsafe fn end_drawing(&self, _device: Device) {}
 
     fn frame_calls(&self) -> FrameCalls {
         FrameCalls {
@@ -2167,6 +2157,10 @@ impl Game for Th06 {
     /// The device the game holds is read here rather than the game's own read of it being reached into,
     /// because there is nothing to reach: it fills a `DIJOYSTATE2` on its own stack and hands back a word
     /// with the axes already turned into bits. Once a frame, which is what that function did.
+    /// Nothing, and nothing reaches it: [`Hooks::pad_buttons`] is `None` here, 紅魔郷 having no screen
+    /// that reads a pad by number.
+    unsafe fn add_pad_buttons(&self, _into: *mut std::ffi::c_void, _pad: Option<Reading>) {}
+
     unsafe fn pad_word(&self, pad: Option<Reading>, hats: bool) -> u16 {
         let controller = unsafe { self.controller_state() };
         // Nothing held where there is nothing to read, rather than nothing done at all: the count of
@@ -2507,30 +2501,6 @@ impl Th06 {
     }
 }
 
-/// Whether an axis is pushed past its dead zone, as `(low, high)` in the position it reports —
-/// which for the Y axis, measured downwards, is `(up, down)`.
-///
-/// The centre is halfway between the axis' own bounds and the dead zone is a quarter of the travel
-/// either side of it, which is what `Controller::GetControllerInput` does with the same two
-/// numbers — `(wXmax - wXmin) / 4` at 0x41d18b, off the `JOYCAPSA` at 0x69d760. Nothing where the
-/// bounds say nothing, since a device whose travel is zero has no middle to be off.
-///
-/// The bounds are the reading's rather than that `JOYCAPSA`'s, because that one is joystick 0's — see
-/// [`Axis`].
-fn axis(axis: Axis) -> (bool, bool) {
-    let Axis {
-        at,
-        min: low,
-        max: high,
-    } = axis;
-    if high <= low {
-        return (false, false);
-    }
-    let centre = low + (high - low) / 2;
-    let dead = (high - low) / 4;
-    (at + dead < centre, at > centre + dead)
-}
-
 /// Every button of the device the game holds as one mask, in the numbering the mapping names them in.
 ///
 /// DirectInput gives a byte each with the top bit set, and `SetButtonFromDirectInputJoystate` indexes that
@@ -2565,32 +2535,6 @@ fn directions((up, down, left, right): (bool, bool, bool, bool)) -> u16 {
     .into_iter()
     .filter(|(pushed, _)| *pushed)
     .fold(0, |word, (_, button)| word | button)
-}
-
-/// Which way a hat — a d-pad — is pushed, as `(up, down, left, right)`.
-///
-/// Its own field rather than the axes, because that is where a d-pad reports: hundredths of a degree
-/// clockwise from straight up, and `JOY_POVCENTERED` — 0xffff, past a full circle — for pushed
-/// nowhere. A diagonal counts as its two, so a hat held up-and-left moves up and left both. The game
-/// itself reads none of this — see [`BUTTON_UP`] for where that was read — so everything a hat does
-/// here is orb's: it drives orb's own menus, and with `dpad_moves` it moves the player.
-///
-/// All four although a menu of orb's is a list and reads two: the player moves in four, and a `hat`
-/// that answered up and down alone would be one the other two had to be worked out beside.
-fn hat(pov: u32) -> (bool, bool, bool, bool) {
-    /// A full circle, and an eighth of one either side of each direction.
-    const CIRCLE: u32 = 36000;
-    const EIGHTH: u32 = CIRCLE / 8;
-
-    if pov > CIRCLE {
-        return (false, false, false, false);
-    }
-    (
-        pov <= EIGHTH || pov >= CIRCLE - EIGHTH,
-        (CIRCLE / 2 - EIGHTH..=CIRCLE / 2 + EIGHTH).contains(&pov),
-        (CIRCLE * 3 / 4 - EIGHTH..=CIRCLE * 3 / 4 + EIGHTH).contains(&pov),
-        (CIRCLE / 4 - EIGHTH..=CIRCLE / 4 + EIGHTH).contains(&pov),
-    )
 }
 
 /// A path out of the game's own memory, and what it says, checked before either is

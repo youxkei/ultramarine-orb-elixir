@@ -49,22 +49,38 @@ Two entries, and they are not the same kind of game.
 Every address below was read off that build and cross-checked against the
 [GensokyoClub/th06](https://github.com/GensokyoClub/th06) decompilation.
 
-`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢, and **a game orb is in rather than one
-it does anything to.** What has been read of that exe is a frame's worth of addresses, each with the
-evidence in `orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the window sized to the
-4:3 its 640x480 output has, and orb's update and draw hooks inside the game's own frame. Nothing else.
-Not orb's own frame loop — replacing 妖々夢's frame took the game down, and `Hooks::render` is `None`
-until the rest of that frame has been read — so no cadence of orb's and no frame of input lag removed.
-Not anything drawn either, there being no `font.ttf` beside that exe to build an overlay from. And none
-of what the rest of this document is about: no chapters, no retry menu, no run picked up again, no card
-counted, no mode question.
+`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢, and **a game orb paces rather than one
+it plays.** What has been read of that exe is a frame, each address with the evidence in
+`orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the window *How much of the screen the
+game gets* below describes, its frames presented into a letterbox of the 4:3 that 640x480 output is — the game's own present stretches over whatever client it has, so that rectangle is what keeps the
+shape — and orb's own frame in place of the game's, the update before the draw, which is the frame of
+input lag removed, on the cadence the rest of this document describes. Composing that frame
+is what 妖々夢 asks for and 紅魔郷 does not: the queue of quads its drawing fills has to be emptied
+before the drawing and drawn before the scene ends, and the fog a stage left on put out, which is the
+seam either side of the draw chain in
+[docs/adr/0017](docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+
+**And the pad half of its input read is orb's**, as 紅魔郷's is: every pad the machine has, through the
+game's own button mapping and with the d-pad reaching the player where `dpad_moves` says so. Which is
+worth naming because 妖々夢 looks for a DirectInput device of its own and falls back to one winmm
+joystick, and a pad neither of those two reaches is a pad the game has none of — see *Input* below for
+what orb's own reading of them is.
+
+Nothing else. Not anything drawn, there being no `font.ttf` beside that exe to build an overlay from —
+紅魔郷 ships one and 妖々夢 keeps its fonts inside `th07.dat` — so no status line, no wash and none of
+orb's own screens. And none of what the rest of this document is about: no chapters, no retry menu, no
+run picked up again, no card counted, no mode question. A launch there is in normal mode and says so,
+which is `Game::rewinds` answering that a run of this game cannot be rewound: **the game's own
+`score.dat` is what it reads and writes**, since runs nothing can rewind are runs anybody could have
+played and they belong in the ranking the game keeps.
 
 Every one of those is a method of `Th07` answering `None` or nothing rather than a branch anywhere above
 the seam, which is what a seam is for — and none of them answers a guess, an address written down
 because it is where 紅魔郷 keeps the same thing being the one thing that must not happen. That rule is
-what the frame loop cost: the addresses in 妖々夢's frame lined up with 紅魔郷's and the *shape* of the
-frame did not. See
-[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
+what the frame loop cost once already: the addresses in 妖々夢's frame lined up with 紅魔郷's and the
+*shape* of the frame did not, and orb's first loop over it took the game down on its first frame. See
+[docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
+[docs/adr/0017](docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
 
 ## Chapters and retries
 
@@ -1578,7 +1594,10 @@ because it is never opened.
 see *Pointdevice and normal* — and the fork follows it, because a normal run and the ranking of
 normal runs are the game's own file: that is where a run anybody could have played belongs. A
 launch starts in pointdevice, which is what orb is for, and in normal with `--no-chapters`, where
-there is nothing to fork because nothing can rewind.
+there is nothing to fork because nothing can rewind. **And in normal in a game orb cannot rewind
+anything in**, which is `Game::rewinds` and is asked at the attach rather than worked out from the
+run features that game declines: the fork has to be settled before the front end's first read of
+the file, which is before there is a run for anything to be declined about.
 
 **A rewind does not take back what the game counted about a spell card.** The record lives in the
 memory a snapshot covers, so restoring a chapter would undo the attempt the game counted when the

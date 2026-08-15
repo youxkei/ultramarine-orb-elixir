@@ -17,8 +17,8 @@
 //!   is a window with nothing presented into it: the game's own call goes through instead, which leaves the
 //!   run playable and stretched, and orb says so once.
 
-use crate::fake::th06::{ASKS_TO_PRESENT, Fake, Presented, the_run};
-use crate::fake::{Launched, Panel, in_its_own_process};
+use crate::fake::th06::{ASKS_TO_PRESENT, Fake, the_run};
+use crate::fake::{Launched, Panel, Presented, in_its_own_process};
 use orb_config::{LogLevel, Screen};
 use orb_core::window::letterbox;
 

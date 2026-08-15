@@ -1,6 +1,12 @@
 # 4. th07 is a second `Game` chosen at the attach, and it declines what has not been measured
 
-**Status:** accepted and built, with one thing it claimed disproved by the run that built it.
+**Status:** accepted and built, with one thing it claimed disproved by the run that built it — and that
+one thing since answered by
+[0017](0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md), which is where the rest of
+妖々夢's frame was read and where two of the readings below are corrected: the `calls=1200` in the perf
+line is orb recording the update phase twice per hook call rather than the game updating twice a frame,
+and the two calls on 0x4b9e44 are a queue of quads emptied and drawn rather than a render-state block.
+`Hooks::render` is `Some` now.
 `orb_core::game::KNOWN` names 紅魔郷 1.02h and the `th07.exe` of md5 `0126afce`, both halves read that one
 table, `orb/src/lib.rs` chooses its game at the attach out of `host_exe()`, `orb-core/src/game/th07/`
 holds a `Th07` that declines everything about a run, and `crates/orb-e2e/src/th07.rs` is the one

@@ -277,6 +277,28 @@ pub struct Launch {
     asked: RefCell<Vec<&'static str>>,
 }
 
+/// One present the game's device was asked for: the two rectangles, with `None` for a null.
+///
+/// Any game's, which is why it is here: what a launch of either puts through the `Present` slot is the
+/// same ask, and what an e2e test reads it for is the same question — whether the frame reached the device
+/// in a rectangle of the game's own shape.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Presented {
+    pub source: Option<orb_api::Rect>,
+    pub destination: Option<orb_api::Rect>,
+}
+
+/// Whether orb's own frame loop is what a launch of this game runs, worked out as `orb::attach` works it
+/// out: the flag out of `orb.yaml`, the frame hooks it is one of, and a game whose [`Hooks::render`] asks
+/// for the loop at all.
+///
+/// Here rather than at the two call sites, so that a game which declines the loop is a game these e2e
+/// tests do not drive one for: 妖々夢 declined it until its own frame had been read, and a laid-out game
+/// that called `render` anyway would have been asserting about a configuration no launch installs.
+pub fn orbs_own_loop(config: &orb_config::Config, game: &dyn orb_core::game::Game) -> bool {
+    config.own_frame_loop && config.frame_hooks && game.hooks().render.is_some()
+}
+
 impl Launch {
     /// The device, the directory it was found in, and the run's own unevenness.
     ///

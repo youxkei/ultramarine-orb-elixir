@@ -8,7 +8,45 @@
 //! Two implement it. [`th06`] answers everything, and [`th07`] answers what has
 //! been measured of 妖々夢 — a frame, and nothing about a run — and declines the
 //! rest, which is how the list of what a second game still needs is found rather
-//! than guessed at. Which of them a process is is [`KNOWN`].
+//! than guessed at. So orb paces 妖々夢 and plays 紅魔郷. Which of them a process
+//! is is [`KNOWN`].
+
+/// Where to call one of the game's own functions, which is its address in a real process and whatever a
+/// game laid out by hand hands over in its place: a reader, a setter, and the slot behind them.
+///
+/// **Code is the one thing an address space laid out by hand cannot hold**, so every call a game in here
+/// makes into itself that an e2e test reaches has to be answerable — a shake still running at a stage
+/// move is taken down through one of 紅魔郷's, and the queue of quads a frame of 妖々夢's drawing fills is
+/// emptied and drawn through two more. An e2e test without them would be jumping into memory nothing has
+/// mapped. The same answer `window::install_over` and `score::install_over` are — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+///
+/// Here rather than in either game because both games have such calls, and a macro apiece is one of them
+/// drifting. The slot is behind the same gate the laid-out images are, so the shipped DLL has the
+/// constant and no atomic in the path. The setter is not `install_`, which everything wearing that name
+/// in this tree does by writing over something — an import table entry or a prologue: this patches
+/// nothing and records where a function is.
+macro_rules! handed_over {
+    ($slot:ident, $at:ident, $set:ident, $real:ident) => {
+        #[cfg(any(test, feature = "sim"))]
+        static $slot: AtomicUsize = AtomicUsize::new($real);
+
+        #[cfg(any(test, feature = "sim"))]
+        fn $at() -> usize {
+            $slot.load(Ordering::Relaxed)
+        }
+
+        #[cfg(not(any(test, feature = "sim")))]
+        fn $at() -> usize {
+            $real
+        }
+
+        #[cfg(any(test, feature = "sim"))]
+        fn $set(address: usize) {
+            $slot.store(address, Ordering::Relaxed);
+        }
+    };
+}
 
 pub mod th06;
 pub mod th07;
@@ -74,12 +112,11 @@ pub const KNOWN: &[Known] = &[
         }],
         game: &th06::Th06,
     },
-    // A game orb gets into and does nothing to: [`th07::Th07`] answers what has been read of one frame
-    // and declines everything about a run — `Hooks::render` among the declined, which is measured and not
-    // a gap — so a launch here gets its window sized and orb's update and draw hooks inside the game's
-    // own frame, and no cadence of orb's, no overlay and no chapters. What version this build is the file
-    // name does not say and nothing in it has been read that does, so the md5 is the whole of what pins
-    // it — which is what the md5 is for in the other entry too.
+    // A game orb paces and does not play: [`th07::Th07`] answers what has been read of one frame and
+    // declines everything about a run, so a launch here gets its window sized and orb's own frame in place
+    // of the game's, and no overlay, no chapters and its own score file. What version this build is the
+    // file name does not say and nothing in it has been read that does, so the md5 is the whole of what
+    // pins it — which is what the md5 is for in the other entry too.
     Known {
         exe: "th07.exe",
         cfg: "th07.cfg",
@@ -252,7 +289,41 @@ pub struct Hooks {
     /// **not called through**: what every pad does to the word is [`Game::pad_word`], so a launch that
     /// left this out is a launch where no pad does anything. `None` for a game whose pad read has not
     /// been measured, which is a game orb reads no pad in at all.
-    pub joystick: Option<Patch>,
+    pub joystick: Option<PadRead>,
+    /// The pad's buttons one byte apiece, which is what a game's own key config screen reads to learn
+    /// *which* button was pressed rather than what it means. Hooked and **called through**: what the game
+    /// found stands, and [`Game::add_pad_buttons`] adds the pads orb read for itself.
+    ///
+    /// A read of its own because a mapping screen cannot use a mapped word — it is the screen the mapping
+    /// is made on. `None` for a game with no such screen, which is 紅魔郷: its buttons are configured by
+    /// `custom.exe` beside it and nothing in the game reads a pad by number.
+    pub pad_buttons: Option<Patch>,
+}
+
+/// A game's pad read, and where the word the keyboard was read into arrives in it.
+///
+/// **Two of them because MSVC compiled the two games' differently, and a hook is entered by its ABI and
+/// nothing else**: 紅魔郷's `Controller::GetControllerInput` takes that word on the stack — `push edx;
+/// call 0x41cfc0; add esp,4` at 0x41dc77 — and 妖々夢's pad read takes it in `ecx`, `mov ecx,[ebp-0x104];
+/// call 0x4303f0` at 0x430f1a. Everything else about the two is the same, which is why this says only
+/// which: the word in, that word with the pad's bits added out, and orb answering the whole of it rather
+/// than calling through.
+///
+/// Here rather than in a method of [`Game`], because it is one fact about one patch and this is where the
+/// patch is — a second answer somewhere else is a second place to keep in step.
+pub enum PadRead {
+    OnTheStack(Patch),
+    InEcx(Patch),
+}
+
+impl PadRead {
+    /// The patch either of them carries, for the installer that has already decided which hook goes over
+    /// it.
+    pub fn patch(&self) -> &Patch {
+        match self {
+            Self::OnTheStack(patch) | Self::InEcx(patch) => patch,
+        }
+    }
 }
 
 /// What the game's own front end is being asked for.
@@ -411,6 +482,25 @@ impl Rect {
 
 pub trait Game {
     fn hooks(&self) -> Hooks;
+
+    /// Whether a run of this game can be rewound at all, which is what pointdevice mode *is*: chapters,
+    /// the snapshots they are taken as, and the retry menu a death offers.
+    ///
+    /// **What it decides is above the seam**, and none of it can be worked out from the methods that
+    /// decline the pieces: the mode a launch starts in, whether the front end is asked which, and whether
+    /// the score file is forked. Those are settled before the game has been through its own startup —
+    /// the fork has to be in place before the front end's first read of the file — so there is no run,
+    /// no `RunStart` and no chapter for a `None` to be asked about yet.
+    ///
+    /// It has to agree with them all the same, and a game that answered `true` here while declining
+    /// `midstage_table`, `stage_begun` and the rest would be a launch in a mode it cannot be in: the log
+    /// would say pointdevice, the front end would be asked which mode a run is, and the runs it wrote
+    /// would go to orb's file having never been rewindable. Which is what 妖々夢 did before this was
+    /// asked — a `pointdevice_score.dat` in a 妖々夢 install, holding runs anybody could have played.
+    ///
+    /// `false` for a game orb has read no run of, which keeps that game's scores in its own file and
+    /// orb's question off its menus.
+    fn rewinds(&self) -> bool;
 
     /// # Safety
     /// Must run on the game's main thread, with the game past initialisation.
@@ -580,6 +670,30 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread with a live device.
     unsafe fn prepare_frame(&self, device: Device);
+
+    /// What the game's own frame does inside its scene *before* its draw chain, and what it does after
+    /// the chain and before the scene ends.
+    ///
+    /// **Two seams rather than more of [`prepare_frame`](Game::prepare_frame)**, because these are a
+    /// different place in the frame: that one runs before the wait and before the update, outside any
+    /// scene, and what goes here is between `BeginScene` and `EndScene` with the draw chain in the
+    /// middle. 妖々夢 empties the queue of quads its drawing fills here and draws it there, and a loop
+    /// that put either of those in `prepare_frame` would be emptying a queue the game's own drawing had
+    /// already filled or drawing one outside the scene it was queued in.
+    ///
+    /// Nothing for a game whose frame does nothing there, which is 紅魔郷: its `GameWindow::Render` goes
+    /// `BeginScene` at 0x4207d1, `Chain::RunDrawChain` at 0x4207dc, `EndScene` at 0x4207ef with nothing
+    /// between any of them. See
+    /// [docs/adr/0017](../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+    ///
+    /// # Safety
+    /// Must run on the game's main thread with a live device, inside the scene the game draws into, and
+    /// the second of them with the first having run this frame.
+    unsafe fn begin_drawing(&self, device: Device);
+
+    /// # Safety
+    /// As [`begin_drawing`](Game::begin_drawing), and after that call has run this frame.
+    unsafe fn end_drawing(&self, device: Device);
 
     /// The two functions of the game's own that orb's frame loop calls where the game's own loop
     /// called them — see [`FrameCalls`].
@@ -834,6 +948,18 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn pad_word(&self, pad: Option<Reading>, hats: bool) -> u16;
+
+    /// And the same pads written into the array the game's own [`Hooks::pad_buttons`] read just filled, so
+    /// that a key config screen sees a button orb read for itself as pressed.
+    ///
+    /// Added to what the game found rather than written over it: a pad the game *can* see is one that
+    /// screen already answered to, and this is for the ones it cannot. Nothing for a game with no such
+    /// screen, which is where the hook is `None` and this is never reached.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with `into` the array that read answered — the game's own, of
+    /// the length its own screen walks.
+    unsafe fn add_pad_buttons(&self, into: *mut c_void, pad: Option<Reading>);
 
     /// Gives the run up, and says whether there was one to give up.
     ///

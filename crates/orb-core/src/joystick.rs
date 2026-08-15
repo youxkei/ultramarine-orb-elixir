@@ -691,6 +691,59 @@ fn pov_of(mask: u16) -> u32 {
     }
 }
 
+/// And the other way: which way a hat — a d-pad — is pushed, as `(up, down, left, right)`.
+///
+/// Its own field rather than the axes, because that is where a d-pad reports: hundredths of a degree
+/// clockwise from straight up, and `JOY_POVCENTERED` — 0xffff, past a full circle — for pushed nowhere. A
+/// diagonal counts as its two, so a hat held up-and-left moves up and left both.
+///
+/// Here beside [`pov_of`], which is its inverse, rather than in either game: what it decodes is winmm's
+/// convention and not a game's, and neither game reads the field at all — 紅魔郷's own pad read has no
+/// look at it and neither has 妖々夢's, so everything a hat does is orb's. What each game turns the four
+/// into is its own, those being bits of its own input word.
+///
+/// All four although a menu of orb's is a list and reads two: the player moves in four, and a `hat` that
+/// answered up and down alone would be one the other two had to be worked out beside.
+pub fn hat(pov: u32) -> (bool, bool, bool, bool) {
+    /// A full circle, and an eighth of one either side of each direction.
+    const CIRCLE: u32 = 36000;
+    const EIGHTH: u32 = CIRCLE / 8;
+
+    if pov > CIRCLE {
+        return (false, false, false, false);
+    }
+    (
+        pov <= EIGHTH || pov >= CIRCLE - EIGHTH,
+        (CIRCLE / 2 - EIGHTH..=CIRCLE / 2 + EIGHTH).contains(&pov),
+        (CIRCLE * 3 / 4 - EIGHTH..=CIRCLE * 3 / 4 + EIGHTH).contains(&pov),
+        (CIRCLE / 4 - EIGHTH..=CIRCLE / 4 + EIGHTH).contains(&pov),
+    )
+}
+
+/// Whether an axis is pushed past its dead zone, as `(low, high)` in the position it reports — which for
+/// the Y axis, measured downwards, is `(up, down)`.
+///
+/// The centre is halfway between the axis' own bounds and the dead zone is a quarter of the travel either
+/// side of it, which is what **both** games do with the same two numbers: `(wXmax - wXmin) / 4` at
+/// 0x41d18b in 紅魔郷's `Controller::GetControllerInput`, and at 0x4305ac in 妖々夢's pad read. Nothing
+/// where the bounds say nothing, since a device whose travel is zero has no middle to be off.
+///
+/// The bounds are the reading's own rather than the `JOYCAPSA` either game filled, because that one is
+/// joystick 0's and orb reads every pad the machine has — see [`crate::game::Axis`].
+pub fn axis(axis: Axis) -> (bool, bool) {
+    let Axis {
+        at,
+        min: low,
+        max: high,
+    } = axis;
+    if high <= low {
+        return (false, false);
+    }
+    let centre = low + (high - low) / 2;
+    let dead = (high - low) / 4;
+    (at + dead < centre, at > centre + dead)
+}
+
 /// `szPname`, which winmm gives in the machine's code page and the log is written in UTF-8:
 /// the name here read `Microsoft PC �W���C�X�e�B�b�N` before this converted it, and a line
 /// nobody can read is no answer to which device it is.

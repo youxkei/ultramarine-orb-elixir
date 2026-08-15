@@ -243,6 +243,19 @@ pub unsafe fn install_over(original: CreateFileA) {
     CREATE_FILE_A.store(original as usize, Ordering::Relaxed);
 }
 
+/// Whether orb is in the path of the game's own opens at all, which is whether an [`install_over`] has
+/// happened: a launch with nothing to fork installs nothing, and the game's `CreateFileA` entry is the one
+/// it always was.
+///
+/// **For a game laid out by hand**, which is the one thing that cannot answer this for itself: a real
+/// launch's game reaches its own import entry whether or not it was patched, and a laid-out one has no
+/// import table — it calls [`create_file_a`] where the entry was patched and its own where it was not, and
+/// this is how it knows which. Without it a game whose launch forked nothing would be calling through a
+/// null original.
+pub fn installed() -> bool {
+    CREATE_FILE_A.load(Ordering::Relaxed) != 0
+}
+
 /// Creates the file the mode says, in place of the one the game asked for.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
