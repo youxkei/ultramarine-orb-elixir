@@ -219,11 +219,6 @@ pub struct Mark {
     aside: Label,
 }
 
-/// Bottom left, under everything the screen itself draws: the two shots and the description of the
-/// one under the cursor are above the middle, and the corner is the one part of it nothing uses.
-const MARK_LEFT: f32 = 24.0;
-const MARK_BOTTOM: f32 = SCREEN_HEIGHT - 20.0;
-
 impl Mark {
     pub const fn new(language: Language) -> Self {
         Self {
@@ -245,9 +240,12 @@ impl Mark {
         self.about = slot.map(str::to_owned);
     }
 
+    /// `at` is the left edge and the top of the lower of its two lines, which the game answers — see
+    /// `Game::mark_corner`, and the test below for what either answer has to hold.
+    ///
     /// # Safety
     /// Must run on the device's thread, inside the scene the game draws into.
-    pub unsafe fn draw(&mut self, overlay: &Overlay) {
+    pub unsafe fn draw(&mut self, overlay: &Overlay, at: (f32, f32)) {
         let Self {
             said,
             language,
@@ -265,14 +263,14 @@ impl Mark {
         let Some(frame) = (unsafe { overlay.frame() }) else {
             return;
         };
-        frame.label(&self.title, MARK_LEFT, MARK_BOTTOM - LINE_HEIGHT, SELECTED);
-        frame.label(&self.aside, MARK_LEFT, MARK_BOTTOM, ASIDE);
+        frame.label(&self.title, at.0, at.1 - LINE_HEIGHT, SELECTED);
+        frame.label(&self.aside, at.0, at.1, ASIDE);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Answer, Cancels, MARK_LEFT, Mark, Pressed, ResumeMenu};
+    use super::{Answer, Cancels, Mark, Pressed, ResumeMenu};
     use crate::menu_ui::{By, LINE_HEIGHT};
     use crate::overlay::Drawing;
     use crate::overlay::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -281,6 +279,10 @@ mod tests {
     /// The language every screen below is read in. Which one changes nothing these tests assert — what
     /// a press answers, and where a line lands — so it is the one the game itself is in.
     const LANGUAGE: Language = Language::Japanese;
+
+    /// A corner for the tests that are not about which one it is, which is every one but the first: the
+    /// game answers it — see `Game::mark_corner` — and this is what 紅魔郷 answers.
+    const CORNER: (f32, f32) = (24.0, SCREEN_HEIGHT - 20.0);
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.
@@ -423,27 +425,43 @@ mod tests {
         );
     }
 
-    /// The mark on the shot type select is a line in the bottom-left corner, which is the one part of
-    /// that screen nothing else uses: the two shots and the description of the one under the cursor
-    /// are all above the middle. Drawn over the game's own screen rather than on a washed one, so a
-    /// line that wandered would be a line over the game's writing.
+    /// The mark's two lines go where the game said there was room and nowhere else, which is what makes
+    /// it a mark over the game's own screen rather than over the game's own writing: it is drawn on
+    /// the front end while that screen is still being read, so a line of orb's that wandered would sit
+    /// on top of something the game put there.
+    ///
+    /// **Both corners, because the free one is the game's own layout**: 紅魔郷 leaves the bottom-left
+    /// empty and 妖々夢 writes its difficulty's name there — see `Game::mark_corner`. What this asks of
+    /// either is that the lower line lands on the corner given, the title sits one line above it, and
+    /// neither leaves the screen.
     #[test]
-    fn the_mark_sits_in_the_corner_the_screen_leaves_free() {
-        let drawing = Drawing::new();
-        let mut mark = Mark::new(LANGUAGE);
-        mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
-        let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay) });
+    fn the_mark_sits_in_the_corner_the_game_leaves_free() {
+        // 紅魔郷's answer, and 妖々夢's — a line above the difficulty's own name, which is what that game
+        // writes in the corner the first one leaves empty.
+        for corner in [(24.0, SCREEN_HEIGHT - 20.0), (24.0, 416.0 - LINE_HEIGHT)] {
+            let drawing = Drawing::new();
+            let mut mark = Mark::new(LANGUAGE);
+            mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
+            let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay, corner) });
 
-        assert!(!quads.is_empty(), "a run with a chapter says so");
-        // Nothing is washed: this goes over the front end, which is still being read.
-        assert!(
-            !quads.iter().any(|quad| quad.width >= SCREEN_WIDTH),
-            "the screen is not dimmed under it",
-        );
-        for quad in &quads {
-            assert!(quad.x >= MARK_LEFT - 1.0, "{quad:?}");
-            assert!(quad.y > SCREEN_HEIGHT / 2.0, "below the middle: {quad:?}");
-            assert!(quad.bottom() <= SCREEN_HEIGHT, "on the screen: {quad:?}");
+            assert!(!quads.is_empty(), "a run with a chapter says so");
+            // Nothing is washed: this goes over the front end, which is still being read.
+            assert!(
+                !quads.iter().any(|quad| quad.width >= SCREEN_WIDTH),
+                "the screen is not dimmed under it",
+            );
+            for quad in &quads {
+                assert!(quad.x >= corner.0 - 1.0, "{quad:?}");
+                assert!(
+                    quad.y >= corner.1 - LINE_HEIGHT - 1.0,
+                    "no higher than the title's own line: {quad:?}"
+                );
+                assert!(
+                    quad.bottom() <= corner.1 + LINE_HEIGHT,
+                    "no lower than the corner: {quad:?}"
+                );
+                assert!(quad.bottom() <= SCREEN_HEIGHT, "on the screen: {quad:?}");
+            }
         }
     }
 
@@ -456,7 +474,7 @@ mod tests {
         mark.pointing(Some("normal-reimu-b"), |_| None);
         assert!(
             drawing
-                .frame(|overlay| unsafe { mark.draw(overlay) })
+                .frame(|overlay| unsafe { mark.draw(overlay, CORNER) })
                 .is_empty()
         );
     }
@@ -468,7 +486,7 @@ mod tests {
         let drawing = Drawing::new();
         let mut mark = Mark::new(LANGUAGE);
         mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));
-        let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay) });
+        let quads = drawing.frame(|overlay| unsafe { mark.draw(overlay, CORNER) });
 
         let mut lines: Vec<f32> = quads.iter().map(|quad| quad.y).collect();
         lines.sort_by(f32::total_cmp);

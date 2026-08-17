@@ -65,6 +65,27 @@ Nothing changes for 紅魔郷: its file is there, so the fallback is never reach
   ([0009](0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)). Left until
   somebody plays a patched launch and sees the two faces side by side.
 
+- **And the family alone turned out not to be the same text**, which is the second correction this document
+  carries. A 妖々夢 session read orb's screens beside the game's own and said the font was not the game's, with
+  `ＭＳ ゴシック` in the log both as asked for and as returned. The rest of that `CreateFontA` call is why: the
+  height it is given is `size * 2 - 2` and it is **positive**, so what is asked for is the whole cell rather
+  than the em; the bitmap it draws into is twice as wide and `size * 2 + 6` tall (0x432343, 0x43233b); and the
+  string is drawn into it several times one to four pixels apart (0x4323b0 and the calls after it), which is an
+  outline at double resolution. All of that is then shown at half the size — a 36-pixel bitmap is nothing like
+  the height of 妖々夢's own text — so the glyphs on screen are baked at twice the size and scaled down, and
+  that is what they look like.
+
+  So `Game::own_face` carries the height the game asks for and how many times over the glyphs are baked, GDI's
+  number goes through the seam as it comes rather than being negated inside it, and `Label` divides the mask by
+  that multiple: the texture holds twice the pixels and the quad round it stays the size the line is drawn at,
+  the device's own linear filter doing the scaling. **orb's own lines come out smaller than they were** — a cell
+  of 28 halved is about a 12-pixel em where orb drew a 15-pixel one — which is the size the game's own text is;
+  `overlay::FONT_HEIGHT` is the knob if the lines turn out too small to read at a glance.
+
+  The two fields of that ask still not carried are the pitch and the out precision (`FIXED_PITCH | FF_ROMAN`,
+  the default precision): what those decide is which face GDI substitutes where the family is missing, and which
+  one came back is already a line in the log.
+
 ## What was weighed and not taken
 
 - **Ship a font inside `orb.exe`.** It would give both games the same glyphs and needs no machine to have

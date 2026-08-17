@@ -49,7 +49,7 @@ pub use mouse::Mouse;
 pub use noise::Noise;
 pub use sound::{BUFFER, BUFFER_VTABLE, Sound};
 pub use space::Space;
-pub use text::{Glyphs, Metric};
+pub use text::{Asked, Glyphs, Metric};
 pub use window::{Frame, Made, Monitor, Windows, Written};
 /// The other interface a pad can be on, which is why orb reads two: `button` holds XInput's own mask,
 /// as a host answers with it.

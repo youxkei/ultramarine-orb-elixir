@@ -72,10 +72,23 @@ pub struct Glyphs {
     /// pixels carry, so that a texture it was uploaded into can be read back as the string that went
     /// into it — see [`Glyphs::said`].
     baked: Mutex<Vec<String>>,
-    /// And the family each face of the machine's was asked for, with whether it was asked for bold: what
-    /// a game that ships no font of its own is drawn in is a face orb *names*, so which name it named is
-    /// the thing an e2e test has to be able to read — see [`Glyphs::machine_faces_asked_for`].
-    machine_faces: Mutex<Vec<(String, bool)>>,
+    /// And each face of the machine's as it was asked for: what a game that ships no font of its own is drawn
+    /// in is a face orb *names*, so what it named is the thing an e2e test has to be able to read — see
+    /// [`Glyphs::machine_faces_asked_for`].
+    machine_faces: Mutex<Vec<Asked>>,
+}
+
+/// A face of the machine's as orb asked the host for it.
+///
+/// **The height is GDI's own number and not a size**, which is the whole reason it is here: a negative one asks
+/// for the em height and a positive one for the whole cell, and a game that bakes its text at twice the size
+/// and draws it back down asks for a different number again. So what an e2e test holds against the game's own
+/// `CreateFont` call is this, rather than a size orb worked out.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Asked {
+    pub family: String,
+    pub bold: bool,
+    pub height: i32,
 }
 
 /// What a mask's pixels are: full coverage, with which string it is in the colour.
@@ -174,21 +187,23 @@ impl Glyphs {
     /// answer either is one with no Japanese font at all — a shape an e2e test has nothing to say about,
     /// since what would come back is a face this crate cannot rasterise anyway.
     pub(crate) fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face> {
-        self.machine_faces
-            .lock()
-            .unwrap()
-            .push((family.to_owned(), bold));
+        self.machine_faces.lock().unwrap().push(Asked {
+            family: family.to_owned(),
+            bold,
+            height,
+        });
         let mut faces = self.faces.lock().unwrap();
         faces.push(height);
         Some(Face(faces.len() - 1))
     }
 
-    /// The families a face of the machine's was asked for, in order, and whether each was asked for bold.
+    /// Every face of the machine's orb asked for, in order — see [`Asked`].
     ///
-    /// What an e2e test reads to say orb asked for the face the *game* draws its own text in: 妖々夢 ships no
-    /// font and asks GDI for one by name, so a launch of it drawing orb's screens in some other face is a
-    /// launch where the two do not match.
-    pub fn machine_faces_asked_for(&self) -> Vec<(String, bool)> {
+    /// What an e2e test reads to say orb asked for the face the *game* draws its own text in, and asked for it
+    /// the way the game does: 妖々夢 ships no font and asks GDI for one by name at twice the size it draws at,
+    /// so a launch that names another family, or the same family at a size of orb's own, is a launch whose
+    /// screens do not look like the game's text.
+    pub fn machine_faces_asked_for(&self) -> Vec<Asked> {
         self.machine_faces.lock().unwrap().clone()
     }
 

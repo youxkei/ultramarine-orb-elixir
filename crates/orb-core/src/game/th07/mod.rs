@@ -1028,11 +1028,31 @@ const SHOT_SELECT_PHASE_ITEMS: i32 = 1;
 /// select's own decide copies this byte into 0x626280, so until the press it is the only place the choice is.
 const G_DIFFICULTY_CHOSEN: usize = 0x00575a89;
 
-/// And the character and the shot under the cursor, which the two screens keep up to date as it moves:
-/// 0x4593b7 and 0x459475 write the first, 0x459e7d and 0x459f72 the second, each beside the call that plays
-/// the cursor's own sound. So what orb reads is what the cursor is on rather than what a press settled — which
-/// is what the mark over an unfinished run wants.
+/// Where the shot select's own writing about the difficulty begins, in the game's 640x480 output: 驚異 at the
+/// top of it, `Lunatic Level` under that and 奇特な方向け under that again, ending around y=474.
+///
+/// **Measured off a screen and not off the exe**, which is the only place it can be read: what lays those
+/// strings out is the vms the screen builds, and no constant in the exe says where they land. Taken from a
+/// launch's own screen with orb's mark drawn on it at a known place — the mark's two lines, at y=24 and y=48
+/// then, gave the scale the picture was at, and the difficulty's first line measured 416 against them. So it is
+/// good to a few pixels rather than exact, and [`Th07::mark_corner`] leaves a line's worth of room under itself
+/// for that.
+const DIFFICULTY_LABEL_TOP: f32 = 416.0;
+
+/// And the character and the shot **as a press settled them**, which is not the same as what the cursor is on:
+/// 0x4593b7 and 0x459475 write the first, 0x459e7d and 0x459f72 the second, and every one of the four is inside
+/// a press handler — the first of each pair under the decide mask `0x1001` and the second under the cancel mask
+/// `0xa` — copying `[front+0x0]`, the cursor itself, into the byte.
+///
+/// **So which of them orb may read depends on which screen it is standing on.** The character's screen has been
+/// left by the time the shot select is up, so its byte is that choice; the shot's has not, so its byte still
+/// holds whichever shot the run before settled on — and a 妖々夢 session was offered 霊夢B's unfinished run with
+/// the cursor sitting on 霊夢A. What [`Th07::run_pointed_at`] reads for the shot is the cursor.
 const G_CHARACTER_CHOSEN: usize = 0x0062f645;
+/// **Only a laid-out game needs the shot's own byte**, which is why it is behind that gate: orb reads the cursor
+/// on that screen and [`G_SHOT_COMBINED`] once a run is running, so the one thing left to do with this address
+/// is to hold a decided shot for a test to prove orb is not reading it.
+#[cfg(any(test, feature = "sim"))]
 const G_SHOT_CHOSEN: usize = 0x0062f646;
 /// The frames the screen has to have been up for, which is the number that comparison is against.
 const SETTLED_FRAMES: i32 = 0xa;
@@ -1432,17 +1452,26 @@ const LIVES_ROW: Rect = Rect {
     height: 16.0,
 };
 
-/// The face this game draws its own text in, which it has the machine make rather than shipping: the family
-/// and the weight it hands `CreateFontA` at 0x4322e7.
+/// The face this game draws its own text in, which it has the machine make rather than shipping — the whole of
+/// the ask it hands `CreateFontA` at 0x4322e7.
 ///
 /// **It ships no font at all**, which is what makes this the answer to *what is 妖々夢's own face*: the only
 /// text machinery in the exe is GDI's — `CreateFontA`, `CreateCompatibleDC`, `CreateDIBSection`, `TextOutA`,
-/// one import each — and the one call site asks for `ＭＳ ゴシック` (the Shift-JIS name at 0x497cbc) with
-/// weight 0x2bc, charset 0x80 and quality 0x11, then bakes the string into a DIB it uploads. `ascii.anm`
+/// one import each — and that one call site asks for `ＭＳ ゴシック` (the Shift-JIS name at 0x497cbc), weight
+/// 0x2bc, charset 0x80, quality 4 and pitch 0x11, then bakes the string into a DIB it uploads. `ascii.anm`
 /// inside `th07.dat` is the panel's own digits and not a face anything else is drawn in.
 ///
-/// The height is not carried: the game asks for `height * 2 - 2` of whatever its caller wanted and draws its
-/// own strings at its own sizes, while orb's screens are lines of orb's own — see `overlay::FONT_HEIGHT`.
+/// **And the height is carried, because the same family at another height is not the same text.** The pushes
+/// before that call read, in the order the arguments are taken: `2 * n - 2` for the height, and it is
+/// *positive*, so what is asked for is the whole cell rather than the em. The bitmap it draws into is twice as
+/// wide and `2 * n + 6` tall — 0x432343's `shl $1` and 0x43233b's `lea 0x6(%eax,%eax,1)` — so the glyphs are
+/// baked at twice the size the string is shown at and scaled back down, and the edges and stroke weights that
+/// come of that are what 妖々夢's text looks like. A 妖々夢 session saw orb's screens beside it and said they
+/// were not the same face; they were the same family baked at the size it is drawn at.
+///
+/// The two fields of the ask that are *not* carried are the pitch and the out precision: `FIXED_PITCH |
+/// FF_ROMAN` and the default precision decide which face GDI substitutes where the family is missing, and
+/// which one came back is the line the log already writes — see `overlay::loaded`.
 ///
 /// **This is the family the exe names, and a thcrap launch is not measured.** thcrap patches the text a game
 /// draws and can put its own face behind it, in which case the game's text on screen is in one face and orb's
@@ -1451,6 +1480,8 @@ const LIVES_ROW: Rect = Rect {
 const OWN_FACE: Face = Face {
     family: "ＭＳ ゴシック",
     bold: true,
+    height: |size| size * 2 - 2,
+    baked_at: 2,
 };
 
 /// The panel's own background, which is a grid of one 32x32 tile: laid from (416, 16), the loop at 0x42b6e8
@@ -2201,6 +2232,18 @@ impl Game for Th07 {
     /// list — see [`PANEL_DRAW`] for why that and not whether a run is being played.
     unsafe fn draws_lives_row(&self) -> bool {
         unsafe { Self::chain_element(G_CHAIN + CHAIN_DRAW_LIST, PANEL_DRAW) }.is_some()
+    }
+
+    /// A line above the difficulty's own name, which is what this game writes in the bottom-left: 驚異, then
+    /// `Lunatic Level`, then 奇特な方向け under it — where 紅魔郷 has nothing, and a launch of 妖々夢 showed
+    /// orb's two lines over the top of them. Above it and not in another corner: the top-left was tried and read
+    /// badly, being nowhere near what it is about.
+    ///
+    /// Both numbers are read off a launch's screen rather than out of the exe, which is what a screen settles —
+    /// where the game's own strings land is decided by the vms its screen lays out, and nothing in the exe says
+    /// a corner is free. See [`DIFFICULTY_LABEL_TOP`] for how that reading was taken.
+    fn mark_corner(&self) -> (f32, f32) {
+        (24.0, DIFFICULTY_LABEL_TOP - crate::menu_ui::LINE_HEIGHT)
     }
 
     fn lives_row(&self) -> Rect {
@@ -3021,7 +3064,14 @@ impl Game for Th07 {
         Some(RunStart {
             difficulty: i32::from(mem::read_committed::<u8>(G_DIFFICULTY_CHOSEN)?),
             character: i32::from(mem::read_committed::<u8>(G_CHARACTER_CHOSEN)?),
-            shot_type: i32::from(mem::read_committed::<u8>(G_SHOT_CHOSEN)?),
+            // **The cursor, and not [`G_SHOT_CHOSEN`]**: this is the screen the shot is chosen *on*, and that
+            // byte is written where the choice is decided (0x459e7d) or the screen left (0x459f72) — out of this
+            // very field both times. So while the cursor moves it holds the shot of the run before, and a 妖々夢
+            // session was offered 霊夢B's unfinished run with the cursor sitting on 霊夢A.
+            //
+            // The difficulty and the character above are the screens *before* this one, so their bytes are
+            // decided by the time anybody is standing here — see [`G_DIFFICULTY_CHOSEN`].
+            shot_type: mem::read_committed::<i32>(front + FRONT_END_CURSOR)?,
             practice: false,
             // A whole run's chapter can be in any of its stages, and which one is what the mark says rather
             // than part of naming the run — the same answer 紅魔郷 gives here.
@@ -4630,16 +4680,27 @@ mod tests {
         image.the_front_end_is_up();
         assert_eq!(unsafe { Th07.run_pointed_at() }, None, "the title menu");
 
-        image.the_shot_select_points_at(SCREEN_SHOT_SELECT, 3, 2, 1);
+        // **The shot the cursor is on, and not the one the game last decided**, which is the byte at
+        // [`G_SHOT_CHOSEN`]: it is written where an item is decided and where the screen is left, so on the
+        // screen itself it holds the shot of the run before. A 妖々夢 session was offered 霊夢B's unfinished run
+        // with the cursor on 霊夢A, which is that byte read as the cursor.
+        image.the_shot_it_last_decided_is(1);
+        image.the_shot_select_points_at(SCREEN_SHOT_SELECT, 3, 2, 0);
         assert_eq!(
             unsafe { Th07.run_pointed_at() },
             Some(RunStart {
                 difficulty: 3,
                 character: 2,
-                shot_type: 1,
+                shot_type: 0,
                 practice: false,
                 stage: 0,
             })
+        );
+
+        image.the_shot_select_points_at(SCREEN_SHOT_SELECT, 3, 2, 1);
+        assert_eq!(
+            unsafe { Th07.run_pointed_at() }.map(|run| run.shot_type),
+            Some(1)
         );
 
         // The Extra's own shot select is a run as much as the first is.

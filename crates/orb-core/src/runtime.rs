@@ -3338,7 +3338,8 @@ unsafe fn draw_overlay() {
 
     // Over the game's own screen and not instead of it: what it says is about the item the game's
     // cursor is on, and the screen carries on running underneath.
-    unsafe { runtime.mark.draw(overlay) };
+    let corner = runtime.game.mark_corner();
+    unsafe { runtime.mark.draw(overlay, corner) };
 
     // Over the play field and no further. The rest of the game's output — the panel beside
     // it, the border around it — is not repainted every frame, so a wash drawn there is

@@ -19,39 +19,52 @@ use crate::{Face, Mask};
 /// Owned rather than a handle the caller closes, the way [`crate::LogFile`] is: the host counts the
 /// adds behind it, and an overlay makes one per size every time it is built — so a face let go of
 /// without the add being taken back out is a font that stays loaded for the rest of the process.
-pub struct Font(Face);
+pub struct Font {
+    face: Face,
+    baked_at: u32,
+}
 
 impl Font {
     /// `path` is the `.ttf` to load; `height` is the em height in pixels of the game's 640x480
     /// output.
     pub fn load(path: &Path, height: i32) -> Option<Self> {
-        load_face(path, height).map(Self)
+        load_face(path, height).map(|face| Self { face, baked_at: 1 })
     }
 
-    /// A face of the machine's own at that height, for a game that ships no font of its own.
+    /// A face of the machine's own, for a game that ships no font of its own — asked for the way that game
+    /// asks the host for one.
     ///
     /// No font resource is added: what is asked of the host is `family` by name, or a face by charset where
     /// that is empty — and then which face it is is the machine's answer rather than orb's.
-    /// [`face_name`](Font::face_name) is what says which came back either way. `height` means what it means
-    /// above.
-    pub fn of_the_machine(height: i32, family: &str, bold: bool) -> Option<Self> {
-        machine_face(height, family, bold).map(Self)
+    /// [`face_name`](Font::face_name) is what says which came back either way.
+    ///
+    /// **`height` is GDI's own number**, negative for the em height and positive for the whole cell, and
+    /// `baked_at` is how many times the size it is drawn at that comes out — a game that bakes its text at twice
+    /// the size and scales it down answers 2, and the drawing divides the mask by it. See `Game::own_face`.
+    pub fn of_the_machine(height: i32, family: &str, bold: bool, baked_at: u32) -> Option<Self> {
+        machine_face(height, family, bold).map(|face| Self { face, baked_at })
+    }
+
+    /// How many times the size it is drawn at this face's glyphs are baked at — see
+    /// [`of_the_machine`](Font::of_the_machine). Never nothing, so a caller may divide by it.
+    pub fn baked_at(&self) -> u32 {
+        self.baked_at.max(1)
     }
 
     /// What the host actually selected, which is the font asked for only if it loaded.
     pub fn face_name(&self) -> Option<String> {
-        face_name(self.0)
+        face_name(self.face)
     }
 
     /// The coverage mask for `text`, or `None` for a string that measures to nothing.
     pub fn render(&self, text: &str) -> Option<Mask> {
-        bake(self.0, text)
+        bake(self.face, text)
     }
 }
 
 impl Drop for Font {
     fn drop(&mut self) {
-        drop_face(self.0);
+        drop_face(self.face);
     }
 }
 

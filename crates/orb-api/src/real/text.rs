@@ -57,7 +57,9 @@ pub fn load_face(path: &Path, height: i32) -> Option<Face> {
         return None;
     }
 
-    let handle = made(height, FACE_NAME);
+    // Negated here, because the em height is what this way of asking takes: a font loaded out of a file is
+    // asked for at the size orb draws it, and the game whose file it is names no height of its own.
+    let handle = made(-height, FACE_NAME);
     if handle.is_null() {
         unsafe { RemoveFontResourceExW(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) };
         return None;
@@ -94,10 +96,14 @@ fn made(height: i32, name: &str) -> HFONT {
 
 /// And the same with the weight asked for, which is what matching a game that asks for a bold family means:
 /// 妖々夢 asks for `ＭＳ ゴシック` at 700, and a face of it at 400 is the same glyphs in a lighter hand.
+///
+/// **`height` is GDI's own number and goes in as it comes**: negative for the em height, positive for the whole
+/// cell. Which of the two a game asks for is the game's — see `Game::own_face` — so negating it here would be
+/// this function deciding it.
 fn made_weighing(height: i32, name: &str, bold: bool) -> HFONT {
     let mut description: windows_sys::Win32::Graphics::Gdi::LOGFONTW =
         unsafe { std::mem::zeroed() };
-    description.lfHeight = -height;
+    description.lfHeight = height;
     description.lfWeight = if bold { FW_BOLD } else { FW_NORMAL };
     description.lfCharSet = SHIFTJIS_CHARSET;
     description.lfOutPrecision = OUT_TT_PRECIS;

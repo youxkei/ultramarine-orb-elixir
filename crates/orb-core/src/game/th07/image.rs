@@ -1058,7 +1058,18 @@ impl Image {
         space.write::<i32>(FRONT_END.start + super::FRONT_END_SCREEN, screen);
         space.write::<u8>(super::G_DIFFICULTY_CHOSEN, difficulty);
         space.write::<u8>(super::G_CHARACTER_CHOSEN, character);
-        space.write::<u8>(super::G_SHOT_CHOSEN, shot);
+        // **The shot under the cursor is the cursor and not the byte.** 0x62f646 is written where the item is
+        // *decided* (0x459e7d) and where the screen is left (0x459f72), out of `[front+0x0]` both times — so
+        // while the cursor moves it still holds whichever shot was decided last. A laid-out game that wrote it
+        // here would agree with an orb that read it, and a 妖々夢 session found what that costs: the mark for
+        // 霊夢B's unfinished run, shown while the cursor was on 霊夢A.
+        self.the_title_menu_points_at(i32::from(shot));
+    }
+
+    /// And the shot the game last *decided*, which is what that byte holds: a run started earlier, or the shot
+    /// select left and come back to. Laid out so that an e2e test can say orb reads the cursor rather than this.
+    pub fn the_shot_it_last_decided_is(&self, shot: u8) {
+        self.space().write::<u8>(super::G_SHOT_CHOSEN, shot);
     }
 
     /// And one of its other screens up, which is a screen orb has no question for.

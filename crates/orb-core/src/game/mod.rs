@@ -489,15 +489,37 @@ pub struct RunState {
     pub cherry_plus: i32,
 }
 
-/// A face the host is asked for by name: the family, and whether it is wanted bold.
+/// A face the host is asked for by name, as the game itself asks for one: the family, whether it is wanted
+/// bold, the height that ask carries, and how much bigger than the size it is drawn at that comes out.
 ///
-/// What a game that ships no font of its own draws its text with — see [`Game::own_face`]. A family and a
-/// weight and nothing else, because that is the whole of what makes orb's screens the same face as the
-/// game's text: the size is orb's own, its screens being lines to read rather than the game's own strings.
+/// What a game that ships no font of its own draws its text with — see [`Game::own_face`].
+///
+/// **The family alone is not the same text on the screen**, which is what the last two are for. The size orb
+/// draws its own lines at is orb's, but *how a glyph of that size is made* is the game's: 妖々夢 asks GDI for
+/// a height of `size * 2 - 2` — positive, so the whole cell rather than the em — and bakes into a bitmap twice
+/// the size before that is drawn back down. Baked at the size instead, the same family comes out with different
+/// stroke weights and edges, which a 妖々夢 session saw as text that did not look like the game's.
 #[derive(Clone, Copy)]
 pub struct Face {
     pub family: &'static str,
     pub bold: bool,
+    /// The height to ask the host for, out of the size orb draws at — GDI's own convention, where a negative
+    /// number asks for the em height and a positive one for the whole cell.
+    pub height: fn(i32) -> i32,
+    /// And what that height comes out at as a multiple of the size it is drawn at, which is what the drawing
+    /// divides the baked mask by: 1 where a face is asked for at the size it is used at.
+    pub baked_at: u32,
+}
+
+impl Face {
+    /// A face asked for at the size it is drawn at, which is what a game that names no family of its own
+    /// gets: the em height, and no scaling either way.
+    pub const AT_ITS_OWN_SIZE: Self = Self {
+        family: "",
+        bold: false,
+        height: |size| -size,
+        baked_at: 1,
+    };
 }
 
 /// A rectangle in the game's own output resolution.
@@ -699,6 +721,18 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, with the game past initialisation.
     unsafe fn draws_lives_row(&self) -> bool;
+
+    /// Where the mark about the run the front end is pointing at goes, in the game's own 640x480 output: the
+    /// left edge, and the top of the *lower* of its two lines — the line above it carrying the mark's own title.
+    ///
+    /// **Its own answer per game, because which corner is free is the game's own layout.** It is drawn over the
+    /// shot select while that screen is still being read, so a corner the game writes in is a corner where
+    /// orb's two lines land on top of the game's. 紅魔郷 leaves the bottom-left of it empty, which is what this
+    /// default is; 妖々夢 writes the difficulty's own name and its English line there, and a session of it read
+    /// orb's mark over the top of them.
+    fn mark_corner(&self) -> (f32, f32) {
+        (24.0, crate::overlay::SCREEN_HEIGHT - 20.0)
+    }
 
     /// Where the game shows how many lives are left, in its own 640x480 output: the part of
     /// the status panel holding the count itself, which is what a mark saying the count

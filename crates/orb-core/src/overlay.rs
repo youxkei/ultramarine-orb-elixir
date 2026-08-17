@@ -442,7 +442,12 @@ impl Label {
         upload(texture, &mask, width, height);
 
         self.texture = Some(texture);
-        self.size = (mask.width, mask.height);
+        // **The quad is the size the string is drawn at and the mask can be bigger**, which is what a face baked
+        // at a multiple of its size means: the texture holds that many times the pixels and the quad round it is
+        // that many times smaller, so the device's own filter does the scaling down — see `Font::baked_at` and
+        // `Game::own_face`. A quad left at the mask's size would be text at twice the size instead.
+        let baked_at = font.baked_at();
+        self.size = (mask.width / baked_at, mask.height / baked_at);
         self.u = mask.width as f32 / width as f32;
         self.v = mask.height as f32 / height as f32;
     }
@@ -551,11 +556,11 @@ fn loaded(path: &Path, own_face: Option<Face>, height: i32) -> Option<Font> {
         // Asked for by the family the game itself asks the host for, where it names one: what orb's screens
         // are then in is the face the game's own text is in, rather than whatever the charset maps to. See
         // `Game::own_face`.
-        let face = own_face.unwrap_or(Face {
-            family: "",
-            bold: false,
-        });
-        let font = Font::of_the_machine(height, face.family, face.bold);
+        let face = own_face.unwrap_or(Face::AT_ITS_OWN_SIZE);
+        // At the height the game itself asks for, out of the size orb draws at, and baked at whatever that
+        // comes out as: the family alone is the same face and not the same glyphs — see `Game::own_face`.
+        let font =
+            Font::of_the_machine((face.height)(height), face.family, face.bold, face.baked_at);
         match &font {
             // Named because a family the machine does not have is a substituted face, and then the glyphs
             // are neither orb's choice nor the game's.

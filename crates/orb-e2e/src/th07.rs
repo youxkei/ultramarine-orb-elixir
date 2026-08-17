@@ -26,7 +26,9 @@ use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_
 use orb_config::LogLevel;
 use orb_config::Screen;
 use orb_core::frame;
+use orb_core::overlay::{FONT_HEIGHT, MARK_FONT_HEIGHT};
 use orb_core::window::letterbox;
+use orb_sim::Asked;
 
 /// What the game's own frame is declared to take here: about what a real run's report line shows for the
 /// drawing, so that the pacing is being asked the question a run asks it.
@@ -80,16 +82,33 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
             "orb built no overlay in a directory with no font in it:\n  {log}"
         );
 
-        // **And the face it asked the machine for is the one this game asks for itself**: 妖々夢 ships no
-        // font and makes its own text out of a family it names to GDI — `CreateFontA` at 0x4322e7 with
-        // `ＭＳ ゴシック` and the weight 0x2bc, which is bold — so asking for anything else is orb's screens
-        // in a face the game's own text is not in. Asked for at both of the overlay's sizes, the status
-        // lines' and the mark's.
+        // **And the face it asked the machine for is the one this game asks for itself, asked for the way the
+        // game asks**: 妖々夢 ships no font and makes its own text out of a family it names to GDI —
+        // `CreateFontA` at 0x4322e7 with `ＭＳ ゴシック` and the weight 0x2bc, which is bold — so asking for
+        // anything else is orb's screens in a face the game's own text is not in.
+        //
+        // **And the height is the game's own number**: that call asks for `size * 2 - 2` as a *positive* height,
+        // which is the whole cell rather than the em, and the call bakes into a bitmap twice as wide and
+        // `size * 2 + 6` tall before the result is drawn back down to size. Glyphs baked at twice the size and
+        // scaled down are not the same glyphs as ones baked at the size — a 妖々夢 session said the text did not
+        // look like the game's — so what orb asks for is the same number and its own drawing does the same
+        // halving. Both of the overlay's sizes, the status lines' and the mark's.
         let asked = game.sim().text().machine_faces_asked_for();
         assert_eq!(
             asked,
-            vec![(FACE.to_owned(), true), (FACE.to_owned(), true)],
-            "orb did not ask the machine for the family 妖々夢 asks for",
+            vec![
+                Asked {
+                    family: FACE.to_owned(),
+                    bold: true,
+                    height: FONT_HEIGHT * 2 - 2,
+                },
+                Asked {
+                    family: FACE.to_owned(),
+                    bold: true,
+                    height: MARK_FONT_HEIGHT * 2 - 2,
+                },
+            ],
+            "orb did not ask the machine for the face 妖々夢 asks for, the way it asks for it",
         );
         // And the log says which one came back, a family a machine does not have being a substituted face
         // and the glyphs then not the game's.
