@@ -60,9 +60,14 @@ use crate::{detail, log};
 /// apart, and what it is written for is one of them.
 const DIRECTORY: &str = "pointdevice_resume";
 /// MessagePack, with the field names in it — `to_vec_named`, not the positional arrays rmp-serde
-/// writes by default. What that buys is that the file needs nothing but itself to be read: any
-/// converter prints one as YAML without being told the format, and reading one beside the log is what
-/// has caught every fault in this machinery so far.
+/// writes by default. What that buys is that the file needs nothing but itself to be read, so **nothing here
+/// reads one out for anybody**: a converter does, and reading one beside the log is what has caught every fault
+/// in this machinery so far.
+///
+/// `msgpack2json -d -i <file>` is the reading, and the `-d` is not optional — its plain mode refuses a map whose
+/// keys are numbers, which [`Written::buttons`] is. A launcher option for this was begun once and thrown away:
+/// a self-describing file needs no reader of orb's, and one written anyway is a second thing to keep in step
+/// with the first.
 ///
 /// Packed rather than text because it is the machine's own: a stage's buttons written as lines came
 /// to 30KB by a boss chapter deep in a stage, against 11KB here, and nobody reads a button mask by
@@ -72,7 +77,13 @@ const EXTENSION: &str = "msgpack";
 
 /// What this file's fields mean. Written into it and refused on the way back in, so a file from
 /// another version is a line in the log rather than a run started with fields read as each other.
-const VERSION: u32 = 3;
+///
+/// **What does not raise it is a field that may be absent.** The generators were written down beside the buttons
+/// and this went to 3 for them, which refused every file already on disk — a run of 紅魔郷 left unfinished
+/// stopped being offered because a launch had learnt to write something extra about 妖々夢. A new field that is
+/// read as nothing where it is missing cannot be read as another field either, which is the whole of what this
+/// number is for. So it stays at 2, and [`Written::generators`] defaults.
+const VERSION: u32 = 2;
 
 /// Longer than any stage of any run: half an hour of one at 60 frames a second. A bound on what a
 /// file can ask to be allocated for, and on the frame number a record will write down at all.
@@ -183,7 +194,10 @@ pub struct Landing {
 struct Played {
     buttons: u16,
     /// Held against what the generator is on that frame while a run is played back — see [`Record::feed`].
-    generator: u16,
+    ///
+    /// `None` for a frame out of a file written before orb wrote them down: such a playback is fed its buttons
+    /// and says nothing about where it parted, which is what a file with nothing in it to compare deserves.
+    generator: Option<u16>,
 }
 
 /// The buttons of the stage being played, and whatever a resume is in the middle of.
@@ -243,7 +257,10 @@ impl Record {
         if self.played.len() <= at {
             self.played.resize(at + 1, Played::default());
         }
-        self.played[at] = Played { buttons, generator };
+        self.played[at] = Played {
+            buttons,
+            generator: Some(generator),
+        };
     }
 
     /// What the update of `frame` is to act on while a run is being played in, and `None` once the
@@ -264,8 +281,11 @@ impl Record {
             return None;
         }
         let played = self.played.get(frame as usize).copied()?;
-        let (word, was) = (played.buttons, played.generator);
-        if self.parted.is_none() && was != generator {
+        let word = played.buttons;
+        if self.parted.is_none()
+            && let Some(was) = played.generator
+            && was != generator
+        {
             self.parted = Some(frame);
             log!(
                 "resume: the playback parted from the run at frame {frame}: the generator is \
@@ -382,10 +402,10 @@ pub unsafe fn stage_begun(game: &dyn Game) {
         record.played = saved
             .buttons
             .iter()
-            .zip(&saved.generators)
-            .map(|(buttons, generator)| Played {
+            .enumerate()
+            .map(|(frame, buttons)| Played {
                 buttons: *buttons,
-                generator: *generator,
+                generator: saved.generators.get(frame).copied(),
             })
             .collect();
         return;
@@ -574,10 +594,14 @@ pub unsafe fn write(
             .iter()
             .map(|played| played.buttons)
             .collect(),
+        // All of them or none, which is what the file may hold — see [`Written::generators`]. A frame with none
+        // is one played back out of a file from before they were written down, and a list with a hole in it
+        // would be one whose frames no longer line up.
         generators: record.played[..at as usize]
             .iter()
             .map(|played| played.generator)
-            .collect(),
+            .collect::<Option<Vec<u16>>>()
+            .unwrap_or_default(),
     };
     handed_over(path, saved);
     true
@@ -899,8 +923,12 @@ struct Written {
     /// Only the changes, which is how the game writes its own record: everything between two of them
     /// is the first one's, and a stage's worth of frames comes to a few hundred entries. A map rather
     /// than a list of pairs, so that they are in order because a map of frames is, rather than because
-    /// something checked; it is also a byte less each, and `--dump` prints one per line where a list
+    /// something checked; it is also a byte less each, and a converter prints one per line where a list
     /// of pairs is two.
+    ///
+    /// **The keys being numbers is what stops that converter writing JSON**, which has no way to say a map key
+    /// that is not a string: `msgpack2json` on one of these answers `map key is not a string`, and its debug view
+    /// — `msgpack2json -d` — is what prints the file. See [`EXTENSION`].
     buttons: BTreeMap<u32, u16>,
     /// The generator's own state on every one of those frames — see [`Saved::generators`] for what it is for.
     ///
@@ -908,6 +936,11 @@ struct Written {
     /// reason: a generator moves on nearly every frame, so a map of changes would be every frame with a key in
     /// front of it. A stage's worth is 8500 entries, which is 26KB as an array of words against 43KB as a map
     /// of them, and the index is the frame either way.
+    ///
+    /// **Absent in a file written before orb wrote them down**, which is what the default is for: such a run is
+    /// still a run to offer, and what it costs is only that a playback of it cannot say where it parted. See
+    /// [`VERSION`], which is deliberately not raised for a field that may be missing.
+    #[serde(default)]
     generators: Vec<u16>,
 }
 
@@ -1028,10 +1061,11 @@ fn decode(bytes: &[u8]) -> Option<Saved> {
     if at > MAX_STAGE_FRAMES || changes.keys().last().is_some_and(|frame| *frame >= at) {
         return None;
     }
-    // And one generator per frame the buttons reach, no more and no fewer: the playback holds the two together
-    // by frame — see [`Played`] — so a file where they disagree is one whose frames do not line up, and reading
-    // it would be a playback held against another frame's generator.
-    if written.generators.len() != at as usize {
+    // And one generator per frame the buttons reach, or none at all: the playback holds the two together by
+    // frame — see [`Played`] — so a file with some of them is one whose frames do not line up, and reading it
+    // would be a playback held against another frame's generator. None at all is a file from before orb wrote
+    // them down, which is a run to offer with nothing to say about where a playback of it parts.
+    if !written.generators.is_empty() && written.generators.len() != at as usize {
         return None;
     }
     Some(Saved {
@@ -1227,6 +1261,26 @@ mod tests {
         assert_eq!(decode(&encode(&quiet)), Some(quiet));
     }
 
+    /// **A file with no generators in it is still a run to offer**, which is every file written before orb began
+    /// writing them down: a run of 紅魔郷 left unfinished is not one to drop because a launch has learnt to write
+    /// something more about a stage. What such a playback gives up is only the line saying where it parted.
+    #[test]
+    fn a_file_from_before_the_generators_is_read_and_offered() {
+        let mut older = saved();
+        older.generators = Vec::new();
+        assert_eq!(decode(&encode(&older)), Some(older));
+    }
+
+    /// And one with *some* of them is refused, that being a file whose frames do not line up: the buttons of a
+    /// frame and the generator it was pressed with are held together by their index, so a list that runs out
+    /// part way through would have a playback held against another frame's number.
+    #[test]
+    fn a_file_with_some_of_the_generators_is_refused() {
+        let mut half = saved();
+        half.generators.truncate(half.buttons.len() - 1);
+        assert!(decode(&encode(&half)).is_none());
+    }
+
     /// A chapter at the stage's own start has none of them, which is a run resumed by building
     /// the stage and playing nothing.
     #[test]
@@ -1416,11 +1470,11 @@ mod tests {
         // Inside what the playback loaded, which is where the two lengths used to part company.
         record.note(1, 0x101, 0xbeef);
         assert_eq!(record.played[1].buttons, 0x101);
-        assert_eq!(record.played[1].generator, 0xbeef);
+        assert_eq!(record.played[1].generator, Some(0xbeef));
         // And past it, which is the run carrying on from where the playback left off.
         record.note(9, 0x041, 0xf00d);
         assert_eq!(record.played[9].buttons, 0x041);
-        assert_eq!(record.played[9].generator, 0xf00d);
+        assert_eq!(record.played[9].generator, Some(0xf00d));
         assert_eq!(record.played.len(), 10);
     }
 
@@ -1430,7 +1484,10 @@ mod tests {
         let mut record = Record::new();
         record.stage = Some(3);
         record.played = [(0, 0xa0), (1, 0xa1), (2, 0xa2), (3, 0xa3)]
-            .map(|(buttons, generator)| Played { buttons, generator })
+            .map(|(buttons, generator)| Played {
+                buttons,
+                generator: Some(generator),
+            })
             .to_vec();
         record.feeding = Some(super::Landing {
             at: 3,
