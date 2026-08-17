@@ -1328,6 +1328,19 @@ pub extern "system" fn get_input() -> u16 {
     // and the frames it runs through are not frames anybody is at the keyboard for.
     let frame = unsafe { game.stage_frame() };
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
+        // **The music held quiet on every frame that is fed**, wherever those frames come from: `play_in` runs
+        // its whole loop inside one of the game's frames and every update in it comes through this read, and a
+        // game whose frames orb does not drive feeds one per frame instead. Either way the song the stage's build
+        // started would otherwise play its opening for the seconds the buttons take and then jump where it
+        // belongs as the run lands — which is what a 妖々夢 session heard on a run picked up in the first stage.
+        //
+        // Stopped and not taken down: the landing puts the song back with a seek — see the `play_from` there —
+        // and a stream that had been deleted is one nothing could seek. A stop on a stopped buffer costs the call
+        // and nothing else, which is what makes doing it per frame the simple answer to a queued play carried out
+        // in between.
+        if let Some(music) = game.music() {
+            unsafe { music.silence() };
+        }
         // Through the same hand-over the keyboard's own word goes through: a run being played back into place
         // is a run whose frames have to land where they landed, and a frame played on last frame's buttons is
         // not that frame — see `Game::hand_the_read_to_the_run`.
@@ -2741,6 +2754,18 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
 /// # Safety
 /// Only ever called from the frame hook, on the game's main thread.
 unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State, i32) {
+    // **The music stopped for as long as this takes.** The stage's own song was started by the build a moment
+    // ago and the buffer plays on its own thread, so the seconds of wall clock these updates take are seconds of
+    // the stage's opening — and then the song jumps where it belongs as the run lands. A 妖々夢 session heard
+    // exactly that on a run picked up in the first stage.
+    //
+    // Stopped and not taken down, because the landing is what puts it back: `play_from` below seeks the stream
+    // this leaves alive, and a stream that had been deleted is one nothing could seek. Once here rather than per
+    // update, this whole loop being one frame's work — nothing calls the game's own sound inside it, so nothing
+    // starts a track again until it is over.
+    if let Some(music) = runtime.game.music() {
+        unsafe { music.silence() };
+    }
     let mut reached = unsafe { runtime.game.read_state() };
     let mut ran = CHAIN_BREAK;
     let mut frames = 0;

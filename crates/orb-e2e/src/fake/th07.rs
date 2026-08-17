@@ -239,6 +239,9 @@ pub struct Fake {
     /// The seed the last build settled on for its stage — see [`Fake::settles_a_seed_for_the_stage`], which is
     /// where the next one comes from.
     seed: Cell<u16>,
+    /// How many frames of a run being played back into place the sound was heard on — see
+    /// [`Fake::frames_the_sound_was_heard_on_while_it_played_back`].
+    heard_playing_back: Cell<u32>,
     /// The name every open of this game's score file landed in, in the order they happened — see
     /// [`create_file`].
     opens: RefCell<Vec<String>>,
@@ -458,6 +461,7 @@ impl Fake {
             the_player_read: Cell::new(0),
             // Not nothing, so the first stage of a launch is built out of a seed like every other one.
             seed: Cell::new(0x4d2f),
+            heard_playing_back: Cell::new(0),
             opens: RefCell::new(Vec::new()),
             presents: RefCell::new(Vec::new()),
             reads_the_pad: the_game_this_is().hooks().joystick.is_some(),
@@ -1063,6 +1067,12 @@ impl Fake {
             self.image.the_scene_now() == self.image.scene_of_the_front_end()
                 && self.image.the_scene_now() == self.image.the_scene_wanted()
         });
+        // **And the run's own music gone with it**, which is what the teardown does: the stream the run was
+        // playing through is deleted at 0x44cebd and the player left naming nothing. A laid-out game that kept
+        // the song playing across a run being given up is one where the next run's music was already sounding
+        // before that run had a stage.
+        self.image.plays_no_track();
+        orb_sim::Sound::taken_down();
         self.the_mode_is_answered_at_the_title_menu_again();
     }
 
@@ -1096,9 +1106,43 @@ impl Fake {
             log.said_since(from, "the run is being built at that stage")
         });
         self.builds_a_stage();
+        // **And the stage's own song playing, which is what that build leaves**: it loads its two slots and asks
+        // for the first of them, and by the stage's first frame the play has been carried out. Said here rather
+        // than in the build itself, because a stage is also built for a chapter that was taken before its song
+        // began — see [`Fake::took_down_the_song_it_came_in_with`] — and this is the launch where the song is
+        // what a run comes back to.
+        if self.sound.borrow().is_some() {
+            self.image.names_the_stream_it_had();
+            orb_sim::Sound::started_again();
+        }
+        // **And what was audible on the way**, which is the whole of what somebody waiting for a run to come
+        // back hears: the stage's own song was started by the build a moment ago, so a playback that leaves it
+        // alone plays the stage's opening over and over the seconds the buttons take — a 妖々夢 session heard
+        // exactly that, and then the song jump to the chapter's place when the run landed.
+        self.heard_playing_back.set(0);
         self.frames_until("the run played back into place", 600, || {
-            log.said_since(from, "resume: the landing is")
+            // The landing asked about first, because the frame it happens on is the frame the song is put back
+            // on: counted as sound heard on the way, the answer would be yes however quiet the playback was.
+            if log.said_since(from, "resume: the landing is") {
+                return true;
+            }
+            if self
+                .sound
+                .borrow()
+                .as_ref()
+                .is_some_and(|sound| sound.playing())
+            {
+                self.heard_playing_back
+                    .set(self.heard_playing_back.get() + 1);
+            }
+            false
         });
+    }
+
+    /// How many frames of the run being played back into place the sound was heard on — see
+    /// [`Fake::picks_the_run_up`], which is where it is watched for.
+    pub fn frames_the_sound_was_heard_on_while_it_played_back(&self) -> u32 {
+        self.heard_playing_back.get()
     }
 
     /// The shot select up with this run under its cursor, and long enough up for a press: the screen orb asks

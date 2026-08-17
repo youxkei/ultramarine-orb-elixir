@@ -167,6 +167,21 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
             "the run did not land where the file said:\n  {}",
             log.lines().join("\n  ")
         );
+        // **And it was quiet while it came back.** The stage's own song is started by the build a moment before
+        // the buttons go in, so a playback that leaves the sound alone plays the stage's opening for as long as
+        // the buttons take and then jumps to the chapter's place as the run lands — which is what a 妖々夢
+        // session heard, seconds of it, on a run picked up in the first stage.
+        //
+        // **One frame of it and no more**, which is the shape of where orb quietens it: in the game's own input
+        // read, every frame a button is fed. The frame the playback begins on has the game's own sound work
+        // after that read, and a play standing in its queue is carried out there — so that one frame can sound,
+        // and the next read quietens it again. Where the song goes at the landing is the line above.
+        let heard = game.frames_the_sound_was_heard_on_while_it_played_back();
+        assert!(
+            heard <= 1,
+            "the stage's own song played on {heard} frames of the run being played back into place:\n  {}",
+            log.lines().join("\n  ")
+        );
         // The frame it landed on and the numbers it landed with, read out of the game's own memory: the stage's
         // two clocks put the run at the frame the file names, and the numbers are the ones that stage began
         // with, written back by `Th07::set_run_state`.
