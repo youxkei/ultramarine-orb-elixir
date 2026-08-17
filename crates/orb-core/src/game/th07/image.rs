@@ -672,11 +672,26 @@ impl Image {
         space.write::<u32>(super::G_ENEMY_MANAGER + super::SPELLCARD, card);
     }
 
-    /// The player as a stage's own build leaves it, which is the state a run is played in: 0, the one the
-    /// respawn puts it back to at 0x4413fa — and so settled, which is where a chapter can begin.
+    /// The player in the state a run is played in: 0, the one the respawn puts it back to at 0x4413fa — and so
+    /// settled, which is where a chapter can begin.
     pub fn the_player_is_playing(&self) {
         self.space()
             .write::<i8>(super::G_PLAYER + super::PLAYER_STATE, 0);
+    }
+
+    /// And the player as their own register leaves them, which is what a stage's build runs: 0x4429d0, called
+    /// from a run's build at 0x42e9d6 and from *every* stage's at 0x42ef03. It zeroes 0x2df9e dwords from the
+    /// object's head — so the state is that same 0 — and then writes the timer at `+0x16a00` outright, `[+8]`
+    /// and `[+4]` to nothing and `[+0]` to -999.
+    ///
+    /// **Only the frames of that timer are laid out here**, `[+8]` being the word orb reads and `--clear`
+    /// writes. The other two, and the rest of what the register zeroes, are the shot, the position, the bomb's
+    /// own object and the three chain elements the register makes again on the instructions after — a laid-out
+    /// game that zeroed those would be taking its own chain apart to model writes nothing reads.
+    pub fn its_player_is_registered_again(&self) {
+        self.the_player_is_playing();
+        self.space()
+            .write::<i32>(super::G_PLAYER + super::PLAYER_COMING_BACK_FRAMES, 0);
     }
 
     /// The player in the middle of dying, which is the state its own death handler sets: not the state a run

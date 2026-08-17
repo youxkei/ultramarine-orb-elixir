@@ -2317,8 +2317,9 @@ compiled-in table is, so a stage played twice divides the same way both times. A
 proposed only on ground the pass has not covered yet: replaying part of a stage neither writes
 one down twice nor brings back one that was removed by hand.
 
-**Two files, and what is decided is kept.** `chapters.rs` is the table as Rust, to paste over
-`crates/orb-core/src/game/th06/chapters.rs`; `tuning.txt` beside it is the same boundaries with what
+**Two files, and what is decided is kept.** `chapters.rs` is the table as Rust, to paste over the
+`chapters.rs` of the game the pass was run on — `crates/orb-core/src/game/th06/` or `th07/`, each holding a
+table of its own; `tuning.txt` beside it is the same boundaries with what
 has been decided about each — `keep`, `adjust` or `drop`, and whether a person put it there —
 and is read back when orb starts. So a stage is not one sitting's work: it can be looked at,
 judged in part, left, and picked up where it was. Both are written whole as soon as anything is

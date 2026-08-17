@@ -557,10 +557,17 @@ const BOMBS: usize = 0x68;
 /// straight to the return at 0x42db3d, 0x42dc86 and 0x42de9b and count nothing. Nothing else in the exe
 /// touches the field.
 ///
-/// Whether a frame under a menu counts is not settled by reading: the update's early-out on either menu flag
-/// lands at 0x42d9dc, which continues into the rest of the update rather than returning. It is written down
-/// in `docs/todo/th07-the-run.md` as a question for a launch, because what turns on it is whether a chapter's
-/// frame numbers survive a pause.
+/// **A frame under either menu is not one of them**, which is what says a chapter's frame numbers survive a
+/// pause: 0x42de6f tests [`GAME_MENU_UP`] against 1 and against 2 and the byte after it against nothing, and
+/// any of the three jumps to 0x42de98, which answers **3** and returns — 0x334 bytes before the add. The same
+/// 3 is what the game's own slowdown answers with (0x42e19a), on the frames it decides not to advance the run
+/// on: with the byte at `[[G_GAME_MANAGER+4]+0x25]` set, one frame in five, four or three counts nothing where
+/// the live bullet count at 0x9a9a80 has reached 0x80, 0xe0 or 0x140.
+///
+/// And [`SCRIPT_FRAMES`] stops with it, because of what 3 means to the chain: the walk's own table at 0x42fdf9
+/// sends it to 0x42fdd0, which **stops the walk** and answers 1. So a frame the manager answers 3 on is a frame
+/// no job below its own priority runs in at all — the enemy manager's, which is where the four main contexts
+/// are stepped, the player's at 8 and the run's own word at 0x10 included.
 const STAGE_FRAMES: usize = 0x95e8;
 
 /// `th07::GameManager::AddedCallback`, `__thiscall` on the manager: the added callback of the element the
@@ -692,6 +699,10 @@ const BOSS_SLOTS: usize = 8;
 ///
 /// **Which of the four is a decision and not a reading** — 紅魔郷 has one timeline on one clock and orb's
 /// midstage boundaries are written in its frames. See `docs/adr/0018`.
+///
+/// And it stops where [`STAGE_FRAMES`] stops, for a reason that is not its own: the contexts are stepped from
+/// inside the enemy manager's update (0x4207a1), which is a job below the game manager's on the chain — so a
+/// frame the manager answers 3 on is a frame the walk never reaches them in.
 const SCRIPT_FRAMES: usize = 0x9545fc;
 
 /// A boss's life and how long its current attack has run, `+0x2bb8` and `+0x2bcc` of the enemy.
@@ -899,7 +910,16 @@ const G_RANDOM: usize = 0x0049fe20;
 /// numbering [`PAD_MAPPING`]'s fourth entry names, which is how the two readings meet.
 ///
 /// What raises the first is not read yet. Both are here because `State::paused` is the pair: a run that is
-/// not being updated is one nothing of orb's should act on, whichever menu is up.
+/// not being updated is one nothing of orb's should act on, whichever menu is up. **And what stops the run
+/// under them is the answer that update gives** — see [`STAGE_FRAMES`], where the same 3 that stops the chain
+/// walk skips both clocks.
+///
+/// **Two bytes of the manager's own head are not this pair and do not belong in it.** `[+0xd]` is the frame
+/// the game did not advance the run on — its own slowdown sets it at 0x42e19a and clears it at 0x42e108 —
+/// which is a frame where neither clock moved and no job below the manager ran, so what orb reads there is the
+/// frame before it read again, and `resume::Record::note` is written for exactly that. And `[+0xc]`, which the
+/// player's update returns straight away on at 0x441fb7, is read at five addresses and written at none: a
+/// switch nothing in this build turns on.
 const GAME_MENU_UP: usize = 0x93dc;
 const OTHER_MENU_UP: usize = 0x93dd;
 

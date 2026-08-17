@@ -1304,12 +1304,13 @@ impl Fake {
     }
 
     fn the_stages_own_fields(&self) {
-        // Both clocks at nothing and a player playing, which is what a build leaves however the stage before it
-        // ended: the frames a stage has run are that stage's own, and a run started again out of a file plays its
-        // buttons in from the first of them.
+        // Both clocks at nothing and the player's own register run again, which is what a build leaves however the
+        // stage before it ended: the frames a stage has run are that stage's own, and a run started again out of a
+        // file plays its buttons in from the first of them. What that register leaves the player as — playing,
+        // with nothing on the timer under it — is `the_player_a_stage_of_th07_starts`.
         self.image.has_been_in_the_stage_for(0);
         self.image.the_script_has_run_for(0);
-        self.image.the_player_is_playing();
+        self.image.its_player_is_registered_again();
         // And no fight, which is the same thing said of the enemies: a boss is something a stage's script puts
         // up, so a build that left one standing would be a stage beginning half way through a fight.
         self.image.no_boss_is_fighting();

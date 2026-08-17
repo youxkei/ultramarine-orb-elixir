@@ -247,8 +247,9 @@ impl Record {
     }
 
     /// Writes down what the update of `frame` is about to act on. The same frame reached twice —
-    /// a chapter retried, or a frame the game spent with a menu up — is one entry, the last write
-    /// winning, which is the one that update sees.
+    /// a chapter retried, a frame the game spent with a menu up, or one 妖々夢's own slowdown decided
+    /// not to advance the run on — is one entry, the last write winning, which is the one that update
+    /// sees.
     fn note(&mut self, frame: u32, buttons: u16, generator: u16) {
         if self.stage.is_none() || frame >= MAX_STAGE_FRAMES {
             return;

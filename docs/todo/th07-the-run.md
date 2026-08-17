@@ -3,11 +3,11 @@
 What is left of [issue 2](https://github.com/youxkei/ultramarine-orb-elixir/issues/2) after the frame,
 the device setup and the pad reads: **everything a run is made of.**
 
-**What is left of *that* is one measurement**, which is the midstage table at the end of this file: a
-boundary inside a stage is read off a run with `--chapter-tuning` and off nothing else, so it cannot be
-walked out of the exe the way every other line here was. Everything else is in — `Th07::rewinds` answers
-`true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up, with a chapter at every stage's
-start and none inside one until that run happens.
+**What is left of *that* is one measurement and the confirmations a launch makes**, and the measurement is the
+midstage table at the end of this file: a boundary inside a stage is read off a run with `--chapter-tuning` and
+off nothing else, so it cannot be walked out of the exe the way every other line here was. Everything else is
+in — `Th07::rewinds` answers `true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up, with a
+chapter at every stage's start and none inside one until that run happens.
 
 **And every one of those has now been played on the real game**, which is the other half of "in": a run
 chaptered and retried with its music and its cards, given up, picked up out of its file in a later launch and
@@ -15,6 +15,19 @@ landing on the frame that was written down, field for field. What each launch ca
 one thing none of them could produce is the table this file is still open for: `--collect` and `--judge` work
 over this game — `a_chapter_table_collected_for_th07.rs` — and what they are waiting for is somebody playing a
 Lunatic stage under them.
+
+**So what is left is a launch and nothing that can be written first**, which is these four and each is a
+session somebody plays:
+
+- **The midstage table**, above — `scripts/run.sh <dir> --collect` over a Lunatic replay, which is the whole
+  word for a tuning pass a replay drives, then `--judge` to step between what it proposed, and the
+  `chapters.rs` a pass writes pasted over `crates/orb-core/src/game/th07/chapters.rs`.
+- **`frames=` and `script=` on a run that pauses.** Both clocks stop under either menu — the reading is beside
+  [`STAGE_FRAMES`] — and a run paused on a stage is what confirms it: neither number moves while the menu is up.
+- **`--counted-a-card=96`, twice against a copy of the install**, which is the recipe below: the file's own
+  counts climbing by one a launch rather than doubling.
+- **Every `read_state` field being the field it is named for**, which is the standing one — an address orb was
+  given is an address a laid-out game agrees with whatever the game holds there.
 
 Here rather than in the issue because the measurements below have to be repeatable — every one is a
 walk through `th07.exe` that anybody can take again, and a number in a paragraph nobody can re-derive
@@ -61,8 +74,8 @@ the supervisor off the element's `+0x1c`, and adds it to the calc chain at prior
 **The scene and the scene wanted, and the two scenes a run is, have gone to the code**: they are
 `SUPERVISOR_SCENE`, `SUPERVISOR_WANTED`, `SCENE_RUN` and `SCENE_RUN_AGAIN` in `th07/mod.rs`, each with
 what identifies it, and `Th07::read_state` answers `scene`, `wanted`, `playing` and `in_run` off them.
-`in_game` is still false there and says why: it is a run that is neither the attract demo nor a replay,
-and neither of those two has been read.
+`in_game` is answered off them too, once the two bits it turns on were read: the gameplay scene with neither
+the attract demo's bit nor the replay's set — `RUN_IS_A_DEMO` and `RUN_IS_A_REPLAY`, both below.
 
 **The scenes the transition switch has cases for** are 0, 1, 2, 5, 6, 8 and 9, at 0x437eac, 0x437ee3,
 0x437fb1, 0x437f7b, 0x4381d1, 0x438216 and 0x438249, with a default at 0x438294. Each tears the scene
@@ -183,19 +196,6 @@ were one story: 4 in, 4 out, whatever the game itself holds. What catches it is 
 game's own word — `the_games_stage_word_is` beside `is_playing`, with the pairs 1→0 and 8→7 in it — and
 that shape is worth using for every field where the game counts differently from orb.
 
-## One question about the stage's clock that reading cannot settle
-
-`STAGE_FRAMES` is in the code with what identifies it, and one thing about it is open: **whether a frame
-under a menu counts.** The update's early-out on either menu flag jumps to 0x42d9dc, and that block does
-not return — it works through `[gm+0x962c]` against thresholds and either returns at 0x42db3d or falls into
-the rest of the update at 0x42db42, which is the path that reaches the add. So the count may or may not
-freeze while the pause menu is up, and which it is decides whether a chapter's frame numbers survive a
-pause.
-
-A launch answers it in one run: pause on a stage, watch the state line's `frames=` in `orb.log`, and see
-whether it moves. That is cheaper than tracing 0x800 bytes of the update by eye, and it is the same
-question for `script=` when the script's clock is found.
-
 ## What the player turned out to be, and what is left beside it
 
 **The player is the static object at 0x4bdad8** and has gone to the code with its state, its bomb flag and
@@ -205,11 +205,9 @@ supervisor are neighbours in `.data` and a write past the end of one is the othe
 more than the player: `+0x16a30` is the bomb's own object, `+0xb7e5c` to `+0xb7e64` the three chain elements,
 and the fields the shot uses run to `+0xb7e6c`.
 
-**Two flags of the game manager's own are still open** and both stop a run: the signed byte at
-`[gm+0xc]` = 0x62627c, which the player's update reads at 0x441fb7 and returns straight away on, and
-`[gm+0xd]` = 0x62627d, which the manager's update writes 1 into at 0x42e19a and the pause menu reads at
-0x42d91b. `State::paused` is the two menu flags today; whether either of these belongs in it is a question
-for the frames a chapter must not be taken on, and it is the same question as the stage clock's above.
+The two bytes of the manager's own head that looked like a second pair of menu flags are neither, and both
+answers are now beside [`GAME_MENU_UP`]: `[gm+0xd]` marks a frame the game's own slowdown did not advance the
+run on, and `[gm+0xc]` is read at five addresses and written at none.
 
 ## The enemy manager, whose fields the rest of a run will be read out of
 
@@ -227,8 +225,9 @@ snapshot and the chapters will want it:
 
 **Which of the four main contexts is the stage's script was the one decision in `read_state`, and it is
 taken**: the first, in [0018](../adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md), with the
-counter at 0x62f898 among the alternatives it beat. What is left of it is a measurement a launch makes, and
-that is the same question as the stage clock's above.
+counter at 0x62f898 among the alternatives it beat. What is left of it is a launch reading `script=` on a run
+that pauses and one that does not — which is what a chapter's own frame numbers are written in, and the
+reading that says both clocks stop together is beside [`STAGE_FRAMES`].
 
 ## `RunState`, read but not yet written
 
@@ -371,15 +370,14 @@ finished from left, which is exactly what that method asks. **But nothing in the
 finished before it started. What `run_finished` needs is either where the word is reset at a run's build —
 which is not one of the writes found — or the result screen's own object, the way 紅魔郷 answers it.
 
-**Bits 2 and 4 are still open.** Bit 2 is read at 0x439195, 0x4393a0 and three times around 0x442cd9;
-bit 4 is set with `or 0x10` at 0x41e5a3, 0x42a68e and 0x42a6ba and read at 0x446bb7 and 0x448a78 —
-0x42a68e is a run ending, which the same code says by marking a table at 0x62e6c4 by difficulty, counting
-one more into 0x62f52c, and asking for scene 6.
+**Bit 2 is the one bit of that word nothing has needed**, and where to start on it if something does: it is
+read at 0x439195, 0x4393a0 and three times around 0x442cd9. Bit 4's own addresses are above — set with
+`or 0x10` at 0x41e5a3, 0x42a68e and 0x42a6ba, read at 0x446bb7 and 0x448a78.
 
-**What is still open on the scenes**: 1 (which 2 is entered from), 5, 6, 7, 8, 9, 0xa, 0xb and 0xc.
-0x426f60's grouping of 3, 0xb and 0xc says those three are of a kind, and 2 is not in it — worth
-reading before `State::in_run` is written, since a scene that is a run and a scene that is a run being
-rebuilt are both `in_run` and only one of them is `playing`.
+**And the scenes orb reads are all named**: 1 the front end, 2 a run, 3 a run being rebuilt, 5 the ranking, 6
+the screen a run ends at and 9 the ending, each with its reading beside its constant in `th07/mod.rs`. What is
+unnamed is 7, 8, 0xa, 0xb and 0xc, and nothing of orb's reaches them — 0x426f60 groups 3, 0xb and 0xc, which is
+where a read of them would start.
 
 **And 3 is never a scene orb reads, which the transition's own block settles.** 0x4380b4 writes 3 into the
 scene *wanted*, 0x42f45d tears the stage down, 0x42f3c5 registers the manager for the next stage — which
@@ -393,14 +391,15 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
 ## The order the rest is worth reading in
 
 1. ~~**`Th07::read_state`**~~ — **done, every field of it.** What each is read off is beside the constant
-   in `th07/mod.rs`, and the two things that came out of doing it are below: the numbers are sealed, and the
-   stage's clock has one question a launch answers. The way in was the same each time and is worth keeping
-   for the rest: the event that moves the field, not where 紅魔郷 keeps the same thing.
-2. **The two questions [0004](../adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) parked**, which
-   fall due at the first chapter and not before: whether `State` says everything a chapter needs for a
-   game whose scoring and resources work differently, and whether the midstage table's shape — script
-   frame numbers per stage — holds where stages are not one script on one clock. `th06/chapters.rs`'s
-   `MIDSTAGE` being seven stages because th06 has seven is the one thing left that is not a table.
+   in `th07/mod.rs`, and the thing that came out of doing it is below: the numbers are sealed. The way in was
+   the same each time and is worth keeping for the rest: the event that moves the field, not where 紅魔郷 keeps
+   the same thing.
+2. ~~**The two questions [0004](../adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) parked**~~ —
+   **both answered by the run being played.** `State` says what a chapter of this game needs once `RunState`
+   carries the cherry as well as 紅魔郷's rank and power items, and the table's shape holds: script frame
+   numbers per stage, on the clock [0018](../adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md)
+   settled, with `Game::midstage_table` answering each game's own `chapters.rs` — seven rows for 紅魔郷 and
+   eight for 妖々夢, neither of them a number in the code that reads them.
 3. ~~**The snapshot**~~ — **done, the audio with it.** `live_handles` is the sprite manager's 0x108 textures
    at `+0x282ac`, found by the release at 0x44e6f0 whose own two offsets check each other.
 
@@ -445,15 +444,15 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    screen is asked for, waited on and left, the captures are held across a rewind and across the ranking's own
    read, a card's attempt is counted into both words the game counts into, and the record is resealed after
    every write of orb's — see the two seals below, which are what a count written without one costs.
-6. **The front end.** `menu_pointed_at` is in: the object is reached by walking the chain for its update at
+6. ~~**The front end**~~ — **done, every seam of it**, and what each took is below. `menu_pointed_at` is in: the object is reached by walking the chain for its update at
    0x4554d6 — the register at 0x45c632 keeps its address nowhere else — `+0xd0f8` is which of its fifteen
    screens is up, 0 being the title (the update bounds that field at 0xe and takes the jump-table index out of
    the byte table at 0x4555ce, whose entry for 0 is the only one reaching the title's own handler at 0x4555dd),
    and `+0x0` is the cursor over the eight items. `run_chosen` is in as well — the front end still the scene
    with a run the scene wanted, which the chain's own priorities make a whole frame: the supervisor is 0 and
    the front end is 3, so an item that asks for a run writes the wanted scene after the supervisor has already
-   looked. What is left of this seam is `menu_takes_a_press`, `run_pointed_at`, `run_slot` and the ranking
-   screen's own pair.
+   looked. `menu_takes_a_press`, `run_pointed_at`, `run_slot` and the ranking screen's own pair came after it,
+   and each is below.
 
    **`menu_takes_a_press` is in, and it was two fields deeper than the cursor.** The title screen's handler at
    0x4555dd dispatches on its own phase, `[front+0x8]` — 0 at 0x455621, which is the block the item dispatch
@@ -599,8 +598,8 @@ And two claims in the code that were true when they were written and are not now
 game's menus. The reason both answers are still right is the read itself — 0x430b76 is `GetKeyboardState` — and
 that is what they say now.
 
-**And what is left of 紅魔郷's own files is the two measurements below and nothing else.** Three of them turned out
-to be asked of this game already rather than portable:
+**And nothing of 紅魔郷's own files is left to port.** Three of them turned out to be asked of this game already
+rather than portable:
 
 - `the_process_orb_woke_up_in` walks the whole table — every entry, every build named, and every one found by its
   own exe — so 妖々夢 is in both of its assertions.
@@ -615,32 +614,20 @@ And `a_chapter_out_of_the_table` has nothing to read here yet by design: `Th07::
 rows until the pass in `a_chapter_table_collected_for_th07.rs` is run against a real replay, which is the
 measurement at the end of this file.
 
-**Two of 紅魔郷's are already asked of this game and want no file of their own.** `the_process_orb_woke_up_in`
-walks the whole table — every entry, every build named, and every one found by its own exe — so 妖々夢 is in both
-of its assertions already. And what a replay's own record does across a stage teardown is a question this game
-answers by not having it: `Th07::hooks` declines `stop_recording` because 妖々夢's teardown writes no entry and
-its recorder refuses a frame during playback, which is written where it is declined.
+**And the last two of 紅魔郷's are settled**, both about the game's own player:
 
-**Two of 紅魔郷's want a measurement rather than a port**, and that is why they are named here. Both are the
-game's own player, and what is already in is the state machine's five values and which of them are unsettled
-([`PLAYER_STATE`]):
-
-- **`the_player_a_stage_starts`** asserts 紅魔郷's spawning branch turning 120 into 240, read out of
-  `src/Player.cpp`. How long a stage's own start leaves 妖々夢's player unkillable is a fresh walk through *its*
-  player update, and no e2e test can be written to it until that is measured.
-
-  **Half of that walk is done and it points the other way.** The player's own register at 0x4429d0 clears 0x2df9e
-  dwords from 0x4bdad8 and then writes the timer at `+0x16a00` outright — `[+8]` and `[+4]` to nothing and `[+0]`
-  to -999 — so what a stage's start leaves is the state at **0**, which is the state a run is played in, with no
-  frames of invulnerability under it at all. Its three chain callbacks (0x441fb0, 0x4420b0, 0x442350) write
-  neither the state nor those frames. What is left to read is whether anything *else* gives the player the walk-in
-  a stage looks like it has — the stage's own script is the place to look, an ECL instruction being how a stage
-  moves the player — and until that is settled the claim "a stage of 妖々夢 starts its player killable" is a
-  reading of one function rather than of the game.
-- **`the_dpad_moving_the_player`**'s second half is the same kind of thing: what a direction added to the word
-  *does* is the player's own arithmetic, a step per frame that would have to be measured. The half that is orb's
-  — the hat's direction reaching the word the game's own read answers, which is `dpad_moves` — is already asked
-  of this game in `th07.rs`'s own pad test, on both of the devices a pad can be read on.
+- **`the_player_a_stage_starts`** asserts 紅魔郷's spawning branch turning 120 into 240. 妖々夢 does the opposite
+  and `the_player_a_stage_of_th07_starts.rs` is that read written down: the register every stage's build runs
+  leaves the state a run is played in with nothing on the timer, and the hit test reads no count of frames at all,
+  so a stage of this game begins with a player anything can kill. What the e2e test holds is what a build leaves
+  in the two fields `--clear` writes; how long the player is unkillable for is nothing, and there is no test to be
+  written about a length that does not exist.
+- **`the_dpad_moving_the_player`**'s second half is the game's own arithmetic — a step per frame — and stays
+  unmodelled for the reason [0008](../adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md) rejected
+  modelling the pad's merge into the input word: where an axis becomes a direction is the game's business and not
+  a thing to reimplement twice. The half that is orb's — the hat's direction reaching the word the game's own read
+  answers, which is `dpad_moves` — is asked of this game in `th07.rs`'s own pad test, on both of the devices a pad
+  can be read on.
 
 ## The crash on the way out of a run
 
@@ -689,13 +676,18 @@ apart. The pump now stops at `CHAIN_EXIT_ERROR` and says so:
 was watched failing at three walks past that answer and then at one, and which is also the first e2e test over
 this game to reach `commit_records` at all — the hole the fault fell through.
 
-**Whether that was the fault is for the next launch to say**: the game answering `-1` there is what the fix
-turns on, and no run has shown its answers yet. What to look for is the new line above and the fault's own
-callers; if the pump still faults with the answers stopping it, the next thing to read is what else the game's
-own frame does around the walk that the pump does not — 0x434794's own call, `[ecx+0xa0]` at 0x4347d4 and
-`PLAY_SOUNDS` at 0x4347ec are the three, and a pump that walks the chain alone is a frame missing all of them.
+**And then the pump stopped being asked for at all**, which closes this route rather than fixing it:
+`commit_records` returns on `Game::writes_its_own_records` before it walks anything, and 妖々夢 answers that
+`true` — so no launch of this game asks the chain for an update again, and the walk the fault was inside is one
+nothing makes. The line to look for now is
+`score: this game writes its own file; what the run counted waits for the save it makes itself`.
 
-Then, if it is still standing:
+What is kept above is the reading, for a fault that comes back from somewhere else: `--no-chapters` as the
+bisect that took the restore out of it, `orb_core::crash`'s registers and callers as what named the walk, and
+the three things the game's own frame does around a walk that a pump of orb's would not — 0x434794's own call,
+`[ecx+0xa0]` at 0x4347d4 and `PLAY_SOUNDS` at 0x4347ec.
+
+And if a fault of that shape does turn up again:
 
 - **`--self-check --stress=600`**, on that same practice stage. It restores every snapshot as it is taken and
   names every region that does not come back byte for byte. `--no-memory` beside it is the bisect: a snapshot of
@@ -771,11 +763,11 @@ So what orb does at that seam is a **put back** and not an add — `Game::put_ba
 one passed until the laid-out build read its file the way 0x42e735 does; with that in, it came out as
 `left: (15, 7)` against `right: (8, 4)`, which is the history doubled.
 
-**What is still not held by a test is the guard**, which is the third call site's doing: orb puts the run's records
-back only inside the save it asked for, since a put-back at the front end's read is a put-back no write follows and
-the note is spent. The laid-out give-up does not route through the front end's own added callback at the moment the
-real one does, so removing the guard leaves the suite green. What would hold it is a laid-out front end whose
-build runs that callback where the game's does — between a run being given up and orb's save.
+**And the guard is held by a test now**, which is the third call site's doing: the note is let go of only where a
+write follows the read it was put back at, since a read that writes nothing leaves what the run counted in memory
+and nowhere else. The laid-out front end runs that callback where the game's does — `the_front_end_reads_the_file_for_its_menus`,
+at the title a given-up run comes back to as well as the one it started from — so with `A_WRITE_FOLLOWS` taken out
+`the_cards_a_run_of_th07_counted` fails on the file holding `(7, 3)` where the run counted `(8, 4)`.
 
 **And a launch says the whole of it without a run being played to a spell card**, which is what
 `--counted-a-card=<card>` is for: it counts one attempt and one capture against that card, notes them the way a
