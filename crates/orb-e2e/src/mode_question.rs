@@ -89,8 +89,11 @@ fn under_the_cursor(game: &Fake) -> Mode {
 
 /// Whether the question is still on the screen, which is what "nothing was answered" looks like.
 fn still_asking(game: &Fake) -> bool {
-    game.one_frame();
-    !game.says(title(Menu::Run, LANGUAGE)).is_empty()
+    // A frame that drew, and not the next one: a frame orb was late for draws nothing, and reading one of those
+    // would be this answering that the question had been answered — see `Launched::a_frame_that_says`.
+    !game
+        .a_frame_that_says(title(Menu::Run, LANGUAGE))
+        .is_empty()
 }
 
 /// How many times orb has reported an outcome for this question — a mode chosen, or neither.

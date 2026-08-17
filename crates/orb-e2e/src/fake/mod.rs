@@ -779,7 +779,34 @@ pub trait Launched {
         self.forget();
         self.frame();
     }
+
+    /// The quads of the first frame that drew `text`, and nothing where no frame did — after which
+    /// [`says`](Launched::says) answers off that same frame, so a second line can be read beside the first.
+    ///
+    /// **Not the next frame's, which is what a busy machine reads as an empty screen.** orb's own loop is paced
+    /// against the wall clock and a frame it is late for is a frame it draws nothing in, so a test that runs one
+    /// frame and reads what is on it is a test that fails when the machine is running the rest of this suite
+    /// beside it. Two runs of the whole suite failed that way — `MIDBOSS SPELL 1 is not written once`, with
+    /// nothing read off the screen at all and the same test passing alone every time afterwards.
+    ///
+    /// Every frame is forgotten before it runs, so what comes back is one frame's own quads and a line drawn once
+    /// is one of them.
+    fn a_frame_that_says(&self, text: &str) -> Vec<Quad> {
+        for _ in 0..FRAMES_FOR_A_DRAW {
+            self.one_frame();
+            let drawn = self.says(text);
+            if !drawn.is_empty() {
+                return drawn;
+            }
+        }
+        Vec::new()
+    }
 }
+
+/// How many frames a screen that is up is given to be drawn in — see [`Launched::a_frame_that_says`]. Long
+/// enough that a machine with the rest of this suite running on it gets one, and short enough that a screen which
+/// never comes up is a failure rather than a wait nobody sees the end of.
+const FRAMES_FOR_A_DRAW: u32 = 30;
 
 /// What names the process an e2e test runs in as the one that is *being* the launch, and which e2e test
 /// it is: read by the child, set by the parent.

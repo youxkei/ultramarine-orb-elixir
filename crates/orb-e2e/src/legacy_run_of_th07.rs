@@ -74,9 +74,9 @@ fn the_mode_question_over_th07_answered_the_other_way_is_read_off_the_screen() {
         // The cursor is on the other one now, which is a colour on the screen and not a number anywhere:
         // `menu_ui` draws the item under it in `SELECTED`. And the lines under the items say what *this* choice
         // means, which is not what the other one's said.
-        game.forget();
-        game.one_frame();
-        let pointdevice = game.says(Mode::Pointdevice.name(LANGUAGE));
+        // A frame that drew, both lines read off that same one: a frame orb was late for draws nothing at all —
+        // see `Launched::a_frame_that_says`.
+        let pointdevice = game.a_frame_that_says(Mode::Pointdevice.name(LANGUAGE));
         let legacy = game.says(Mode::Normal.name(LANGUAGE));
         assert_eq!(
             (pointdevice.len(), legacy.len()),

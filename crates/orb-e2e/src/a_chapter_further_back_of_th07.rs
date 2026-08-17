@@ -69,16 +69,13 @@ fn a_run(name: &str) -> Box<Fake> {
 /// Each is one quad because each is one line drawn once, so an item on the screen twice — or a chapter the
 /// stage no longer has a snapshot of — fails here rather than in whichever assertion below happens to read it.
 ///
-/// # An intermittent seen once
+/// # The frame it reads, and why it is not simply the next one
 ///
-/// `MIDBOSS SPELL 1 is not written once`, `left: 0`, on one run of the whole suite; the same test on its own
-/// passed four times after it and the suite passed again. Nothing was read off the screen at all that frame,
-/// which is a menu that was not up yet rather than a wrong name — so the frame this waits on is the thing to
-/// look at, not the chapter it names. Written down because a flake nobody recorded is one somebody has to
-/// rediscover; the tree's other one is beside `STREAMING` in `orb-sim`'s sound.
+/// `MIDBOSS SPELL 1 is not written once`, `left: 0` — nothing read off the screen at all — came out of two runs
+/// of the whole suite, and the same test on its own passed every time after each of them: a frame orb was late
+/// for is a frame it drew nothing in. `Launched::a_frame_that_says` is what that cost, and what this reads.
 fn reads(game: &Fake, header: &str, items: &[&str], under_the_cursor: &str) {
-    game.forget();
-    game.one_frame();
+    let above = game.a_frame_that_says(header);
     let mut lines = Vec::new();
     for item in items {
         let drawn = game.says(item);
@@ -101,7 +98,6 @@ fn reads(game: &Fake, header: &str, items: &[&str], under_the_cursor: &str) {
             "what follows {item} is not the next line of the menu",
         );
     }
-    let above = game.says(header);
     assert_eq!(above.len(), 1, "{header} is not written once");
     assert!(
         above[0].y < lines[0],
