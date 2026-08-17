@@ -9,11 +9,36 @@ walked out of the exe the way every other line here was. Everything else is in �
 `true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up, with a chapter at every stage's
 start and none inside one until that run happens.
 
+**And every one of those has now been played on the real game**, which is the other half of "in": a run
+chaptered and retried with its music and its cards, given up, picked up out of its file in a later launch and
+landing on the frame that was written down, field for field. What each launch caught is the table below, and the
+one thing none of them could produce is the table this file is still open for: `--collect` and `--judge` work
+over this game — `a_chapter_table_collected_for_th07.rs` — and what they are waiting for is somebody playing a
+Lunatic stage under them.
+
 Here rather than in the issue because the measurements below have to be repeatable — every one is a
 walk through `th07.exe` that anybody can take again, and a number in a paragraph nobody can re-derive
 is one nobody can tell is still true. **This file is deleted when the work is done**, with each thing
 in it gone to the place the conventions give it: an address to the constant it is the reason for, a
 claim about the game to an e2e test, a decision about shape to `docs/adr/`.
+
+## What the launches settled, and where each of them now lives
+
+Everything below this section was read out of the exe. These were read off the game *running*, which is the only
+place they could be read, and each is now an e2e test with the fake made to model the game's own order first —
+because in every one of them the laid-out game had been agreeing with orb rather than with 妖々夢.
+
+| what a launch said | where the answer lives |
+| --- | --- |
+| the input read hands the word to the run a frame late, which is 妖々夢's famous frame of lag | `Game::hand_the_read_to_the_run`, and the three chain priorities beside `G_INPUT_THE_RUN_ACTS_ON` |
+| a run picked up out of its file came up with the game's own lives, bombs and power — `resume: not put back` | `Th07::read_state`'s `in_run`: the supervisor's scene lags a run's build by the rest of one update |
+| and then played a stage nobody played, parting from the run at its first frame | `STAGE_BUILD`: the seed goes in before the build draws, and `set_run_state` holds the generator still over the reseal |
+| and the stage's own song played from the top for the seconds that took | the silence in the fed branch of the input read, put back by the landing's `play_from` |
+| 霊夢B's unfinished run was offered with the cursor on 霊夢A | `run_pointed_at` reads the cursor; `G_SHOT_CHOSEN` is written where an item is *decided* |
+| 中断データあり was written over the difficulty's own name | `Th07::mark_corner` and `DIFFICULTY_LABEL_TOP`, both read off a screen |
+| orb's screens were not in the game's face after all | `OWN_FACE` carries the height and the 2× bake — [0019](../adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md) |
+| a boss beaten left a chapter with nothing to fight | `chapter.rs`, where a chapter the defeat closed is dropped |
+| the practice stage select showed a legacy run's scores | `read_what_the_modes_file_records` |
 
 ## How to take the walk again
 
@@ -395,12 +420,19 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    the exe's own bytes — the function whose end is where a stage's numbers have just been put in place, which
    is what that seam is for, and orb's own `set_run_state` is called after it returns.
 
-   **`stage_building` is nothing for this game, and that is a reading rather than a gap.** 紅魔郷 needs it
-   because its seed has to be in before the stage is built out of the generator; 妖々夢 takes its stage's seed
-   *during* the build — 0x42f0a4 copies `[0x49fe20]` into `[gm+0x95e4]` — and its own replay restore puts the
-   seed back at the *end* of the restore, at 0x443910, after the numbers and their reseals. So the seed goes
-   in where the numbers go in, which is what `Th07::set_run_seed` being called from the tail of
-   `Th07::set_run_state` already does.
+   **`stage_building` is the stage's own build, 0x4074c0**, prologue `55 8b ec 83 ec 08 57` — and it was
+   declined first, for a stage's worth of reasoning a launch then refuted. The reasoning was that 妖々夢 takes
+   its stage's seed *during* the build (0x42f0a4 copies `[0x49fe20]` into `[gm+0x95e4]`) and that its own replay
+   restore puts the seed back at the *end* of a restore, so the seed could go in where the numbers go in — the
+   tail of `Th07::set_run_state`.
+   
+   What that missed is that both of those are *inside* 0x42e83e, and orb's hook over that callback runs when it
+   returns: by then the build has drawn the stage out of the generator, so writing the seed there rewinds it
+   under a stage already laid out. A run picked up out of its file parted from the run at the stage's first
+   frame — `the generator is 0x6167 where the run had 0xe33d` — and 0x4074c0 is where the seed goes instead: the
+   twelve instructions before its one call site are the game settling that seed, and its entry is the last
+   moment before anything is drawn. `set_run_state` no longer writes the seed at all, and holds the generator
+   still over the reseal the way 0x42f07e–0x42f094 does.
 
    **And the calling convention is why the patch could not simply be declared**: this game's chain calls its
    callbacks `__thiscall`, with the object in `ecx` — `RUN_CALC_CHAIN`'s own walk does
@@ -457,16 +489,18 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    Phantasm — while `run_start`, answered after the build, reads the same word one higher. Two methods, the
    same field, read differently, which is [`G_STAGE`]'s own note in the code.
 
-   **`run_slot` is in, named by numbers**, and what it would take to name it by characters is written beside
-   the method: the tables are found and unreferenced. The shots'
-   own names are eight bytes apart from 0x495b28 downwards — `ReimuA`, `ReimuB`, `MarisaA`, `MarisaB`,
-   `SakuyaA`, `SakuyaB`, which is `character * 2 + shot`'s order — and the difficulties' are twelve apart from
-   0x495628 downwards, `Easy` through `Phantasm`, which is 0x626280's own order. The character index is
-   0, 1 and 2: the player's load at 0x442478 switches on it and takes `data/player00.anm`, `player01.anm` or
-   `player02.anm`. **What is missing is the code that indexes either table**, so the tie between the index and
-   the name is inferred from the layout rather than read — no scaled index into 0x495b00 or 0x495600 is in the
-   exe, so whoever finishes this should find how those strings are reached before naming a file after one.
-   Until then the honest slot is 紅魔郷's own fallback shape, the numbers.
+   **`run_slot` is in and names the run** — `lunatic-sakuya-b` — which is 紅魔郷's own shape here and what
+   makes a listing of `pointdevice_resume/` read as the runs somebody left. The two orders it needs are read
+   rather than guessed: the difficulty is 0x626280's own numbering, `Easy` through `Phantasm`, and the shot is
+   `character * 2 + shot`, which is the byte at 0x62f647 every table the game indexes by them is in — the
+   player's load at 0x442478 switches on the character and takes `data/player00.anm`, `player01.anm` or
+   `player02.anm`. A run whose numbers are none of this game's falls back to the numbers, a name being the one
+   thing that cannot be made up.
+
+   **The game's own names are not what orb writes**, and that is deliberate: they are there —
+   `ReimuA` eight bytes apart from 0x495b28 downwards, `Easy` twelve apart from 0x495628 — but nothing in the
+   exe indexes either table, so which string goes with which index would be inferred from the layout. orb's own
+   words for the same indices say the same thing and are read out of the code that uses them.
 7. ~~**The panel**~~ — **done, and the piece whose numbers were not all in the exe needed none of them.**
 
    `panel_tile` takes the tile out of the vm the game lays its own background with rather than out of a
@@ -610,6 +644,10 @@ game's own player, and what is already in is the state machine's five values and
 
 ## The crash on the way out of a run
 
+**Settled**: the pump orb ran to build the ranking is gone, and orb waits for the game's own save instead — the
+whole of it is beside `SAVE_KIND_WRITES` in `th07/mod.rs`, which is where somebody reaching for that call next
+will read it. What is below is how the fault was found.
+
 **Where three launches got to, in the order the log has them**: a practice run of the stage the log calls
 `stage=5`, a death, a chapter put back, the run ended — and then, while the ranking that write needs is being
 built and taken down, `crash: code 0xc0000005 at 0x00450db1 in th07.exe+0x50db1`, reading an address ending
@@ -703,6 +741,11 @@ rest, one at a time, and the two card colours in `image`'s `bakes_a_string` are 
 form: `assert_eq!(colour, super::CARD_NAME_COLOUR)` cannot fail.
 
 ## Why the ranking is built at all, and what it would take not to
+
+**Settled**: it is not built by orb at all any more. `Game::writes_its_own_records` answers `true` for this game,
+so what a session counted is put back over the file's own records at the parse the game's own save makes — see
+`Th07::put_back_the_cards_a_run_left` and `its_records_are_about_to_be_written`, and a launch's
+`score: card 91 now 126 …` line. What is below is the reading that led there.
 
 **Read because the pump that builds it is where the fault above lives**, and the question was whether 妖々夢
 needs it: 紅魔郷 writes its score file only as the ranking screen goes down, and if this game wrote its own on

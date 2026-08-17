@@ -23,7 +23,7 @@
 //! stage is a run put back wrong with nothing about the file saying so — and the third is the bound on waiting
 //! for a moment that is never coming.
 
-use crate::fake::th07::{CHARACTER, DIFFICULTY, Fake, SHOT};
+use crate::fake::th07::{Fake, SHOT};
 use crate::fake::{Display, Launched, READS_KEYS_AFTER, Work, in_its_own_process};
 use orb_config::LogLevel;
 use orb_sim::keys;
@@ -39,20 +39,17 @@ const WORK_US: i64 = 700;
 const KEPT_IN: &str = "pointdevice_resume";
 const KEPT_AS: &str = "msgpack";
 
-/// The name 妖々夢 gives the run these play, which is what names its file: the difficulty, the character and the
-/// shot, and nothing else — see `Th07::run_slot`.
-fn slot() -> String {
-    format!("difficulty{DIFFICULTY}-character{CHARACTER}-shot{SHOT}")
-}
+/// The name orb gives the run these play, which is what names its file: the difficulty and the shot, and nothing
+/// else — see `Th07::run_slot`.
+///
+/// **Written out rather than asked of `run_slot`**, which would be this agreeing with the code it is about: what
+/// the name has to be is what somebody reading the directory sees, and `DIFFICULTY`, `CHARACTER` and `SHOT` are
+/// 1, 0 and 0 — Normal, and 霊夢's first shot.
+const SLOT: &str = "normal-reimu-a";
 
 /// And the same difficulty and character with the other shot, which is a run of its own with a file of its own
 /// — the buttons written down are the shot's, and another shot's played back would be somebody else's run.
-fn another_shots_slot() -> String {
-    format!(
-        "difficulty{DIFFICULTY}-character{CHARACTER}-shot{}",
-        SHOT + 1
-    )
-}
+const ANOTHER_SHOTS_SLOT: &str = "normal-reimu-b";
 
 fn launched(name: &str) -> Box<Fake> {
     Fake::attach_configured(
@@ -76,7 +73,7 @@ fn left_a_run(name: &str) -> Box<Fake> {
     game.gives_the_run_up();
     assert_eq!(
         orb_core::resume::left(game.dir()),
-        vec![slot()],
+        vec![SLOT.to_owned()],
         "the run that was given up was not left behind",
     );
     game
@@ -93,7 +90,7 @@ fn up_to_the_question(game: &Fake) {
     game.press_until(keys::Z, "the question about the run left behind", || {
         log.said_since(
             from,
-            &format!("resume: {} was left; asking where to start", slot()),
+            &format!("resume: {SLOT} was left; asking where to start"),
         )
     });
 }
@@ -146,7 +143,7 @@ fn starting_a_run_of_th07_from_the_beginning_leaves_the_file_for_its_own_first_c
         // run reaches a chapter of its own and writes over it, not on the answer.
         assert_eq!(
             orb_core::resume::left(game.dir()),
-            vec![slot()],
+            vec![SLOT.to_owned()],
             "the file was taken away by an answer that only declined it",
         );
         // The stage's own start is this run's first chapter, which is the chapter that goes into the file —
@@ -189,7 +186,7 @@ fn cancelling_the_question_of_th07_starts_no_run_and_leaves_the_shot_select_alon
         assert!(!game.state().playing, "a cancelled question started a run");
         assert_eq!(
             orb_core::resume::left(game.dir()),
-            vec![slot()],
+            vec![SLOT.to_owned()],
             "the run left unfinished was disturbed by a question nobody answered",
         );
     });
@@ -202,10 +199,7 @@ fn a_file_of_th07_that_cannot_be_made_sense_of_is_named_and_left_where_it_is() {
         let nonsense = "this is not a msgpack of anything";
         let game = launched("th07-left-nonsense");
         let log = game.log();
-        let path = game
-            .dir()
-            .join(KEPT_IN)
-            .join(format!("{}.{KEPT_AS}", slot()));
+        let path = game.dir().join(KEPT_IN).join(format!("{SLOT}.{KEPT_AS}"));
         game.sim().files().put(&path, nonsense);
 
         the_press_at_the_shot_select_says(&game, "cannot make sense of");
@@ -241,10 +235,7 @@ fn a_file_of_th07_that_cannot_be_read_is_named_and_costs_the_run_nothing() {
     in_its_own_process(|| {
         let game = launched("th07-left-unreadable");
         let log = game.log();
-        let path = game
-            .dir()
-            .join(KEPT_IN)
-            .join(format!("{}.{KEPT_AS}", slot()));
+        let path = game.dir().join(KEPT_IN).join(format!("{SLOT}.{KEPT_AS}"));
         game.sim().files().put(&path, "a run somebody left");
         game.sim().files().refuses_to_read(&path);
 
@@ -271,10 +262,7 @@ fn a_file_of_th07_holding_another_runs_chapter_is_named_and_left_alone() {
         // one by hand does.
         let held = {
             let game = left_a_run("th07-left-another-run");
-            let path = game
-                .dir()
-                .join(KEPT_IN)
-                .join(format!("{}.{KEPT_AS}", slot()));
+            let path = game.dir().join(KEPT_IN).join(format!("{SLOT}.{KEPT_AS}"));
             game.sim()
                 .files()
                 .get(&path)
@@ -285,7 +273,7 @@ fn a_file_of_th07_holding_another_runs_chapter_is_named_and_left_alone() {
         let path = game
             .dir()
             .join(KEPT_IN)
-            .join(format!("{}.{KEPT_AS}", another_shots_slot()));
+            .join(format!("{ANOTHER_SHOTS_SLOT}.{KEPT_AS}"));
         game.sim().files().put(&path, &held);
 
         // The other shot under the cursor of the shot select, which is the run that file is asked about for.
@@ -296,10 +284,8 @@ fn a_file_of_th07_holding_another_runs_chapter_is_named_and_left_alone() {
         });
         assert!(
             log.said(&format!(
-                "resume: {} holds a run of {}, not {}; left alone",
+                "resume: {} holds a run of {SLOT}, not {ANOTHER_SHOTS_SLOT}; left alone",
                 path.display(),
-                slot(),
-                another_shots_slot(),
             )),
             "the file holding another run was not named:\n  {}",
             log.lines().join("\n  ")
@@ -364,10 +350,7 @@ fn a_file_of_th07_that_cannot_be_written_is_named_and_the_run_plays_on() {
     in_its_own_process(|| {
         let game = launched("th07-left-no-write");
         let log = game.log();
-        let at = game
-            .dir()
-            .join(KEPT_IN)
-            .join(format!("{}.{KEPT_AS}", slot()));
+        let at = game.dir().join(KEPT_IN).join(format!("{SLOT}.{KEPT_AS}"));
         game.sim().files().refuses_to_write(&at);
 
         game.streams_its_song(0);

@@ -15,7 +15,7 @@
 //! other, and picking it up again is this game's own `start_stage`, `set_run_state` and the added callback the
 //! numbers go in on.
 
-use crate::fake::th07::{CHARACTER, DIFFICULTY, Fake, SHOT};
+use crate::fake::th07::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
 use orb_config::LogLevel;
 
@@ -32,11 +32,16 @@ const APART: u32 = 120;
 /// What the chapter the card begins is called, which is the name the file carries.
 const THE_CARD: &str = "MIDBOSS SPELL 1";
 
+/// The name orb gives the run this plays, which is what names its file: `DIFFICULTY`, `CHARACTER` and `SHOT` are
+/// 1, 0 and 0 — Normal, and 霊夢's first shot. Written out rather than asked of `Th07::run_slot`, which would be
+/// this agreeing with the code it is about.
+const SLOT: &str = "normal-reimu-a";
+
 /// The file this run's chapter is written down in, under the directory `resume.rs` keeps them in.
 fn written_down_in(game: &Fake) -> std::path::PathBuf {
-    game.dir().join("pointdevice_resume").join(format!(
-        "difficulty{DIFFICULTY}-character{CHARACTER}-shot{SHOT}.msgpack"
-    ))
+    game.dir()
+        .join("pointdevice_resume")
+        .join(format!("{SLOT}.msgpack"))
 }
 
 /// A write that took longer than a frame is said at the level a run is ordinarily logged at, not the one
@@ -151,9 +156,7 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
         // of it below.
         assert_eq!(
             orb_core::resume::left(game.dir()),
-            vec![format!(
-                "difficulty{DIFFICULTY}-character{CHARACTER}-shot{SHOT}"
-            )],
+            vec![SLOT.to_owned()],
             "the run is not among the ones left unfinished",
         );
 

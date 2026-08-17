@@ -3127,10 +3127,33 @@ impl Game for Th07 {
         if run.practice {
             return None;
         }
-        Some(format!(
-            "difficulty{}-character{}-shot{}",
-            run.difficulty, run.character, run.shot_type
-        ))
+        /// The six difficulties in the order [`DIFFICULTY`] numbers them, which is the order the game's own
+        /// table of their names is laid out in — twelve bytes apart from 0x495628 downwards, `Easy` through
+        /// `Phantasm`.
+        const DIFFICULTIES: [&str; 6] = ["easy", "normal", "hard", "lunatic", "extra", "phantasm"];
+        /// And the six shots in `character * 2 + shot`'s order, which is the order of every table the game
+        /// indexes by that byte — see [`G_SHOT_COMBINED`], and the player's own load at 0x442478, which
+        /// switches on the character and takes `data/player00.anm`, `player01.anm` or `player02.anm`.
+        const SHOTS: [&str; 6] = [
+            "reimu-a", "reimu-b", "marisa-a", "marisa-b", "sakuya-a", "sakuya-b",
+        ];
+
+        let difficulty = usize::try_from(run.difficulty)
+            .ok()
+            .and_then(|at| DIFFICULTIES.get(at));
+        let shot = usize::try_from(run.character * 2 + run.shot_type)
+            .ok()
+            .and_then(|at| SHOTS.get(at));
+        // Numbered where either is not one of this game's, a name being the one thing this cannot make up — and
+        // the file has to be some run's either way. Which is 紅魔郷's own answer here, and was this game's whole
+        // answer until the names went in.
+        Some(match (difficulty, shot) {
+            (Some(difficulty), Some(shot)) => format!("{difficulty}-{shot}"),
+            _ => format!(
+                "difficulty{}-character{}-shot{}",
+                run.difficulty, run.character, run.shot_type
+            ),
+        })
     }
 
     /// The numbers of the run this stage started with, all but three of them.
@@ -3717,9 +3740,30 @@ mod tests {
             practice: false,
             stage: 0,
         };
+        // **Named and not numbered**, which is what the directory of runs left unfinished is read as: 咲夜's
+        // second shot on Lunatic. See [`Th07::run_slot`] for where each half of that name comes from.
+        assert_eq!(Th07.run_slot(&run).as_deref(), Some("lunatic-sakuya-b"));
         assert_eq!(
-            Th07.run_slot(&run).as_deref(),
-            Some("difficulty3-character2-shot1")
+            Th07.run_slot(&RunStart {
+                difficulty: 5,
+                character: 0,
+                shot_type: 0,
+                ..run
+            })
+            .as_deref(),
+            Some("phantasm-reimu-a"),
+        );
+        // And a run whose numbers are not any of this game's is numbered rather than named, a name being what
+        // this cannot make up: a file has to be one run's either way.
+        assert_eq!(
+            Th07.run_slot(&RunStart {
+                difficulty: 9,
+                character: 4,
+                shot_type: 1,
+                ..run
+            })
+            .as_deref(),
+            Some("difficulty9-character4-shot1"),
         );
         // Every run that is a different run gets a different slot, which is the whole of what this is for.
         let other = RunStart {
