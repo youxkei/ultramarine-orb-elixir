@@ -1250,6 +1250,18 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn stage_frame(&self) -> Option<u32>;
 
+    /// The generator's own state, which is the whole of what says a stage is playing out the same way twice:
+    /// the same seed and the same buttons make the same stage, and one number out of step makes another one.
+    ///
+    /// **Its own accessor beside [`stage_frame`](Game::stage_frame) and for the same reason**: the input read
+    /// asks for it on every frame, one to write down beside that frame's buttons and one to hold against what
+    /// was written down — see `resume::fed`. A whole [`State`] to get it would put a job-chain walk inside the
+    /// game's keyboard read, and [`Reproduction`] would put two pointer chases there.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn generator(&self) -> u16;
+
     /// Hands the word a frame's read produced to the run, where the game itself would hand it over too late
     /// for that frame's own update to act on.
     ///

@@ -1615,6 +1615,12 @@ impl Game for Th06 {
             .then(|| unsafe { mem::read(G_GAME_MANAGER + game_manager::GAME_FRAMES) })
     }
 
+    /// The generator, which this game keeps inside its own game manager — the same word
+    /// [`State::random_seed`](crate::game::State::random_seed) is read from.
+    unsafe fn generator(&self) -> u16 {
+        unsafe { mem::read(G_GAME_MANAGER + game_manager::RANDOM_SEED) }
+    }
+
     fn run_input(&self) -> u16 {
         RUN_INPUT
     }

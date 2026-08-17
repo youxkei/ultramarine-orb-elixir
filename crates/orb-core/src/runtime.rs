@@ -1327,7 +1327,7 @@ pub extern "system" fn get_input() -> u16 {
     // check: a run being played back into place is being played with the window wherever it is,
     // and the frames it runs through are not frames anybody is at the keyboard for.
     let frame = unsafe { game.stage_frame() };
-    if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame) }) {
+    if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
         // Through the same hand-over the keyboard's own word goes through: a run being played back into place
         // is a run whose frames have to land where they landed, and a frame played on last frame's buttons is
         // not that frame — see `Game::hand_the_read_to_the_run`.
@@ -1474,7 +1474,9 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
 /// Only ever called from the input hook, on the game's main thread.
 unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     if let Some(frame) = frame {
-        unsafe { resume::noted(frame, buttons & game.run_input()) };
+        unsafe {
+            resume::noted(frame, buttons & game.run_input(), game.generator());
+        }
     }
     // And handed to the run here, which is the read's own moment: a game whose own hand-over comes after the
     // update that acts on it is a game played a frame late — see `Game::hand_the_read_to_the_run`. Every way

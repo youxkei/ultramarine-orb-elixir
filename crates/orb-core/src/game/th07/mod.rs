@@ -3028,6 +3028,11 @@ impl Game for Th07 {
             .then(|| unsafe { mem::read(G_GAME_MANAGER + STAGE_FRAMES) })
     }
 
+    /// The generator itself — see [`G_RANDOM`], which is the word every draw of this game moves.
+    unsafe fn generator(&self) -> u16 {
+        unsafe { mem::read(G_RANDOM) }
+    }
+
     /// Every bit of the word a run acts on — see [`RUN_INPUT`].
     fn run_input(&self) -> u16 {
         RUN_INPUT

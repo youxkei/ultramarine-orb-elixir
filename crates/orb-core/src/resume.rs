@@ -72,7 +72,7 @@ const EXTENSION: &str = "msgpack";
 
 /// What this file's fields mean. Written into it and refused on the way back in, so a file from
 /// another version is a line in the log rather than a run started with fields read as each other.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Longer than any stage of any run: half an hour of one at 60 frames a second. A bound on what a
 /// file can ask to be allocated for, and on the frame number a record will write down at all.
@@ -111,6 +111,10 @@ pub struct Saved {
     pub landing: String,
     /// One entry per stage frame, `0..at`.
     pub buttons: Vec<u16>,
+    /// And the generator's own state on each of those frames, which is what says whether a playback is still
+    /// reproducing the run — see [`Record::feed`]. One entry per frame like the buttons, and no shorter: a
+    /// playback compares the frames it has and says nothing about the rest.
+    pub generators: Vec<u16>,
 }
 
 impl Saved {
@@ -168,14 +172,31 @@ pub struct Landing {
     pub reproduction: String,
 }
 
+/// What one frame of a stage was played with: the buttons its update acted on, and the generator's own state as
+/// it did.
+///
+/// **One entry and not two lists**, because two lists are two lengths. They were two, and a playback that ended
+/// early left the buttons at the length its file had and the generators empty — the first frame written down
+/// after that indexed the short one, and a 妖々夢 launch crashed where a run was picked up:
+/// `index out of bounds: the len is 0 but the index is 3609`.
+#[derive(Clone, Copy, Default)]
+struct Played {
+    buttons: u16,
+    /// Held against what the generator is on that frame while a run is played back — see [`Record::feed`].
+    generator: u16,
+}
+
 /// The buttons of the stage being played, and whatever a resume is in the middle of.
 struct Record {
     /// Which stage the buttons belong to, and `None` when nothing is being kept.
     stage: Option<i32>,
     /// The run's numbers as that stage began, read where the game itself puts them in place.
     start: RunState,
-    /// One entry per stage frame: the buttons the update of that frame acted on.
-    buttons: Vec<u16>,
+    /// One entry per stage frame — see [`Played`].
+    played: Vec<Played>,
+    /// The frame a playback was first found to have parted from the run it is reproducing, so that it is said
+    /// once rather than for every frame after it.
+    parted: Option<u32>,
     /// Set while a saved run is being played in, and taken when it arrives.
     feeding: Option<Landing>,
     /// A saved run whose stage the game has been asked to build, waiting for it to be built.
@@ -204,7 +225,8 @@ impl Record {
                 cherry_target: 0,
                 cherry_plus: 0,
             },
-            buttons: Vec::new(),
+            played: Vec::new(),
+            parted: None,
             feeding: None,
             starting: None,
         }
@@ -213,29 +235,50 @@ impl Record {
     /// Writes down what the update of `frame` is about to act on. The same frame reached twice —
     /// a chapter retried, or a frame the game spent with a menu up — is one entry, the last write
     /// winning, which is the one that update sees.
-    fn note(&mut self, frame: u32, buttons: u16) {
+    fn note(&mut self, frame: u32, buttons: u16, generator: u16) {
         if self.stage.is_none() || frame >= MAX_STAGE_FRAMES {
             return;
         }
         let at = frame as usize;
-        if self.buttons.len() <= at {
-            self.buttons.resize(at + 1, 0);
+        if self.played.len() <= at {
+            self.played.resize(at + 1, Played::default());
         }
-        self.buttons[at] = buttons;
+        self.played[at] = Played { buttons, generator };
     }
 
     /// What the update of `frame` is to act on while a run is being played in, and `None` once the
     /// chapter is reached — from there the keyboard is the player's again.
-    fn feed(&self, frame: u32) -> Option<u16> {
+    ///
+    /// **And the generator held against what it was on that frame**, which is the only thing that says a
+    /// playback has stopped reproducing the run *and where*. The buttons cannot: a run that has parted plays on
+    /// with the same presses landing on a different stage, and what shows up is a death thousands of frames
+    /// later or a landing check at the end — neither of which says which frame it went wrong on. A 妖々夢 run
+    /// picked up out of its file was hit at frame 1206 of 8553 and had died seven times by the chapter, and the
+    /// generator at the stage's ninth frame was already `0x3874` where the run had `0x4289`.
+    ///
+    /// Said once, the first frame being the one with the cause in it, and the playback carried on so that the
+    /// landing check still gets its say.
+    fn feed(&mut self, frame: u32, generator: u16) -> Option<u16> {
         let at = self.feeding.as_ref()?.at;
-        (frame < at)
-            .then(|| self.buttons.get(frame as usize).copied())
-            .flatten()
+        if frame >= at {
+            return None;
+        }
+        let played = self.played.get(frame as usize).copied()?;
+        let (word, was) = (played.buttons, played.generator);
+        if self.parted.is_none() && was != generator {
+            self.parted = Some(frame);
+            log!(
+                "resume: the playback parted from the run at frame {frame}: the generator is \
+                 {generator:#06x} where the run had {was:#06x}"
+            );
+        }
+        Some(word)
     }
 
     fn stop(&mut self) {
         self.stage = None;
-        self.buttons.clear();
+        self.played.clear();
+        self.parted = None;
         self.feeding = None;
         self.starting = None;
     }
@@ -252,16 +295,18 @@ pub fn keep(on: bool) {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-pub unsafe fn fed(frame: u32) -> Option<u16> {
-    unsafe { RECORD.get() }.feed(frame)
+/// `generator` is the game's own generator now, which is held against what it was on that frame of the run
+/// being played back — see [`Record::feed`].
+pub unsafe fn fed(frame: u32, generator: u16) -> Option<u16> {
+    unsafe { RECORD.get() }.feed(frame, generator)
 }
 
-/// Writes down what the game did see.
+/// Writes down what the game did see, and the generator it saw it with.
 ///
 /// # Safety
 /// Must run on the game's main thread.
-pub unsafe fn noted(frame: u32, buttons: u16) {
-    unsafe { RECORD.get() }.note(frame, buttons);
+pub unsafe fn noted(frame: u32, buttons: u16, generator: u16) {
+    unsafe { RECORD.get() }.note(frame, buttons, generator);
 }
 
 /// Where a stage is about to be built and nothing of it has been drawn from the generator yet: the
@@ -331,7 +376,18 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             song: saved.song,
             reproduction: saved.landing,
         });
-        record.buttons = saved.buttons;
+        // Both halves of every frame, which is what the playback is held to: the buttons to feed and the
+        // generator each of them was pressed with — see [`Played`] and [`Record::feed`]. The file's own two
+        // lists are the same length, [`decode`] refusing one where they are not.
+        record.played = saved
+            .buttons
+            .iter()
+            .zip(&saved.generators)
+            .map(|(buttons, generator)| Played {
+                buttons: *buttons,
+                generator: *generator,
+            })
+            .collect();
         return;
     }
     if !keeping {
@@ -346,7 +402,8 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     }
     record.stage = Some(state.stage);
     record.start = unsafe { game.run_state() };
-    record.buttons.clear();
+    record.played.clear();
+    record.parted = None;
     record.feeding = None;
     detail!(
         "resume: stage {} begins with score={} seed={:#06x} lives={} bombs={} power={} rank={}",
@@ -493,10 +550,10 @@ pub unsafe fn write(
     }
     // Every frame before the chapter, and there is one for each of them: a chapter is reached by
     // playing the frames under it, so a record that is short is a record that missed some.
-    if record.buttons.len() < at as usize {
+    if record.played.len() < at as usize {
         detail!(
             "resume: not written — {} frame(s) of buttons for a chapter at {at}",
-            record.buttons.len(),
+            record.played.len(),
         );
         return false;
     }
@@ -513,7 +570,14 @@ pub unsafe fn write(
             .music()
             .and_then(|music| unsafe { music.audible_offset() }),
         landing: unsafe { game.reproduction() }.to_string(),
-        buttons: record.buttons[..at as usize].to_vec(),
+        buttons: record.played[..at as usize]
+            .iter()
+            .map(|played| played.buttons)
+            .collect(),
+        generators: record.played[..at as usize]
+            .iter()
+            .map(|played| played.generator)
+            .collect(),
     };
     handed_over(path, saved);
     true
@@ -838,6 +902,13 @@ struct Written {
     /// something checked; it is also a byte less each, and `--dump` prints one per line where a list
     /// of pairs is two.
     buttons: BTreeMap<u32, u16>,
+    /// The generator's own state on every one of those frames — see [`Saved::generators`] for what it is for.
+    ///
+    /// **A list and not a map of the changes**, which is the opposite of the buttons above and for the opposite
+    /// reason: a generator moves on nearly every frame, so a map of changes would be every frame with a key in
+    /// front of it. A stage's worth is 8500 entries, which is 26KB as an array of words against 43KB as a map
+    /// of them, and the index is the frame either way.
+    generators: Vec<u16>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -935,6 +1006,7 @@ fn encode(saved: &Saved) -> Vec<u8> {
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
+        generators: saved.generators.clone(),
     };
     // With the names in it, so that the file says what its own fields are: see [`EXTENSION`]. Nothing
     // in it can fail to serialize — every field is a number, a string or a pair of numbers — so a
@@ -954,6 +1026,12 @@ fn decode(bytes: &[u8]) -> Option<Saved> {
     // Nothing at or past the frame the buttons are meant to reach, that being a record which does not
     // describe the chapter beside it. They are in order already, a map of frames being kept that way.
     if at > MAX_STAGE_FRAMES || changes.keys().last().is_some_and(|frame| *frame >= at) {
+        return None;
+    }
+    // And one generator per frame the buttons reach, no more and no fewer: the playback holds the two together
+    // by frame — see [`Played`] — so a file where they disagree is one whose frames do not line up, and reading
+    // it would be a playback held against another frame's generator.
+    if written.generators.len() != at as usize {
         return None;
     }
     Some(Saved {
@@ -988,6 +1066,7 @@ fn decode(bytes: &[u8]) -> Option<Saved> {
         song: written.chapter.song,
         landing: written.landing,
         buttons: dense(&changes, at),
+        generators: written.generators,
     })
 }
 
@@ -1072,7 +1151,7 @@ fn number(text: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_STAGE_FRAMES, Record, Saved, VERSION, decode, encode};
+    use super::{MAX_STAGE_FRAMES, Played, Record, Saved, VERSION, decode, encode};
     use crate::game::{RunStart, RunState};
 
     pub fn saved() -> Saved {
@@ -1106,6 +1185,13 @@ mod tests {
             song: Some(1234567),
             landing: "replay_frame=-1 input=0x0000 randoms=1234".to_owned(),
             buttons: vec![0, 0, 1, 1, 1, 0x41, 0x41, 0, 0, 0, 0x101, 0x101],
+            // One per frame like the buttons, and every one different: what the file has to carry through is
+            // the frame each of them belongs to, so a list that survived the round trip in the wrong order
+            // would read as a playback parting on the first frame it was held against.
+            generators: vec![
+                0x1000, 0x1001, 0x1002, 0x1003, 0x1004, 0x1005, 0x1006, 0x1007, 0x1008, 0x1009,
+                0x100a, 0x100b,
+            ],
         }
     }
 
@@ -1123,6 +1209,7 @@ mod tests {
         let mut held = saved();
         held.at = 6;
         held.buttons = vec![0, 0, 1, 1, 1, 1];
+        held.generators.truncate(6);
         // One entry, not six frames.
         assert_eq!(
             super::changes(&held.buttons),
@@ -1149,6 +1236,7 @@ mod tests {
         start.chapter = 1;
         start.name = "MIDSTAGE 1".to_owned();
         start.buttons = Vec::new();
+        start.generators = Vec::new();
         assert_eq!(decode(&encode(&start)), Some(start));
     }
 
@@ -1220,14 +1308,15 @@ mod tests {
         let mut record = Record::new();
         record.stage = Some(3);
         for frame in 0..10 {
-            record.note(frame, 0x001);
+            record.note(frame, 0x001, frame as u16);
         }
         // Back to the chapter's own frame, and played differently from there.
         for frame in 4..10 {
-            record.note(frame, 0x041);
+            record.note(frame, 0x041, frame as u16);
         }
-        assert_eq!(record.buttons[..4], [0x001; 4]);
-        assert_eq!(record.buttons[4..], [0x041; 6]);
+        let pressed: Vec<u16> = record.played.iter().map(|played| played.buttons).collect();
+        assert_eq!(pressed[..4], [0x001; 4]);
+        assert_eq!(pressed[4..], [0x041; 6]);
     }
 
     /// Nothing is kept while nothing is being played, so a session spent in the menus does not
@@ -1235,12 +1324,12 @@ mod tests {
     #[test]
     fn nothing_is_kept_between_runs() {
         let mut record = Record::new();
-        record.note(0, 0x001);
-        assert!(record.buttons.is_empty());
+        record.note(0, 0x001, 0x1234);
+        assert!(record.played.is_empty());
         record.stage = Some(0);
-        record.note(0, 0x001);
+        record.note(0, 0x001, 0x1234);
         record.stop();
-        assert!(record.buttons.is_empty());
+        assert!(record.played.is_empty());
     }
 
     /// A landing that is not the one written down says which number it was, since that is what
@@ -1275,8 +1364,8 @@ mod tests {
     fn a_frame_no_stage_reaches_is_refused() {
         let mut record = Record::new();
         record.stage = Some(0);
-        record.note(MAX_STAGE_FRAMES, 0x001);
-        assert!(record.buttons.is_empty());
+        record.note(MAX_STAGE_FRAMES, 0x001, 0x1234);
+        assert!(record.played.is_empty());
 
         let mut far = saved();
         far.at = MAX_STAGE_FRAMES + 1;
@@ -1287,9 +1376,62 @@ mod tests {
     /// own frame: from there the keyboard is the player's again.
     #[test]
     fn the_buttons_are_fed_up_to_the_chapter_and_no_further() {
+        let mut record = feeding_a_run();
+        assert_eq!(record.feed(0, 0xa0), Some(0));
+        assert_eq!(record.feed(2, 0xa2), Some(2));
+        assert_eq!(record.feed(3, 0xa3), None);
+        record.feeding = None;
+        assert_eq!(record.feed(0, 0xa0), None);
+    }
+
+    /// **The generator on each fed frame is held against the one the run had**, which is the only thing that
+    /// says a playback has stopped reproducing that run and on which frame: the same buttons carry on being fed
+    /// into a stage that is no longer the same stage, and what comes of that is a death thousands of frames
+    /// later. Said once — the first frame is the one with the cause in it — and the buttons keep coming, so the
+    /// landing check at the end still gets its say.
+    #[test]
+    fn a_playback_that_parts_from_the_run_says_which_frame_it_was() {
+        let mut record = feeding_a_run();
+        assert_eq!(record.feed(0, 0xa0), Some(0));
+        assert_eq!(record.parted, None, "frame 0 was the run's own");
+
+        // Frame 1 with the generator somewhere else: the frame is named and the button still handed over.
+        assert_eq!(record.feed(1, 0xbb), Some(1));
+        assert_eq!(record.parted, Some(1));
+
+        // And the frame after it, also out of step, does not take the name off the first.
+        assert_eq!(record.feed(2, 0xcc), Some(2));
+        assert_eq!(record.parted, Some(1));
+    }
+
+    /// **A frame written down while a record already holds a run played back is one entry and not two**, which
+    /// is what a playback that ended early made of two lists: `resume.rs` kept the buttons and the generators
+    /// side by side, a playback filled the buttons out of its file and the generators stayed empty, and the
+    /// first frame written down after it indexed the short one — `index out of bounds: the len is 0 but the
+    /// index is 3609`, in a 妖々夢 launch that crashed where a run was picked up.
+    #[test]
+    fn a_frame_written_down_over_a_playback_grows_the_whole_of_it() {
+        let mut record = feeding_a_run();
+        record.feeding = None;
+        // Inside what the playback loaded, which is where the two lengths used to part company.
+        record.note(1, 0x101, 0xbeef);
+        assert_eq!(record.played[1].buttons, 0x101);
+        assert_eq!(record.played[1].generator, 0xbeef);
+        // And past it, which is the run carrying on from where the playback left off.
+        record.note(9, 0x041, 0xf00d);
+        assert_eq!(record.played[9].buttons, 0x041);
+        assert_eq!(record.played[9].generator, 0xf00d);
+        assert_eq!(record.played.len(), 10);
+    }
+
+    /// A record in the middle of playing a run back: four frames of buttons, the generator each of them was
+    /// pressed with, and the chapter three frames in.
+    fn feeding_a_run() -> Record {
         let mut record = Record::new();
         record.stage = Some(3);
-        record.buttons = vec![0, 1, 2, 3];
+        record.played = [(0, 0xa0), (1, 0xa1), (2, 0xa2), (3, 0xa3)]
+            .map(|(buttons, generator)| Played { buttons, generator })
+            .to_vec();
         record.feeding = Some(super::Landing {
             at: 3,
             chapter: 17,
@@ -1298,10 +1440,6 @@ mod tests {
             song: None,
             reproduction: String::new(),
         });
-        assert_eq!(record.feed(0), Some(0));
-        assert_eq!(record.feed(2), Some(2));
-        assert_eq!(record.feed(3), None);
-        record.feeding = None;
-        assert_eq!(record.feed(0), None);
+        record
     }
 }
