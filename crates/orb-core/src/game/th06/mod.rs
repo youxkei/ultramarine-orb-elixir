@@ -17,11 +17,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_api::Hwnd;
 
-use crate::audio::Music;
+use crate::audio::{Music, Track};
 // The rule for an axis' dead zone and a hat's angle, which both games are read for and neither owns — see
 // `crate::joystick::axis`.
 use crate::game::{
-    Axis, Boundary, Call, FrameCalls, Game, Hooks, Menu, Pad, PadRead, PanelTile, Patch, Reading,
+    Axis, Boundary, Call, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
     Rect, Reproduction, RunStart, RunState, State,
 };
 use crate::joystick::{axis, hat};
@@ -159,7 +159,7 @@ const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x28]
 /// practice stages from, and it is the only read that fills it — which is what makes this the one
 /// read that has to stay pointed at the game's own file. The second is only the score drawn beside
 /// each of those stages, which belongs to the mode: orb reads it again out of the mode's own file
-/// once the mode is settled. See [`crate::score`] and [`Th06::read_practice_scores`].
+/// once the mode is settled. See [`crate::score`] and [`Th06::read_what_the_modes_file_records`].
 ///
 /// The write is not bracketed and does not need to be: the whole exe reaches it from one place,
 /// 0x42f5cd in the ranking screen's deleted callback (0x42f5bc, the `+0xc` beside its added).
@@ -186,7 +186,7 @@ const RELEASE_SCORE_FILE: usize = 0x0042b7dc;
 
 // All three handed over, because all three are reached from one read of orb's: the mode's file is read
 // through the first, the block the practice stage select draws from is filled through the second, and
-// what the first allocated goes back through the third. See [`Th06::read_practice_scores`].
+// what the first allocated goes back through the third. See [`Th06::read_what_the_modes_file_records`].
 handed_over!(
     READ_SCORE_FILE_AT,
     read_score_file,
@@ -595,7 +595,7 @@ mod game_manager {
     /// one record per shot, difficulty and stage.
     ///
     /// Here rather than beside the layout of a record, which is `image`'s, because this is the one
-    /// thing about the block orb itself needs — [`Th06::read_practice_scores`] hands it to the game's
+    /// thing about the block orb itself needs — [`Th06::read_what_the_modes_file_records`] hands it to the game's
     /// own parse. `clrd`'s destination is the 0x60 of four records before it and orb hands that to
     /// nothing.
     pub const PRACTICE_SCORES: usize = 0x1090;
@@ -1085,22 +1085,27 @@ impl Game for Th06 {
                 target: STOP_RECORDING,
                 prologue: STOP_RECORDING_PROLOGUE,
             }),
-            stage_begun: Some(Patch {
+            stage_begun: Some(Entered::OnTheStack(Patch {
                 target: GAME_MANAGER_ADDED,
                 prologue: GAME_MANAGER_ADDED_PROLOGUE,
-            }),
+            })),
             stage_building: Some(Patch {
                 target: STAGE_REGISTER_CHAIN,
                 prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
             }),
-            unlocks_read: Some(Patch {
+            unlocks_read: Some(Entered::OnTheStack(Patch {
                 target: MAIN_MENU_ADDED,
                 prologue: MAIN_MENU_ADDED_PROLOGUE,
-            }),
-            ranking_read: Some(Patch {
+            })),
+            ranking_read: Some(Entered::OnTheStack(Patch {
                 target: RANKING_ADDED,
                 prologue: RANKING_ADDED_PROLOGUE,
-            }),
+            })),
+            // Nothing, and a reading rather than a gap: this game's file is written as its ranking screen
+            // goes down, out of the record in memory, and nothing lays a file's records over that record
+            // first — so there is no moment inside a save for a session's counts to be added at, and none
+            // is needed.
+            card_records_read: None,
             create_window: Some(Patch {
                 target: CREATE_GAME_WINDOW,
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
@@ -1117,7 +1122,7 @@ impl Game for Th06 {
                 target: GET_INPUT,
                 prologue: GET_INPUT_PROLOGUE,
             }),
-            joystick: Some(PadRead::OnTheStack(Patch {
+            joystick: Some(Entered::OnTheStack(Patch {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
             })),
@@ -1225,7 +1230,9 @@ impl Game for Th06 {
             buffer: SoundBuffer(buffer),
             buffer_size,
             notify_size: mem::read_committed(streaming + streaming_sound::NOTIFY_SIZE)?,
-            mmio,
+            // The `HMMIO` this game got back from its own winmm, which is what it seeks and reads the
+            // track through — see `audio::Track` for the other shape.
+            track: Track::Mmio(mmio),
             bytes_left: wave_file + wave_file::BYTES_LEFT,
             write_offset: streaming + streaming_sound::NEXT_WRITE_OFFSET,
         })
@@ -1389,6 +1396,17 @@ impl Game for Th06 {
             width: 144.0,
             height: 16.0,
         }
+    }
+
+    /// And 8 pixels of panel either side of that row, which is the nearer of its two neighbours: the y's the
+    /// panel's own rows are drawn from sit at 0x46ac40 and around it — 58, 82, **122**, 146, 186, 206, 226 —
+    /// so with rows 16 tall there are 24 pixels free above this one and 8 below.
+    ///
+    /// The smaller of the two, because the stroke's box is centred on the row and so reaches as far either way:
+    /// 30 tall against a row of 16 is 7, which fits. 妖々夢, whose rows are as far apart as they are tall, is
+    /// what makes this a number a game answers rather than one the mark keeps.
+    fn room_around_the_lives_row(&self) -> f32 {
+        8.0
     }
 
     /// `Unacquire` then `Release` then the pointer cleared, which is what `Supervisor::RegisterChain`
@@ -1724,6 +1742,11 @@ impl Game for Th06 {
                 power_items: mem::read(G_GAME_MANAGER + game_manager::POWER_ITEMS),
                 extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
                 deaths: mem::read(G_GAME_MANAGER + game_manager::DEATHS),
+                // 紅魔郷 has no cherry: its extra lives are paid for out of the score, which
+                // `extra_lives` above is the count of. Three numbers this game never reads.
+                cherry: 0,
+                cherry_target: 0,
+                cherry_plus: 0,
             }
         }
     }
@@ -2083,7 +2106,7 @@ impl Game for Th06 {
     /// that already follow the mode, and `clrd` is what the front end lights its items from — parsed here
     /// it would put a file that may not exist over the unlocks an installation has earned, which is the
     /// thing [`crate::score`]'s bracket exists to stop.
-    unsafe fn read_practice_scores(&self) {
+    unsafe fn read_what_the_modes_file_records(&self) {
         let read: unsafe extern "cdecl" fn(*const u8) -> usize =
             unsafe { std::mem::transmute(read_score_file()) };
         let parse: unsafe extern "cdecl" fn(usize, usize) -> i32 =

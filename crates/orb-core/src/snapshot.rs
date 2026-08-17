@@ -54,6 +54,97 @@ pub enum Music {
 /// the buffer up a few times a second, so one retry is almost always enough.
 const AUDIO_ATTEMPTS: u32 = 4;
 
+/// What a restore has left for the frame's own sound to finish: the song put where the chapter had it, or the
+/// track it had to ask for taken back down again.
+///
+/// **Waiting rather than done, because the ask is a command in the game's own sound queue** — see
+/// [`Snapshot::leave_the_song_to_be_picked_up`]. What runs that queue is the game's per-frame sound, so both
+/// belong after it: [`finish_the_restores_sound`] is called from the frame there, and a restore itself leaves
+/// only what to do behind.
+///
+/// A static because a restore and the frame's sound are two points in one frame with the snapshot's own
+/// lifetime in between — the chapters may have dropped it by then — and both are on the game's main thread.
+static WAITING: std::sync::Mutex<Option<Waiting>> = std::sync::Mutex::new(None);
+
+/// How many frames that note has been held for, and how many it may be: what is waited for is the game's own
+/// sound command, and a game that never finishes one would otherwise be a note held over a song it started
+/// itself seconds later.
+///
+/// The number is a bound rather than a measurement — what says the wait is over is the queue going empty — so it
+/// is generous: a stage of 妖々夢 whose own song starts seconds into it is the case this exists for, and every
+/// frame of the wait says so in the log.
+static WAITED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const FRAMES_A_COMMAND_MAY_TAKE: u32 = 30;
+
+enum Waiting {
+    /// The offset in the track's own file the chapter's sound was at, and which track that was.
+    Song { identity: Option<u32>, offset: i32 },
+    /// Or nothing audible, for a chapter that had a stream and no sound coming out of it. The ask that
+    /// filled the player's stream field again is what there is to take back down — see
+    /// `Game::restart_stage_music`.
+    Silence,
+}
+
+/// Finishes what a restore left, the game's own sound having run since.
+///
+/// A song only where the track playing is the one that chapter's sound was in, since an offset means nothing
+/// in another track: the game was asked for the stage's own song, and a chapter taken under any other is one
+/// whose position is in a different part of the file.
+///
+/// # Safety
+/// Must run on the game's main thread, between frames, with no thread suspended: both lock the sound buffer,
+/// which the streaming thread can be inside DirectSound holding.
+pub unsafe fn finish_the_restores_sound(game: &dyn crate::game::Game) {
+    let mut held = WAITING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if held.is_none() {
+        return;
+    }
+    // The ask a restore made is a command the game walks over several runs of its own sound, so what is left to
+    // do about the sound waits here until that command has gone — see `Game::a_sound_command_is_in_flight`. The
+    // wait is given up on rather than held for ever, a note kept past the frames a play takes being one that
+    // would silence or seek a song the game started for its own reasons.
+    if game.a_sound_command_is_in_flight() {
+        let waited = WAITED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if waited < FRAMES_A_COMMAND_MAY_TAKE {
+            return;
+        }
+        log!(
+            "restore: the game's own sound is still not done after {waited} frame(s); giving up on it"
+        );
+    }
+    WAITED.store(0, std::sync::atomic::Ordering::Relaxed);
+    let Some(waiting) = held.take() else { return };
+    drop(held);
+    let (identity, offset) = match waiting {
+        Waiting::Song { identity, offset } => (identity, Some(offset)),
+        Waiting::Silence => (None, None),
+    };
+    if let Some(offset) = offset {
+        if game.music_identity() != identity {
+            return log!("restore: the song is in another track than the one that came back");
+        }
+        let Some(live) = game.music() else {
+            return log!("restore: nothing is playing for the song to be put into");
+        };
+        log!(
+            "restore: the song {} at {offset} in the track's own file",
+            if unsafe { live.play_from(offset) } {
+                "picked up"
+            } else {
+                "could not be put"
+            },
+        );
+        return;
+    }
+    let Some(live) = game.music() else {
+        return log!("restore: nothing came back for this chapter's silence to be taken off");
+    };
+    unsafe { live.silence() };
+    log!("restore: this chapter had nothing audible; the track asked for is stopped again");
+}
+
 pub struct Snapshot {
     saved: Vec<Saved>,
     /// Private committed memory that is *not* saved, fingerprinted so
@@ -368,7 +459,7 @@ impl Snapshot {
             Some((music, saved)) if same_track => unsafe { music.restore(saved) },
             _ if !same_track => {
                 unsafe { game.restart_stage_music() };
-                unsafe { self.pick_the_song_up(game) };
+                self.leave_the_song_to_be_picked_up();
             }
             _ => {}
         }
@@ -381,8 +472,7 @@ impl Snapshot {
         }
     }
 
-    /// Puts the song where this chapter had it, the track having just been started again from its
-    /// beginning.
+    /// Leaves the song to be put where this chapter had it, the track having just been asked for again.
     ///
     /// The stream that held that place has been freed with the track that was playing, so what is left
     /// of it is the offset in the track's own file — which is the one thing about a chapter's sound
@@ -390,32 +480,44 @@ impl Snapshot {
     /// for the same reason: a chapter reached by going back to it from a boss's own music is the same
     /// place in the stage's song as the chapter it was taken at.
     ///
+    /// **Left rather than done, because the track is not playing yet.** The game was asked for it, and on
+    /// the backend 妖々夢 makes that ask is a command in the sound player's own queue: what carries it out
+    /// is the game's own per-frame sound, which orb's frame runs after its update. A seek before that is a
+    /// seek of the stream the memory copy has just written back — the one the game had already freed — and
+    /// a launch of 妖々夢 faulted inside the game's own sound code doing exactly that, at `0x0045d8d5`
+    /// reading `4` with `E_INVALIDARG` in two registers. So what to do waits, and
+    /// [`finish_the_restores_sound`] is called where the frame's sound has run.
+    ///
     /// Only where the track the game has started is the one this chapter's sound was in, since an
     /// offset means nothing in another file: the game restarts the stage's own song, and a chapter
-    /// snapshotted under any other is one whose position is in another wav.
+    /// snapshotted under any other is one whose position is in another wav — which is why the identity
+    /// is kept beside the offset and checked there rather than here.
     ///
-    /// # Safety
-    /// Must run on the game's main thread, between frames, with no thread suspended: the seek locks
-    /// the sound buffer, which the streaming thread can be inside DirectSound holding.
-    unsafe fn pick_the_song_up(&self, game: &dyn crate::game::Game) {
-        if game.music_identity() != self.identity {
-            return;
-        }
+    /// **And nothing audible where the chapter had none**, which is a chapter that held a stream with no sound
+    /// coming out of it — see [`audio::Saved::was_playing`]. The ask is made all the same, the player's own
+    /// stream field being what it fills; what this leaves is that ask taken back off once it has been carried
+    /// out, so a stage's first chapter comes back to the silence it was taken in and the stage's own script is
+    /// what starts its song. A launch of 妖々夢 heard the other thing: the song from orb's ask, and then the
+    /// same song from its beginning where that script reached its own play.
+    fn leave_the_song_to_be_picked_up(&self) {
         let Some((music, saved)) = &self.music else {
             return;
         };
-        let Some(offset) = music.offset_of(saved) else {
-            return;
+        let waiting = if saved.was_playing() {
+            Waiting::Song {
+                identity: self.identity,
+                offset: match music.offset_of(saved) {
+                    Some(offset) => offset,
+                    None => return,
+                },
+            }
+        } else {
+            Waiting::Silence
         };
-        let Some(live) = game.music() else { return };
-        log!(
-            "restore: the song {} at {offset} in the track's own file",
-            if unsafe { live.play_from(offset) } {
-                "picked up"
-            } else {
-                "could not be put"
-            },
-        );
+        WAITED.store(0, std::sync::atomic::Ordering::Relaxed);
+        *WAITING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(waiting);
     }
 
     /// Compares memory against the snapshot without changing anything.

@@ -27,7 +27,10 @@ use windows_sys::Win32::Graphics::Gdi::{
 use crate::real::gdi;
 use crate::{Face, Mask};
 
+/// The two weights orb asks for, which are Windows' own numbers: 400 and 700, the second being the one
+/// 妖々夢's `CreateFontA` asks for as `0x2bc`.
 const FW_NORMAL: i32 = 400;
+const FW_BOLD: i32 = 700;
 const BLACK: u32 = 0x0000_0000;
 const WHITE: u32 = 0x00ff_ffff;
 
@@ -54,24 +57,7 @@ pub fn load_face(path: &Path, height: i32) -> Option<Face> {
         return None;
     }
 
-    let mut description: windows_sys::Win32::Graphics::Gdi::LOGFONTW =
-        unsafe { std::mem::zeroed() };
-    description.lfHeight = -height;
-    description.lfWeight = FW_NORMAL;
-    description.lfCharSet = SHIFTJIS_CHARSET;
-    description.lfOutPrecision = OUT_TT_PRECIS;
-    description.lfClipPrecision = CLIP_DEFAULT_PRECIS;
-    description.lfQuality = ANTIALIASED_QUALITY;
-    description.lfPitchAndFamily = DEFAULT_PITCH;
-    for (slot, unit) in description
-        .lfFaceName
-        .iter_mut()
-        .zip(FACE_NAME.encode_utf16())
-    {
-        *slot = unit;
-    }
-
-    let handle = unsafe { (gdi::text().create_font_indirect)(&description) };
+    let handle = made(height, FACE_NAME);
     if handle.is_null() {
         unsafe { RemoveFontResourceExW(wide.as_ptr(), FR_PRIVATE, std::ptr::null()) };
         return None;
@@ -79,6 +65,49 @@ pub fn load_face(path: &Path, height: i32) -> Option<Face> {
     Some(Face(
         Box::into_raw(Box::new(Loaded { handle, path: wide })) as usize
     ))
+}
+
+/// A face with no font resource behind it, which is what a machine's own is: `family` by name where the
+/// caller has one — the family the game itself asks GDI for — and nothing where it has not, in which case
+/// GDI answers with whatever it maps the charset to.
+///
+/// The path it is remembered with is empty, which is what the drop reads as nothing to hand back — a
+/// resource that was never added must not be removed, and removing one by an empty name would be a call
+/// about somebody else's font.
+pub fn machine_face(height: i32, family: &str, bold: bool) -> Option<Face> {
+    let handle = made_weighing(height, family, bold);
+    if handle.is_null() {
+        return None;
+    }
+    Some(Face(Box::into_raw(Box::new(Loaded {
+        handle,
+        path: Vec::new(),
+    })) as usize))
+}
+
+/// The face itself, out of the one `LOGFONTW` both ways of asking fill in: the height, the Shift-JIS
+/// charset — this is a Japanese game and its text is Japanese — and a name, which is a family for the
+/// game's own font and empty where GDI is to answer by charset alone.
+fn made(height: i32, name: &str) -> HFONT {
+    made_weighing(height, name, false)
+}
+
+/// And the same with the weight asked for, which is what matching a game that asks for a bold family means:
+/// 妖々夢 asks for `ＭＳ ゴシック` at 700, and a face of it at 400 is the same glyphs in a lighter hand.
+fn made_weighing(height: i32, name: &str, bold: bool) -> HFONT {
+    let mut description: windows_sys::Win32::Graphics::Gdi::LOGFONTW =
+        unsafe { std::mem::zeroed() };
+    description.lfHeight = -height;
+    description.lfWeight = if bold { FW_BOLD } else { FW_NORMAL };
+    description.lfCharSet = SHIFTJIS_CHARSET;
+    description.lfOutPrecision = OUT_TT_PRECIS;
+    description.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+    description.lfQuality = ANTIALIASED_QUALITY;
+    description.lfPitchAndFamily = DEFAULT_PITCH;
+    for (slot, unit) in description.lfFaceName.iter_mut().zip(name.encode_utf16()) {
+        *slot = unit;
+    }
+    unsafe { (gdi::text().create_font_indirect)(&description) }
 }
 
 pub fn face_name(face: Face) -> Option<String> {
@@ -196,12 +225,15 @@ pub fn bake(face: Face, text: &str) -> Option<Mask> {
 
 pub fn drop_face(face: Face) {
     let loaded = unsafe { Box::from_raw(face.0 as *mut Loaded) };
-    unsafe {
-        DeleteObject(loaded.handle as _);
-        // The add taken back out, not only the handle deleted: GDI counts the adds, the
-        // overlay makes two of them for the same file — one per size — and makes them
-        // again every time the overlay is built.
-        RemoveFontResourceExW(loaded.path.as_ptr(), FR_PRIVATE, std::ptr::null());
+    unsafe { DeleteObject(loaded.handle as _) };
+    // The add taken back out, not only the handle deleted: GDI counts the adds, the
+    // overlay makes two of them for the same file — one per size — and makes them
+    // again every time the overlay is built.
+    //
+    // And nothing to take out for a face of the machine's, which had no add: its path is empty, and a
+    // remove by an empty name would be a call about a font that is not orb's.
+    if !loaded.path.is_empty() {
+        unsafe { RemoveFontResourceExW(loaded.path.as_ptr(), FR_PRIVATE, std::ptr::null()) };
     }
 }
 

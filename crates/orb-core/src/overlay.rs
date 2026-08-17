@@ -13,6 +13,7 @@ use orb_api::d3d8::*;
 use orb_api::text::Font;
 use orb_api::{Device, Mask, Texture, Viewport};
 
+use crate::game::Face;
 use crate::log;
 
 pub const SCREEN_WIDTH: f32 = 640.0;
@@ -59,14 +60,15 @@ impl Overlay {
     pub unsafe fn new(
         device: Device,
         font_path: &Path,
+        own_face: Option<Face>,
         font_height: i32,
         mark_height: i32,
     ) -> Option<Self> {
         if device.is_null() {
             return None;
         }
-        let font = loaded(font_path, font_height)?;
-        let mark_font = loaded(font_path, mark_height)?;
+        let font = loaded(font_path, own_face, font_height)?;
+        let mark_font = loaded(font_path, own_face, mark_height)?;
 
         let (created, state_block) = create_state_block(device, D3DSBT_ALL);
         if created < 0 {
@@ -234,9 +236,41 @@ impl Frame<'_> {
         );
     }
 
+    /// The same picture drawn into a box of its own rather than at its own size, for a mark whose box
+    /// the game's panel bounds: 妖々夢's rows are as far apart as they are tall, so the stroke over its
+    /// count of lives has that row and nothing either side of it — see `Game::room_around_the_lives_row`.
+    pub fn picture_in(
+        &self,
+        picture: &Picture,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: u32,
+    ) {
+        let Some(texture) = picture.texture else {
+            return;
+        };
+        self.quad(
+            texture,
+            x,
+            y,
+            width,
+            height,
+            color,
+            [0.0, 0.0, picture.u, picture.v],
+        );
+    }
+
     /// Draws `label` with a one-pixel drop shadow, which is what makes text
     /// readable over a screen full of bullets.
     pub fn label(&self, label: &Label, x: f32, y: f32, color: u32) {
+        self.label_scaled(label, x, y, 1.0, color);
+    }
+
+    /// And the same drawn `scale` of its own size, for a word that has to fit a box the game's own panel
+    /// bounds rather than the size its face was baked at — see [`Frame::picture_in`].
+    pub fn label_scaled(&self, label: &Label, x: f32, y: f32, scale: f32, color: u32) {
         let Some(texture) = label.texture else { return };
         let shadow = color & 0xff00_0000;
         for (offset, color) in [(1.0, shadow), (0.0, color)] {
@@ -244,8 +278,8 @@ impl Frame<'_> {
                 texture,
                 x + offset,
                 y + offset,
-                label.width(),
-                label.height(),
+                label.width() * scale,
+                label.height() * scale,
                 color,
                 [0.0, 0.0, label.u, label.v],
             );
@@ -506,10 +540,36 @@ impl Drop for Picture {
 /// One line for both of the ways it can fail — a path that is not a font, and a host that would not make
 /// a face of one that is — because from here they are the same answer, and the path is the half worth
 /// printing.
-fn loaded(path: &Path, height: i32) -> Option<Font> {
+fn loaded(path: &Path, own_face: Option<Face>, height: i32) -> Option<Font> {
     let Some(font) = Font::load(path, height) else {
-        log!("overlay: cannot load {}", path.display());
-        return None;
+        // The machine's own face rather than nothing, which is the whole difference between orb having
+        // screens in 妖々夢 and having none — see
+        // [docs/adr/0019](../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md).
+        // The line says which of the two this launch is, because what the glyphs on screen *are* is the one
+        // thing a substituted face changes.
+        log!("overlay: no font beside the game; using the machine's own face");
+        // Asked for by the family the game itself asks the host for, where it names one: what orb's screens
+        // are then in is the face the game's own text is in, rather than whatever the charset maps to. See
+        // `Game::own_face`.
+        let face = own_face.unwrap_or(Face {
+            family: "",
+            bold: false,
+        });
+        let font = Font::of_the_machine(height, face.family, face.bold);
+        match &font {
+            // Named because a family the machine does not have is a substituted face, and then the glyphs
+            // are neither orb's choice nor the game's.
+            Some(font) => log!(
+                "overlay: the machine's own face is {:?}, asked for as {:?}",
+                font.face_name().as_deref(),
+                face.family,
+            ),
+            None => log!(
+                "overlay: cannot load {} and the machine has no face",
+                path.display()
+            ),
+        }
+        return font;
     };
     log!(
         "overlay: font.ttf loaded, GDI is using {:?}",
@@ -597,8 +657,10 @@ impl Drawing {
         let installed = sim.enter();
         let font = std::path::Path::new("game").join("font.ttf");
         sim.text().install_font(&font);
+        // With a font beside the game, so no face of the machine's is asked for and the family a game
+        // would name is not part of what this harness is for.
         let overlay =
-            unsafe { Overlay::new(orb_sim::DEVICE, &font, FONT_HEIGHT, MARK_FONT_HEIGHT) }
+            unsafe { Overlay::new(orb_sim::DEVICE, &font, None, FONT_HEIGHT, MARK_FONT_HEIGHT) }
                 .expect("an overlay on a simulated Windows");
         // The textures the overlay uploaded building itself are not a frame.
         sim.drawing().forget();

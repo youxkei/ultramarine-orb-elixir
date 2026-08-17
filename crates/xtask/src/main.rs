@@ -141,7 +141,7 @@ fn main() -> ExitCode {
             ["-D", "warnings"],
             rest,
         ),
-        Some("test") => plain(["test"], TARGET, [], rest),
+        Some("test") => test(rest),
         Some("build") => plain(["build"], TARGET, [], rest),
         Some("seam") => seam(rest),
         Some("coverage") => coverage(rest),
@@ -159,7 +159,7 @@ fn usage() -> ExitCode {
         "usage: cargo xtask <task> [<args>]\n\
          \n\
          clippy    every target, {TARGET}, warnings denied\n\
-         test      the suite, {TARGET}\n\
+         test      the suite, {TARGET}, on half the threads\n\
          build     {TARGET} — `build --release` is what installs\n\
          seam      {above_the_seam} checked for {SEAM_TARGET}, a host with no Windows\n\
          \x20         on it, which is what says nothing above the seam reaches past it\n\
@@ -193,6 +193,49 @@ fn plain<const B: usize, const A: usize>(
         .args(if after.is_empty() { &[][..] } else { &["--"] })
         .args(after);
     if status(command, before[0]) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// The suite, on **half the machine's threads** rather than one per core.
+///
+/// Every e2e test starts a process of its own — see `orb-e2e`'s `in_its_own_process` — and that child runs
+/// the test while the parent waits on it, so a slot costs two processes rather than one thread. The
+/// harness's own default of one per core therefore asks a sixteen-core machine for sixteen launches and
+/// thirty-two processes, which is the machine gone for as long as the run takes.
+///
+/// **Half rather than fewer, because that is where the measurement puts the knee.** On the sixteen-core host
+/// this was written on, the whole suite takes 47s on sixteen threads, 50s on eight and 73s on four: half the
+/// load for three seconds, and a quarter of it for another twenty-three. The wall clock is set by the slowest
+/// launches — a pacing e2e test runs thousands of simulated frames whatever else is happening — until there
+/// are too few slots to keep them overlapping, which is what four does.
+///
+/// Half, and never less than one. `cargo xtask test -- --test-threads=N` asks for another number: an
+/// argument already there is left alone, and the harness would read the last one anyway.
+///
+/// **Said as an argument and not as `RUST_TEST_THREADS`, because on WSL that variable never arrives.** The
+/// tests are Windows binaries and cargo is a Linux one, so every test binary is started through WSL's
+/// interop — and interop passes a Linux process's environment to a Win32 one only for the variables named in
+/// `WSLENV`. `WSLENV` is empty here, so a `RUST_TEST_THREADS` set on this side reaches nothing: measured with
+/// `RUST_TEST_THREADS=4 cmd.exe /c 'echo [%RUST_TEST_THREADS%]'`, which prints the name back unexpanded. The
+/// setting was in this function as an environment variable first and did nothing at all — sixteen threads and
+/// thirty-two processes every run — which is the whole reason this note is here.
+fn test(args: Vec<String>) -> ExitCode {
+    let mut command = Command::new(cargo_bin());
+    command.args(["test", "--target", TARGET]).args(&args);
+    if !args.iter().any(|arg| arg.starts_with("--test-threads")) {
+        let threads =
+            std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1));
+        // The separator only where the caller has not already opened one: cargo takes it once, and a second
+        // `--` would be an argument the harness reads as a filter.
+        if !args.iter().any(|arg| arg == "--") {
+            command.arg("--");
+        }
+        command.arg(format!("--test-threads={threads}"));
+    }
+    if status(command, "test") {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

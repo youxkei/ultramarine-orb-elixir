@@ -1098,6 +1098,11 @@ impl Fake {
                     stage_begun,
                     unlocks_read,
                     ranking_read,
+                    // A parse of the file's own records over the ones in memory, which this game has none of:
+                    // its file is written as its ranking screen goes down, out of the record in memory — see
+                    // `Hooks::card_records_read`, which it answers `None`. Handed over all the same, a
+                    // laid-out game handing over every original whether a hook goes over it or not.
+                    card_records_read: no_card_record_parse,
                     render: own_render,
                     play_sounds,
                     present,
@@ -1435,6 +1440,16 @@ impl Fake {
         self.image.plays_a_track(STAGE_TRACK);
     }
 
+    /// And the stage's own song starting on its own, with no stage having been asked to play its songs: the
+    /// same stream and buffer with that track's numbers on the wave file under them.
+    ///
+    /// For the e2e test whose chapter was taken under the song the stage was come into with, which needs the
+    /// track to change *after* that chapter rather than at the stage's build — see
+    /// `a_chapter_whose_track_was_never_the_stages_gets_the_stages_song_and_no_seek`.
+    pub fn plays_the_stages_own_song(&self) {
+        self.image.plays_a_track(STAGE_TRACK);
+    }
+
     /// Has the fight the stage ends with go on past its arrival: a card at [`STAGE_BOSS_CARD_STARTS`], the
     /// attack after it at [`STAGE_BOSS_ATTACK_CHANGES`], and that attack's *name* two frames behind it.
     ///
@@ -1494,6 +1509,22 @@ impl Fake {
         let left = STREAMED_TRACK.loop_end - heard_at as u32;
         self.image.streams_a_track(STREAMED_TRACK, &sound, left);
         *self.sound.borrow_mut() = Some(sound);
+    }
+
+    /// And that same track with **the mixer stopped**, which is what a game between one song and the next
+    /// leaves: the stream and the wave file under it still there, and nothing coming out of the buffer.
+    ///
+    /// The shape a stage's first chapter can be taken in, the song of the scene before it having been taken down
+    /// while the stage's own has not started — see `orb_core::audio::Saved::was_playing`.
+    pub fn took_down_the_song_it_came_in_with(&self, heard_at: i32) {
+        self.streams_its_song(heard_at);
+        self.with_the_sound(orb_sim::Sound::stops);
+    }
+
+    /// The stream the sound player names, which its own `StopBGM` clears and its own `LoadWav` stops what it
+    /// finds behind: zero is a player with no track of any kind.
+    pub fn the_stream_it_names(&self) -> usize {
+        self.image.the_stream_it_names()
     }
 
     /// Where the track loops, as the pair the game reads it off: where the file is now, plus what the
@@ -3620,6 +3651,11 @@ unsafe extern "thiscall" fn chain_cut(_chain: usize, elem: usize) {
 /// The pointer cleared is the half of it anything above the game can see, and it is the half that matters:
 /// every read orb makes of the music goes through it, so a game with it cleared is a game with nothing
 /// playing.
+/// The parse this game has no hook for and makes no call to — see `Originals::card_records_read`.
+unsafe extern "fastcall" fn no_card_record_parse(_image: usize, _records: usize) -> i32 {
+    unreachable!("紅魔郷 lays no file's records over the ones in memory")
+}
+
 unsafe extern "fastcall" fn stop_bgm(_player: usize) {
     let fake = running();
     fake.image.takes_the_music_down();

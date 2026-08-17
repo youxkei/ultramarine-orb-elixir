@@ -762,7 +762,7 @@ impl Image {
 
     /// And the three its read of a score file is made of — the read, `pscr`'s parse, and the free of what
     /// the read allocated — which is the one read of that file orb makes for itself: the practice scores
-    /// out of whichever file the mode points at. See `Game::read_practice_scores`.
+    /// out of whichever file the mode points at. See `Game::read_what_the_modes_file_records`.
     ///
     /// All three together, because one read is all three: a game that handed over fewer would be jumping
     /// into memory nothing has mapped halfway through one.
@@ -2026,6 +2026,9 @@ impl Image {
             super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
             STREAM,
         );
+        // And the buffer live, this being where `LoadWav` makes the one the new stream plays through — the half
+        // of a track starting that is not memory.
+        orb_sim::Sound::started_again();
     }
 
     /// And the whole of the sound that track is streamed through, for an e2e test about the stream itself:
@@ -2109,13 +2112,25 @@ impl Image {
             .write::<u32>(STREAM + super::streaming_sound::NEXT_WRITE_OFFSET, at);
     }
 
+    /// The stream that pointer names, for a test that says what a restore left the player holding: any value
+    /// but zero is a block `LoadWav` will stop and `StopBGM` will delete.
+    pub fn the_stream_it_names(&self) -> usize {
+        self.space()
+            .read::<usize>(super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC)
+    }
+
     /// And no track at all, which is what a game with nothing playing has: the pointer the sound player
     /// keeps is what `StopBGM` clears, and every read of the music goes through it.
+    ///
+    /// The buffer is released with it, which is the half of that teardown that is not memory: a restore writes
+    /// the pointer back and cannot make the object behind it live again, so a seek before the game has made a
+    /// new stream is a seek of a released buffer and fails as one.
     pub fn takes_the_music_down(&self) {
         self.space().write::<usize>(
             super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
             0,
         );
+        orb_sim::Sound::taken_down();
     }
 
     /// Every card the game holds a record of, and the attempts against each — which is what its

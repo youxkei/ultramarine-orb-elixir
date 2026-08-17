@@ -72,7 +72,7 @@ const EXTENSION: &str = "msgpack";
 
 /// What this file's fields mean. Written into it and refused on the way back in, so a file from
 /// another version is a line in the log rather than a run started with fields read as each other.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Longer than any stage of any run: half an hour of one at 60 frames a second. A bound on what a
 /// file can ask to be allocated for, and on the frame number a record will write down at all.
@@ -200,6 +200,9 @@ impl Record {
                 power_items: 0,
                 extra_lives: 0,
                 deaths: 0,
+                cherry: 0,
+                cherry_target: 0,
+                cherry_plus: 0,
             },
             buttons: Vec::new(),
             feeding: None,
@@ -872,6 +875,12 @@ struct WrittenStart {
     power_items: i8,
     extra_lives: i8,
     deaths: i32,
+    /// 妖々夢's three, which is what took this file from version 1 to version 2: a run of that game cannot
+    /// be picked up without them — see `game::RunState` — and a file written before they were here has no
+    /// field for them, so it is refused rather than read with three zeros in their place.
+    cherry: i32,
+    cherry_target: i32,
+    cherry_plus: i32,
 }
 
 /// A number written the way every line of the log that mentions this one writes it. The seed is the
@@ -920,6 +929,9 @@ fn encode(saved: &Saved) -> Vec<u8> {
             power_items: saved.state.power_items,
             extra_lives: saved.state.extra_lives,
             deaths: saved.state.deaths,
+            cherry: saved.state.cherry,
+            cherry_target: saved.state.cherry_target,
+            cherry_plus: saved.state.cherry_plus,
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
@@ -965,6 +977,9 @@ fn decode(bytes: &[u8]) -> Option<Saved> {
             power_items: written.start.power_items,
             extra_lives: written.start.extra_lives,
             deaths: written.start.deaths,
+            cherry: written.start.cherry,
+            cherry_target: written.start.cherry_target,
+            cherry_plus: written.start.cherry_plus,
         },
         at,
         chapter: written.chapter.number,
@@ -1080,6 +1095,9 @@ mod tests {
                 power_items: 44,
                 extra_lives: 1,
                 deaths: 6,
+                cherry: 41_000,
+                cherry_target: 50_000,
+                cherry_plus: 12_345,
             },
             at: 12,
             chapter: 17,

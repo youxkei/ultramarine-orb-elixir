@@ -127,31 +127,32 @@ fn reads_and_writes(opens: &[Open]) -> (Vec<String>, Vec<String>) {
 ///
 /// Both halves of the bracket on `MainMenu::AddedCallback`, whose prologue at **0x43a464** is the six bytes
 /// `push ebp; mov ebp,esp; sub esp,0x10`: inside it the fork is off, so the front end's read lands in the
-/// game's own file and orb says nothing about it, and outside it every other open follows the mode. Neither
-/// file is written by any of that.
+/// game's own file, and outside it every other open follows the mode. Neither file is written by any of that.
+///
+/// **And the mode's own read comes right after it**, outside the bracket and so in the mode's file: what that
+/// one read brings back is the unlocks *and* a record of runs, and the record has to be the mode's — see
+/// `Game::read_what_the_modes_file_records`. So the pair is what a front end coming up costs, in that order.
 #[test]
 fn the_front_ends_read_is_the_games_own_file_and_the_ranking_follows_the_mode() {
     in_its_own_process(|| {
         let game = launched("the-score-file-front-end");
 
         // The front end's own read, which is the one open whose answer is the game's own file whatever the
-        // mode: `reading_unlocks` brackets exactly that callback and nothing else.
+        // mode: `reading_unlocks` brackets exactly that callback and nothing else. And orb's own read of the
+        // mode's file behind it, which is outside that bracket.
         let (reads, writes) = reads_and_writes(&game.score_file_opens());
         assert_eq!(
             reads,
-            vec![THEIRS.to_owned()],
-            "the front end's read did not land in the game's own file",
+            vec![THEIRS.to_owned(), OURS.to_owned()],
+            "the front end's read did not land in the game's own file with the mode's own behind it",
         );
         assert!(writes.is_empty(), "the front end's read wrote something");
-        // And orb said nothing about it, which is what the bracket buys: a swapped open is a line, and this
-        // one was not swapped.
+        // And orb said which was which, the swapped one being the one it says of: the front end's own read is
+        // not swapped, and the read behind it is.
         assert!(
-            !game
-                .log()
-                .lines()
-                .iter()
-                .any(|line| line.contains("opened in place of the game's own")),
-            "the front end's read was sent to orb's file:\n  {}",
+            game.log().lines().iter().any(|line| line
+                .contains("score: pointdevice_score.dat opened in place of the game's own, read")),
+            "orb made no read of the mode's own file after the front end's:\n  {}",
             game.log().lines().join("\n  ")
         );
 
@@ -530,7 +531,9 @@ fn a_ranking_that_never_comes_up_writes_nothing_and_has_its_request_undone() {
             game.log().said("score: the ranking was not built after")
         });
 
-        // Nothing written, and nothing read either: no screen came up to read one.
+        // Nothing written, and the reads are the front end coming back: its own out of the game's file, and
+        // the mode's own record behind it — see `the_front_ends_read_is_the_games_own_file_and_the_ranking_
+        // follows_the_mode`. No screen came up to read a ranking out of either.
         let (reads, writes) = reads_and_writes(&game.score_file_opens());
         assert!(
             writes.is_empty(),
@@ -538,7 +541,7 @@ fn a_ranking_that_never_comes_up_writes_nothing_and_has_its_request_undone() {
         );
         assert_eq!(
             reads,
-            vec![THEIRS.to_owned()],
+            vec![THEIRS.to_owned(), OURS.to_owned()],
             "the opens after it are not the front end's own read of the game's file coming back",
         );
 

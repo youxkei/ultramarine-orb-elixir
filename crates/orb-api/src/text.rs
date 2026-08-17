@@ -28,6 +28,16 @@ impl Font {
         load_face(path, height).map(Self)
     }
 
+    /// A face of the machine's own at that height, for a game that ships no font of its own.
+    ///
+    /// No font resource is added: what is asked of the host is `family` by name, or a face by charset where
+    /// that is empty — and then which face it is is the machine's answer rather than orb's.
+    /// [`face_name`](Font::face_name) is what says which came back either way. `height` means what it means
+    /// above.
+    pub fn of_the_machine(height: i32, family: &str, bold: bool) -> Option<Self> {
+        machine_face(height, family, bold).map(Self)
+    }
+
     /// What the host actually selected, which is the font asked for only if it loaded.
     pub fn face_name(&self) -> Option<String> {
         face_name(self.0)
@@ -51,6 +61,14 @@ fn load_face(path: &Path, height: i32) -> Option<Face> {
         return win.load_face(path, height);
     }
     host::load_face(path, height)
+}
+
+fn machine_face(height: i32, family: &str, bold: bool) -> Option<Face> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.machine_face(height, family, bold);
+    }
+    host::machine_face(height, family, bold)
 }
 
 fn face_name(face: Face) -> Option<String> {
@@ -87,6 +105,9 @@ mod host {
 
     pub fn load_face(_path: &Path, _height: i32) -> Option<Face> {
         no_windows("text::load_face")
+    }
+    pub fn machine_face(_height: i32, _family: &str, _bold: bool) -> Option<Face> {
+        no_windows("text::machine_face")
     }
     pub fn face_name(_face: Face) -> Option<String> {
         no_windows("text::face_name")

@@ -588,9 +588,18 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// Process-private, which is the whole reason the add is here rather than left to the caller: a
     /// font installed system-wide would outlive the run. A host that has no such file must refuse,
-    /// because a launch beside an exe with no `font.ttf` next to it is a launch with no overlay and
-    /// orb says so in the log.
+    /// because a launch beside an exe with no `font.ttf` next to it is a launch that falls back to the
+    /// face below and says so in the log.
     fn load_face(&self, path: &Path, height: i32) -> Option<Face>;
+
+    /// And a face of the machine's own at that height, with no font resource added: `family` by name where
+    /// the caller has one to ask for and a face by charset where it is empty, in which case which one comes
+    /// back is the machine's answer.
+    ///
+    /// For the game that ships no font: 妖々夢 keeps its own sprites inside `th07.dat` and asks the machine
+    /// for its text — `ＭＳ ゴシック`, bold — so what orb asks for is the same family, and its screens are in
+    /// the face the game's own text is in. See `docs/adr/0019`.
+    fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face>;
 
     /// What the host actually selected — `GetTextFaceW`. Asked so that a substituted face shows up in
     /// the log rather than silently: `Font::load` survives one, and the glyphs are then not the

@@ -102,6 +102,12 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "N", help_heading = FAULT)]
     stress: Option<u32>,
 
+    /// count one attempt and one capture against that card and have the game write its score file, the
+    /// way a run ending does — for reading the write back off a real launch without playing a run to a
+    /// spell card. The counts go in as a run's own, so a second launch with it shows what the first wrote
+    #[arg(long, require_equals = true, value_name = "CARD", help_heading = FAULT)]
+    counted_a_card: Option<usize>,
+
     /// leave orb loaded with none of its own work happening
     #[arg(long, help_heading = FAULT)]
     no_chapters: bool,
@@ -222,6 +228,9 @@ impl Config {
         }
         if let Some(frames) = options.stress {
             self.stress_restore_frames = frames;
+        }
+        if let Some(card) = options.counted_a_card {
+            self.counted_a_card = Some(card);
         }
         if options.no_chapters {
             self.chapters = false;

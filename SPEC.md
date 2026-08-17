@@ -43,15 +43,16 @@ choice of game into.
 One table rather than a constant apiece because two lists cannot be kept in step, and a launcher
 that starts a game the DLL does not recognise is a launch where orb is loaded and silent.
 
-Two entries, and they are not the same kind of game.
+Two entries, each a game orb plays, and what one of them is cross-checked against is the difference
+between them.
 
 `東方紅魔郷.exe`, 1.02h, `md5 fa3d64768b1bfc50703dedc2db92f7fa` — everything this document describes.
 Every address below was read off that build and cross-checked against the
 [GensokyoClub/th06](https://github.com/GensokyoClub/th06) decompilation.
 
-`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢, and **a game orb paces rather than one
-it plays.** What has been read of that exe is a frame, each address with the evidence in
-`orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the window *How much of the screen the
+`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢. Every address of it was read off that exe
+alone, each with the evidence in `orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the
+window *How much of the screen the
 game gets* below describes, its frames presented into a letterbox of the 4:3 that 640x480 output is — the game's own present stretches over whatever client it has, so that rectangle is what keeps the
 shape — and orb's own frame in place of the game's, the update before the draw, which is the frame of
 input lag removed, on the cadence the rest of this document describes. Composing that frame
@@ -64,21 +65,60 @@ seam either side of the draw chain in
 game's own button mapping and with the d-pad reaching the player where `dpad_moves` says so. Which is
 worth naming because 妖々夢 looks for a DirectInput device of its own and falls back to one winmm
 joystick, and a pad neither of those two reaches is a pad the game has none of — see *Input* below for
-what orb's own reading of them is.
+what orb's own reading of them is. **Every question of orb's is answered on that pad too**, the game
+being frozen on the frames one is up and its own read therefore not running: what the mode question and
+the retry menu read is the same sample, put through the same mapping and tested against the two masks
+the game's own front end reads a decide and a back with.
 
-Nothing else. Not anything drawn, there being no `font.ttf` beside that exe to build an overlay from —
-紅魔郷 ships one and 妖々夢 keeps its fonts inside `th07.dat` — so no status line, no wash and none of
-orb's own screens. And none of what the rest of this document is about: no chapters, no retry menu, no
-run picked up again, no card counted, no mode question. A launch there is in normal mode and says so,
-which is `Game::rewinds` answering that a run of this game cannot be rewound: **the game's own
-`score.dat` is what it reads and writes**, since runs nothing can rewind are runs anybody could have
-played and they belong in the ranking the game keeps.
+**And the rest of this document is that game's too**, `Game::rewinds` answering that a run of it can be
+rewound: the mode question at its own title menu, chapters, the mark over its panel, the retry menu a
+death offers, a run picked up in a later launch, a card's attempt counted and its name put back on the
+plate, and orb's own `pointdevice_score.dat` for the runs that were rewound. Two of those work
+differently here and the difference is the game's, not a setting: **the music is rewound through the file
+妖々夢 opens itself** — one `thbgm.dat` for every track, where 紅魔郷 opens a wav per track through winmm,
+which is `audio::Track`'s two shapes — and **orb's own screens are drawn in a face the machine lent**,
+that exe shipping no `font.ttf` where 紅魔郷 ships one, which is
+[docs/adr/0019](docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md). The face
+asked for is the one the game asks for itself, `ＭＳ ゴシック` at bold: this game ships no font and makes its
+own text through GDI, so orb's screens are in the same face as the game's text and the log names what came
+back.
 
-Every one of those is a method of `Th07` answering `None` or nothing rather than a branch anywhere above
-the seam, which is what a seam is for — and none of them answers a guess, an address written down
-because it is where 紅魔郷 keeps the same thing being the one thing that must not happen. That rule is
-what the frame loop cost once already: the addresses in 妖々夢's frame lined up with 紅魔郷's and the
-*shape* of the frame did not, and orb's first loop over it took the game down on its first frame. See
+**And a track change is put right by naming a slot rather than a path.** 妖々夢 starts a track by naming a
+slot of its sound player, and which slot is its music comes out of the stage's own data: that data names two
+songs, its own and the one the fight it ends with brings, and the stage's build loads them into slots 0 and 1.
+So a chapter taken under the second gets the second back and every other chapter gets the stage's own, a chapter
+that had nothing audible included — that one has the sound taken back off afterwards rather than another slot
+asked for. The seek that follows is refused by the track's own identity where the two differ, an offset meaning
+nothing in another track.
+
+**Not the slot the track that was playing is in**, which is the answer that suggests itself and is wrong: the
+front end leaves its own song in a slot of its own, so a chapter whose stream is still on that song names that
+slot and the title screen's music is what comes back. Heard on a launch, with `music: restarting slot 8` in the
+log — and that stream is the one a stage's first chapter is taken on, the scene before it having left its record
+there stopped.
+
+**And what a restore does about the sound waits for the ask it made to have been carried out.** A command in that
+player's queue is walked a phase at a time — one run of `SoundPlayer::PlaySounds` finishes only the commands whose
+own step is their last, and one that merely advanced its phase is the same command again next run — so the frame
+the restore happened in is not the frame the track is playing in. Both things a restore has left to do read the
+queue's first slot and wait for it to empty: the seek that puts the song where the chapter had it, and the stop
+that takes a chapter's silence back. Left to the restore's own frame, the first read `could not be put` and the
+second stopped a buffer the play had not reached, and both were heard on launches. orb's own two calls run that
+queue until it empties, the way the stage build does at 0x42f238.
+
+Neither the stop nor the start has done anything by the time it returns, on the backend a launch of it makes:
+each writes a command into that queue and nothing more, and what walks it is `SoundPlayer::PlaySounds`, which
+the game's own frame calls once a frame.
+
+**What a chapter of it is, is coarser than 紅魔郷's until a tuning run says otherwise**: the midstage
+table is a stage per entry with nothing in any of them, so a chapter falls at a stage's start and nowhere
+inside one. *Building the midstage table* below is the procedure that fills it, and it is the one thing
+about this game that cannot be read off the exe.
+
+None of it answers a guess: an address written down because it is where 紅魔郷 keeps the same thing is
+the one thing that must not happen, and that rule is what the frame loop cost once already — the
+addresses in 妖々夢's frame lined up with 紅魔郷's and the *shape* of the frame did not, and orb's first
+loop over it took the game down on its first frame. See
 [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
 [docs/adr/0017](docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
 
@@ -186,6 +226,22 @@ where a chapter deep in that stage had it — heard the first time a run went ba
 to a chapter of the stage's waves. Only where the track the game restarted is the one the chapter's
 sound was in: an offset means nothing in another wav.
 
+**And a chapter that had nothing audible comes back to that silence, by the track being asked for and the
+sound it starts taken back off.** A stream held is not a sound heard: a game between one song and the next has
+stopped its buffer and not asked for the track after it yet, while the stream, its source and the record that
+source is on are all still there — which is where a stage's first chapter falls, frames into a stage whose own
+song its script has not reached. Left playing, that song is heard twice, orb's start now and the script's when
+its own moment comes, the second from the top — which is what a launch of 妖々夢 heard.
+
+**The ask is made all the same**, and that is not a detail of how the silence is arrived at: both games keep the
+stream a track plays through in one field of their sound player, and the take-down above empties it, so a play
+is the only thing that fills it again. A launch that asked for nothing had no music for the rest of that stage —
+妖々夢 skips its play command's whole block where that field is null (0x44cbf3) — and then faulted at 0x44d023,
+which reads the stream through the same field with no test at all, three instructions before the same code
+tests it. So the sound is stopped through the buffer rather than through the game's own call, that one taking
+the stream down with it: what has to be left standing is the stream, and what has to go is only the sound the
+making of it started.
+
 **The chapters of the stage are kept from its start up to the one being played**, since every one of
 them is a place the retry menu offers to go back to. Eight of them at once, which reaches back across a
 fight — 紅魔郷's bosses have eight or nine attacks, so the chapter a fight began at is usually still
@@ -238,6 +294,12 @@ see *The language orb writes its screens in*:
 The last is named for where it ends up rather than for what it gives up, that being the half of
 it somebody reading the item does not already know: that the run is over is the obvious part, and
 that the game carries on into its own front end is not.
+
+**And it asks for the front end rather than for the scene a run ending goes to.** Both tear the run down —
+妖々夢's own transition out of a run calls that teardown for either — and the run-ending one then registers the
+screen a run ends on, whose background is drawn for a frame or two on the way past. A run given up is not a run
+anybody is being shown the score of, so orb asks for the scene where nothing is registered. A replay is left as
+it was: what one ends at is not that screen.
 
 **The second is a screen rather than a place.** Under どこからやり直す / `Where to start again` it lists
 the chapters the stage has behind the one that was lost, nearest first, with the stage's own start the
@@ -744,6 +806,13 @@ edges within a second. They are painted with the game's own panel tile — `fron
 with a colour of orb's, because the panel is a noise and a flat rectangle inside it reads as a
 patch. What that also buys: what is left where orb stops drawing is the panel the game would have
 painted there itself.
+
+**How far past the row the stroke may reach is the game's to say, and can be nothing.** 紅魔郷's
+panel leaves 8 pixels either side of that row, which the squash to 144x30 was made to fit inside;
+妖々夢 puts its bombs 16 pixels under a row 16 tall, so there the box is the row, the word is scaled
+to fit it, and there are no strips to paint at all. Watched the other way first, on a launch of
+妖々夢: the box hung 7 pixels into the bombs' row, and the strip painted there took the tops of the
+bombs' own stars with it.
 
 **Over the count and not over the `Player` beside it.** The count is where the stars are — from
 (496, 122) rightwards, 16 apart, and eight of them at the most, which is 496 to the right edge of
@@ -1650,6 +1719,20 @@ itself. The deleted callback then writes the file. Bounded at 240 updates, again
 end waits and the one each scene change costs; at 30µs an update the whole of it is under a frame's
 worth of time and none of it is seen, the draw chain running once a frame after this.
 
+**妖々夢 is written through its own save instead, and its ranking screen is never built.** The one write in
+that exe is gated on a phase its ranking screen never reaches — the two kinds the screen is built with skip
+it — so driving that screen wrote nothing however many updates it was given, and a launch faulted inside
+those updates reading a vm the screen it had just asked to leave no longer had. What writes is
+`0x44a302(2)`, the save that game makes on its own way out: it reads the file, lays every record the file
+holds over the ones in memory, and writes memory back out. So what a run counted is written down on the frame
+that run ends, and **put back** at the one moment inside the save that lies between its two halves: the parse
+(0x445069) that lays the file's records down, which is hooked for exactly that. Put back rather than added,
+because a run's records are the file's own with that run's counts already on them — the build empties all 141 of
+them (0x42e657) and reads the file straight back in (0x42e735), and the front end's own read does the same
+(0x45bff3). Added instead, a run's history would be counted twice. And only inside the save orb asked for: the
+game saves at every run's build and on its way out, and a put-back at a read that no write follows is records
+stranded in memory with the note spent.
+
 **None is built for a run that finished, or for one still inside its ending.** The screen a run
 finishes at writes for itself, that deleted callback being the same one — so a run that reached
 `STATE_RESULTSCREEN_FROMGAME` has nothing left waiting, and orb drops the request there. That a
@@ -2372,6 +2455,15 @@ is gone it becomes the other for good. Both ends need that: the track changes wh
 begins, which is not always the frame the boss arrives on, and by the frame the boss is beaten the
 sound may be being taken down again. The defeat is where the answer matters most, a midboss going
 down being a boundary and the stage's own boss going down being the stage ending.
+
+**And where the game names those two songs, the answer is which of them is playing rather than
+whether the track has changed.** 妖々夢 does: its stage data carries both names, so the fight it
+ends with is the one under the second of them and every other fight is a midboss, whatever was
+playing when the chapter at the stage's start was taken. That last part is why the two readings are
+not the same — a stage's first chapter falls frames into the stage, and the song the stage was come
+into with can still be playing then, which made every fight of that stage a track change and its
+midboss the boss. 紅魔郷 keeps the comparison: its track is named by a path its stage data holds and
+what is playing is a wave file with no name orb can read.
 
 **The judging keys work only with the game held on a boundary.** A frame is a sixtieth of a
 second, so a key pressed while the game runs lands on whichever frame it reached, which is no way

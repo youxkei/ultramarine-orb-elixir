@@ -242,7 +242,7 @@ pub struct Hooks {
     ///
     /// `None` for a game with no such point, which leaves a run unable to be picked up
     /// again — see `resume` in the `orb` crate.
-    pub stage_begun: Option<Patch>,
+    pub stage_begun: Option<Entered>,
     /// Runs after those numbers are in place and before the stage is built out of them,
     /// which is the last moment nothing of the stage has been drawn from the generator
     /// yet: the only place a resumed run's seed can go.
@@ -263,7 +263,7 @@ pub struct Hooks {
     ///
     /// `None` for a game whose unlocks come out of a read that cannot be told from the rest, which
     /// leaves them following the mode like everything else in the file.
-    pub unlocks_read: Option<Patch>,
+    pub unlocks_read: Option<Entered>,
     /// Runs as a ranking is about to be read out of the score file, before the read.
     ///
     /// Where [`Game::forget_captures`] goes, and nowhere else: the record it clears is the one that
@@ -271,7 +271,19 @@ pub struct Hooks {
     ///
     /// `None` for a game whose ranking read cannot be got in front of, which leaves the captures in
     /// memory carrying from one file's ranking into the next one's.
-    pub ranking_read: Option<Patch>,
+    pub ranking_read: Option<Entered>,
+    /// Runs where the game lays the records its score file holds over the ones in memory, **called
+    /// through**: what the file held stands, and [`Game::add_the_cards_a_session_counted`] puts a
+    /// session's own counts on top of it.
+    ///
+    /// The one seam between a save's two halves, which is why it is a seam at all: the save reads the
+    /// file, lays its records over memory here, and then writes memory back out — so what memory holds
+    /// at *this* moment is the whole of what reaches the file, and a session's counts have nowhere else
+    /// to be put. Entered `(the file's image, the array)` in `ecx` and `edx`.
+    ///
+    /// `None` for a game whose score file is written as its ranking screen goes down, which is 紅魔郷:
+    /// there the record in memory is what the write takes and nothing lays a file over it first.
+    pub card_records_read: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
     /// is the only moment `force_windowed` can still take effect.
     pub create_window: Option<Patch>,
@@ -289,7 +301,7 @@ pub struct Hooks {
     /// **not called through**: what every pad does to the word is [`Game::pad_word`], so a launch that
     /// left this out is a launch where no pad does anything. `None` for a game whose pad read has not
     /// been measured, which is a game orb reads no pad in at all.
-    pub joystick: Option<PadRead>,
+    pub joystick: Option<Entered>,
     /// The pad's buttons one byte apiece, which is what a game's own key config screen reads to learn
     /// *which* button was pressed rather than what it means. Hooked and **called through**: what the game
     /// found stands, and [`Game::add_pad_buttons`] adds the pads orb read for itself.
@@ -300,23 +312,25 @@ pub struct Hooks {
     pub pad_buttons: Option<Patch>,
 }
 
-/// A game's pad read, and where the word the keyboard was read into arrives in it.
+/// A patch, and where the argument of the function under it arrives.
 ///
-/// **Two of them because MSVC compiled the two games' differently, and a hook is entered by its ABI and
-/// nothing else**: 紅魔郷's `Controller::GetControllerInput` takes that word on the stack — `push edx;
-/// call 0x41cfc0; add esp,4` at 0x41dc77 — and 妖々夢's pad read takes it in `ecx`, `mov ecx,[ebp-0x104];
-/// call 0x4303f0` at 0x430f1a. Everything else about the two is the same, which is why this says only
-/// which: the word in, that word with the pad's bits added out, and orb answering the whole of it rather
-/// than calling through.
+/// **Because a hook is entered by its ABI and nothing else**, and MSVC compiled the same call differently
+/// in the two games. The pad read is the pair this was first needed for: 紅魔郷's
+/// `Controller::GetControllerInput` takes the word the keyboard was read into on the stack — `push edx;
+/// call 0x41cfc0; add esp,4` at 0x41dc77 — and 妖々夢's takes it in `ecx`, `mov ecx,[ebp-0x104]; call
+/// 0x4303f0` at 0x430f1a. A stage's own beginning is the second: 紅魔郷's added callback is `__cdecl` and
+/// 妖々夢's is `__thiscall`, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`.
+/// Entered the wrong way, a hook that calls the original through reads its argument out of whatever the
+/// register or the stack happened to hold, which is a crash and not a wrong number.
 ///
 /// Here rather than in a method of [`Game`], because it is one fact about one patch and this is where the
 /// patch is — a second answer somewhere else is a second place to keep in step.
-pub enum PadRead {
+pub enum Entered {
     OnTheStack(Patch),
     InEcx(Patch),
 }
 
-impl PadRead {
+impl Entered {
     /// The patch either of them carries, for the installer that has already decided which hook goes over
     /// it.
     pub fn patch(&self) -> &Patch {
@@ -459,6 +473,31 @@ pub struct RunState {
     /// How many extra lives the score has already paid for, so the next one is not paid twice.
     pub extra_lives: i8,
     pub deaths: i32,
+    /// 妖々夢's cherry: what it stands at, what it is filling towards, and the cherry+ beside it.
+    ///
+    /// **Three fields of this struct and not a game's own blob**, which is the shape the rest of it already
+    /// has: `rank` and `power_items` are 紅魔郷's own vocabulary and 妖々夢 answers nothing for them, so a
+    /// game answering nothing for these three is the same trade the other way round. What settled it is that
+    /// they are numbers a stage has to *start with* — the cherry pays for 妖々夢's extra lives the way the
+    /// score pays for 紅魔郷's — and that is what this struct is.
+    ///
+    /// Each is kept the way the game keeps it, as a count from the baseline the game measures it from, so
+    /// that a resumed stage's own baseline is what they are put back against. Zero for a game with no such
+    /// thing, which is a number that game never reads.
+    pub cherry: i32,
+    pub cherry_target: i32,
+    pub cherry_plus: i32,
+}
+
+/// A face the host is asked for by name: the family, and whether it is wanted bold.
+///
+/// What a game that ships no font of its own draws its text with — see [`Game::own_face`]. A family and a
+/// weight and nothing else, because that is the whole of what makes orb's screens the same face as the
+/// game's text: the size is orb's own, its screens being lines to read rather than the game's own strings.
+#[derive(Clone, Copy)]
+pub struct Face {
+    pub family: &'static str,
+    pub bold: bool,
 }
 
 /// A rectangle in the game's own output resolution.
@@ -525,6 +564,52 @@ pub trait Game {
     /// fight alone.
     fn music_identity(&self) -> Option<u32>;
 
+    /// Whether the song playing is the one the stage's data names for the fight it ends
+    /// with, where the game says which of its two songs is on directly.
+    ///
+    /// `None` where it does not, and then a fight is told from a midboss by
+    /// [`music_identity`](Game::music_identity) having changed since the stage began —
+    /// which is what a game whose songs cannot be named by name is left with.
+    ///
+    /// **The two are not the same reading, and 妖々夢 is why.** A stage's first chapter is
+    /// taken frames into the stage, so the track at the stage's start can be the song the
+    /// stage was come into with rather than the stage's own; then every fight of that stage
+    /// is a track change, and its midboss comes out as the boss the stage ends with — its
+    /// chapters keeping a music they should rewind and the retry menu offering them under
+    /// the wrong name. Where the game names its two songs, the answer does not depend on
+    /// when a chapter was taken.
+    fn the_fights_own_song_is_playing(&self) -> Option<bool> {
+        None
+    }
+
+    /// The family the game draws its own text in, where it ships no font and asks the host for
+    /// one by name — so that orb's own screens are in the same face as the game's text.
+    ///
+    /// `None` where the game ships a font instead, which orb loads: 紅魔郷 adds the `font.ttf`
+    /// beside its exe. 妖々夢 ships none — the sprites in `th07.dat` are its panel's digits — and
+    /// makes every string it draws out of a family it names to GDI: `CreateFontA` at 0x4322e7 with
+    /// `ＭＳ ゴシック` and the weight 0x2bc, into a DIB it then uploads. The `bold` beside the name
+    /// is that weight, 700 being what Windows calls bold.
+    ///
+    /// A family the machine does not have is a substituted face, which is why what came back is
+    /// said in the log rather than assumed.
+    fn own_face(&self) -> Option<Face> {
+        None
+    }
+
+    /// How much panel there is above and below [`lives_row`](Game::lives_row) that the game
+    /// draws nothing else in, and so which a mark of orb's own may reach into.
+    ///
+    /// **0.0 by default, which is a panel whose rows are as far apart as they are tall.** The
+    /// mark is a brush stroke and a stroke is not the shape of a row, so it is drawn taller
+    /// than one where there is room — and where there is not, a mark reaching past the row
+    /// paints over a neighbour the game repaints no oftener than this row: 妖々夢 puts its
+    /// bombs 16 pixels under a row 16 tall, and the stroke's own box hung 7 pixels into them,
+    /// which took the tops of the bombs' stars with it.
+    fn room_around_the_lives_row(&self) -> f32 {
+        0.0
+    }
+
     /// The thread that keeps the music's buffer topped up, which is left running
     /// while the game is held still: its pauses are the ones that are heard.
     fn audio_thread(&self) -> Option<u32>;
@@ -541,9 +626,27 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, with nothing suspended.
     unsafe fn stop_music(&self);
 
+    /// Whether the game still has a sound command of its own in flight, so that what
+    /// a restore has left to do about the sound waits for the ask it made to have
+    /// been carried out.
+    ///
+    /// Nothing for a game whose calls are done by the time they return; 妖々夢's are
+    /// not, and one of its own runs of the sound is not enough to finish one either.
+    fn a_sound_command_is_in_flight(&self) -> bool {
+        false
+    }
+
     /// Starts the stage's own track again after such a restore, and returns whether
     /// there was one to name. The restored state names a stream that no longer
     /// exists, so that has to be cleared before the game is asked for anything.
+    ///
+    /// **Asked for even where the chapter had nothing audible.** What a chapter had
+    /// none of is a sound, not a stream: these games keep the stream a track is
+    /// played through in a field of their sound player, and a take-down empties it —
+    /// so a restore that asks for nothing leaves the player holding no stream at all,
+    /// which is a state neither game's own code is written for. A chapter that had
+    /// nothing audible has that ask taken back down instead, once the frame's own
+    /// sound has carried it out.
     ///
     /// # Safety
     /// Must run on the game's main thread, after the memory has been restored.
@@ -829,6 +932,68 @@ pub trait Game {
     /// Must run on the game's main thread, with `saved` a `captures` of this same build.
     unsafe fn set_captures(&self, saved: &[u8]);
 
+    /// Puts the card records a run left back over the ones a save's own read of the file has just laid down.
+    ///
+    /// **Back rather than added**, and that is a reading of the game rather than a choice: 妖々夢 empties every
+    /// record as it builds a run (0x42e657) and reads the file straight back into them (0x42e735), so what
+    /// stands in them when that run ends is the file's own counts *with* the run's on top. Added to the file's
+    /// again, a run's history would be counted twice — and it was, until a laid-out build that reads its file
+    /// the way the game's does said so.
+    ///
+    /// For the one moment a save leaves for it — see [`Hooks::card_records_read`] — and nothing for a game with
+    /// no such moment, whose captures are carried in memory instead.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with `left` a [`captures`](Game::captures) of this same build.
+    unsafe fn put_back_the_cards_a_run_left(&self, left: &[u8]) {
+        let _ = left;
+    }
+
+    /// Counts one attempt and one capture against a card, as the game's own counting would, and answers
+    /// whether it could.
+    ///
+    /// **For a launch that reads the score file's write back without a run being played to a spell card** —
+    /// `Config::counted_a_card`, which is what asks for it. Nothing an ordinary launch reaches: what counts
+    /// a card in a run is the game itself.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn count_a_card_for_a_check(&self, card: usize) -> bool {
+        let _ = card;
+        false
+    }
+
+    /// Whether the game writes its own score file, so that nothing above has to build a ranking screen for
+    /// it.
+    ///
+    /// **妖々夢 does and 紅魔郷 does not**, and it is a difference in where the write is: 紅魔郷's runs as its
+    /// ranking screen goes down, which is why orb builds one and takes it down; 妖々夢's screen writes at no
+    /// phase it is built with, and the one write in that exe is a save the game makes for itself at every run's
+    /// build and on its way out. Which is enough — every way a session's records are lost goes through one of
+    /// those two — so what orb does for it is put the records back inside that save rather than ask for a save
+    /// of its own. Asking is what a launch faulted on: the call runs the screen's own teardown, which frees the
+    /// anm files in four of the manager's slots, and orb made it with the front end standing on them.
+    fn writes_its_own_records(&self) -> bool {
+        false
+    }
+
+    /// Whether the read of the score file now running is one a write follows, `screen` being the object that
+    /// read is made on.
+    ///
+    /// **Which is what says a session's records belong back in memory at the parse inside it.** Every read of
+    /// 妖々夢's file lays the file's own card records over the ones in memory, and only some of those reads are
+    /// part of a save: the phase the object carries is what tells them apart, and the same field orb reads as
+    /// [`Game::ranking_state`] carries it.
+    ///
+    /// `false` for a game whose reads are none of them a save's, which leaves the records in memory alone.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with `screen` the object the game's own read was entered with.
+    unsafe fn its_records_are_about_to_be_written(&self, screen: *mut c_void) -> bool {
+        let _ = screen;
+        false
+    }
+
     /// And puts it back the way a run played into place needs it: the counts as they were before the
     /// buttons went in, and whatever the playback named left as it named it.
     ///
@@ -863,26 +1028,32 @@ pub trait Game {
     /// Must run on the game's main thread, before the game's own read of the ranking.
     unsafe fn forget_captures(&self, screen: *mut c_void);
 
-    /// Fills the game's own practice scores out of the file the mode now points at, which is a read of
-    /// that file the game itself does not make.
+    /// Fills whatever the game keeps of a *record of runs* out of the file the mode now points at, which
+    /// is a read of that file the game itself does not make.
     ///
-    /// **The score beside a practice stage is the mode's and what a stage select *offers* is not.** The
-    /// game takes both out of one read — the front end's own, which is pointed at the game's own file so
-    /// that a mode whose file is new does not lock what an installation has earned — and the score in
-    /// that file is a legacy run's. Which left 完全無欠モード showing legacy practice scores on a screen
-    /// whose runs go in orb's file. One read cannot land in two files, so the score is read again: the
-    /// front end's read stands as it is, and this puts the mode's own numbers over the half of it that is
-    /// a record rather than an unlock.
+    /// **What a stage select offers is not a record, and the score beside it is.** The game takes both out
+    /// of one read — the front end's own, which is pointed at the game's own file so that a mode whose file
+    /// is new does not lock what an installation has earned — and the record in that file is the other
+    /// mode's. Which left 完全無欠モード showing legacy practice scores on a screen whose runs go in orb's
+    /// file. One read cannot land in two files, so the record is read again: the front end's read stands as
+    /// it is, and this puts the mode's own numbers over the half of it that is a record rather than an
+    /// unlock.
     ///
-    /// Called wherever the mode is settled, which is the last thing before the screen those numbers are
-    /// drawn on: a practice stage is chosen after the question orb puts over `Practice Start`.
+    /// **Every such record, which for 妖々夢 is two**: the practice scores, and the card records its
+    /// ランキング shows and a run counts into. A session that never answered the mode question again showed
+    /// the other mode's of both — a run given up back to the practice stage select carried a legacy score
+    /// for the stage it had just been played in, and the ランキング counted nothing of the session.
     ///
-    /// Nothing where the game keeps no such score, which leaves whatever its own read found standing.
+    /// Called after the front end's own read, and again wherever the mode is settled: the first is every
+    /// path that brings that screen up, including a run coming back to it, and the second is the last thing
+    /// before a practice stage is chosen.
+    ///
+    /// Nothing where the game keeps no such record, which leaves whatever its own read found standing.
     ///
     /// # Safety
     /// Must run on the game's main thread, between frames: it reads a file through the game's own code
     /// and writes what the game's own front end draws from.
-    unsafe fn read_practice_scores(&self);
+    unsafe fn read_what_the_modes_file_records(&self);
 
     /// What the game's own title menu is *pointing* at, where that is something orb has a question
     /// about, so the question can go on the press rather than after it.
@@ -1038,6 +1209,25 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn stage_frame(&self) -> Option<u32>;
+
+    /// Hands the word a frame's read produced to the run, where the game itself would hand it over too late
+    /// for that frame's own update to act on.
+    ///
+    /// **妖々夢's frame of input lag is this and nothing else.** Its jobs run in the order their chain
+    /// priorities give: the read at 0, the player at 8 — which reads the word *the run acts on* and moves on
+    /// it — and the copy from the one word into the other at 0x10, inside the recorder. So the player moves on
+    /// what the copy left a frame ago. Called from the input hook, which is the read at priority 0, this makes
+    /// that copy early and the frame's own keys are what its update acts on.
+    ///
+    /// Nothing where a game hands the read to its own update in time, which is 紅魔郷: there is one word and
+    /// the player reads it. And nothing while a replay is being watched, where what the run acts on is the
+    /// recording rather than the keyboard.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, from inside that read.
+    unsafe fn hand_the_read_to_the_run(&self, word: u16) {
+        let _ = word;
+    }
 
     /// Which bits of a frame's input decide how a run goes, and so are the ones worth writing
     /// down and handing back.

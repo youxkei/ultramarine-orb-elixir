@@ -1,12 +1,15 @@
-//! **A game orb paces and does nothing else to.**
+//! **The frame orb paces 妖々夢 with, and what it reads of one.**
 //!
 //! A 妖々夢 laid out from what has been read of `th07.exe`, orb attached to `Th07`, and orb's own frame
 //! loop in place of the game's own frame — which is what a launch there is. What the e2e tests below ask
 //! is that the loop composes 妖々夢's frame rather than 紅魔郷's: the update before the draw, the queue of
 //! quads emptied before the drawing fills it and drawn before the scene ends, the fog a stage left on put
-//! out. And that orb did none of what it does to 紅魔郷 — no chapter, no snapshot, no menu, no mark, no
-//! overlay, and its score file its own, each because a method of `Th07` answered nothing rather than a
-//! number.
+//! out. Beside that, one field at a time: the scene, the stage, the run's own numbers, the pad, the
+//! letterbox, the score file the mode forks.
+//!
+//! **The mode itself is `a_pointdevice_run_of_th07.rs`**, which plays a run of the same laid-out game
+//! through the whole of it — the question, a chapter, a death, the retry. The launches here have no run in
+//! them, so nothing of a chapter is reached from any of them.
 //!
 //! **The queue is what makes these more than a smoke test.** orb's first loop in that frame took the game
 //! down on its first frame, writing a quad through a null pointer, and every address it used was right —
@@ -20,6 +23,7 @@
 
 use crate::fake::th07::Fake;
 use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process};
+use orb_config::LogLevel;
 use orb_config::Screen;
 use orb_core::frame;
 use orb_core::window::letterbox;
@@ -32,8 +36,17 @@ const WORK_US: i64 = 700;
 /// overlay and well into the frames where nothing is happening.
 const FRAMES: u32 = 5 * frame::LOGIC_HZ;
 
+/// The family 妖々夢 draws its own text in, which is the one orb's screens are to be drawn in: the name it
+/// hands `CreateFontA` at 0x4322e7, at 0x497cbc in Shift-JIS.
+const FACE: &str = "ＭＳ ゴシック";
+
+/// A card of the game's own and the name its record carries, for the run that has to have counted something
+/// before its ranking is worth building: 妖々夢 counts an attempt where a card starts.
+const A_CARD: usize = 96;
+const A_CARDS_NAME: &str = "幽夢「猫の見た夢」";
+
 #[test]
-fn orb_paces_a_game_it_declines_everything_about_a_run_of() {
+fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
     in_its_own_process(|| {
         let game = Fake::attach(Display::agreed(120), "th07-paced", Work::wandering(WORK_US));
 
@@ -55,27 +68,43 @@ fn orb_paces_a_game_it_declines_everything_about_a_run_of() {
             "orb did not attach:\n  {log}"
         );
 
-        // No overlay, a 妖々夢 install having no `font.ttf` beside its exe — so nothing orb draws is
-        // drawn, which is measured of the real game too.
+        // And an overlay all the same, in a directory with no `font.ttf` in it: 妖々夢 ships none — its
+        // fonts are inside `th07.dat` — and orb's own screens are drawn with the face the machine has
+        // rather than not drawn at all. See `docs/adr/0019`.
         assert!(
-            log.contains("overlay: unavailable"),
-            "orb built an overlay in a directory with no font in it:\n  {log}"
+            log.contains("overlay: no font beside the game; using the machine's own face"),
+            "orb did not fall back to a face of the machine's:\n  {log}"
+        );
+        assert!(
+            log.contains("overlay: ready"),
+            "orb built no overlay in a directory with no font in it:\n  {log}"
         );
 
-        // And none of what orb does to 紅魔郷. Each of these is a method of `Th07` answering nothing:
-        // `read_state` says no run, `run_slot` says no run is kept, `midstage_table` is empty, and
-        // `menu_pointed_at` never has anything under the cursor.
-        for absent in [
-            "chapter ",
-            "retry",
-            "resume: stage",
-            "died in",
-            "wash",
-            "mode: asking",
-        ] {
+        // **And the face it asked the machine for is the one this game asks for itself**: 妖々夢 ships no
+        // font and makes its own text out of a family it names to GDI — `CreateFontA` at 0x4322e7 with
+        // `ＭＳ ゴシック` and the weight 0x2bc, which is bold — so asking for anything else is orb's screens
+        // in a face the game's own text is not in. Asked for at both of the overlay's sizes, the status
+        // lines' and the mark's.
+        let asked = game.sim().text().machine_faces_asked_for();
+        assert_eq!(
+            asked,
+            vec![(FACE.to_owned(), true), (FACE.to_owned(), true)],
+            "orb did not ask the machine for the family 妖々夢 asks for",
+        );
+        // And the log says which one came back, a family a machine does not have being a substituted face
+        // and the glyphs then not the game's.
+        assert!(
+            log.contains("overlay: the machine's own face is"),
+            "the log does not say which face the machine gave:\n  {log}"
+        );
+
+        // And nothing of what a run gets, there being no run in this launch: the scene never leaves the front
+        // end's, so nothing is chaptered, nothing dies and nothing is offered. What a run of it gets is
+        // `a_pointdevice_run_of_th07.rs`, which is the same game laid out with one in progress.
+        for absent in ["chapter ", "retry", "resume: stage", "died in", "wash"] {
             assert!(
                 !log.contains(absent),
-                "orb did {absent:?} to a game it has read no run of:\n  {log}"
+                "orb did {absent:?} to a launch with no run in it:\n  {log}"
             );
         }
 
@@ -96,7 +125,7 @@ fn orb_paces_a_game_it_declines_everything_about_a_run_of() {
 }
 
 #[test]
-fn the_score_file_a_game_orb_can_rewind_nothing_in_writes_is_the_games_own() {
+fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
     in_its_own_process(|| {
         let game = Fake::attach(
             Display::agreed(120),
@@ -105,29 +134,104 @@ fn the_score_file_a_game_orb_can_rewind_nothing_in_writes_is_the_games_own() {
         );
 
         // The front end's own reads and the write on the way out, which is what a launch there really
-        // does — and every one of them the game's own file. orb's is for runs that can be rewound, and
-        // nothing here can: a run played in 妖々夢 with orb in it is a run anybody could have played, so
-        // it belongs in the ranking the game keeps.
+        // does — and every one of them orb's file, this launch being in the mode a run of it can be rewound
+        // in. A rewound run is not a run anybody played, so its score does not belong in the ranking the
+        // game keeps: see `orb_core::score`, and `a_pointdevice_run_of_th07.rs` for the mode itself.
         for write in [false, false, true] {
             assert_eq!(
                 game.opens_its_score_file(write),
-                "score.dat",
-                "an open of 妖々夢's score file landed in orb's",
+                "pointdevice_score.dat",
+                "an open of 妖々夢's score file landed in the game's own",
             );
         }
 
-        // And the mode says so rather than leaving it to be worked out from the file: pointdevice mode is
-        // chapters, and a launch that said it was in one it can never be in is a launch whose log means
-        // something else.
+        // **With one exception, and it is a read.** What the front end's own menus offer — which practice
+        // stages are open, whether the Extra is — is not a record of a run, so that one read is answered out
+        // of the game's own file whichever mode orb is in: a first 完全無欠 session answering it out of a
+        // new file of its own would lock every stage a `score.dat` had already earned. orb brackets exactly
+        // that callback, which in this game is 0x45c4c8 — see `Th07::hooks`.
+        assert_eq!(
+            game.reads_what_its_menus_offer(),
+            "score.dat",
+            "the front end's own read did not land in the game's file",
+        );
+
+        // **And what that read carries of the mode's own is read again out of the mode's own file**, which is
+        // the other half of the exception: that read is one call, and what it fills is the unlocks *and* a
+        // record of runs — the practice scores a stage is offered with, and this game's card records. Left as
+        // the game's own file has them, a session that never answered the mode question again shows the other
+        // mode's: a run given up back to the practice stage select showed a legacy score for the stage it had
+        // just been played in, and the ランキング counted nothing of the session.
+        assert!(
+            game.log()
+                .said("score: what the mode's own file records read out of it again"),
+            "the mode's own records were left as the game's own file had them:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        // And the game's file is never written in this mode: the one write 妖々夢 makes of it is the screen a
+        // run ends on going down, which is outside that bracket and so follows the mode like every other open.
         let log = game.log().lines().join("\n");
         assert!(
-            log.contains("mode: normal to start with"),
-            "orb started in pointdevice mode in a game it can rewind nothing in:\n  {log}"
+            log.contains("mode: pointdevice to start with"),
+            "orb started in normal mode in a game whose runs it can rewind:\n  {log}"
         );
+    });
+}
+
+/// **No ranking is built for a run of 妖々夢 that ended, and no update of the game's own is asked for.**
+///
+/// Which is a finding about this game rather than a preference: the screen orb used to build and take down here
+/// writes nothing at either phase it is built with — 0xa and 0x12 both skip the one write in the exe, which is
+/// gated on 0x13 — so every frame spent driving it was spent for nothing, and the file was left as it was. What
+/// carries a session's counts instead is the game's own save, and `the_cards_a_run_of_th07_counted.rs` is what
+/// says the counts reach the file through it.
+///
+/// **And a launch is why the frames matter as much as the file.** orb's pump faulted inside one of those updates,
+/// `th07.exe+0x50db1` reading a vm the screen it had just asked to leave no longer had, with orb's own frames in
+/// the stack between the game's loop and its calc chain. A run that ends asking the game for no update at all
+/// cannot fault there.
+///
+/// **Nor is a save of the game's own asked for here**, which a second launch taught at the same address: that
+/// call is the score screen's added callback and its deleted one behind it, and the deleted one frees the anm
+/// files four of the manager's slots hold. What carries the counts instead is the save the game makes for itself
+/// — see `the_cards_a_run_of_th07_counted.rs`.
+#[test]
+fn no_ranking_is_built_for_a_run_of_th07_that_ended() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-no-ranking",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        // A card attempted, so the run has counted something: a run with nothing counted is one there would be
+        // nothing to write for either way.
+        game.the_boss_arrives();
+        game.a_card_starts(A_CARD, A_CARDS_NAME);
+        game.frames(30);
+        game.gives_the_run_up();
+
         assert!(
-            !log.contains("pointdevice_score.dat"),
-            "orb opened a file of its own for a game whose runs are the game's:\n  {log}"
+            log.said("score: this game writes its own file"),
+            "the run's end was not left to the save the game makes itself:\n  {}",
+            log.lines().join("\n  ")
         );
+        for said in [
+            "score: the ranking is up",
+            "score: asked it to leave",
+            "score: update 1 answered",
+        ] {
+            assert!(
+                !log.said(said),
+                "the ranking screen was driven for a run that ended — {said}:\n  {}",
+                log.lines().join("\n  ")
+            );
+        }
     });
 }
 
@@ -309,6 +413,109 @@ fn a_pad_the_game_has_no_device_for_is_in_the_buttons_its_key_config_reads() {
         assert!(
             !game.image().pad_button_held(1),
             "a button nobody pushed reads as held",
+        );
+    });
+}
+
+#[test]
+fn the_scene_orb_reads_is_the_one_the_games_own_supervisor_is_in() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th07-the-scene",
+            Work::wandering(WORK_US),
+        );
+
+        // A run in progress, as the game's own transition would have left its supervisor: orb writes the
+        // pair into its state line every frame, and that line is what somebody reading a launch's log has
+        // to be able to believe.
+        let run = game.image().scene_of_a_run();
+        game.image().is_in_scene(run, run);
+        game.frames(FRAMES);
+
+        let log = game.log().lines().join("\n");
+        assert!(
+            log.contains(&format!("scene={run}->{run}")),
+            "orb's state line does not say the scene the supervisor is in:\n  {log}"
+        );
+        // And nothing offered over a run with no numbers behind it: the pointer the build allocates is null
+        // here, so every one of them reads as nothing — and a retry over that would be a retry to a chapter
+        // whose snapshot is of a run that was never in progress. What a run with its numbers in place gets is
+        // `a_pointdevice_run_of_th07.rs`.
+        for absent in ["retry", "died in"] {
+            assert!(
+                !log.contains(absent),
+                "orb did {absent:?} over a run with no numbers behind it:\n  {log}"
+            );
+        }
+    });
+}
+
+/// A stage and a difficulty a laid-out run is on: the fifth stage of six on Lunatic, which is a pair
+/// nothing else in these e2e tests would leave lying around.
+const STAGE: i32 = 4;
+const DIFFICULTY: i32 = 3;
+
+/// And the numbers that run is at, each different from the others so that a line printing one of them in
+/// another's place is a failure rather than a pass. The game keeps all four as floats and the lives with a
+/// fraction is what a run that has just taken an extend looks like.
+const LIVES: f32 = 3.5;
+const BOMBS: f32 = 2.0;
+const DEATHS: f32 = 1.0;
+const POWER: f32 = 62.5;
+
+/// And the state the game's own generator is in, which is a word of its own rather than one of the run's
+/// numbers — a run resumed from a chapter is reproduced by putting this back.
+const SEED: u16 = 0x1234;
+
+/// How long the stage has been running, which the game counts in the manager and not in the run's numbers:
+/// a number no other field of this test could be mistaken for.
+const STAGE_FRAMES: u32 = 1234;
+
+/// And how many enemies are alive, which their own manager counts.
+const ENEMIES: i32 = 17;
+
+/// And how long the stage's own script has run, which is the clock a chapter's boundaries are written in —
+/// a different number from the stage's frames, because the two are different clocks.
+const SCRIPT_FRAMES: i32 = 987;
+
+#[test]
+fn the_stage_the_difficulty_and_the_runs_own_numbers_are_read_out_of_the_game() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th07-the-run-read",
+            Work::wandering(WORK_US),
+        );
+
+        // A run in progress, as the game's own build of one leaves it: the scene, the stage, the difficulty,
+        // and the numbers behind the pointer that build allocates.
+        game.image().is_playing(STAGE, DIFFICULTY);
+        game.image().has_a_runs_numbers();
+        game.image().has_lives_and_bombs(LIVES, BOMBS);
+        game.image().has_died(DEATHS);
+        game.image().shot_is_at_power(POWER);
+        game.image().generator_is_at(SEED);
+        game.image().has_been_in_the_stage_for(STAGE_FRAMES);
+        game.image().enemies_alive(ENEMIES);
+        game.image().the_script_has_run_for(SCRIPT_FRAMES);
+        game.frames(FRAMES);
+        let log = game.log().lines().join("\n");
+        assert!(
+            log.contains(&format!(
+                "stage={STAGE} diff={DIFFICULTY} frames={STAGE_FRAMES} script={SCRIPT_FRAMES}"
+            )),
+            "orb's state line does not say the stage, the difficulty and its two clocks:\n  {log}"
+        );
+        // Whole numbers of what the game keeps as floats, and the generator's word beside them: all five in
+        // one assertion because the log's line is one place to get any of them wrong, and a run at 3.5 lives
+        // has 3.
+        assert!(
+            log.contains(&format!(
+                "seed={SEED:#06x} deaths={} lives={} bombs={} power={} enemies={ENEMIES}",
+                DEATHS as i32, LIVES as i8, BOMBS as i8, POWER as u16
+            )),
+            "orb's state line does not say the run's own numbers:\n  {log}"
         );
     });
 }

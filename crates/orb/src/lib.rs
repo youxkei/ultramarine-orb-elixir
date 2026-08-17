@@ -49,13 +49,14 @@ pub(crate) use orb_core::{game, log};
 // installs them and calls none of them itself — see
 // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 use orb_core::runtime::{
-    CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT, INIT_D3D_DEVICE,
-    PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN, RUN_CALC_CHAIN_TARGET,
-    RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN, STAGE_BUILDING,
-    STOP_RECORDING, UNLOCKS_READ, attached, create_game_window, get_controller_input,
-    get_controller_input_in_ecx, get_input, init_d3d_device, pacing, pad_buttons, ranking_read,
-    render, run_calc_chain, run_draw_chain, save_replay, stage_begun, stage_building,
-    stop_recording, unlocks_read,
+    CARD_RECORDS_READ, CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT,
+    INIT_D3D_DEVICE, PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN,
+    RUN_CALC_CHAIN_TARGET, RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN,
+    STAGE_BUILDING, STOP_RECORDING, UNLOCKS_READ, attached, card_records_read, create_game_window,
+    get_controller_input, get_controller_input_in_ecx, get_input, init_d3d_device, pacing,
+    pad_buttons, ranking_read, ranking_read_in_ecx, render, run_calc_chain, run_draw_chain,
+    save_replay, stage_begun, stage_begun_in_ecx, stage_building, stop_recording, unlocks_read,
+    unlocks_read_in_ecx,
 };
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
@@ -264,11 +265,20 @@ fn attach() {
         // Whatever mode the launch starts in, since the mode is answered per run: this is the
         // moment a stage's numbers are put in place, which is where they are read from and the
         // only place a resumed run's go back.
-        Some(patch) if config.chapters && config.resume => {
+        // Entered the way the game's own callback is, which is not the same in the two games — see
+        // `orb_core::game::Entered`.
+        Some(entered) if config.chapters && config.resume => {
+            let hook = match entered {
+                game::Entered::OnTheStack(_) => hook::address(stage_begun as _),
+                game::Entered::InEcx(_) => hook::address(stage_begun_in_ecx as _),
+            };
             hooks.push((
                 "stage start",
-                patch,
-                hook::address(stage_begun as _),
+                game::Patch {
+                    target: entered.patch().target,
+                    prologue: entered.patch().prologue,
+                },
+                hook,
                 &STAGE_BEGUN,
             ));
         }
@@ -299,10 +309,10 @@ fn attach() {
         // one where no pad did anything at all.
         //
         // Which of the two entry points goes over it is the convention the game's own read has, and
-        // nothing else about the two differs — see `orb_core::game::PadRead`.
+        // nothing else about the two differs — see `orb_core::game::Entered`.
         let entry = match read {
-            game::PadRead::OnTheStack(_) => hook::address(get_controller_input as _),
-            game::PadRead::InEcx(_) => hook::address(get_controller_input_in_ecx as _),
+            game::Entered::OnTheStack(_) => hook::address(get_controller_input as _),
+            game::Entered::InEcx(_) => hook::address(get_controller_input_in_ecx as _),
         };
         hooks.push((
             "joystick",
@@ -360,29 +370,57 @@ fn attach() {
         // so the only way any open goes anywhere but the game's own file. A clear does not need it:
         // there the score hook is in the path to refuse the write, which is decided before any of
         // this.
-        Some(patch) if config.chapters => {
+        // Entered the way the game's own callback is, which differs between the two — see
+        // `orb_core::game::Entered`.
+        Some(entered) if config.chapters => {
+            let hook = match entered {
+                game::Entered::OnTheStack(_) => hook::address(unlocks_read as _),
+                game::Entered::InEcx(_) => hook::address(unlocks_read_in_ecx as _),
+            };
             hooks.push((
                 "unlocks read",
-                patch,
-                hook::address(unlocks_read as _),
+                game::Patch {
+                    target: entered.patch().target,
+                    prologue: entered.patch().prologue,
+                },
+                hook,
                 &UNLOCKS_READ,
             ));
         }
         _ => {}
     }
-    match patches.ranking_read {
-        // Only where there are two score files to keep apart, which is where a run can be rewound.
-        // With one file the game's own way of carrying the captures in memory is right, and orb
-        // clearing them would be orb losing a record nothing else keeps.
-        Some(patch) if config.chapters => {
-            hooks.push((
-                "ranking read",
-                patch,
-                hook::address(ranking_read as _),
-                &RANKING_READ,
-            ));
-        }
-        _ => {}
+    // Always where the game has such a read, and what it does there is decided inside rather than here: the
+    // record of captures is emptied only where there are two files to keep apart — see
+    // `orb_core::runtime::ranking_read` — and what a session counted is put back inside a save whichever file
+    // the mode points at, a legacy session's counts being its own as much as a rewound one's.
+    // Entered the way the game's own callback is, which differs between the two — see
+    // `orb_core::game::Entered`.
+    if let Some(entered) = patches.ranking_read {
+        let hook = match entered {
+            game::Entered::OnTheStack(_) => hook::address(ranking_read as _),
+            game::Entered::InEcx(_) => hook::address(ranking_read_in_ecx as _),
+        };
+        hooks.push((
+            "ranking read",
+            game::Patch {
+                target: entered.patch().target,
+                prologue: entered.patch().prologue,
+            },
+            hook,
+            &RANKING_READ,
+        ));
+    }
+    // Always where the game has such a seam, and called through: what the file held stands, and what orb
+    // adds is the counts of the run that has just ended — see `orb_core::runtime::card_records_read`. Not
+    // conditional on the mode, a legacy run's counts belonging in the game's own file as much as a rewound
+    // run's belong in orb's.
+    if let Some(patch) = patches.card_records_read {
+        hooks.push((
+            "card records read",
+            patch,
+            hook::address(card_records_read as _),
+            &CARD_RECORDS_READ,
+        ));
     }
     if let Some(patch) = patches.create_window {
         FORCE_WINDOWED.store(true, Ordering::Relaxed);

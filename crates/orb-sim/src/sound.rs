@@ -41,6 +41,14 @@ const OK: i32 = 0;
 
 /// The name orb asks for the two functions under, which is the game's own copy of the library.
 const WINMM: &str = "winmm.dll";
+/// And the library the other kind of stream's two come out of.
+const KERNEL32: &str = "kernel32.dll";
+
+/// `FILE_BEGIN` and `FILE_CURRENT`, which are [`SEEK_SET`] and [`SEEK_CUR`]'s own numbers.
+const FILE_BEGIN: u32 = 0;
+const FILE_CURRENT: u32 = 1;
+/// `INVALID_SET_FILE_POINTER`, which is what a refused seek answers.
+const NO_POSITION: u32 = 0xffff_ffff;
 
 /// A track being streamed: the wave file it is read out of, the buffer it is played from, and where each
 /// of the two has got to.
@@ -67,6 +75,14 @@ thread_local! {
     /// `extern` functions with nothing but the ABI's arguments, so where a real DirectSound would reach
     /// its own object this reaches the one that was installed.
     static STREAMING: Cell<*const Sound> = const { Cell::new(std::ptr::null()) };
+    /// And whether the buffer it is played through has been released, which is what a game taking its music
+    /// down leaves behind: every call on that handle fails from then on.
+    ///
+    /// **Here rather than in the game's memory, because that is where the difference lives.** A restore puts a
+    /// pointer back and cannot put a COM object back with it, so a stream the game has freed and a stream it
+    /// has just made look the same in memory and differ only in whether calls on them work. See
+    /// [`Sound::taken_down`].
+    static RELEASED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// # An intermittent that is still to find
@@ -89,6 +105,11 @@ fn streaming() -> &'static Sound {
         "no sound has been installed on this thread"
     );
     unsafe { &*sound }
+}
+
+/// Whether the buffer that sound is played through has been released — see [`RELEASED`].
+fn released() -> bool {
+    RELEASED.get()
 }
 
 impl Sound {
@@ -115,7 +136,34 @@ impl Sound {
             notify,
         });
         STREAMING.set(&raw const *sound);
+        RELEASED.set(false);
         sound
+    }
+
+    /// The buffer released, as a game taking its music down releases it: a handle every call now refuses, and
+    /// nothing in the game's own memory saying so — see [`RELEASED`].
+    ///
+    /// An associated function rather than a method because what releases it is the game's own call, which
+    /// reaches no sound of anybody's: what it has is the player, and the buffer the seam answers for is one per
+    /// thread.
+    pub fn taken_down() {
+        RELEASED.set(true);
+    }
+
+    /// And a buffer the game has made again **and started**, which is what starting a track leaves: the same
+    /// bytes and the same file, an e2e test being about the position rather than the allocation.
+    ///
+    /// The mixer with it, the two being one event in the game: what makes the buffer is the play, and a play
+    /// that left nothing audible would be a laid-out game no restore could be told apart from a silent one.
+    /// Nothing at all where an e2e test laid out no sound, a play then having none of anybody's to start.
+    pub fn started_again() {
+        RELEASED.set(false);
+        let sound = STREAMING.get();
+        if !sound.is_null() {
+            unsafe { &*sound }
+                .status
+                .set(DSBSTATUS_PLAYING | DSBSTATUS_LOOPING);
+        }
     }
 
     /// Tells `sim` where this is: winmm's two functions, and the one word of the buffer that orb reads
@@ -128,6 +176,17 @@ impl Sound {
         sim.load_module(WINMM);
         sim.set_proc_address(WINMM, "mmioSeek", mmio_seek as *const () as usize);
         sim.set_proc_address(WINMM, "mmioRead", mmio_read as *const () as usize);
+        // And kernel32's two beside them, for the game that opens its own file rather than going through
+        // winmm: which library moves the handle is what the two kinds of stream differ in, and what is
+        // behind it — these bytes and this position — is the same either way. Both pairs are installed for
+        // every laid-out sound, because which of them a game asks for is that game's business.
+        sim.load_module(KERNEL32);
+        sim.set_proc_address(
+            KERNEL32,
+            "SetFilePointer",
+            set_file_pointer as *const () as usize,
+        );
+        sim.set_proc_address(KERNEL32, "ReadFile", read_file as *const () as usize);
         sim.space().map(BUFFER.0, size_of::<usize>(), Kind::Private);
         sim.space().write::<usize>(BUFFER.0, BUFFER_VTABLE);
         sim.space().map(BUFFER_VTABLE, 1, Kind::Image);
@@ -218,6 +277,16 @@ impl Sound {
         self.play.set(0);
     }
 
+    /// And the mixer stopped with everything else left where it was: the buffer, its bytes and the file's
+    /// position all still there and nothing coming out of them.
+    ///
+    /// Its own call rather than [`Sound::taken_down`], which is the buffer *released*: a game between one
+    /// song and the next has stopped the one and not yet asked for the other, and a handle that refuses
+    /// every call is not what that looks like from orb.
+    pub fn stops(&self) {
+        self.status.set(self.status.get() & !DSBSTATUS_PLAYING);
+    }
+
     pub fn playing(&self) -> bool {
         self.status.get() & DSBSTATUS_PLAYING != 0
     }
@@ -239,7 +308,7 @@ impl Drop for Sound {
 pub(crate) mod buffer {
     use super::{
         BUFFER, DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING, Hresult, LockedBuffer, OK,
-        REFUSED, SoundBuffer, streaming,
+        REFUSED, SoundBuffer, released, streaming,
     };
 
     /// Where the mixer is playing from, and where the buffer says the next write goes.
@@ -248,7 +317,7 @@ pub(crate) mod buffer {
     /// of the game's memory and never asks the buffer for, so what DirectSound reports as its own write
     /// cursor is not that and nothing here has an opinion about it.
     pub fn position(handle: SoundBuffer) -> (Hresult, u32, u32) {
-        if handle != BUFFER {
+        if handle != BUFFER || released() {
             return (REFUSED, 0, 0);
         }
         let play = streaming().play.get();
@@ -256,7 +325,7 @@ pub(crate) mod buffer {
     }
 
     pub fn status(handle: SoundBuffer) -> (Hresult, u32) {
-        if handle != BUFFER {
+        if handle != BUFFER || released() {
             return (REFUSED, 0);
         }
         (OK, streaming().status.get())
@@ -266,7 +335,7 @@ pub(crate) mod buffer {
     /// so there is never a second run to hand back.
     pub fn lock(handle: SoundBuffer, offset: u32, bytes: u32) -> (Hresult, LockedBuffer) {
         let sound = streaming();
-        if handle != BUFFER || offset != 0 || bytes != sound.size {
+        if handle != BUFFER || released() || offset != 0 || bytes != sound.size {
             return (REFUSED, LockedBuffer::default());
         }
         let first = unsafe { (*sound.buffer.get()).as_mut_ptr() } as usize;
@@ -337,4 +406,51 @@ unsafe extern "system" fn mmio_read(mmio: usize, into: *mut u8, bytes: i32) -> i
     }
     let into = unsafe { std::slice::from_raw_parts_mut(into, bytes as usize) };
     sound.reads(into) as i32
+}
+
+/// `SetFilePointer` over the same bytes and the same position the winmm pair moves, for the game that
+/// opens its own file: the new position, or `INVALID_SET_FILE_POINTER` where it will not move there.
+unsafe extern "system" fn set_file_pointer(
+    file: usize,
+    offset: i32,
+    high: *mut i32,
+    from: u32,
+) -> u32 {
+    let sound = streaming();
+    // The high half is a file over 2GB away, which no track is and orb never asks for: a caller that
+    // wanted one would be asking this to answer something it has no bytes for.
+    if file != sound.mmio() || !high.is_null() {
+        return NO_POSITION;
+    }
+    let at = match from {
+        FILE_CURRENT => sound.at.get().checked_add(offset),
+        FILE_BEGIN => Some(offset),
+        _ => None,
+    };
+    match at.filter(|at| (0..=sound.wave.len() as i32).contains(at)) {
+        Some(at) => {
+            sound.at.set(at);
+            at as u32
+        }
+        None => NO_POSITION,
+    }
+}
+
+/// And `ReadFile`, which answers whether it read rather than how much — the count goes in the argument,
+/// the way Win32 hands it back.
+unsafe extern "system" fn read_file(
+    file: usize,
+    into: *mut u8,
+    bytes: u32,
+    got: *mut u32,
+    overlapped: *mut u8,
+) -> i32 {
+    let sound = streaming();
+    if file != sound.mmio() || into.is_null() || got.is_null() || !overlapped.is_null() {
+        return 0;
+    }
+    let into = unsafe { std::slice::from_raw_parts_mut(into, bytes as usize) };
+    let read = sound.reads(into);
+    unsafe { got.write(read as u32) };
+    1
 }

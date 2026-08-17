@@ -41,6 +41,10 @@ const WORD: u32 = 0xffff_ffff;
 
 const TEXT: &str = "DISABLE";
 
+/// How far past the word its own drop shadow reaches, which `Frame::label` draws a pixel down and right of it:
+/// the word's box has to leave that pixel where the box is the row and no more.
+const SHADOW: f32 = 1.0;
+
 pub struct LivesMark {
     stroke: Picture,
     word: Label,
@@ -67,7 +71,13 @@ impl LivesMark {
 
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
-    pub unsafe fn draw(&mut self, overlay: &Overlay, row: Rect, panel: Option<PanelTile>) {
+    pub unsafe fn draw(
+        &mut self,
+        overlay: &Overlay,
+        row: Rect,
+        room: f32,
+        panel: Option<PanelTile>,
+    ) {
         // Both baked before the overlay's frame is opened, the way the menus do it: baking creates
         // a texture and locks it, and the frame is a window with the device's state swapped out.
         if !self.stroke.baked() {
@@ -100,39 +110,61 @@ impl LivesMark {
         let Some(frame) = frame else { return };
 
         // The strips above and below the count's own row, which nothing else repaints.
-        let over = brush_area(row);
+        let over = brush_area(row, room);
         unsafe { paint_panel(&frame, over, row, panel) };
-        frame.picture(&self.stroke, over.left, over.top, INK);
+        frame.picture_in(
+            &self.stroke,
+            over.left,
+            over.top,
+            over.width,
+            over.height,
+            INK,
+        );
 
-        let (x, y) = word_at(row, over, (self.word.width(), self.word.height()));
-        frame.label(&self.word, x, y, WORD);
+        // The word scaled to the box where the box is the shorter of the two, which is a panel with no room
+        // either side of the row: a word drawn at the size its face was baked at would hang into the rows the
+        // stroke has just been kept out of. One pixel of the box is the drop shadow's, which is drawn a pixel
+        // down and right of the word itself.
+        let scale = ((over.height - SHADOW) / self.word.height()).min(1.0);
+        let word = (self.word.width() * scale, self.word.height() * scale);
+        let (x, y) = word_at(row, over, word);
+        frame.label_scaled(&self.word, x, y, scale, WORD);
     }
 }
 
-/// Where the stroke goes: as wide as the count's row, taller than it, and centred on it.
+/// Where the stroke goes: as wide as the count's row, taller than it where the panel has room, and centred
+/// on it.
 ///
 /// Taller because the picture is a stroke and a stroke is not the shape of a row — 4:1 in the
-/// picture against the row's 9:1. What it may not do is reach the row below: the bombs are 8
-/// pixels under this one and the game repaints their row no oftener than it repaints this one.
-fn brush_area(row: Rect) -> Rect {
+/// picture against the row's 9:1. **What it may not do is reach the rows either side**, which the
+/// game repaints no oftener than it repaints this one, so how far past the row it may go is
+/// `room` — see `Game::room_around_the_lives_row`. 紅魔郷 has 8 pixels there and the stroke's own
+/// box wants 7; 妖々夢 has none, and the box is the row.
+fn brush_area(row: Rect, room: f32) -> Rect {
     let width = brush::WIDTH as f32;
     let height = brush::HEIGHT as f32;
+    let top = (row.center_y() - height / 2.0).round().max(row.top - room);
+    let bottom = (top + height).min(row.top + row.height + room);
     Rect {
         left: row.left,
-        top: (row.center_y() - height / 2.0).round(),
+        top,
         width,
-        height,
+        height: bottom - top,
     }
 }
 
 /// Where the word goes: centred on the stroke across, and on the count's own row down, so that it
 /// sits where the number it replaces sat.
+///
+/// Held inside the box, the drop shadow's own pixel included: centring an odd word on an even row
+/// rounds it a pixel down, and where the box *is* the row that pixel of shadow is in the row below.
 fn word_at(row: Rect, over: Rect, word: (f32, f32)) -> (f32, f32) {
     let (width, height) = word;
-    (
-        (over.left + (over.width - width) / 2.0).round(),
-        (row.center_y() - height / 2.0).round(),
-    )
+    let y = (row.center_y() - height / 2.0)
+        .round()
+        .min(over.top + over.height - height - SHADOW)
+        .max(over.top);
+    ((over.left + (over.width - width) / 2.0).round(), y)
 }
 
 /// The stroke, as a coverage mask the overlay can bake.
@@ -234,7 +266,7 @@ unsafe fn paint_strip(frame: &Frame, area: Rect, panel: Option<&PanelTile>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{LivesMark, brush_area, strips, word_at};
+    use super::{LivesMark, SHADOW, brush_area, strips, word_at};
     use crate::brush;
     use crate::game::Rect;
     use crate::overlay::Drawing;
@@ -251,12 +283,15 @@ mod tests {
     const BOMB_ROW_TOP: f32 = 146.0;
     /// And the row above, whose score it may not reach either. It ends 16 below where it starts.
     const SCORE_ROW_BOTTOM: f32 = 98.0;
+    /// How much panel that game leaves either side of the row, which is what it answers for
+    /// `Game::room_around_the_lives_row`: the nearer neighbour is the bombs', 8 pixels under.
+    const ROOM: f32 = 8.0;
 
     /// The stroke covers the whole count and stays out of the rows either side. Every star the
     /// player can have is inside it: eight of them, 16 apart from 496, is 624.
     #[test]
     fn the_stroke_covers_the_count_and_nothing_else() {
-        let over = brush_area(ROW);
+        let over = brush_area(ROW, ROOM);
         assert_eq!(over.left, ROW.left);
         assert!(over.left + over.width >= 624.0 + 16.0);
         assert!(over.top > SCORE_ROW_BOTTOM, "{}", over.top);
@@ -271,7 +306,7 @@ mod tests {
     /// reads as what replaced the number rather than as something floating over the panel.
     #[test]
     fn the_word_sits_where_the_count_sat() {
-        let over = brush_area(ROW);
+        let over = brush_area(ROW, ROOM);
         let word = (63.0, 25.0);
         let (x, y) = word_at(ROW, over, word);
         let before = x - over.left;
@@ -287,7 +322,7 @@ mod tests {
     /// is the game's to repaint — with the count in it, which is the whole point.
     #[test]
     fn the_row_itself_is_left_to_the_game() {
-        let over = brush_area(ROW);
+        let over = brush_area(ROW, ROOM);
         let [above, below] = strips(over, ROW);
         assert!(above.top + above.height <= ROW.top, "above the count");
         assert!(below.top >= ROW.top + ROW.height, "below it");
@@ -303,6 +338,27 @@ mod tests {
     fn a_box_inside_the_row_paints_nothing() {
         let [above, below] = strips(ROW, ROW);
         assert_eq!((above.height, below.height), (0.0, 0.0));
+    }
+
+    /// And a panel with no room either side of the row — 妖々夢's, whose bombs are 16 pixels under a row
+    /// 16 tall — gives the stroke that row and nothing else, so there is nothing beside it to paint and
+    /// the word has the row to fit in.
+    #[test]
+    fn a_panel_with_no_room_gives_the_stroke_the_row_and_no_more() {
+        let over = brush_area(ROW, 0.0);
+        assert_eq!((over.top, over.height), (ROW.top, ROW.height));
+        let [above, below] = strips(over, ROW);
+        assert_eq!((above.height, below.height), (0.0, 0.0));
+        // The word inside it, drop shadow and all: what it is scaled by is the box less that pixel.
+        let word = (63.0, 25.0);
+        let scale = (over.height - SHADOW) / word.1;
+        let (_, y) = word_at(ROW, over, (word.0 * scale, word.1 * scale));
+        assert!(y >= ROW.top, "{y}");
+        assert!(
+            y + word.1 * scale + SHADOW <= ROW.top + ROW.height,
+            "{}",
+            y + word.1 * scale + SHADOW
+        );
     }
 
     /// The picture is the size the row is drawn from, which is what `brush_area` assumes.
@@ -322,7 +378,7 @@ mod tests {
     fn drawn_mark(row: Rect) -> Drawn {
         let drawing = Drawing::new();
         let mut mark = LivesMark::new();
-        drawing.drawn(|overlay| unsafe { mark.draw(overlay, row, None) })
+        drawing.drawn(|overlay| unsafe { mark.draw(overlay, row, ROOM, None) })
     }
 
     fn as_quad(rect: Rect) -> Quad {

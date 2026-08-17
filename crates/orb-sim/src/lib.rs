@@ -695,6 +695,10 @@ impl Win for Sim {
         self.glyphs.load_face(path, height)
     }
 
+    fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face> {
+        self.glyphs.machine_face(height, family, bold)
+    }
+
     fn face_name(&self, face: Face) -> Option<String> {
         self.glyphs.face_name(face)
     }

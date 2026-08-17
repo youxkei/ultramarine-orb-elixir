@@ -18,7 +18,7 @@
 //! **Half of what that read brings back is a record after all**, and it is the score beside each
 //! practice stage: the callback fills what the menu offers and those scores out of the one file, and a
 //! score practised in a chapter that can be played again is no more the game's record than a capture
-//! is. One read cannot land in two files, so orb makes a fourth: `Game::read_practice_scores` reads the
+//! is. One read cannot land in two files, so orb makes a fourth: `Game::read_what_the_modes_file_records` reads the
 //! mode's own file wherever the mode is settled and puts its practice scores over the ones the front
 //! end's read left — the unlocks beside them untouched.
 //!
@@ -191,13 +191,28 @@ pub fn theirs(path: &[u8]) -> Option<&[u8]> {
 }
 
 /// The name to ask for the score file by, for the one open of it orb makes itself: a game filling its
-/// practice scores out of whichever file the mode points at — see `Game::read_practice_scores`.
+/// practice scores out of whichever file the mode points at — see `Game::read_what_the_modes_file_records`.
 ///
 /// The game's own name and not orb's, because which of the two files an open lands in is decided from
 /// the name and the mode by [`create_file_a`] — so an open orb makes is forked the same way the game's
 /// three are, and there is one place that decision is taken.
 pub fn asked_for() -> *const u8 {
     THEIRS.as_ptr().cast()
+}
+
+/// And which of the two an open of the game's own name lands in now, by that name alone: what the fork
+/// decides, said to a game laid out by hand — whose reads of the file do not go through `CreateFileA` at all
+/// and which therefore has no other way to know which file it is being asked for.
+///
+/// The unlocks bracket is not in it: what that read lands in is decided per read and this is asked outside
+/// one.
+pub fn the_file_now_opened() -> &'static str {
+    if FORKED.load(Ordering::Relaxed) {
+        // Its own bytes rather than `OURS`, which carries no terminator to strip.
+        "pointdevice_score.dat"
+    } else {
+        "score.dat"
+    }
 }
 
 /// orb's file in that directory, terminated for the open it is about to be handed to.

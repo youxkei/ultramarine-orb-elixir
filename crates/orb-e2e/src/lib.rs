@@ -38,29 +38,53 @@ pub(crate) mod fake;
 #[cfg(test)]
 mod a_chapter_further_back;
 #[cfg(test)]
+mod a_chapter_further_back_of_th07;
+#[cfg(test)]
+mod a_chapter_of_a_fight_of_th07;
+#[cfg(test)]
 mod a_chapter_of_the_stages_own_boss;
 #[cfg(test)]
 mod a_chapter_out_of_the_table;
 #[cfg(test)]
 mod a_chapter_table_collected;
 #[cfg(test)]
+mod a_chapter_table_collected_for_th07;
+#[cfg(test)]
 mod a_chapter_under_a_bomb;
+#[cfg(test)]
+mod a_chapter_under_a_bomb_of_th07;
 #[cfg(test)]
 mod a_clear_on_demand;
 #[cfg(test)]
+mod a_clear_on_demand_of_th07;
+#[cfg(test)]
 mod a_confirmation_declined;
+#[cfg(test)]
+mod a_confirmation_declined_of_th07;
 #[cfg(test)]
 mod a_pad_the_game_has_no_device_for;
 #[cfg(test)]
+mod a_pointdevice_run_of_th07;
+#[cfg(test)]
 mod a_practice_run;
+#[cfg(test)]
+mod a_practice_run_of_th07;
 #[cfg(test)]
 mod a_region_a_restore_cannot_write;
 #[cfg(test)]
+mod a_region_a_restore_cannot_write_of_th07;
+#[cfg(test)]
 mod a_stage_transition;
+#[cfg(test)]
+mod a_stage_transition_of_th07;
 #[cfg(test)]
 mod keys_from_another_program;
 #[cfg(test)]
+mod keys_from_another_program_into_th07;
+#[cfg(test)]
 mod legacy_run;
+#[cfg(test)]
+mod legacy_run_of_th07;
 #[cfg(test)]
 mod mode_on_a_winmm_pad;
 #[cfg(test)]
@@ -70,23 +94,41 @@ mod mode_question;
 #[cfg(test)]
 mod moving_between_a_replays_stages;
 #[cfg(test)]
+mod moving_between_a_replays_stages_of_th07;
+#[cfg(test)]
 mod pacing;
 #[cfg(test)]
 mod pointdevice_run;
 #[cfg(test)]
 mod stepping_inside_a_stage;
 #[cfg(test)]
+mod stepping_inside_a_stage_of_th07;
+#[cfg(test)]
 mod th07;
 #[cfg(test)]
+mod th07s_window_going_behind;
+#[cfg(test)]
 mod the_card_name_across_a_restore;
+#[cfg(test)]
+mod the_card_name_across_a_restore_of_th07;
+#[cfg(test)]
+mod the_cards_a_run_of_th07_counted;
 #[cfg(test)]
 mod the_dpad_moving_the_player;
 #[cfg(test)]
 mod the_ending;
 #[cfg(test)]
+mod the_ending_of_th07;
+#[cfg(test)]
+mod the_frame_a_run_of_th07_acts_on;
+#[cfg(test)]
 mod the_frame_a_scene_is_built_on;
 #[cfg(test)]
+mod the_frame_a_scene_of_th07_is_built_on;
+#[cfg(test)]
 mod the_handles_a_restore_leaves_alone;
+#[cfg(test)]
+mod the_handles_a_restore_leaves_alone_of_th07;
 #[cfg(test)]
 mod the_launch_before_its_device;
 #[cfg(test)]
@@ -94,9 +136,21 @@ mod the_letterbox_presented_into;
 #[cfg(test)]
 mod the_mark_over_the_lives;
 #[cfg(test)]
+mod the_mark_over_the_lives_of_th07;
+#[cfg(test)]
+mod the_mode_of_th07_on_the_pad;
+#[cfg(test)]
+mod the_mode_question_over_th07;
+#[cfg(test)]
+mod the_mouse_pointer_over_th07;
+#[cfg(test)]
 mod the_mouse_pointer_over_the_game;
 #[cfg(test)]
 mod the_music_across_a_restore;
+#[cfg(test)]
+mod the_music_across_a_restore_of_th07;
+#[cfg(test)]
+mod the_pacing_of_th07;
 #[cfg(test)]
 mod the_pad_half_of_the_input_read;
 #[cfg(test)]
@@ -106,6 +160,12 @@ mod the_process_orb_woke_up_in;
 #[cfg(test)]
 mod the_run_left_behind;
 #[cfg(test)]
+mod the_run_of_th07_left_behind;
+#[cfg(test)]
+mod the_run_of_th07_read_back;
+#[cfg(test)]
+mod the_run_of_th07_written_down_off_the_frame;
+#[cfg(test)]
 mod the_run_read_back;
 #[cfg(test)]
 mod the_run_written_down_off_the_frame;
@@ -114,12 +174,22 @@ mod the_score_file;
 #[cfg(test)]
 mod the_screen_a_finished_run_ends_at;
 #[cfg(test)]
+mod the_screen_a_finished_run_of_th07_ends_at;
+#[cfg(test)]
 mod the_screens_in_english;
 #[cfg(test)]
+mod the_screens_of_th07_in_english;
+#[cfg(test)]
 mod the_snapshot_held_against_itself;
+#[cfg(test)]
+mod the_snapshot_of_th07_held_against_itself;
 #[cfg(test)]
 mod the_window;
 #[cfg(test)]
 mod the_window_going_behind;
 #[cfg(test)]
+mod the_window_of_th07;
+#[cfg(test)]
 mod the_windows_orb_leaves_alone;
+#[cfg(test)]
+mod the_windows_orb_leaves_alone_of_th07;

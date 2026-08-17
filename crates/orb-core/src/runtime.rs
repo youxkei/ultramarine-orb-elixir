@@ -283,6 +283,8 @@ pub struct Runtime {
     /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
     /// which is asked once and cannot be asked before the device exists.
     sent_keys: bool,
+    /// Whether the card a check asks for has been counted and written yet, that being once a launch.
+    counted_a_card: bool,
     /// Which language every screen of orb's own is written in, settled at the attach: `orb.yaml` says,
     /// or the machine does where it says nothing. Kept here rather than read per screen because it
     /// cannot change while a process runs and the machine's own is a call to the host.
@@ -341,6 +343,7 @@ pub static RUN_CALC_CHAIN: AtomicUsize = AtomicUsize::new(0);
 pub static RUN_DRAW_CHAIN: AtomicUsize = AtomicUsize::new(0);
 pub static UNLOCKS_READ: AtomicUsize = AtomicUsize::new(0);
 pub static RANKING_READ: AtomicUsize = AtomicUsize::new(0);
+pub static CARD_RECORDS_READ: AtomicUsize = AtomicUsize::new(0);
 pub static STAGE_BEGUN: AtomicUsize = AtomicUsize::new(0);
 pub static STAGE_BUILDING: AtomicUsize = AtomicUsize::new(0);
 pub static SAVE_REPLAY: AtomicUsize = AtomicUsize::new(0);
@@ -392,6 +395,15 @@ pub static FORCE_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// and a game laid out by hand pass through — so the default here is only what a process has before
 /// orb has read a setting, which is a process with no game in it yet.
 pub static DPAD_MOVES: AtomicBool = AtomicBool::new(false);
+/// Whether the record of captures in memory is emptied before a read of the score file that is about to
+/// define it, which is a launch with two files to keep apart — see [`ranking_read`] and
+/// `Game::forget_captures`.
+///
+/// A static beside [`DPAD_MOVES`] and for its reason: the hook is entered from inside the game's own update,
+/// and what decides this is a setting rather than an installation. **Both of that hook's jobs used to be
+/// decided by whether it went in at all**, and one of them is every launch's: what a session counted belongs
+/// in whichever file the mode points at, a legacy session's as much as a rewound one's.
+pub static EMPTIES_CAPTURES: AtomicBool = AtomicBool::new(false);
 /// Whether the game was last given the keys, so the change can be logged once
 /// rather than every frame.
 pub static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
@@ -509,6 +521,9 @@ pub struct Originals {
     pub stage_begun: extern "C" fn(*mut c_void) -> i32,
     pub unlocks_read: extern "C" fn(*mut c_void) -> i32,
     pub ranking_read: extern "C" fn(*mut c_void) -> i32,
+    /// The game's own parse of the records its score file holds, which [`card_records_read`] calls through
+    /// to: two registers, the file's image and the array it lays that file's records into.
+    pub card_records_read: unsafe extern "fastcall" fn(usize, usize) -> i32,
     /// The game's own whole frame, which is what [`render`] hands one back to on the three ways out
     /// of it that return: no runtime, no device, and a chain target that is null.
     pub render: extern "fastcall" fn(*mut c_void) -> i32,
@@ -614,6 +629,7 @@ pub unsafe fn attach_to(
         (&STAGE_BEGUN, originals.stage_begun as usize),
         (&UNLOCKS_READ, originals.unlocks_read as usize),
         (&RANKING_READ, originals.ranking_read as usize),
+        (&CARD_RECORDS_READ, originals.card_records_read as usize),
         (&RENDER, originals.render as usize),
         (&STOP_RECORDING, originals.stop_recording as usize),
         (&CREATE_GAME_WINDOW, originals.create_game_window as usize),
@@ -758,6 +774,10 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
     // is where it was anyway.
     score::fork(mode == Mode::Pointdevice);
+    // And whether the read of that file empties the record of captures first, which is the same question:
+    // two files to keep apart is a launch that can rewind a run. A setting rather than an installation
+    // because the hook has a second job that is every launch's — see [`EMPTIES_CAPTURES`].
+    EMPTIES_CAPTURES.store(config.chapters, Ordering::Relaxed);
     // What the input hook adds to the word the game read, which is a setting rather than an
     // installation: the hook goes in whatever it says, there being every other reason for it to.
     DPAD_MOVES.store(config.dpad_moves, Ordering::Relaxed);
@@ -822,6 +842,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             kept: None,
             starting: 0,
             sent_keys: false,
+            counted_a_card: false,
             language,
         });
     }
@@ -861,17 +882,19 @@ unsafe fn pad(game: &dyn Game) -> Pad {
 /// menu is lit from `score.dat` whichever mode is chosen, since a stage reached is a stage
 /// reached.
 ///
-/// **The practice scores are part of it**, and they came out of `score.dat` with the unlocks: the front
-/// end reads both in one go, before anybody has been asked. So they are read again here, out of the file
-/// this answer just chose — which is the moment before the screen they are drawn on, a practice stage
-/// being chosen after this question. See [`Game::read_practice_scores`].
+/// **What that file records is part of it**, and it came out of `score.dat` with the unlocks: the front
+/// end reads both in one go, before anybody has been asked. So it is read again here, out of the file
+/// this answer just chose — which is the moment before the screen those numbers are drawn on, a practice
+/// stage being chosen after this question. See [`Game::read_what_the_modes_file_records`], which the
+/// front end's own read is bracketed by as well: this is the moment the *mode* changes, and that one is
+/// every path that brings the screen up.
 ///
 /// # Safety
 /// Must run on the game's main thread, between frames: that read goes through the game's own code.
 unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
-    unsafe { runtime.game.read_practice_scores() };
+    unsafe { runtime.game.read_what_the_modes_file_records() };
     resume::keep(runtime.keeping());
     // Nothing kept of a run that will not be rewound: a stage's snapshots are several megabytes a
     // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
@@ -899,18 +922,50 @@ unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
 /// Only ever called from the frame hook, on the game's main thread, with no run in progress and the
 /// game settled where it is.
 unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut i32) {
+    // The game's own save first, where it has one that writes: 妖々夢's ranking screen writes nothing at either
+    // phase it is built with, so the pump below would spend frames on a screen and leave the file as it was —
+    // see `Game::save_its_records`. What the run counted goes on top of the file's own records inside that call,
+    // at the seam `card_records_read` is hooked over.
+    if runtime.game.writes_its_own_records() {
+        return log!(
+            "score: this game writes its own file; what the run counted waits for the save it makes itself"
+        );
+    }
     let captures = unsafe { runtime.game.captures() };
     if captures.is_empty() {
         return log!("score: this game keeps no record of captures; nothing to write");
     }
     let mut frames = 0;
-    // Only the frame limit stops this. Not the chain's answer: `CHAIN_EXIT_SUCCESS` is 0, which is
-    // also what a chain walk returns when it simply carried on, so guarding on it ended both loops
-    // after one update — the screen was left standing where the player then met it, and the write came
-    // from whatever the screen itself did later.
-    let running = |result: &mut i32, frames: &mut u32| {
+    // **The walk giving up stops this, and the frame limit stops it otherwise.** `CHAIN_EXIT_ERROR` is
+    // what the game's own frame returns on — 妖々夢 tests the answer at 0x434801 and returns at 0x43480c,
+    // and 紅魔郷's frame does the same — so a walk asked for after it is a walk no frame of the game's own
+    // makes, over a chain whose scene is being taken apart. A launch of 妖々夢 faulted in exactly that:
+    // three more walks after the answer, inside the pump that takes the ranking down.
+    //
+    // `CHAIN_EXIT_SUCCESS` is not that answer, though the game's frame returns on it too: it is 0, which
+    // is also what a walk answers when it simply carried on, so guarding on it ended both loops after one
+    // update — the screen was left standing where the player then met it, and the write came from whatever
+    // the screen itself did later.
+    let mut gave_up = false;
+    // The game itself rather than the runtime, so that what the walk left behind can be said per update
+    // without the closure holding everything: a fault inside this loop is a fault on one of these updates,
+    // and which one it was and what the screen's own state was then is the whole of what a log can say about
+    // it. Verbose, because it is one line per update and there are up to [`COMMIT_FRAME_LIMIT`] of them.
+    let game = runtime.game;
+    let mut running = |result: &mut i32, frames: &mut u32| {
+        if gave_up {
+            return false;
+        }
         *result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         *frames += 1;
+        detail!("score: update {frames} answered {result} — {}", unsafe {
+            game.ranking_state()
+        });
+        if *result == CHAIN_EXIT_ERROR {
+            gave_up = true;
+            log!("score: the walk gave up after {frames} update(s); nothing more is asked of it");
+            return false;
+        }
         *frames < COMMIT_FRAME_LIMIT
     };
     unsafe { runtime.game.show_ranking() };
@@ -936,8 +991,14 @@ unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut
     while unsafe { runtime.game.ranking_scene() } && running(result, &mut frames) {}
     // A couple more so the front end is built before its cursor is put back, and then the cursor: the
     // one that comes back is on the item the game thinks was left, which is the ranking orb asked for.
+    //
+    // Both of them behind the same answer as the loops above, which is why this is not two bare calls: the
+    // pair is worth having where the walk is still walking and is a walk of a chain being taken apart where
+    // it is not.
     for _ in 0..2 {
-        running(result, &mut frames);
+        if !running(result, &mut frames) {
+            break;
+        }
     }
     unsafe { runtime.game.restore_menu_cursor() };
     log!(
@@ -1161,6 +1222,13 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     // allowance — 2500µs to 2600µs per card, never shaved back, which is input lag for the rest of the
     // run. The sound also starts a frame later than the update that asked for it.
     unsafe { PLAY_SOUNDS.call() };
+    // And what a restore in that update left waiting, now that the sound has run: the play it asked for was
+    // a command in the game's own queue, and this is where that queue has been carried out — see
+    // `snapshot::finish_the_restores_sound`. Before the two exits below, because a frame that is leaving is
+    // still a frame whose restore has already happened.
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { crate::snapshot::finish_the_restores_sound(game) };
+    }
     if updated == CHAIN_EXIT_SUCCESS {
         return RENDER_EXIT_SUCCESS;
     }
@@ -1260,6 +1328,10 @@ pub extern "system" fn get_input() -> u16 {
     // and the frames it runs through are not frames anybody is at the keyboard for.
     let frame = unsafe { game.stage_frame() };
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame) }) {
+        // Through the same hand-over the keyboard's own word goes through: a run being played back into place
+        // is a run whose frames have to land where they landed, and a frame played on last frame's buttons is
+        // not that frame — see `Game::hand_the_read_to_the_run`.
+        unsafe { game.hand_the_read_to_the_run(buttons) };
         return buttons;
     }
 
@@ -1404,6 +1476,10 @@ unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     if let Some(frame) = frame {
         unsafe { resume::noted(frame, buttons & game.run_input()) };
     }
+    // And handed to the run here, which is the read's own moment: a game whose own hand-over comes after the
+    // update that acts on it is a game played a frame late — see `Game::hand_the_read_to_the_run`. Every way
+    // out of this hook comes through here, so what the run is given is what the game was given.
+    unsafe { game.hand_the_read_to_the_run(buttons) };
     buttons
 }
 
@@ -1433,18 +1509,41 @@ pub extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
 /// Bracketed rather than the mode's file being chosen once: everything else the file holds is a
 /// record of runs played one way or the other, and what the front end offers is not a record —
 /// see [`score`].
+///
+/// **And what that read brings back of a record is read again once it is over**, out of the file the mode
+/// points at: one read cannot land in two files, so the game's own stands and the mode's own goes over the
+/// half of it that is a record. Here rather than only where the mode is chosen, because a screen brought up
+/// again asks nothing — a run given up back to the practice stage select showed a legacy score for the stage
+/// it had just been played in.
 pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
     score::reading_unlocks(true);
     let result = original(menu);
     score::reading_unlocks(false);
+    unsafe { the_modes_own_records_again() };
     result
+}
+
+/// Reads what the mode's own file records over the half of the front end's read that is a record of runs —
+/// see [`Game::read_what_the_modes_file_records`], and [`unlocks_read`] for why it is here.
+///
+/// # Safety
+/// Must run on the game's main thread, between frames, and after that read rather than inside it: the read
+/// this makes is the mode's own file, which is the bracket being over.
+unsafe fn the_modes_own_records_again() {
+    if let Some(game) = unsafe { chosen() } {
+        unsafe { game.read_what_the_modes_file_records() };
+    }
 }
 
 /// Runs before the callback that reads a ranking out of the score file, which is where the record of
 /// captures that read is about to fill is emptied. See [`Game::forget_captures`] for why it has to be
 /// emptied at all, and why here.
+///
+/// **Two jobs on two conditions**, which is why neither is decided by this hook being installed: the emptying
+/// is only where there are two files to keep apart, so it asks the fork rather than the launch; and the arm
+/// below is every launch's, a session's counts belonging in whichever file the mode points at.
 ///
 /// # Safety
 /// Must run on the game's main thread, and `screen` must be the ranking screen's own object as the
@@ -1453,10 +1552,148 @@ pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
 pub unsafe extern "C" fn ranking_read(screen: *mut c_void) -> i32 {
     let original: extern "C" fn(*mut c_void) -> i32 =
         unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
-    if let Some(game) = unsafe { chosen() } {
+    if let Some(game) = unsafe { chosen() }.filter(|_| EMPTIES_CAPTURES.load(Ordering::Relaxed)) {
         unsafe { game.forget_captures(screen) };
     }
-    original(screen)
+    let armed = unsafe { a_write_follows_this_read(screen) };
+    let answered = original(screen);
+    if armed {
+        A_WRITE_FOLLOWS.store(false, Ordering::Relaxed);
+    }
+    answered
+}
+
+/// Arms the put-back where this read of the file is one a write follows, and answers whether it did — see
+/// [`card_records_read`], which is called from inside the read this brackets.
+///
+/// Here rather than in that hook because what says a write follows is the object the *read* was made on, which
+/// the parse inside it is handed nothing of.
+///
+/// # Safety
+/// Must run on the game's main thread, with `screen` the object the game's own read was entered with.
+unsafe fn a_write_follows_this_read(screen: *mut c_void) -> bool {
+    let armed = unsafe { chosen() }
+        .is_some_and(|game| unsafe { game.its_records_are_about_to_be_written(screen) });
+    if armed {
+        A_WRITE_FOLLOWS.store(true, Ordering::Relaxed);
+    }
+    armed
+}
+
+/// Runs where the game lays the records its file holds over the ones in memory, **after** that parse: what
+/// stands then is the file's own, and what a run counted goes back over them — see `Hooks::card_records_read`
+/// and `Game::put_back_the_cards_a_run_left`.
+///
+/// **At every one of those reads, and let go of at one**: the game reads its file for the front end's own menus
+/// (0x45bff3), inside every save (0x44a059) and at a run's build (0x42e735), and each of them leaves the records
+/// in memory as the file has them. Which is what somebody looking at the ランキング sees — that screen walks the
+/// records in memory into itself (0x44a145) — so a session's counts belong back in memory at all of them. The
+/// note is only let go of where a write follows, [`A_WRITE_FOLLOWS`] saying which: let go of at a read that
+/// writes nothing, what the run counted would be in memory and nowhere else, and gone at the next read.
+///
+/// # Safety
+/// Must run on the game's main thread. `image` and `records` are the two the parse is entered with, and are
+/// passed through untouched.
+pub unsafe extern "fastcall" fn card_records_read(image: usize, records: usize) -> i32 {
+    let original: unsafe extern "fastcall" fn(usize, usize) -> i32 =
+        unsafe { std::mem::transmute(CARD_RECORDS_READ.load(Ordering::Relaxed)) };
+    let answered = unsafe { original(image, records) };
+    let mut waiting = COUNTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(session) = waiting.as_deref() else {
+        return answered;
+    };
+    let Some(game) = (unsafe { chosen() }) else {
+        return answered;
+    };
+    unsafe { game.put_back_the_cards_a_run_left(session) };
+    if A_WRITE_FOLLOWS.load(Ordering::Relaxed) {
+        log!("score: and the save after it is what writes them down");
+        *waiting = None;
+    }
+    answered
+}
+
+/// Writes down what the run now ending counted, for the save that will carry it — see [`COUNTED`].
+///
+/// **On the frame the run ends and not where the save is made**, which is what makes it its own step: the game
+/// empties every card record as it builds a run and the front end coming up over one reads the file's own back,
+/// so the frames between are frames in which what that run counted stops being in memory. Both ways out of a run
+/// reach it — orb's own menu, where the run is still standing, and the game's own quit.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn note_what_the_run_counted(game: &dyn game::Game) {
+    let counted = unsafe { game.captures() };
+    if counted.is_empty() {
+        return;
+    }
+    *COUNTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(counted);
+}
+
+/// What a run counted, waiting for the save that will write it.
+///
+/// **Read where the run ended rather than where the save is made**, which is the whole reason it waits here: the
+/// records are emptied for every run the game builds and the front end's own read lays the file's over them, so
+/// the frames between a run ending and orb asking for the save are frames in which what that run counted stops
+/// being in memory at all.
+static COUNTED: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+
+/// Whether the read of the file now running is one a write follows — see [`card_records_read`], which puts the
+/// records back at no other. Set around the game's own read where its object says so, and false everywhere else:
+/// that read lays the file's records over the ones in memory whether a write follows or not, and a put-back at
+/// one that writes nothing is records stranded in memory with the note spent.
+static A_WRITE_FOLLOWS: AtomicBool = AtomicBool::new(false);
+
+/// The same read where the game's own callback takes the screen in `ecx` — 妖々夢's, at 0x449b05, its chain
+/// calling every callback that way. See [`game::Entered`].
+///
+/// # Safety
+/// The same as [`ranking_read`]: the game's main thread, and `screen` the ranking screen's own object as the
+/// callback this replaces is handed it.
+pub unsafe extern "fastcall" fn ranking_read_in_ecx(screen: *mut c_void) -> i32 {
+    let original: extern "fastcall" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
+    if let Some(game) = unsafe { chosen() }.filter(|_| EMPTIES_CAPTURES.load(Ordering::Relaxed)) {
+        unsafe { game.forget_captures(screen) };
+    }
+    let armed = unsafe { a_write_follows_this_read(screen) };
+    let answered = original(screen);
+    if armed {
+        A_WRITE_FOLLOWS.store(false, Ordering::Relaxed);
+    }
+    answered
+}
+
+/// The same bracket where the game's own callback takes the front end in `ecx` — 妖々夢's, at 0x45c4c8, its
+/// chain calling every callback that way. See [`game::Entered`].
+pub extern "fastcall" fn unlocks_read_in_ecx(menu: *mut c_void) -> i32 {
+    let original: extern "fastcall" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
+    score::reading_unlocks(true);
+    let result = original(menu);
+    score::reading_unlocks(false);
+    unsafe { the_modes_own_records_again() };
+    result
+}
+
+/// The same moment where the game's own callback takes the manager in `ecx` — 妖々夢's added callback, at
+/// 0x42e83e, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`. See
+/// [`game::Entered`], and [`get_controller_input_in_ecx`] for why this is an entry point of its own rather
+/// than one function told which.
+pub extern "fastcall" fn stage_begun_in_ecx(manager: *mut c_void) -> i32 {
+    let original: extern "fastcall" fn(*mut c_void) -> i32 =
+        unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
+    let result = original(manager);
+    if result == 0
+        && let Some(game) = unsafe { chosen() }
+    {
+        unsafe { resume::stage_begun(game) };
+    }
+    result
 }
 
 /// Runs before `th06::Stage::RegisterChain`, where the stage's numbers are in place and the stage
@@ -1510,7 +1747,7 @@ pub extern "C" fn pad_buttons() -> *mut c_void {
 }
 
 /// The same read where the game takes that word in `ecx` — 妖々夢's, at 0x4303f0. See
-/// [`game::PadRead`]: which of the two a game has is what the seam says, and this is the other entry
+/// [`game::Entered`]: which of the two a game has is what the seam says, and this is the other entry
 /// point it says it with.
 ///
 /// An entry point apiece rather than one function told which, because a hook is entered by its ABI: what
@@ -1615,6 +1852,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 Choice::Stage => unsafe { runtime.chapters.retry_stage(runtime.game) },
                 Choice::Quit => {
                     let left = unsafe { give_up(runtime.game) };
+                    if left {
+                        unsafe { note_what_the_run_counted(runtime.game) };
+                    }
                     runtime.given_up |= left;
                     left
                 }
@@ -1858,6 +2098,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             .is_some_and(|previous| !previous.demo && !previous.replay)
         {
             runtime.given_up = true;
+            unsafe { note_what_the_run_counted(runtime.game) };
             log!(
                 "score: a run ended; what it counted waits for the ranking to be built and taken down"
             );
@@ -1878,6 +2119,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // running, which is a cleared run's own way to that screen: the roll is played out an update a frame,
     // and a ranking asked for over one is asked of a front end that cannot come up, so the whole
     // allowance went on frames of the roll — see `the_ending.rs`.
+    // A card counted and the file written for a launch that is reading that write back rather than playing a
+    // run to a spell card — see `Config::counted_a_card`. Once a launch, and where a run has ended is where the
+    // save is safe to ask for: the front end up, between frames.
+    if let Some(card) = runtime
+        .config
+        .counted_a_card
+        .filter(|_| !runtime.counted_a_card && !state.in_run && state.scene == state.wanted)
+    {
+        runtime.counted_a_card = true;
+        if unsafe { runtime.game.count_a_card_for_a_check(card) } {
+            unsafe { note_what_the_run_counted(runtime.game) };
+            log!("score: the check's counts wait for the save the game makes itself");
+        }
+    }
     if runtime.given_up && !state.in_run && !state.in_ending && state.scene == state.wanted {
         runtime.given_up = false;
         unsafe { commit_records(runtime, chain, &mut result) };
@@ -3020,6 +3275,7 @@ unsafe fn draw_overlay() {
             Overlay::new(
                 device,
                 &runtime.config.game_dir.join("font.ttf"),
+                runtime.game.own_face(),
                 FONT_HEIGHT,
                 MARK_FONT_HEIGHT,
             )
@@ -3045,8 +3301,9 @@ unsafe fn draw_overlay() {
     // repainted.
     if runtime.marked {
         let row = runtime.game.lives_row();
+        let room = runtime.game.room_around_the_lives_row();
         let panel = unsafe { runtime.game.panel_tile() };
-        unsafe { runtime.lives.draw(overlay, row, panel) };
+        unsafe { runtime.lives.draw(overlay, row, room, panel) };
     }
 
     if let Some(menu) = &mut runtime.retry {

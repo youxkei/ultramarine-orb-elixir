@@ -21,6 +21,7 @@
 
 pub mod audio;
 pub mod chapter;
+pub mod crash;
 pub mod frame;
 pub mod game;
 pub mod input;

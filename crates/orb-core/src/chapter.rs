@@ -897,10 +897,17 @@ impl Chapters {
         // boss it ends with. What the timeline is doing does not say it — the wait it parks
         // on for a boss, `RunEclTimeline`'s `case 0xc`, is also how stage 3 waits for its
         // *midboss*, which called that fight the stage's own.
+        //
+        // The game's own answer where it has one, and that comparison where it has not: what a
+        // stage's start was snapshotted under is not always the stage's own song — see
+        // `Game::the_fights_own_song_is_playing`.
         let boss_appeared = current.boss_present && !self.seen.boss_present;
         if current.boss_present {
             let fight = self.fighting.get_or_insert(Fight::Midboss);
-            if game.music_identity() != self.stage_music {
+            if game
+                .the_fights_own_song_is_playing()
+                .unwrap_or_else(|| game.music_identity() != self.stage_music)
+            {
                 *fight = Fight::Stage;
             }
         }
@@ -913,6 +920,32 @@ impl Chapters {
         let midboss_beaten = beaten && self.fighting == Some(Fight::Midboss);
         if !current.boss_present {
             self.fighting = None;
+        }
+        // **And a chapter the defeat closes goes with the fight**, which is the same rule read from the
+        // other end: an attack declared with the boss all but dead is a chapter whose whole content is the
+        // defeat, and a hit taken in the frames it is going down offers it. A launch of 妖々夢 was left
+        // there — `boss_life=46`, a card declared at frame 13761, the boss gone 42 frames later — and going
+        // back to that chapter is going back to the defeat with nothing to fight.
+        //
+        // Dropped at the defeat rather than refused at the declaration, because what says it is the defeat
+        // is the defeat: the life a boss has left is what it is *given* for an attack, and the attack that
+        // was the last one is not told from the one before it until the fight ends.
+        if beaten
+            && elapsed < MIN_CHAPTER_FRAMES
+            && self.mark.number > 1
+            && let Some(closed) = self.snapshots.take_newest()
+        {
+            log!(
+                "stage {} chapter {} lasted {elapsed} frame(s) and the fight ended in it; \
+                 the chapter before it is what a retry goes back to",
+                state.stage + 1,
+                self.mark.number,
+            );
+            drop(closed);
+            self.starts.pop();
+            if let Some(mark) = self.snapshots.newest_mark() {
+                self.mark = *mark;
+            }
         }
         let spellcard_started =
             current.spellcard.is_some() && current.spellcard != self.seen.spellcard;
@@ -1255,8 +1288,15 @@ impl Chapters {
         !self.boss_has_own_music(game, state)
     }
 
+    /// **The game's own answer where it has one**, and the track having changed since the stage began where it
+    /// has not: what a stage's start was snapshotted under is not always the stage's own song — see
+    /// [`Game::the_fights_own_song_is_playing`], which 妖々夢 answers out of the two names its stage data
+    /// carries.
     fn boss_has_own_music(&self, game: &dyn Game, state: &State) -> bool {
-        state.boss_present && game.music_identity() != self.stage_music
+        state.boss_present
+            && game
+                .the_fights_own_song_is_playing()
+                .unwrap_or_else(|| game.music_identity() != self.stage_music)
     }
 
     fn after_restore(&mut self, mark: Mark) {

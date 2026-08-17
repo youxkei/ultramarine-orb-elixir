@@ -20,10 +20,13 @@ therefore builds for the host and fails on `windows-sys`, so **point the editor 
 instead**: rust-analyzer's setting is `rust-analyzer.cargo.target`, and the target is
 `i686-pc-windows-gnu`.
 
-`cargo xtask test` is also what installs the git hooks, husky-rs pointing `core.hooksPath` at
-`.husky`. What its `pre-commit` runs and why is written in that file, `NO_HUSKY_HOOKS=1` and
-`git commit --no-verify` included. The tree is held at zero warnings, so a lint that is wrong about
-this code is answered with an allow and the reason beside it rather than left in the output.
+**The pre-commit check is run by hand — `sh .husky/pre-commit` — before a commit is asked for.** Version
+control here is jj, and jj runs no git hooks, so nothing fires it on its own; that file is still the one
+place the four checks are written down, and running it is running them. `cargo xtask test` also still
+installs it as a git hook, husky-rs pointing `core.hooksPath` at `.husky`, which is what a `git commit`
+would go through — `NO_HUSKY_HOOKS=1` and `git commit --no-verify` are written in the file with the rest.
+The tree is held at zero warnings, so a lint that is wrong about this code is answered with an allow and
+the reason beside it rather than left in the output.
 
 ## Commit messages
 

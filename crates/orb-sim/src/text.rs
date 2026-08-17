@@ -72,6 +72,10 @@ pub struct Glyphs {
     /// pixels carry, so that a texture it was uploaded into can be read back as the string that went
     /// into it — see [`Glyphs::said`].
     baked: Mutex<Vec<String>>,
+    /// And the family each face of the machine's was asked for, with whether it was asked for bold: what
+    /// a game that ships no font of its own is drawn in is a face orb *names*, so which name it named is
+    /// the thing an e2e test has to be able to read — see [`Glyphs::machine_faces_asked_for`].
+    machine_faces: Mutex<Vec<(String, bool)>>,
 }
 
 /// What a mask's pixels are: full coverage, with which string it is in the colour.
@@ -92,6 +96,7 @@ impl Glyphs {
             faces: Mutex::new(Vec::new()),
             declared: Mutex::new(HashMap::new()),
             baked: Mutex::new(Vec::new()),
+            machine_faces: Mutex::new(Vec::new()),
         }
     }
 
@@ -162,6 +167,29 @@ impl Glyphs {
         let mut faces = self.faces.lock().unwrap();
         faces.push(height);
         Some(Face(faces.len() - 1))
+    }
+
+    /// And a face of the machine's own, which is always there: what a real one asks GDI for is a family by
+    /// name where the caller has one and a face by charset where it has not, and a machine that could not
+    /// answer either is one with no Japanese font at all — a shape an e2e test has nothing to say about,
+    /// since what would come back is a face this crate cannot rasterise anyway.
+    pub(crate) fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face> {
+        self.machine_faces
+            .lock()
+            .unwrap()
+            .push((family.to_owned(), bold));
+        let mut faces = self.faces.lock().unwrap();
+        faces.push(height);
+        Some(Face(faces.len() - 1))
+    }
+
+    /// The families a face of the machine's was asked for, in order, and whether each was asked for bold.
+    ///
+    /// What an e2e test reads to say orb asked for the face the *game* draws its own text in: 妖々夢 ships no
+    /// font and asks GDI for one by name, so a launch of it drawing orb's screens in some other face is a
+    /// launch where the two do not match.
+    pub fn machine_faces_asked_for(&self) -> Vec<(String, bool)> {
+        self.machine_faces.lock().unwrap().clone()
     }
 
     /// What was selected, which here is nothing: a metric at an em height, which is what a face is

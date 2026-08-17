@@ -466,6 +466,170 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
     });
 }
 
+/// And a chapter taken under a track that was never this stage's gets the stage's own song and **no seek**:
+/// the offset a chapter holds is an offset in the track it was taken under, and that means nothing in another.
+///
+/// Reachable because a stage's first chapter is taken frames *into* the stage, so what is playing then can be
+/// the song the stage was come into with — the front end's own, or the stage before it, still going while this
+/// stage's has not started. The restart is the same either way, the path being the stage's data's; what changes
+/// is that the track it brings is not the one the chapter's position belongs to, and putting that position into
+/// it would be the stage's song starting somewhere in its middle.
+///
+/// Written for both games at once: 妖々夢 names a slot rather than a path and can be asked for the very slot
+/// the chapter's own track was in, which is what
+/// `the_music_across_a_restore_of_th07.rs`'s own case of this is about, and this is the same rule from 紅魔郷's
+/// end.
+#[test]
+fn a_chapter_whose_track_was_never_the_stages_gets_the_stages_song_and_no_seek() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-came-in-with", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        // The song the stage was come into with, streaming through a real buffer — and the stage's data
+        // naming its own song, which is the one a restart is handed. `plays_its_songs` is deliberately not
+        // asked for: the build playing the stage's own track is what this stage has *not* done yet.
+        game.streams_its_song(SONG);
+        game.image().names_its_song(STAGE_SONG);
+        game.in_a_pointdevice_run();
+        assert!(
+            log.said("music: true"),
+            "the chapter was taken with nothing of its music in it:\n  {}",
+            log.lines().join("\n  ")
+        );
+        let at_the_chapter = game.stream_now();
+
+        // Past the frames a stage starts its player invulnerable for, and still inside the chapter the stage's
+        // own start is: the next boundary of this stage is the fight at 900.
+        game.frames_until("the player killable", 300, || {
+            game.state().stage_frames > INVULNERABLE_AFTER_SPAWNING as u32
+        });
+
+        // And then the stage's own song, starting after that chapter was taken.
+        game.plays_the_stages_own_song();
+        game.hit();
+        game.frame();
+        assert!(
+            log.said("died in chapter"),
+            "the death was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.frames(READS_KEYS_AFTER);
+        game.press_until(keys::Z, "the chapter again", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        assert!(
+            log.said("restore: the track has changed since this snapshot; taking the music down"),
+            "the restore put a buffer back into a stream playing another track:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.music_started(),
+            vec![STAGE_SONG.to_owned()],
+            "the stage's own song is not what came back",
+        );
+        assert!(
+            !log.said("restore: the song picked up"),
+            "the chapter's own offset was seeked to in a track it is no offset in:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.stream_now().position,
+            at_the_chapter.position,
+            "the file was moved for a track the chapter's position means nothing in",
+        );
+    });
+}
+
+/// And a chapter taken where **nothing is audible** comes back to that silence: the track is asked for, the
+/// player's own stream field being what that ask fills, and the sound it started is taken back off.
+///
+/// A stream held is not a sound heard: a game between one song and the next has stopped its buffer and not asked
+/// for the track after it, while the stream and the wave file under it are still there — which is where a stage's
+/// first chapter can fall, the song of the scene before it down and the stage's own not started. `music: true`
+/// does not tell that apart, being a stream captured rather than a sound heard.
+///
+/// Written for both games at once, this being orb's own rule rather than either game's: 妖々夢's own case of it
+/// is in `the_music_across_a_restore_of_th07.rs`, where a launch heard the stage's song twice over — once from
+/// orb's start and once from the top when its script reached its own play — and a launch that asked for no track
+/// at all had no music for the rest of the stage and then faulted inside the game's own sound.
+#[test]
+fn a_chapter_taken_with_nothing_audible_comes_back_to_that_silence() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-not-yet", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        // The scene before's track on the stream with the mixer stopped, and the stage's data naming its own
+        // song: `plays_its_songs` is deliberately not asked for, the build's own play being what has not
+        // happened yet.
+        game.took_down_the_song_it_came_in_with(SONG);
+        game.image().names_its_song(STAGE_SONG);
+        game.in_a_pointdevice_run();
+        assert!(
+            log.said("music: true"),
+            "the chapter was taken with no stream of the music in it, which is another case than this:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        game.frames_until("the player killable", 300, || {
+            game.state().stage_frames > INVULNERABLE_AFTER_SPAWNING as u32
+        });
+
+        // And then the stage's own song, starting after that chapter was taken.
+        game.plays_the_stages_own_song();
+        game.hit();
+        game.frame();
+        assert!(
+            log.said("died in chapter"),
+            "the death was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.frames(READS_KEYS_AFTER);
+        game.press_until(keys::Z, "the chapter again", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        // Taken down, which it has to be: the stream playing now was allocated after the chapter, so the copy
+        // would roll its object out from under the thread streaming into it.
+        assert_eq!(
+            game.music_stops(),
+            1,
+            "the music was not taken down through the game's own call",
+        );
+        // And the stage's own song asked for, which is what leaves the player holding a stream at all.
+        assert_eq!(
+            game.music_started(),
+            vec![STAGE_SONG.to_owned()],
+            "no track was asked for, so the player is left holding no stream",
+        );
+        assert_ne!(
+            game.the_stream_it_names(),
+            0,
+            "the player was left naming no stream, which is a state neither game's own code is written for",
+        );
+
+        // And nothing coming out of it, which is the silence the chapter was taken in.
+        assert!(
+            log.said(
+                "restore: this chapter had nothing audible; the track asked for is stopped again"
+            ),
+            "the sound the ask started was left playing:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            !game.stream_now().playing,
+            "the stage's own song was left playing, which its own script starts",
+        );
+        assert!(
+            !log.said("restore: the song picked up"),
+            "a position was put into a track for a chapter that had nothing playing:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
 /// The path the stage's data names its own track by, as 紅魔郷 writes one.
 const STAGE_SONG: &str = "bgm/th06_02.mid";
 
