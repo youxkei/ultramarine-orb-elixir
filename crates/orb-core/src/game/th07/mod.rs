@@ -575,6 +575,25 @@ const GAME_MANAGER_ADDED: usize = 0x0042e83e;
 /// address.
 const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x40];
 
+/// The stage's own build, `__thiscall` on the stage's data: 0x4074c0, which clears the 0x14ad dwords at
+/// 0x1347b00 and lays the stage out of them. **The one moment a resumed run's seed can go in.**
+///
+/// **Called from one place in the whole exe**, 0x42f0b4, and that place is what makes it the seam: the twelve
+/// instructions before the call are the game settling the stage's seed — 0x42f07e saves [`G_RANDOM`], 0x42f08b
+/// seals the run's numbers over the top of it (two draws, see [`RESEAL`]), 0x42f094 puts it back and 0x42f0a4
+/// writes it down as [`SEED_AT_STAGE_START`]. So at this entry the seed is settled and **nothing of the stage
+/// has been drawn from the generator yet**, which is what [`crate::resume::stage_building`] needs.
+///
+/// **Both of those are inside [`GAME_MANAGER_ADDED`]**, which is why the seed cannot go in with the numbers:
+/// orb's hook over that callback runs when it returns, by which time the build has drawn. A 妖々夢 run picked
+/// up out of its file parted from the run at the stage's first frame with its generator still holding the seed
+/// — `the generator is 0x6167 where the run had 0xe33d` — and the stage had been laid out from a seed of the
+/// new build's own.
+const STAGE_BUILD: usize = 0x004074c0;
+/// `push ebp; mov ebp,esp; sub esp,0x8; push edi` — position-independent, 7 bytes, read out of the exe at that
+/// address. The same seven 紅魔郷's own stage register begins with, both being what this compiler writes.
+const STAGE_BUILD_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x57];
+
 /// The player, which is a static object at 0x4bdad8 and not a pointer: its register at 0x4429d0 is called
 /// with nothing in `ecx` and starts by filling 0x2df9e dwords from that address with zeroes, then makes the
 /// three chain elements whose callbacks are 0x441fb0, 0x4420b0 and 0x442350 and hangs the object off each.
@@ -1786,9 +1805,8 @@ impl Th07 {
 }
 
 impl Game for Th07 {
-    /// Every seam 紅魔郷 has, less the three this game does not need — and each of those three is a reading
-    /// rather than a gap: the replay write and the recording's own teardown are declined beside `save_replay`
-    /// below, and the stage's other half beside `stage_building`, the seed going in with the numbers instead.
+    /// Every seam 紅魔郷 has, less the two this game does not need — and each of those two is a reading rather
+    /// than a gap: the replay write and the recording's own teardown are declined beside `save_replay` below.
     fn hooks(&self) -> Hooks {
         Hooks {
             update: Patch {
@@ -1832,13 +1850,16 @@ impl Game for Th07 {
                 target: GAME_MANAGER_ADDED,
                 prologue: GAME_MANAGER_ADDED_PROLOGUE,
             })),
-            // **And nothing for the other half, which is a reading and not a gap.** 紅魔郷 needs a seam
-            // before its stage is built because that is where its seed has to be; 妖々夢 takes its stage's
-            // seed *during* the build — 0x42f0a4 copies [`G_RANDOM`] into [`SEED_AT_STAGE_START`] — and its
-            // own replay restore puts the seed back at the end of the restore at 0x443910, after the
-            // numbers and their reseals. So the seed goes in where the numbers go in, which is what the
-            // tail of [`Th07::set_run_state`] does.
-            stage_building: None,
+            // **And the other half after all, which a launch settled.** This was declined for a stage's worth
+            // of reasoning — 妖々夢 takes its stage's seed *during* the build, so the seed could go in where
+            // the numbers go in — and a run picked up out of its file parted from that run at the stage's
+            // first frame all the same: the numbers go in at the *end* of the build, which is after the
+            // build's own draws. See [`STAGE_BUILD`], and [`crate::resume::stage_building`] for what is
+            // written there.
+            stage_building: Some(Patch {
+                target: STAGE_BUILD,
+                prologue: STAGE_BUILD_PROLOGUE,
+            }),
             // The one read of the score file that is not the mode's: what the front end offers is not a
             // record of a run, so it comes out of the game's own file whichever mode a launch is in — see
             // [`FRONT_END_ADDED`]. Entered in `ecx`, this game's chain calling every callback that way.
@@ -3149,9 +3170,12 @@ impl Game for Th07 {
         }
     }
 
-    /// The numbers back, then the game asked to seal them, then the seed — which is the order the game's own
-    /// replay restore uses at 0x443790, and it is that order for a reason: sealing draws twice from the
-    /// generator, so a seed put back before it would not be the seed the stage runs on. See [`RESEAL`].
+    /// The numbers back and the game asked to seal them, with the generator held still over that call — see
+    /// [`RESEAL`], which draws twice.
+    ///
+    /// **And the seed is not written here**, which is where it used to be: it goes in at [`STAGE_BUILD`], before
+    /// the build draws the stage out of it. Written here it would be written *after* those draws, and a 妖々夢 run
+    /// picked up out of its file parted from the run at the stage's first frame because of it.
     ///
     /// **Every field this writes is one the game seals**, and one write of any of them without the call that
     /// follows is a launch that tears its own graphics down a moment later — [`DEATHS`] says what that looks
@@ -3173,8 +3197,14 @@ impl Game for Th07 {
             mem::write::<f32>(run + POWER, f32::from(state.power));
             mem::write::<f32>(run + DEATHS, state.deaths as f32);
         }
+        // **The seal draws twice, and the generator is put back over those draws** — which is what the game
+        // itself does around this very call: 0x42f07e saves [`G_RANDOM`], 0x42f08b seals, 0x42f094 writes the
+        // saved word back. A seal whose draws were left standing would be two numbers of a stage's own spent on
+        // orb's bookkeeping, and a run picked up out of its file would play a stage nobody played.
         let seal: unsafe extern "thiscall" fn(usize) = unsafe { std::mem::transmute(reseal()) };
+        let drawing_from = unsafe { mem::read::<u16>(G_RANDOM) };
         unsafe { seal(G_GAME_MANAGER) };
+        unsafe { mem::write::<u16>(G_RANDOM, drawing_from) };
         // The cherry after the seal and outside it: none of these three is a field the seal covers — they are
         // statics rather than the run's own numbers — and the game's own restore writes them here too.
         let baseline = unsafe { mem::read::<i32>(run + SCORE_BASELINE) };
@@ -3194,7 +3224,6 @@ impl Game for Th07 {
                 unsafe { std::mem::transmute(border_up()) };
             unsafe { border(G_PLAYER) };
         }
-        unsafe { self.set_run_seed(state.seed) };
     }
 
     /// The generator, and the copy the game keeps beside it: the two writes the build makes in the other
@@ -3846,15 +3875,17 @@ mod tests {
         assert_eq!(unsafe { Th07.run_state() }.seed, 0x1234);
     }
 
-    /// And those numbers put back: every field this game has written, the game asked to seal them, and the seed
-    /// put back after that seal rather than before it.
+    /// And those numbers put back: every field this game has written, the game asked to seal them, and **the
+    /// generator left exactly where it was**.
     ///
-    /// **The order is what the seal makes readable**: sealing draws twice from the generator, so the seed the
-    /// stage runs on is the one standing when the seal is over — a seed written first is a seed the seal moves.
-    /// What the test reads is the seed the seal ran over, which is the one the chapter was captured under and not
-    /// the one going back.
+    /// The seal draws twice, which is why the game saves the generator around its own call to it (0x42f07e,
+    /// 0x42f094) and why orb does the same: two numbers spent here are two a stage did not draw, and a run picked
+    /// up out of its file would then play a stage nobody played.
+    ///
+    /// **And the seed is not one of the fields**: it goes in at [`STAGE_BUILD`], before the build draws the stage
+    /// out of it, so what stands here afterwards is the seed the stage was already going to have.
     #[test]
-    fn a_stages_numbers_go_back_sealed_and_the_seed_goes_back_after_them() {
+    fn a_stages_numbers_go_back_sealed_with_the_generator_where_it_was() {
         let image = Image::laid_out_seeded(0);
         let _installed = image.enter();
 
@@ -3884,18 +3915,28 @@ mod tests {
 
         image.has_a_runs_numbers();
         image.the_stage_began_with_the_seed(0xaaaa);
-        image.generator_is_at(0xaaaa);
+        image.generator_is_at(0x1234);
         unsafe { Th07.set_run_state(&going_back) };
 
-        assert_eq!(unsafe { Th07.run_state() }, going_back);
         assert_eq!(sealed(), 1, "the numbers went back unsealed");
         assert_eq!(
             image.the_seed_it_sealed_over(),
-            0xaaaa,
-            "the seed went back before the seal, which draws from the generator"
+            0x1234,
+            "the seal ran over some other number than the one standing"
         );
-        // And in both places the game keeps it, the generator and the copy a stage is built from.
-        assert_eq!(unsafe { Th07.read_state() }.random_seed, 0x5555);
+        // **And the generator is where it was**, the seal's own two draws put back over: what a stage draws is
+        // the stage's, and two of them spent here would be a stage nobody played — see `STAGE_BUILD`.
+        assert_eq!(unsafe { Th07.read_state() }.random_seed, 0x1234);
+        // The seed itself is untouched here, going in at the build instead.
+        assert_eq!(unsafe { Th07.run_state() }.seed, 0xaaaa);
+        assert_eq!(
+            unsafe { Th07.run_state() },
+            RunState {
+                seed: 0xaaaa,
+                ..going_back
+            },
+            "every number but the seed is the one that went in"
+        );
     }
 
     /// The window asked for out of the game's own configuration, and asked for on its behalf where a launch

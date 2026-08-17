@@ -236,6 +236,9 @@ pub struct Fake {
     /// The word the player's own job found in the word the run acts on, which is what a frame is played with —
     /// see [`Fake::the_player_read`].
     the_player_read: Cell<u16>,
+    /// The seed the last build settled on for its stage — see [`Fake::settles_a_seed_for_the_stage`], which is
+    /// where the next one comes from.
+    seed: Cell<u16>,
     /// The name every open of this game's score file landed in, in the order they happened — see
     /// [`create_file`].
     opens: RefCell<Vec<String>>,
@@ -453,6 +456,8 @@ impl Fake {
             fog_told: Cell::new(0),
             result_screens: Cell::new(0),
             the_player_read: Cell::new(0),
+            // Not nothing, so the first stage of a launch is built out of a seed like every other one.
+            seed: Cell::new(0x4d2f),
             opens: RefCell::new(Vec::new()),
             presents: RefCell::new(Vec::new()),
             reads_the_pad: the_game_this_is().hooks().joystick.is_some(),
@@ -1176,10 +1181,47 @@ impl Fake {
             self.image.scene_of_the_front_end(),
             self.image.scene_of_a_run(),
         );
+        self.settles_a_seed_for_the_stage();
+        self.builds_the_stage_out_of_that_seed();
         self.the_stages_numbers_are_in_place();
         self.image
             .is_in_scene(self.image.scene_of_a_run(), self.image.scene_of_a_run());
         self.the_run_goes_on();
+    }
+
+    /// **The seed the build settles on for the stage it is about to lay out**, which the game takes out of
+    /// wherever the generator had got to: 0x42f07e saves it, 0x42f08b seals the run's numbers over the top of it
+    /// — two draws — 0x42f094 puts it back, and 0x42f0a4 writes it down as the stage's own.
+    ///
+    /// Another number every build, the way the game's is: the generator has moved on by then, so a stage built a
+    /// second time is a different stage unless somebody puts the first one's seed back. What the step itself is
+    /// does not matter — orb only ever holds this number against another of them — so it is a step of this file's
+    /// own, said here rather than pretending to be the game's arithmetic.
+    fn settles_a_seed_for_the_stage(&self) {
+        let next = self.seed.get().rotate_left(3).wrapping_add(0x2b1d) | 1;
+        self.seed.set(next);
+        self.image.generator_is_at(next);
+        self.image.the_stage_began_with_the_seed(next);
+    }
+
+    /// And the stage laid out **out of that seed**, which is what makes the seed matter: the frames of the stage
+    /// run from where the build's own draws left the generator, so a build from another seed is a stage whose
+    /// every frame draws differently.
+    ///
+    /// `stage_building` is where a resumed run's seed goes in, and it goes in *here* — before these draws and
+    /// after the seed above is settled. A game that declines that hook gets the draws with its own seed, which is
+    /// what a 妖々夢 launch did: a run picked up out of its file parted from the run at the stage's first frame,
+    /// its generator still holding the seed orb wrote at the end of the build where the run had it already drawn
+    /// from.
+    fn builds_the_stage_out_of_that_seed(&self) {
+        if the_game_this_is().hooks().stage_building.is_some() {
+            orb_core::runtime::stage_building(FIRST_STAGE);
+        }
+        // The draws themselves, as one step: what a test asks of them is that the number the stage runs from is a
+        // function of the seed the build had, and not the seed itself.
+        let drawn = self.image.the_generator_now();
+        self.image
+            .generator_is_at(drawn.rotate_left(5) ^ 0x9e37 | 1);
     }
 
     /// The stage a run *moves on* to, which is the one frame a run spends between two stages and the build

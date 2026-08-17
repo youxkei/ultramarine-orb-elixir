@@ -1096,6 +1096,12 @@ impl Image {
         );
     }
 
+    /// The generator as it stands, for a laid-out game whose own build draws from it: what the stage's frames run
+    /// from is where those draws left it, so a build has to be able to read the number it is drawing from.
+    pub fn the_generator_now(&self) -> u16 {
+        self.space().read::<u16>(super::G_RANDOM)
+    }
+
     /// And how far into that replay the playback has got, which is the counter at the manager's own head — the
     /// number a resumed run's frame is held against.
     pub fn the_replay_is_at(&self, frame: i32) {
@@ -1888,10 +1894,15 @@ static SEED_WHEN_SEALED: AtomicU32 = AtomicU32::new(0);
 
 extern "thiscall" fn seals_the_numbers(_game_manager: usize) {
     SEALED.fetch_add(1, Ordering::Relaxed);
-    SEED_WHEN_SEALED.store(
-        u32::from(unsafe { mem::read::<u16>(super::G_RANDOM) }),
-        Ordering::Relaxed,
-    );
+    let drawing_from = unsafe { mem::read::<u16>(super::G_RANDOM) };
+    SEED_WHEN_SEALED.store(u32::from(drawing_from), Ordering::Relaxed);
+    // **And the generator moved, because the real one draws from it twice.** What the two draws come to is not
+    // known and not pretended at — a step of this file's own stands for them — but that they *happen* is the
+    // whole of why the game saves the generator around its own call to this (0x42f07e, 0x42f094) and why orb
+    // does the same. A laid-out seal that left the generator alone is one no test could ask that of.
+    unsafe {
+        mem::write::<u16>(super::G_RANDOM, drawing_from.rotate_left(7) ^ 0x51ed | 1);
+    }
 }
 
 /// And how many times orb has asked for the border the cherry+ earns, counted for the same reason.
