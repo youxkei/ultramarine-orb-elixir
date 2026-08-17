@@ -21,11 +21,22 @@ pub const SCREEN_HEIGHT: f32 = 480.0;
 
 pub const WHITE: u32 = 0xffff_ffff;
 
-/// Em height in the game's 640x480 output.
-pub const FONT_HEIGHT: i32 = 15;
+/// The size a line of orb's own is drawn at, in the game's 640x480 output.
+///
+/// **A size and not an em height any more**, which is what `Game::own_face` changed: a game that names the face
+/// it draws its own text in also says what height it asks the host for, and 妖々夢 asks for a *cell* of twice
+/// this less two and shows the result at half. So the glyphs come out around four fifths of this number, and
+/// this is the number to turn when they read too small — which a 妖々夢 session asked for at 15, where the lines
+/// were legible and not comfortable.
+///
+/// **And what stops it going higher is the longest line orb draws over a game's own screen**: the mark on the
+/// shot select, whose lower line is a chapter — `STAGE 4 MIDBOSS NONSPELL 1 RETRY 14`, thirty-five characters of
+/// a fixed-pitch face, so half this number apiece. From x=24 that reaches x=339 here and x=374 at 20, and the
+/// game's own writing about the shot under the cursor begins around x=368. So 20 was tried and put back.
+pub const FONT_HEIGHT: i32 = 18;
 /// And the size the one word on the mark over the lives is written at, which is bigger because it
 /// is a word on a brush stroke rather than a line to be scanned.
-pub const MARK_FONT_HEIGHT: i32 = 19;
+pub const MARK_FONT_HEIGHT: i32 = 22;
 
 #[repr(C)]
 struct Vertex {

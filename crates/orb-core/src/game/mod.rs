@@ -730,8 +730,14 @@ pub trait Game {
     /// orb's two lines land on top of the game's. 紅魔郷 leaves the bottom-left of it empty, which is what this
     /// default is; 妖々夢 writes the difficulty's own name and its English line there, and a session of it read
     /// orb's mark over the top of them.
+    /// **The last line that fits, said as one**: a line's own height off the bottom, and four pixels more for a
+    /// face that measures taller than the spacing between lines. It was twenty pixels off the bottom while those
+    /// lines were fifteen high, and raising that size ran the lower of the mark's two off the screen.
     fn mark_corner(&self) -> (f32, f32) {
-        (24.0, crate::overlay::SCREEN_HEIGHT - 20.0)
+        (
+            24.0,
+            crate::overlay::SCREEN_HEIGHT - crate::menu_ui::LINE_HEIGHT - 4.0,
+        )
     }
 
     /// Where the game shows how many lives are left, in its own 640x480 output: the part of

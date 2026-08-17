@@ -282,7 +282,7 @@ mod tests {
 
     /// A corner for the tests that are not about which one it is, which is every one but the first: the
     /// game answers it — see `Game::mark_corner` — and this is what 紅魔郷 answers.
-    const CORNER: (f32, f32) = (24.0, SCREEN_HEIGHT - 20.0);
+    const CORNER: (f32, f32) = (24.0, SCREEN_HEIGHT - LINE_HEIGHT - 4.0);
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
     /// there — the screen is one somebody sits on, and the answer is a file read.
@@ -436,9 +436,12 @@ mod tests {
     /// neither leaves the screen.
     #[test]
     fn the_mark_sits_in_the_corner_the_game_leaves_free() {
-        // 紅魔郷's answer, and 妖々夢's — a line above the difficulty's own name, which is what that game
+        // 紅魔郷's answer, and 妖々夢's — two lines above the difficulty's own name, which is what that game
         // writes in the corner the first one leaves empty.
-        for corner in [(24.0, SCREEN_HEIGHT - 20.0), (24.0, 416.0 - LINE_HEIGHT)] {
+        for corner in [
+            (24.0, SCREEN_HEIGHT - LINE_HEIGHT - 4.0),
+            (24.0, 400.0 - LINE_HEIGHT * 2.0),
+        ] {
             let drawing = Drawing::new();
             let mut mark = Mark::new(LANGUAGE);
             mark.pointing(Some("normal-reimu-a"), |_| Some("STAGE 3".to_owned()));

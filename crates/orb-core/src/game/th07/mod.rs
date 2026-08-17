@@ -1032,12 +1032,16 @@ const G_DIFFICULTY_CHOSEN: usize = 0x00575a89;
 /// top of it, `Lunatic Level` under that and 奇特な方向け under that again, ending around y=474.
 ///
 /// **Measured off a screen and not off the exe**, which is the only place it can be read: what lays those
-/// strings out is the vms the screen builds, and no constant in the exe says where they land. Taken from a
-/// launch's own screen with orb's mark drawn on it at a known place — the mark's two lines, at y=24 and y=48
-/// then, gave the scale the picture was at, and the difficulty's first line measured 416 against them. So it is
-/// good to a few pixels rather than exact, and [`Th07::mark_corner`] leaves a line's worth of room under itself
-/// for that.
-const DIFFICULTY_LABEL_TOP: f32 = 416.0;
+/// strings out is the vms the screen builds, and no constant in the exe says where they land. The way to read it
+/// is a screen with orb's own mark on it, whose two lines are at heights this code chose: the gap between them
+/// is [`crate::menu_ui::LINE_HEIGHT`] and gives the scale the picture was taken at, and the difficulty's first
+/// line is measured against that.
+///
+/// Read twice. The first reading, off a mark at y=24 and y=48, put it at 416 and was **16 pixels high** — the
+/// mark went a line above 416 and still touched 驚異. The second, off that mark at y=368 and y=392, puts it here.
+/// So the number is good to a few pixels rather than exact, and [`Th07::mark_corner`] keeps two lines clear of it
+/// rather than one.
+const DIFFICULTY_LABEL_TOP: f32 = 400.0;
 
 /// And the character and the shot **as a press settled them**, which is not the same as what the cursor is on:
 /// 0x4593b7 and 0x459475 write the first, 0x459e7d and 0x459f72 the second, and every one of the four is inside
@@ -2234,16 +2238,19 @@ impl Game for Th07 {
         unsafe { Self::chain_element(G_CHAIN + CHAIN_DRAW_LIST, PANEL_DRAW) }.is_some()
     }
 
-    /// A line above the difficulty's own name, which is what this game writes in the bottom-left: 驚異, then
+    /// Above the difficulty's own name, which is what this game writes in the bottom-left: 驚異, then
     /// `Lunatic Level`, then 奇特な方向け under it — where 紅魔郷 has nothing, and a launch of 妖々夢 showed
-    /// orb's two lines over the top of them. Above it and not in another corner: the top-left was tried and read
-    /// badly, being nowhere near what it is about.
+    /// orb's two lines over the top of them. Above it and not in another corner: the top-left was tried, and
+    /// read badly for being nowhere near what it is about.
     ///
-    /// Both numbers are read off a launch's screen rather than out of the exe, which is what a screen settles —
-    /// where the game's own strings land is decided by the vms its screen lays out, and nothing in the exe says
-    /// a corner is free. See [`DIFFICULTY_LABEL_TOP`] for how that reading was taken.
+    /// **Two lines clear of it and not one**, because [`DIFFICULTY_LABEL_TOP`] is a reading off a screen and the
+    /// first such reading was 16 pixels out — one line above it still touched 驚異 — and because the lower of
+    /// orb's own two lines is as tall as the face it is drawn in, which is a size that has moved once already.
     fn mark_corner(&self) -> (f32, f32) {
-        (24.0, DIFFICULTY_LABEL_TOP - crate::menu_ui::LINE_HEIGHT)
+        (
+            24.0,
+            DIFFICULTY_LABEL_TOP - crate::menu_ui::LINE_HEIGHT * 2.0,
+        )
     }
 
     fn lives_row(&self) -> Rect {
