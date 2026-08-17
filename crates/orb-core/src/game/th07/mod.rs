@@ -35,6 +35,9 @@
 //! no regions, no music, no run in progress, no button worth writing down — and no method answers a
 //! guess.
 
+/// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
+pub mod chapters;
+
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
 /// crates that drive it — which is where the scenarios live.
 #[cfg(any(test, feature = "sim"))]
@@ -3334,18 +3337,12 @@ impl Game for Th07 {
         }
     }
 
-    /// **A stage per entry and nothing in any of them**, so a chapter falls at a stage's start and nowhere
-    /// inside it. Which is the one thing here that cannot be read off the exe: a boundary is a script frame
-    /// number on the clock
-    /// [docs/adr/0018](../../../../../docs/adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md)
-    /// settles, and which frames those are is what a run with `--chapter-tuning` writes down.
-    ///
-    /// **The entries are what makes that run able to write at all**, which is why they are here empty rather
-    /// than absent: `Tuning` keeps one pass per entry and writes one line of the table per entry, so a table of
-    /// nothing would have a judged stage come out as nothing. Eight of them, the number [`STAGES`] is fixed at
-    /// by the game's own switch.
+    /// The table [`chapters`] holds, which is a stage per entry and nothing in any of them yet — so a chapter
+    /// falls at a stage's start and nowhere inside it. Its own file for the reason 紅魔郷's is: what a
+    /// `--chapter-tuning` pass writes is a `chapters.rs` to paste over, and a table inline here would be a paste
+    /// into the middle of this file. Everything about how it is filled is in that module.
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
-        &[&[], &[], &[], &[], &[], &[], &[], &[]]
+        &chapters::MIDSTAGE
     }
 }
 
