@@ -707,39 +707,6 @@ Then, if it is still standing:
 None of these is an `orb.yaml` key: the fault options are command-line ones, `crates/orb-config/src/args.rs`
 under its own help heading, and `scripts/run.sh <dir> [option...]` passes them straight through.
 
-## The values the laid-out game still takes from orb, which is the trap the mode question fell into
-
-**A launch of 妖々夢 had never once put the mode question up, and every e2e test over that question passed.**
-What made that possible was one line of `image`:
-
-```rust
-space.write::<i32>(FRONT_END.start + super::FRONT_END_PHASE, super::TITLE_PHASE_ITEMS);
-```
-
-The laid-out game wrote **the value orb expected** rather than the value the game writes, so the two could not
-disagree: `TITLE_PHASE_ITEMS` was 0 where the title reads its items in phase 1, orb never held a press back, and
-nothing in the suite could say so. It is 0001's *writer and reader wrong together* in the layer 0008 named — and
-it took a launch to find, through `Th07::says_what_it_reads_of_the_front_end`.
-
-**Addresses and offsets have to be shared; values do not, and values are the dangerous ones.** A wrong offset
-reads nonsense or faults; a wrong scene number, screen number, item number, phase or mask is silent, and what it
-costs is a whole piece of the mode never happening. So each of those the laid-out game writes wants its own
-number in `image`, read off the exe, with the reading beside it — `image`'s own `TITLE_ITEMS_PHASE` is the shape.
-
-The ones still taken from `Th07`'s own, from
-`grep -oE 'super::[A-Z_]+' crates/orb-core/src/game/th07/image.rs` against the non-`usize` constants of
-`mod.rs`:
-
-`CARD_COUNT_CAP`, `CARD_NAME_COLOUR`, `CARD_NAME_SHADOW`, `FOG_ON_FORCED`, `RESULT_FROM_A_RUN`,
-`RESULT_LEAVING`, `RUN_IS_A_DEMO`, `RUN_IS_A_PRACTICE`, `RUN_IS_A_REPLAY`, `SCENE_ENDING`, `SCENE_FRONT_END`,
-`SCENE_RANKING`, `SCENE_RUN`, `SCENE_RUN_AGAIN`, `SCENE_RUN_OVER`, `SCREEN_SHOT_SELECT`, `SCREEN_TITLE`,
-`SETTLED_FRAMES`, `SHOT_SELECT_PHASE_ITEMS`, `STAGE_COUNTS_FROM`, `TITLE_ITEM_START`.
-
-Several are already held against the exe and say so where they are defined — the screen numbers of the three
-shot selects, the shot select's own items phase, the settled count's 0xa, the title's screens. The work is the
-rest, one at a time, and the two card colours in `image`'s `bakes_a_string` are the same thing in assertion
-form: `assert_eq!(colour, super::CARD_NAME_COLOUR)` cannot fail.
-
 ## Why the ranking is built at all, and what it would take not to
 
 **Settled**: it is not built by orb at all any more. `Game::writes_its_own_records` answers `true` for this game,

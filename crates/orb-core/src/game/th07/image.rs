@@ -17,6 +17,16 @@
 //! catch is a constant that is wrong: a wrong one is wrong on both sides at once, and only the real
 //! game says otherwise. What it does catch is everything built on top of them, which is where the code
 //! is.
+//!
+//! **The values are this file's own, though, and taking one from [`Th07`](super::Th07) is what is refused
+//! here.** An address shared between the writer and the reader is an address they fault or read nonsense
+//! through together; a scene number, a screen number, an item, a phase, a mask or a cap shared between them
+//! is silent, and what it costs is a whole piece of the mode never happening. That is not hypothetical: the
+//! phase this file wrote the title's items in came from orb's own constant, which held 0 where the title
+//! reads its items in phase 1, so orb held every press back on the real game and no e2e test over the mode
+//! question could say so. So each value below carries its own literal and the exe reading it was taken from,
+//! and the two colours in `bakes_a_string` are the same rule in assertion form — held against orb's own
+//! constants they compared each with itself.
 
 use std::ffi::CStr;
 use std::ops::Range;
@@ -187,6 +197,69 @@ const STAGE_SONGS: usize = 0x033a_4000;
 /// that is exactly what let this through — see
 /// [docs/adr/0008](../../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
 const TITLE_ITEMS_PHASE: i32 = 1;
+
+/// The scenes this game's supervisor moves between, as the exe writes them, and **its own numbers for the same
+/// reason [`TITLE_ITEMS_PHASE`] is**: a laid-out game that wrote the scene orb reads with would agree with orb
+/// about a number neither of them had checked. An address has to be shared — both sides must mean the same word —
+/// and a value must not, which is [docs/adr/0008](../../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md)'s
+/// own line.
+///
+/// Read off the switch at 0x437fbd and the writes that feed it: 1 is the front end (0x437ee3 is the case for
+/// leaving it), 2 the run and 3 the run built again (0x42f3c5 registers the manager for 2, and its added callback
+/// branches at 0x42e894 on 3), 5 the ranking (`[0x575aa8] = 5` at 0x455f95), 6 the screen a run ends on (0x403b8d,
+/// 0x403bfe and 0x42a6ab write it) and 9 an ending (0x41e820 registers it).
+const SCENE_FRONT_END: i32 = 1;
+const SCENE_RUN: i32 = 2;
+const SCENE_RUN_AGAIN: i32 = 3;
+const SCENE_RANKING: i32 = 5;
+const SCENE_RUN_OVER: i32 = 6;
+const SCENE_ENDING: i32 = 9;
+
+/// And the bits of [`G_RUN_KIND`](super::G_RUN_KIND) that say what kind of run it is: bit 0 a practice run, bit 1
+/// the attract demo, bit 3 a replay — 0x44a372 and 0x44a37e write the first, 0x455b5e the second, 0x455b50 and
+/// 0x45b395 the third. Its own numbers, as above.
+const RUN_IS_A_PRACTICE: u32 = 1 << 0;
+const RUN_IS_A_DEMO: u32 = 1 << 1;
+const RUN_IS_A_REPLAY: u32 = 1 << 3;
+
+/// And what the stage word holds while a stage is played: one more than orb's own 0-based number, the build at
+/// 0x42ef50 adding it and the teardown at 0x43805f taking it back off. Its own number, as above.
+const STAGE_COUNTS_FROM: i32 = 1;
+
+/// The front end's own screens and items a laid-out game has to be able to be on, and the frames it ignores a
+/// press for. Its own numbers, as above.
+///
+/// The title is screen 0 — the byte table at 0x4555ce sends it to the title's own handler — and a whole run's
+/// shot select is 6, that item writing 4 at 0x455d20 and the three screens of its flow being 4, 5 and 6. Its
+/// items are dispatched in phase 1 (0x455621's block, with 0x45599d the cursor's), the item that starts a run is
+/// the first of the eight, and 0x455c6d compares the frames the screen has been up against 0xa and does nothing
+/// under it.
+const SCREEN_TITLE: i32 = 0;
+const SCREEN_SHOT_SELECT: i32 = 6;
+const SHOT_SELECT_PHASE_ITEMS: i32 = 1;
+const TITLE_ITEM_START: i32 = 0;
+const SETTLED_FRAMES: i32 = 0xa;
+
+/// And the phases of the screen a run ends on: 0xa is the one a whole run's end brings it up in, and 2 is the one
+/// its leaving runs in. Its own numbers, as above.
+const RESULT_FROM_A_RUN: i32 = 0xa;
+const RESULT_LEAVING: i32 = 2;
+
+/// Where the game's own counting of a card stops: 0x4100eb and 0x41011c compare against 0x270f and skip the
+/// increment, so a card attempted ten thousand times stays at 9999. Its own number, as above.
+const CARD_COUNT_CAP: u16 = 0x270f;
+
+/// And the two colours a card's name is baked in, which the baking here holds what it was given against —
+/// `0xfff0f0` pushed at 0x428a61 and the zero in front of it at 0x428a5f. **Its own numbers is what makes that
+/// assertion able to fail at all**: held against orb's own constants it compared each with itself.
+const CARD_NAME_COLOUR: u32 = 0x00ff_f0f0;
+const CARD_NAME_SHADOW: u32 = 0;
+
+/// And a value in that word which is not zero, which is all "the game has asked for fog" is: the field is
+/// compared against zero, so what a laid-out game writes there only has to be something. **Not orb's own
+/// number here either**, so that a launch where orb wrote one number and read another would show up: this is
+/// what the *game* would be holding, and 0xff is what orb's frame writes.
+const FOG_ON_FORCED: u32 = 0xff;
 
 /// The name loaded into each of the player's own slots, `+0x28bc` of it and 0x100 bytes apiece: the buffer the
 /// load's command copies a name into at 0x44c242 and the play's reads back at 0x44cc95.
@@ -406,17 +479,17 @@ impl Image {
     /// And two of them by what they are rather than by their numbers: the ranking orb asks for after a run has
     /// ended, and the front end every screen goes back to.
     pub fn scene_of_the_ranking(&self) -> i32 {
-        super::SCENE_RANKING
+        SCENE_RANKING
     }
 
     pub fn scene_of_the_front_end(&self) -> i32 {
-        super::SCENE_FRONT_END
+        SCENE_FRONT_END
     }
 
     /// And the one a run's own teardown asks for, which is where its objects go: what `Th07::leave_run` writes,
     /// and the scene a run given up passes through on its way back to the title.
     pub fn scene_of_a_run_over(&self) -> i32 {
-        super::SCENE_RUN_OVER
+        SCENE_RUN_OVER
     }
 
     /// The stage a transition is building, taken as orb counts stages and written without the scene: what a
@@ -424,7 +497,7 @@ impl Image {
     /// [`the_next_stage_is_being_asked_for`](Image::the_next_stage_is_being_asked_for).
     pub fn the_stage_being_rebuilt_is(&self, stage: i32) {
         self.space()
-            .write::<i32>(super::G_STAGE, stage + super::STAGE_COUNTS_FROM);
+            .write::<i32>(super::G_STAGE, stage + STAGE_COUNTS_FROM);
     }
 
     /// The next stage asked for, which is the whole of what a transition does to the supervisor: the scene stays
@@ -437,20 +510,20 @@ impl Image {
     /// pair orb reads is never the rebuild's. That the two are read at all is [`Th07::stage_frame`]'s doing and
     /// deliberate: a field of a run in progress belongs to the run either way.
     pub fn the_next_stage_is_being_asked_for(&self) {
-        self.is_in_scene(super::SCENE_RUN, super::SCENE_RUN_AGAIN);
+        self.is_in_scene(SCENE_RUN, SCENE_RUN_AGAIN);
     }
 
     /// And the scene a stage is rebuilt in, as a scene the game has arrived in: what nothing but a reader of
     /// `Th07::stage_frame` should be shown, no frame of a real transition being spent there.
     pub fn the_stage_is_being_rebuilt(&self) {
-        let again = super::SCENE_RUN_AGAIN;
+        let again = SCENE_RUN_AGAIN;
         self.is_in_scene(again, again);
     }
 
     /// And the scene a run is, so an e2e test says "a run is in progress" in the game's own terms rather
     /// than in a number of its own.
     pub fn scene_of_a_run(&self) -> i32 {
-        super::SCENE_RUN
+        SCENE_RUN
     }
 
     /// A run in progress as the game itself would have left it: the scene, the stage it is on counted from
@@ -459,10 +532,10 @@ impl Image {
     /// The stage goes in the way the game's own build leaves it, which is one more than the number given
     /// here — so a test that asks for the first stage gets what orb would read on the first stage.
     pub fn is_playing(&self, stage: i32, difficulty: i32) {
-        let run = super::SCENE_RUN;
+        let run = SCENE_RUN;
         self.is_in_scene(run, run);
         let space = self.space();
-        space.write::<i32>(super::G_STAGE, stage + super::STAGE_COUNTS_FROM);
+        space.write::<i32>(super::G_STAGE, stage + STAGE_COUNTS_FROM);
         space.write::<i32>(super::G_GAME_MANAGER + super::DIFFICULTY, difficulty);
     }
 
@@ -824,7 +897,7 @@ impl Image {
     /// the whole of how orb can find it.
     pub fn an_ending_is_running(&self, script: usize) {
         let space = self.space();
-        self.is_in_scene(super::SCENE_ENDING, super::SCENE_ENDING);
+        self.is_in_scene(SCENE_ENDING, SCENE_ENDING);
         space.map(ENDING.start, ENDING.len(), Kind::Private);
         space.write::<usize>(ENDING.start + super::ENDING_SCRIPT, script);
         space.write::<usize>(ENDING_ELEMENT + super::CHAIN_CALLBACK, super::ENDING_UPDATE);
@@ -858,14 +931,14 @@ impl Image {
     pub fn is_watching_a_replay(&self) {
         let space = self.space();
         let kind = space.read::<u32>(super::G_RUN_KIND);
-        space.write::<u32>(super::G_RUN_KIND, kind | super::RUN_IS_A_REPLAY);
+        space.write::<u32>(super::G_RUN_KIND, kind | RUN_IS_A_REPLAY);
     }
 
     /// And the attract demo playing, which is the bit the title screen sets as its idle timer runs out.
     pub fn is_the_attract_demo(&self) {
         let space = self.space();
         let kind = space.read::<u32>(super::G_RUN_KIND);
-        space.write::<u32>(super::G_RUN_KIND, kind | super::RUN_IS_A_DEMO);
+        space.write::<u32>(super::G_RUN_KIND, kind | RUN_IS_A_DEMO);
     }
 
     /// And one stage of it practised rather than the whole game played, which is the bit its title menu sets
@@ -873,7 +946,7 @@ impl Image {
     pub fn is_practising(&self) {
         let space = self.space();
         let kind = space.read::<u32>(super::G_RUN_KIND);
-        space.write::<u32>(super::G_RUN_KIND, kind | super::RUN_IS_A_PRACTICE);
+        space.write::<u32>(super::G_RUN_KIND, kind | RUN_IS_A_PRACTICE);
     }
 
     /// The pad's buttons as the game's own key config read would have answered them, and where that array
@@ -914,7 +987,7 @@ impl Image {
     /// fog is already out.
     pub fn forces_the_fog_call_through(&self) {
         self.space()
-            .write::<u32>(super::G_SUPERVISOR + super::FOG_ON, super::FOG_ON_FORCED);
+            .write::<u32>(super::G_SUPERVISOR + super::FOG_ON, FOG_ON_FORCED);
     }
 
     /// And the field 0x43a207 clears, which is the half of that call this block holds: the
@@ -946,17 +1019,14 @@ impl Image {
     /// off a chain element, which is the only place its address is kept — and the screen at the title.
     pub fn the_front_end_is_up(&self) {
         let space = self.space();
-        self.is_in_scene(super::SCENE_FRONT_END, super::SCENE_FRONT_END);
+        self.is_in_scene(SCENE_FRONT_END, SCENE_FRONT_END);
         // Laid out only where it is not already, an address space having one of each: what a front end built a
         // second time writes is [`the_front_end_is_up_again`](Image::the_front_end_is_up_again)'s fields, and a
         // test that reaches this twice is one that came back to the title from somewhere.
         if space.has_room(FRONT_END.start, FRONT_END.len()) {
             space.map(FRONT_END.start, FRONT_END.len(), Kind::Private);
         }
-        space.write::<i32>(
-            FRONT_END.start + super::FRONT_END_SCREEN,
-            super::SCREEN_TITLE,
-        );
+        space.write::<i32>(FRONT_END.start + super::FRONT_END_SCREEN, SCREEN_TITLE);
         space.write::<usize>(
             FRONT_END_ELEMENT + super::CHAIN_CALLBACK,
             super::FRONT_END_UPDATE,
@@ -966,7 +1036,7 @@ impl Image {
         // The phase whose block the items are dispatched from, and long enough up for a press to be taken:
         // a title menu laid out in any other phase or younger than that is one the game itself ignores.
         space.write::<i32>(FRONT_END.start + super::FRONT_END_PHASE, TITLE_ITEMS_PHASE);
-        self.the_screen_has_been_up_for(super::SETTLED_FRAMES);
+        self.the_screen_has_been_up_for(SETTLED_FRAMES);
     }
 
     /// How long the screen has been up, which is the game's own gate on a press: ten frames or more and it
@@ -980,17 +1050,14 @@ impl Image {
     /// the object being laid out a second time — an address space has one of each.
     pub fn the_front_end_is_up_again(&self) {
         let space = self.space();
-        self.is_in_scene(super::SCENE_FRONT_END, super::SCENE_FRONT_END);
-        space.write::<i32>(
-            FRONT_END.start + super::FRONT_END_SCREEN,
-            super::SCREEN_TITLE,
-        );
+        self.is_in_scene(SCENE_FRONT_END, SCENE_FRONT_END);
+        space.write::<i32>(FRONT_END.start + super::FRONT_END_SCREEN, SCREEN_TITLE);
         space.write::<usize>(super::G_CHAIN + super::CHAIN_NEXT, FRONT_END_ELEMENT);
     }
 
     /// The phase the screen that is up is in, written the way that screen's own update writes it: which phase
-    /// means what belongs to the screen — see `Th07`'s own `TITLE_PHASE_ITEMS` and `SHOT_SELECT_PHASE_ITEMS` —
-    /// and what it decides is whether a press there is one the game acts on.
+    /// means what belongs to the screen — [`TITLE_ITEMS_PHASE`] and [`SHOT_SELECT_PHASE_ITEMS`] are the two this
+    /// file has — and what it decides is whether a press there is one the game acts on.
     pub fn the_screen_is_in_phase(&self, phase: i32) {
         self.space()
             .write::<i32>(FRONT_END.start + super::FRONT_END_PHASE, phase);
@@ -1012,7 +1079,7 @@ impl Image {
     /// And the screen a title menu is, so an e2e test says which one it is in the game's own terms rather than in
     /// a number of its own.
     pub fn screen_of_the_title_menu(&self) -> i32 {
-        super::SCREEN_TITLE
+        SCREEN_TITLE
     }
 
     /// And the cursor moved to one of the eight items, which is all moving it changes.
@@ -1025,7 +1092,7 @@ impl Image {
     /// which item that is is this module's business, and an e2e test asking for it by index would be an e2e
     /// test carrying one of the game's own numbers.
     pub fn the_title_menu_points_at_a_run(&self) {
-        self.the_title_menu_points_at(super::TITLE_ITEM_START);
+        self.the_title_menu_points_at(TITLE_ITEM_START);
     }
 
     /// A whole run's own shot select up, with a difficulty and a character already chosen and a shot under the
@@ -1035,20 +1102,20 @@ impl Image {
     /// [`the_title_menu_points_at_a_run`](Image::the_title_menu_points_at_a_run) is: which of the three flows'
     /// shot selects that is is this module's business.
     pub fn the_shot_select_of_a_run_is_up(&self, difficulty: u8, character: u8, shot: u8) {
-        self.the_shot_select_points_at(super::SCREEN_SHOT_SELECT, difficulty, character, shot);
+        self.the_shot_select_points_at(SCREEN_SHOT_SELECT, difficulty, character, shot);
         // And the phase the screen is in once it has been up long enough to read anything, which is the gate on
         // a press there — a screen left in the phase its build runs in is one the game itself acts on nothing
-        // in. See `Th07`'s own `SHOT_SELECT_PHASE_ITEMS`.
+        // in.
         self.space().write::<i32>(
             FRONT_END.start + super::FRONT_END_PHASE,
-            super::SHOT_SELECT_PHASE_ITEMS,
+            SHOT_SELECT_PHASE_ITEMS,
         );
     }
 
     /// And the front end having asked for the run scene, which is the one frame a run has been chosen and not
     /// built: what `Th07::run_chosen` reads, and so the frame a resume can point that build at a stage on.
     pub fn a_run_has_been_chosen(&self) {
-        self.is_in_scene(super::SCENE_FRONT_END, super::SCENE_RUN);
+        self.is_in_scene(SCENE_FRONT_END, SCENE_RUN);
     }
 
     /// The shot select up, with a difficulty and a character already chosen and a shot under the cursor —
@@ -1396,8 +1463,8 @@ impl Image {
     pub fn a_cards_counts_are_at_the_cap(&self, card: usize) {
         let at = super::G_CARD_RECORDS + card * super::CARD_RECORD_BYTES;
         let space = self.space();
-        space.write::<u16>(at + super::CARD_ATTEMPTS, super::CARD_COUNT_CAP);
-        space.write::<u16>(at + super::CARD_ATTEMPTS_IN_ALL, super::CARD_COUNT_CAP);
+        space.write::<u16>(at + super::CARD_ATTEMPTS, CARD_COUNT_CAP);
+        space.write::<u16>(at + super::CARD_ATTEMPTS_IN_ALL, CARD_COUNT_CAP);
     }
 
     /// A card named the way its own start names it, into the record's own name field.
@@ -1495,7 +1562,7 @@ impl Image {
     /// the number of the phase: past the state its build runs in, which is what orb waits for while it asks
     /// the game to write a ranking.
     pub fn the_screen_a_run_ends_at_is_up(&self) {
-        self.the_run_ended_screen_is_up(super::RESULT_FROM_A_RUN);
+        self.the_run_ended_screen_is_up(RESULT_FROM_A_RUN);
     }
 
     /// And that screen moved on to the question about saving a replay, which is the first of the phases it asks
@@ -1511,11 +1578,11 @@ impl Image {
     }
 
     pub fn phase_of_a_screen_from_a_run(&self) -> i32 {
-        super::RESULT_FROM_A_RUN
+        RESULT_FROM_A_RUN
     }
 
     pub fn phase_of_a_screen_leaving(&self) -> i32 {
-        super::RESULT_LEAVING
+        RESULT_LEAVING
     }
 
     /// And whether that screen is the one on the chain and has been told to leave, which is the state its own
@@ -1526,7 +1593,7 @@ impl Image {
     pub fn the_screen_a_run_ends_at_is_leaving(&self) -> bool {
         let space = self.space();
         space.read::<usize>(super::G_CHAIN + super::CHAIN_NEXT) == RESULT_ELEMENT
-            && space.read::<i32>(RESULT.start + super::RESULT_PHASE) == super::RESULT_LEAVING
+            && space.read::<i32>(RESULT.start + super::RESULT_PHASE) == RESULT_LEAVING
     }
 
     /// The cherry where a run has it, as the game keeps it: the baseline the three are counted from, and each
@@ -1929,8 +1996,8 @@ extern "cdecl" fn bakes_a_string(manager: usize, vm: usize, colour: u32, shadow:
         GUI.start + super::CARD_NAME_VM,
         "a string was baked into a vm that is not the one a card's name is shown on"
     );
-    assert_eq!(colour, super::CARD_NAME_COLOUR, "another colour");
-    assert_eq!(shadow, super::CARD_NAME_SHADOW, "another second colour");
+    assert_eq!(colour, CARD_NAME_COLOUR, "another colour");
+    assert_eq!(shadow, CARD_NAME_SHADOW, "another second colour");
     BAKED_FROM.store(text, Ordering::Relaxed);
     BAKINGS.fetch_add(1, Ordering::Relaxed);
 }

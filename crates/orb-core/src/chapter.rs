@@ -488,13 +488,26 @@ impl Chapters {
         // Counted out of the chapter starts this stage has recorded rather than kept in a
         // counter of its own, because a restore and a step back put the mark back and then
         // play the same chapters again: a counter would make the second time through the
-        // same chapter a different one, while these are the frames they began at and the
-        // same frame is the same chapter.
-        let index = self
+        // same chapter a different one, while these are the frames they began at.
+        //
+        // And two starts of one kind closer together than [`MIN_CHAPTER_FRAMES`] are that same chapter
+        // twice, which is the shape a chapter played again arrives in: the frame a restore lands on is one
+        // nothing is read on — `resync` — so an attack seen at 251 the first time through is seen at 252
+        // the second, and both are recorded. Both have to be: the stepping keys read this list for where
+        // the stage's boundaries are, and the ones ahead of a restore are still the stage's. Counted
+        // straight, 妖々夢's own `MIDBOSS SPELL 1` came back from a retry as `MIDBOSS SPELL 2`.
+        let mut index = 0;
+        let mut last: Option<u32> = None;
+        for (at, _) in self
             .starts
             .iter()
             .filter(|(at, cause)| *at <= mark.started_at && Kind::of(*cause) == kind)
-            .count();
+        {
+            if last.is_none_or(|last| at - last >= MIN_CHAPTER_FRAMES) {
+                index += 1;
+            }
+            last = Some(*at);
+        }
         Name { kind, index }
     }
 
@@ -2006,6 +2019,34 @@ mod tests {
         stage.chapters.seen = Seen::of(&stage.standing_on(waves(299)));
         assert_eq!(named(&stage.chapters), "MIDSTAGE 2");
         stage.frame(fight(320, 0, None));
+        assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
+    }
+
+    /// **And it keeps it where the second time through begins a frame later, which is the only way a
+    /// restore ever lands.** The frame the run comes back on is one nothing is read on — `resync` — so the
+    /// attack that was seen at 320 is seen at 321 the next time, and both frames are recorded.
+    ///
+    /// What makes them the same chapter is how far apart they are: two starts of one kind closer together
+    /// than the shortest a chapter may be cannot be two chapters, since a boundary that soon after the mark
+    /// is one the detector refuses.
+    #[test]
+    fn a_chapter_reached_again_a_frame_later_keeps_its_name() {
+        let mut stage = Stage::tuned("orb-chapter-named-a-frame-later");
+        for frame in 0..300 {
+            stage.frame(waves(frame));
+        }
+        let boundary = stage.chapters.mark;
+        stage.frame(fight(320, 0, None));
+        assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
+
+        // What a retry does to orb's own bookkeeping, through the call that does it rather than by
+        // putting the mark back by hand: what is being asked about is the rest of what that call moves.
+        stage.chapters.after_restore(boundary);
+        stage.chapters.seen = Seen::of(&stage.standing_on(waves(299)));
+        assert_eq!(named(&stage.chapters), "MIDSTAGE 2");
+        // The frame the run lands on, which begins nothing, and the midboss arriving on the next one.
+        stage.frame(waves(320));
+        stage.frame(fight(321, 0, None));
         assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
     }
 
