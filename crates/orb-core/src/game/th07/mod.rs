@@ -1588,7 +1588,9 @@ impl Th07 {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn run_numbers(&self) -> Option<usize> {
-        mem::read_committed::<usize>(G_RUN_NUMBERS).filter(|run| *run != 0)
+        // The pointer is the game manager's own field, read outright for the reason [`Th07::lasers`] gives.
+        let run = unsafe { mem::read::<usize>(G_RUN_NUMBERS) };
+        (run != 0).then_some(run)
     }
 
     /// The boss being fought, or nothing where none is: the first of the manager's [`BOSS_SLOTS`] pointers
@@ -1597,9 +1599,11 @@ impl Th07 {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn boss() -> Option<usize> {
+        // The slots themselves are the manager's own fields and are read outright, for the reason
+        // [`Th07::lasers`] gives; what the pointer in one leads to is the allocator's and is asked about.
         (0..BOSS_SLOTS)
-            .filter_map(|slot| {
-                mem::read_committed::<usize>(G_ENEMY_MANAGER + BOSSES + slot * size_of::<usize>())
+            .map(|slot| unsafe {
+                mem::read::<usize>(G_ENEMY_MANAGER + BOSSES + slot * size_of::<usize>())
             })
             .find(|boss| *boss != 0)
     }
@@ -1688,11 +1692,15 @@ impl Th07 {
     ///
     /// # Safety
     /// Must run on the game's main thread.
+    /// **Read outright and not through the memory map**, which is what makes 0x40 reads worth what 0x40
+    /// reads cost: every slot is inside the exe's own `.data`, which the loader commits whole, so there is
+    /// nothing for the map to answer — and asking it is a `VirtualQuery` apiece. A launch of 妖々夢 spent
+    /// **1206us a frame** in orb's own work against 紅魔郷's 18us with this walk going through the map, and
+    /// a run picked up out of its file took 3.2 seconds to play 2667 frames of buttons in.
     unsafe fn lasers() -> i32 {
         (0..LASER_SLOTS)
-            .filter(|slot| {
-                mem::read_committed::<u32>(G_LASERS + slot * LASER_BYTES + LASER_ALIVE)
-                    .is_some_and(|alive| alive != 0)
+            .filter(|slot| unsafe {
+                mem::read::<u32>(G_LASERS + slot * LASER_BYTES + LASER_ALIVE) != 0
             })
             .count() as i32
     }
@@ -1713,7 +1721,10 @@ impl Th07 {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn over_the_run() -> Option<usize> {
-        mem::read_committed::<usize>(G_GUI + GUI_IMPL).filter(|gui| *gui != 0)
+        // Another of the game's own statics read outright, and what it points at is asked about — see
+        // [`Th07::lasers`].
+        let gui = unsafe { mem::read::<usize>(G_GUI + GUI_IMPL) };
+        (gui != 0).then_some(gui)
     }
 
     /// The card being fought and the record the game keeps of it: nothing where no card is up, and nothing
@@ -1735,10 +1746,20 @@ impl Th07 {
         (mem::read_committed::<u32>(record)? == CARD_RECORD_TAG).then_some((card, record))
     }
 
+    /// The stream the sound player is playing through, or nothing where it has none.
+    ///
+    /// The player's own field, read outright for the reason [`Th07::lasers`] gives — and this one is read on
+    /// every frame of a fight, `the_fights_own_song_is_playing` being how a chapter learns which song it is
+    /// under. What the field points at is the allocator's and is asked about.
+    fn the_stream() -> Option<usize> {
+        let stream = unsafe { mem::read::<usize>(G_SOUND_PLAYER + STREAM) };
+        (stream != 0).then_some(stream)
+    }
+
     /// The track the source is reading, as the name its own record carries — see [`RECORD_NAME`]. Nothing
     /// where no track is playing.
     fn the_track_playing() -> Option<Vec<u8>> {
-        let stream = mem::read_committed::<usize>(G_SOUND_PLAYER + STREAM).filter(|it| *it != 0)?;
+        let stream = Self::the_stream()?;
         let source = mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)?;
         let record = mem::read_committed::<usize>(source + SOURCE_RECORD).filter(|it| *it != 0)?;
         name_at(record + RECORD_NAME, RECORD_NAME_BYTES)
@@ -1788,7 +1809,10 @@ impl Th07 {
     /// And the two songs the stage that was built has, out of its own data: its own and the one the fight it
     /// ends with brings — see [`G_MUSIC_TABLE`]. Nothing before a stage has been built.
     fn the_stages_own_songs() -> Option<(Vec<u8>, Vec<u8>)> {
-        let table = mem::read_committed::<usize>(G_MUSIC_TABLE).filter(|it| *it != 0)?;
+        // The pointer is a static of the game's own and is read outright — [`Th07::lasers`] again, and this is
+        // the other half of what a fight's own song costs per frame.
+        let table = unsafe { mem::read::<usize>(G_MUSIC_TABLE) };
+        let table = (table != 0).then_some(table)?;
         Some((
             name_at(table + STAGE_SONG_NAME, SONG_NAME_BYTES)?,
             name_at(table + FIGHT_SONG_NAME, SONG_NAME_BYTES)?,
@@ -2059,7 +2083,7 @@ impl Game for Th07 {
         /// A streaming buffer holds a fraction of a second of audio; anything near this is not a buffer size.
         const MAX_BUFFER_SIZE: u32 = 8 << 20;
 
-        let stream = mem::read_committed::<usize>(G_SOUND_PLAYER + STREAM).filter(|it| *it != 0)?;
+        let stream = Self::the_stream()?;
         let wrapper = mem::read_committed::<usize>(stream + STREAM_BUFFER).filter(|it| *it != 0)?;
         let buffer = mem::read_committed::<usize>(wrapper)?;
         if !mem::vtable_in_image(buffer) {
@@ -2085,7 +2109,7 @@ impl Game for Th07 {
     /// numbers, and 紅魔郷's own answer for why they are mixed this way: what a chapter asks is whether the
     /// track has changed, so what this has to be is different for different tracks rather than meaningful.
     fn music_identity(&self) -> Option<u32> {
-        let stream = mem::read_committed::<usize>(G_SOUND_PLAYER + STREAM).filter(|it| *it != 0)?;
+        let stream = Self::the_stream()?;
         let source = mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)?;
         let record = mem::read_committed::<usize>(source + SOURCE_RECORD).filter(|it| *it != 0)?;
         let at = mem::read_committed::<u32>(record + RECORD_AT)?;
@@ -3457,6 +3481,43 @@ mod tests {
         loops_at: 0x40,
         bytes: 0x400,
     };
+
+    /// **A state read asks the memory map about the addresses the game allocated and about no others**,
+    /// which is what keeps it costing what reads cost: every ask is a `VirtualQuery` in a launch, and a
+    /// syscall is not what reading a word out of the exe's own `.data` is worth.
+    ///
+    /// Measured, and it is why this is here: orb's own per-frame work was **1206us a frame** on 妖々夢
+    /// against **18us** on 紅魔郷 — `perf: update=1206us/frame` — and a run picked up out of its file took
+    /// 3.2 seconds to play 2667 frames of buttons in, at 1.2ms an update, where the same thing on 紅魔郷
+    /// runs 13675 of them in 0.8s. The state read is made twice a frame and the laser count walked all
+    /// 0x40 slots through the map.
+    ///
+    /// The bound is the slots the fields behind a pointer need and nothing like the count a walk of any
+    /// of the game's own arrays would run up: what is asked about here is `G_RUN_NUMBERS`'s own object
+    /// and the dialogue the stage built, and both are the allocator's.
+    #[test]
+    fn a_state_read_asks_the_memory_map_only_about_what_the_game_allocated() {
+        let image = Image::laid_out_seeded(0);
+        let _installed = image.enter();
+
+        image.is_playing(0, 0);
+        image.has_a_runs_numbers();
+        image.a_boss_is_fighting(1500, 240);
+        image.lasers_alive(LASER_SLOTS);
+
+        let before = image.space().asked_about_an_address();
+        let read = unsafe { Th07.read_state() };
+        let asked = image.space().asked_about_an_address() - before;
+        assert_eq!(read.laser_count, LASER_SLOTS as i32);
+        assert!(
+            asked <= ASKS_A_STATE_READ_MAKES,
+            "a state read asked the memory map {asked} time(s), which is more than the \
+             {ASKS_A_STATE_READ_MAKES} the game's own allocations are behind",
+        );
+    }
+
+    /// What that bound is: the run's own numbers, and the dialogue over them.
+    const ASKS_A_STATE_READ_MAKES: u64 = 4;
 
     /// The boss, its life, how long its attack has run and the card it is on — the four a chapter's
     /// boundaries are drawn from, and the one place orb follows a pointer the game hands it.

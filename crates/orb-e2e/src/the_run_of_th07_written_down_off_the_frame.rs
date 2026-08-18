@@ -109,6 +109,17 @@ fn a_write_of_a_chapter_of_th07_that_took_longer_than_a_frame_is_said_at_the_ord
 /// waiting for it is not something anybody notices.
 const TAKES: std::time::Duration = std::time::Duration::from_millis(40);
 
+/// How many times a frame of a run being played back may ask the memory map about an address.
+///
+/// What it covers is the reads that go *through* something the game's allocator handed orb — the stream the
+/// music is held quiet through, the record that says which track that is, the stage's dialogue, the panel's own
+/// tile — several of them more than once, the state being read more than once a frame.
+///
+/// **What it refuses is a walk of one of the game's own arrays made through the map.** The laser slots are 0x40
+/// on their own, so a state read that asked about each was over this bound by itself — which is what a launch of
+/// 妖々夢 was doing, at 196 asks a frame, and what it cost is above.
+const ASKS_A_FED_FRAME_MAY_MAKE: u64 = 48;
+
 #[test]
 fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
     in_its_own_process(|| {
@@ -164,7 +175,23 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
         // orb's wrote are the bytes the frame handed over: the run is started again and picked up at that
         // chapter.
         game.gives_the_run_up();
+        let asked_before = game.sim().space().asked_about_an_address();
         game.picks_the_run_up();
+        // **And what each of those frames cost in asks of the memory map**, which is the seconds a launch waits
+        // before the run lands: every ask is a `VirtualQuery` there, a syscall apiece, and the playback makes
+        // one frame's worth of reads per frame of buttons. A 妖々夢 session waited **3.2 seconds** for 2667 of
+        // them — 1.2ms an update, against 紅魔郷 running 13675 in 0.8s — and `perf: update=1206us/frame` said
+        // whose those milliseconds were: orb's own per-frame work, 18us a frame on 紅魔郷.
+        //
+        // The count and not the time, because the time is the host's: how long a syscall takes is nothing a
+        // suite can hold anything against, and how many of them a frame makes is orb's own.
+        let asked = game.sim().space().asked_about_an_address() - asked_before;
+        let a_frame = asked / u64::from(at.max(1));
+        assert!(
+            a_frame <= ASKS_A_FED_FRAME_MAY_MAKE,
+            "each of the {at} frames played back asked the memory map {a_frame} time(s), which is more \
+             than the {ASKS_A_FED_FRAME_MAY_MAKE} the game's own allocations are behind",
+        );
         assert!(
             log.said("resume: the landing is the frame that was written down, field for field"),
             "the run did not land where the file said:\n  {}",

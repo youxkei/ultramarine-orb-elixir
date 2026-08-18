@@ -14,6 +14,7 @@
 
 use std::ops::Range;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use orb_api::Kind;
 
@@ -66,6 +67,9 @@ pub struct Space {
     regions: Mutex<Vec<Region>>,
     /// The bases a commit over is refused — see [`refuses_to_commit`](Space::refuses_to_commit).
     refused: Mutex<Vec<usize>>,
+    /// How many times the map itself has been asked about an address — see
+    /// [`asked_about_an_address`](Space::asked_about_an_address).
+    asked: AtomicU64,
 }
 
 impl Default for Space {
@@ -79,7 +83,21 @@ impl Space {
         Self {
             regions: Mutex::new(Vec::new()),
             refused: Mutex::new(Vec::new()),
+            asked: AtomicU64::new(0),
         }
+    }
+
+    /// How many reads have gone through the map rather than straight at the bytes, which in a launch
+    /// is a `VirtualQuery` apiece — a syscall, and the one thing about a read that does not cost what
+    /// reading a word costs.
+    ///
+    /// **Here because a test cannot see the cost and can see the count.** How long a syscall takes is
+    /// the host's business and not something a suite could hold anything against; how many of them a
+    /// frame's worth of reads makes is orb's own, and it is what a walk of the game's own statics
+    /// through the map runs up. See `th07`'s own state read, where 64 laser slots asked the map about
+    /// addresses that are in the exe's `.data` and can never be anywhere else.
+    pub fn asked_about_an_address(&self) -> u64 {
+        self.asked.load(Ordering::Relaxed)
     }
 
     /// Says that a commit reaching `base` is one this host will not make: `VirtualAlloc` coming back null,
@@ -218,6 +236,7 @@ impl Space {
     /// Alignment is not asked about here. It is a property of the type being read and not of the
     /// address space, so it is refused on the near side of the seam, in `orb_api::mem`.
     pub fn read_committed_bytes(&self, address: usize, len: usize) -> Option<Vec<u8>> {
+        self.asked.fetch_add(1, Ordering::Relaxed);
         let regions = self.regions.lock().unwrap();
         let region = regions.iter().find(|region| region.holds(address, len))?;
         if region.access != Access::Open {
