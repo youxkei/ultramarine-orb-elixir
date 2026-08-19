@@ -121,6 +121,11 @@ pub struct Chapters {
     /// raised, since the track it is read from changes later than the boss arrives and may
     /// be gone again by the frame the boss is beaten.
     fighting: Option<Fight>,
+    /// Whether the fight this stage ends with has been won, which is the stage being over with
+    /// every chapter of it still there to go back into. What a judging pass is walled by — see
+    /// `step` — and the only thing that says so on a game whose transition spends no frame
+    /// outside the scene a run is played in.
+    won: bool,
 }
 
 /// Which of a stage's two kinds of fight is on.
@@ -449,7 +454,17 @@ impl Chapters {
             stage_music: None,
             starts: Vec::new(),
             fighting: None,
+            won: false,
         }
+    }
+
+    /// Whether the fight this stage ends with has been won, which is this stage being over.
+    ///
+    /// **Read a frame later than it is set**, which is what puts a defeat under a dialogue after that
+    /// dialogue: [`Chapters::observe`] keeps what a guarded frame turned away and acts on it once the
+    /// guard lifts, so this answers on the first frame that could have carried a chapter.
+    pub fn stage_won(&self) -> bool {
+        self.won
     }
 
     pub fn number(&self) -> u32 {
@@ -931,6 +946,7 @@ impl Chapters {
         // retry. It carved two chapters a second long out of the teardown as well.
         let beaten = !current.boss_present && self.seen.boss_present;
         let midboss_beaten = beaten && self.fighting == Some(Fight::Midboss);
+        self.won |= beaten && self.fighting == Some(Fight::Stage);
         if !current.boss_present {
             self.fighting = None;
         }
@@ -1068,6 +1084,8 @@ impl Chapters {
             cause: Cause::StageStart,
         };
         self.stage_music = game.music_identity();
+        // The fight this stage ends with is ahead of it, whatever the stage before it ended in.
+        self.won = false;
         // `tracking` let this frame through, so the run is either one somebody is playing or a
         // replay a pass is reading, and `in_game` is which. Kept for the whole run rather than
         // asked of each frame: what it answers is whether the panel says the lives are disabled,
@@ -1335,6 +1353,7 @@ impl Chapters {
         self.snapshots.forget();
         self.settling_until = None;
         self.somebody_playing = false;
+        self.won = false;
         self.mark = Mark {
             number: 0,
             started_at: 0,

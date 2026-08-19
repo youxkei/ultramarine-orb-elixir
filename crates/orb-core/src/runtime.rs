@@ -260,6 +260,11 @@ pub struct Runtime {
     /// the hold says the stage is over and going on loses the way back into it, and
     /// after that the choice has been made.
     walled: bool,
+    /// Whether this run has been in a stage at all, which is what tells a stage that has
+    /// ended from one that has not begun. 妖々夢 reads as a run before its first is built —
+    /// its supervisor's scene lags that build by the rest of an update — and a wall there is
+    /// one nothing lifts, the update it stops being the update that would build the stage.
+    played: bool,
     /// Whether the ending skip has reached the staff roll, which is where it stops and
     /// leaves the game to play the roll a frame at a time.
     rolling: bool,
@@ -834,6 +839,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             asking: None,
             held: false,
             walled: false,
+            played: false,
             rolling: false,
             given_up: false,
             asking_resume: None,
@@ -2478,8 +2484,12 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
     if !watching {
         runtime.held = false;
         runtime.walled = false;
+        // The run being over is what puts this back, and not a pause or a menu: what it answers is
+        // whether *this* run has been in a stage, which a run stopped inside one has.
+        runtime.played &= state.in_run;
         return Step::Carry;
     }
+    runtime.played |= state.playing;
     let next = runtime.keyboard.pressed(keys::NEXT.0);
     let previous = runtime.keyboard.pressed(keys::PREVIOUS.0);
     let hold = runtime.keyboard.pressed(keys::HOLD.0);
@@ -2500,7 +2510,20 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
     // what loses the stage, so neither the hold key nor a step forward moves — while a
     // step back still goes where it always goes. Nothing has been torn down yet: the
     // hold is what stops the update that would do it.
-    let ended = !state.playing;
+    //
+    // **A stage this run has not been in is not one it has left**, which is the other way a
+    // run reads as playing nothing: 妖々夢's is a run from the frame its front end asked for
+    // one, and a wall on the way *in* is the same trap `leave` avoids on the way across — the
+    // update it stops is the one that would build the stage it is waiting for.
+    //
+    // **And the fight a stage ends with being won is that stage's end as well**, which is the
+    // only one of the two 妖々夢 ever gives: its supervisor does a whole transition inside one
+    // update, so no frame of one is a frame outside the scene a run is played in and the wall
+    // above has nothing to fire on — a pass over a replay of it played six stages through
+    // without stopping. This one is inside the stage, where every chapter of it is still a
+    // snapshot to go back into; once the next stage has loaded, what a snapshot of this one
+    // names has been released and the way back is the game's to load.
+    let ended = runtime.played && (!state.playing || runtime.chapters.stage_won());
     if ended {
         runtime.held = true;
         if !runtime.walled {

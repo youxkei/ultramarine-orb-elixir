@@ -15,7 +15,7 @@
 //! same.
 
 use crate::fake::th07::Fake;
-use crate::fake::{Display, Launched, Work, in_its_own_process};
+use crate::fake::{Display, Launched, UPDATE, Work, in_its_own_process};
 use orb_config::LogLevel;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
@@ -48,21 +48,30 @@ fn steps(game: &Fake, key: u8) -> u32 {
     game.state().stage_frames
 }
 
+/// The launch a judging pass is: the stepping keys on over a replay, and nobody there to answer a retry menu.
+///
+/// Shared with the e2e test at the foot of this file, because the frame a replay is *asked for* is a frame of
+/// the same pass: the two differ in what the game has built by then and not in how orb was launched.
+fn judging(name: &str) -> Box<Fake> {
+    let game = Fake::attach_configured(
+        Display::agreed(120),
+        name,
+        Work::wandering(WORK_US),
+        |config| {
+            config.chapter_stepping = true;
+            config.during_replay = true;
+            config.log_level = LogLevel::Verbose;
+        },
+    );
+    game.streams_its_song(0);
+    game
+}
+
 #[test]
 fn a_step_inside_a_stage_of_th07_lands_on_the_chapter_start_either_side_of_where_the_game_is() {
     in_its_own_process(|| {
-        let game = Fake::attach_configured(
-            Display::agreed(120),
-            "th07-stepping-inside",
-            Work::wandering(WORK_US),
-            |config| {
-                config.chapter_stepping = true;
-                config.during_replay = true;
-                config.log_level = LogLevel::Verbose;
-            },
-        );
+        let game = judging("th07-stepping-inside");
         let log = game.log();
-        game.streams_its_song(0);
         game.watches_a_replay();
         game.frames_until("the stage's own first chapter", 600, || {
             log.said("stage 1 chapter 1 (stage start)")
@@ -132,5 +141,130 @@ fn a_step_inside_a_stage_of_th07_lands_on_the_chapter_start_either_side_of_where
         assert_eq!(steps(&game, NEXT), the_midboss, "one press forward");
         assert_eq!(steps(&game, NEXT), the_card, "two presses forward");
         assert_eq!(steps(&game, NEXT), after_the_card, "three presses forward");
+    });
+}
+
+/// The frames the pass is given between the ask and the build, over which a hold would still be a hold.
+const BEFORE_THE_BUILD: u32 = 2;
+
+/// **The frame a replay was asked for and nothing of it built is not a stage that has ended.**
+///
+/// The end of a stage holds the pass and keeps it held, that being the one place carrying on loses the stage
+/// — and what says a stage ended is the run being in no gameplay scene. 妖々夢 reads as exactly that before
+/// its first stage: `Th07::read_state` counts a run's *build* as being in the run, the supervisor's scene
+/// lagging that build by the rest of an update, so the frame its front end answered a stage select on is a
+/// run with nothing playing in it yet and no stage anywhere.
+///
+/// **And a hold there is one nothing lifts**: the update the hold stops is the update that would build the
+/// stage, so the pass waits for a stage the game cannot reach. Measured on 妖々夢 — `--judge` over a replay,
+/// stage 1 chosen, `step: stage 0 has ended` in the log with stage 0 being no stage at all, the game frozen
+/// on the stage select and closed by hand.
+#[test]
+fn the_frame_a_replay_of_th07_was_asked_for_is_not_a_stage_that_has_ended() {
+    in_its_own_process(|| {
+        let game = judging("th07-a-replay-asked-for");
+        let log = game.log();
+
+        // What the front end's own update leaves behind on that frame: a replay being watched, the run's block
+        // allocated with none of its numbers written into it yet, and the scene still the front end's with a run
+        // the one asked for.
+        game.image().is_watching_a_replay();
+        game.image().has_a_runs_numbers();
+        game.image().a_run_has_been_chosen();
+
+        game.forget_asked();
+        game.frames(BEFORE_THE_BUILD);
+        assert!(
+            !log.said("has ended"),
+            "the frame a replay was asked for was taken for the end of a stage:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            game.asked().contains(&UPDATE),
+            "the game was given no update while a replay was being asked for, which is the update that would \
+             build the stage: {:?}",
+            game.asked(),
+        );
+
+        // And the build that update makes, which is where a stage comes from here: the pass goes on into the
+        // stage and takes its first chapter, rather than waiting outside for one it stopped from being built.
+        game.builds_a_stage();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+    });
+}
+
+/// The wall's own line, which says which stage it is about and how to leave it.
+const WALL: &str = "step: stage 1 has ended; the across key with next or back leaves it";
+
+/// The frames a signal is given to reach the wall: the update it is read on, and the frame whose stepping is
+/// decided on what that update left.
+const TO_THE_WALL: u32 = 2;
+
+/// **The fight a stage ends with being won is the end of that stage, and the pass is held inside it.**
+///
+/// 妖々夢 spends no frame outside the gameplay scene at a stage's end — its supervisor does the whole
+/// transition inside one update, which is what
+/// [`Image::the_next_stage_is_being_asked_for`](orb_core::game::th07::Image::the_next_stage_is_being_asked_for)
+/// was read out of the exe for — so the run being in no gameplay scene, which is the end of a stage on 紅魔郷,
+/// never comes round here at all: a `--judge` pass over a Lunatic replay played all six stages through without
+/// stopping once.
+///
+/// What it stops on instead is the stage's own fight being won, and that is **inside** the stage, which is the
+/// whole point of a wall: every chapter of the stage is still a snapshot orb holds, so a step back goes into the
+/// fight. Once the next stage has loaded nothing of the one before it can be gone back into — what a snapshot of
+/// it names was released by that load — and the only way back is asking the game to play the stage again.
+///
+/// **Which frame that is, the game decides.** A defeat under a dialogue is acted on when the dialogue lifts,
+/// `Chapters::observe` holding what the guard turned away, so a boss beaten mid-conversation walls after it. Each
+/// of 妖々夢's stages runs on for 281 to 496 frames after its boss goes down, and what is in them was not
+/// measured: nothing here has to know, and nothing here says.
+#[test]
+fn the_fight_a_stage_of_th07_ends_with_being_won_holds_the_pass_inside_the_stage() {
+    in_its_own_process(|| {
+        let game = judging("th07-the-fight-won");
+        let log = game.log();
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        // The fight the stage ends with, which is the boss arriving under the boss's own song — the music being
+        // what tells that fight from a midboss — and the chapter its first attack begins.
+        game.frames(APART);
+        game.the_stages_own_boss_arrives();
+        game.frames_until("the boss's chapter", APART, || log.said("chapter 2"));
+        let the_boss = game.state().stage_frames;
+        game.frames(APART);
+
+        // And the fight won, which is the manager's slot emptied. No chapter begins at a defeat — a chapter whose
+        // first act is that the fight is already won has nothing to retry — so the wall is the whole of what this
+        // frame does.
+        let from = log.written();
+        game.the_boss_is_beaten();
+        game.frames(TO_THE_WALL);
+        assert!(
+            log.said_since(from, WALL),
+            "the fight being won did not hold the pass:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // Held there and kept held: the hold key is a toggle everywhere else in the stage and moves nothing here.
+        let at_the_wall = game.state();
+        game.press(HOLD);
+        game.frames(30);
+        assert_eq!(
+            game.state(),
+            at_the_wall,
+            "the pass was let past the end of the stage",
+        );
+
+        // And a step back goes into the fight, which is what a wall inside the stage is for.
+        assert_eq!(
+            steps(&game, BACK),
+            the_boss,
+            "a step back at the wall did not go into the fight the stage ended with",
+        );
     });
 }
