@@ -255,6 +255,28 @@ pub trait Win: Send + Sync + 'static {
     /// And that it is not any more.
     fn count_private_region_again(&self, base: usize);
 
+    /// Which allocation the pages at `address` belong to, and nothing where they belong to none: the
+    /// reservation they were handed out in, which is what says whether the pages a snapshot saved are
+    /// still the ones it saved.
+    fn allocation_at(&self, address: usize) -> Option<usize>;
+
+    /// Says a snapshot orb is holding would put `base..base + len` back, so that the address space is
+    /// kept for it — see [`hold_what_a_restore_needs`](Win::hold_what_a_restore_needs). One call per
+    /// snapshot naming a range, and [`a_restore_is_done_with`](Win::a_restore_is_done_with) as each
+    /// goes.
+    fn a_restore_needs(&self, base: usize, len: usize);
+
+    /// And that one of the snapshots naming it has gone.
+    fn a_restore_is_done_with(&self, base: usize, len: usize);
+
+    /// Keeps the address space `address` is in where it has come free and a snapshot would put it back,
+    /// answering the range kept.
+    ///
+    /// A block of a few megabytes is a reservation of its own inside the game's heap, so the game
+    /// freeing one hands that address space back to the OS — through the heap manager's own free, which
+    /// no hook on the exe's imports sees. Whoever is given it next is who a restore would write over.
+    fn hold_what_a_restore_needs(&self, address: usize) -> Option<(usize, usize)>;
+
     /// Every committed, private, readable region in the process, as `(base, len)`, less the ones
     /// [`keep_out_of_private_regions`](Win::keep_out_of_private_regions) named.
     ///

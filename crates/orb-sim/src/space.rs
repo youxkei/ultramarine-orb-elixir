@@ -36,6 +36,13 @@ struct Region {
     bytes: Vec<u8>,
     kind: Kind,
     access: Access,
+    /// Which allocation this is, counted up as regions are laid out.
+    ///
+    /// **A number of this space's own and not the base**, because what a real host answers for pages
+    /// handed out twice at one address is the same base both times: an allocation is told from the one
+    /// before it at the same addresses only by having been made, and a snapshot holding the first has to
+    /// be able to see that it is looking at the second.
+    allocation: usize,
 }
 
 impl Region {
@@ -70,6 +77,8 @@ pub struct Space {
     /// How many times the map itself has been asked about an address — see
     /// [`asked_about_an_address`](Space::asked_about_an_address).
     asked: AtomicU64,
+    /// How many regions have been laid out, which is where each one's [`Region::allocation`] comes from.
+    allocations: AtomicU64,
 }
 
 impl Default for Space {
@@ -84,6 +93,7 @@ impl Space {
             regions: Mutex::new(Vec::new()),
             refused: Mutex::new(Vec::new()),
             asked: AtomicU64::new(0),
+            allocations: AtomicU64::new(0),
         }
     }
 
@@ -159,12 +169,23 @@ impl Space {
             "{base:#010x}..{:#010x} overlaps a region already laid out",
             base + len
         );
+        let allocation = (self.allocations.fetch_add(1, Ordering::Relaxed) + 1) as usize;
         regions.push(Region {
             base,
             bytes: vec![0; len],
             kind,
             access,
+            allocation,
         });
+    }
+
+    /// Which allocation the pages at `address` belong to, and nothing where none of them does.
+    pub fn allocation_at(&self, address: usize) -> Option<usize> {
+        let regions = self.regions.lock().unwrap();
+        regions
+            .iter()
+            .find(|region| region.holds(address, 1))
+            .map(|region| region.allocation)
     }
 
     /// Drops a region, for the frees a test needs to be seen: a region that has gone away
@@ -303,6 +324,7 @@ impl Space {
                         bytes: vec![0; next - at],
                         kind: Kind::Private,
                         access: Access::Open,
+                        allocation: (self.allocations.fetch_add(1, Ordering::Relaxed) + 1) as usize,
                     });
                     at = next;
                 }

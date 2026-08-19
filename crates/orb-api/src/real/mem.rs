@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Memory::{
-    GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_IMAGE, MEM_PRIVATE,
+    GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_PRIVATE,
     MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
     PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY,
     PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY, VirtualAlloc, VirtualProtect, VirtualQuery,
@@ -17,6 +17,12 @@ use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 /// copies of the game's memory, and a walk that counted them would report orb's own copies as memory
 /// something changed behind a snapshot's back.
 static OURS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
+
+/// The ranges the snapshots orb is still holding would put back, one entry per snapshot that names
+/// one. What they are for is [`hold_what_a_restore_needs`]: a large block the game hands back to the
+/// OS takes the *address space* a chapter needs with it, and whoever is given it next is who a restore
+/// would write over.
+static NEEDED: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 
 /// The heap handles and the direct reservations orb's import hooks have noticed the game take, which is
 /// what [`game_regions`] walks. Any game thread can allocate, so this needs a lock.
@@ -247,6 +253,55 @@ pub fn forget_reservation(base: usize) {
         return;
     };
     tracked.reservations.retain(|(at, _)| *at != base);
+}
+
+pub fn allocation_at(address: usize) -> Option<usize> {
+    let info = query(address)?;
+    (info.State != MEM_FREE).then_some(info.AllocationBase as usize)
+}
+
+pub fn a_restore_needs(base: usize, len: usize) {
+    if let Ok(mut needed) = NEEDED.lock() {
+        needed.push((base, len));
+    }
+}
+
+pub fn a_restore_is_done_with(base: usize, len: usize) {
+    if let Ok(mut needed) = NEEDED.lock()
+        && let Some(at) = needed.iter().position(|entry| *entry == (base, len))
+    {
+        // One entry and not every match: snapshots name the same ranges as each other, and what says a
+        // range still matters is that one of them is still there.
+        needed.remove(at);
+    }
+}
+
+pub fn hold_what_a_restore_needs(address: usize) -> Option<(usize, usize)> {
+    let needed = NEEDED.lock().ok()?;
+    if !needed
+        .iter()
+        .any(|(base, len)| address >= *base && address < base + len)
+    {
+        return None;
+    }
+    drop(needed);
+    let info = query(address)?;
+    if info.State != MEM_FREE {
+        return None;
+    }
+    // The whole free span, and not the part a snapshot named: a reservation is granted in units of the
+    // allocation granularity, so asking for less than what is free is asking for a base Windows would
+    // have to round outside it.
+    let base = info.BaseAddress as usize;
+    let reserved = unsafe {
+        VirtualAlloc(
+            base as *const c_void,
+            info.RegionSize,
+            MEM_RESERVE,
+            PAGE_NOACCESS,
+        )
+    };
+    (!reserved.is_null()).then_some((reserved as usize, info.RegionSize))
 }
 
 /// The data range, then the heaps and the reservations the import hooks noticed, as committed readable

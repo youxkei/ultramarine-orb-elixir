@@ -108,6 +108,8 @@ mod th07;
 #[cfg(test)]
 mod th07s_window_going_behind;
 #[cfg(test)]
+mod the_address_space_a_chapter_of_th07_needs;
+#[cfg(test)]
 mod the_card_name_across_a_restore;
 #[cfg(test)]
 mod the_card_name_across_a_restore_of_th07;

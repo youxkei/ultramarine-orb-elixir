@@ -107,7 +107,25 @@ unsafe extern "system" fn heap_free(
 ) -> BOOL {
     let original: HeapFree = unsafe { std::mem::transmute(HEAP_FREE.load(Ordering::Relaxed)) };
     orb_api::mem::note_heap(heap as usize);
-    unsafe { original(heap, flags, memory) }
+    let freed = unsafe { original(heap, flags, memory) };
+    if freed != 0 {
+        keep_the_space(memory as usize);
+    }
+    freed
+}
+
+/// The address space of a block the game has just handed back, where a chapter would put it back.
+///
+/// **After the free and not before it**, which is the whole of what this catches: a block of a few
+/// megabytes is a reservation of its own inside the heap, so freeing it is the heap manager's own
+/// `VirtualFree` — inside `ntdll`, where no hook on the exe's imports reaches — and what says it happened
+/// is the space being free afterwards. Whoever is given it next is who a restore would write over.
+fn keep_the_space(address: usize) {
+    if let Some((base, len)) = orb_api::mem::hold_what_a_restore_needs(address) {
+        crate::log::line(&format!(
+            "memory: kept {base:#010x}+{len:#x}, which a chapter of this stage would put back"
+        ));
+    }
 }
 
 unsafe extern "system" fn virtual_alloc(
@@ -135,6 +153,7 @@ unsafe extern "system" fn virtual_free(
     let freed = unsafe { original(address, size, free_type) };
     if freed != 0 && free_type & MEM_RELEASE != 0 {
         orb_api::mem::forget_reservation(address as usize);
+        keep_the_space(address as usize);
     }
     freed
 }

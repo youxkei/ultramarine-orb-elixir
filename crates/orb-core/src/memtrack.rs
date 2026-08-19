@@ -17,7 +17,7 @@
 
 use std::ops::Range;
 
-use crate::profile;
+use crate::{detail, profile};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Region {
@@ -46,10 +46,20 @@ impl Region {
 /// `data` must be the exe's `.data` range.
 pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
     let started = profile::now();
-    let regions = orb_api::mem::game_regions(&data)
+    let regions: Vec<Region> = orb_api::mem::game_regions(&data)
         .into_iter()
         .map(|(base, len)| Region { base, len })
         .collect();
     unsafe { profile::record(profile::Phase::Regions, started) };
+    // Which pages a chapter is a copy of, said in full: what a restore writes over is exactly this, so a
+    // range in it that turns out not to be the game's is read off here and nowhere else.
+    detail!(
+        "memory: saving {}",
+        regions
+            .iter()
+            .map(|region| format!("{:#010x}+{:#x}", region.base, region.len))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
     regions
 }

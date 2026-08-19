@@ -133,6 +133,12 @@ pub struct Sim {
     /// ever excluded from anything here, `private_regions` answering with none; what the list is for
     /// is an e2e test asking whether the copies a chapter took were given back with it.
     ours: Mutex<HashMap<usize, usize>>,
+    /// What orb has said a snapshot it is holding would put back, one entry per snapshot naming a
+    /// range. Nothing is kept for it here; what the list is for is a test asking which ranges orb holds
+    /// the address space of, and for how long.
+    needed: Mutex<Vec<(usize, usize)>>,
+    /// The addresses orb has asked to have the address space of kept, in the order it asked.
+    asked_to_hold: Mutex<Vec<usize>>,
     /// The threads the game has said it created. Nothing is ever stopped; what the list is for is an
     /// e2e test asking whether orb noticed one.
     threads: Mutex<Vec<u32>>,
@@ -191,6 +197,8 @@ impl Sim {
             log: Log::new(),
             files: Files::default(),
             ours: Mutex::new(HashMap::new()),
+            needed: Mutex::new(Vec::new()),
+            asked_to_hold: Mutex::new(Vec::new()),
             threads: Mutex::new(Vec::new()),
             noticed: Mutex::new(Noticed::default()),
             below_normal: Mutex::new(Vec::new()),
@@ -351,6 +359,18 @@ impl Sim {
         *self.host_exe.lock().unwrap() = path.into();
     }
 
+    /// What orb has said a snapshot it is holding would put back, as `(base, len)` per snapshot naming
+    /// one: the ranges whose address space a restore of that snapshot needs to still be there.
+    pub fn what_a_restore_needs(&self) -> Vec<(usize, usize)> {
+        self.needed.lock().unwrap().clone()
+    }
+
+    /// The addresses orb has asked to have the address space of kept, which on a real host is a
+    /// reservation over pages the game has just handed back.
+    pub fn asked_to_hold(&self) -> Vec<usize> {
+        self.asked_to_hold.lock().unwrap().clone()
+    }
+
     /// Which language this machine shows its own windows in — [`langid`] holds the two worth
     /// declaring — for a test whose settings leave the language to the machine.
     pub fn set_ui_language(&self, langid: u16) {
@@ -452,6 +472,29 @@ impl Win for Sim {
 
     fn count_private_region_again(&self, base: usize) {
         self.ours.lock().unwrap().remove(&base);
+    }
+
+    fn allocation_at(&self, address: usize) -> Option<usize> {
+        self.space.allocation_at(address)
+    }
+
+    fn a_restore_needs(&self, base: usize, len: usize) {
+        self.needed.lock().unwrap().push((base, len));
+    }
+
+    fn a_restore_is_done_with(&self, base: usize, len: usize) {
+        let mut needed = self.needed.lock().unwrap();
+        if let Some(at) = needed.iter().position(|entry| *entry == (base, len)) {
+            needed.remove(at);
+        }
+    }
+
+    /// Nothing kept, and the ask written down: what a hold is is address space, which a laid-out game's
+    /// memory is not — [`Space`] hands out what a test put there. What a test can ask is that orb asked,
+    /// which is [`Sim::asked_to_hold`].
+    fn hold_what_a_restore_needs(&self, address: usize) -> Option<(usize, usize)> {
+        self.asked_to_hold.lock().unwrap().push(address);
+        None
     }
 
     /// Nothing. The walk this answers is `self_check`'s hunt for memory a snapshot did not cover, and

@@ -25,8 +25,8 @@
 use std::ops::Range;
 
 use crate::audio;
-use crate::log;
 use crate::memtrack::Region;
+use crate::{detail, log};
 use orb_api::{mem, thread};
 
 /// How a snapshot treats the game's sound.
@@ -53,6 +53,10 @@ pub enum Music {
 /// How many times to retry a capture the streaming thread interrupted. It tops
 /// the buffer up a few times a second, so one retry is almost always enough.
 const AUDIO_ATTEMPTS: u32 = 4;
+
+/// What memory is handed out and taken back in, which is the step a walk of a saved range asks the host
+/// about: a page is the smallest thing that can have changed hands.
+const PAGE: usize = 0x1000;
 
 /// What a restore has left for the frame's own sound to finish: the song put where the chapter had it, or the
 /// track it had to ask for taken back down again.
@@ -171,6 +175,9 @@ pub struct Snapshot {
 struct Saved {
     region: Region,
     data: Buffer,
+    /// Which allocation the bytes came out of, as the host answered when they were saved. What a
+    /// restore holds it against is the answer for the same address then — see `Snapshot::restore`.
+    allocation: Option<usize>,
 }
 
 struct Fingerprint {
@@ -200,6 +207,12 @@ impl Buffer {
     fn new(len: usize) -> Option<Self> {
         let bytes = vec![0u8; len];
         mem::keep_out_of_private_regions(bytes.as_ptr() as usize, len);
+        // Where orb's own copies are, for holding against what a chapter saves: a buffer inside a range a
+        // restore writes is orb's own memory being put back to what the game had there.
+        detail!(
+            "memory: a buffer of orb's own at {:#010x}+{len:#x}",
+            bytes.as_ptr() as usize,
+        );
         Some(Self { bytes })
     }
 
@@ -215,6 +228,16 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         mem::count_private_region_again(self.bytes.as_ptr() as usize);
+    }
+}
+
+impl Drop for Snapshot {
+    /// The address space this would have put back is nobody's to keep once there is no putting it back.
+    /// A stage beginning drops every chapter of the one before it, and a run ending drops them all.
+    fn drop(&mut self) {
+        for entry in &self.saved {
+            mem::a_restore_is_done_with(entry.region.base, entry.region.len);
+        }
     }
 }
 
@@ -305,6 +328,12 @@ impl Snapshot {
                 .zip(regions)
                 .all(|(saved, region)| saved.region == *region);
         if !reusable {
+            // What the set it held named is given up and what the new one names is said instead: the
+            // address space a restore of this snapshot needs is the ranges it holds *now*, and the host
+            // keeps that space the moment the game hands it back — see `mem::hold_what_a_restore_needs`.
+            for entry in &self.saved {
+                mem::a_restore_is_done_with(entry.region.base, entry.region.len);
+            }
             // Allocated before suspending: VirtualAlloc can block on a lock a
             // suspended thread would then never release.
             self.saved = regions
@@ -313,9 +342,13 @@ impl Snapshot {
                     Some(Saved {
                         region,
                         data: Buffer::new(region.len)?,
+                        allocation: mem::allocation_at(region.base),
                     })
                 })
                 .collect();
+            for entry in &self.saved {
+                mem::a_restore_needs(entry.region.base, entry.region.len);
+            }
         }
         // The sound buffer has to be captured with no thread suspended, because
         // locking it waits on the streaming thread — but that thread also moves
@@ -421,12 +454,70 @@ impl Snapshot {
         // deliberately, because a fault in the copy is a fault and a lock a stopped thread will
         // never give back is a hang with the game's threads frozen.
         let mut writable = Vec::with_capacity(self.saved.len());
+        let mut taken = Vec::new();
         for entry in &self.saved {
+            // **Whose the pages are, asked before anything is committed.** Free is the game's to have
+            // back — that is what the commit below is for, and a range whose whole reservation went with
+            // the block is free — but pages that are *another allocation* than the one these bytes came
+            // out of belong to whoever was given them, and the game's old bytes over them is a restore
+            // corrupting somebody. Which somebody is not asked: enumerating them is what this replaced,
+            // and two crashes of 妖々夢 were two different answers to it.
+            let now = mem::allocation_at(entry.region.base);
+            // **Every page of it and not only the first**, which is what a range of this list can hide: a
+            // heap region's committed runs and the reservations beside them are merged where they abut, so
+            // one entry here can cover more than one allocation and the far end of it can have changed
+            // hands while the base has not.
+            let mut runs: Vec<(usize, usize, Option<usize>)> = Vec::new();
+            let mut at = entry.region.base;
+            while at < entry.region.end() {
+                let allocation = mem::allocation_at(at);
+                match runs.last_mut() {
+                    Some(run) if run.2 == allocation => run.1 += PAGE,
+                    _ => runs.push((at, PAGE, allocation)),
+                }
+                at += PAGE;
+            }
+            let strange: Vec<&(usize, usize, Option<usize>)> = runs
+                .iter()
+                .filter(|run| run.2.is_some() && run.2 != entry.allocation)
+                .collect();
+            detail!(
+                "memory: {:#010x}+{:#x} came out of {:?}, is in {:?}, {} run(s){}",
+                entry.region.base,
+                entry.region.len,
+                entry.allocation,
+                now,
+                runs.len(),
+                strange
+                    .iter()
+                    .take(8)
+                    .map(|run| format!(" — {:#010x}+{:#x} in {:?}", run.0, run.1, run.2))
+                    .collect::<String>(),
+            );
+            if let Some(allocation) = now
+                && Some(allocation) != entry.allocation
+            {
+                taken.push(entry.region);
+                continue;
+            }
             if unsafe { mem::commit(entry.region.base, entry.region.len) } {
                 writable.push(entry);
             } else {
                 failed.push(entry.region);
             }
+        }
+        if !taken.is_empty() {
+            let covered: usize = taken.iter().map(|region| region.len).sum();
+            log!(
+                "restore: {} range(s) of this chapter are another allocation now, {covered} bytes; \
+                 leaving them: {}",
+                taken.len(),
+                taken
+                    .iter()
+                    .map(|region| format!("{:#010x}+{:#x}", region.base, region.len))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
         }
         // Sorted here rather than while writing: the write loop runs with threads
         // suspended and must not allocate or do anything it can avoid.
@@ -789,6 +880,48 @@ mod tests {
                 .iter()
                 .all(|byte| *byte == 0xa1)
         );
+    }
+
+    /// Pages that are **another allocation** than the one they were saved from, which a restore must
+    /// leave alone: the game handing a block back to the OS puts that address space up for anybody, and
+    /// what a restore would write the game's old bytes over is then whatever was given it next.
+    ///
+    /// **A 妖々夢 session is why this is here, and it crashed three times.** A step back at a stage's
+    /// end faulted inside the *next* snapshot's own copy — `code 0xc0000005 ... reading 0x00000018`, the
+    /// stack naming `chapter::take` under `Chapters::begin_chapter`, and the faulting instruction the
+    /// memcpy loop over `saved` whose slice pointer read as 8 with a count that did not: orb's own buffer
+    /// had been given those pages and then written over. Skipping the ranges orb had *named* left the
+    /// heap's own bookkeeping and everything nobody named, and the step back after that faulted inside
+    /// `ntdll`'s own heap. Skipping what the process heap said it held left the headers those blocks are
+    /// handed out with, and the step after *that* faulted in the heap again.
+    ///
+    /// Which is why this asks the one question that does not enumerate anybody: **is this the allocation
+    /// the bytes came out of?** `mem::allocation_at` is the host's own answer, and a restore writes
+    /// nothing it says no to.
+    #[test]
+    fn a_region_that_is_another_allocation_now_is_left_where_the_restore_finds_it() {
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
+        space.fill_bytes(DATA, 0xa1, LEN);
+        space.fill_bytes(HEAP, 0xb2, LEN);
+
+        let snapshot = unsafe { Snapshot::capture(&regions(), silent(), &[], false) };
+
+        // The game hands the block back and somebody else is given the same addresses: an allocation of
+        // its own, holding its own bytes, which the chapter knows nothing about.
+        space.unmap(HEAP);
+        space.map(HEAP, LEN, Kind::Private);
+        space.fill_bytes(HEAP, 0x7e, LEN);
+
+        unsafe { snapshot.restore(&Th06) };
+
+        assert!(
+            space.read_bytes(HEAP, LEN).iter().all(|byte| *byte == 0x7e),
+            "the restore wrote the chapter's bytes over an allocation that is not the one it saved",
+        );
+        // And what is still the allocation it was saved from comes back, which is the chapter.
+        assert!(space.read_bytes(DATA, LEN).iter().all(|byte| *byte == 0xa1));
     }
 
     /// A snapshot taken over the same regions again writes into the buffers it already owns: a

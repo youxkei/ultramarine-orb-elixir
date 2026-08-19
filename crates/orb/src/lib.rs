@@ -189,7 +189,18 @@ fn attach() {
 
     if config.track_memory {
         match unsafe { memtrack::install(exe) } {
-            Ok(()) => log!("memory hooks installed"),
+            Ok(()) => {
+                log!("memory hooks installed");
+                // **Whether the walk of the process heap answers at all**, which is what says whether
+                // anything orb decides off it means anything: `HeapWalk` refuses a heap with the
+                // low-fragmentation heap on, and the process heap has it on by default. A guard read off
+                // an empty answer is a guard that never fires, and `self_check`'s count of what changed
+                // in this heap is the same reading.
+                log!(
+                    "memory: the process heap walks to {} region(s)",
+                    orb_api::mem::process_heap_regions().len(),
+                );
+            }
             Err(error) => return log!("memory hooks: {error}; orb is doing nothing this run"),
         }
         match unsafe { threads::install(exe) } {

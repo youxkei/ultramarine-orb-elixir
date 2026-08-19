@@ -143,6 +143,20 @@ pub unsafe fn commit(address: usize, len: usize) -> bool {
     unsafe { host::commit(address, len) }
 }
 
+/// Which allocation the pages at `address` belong to, and nothing where they belong to none.
+///
+/// The reservation they were handed out in — `MEMORY_BASIC_INFORMATION`'s `AllocationBase` on a real
+/// host — which is what says whether the pages a snapshot saved are still the ones it saved: the game
+/// handing a block back to the OS puts that address space up for anybody, and what is there afterwards
+/// is another allocation at the same addresses.
+pub fn allocation_at(address: usize) -> Option<usize> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.allocation_at(address);
+    }
+    host::allocation_at(address)
+}
+
 /// Swaps the word at `address` for `value` and answers what was there, unprotecting the page for as long
 /// as the write takes. `None` where the page could not be made writable.
 ///
@@ -288,6 +302,48 @@ pub fn count_private_region_again(base: usize) {
     host::count_private_region_again(base);
 }
 
+/// Says a snapshot orb is holding would put `base..base + len` back, so that the *address space* is
+/// kept for it — see [`hold_what_a_restore_needs`].
+///
+/// One call per snapshot that names a range, and [`a_restore_is_done_with`] as each goes: what says a
+/// range still matters is that a snapshot naming it is still there.
+pub fn a_restore_needs(base: usize, len: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        win.a_restore_needs(base, len);
+        return;
+    }
+    host::a_restore_needs(base, len);
+}
+
+/// And that one of the snapshots naming it has gone.
+pub fn a_restore_is_done_with(base: usize, len: usize) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        win.a_restore_is_done_with(base, len);
+        return;
+    }
+    host::a_restore_is_done_with(base, len);
+}
+
+/// Keeps the address space `address` is in, where it has just come free and a snapshot orb is holding
+/// would put it back. Answers the range that was kept, and nothing where there was nothing to keep.
+///
+/// **This is what stops a chapter's pages being given to somebody else.** A block of a few megabytes
+/// is a `VirtualAlloc` of its own inside the game's heap, so the game freeing one hands that address
+/// space to the OS — and the free that does it is the heap manager's own, inside `ntdll`, which no hook
+/// on the exe's imports sees. What the next allocation of that space is has been orb's own copy of a
+/// chapter and has been the process heap, and both times the restore that wrote the game's old bytes
+/// there took the game down. Reserved rather than committed, so what it costs while nothing needs it is
+/// address space; the restore's own commit is what puts pages back in it.
+pub fn hold_what_a_restore_needs(address: usize) -> Option<(usize, usize)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.hold_what_a_restore_needs(address);
+    }
+    host::hold_what_a_restore_needs(address)
+}
+
 /// The committed regions the game owns, as `(base, len)`, with the data range first.
 ///
 /// The real host walks the heaps and the reservations the import hooks noticed — see
@@ -423,6 +479,9 @@ mod host {
     pub unsafe fn commit(_address: usize, _len: usize) -> bool {
         no_windows("mem::commit")
     }
+    pub fn allocation_at(_address: usize) -> Option<usize> {
+        no_windows("mem::allocation_at")
+    }
     pub unsafe fn replace_word(_address: usize, _value: usize) -> Option<usize> {
         no_windows("mem::replace_word")
     }
@@ -446,6 +505,15 @@ mod host {
     }
     pub fn count_private_region_again(_base: usize) {
         no_windows("mem::count_private_region_again")
+    }
+    pub fn a_restore_needs(_base: usize, _len: usize) {
+        no_windows("mem::a_restore_needs")
+    }
+    pub fn a_restore_is_done_with(_base: usize, _len: usize) {
+        no_windows("mem::a_restore_is_done_with")
+    }
+    pub fn hold_what_a_restore_needs(_address: usize) -> Option<(usize, usize)> {
+        no_windows("mem::hold_what_a_restore_needs")
     }
     pub fn private_regions() -> Vec<(usize, usize)> {
         no_windows("mem::private_regions")
