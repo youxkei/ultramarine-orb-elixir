@@ -209,7 +209,29 @@ fn a_chapter_of_th07_taken_while_the_sound_is_mid_ask_calls_nothing_on_the_buffe
         assert_eq!(
             orb_sim::Sound::calls_on_a_released_buffer(),
             0,
-            "orb called the buffer the game had taken down:\n  {}",
+            "the buffer the game had taken down was called, by orb reading the sound of a chapter \
+             taken mid-ask or by the game's own play walking a stream the copy resurrected:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // **And the song back, which is the half a count of calls cannot say.** A restore that leaves the
+        // sound in a state the game cannot work with is one whose track never starts — and every arm of the
+        // game's own play that meets a stream it does not own gives up quietly, so the track starting is what
+        // says the restore left something playable behind.
+        let started = game.image().music_started();
+        assert!(
+            started
+                .last()
+                .is_some_and(|track| track.contains("th07_02")),
+            "the chapter's own track is not the last one the game started: {started:?}\n  {}",
+            log.lines().join("\n  ")
+        );
+        // And the stream that track is playing through made over the file every track is in, which is the name
+        // that call takes: a track's name there is what the game answers -1 to.
+        assert_eq!(
+            game.image().made_a_stream_over().as_deref(),
+            Some("thbgm.dat"),
+            "the stream was not made over the game's own music file:\n  {}",
             log.lines().join("\n  ")
         );
     });

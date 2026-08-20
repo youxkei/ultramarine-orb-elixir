@@ -208,17 +208,16 @@ fn a_chapter_of_th07_taken_with_nothing_audible_comes_back_to_that_silence() {
             "the music was not taken down through the game's own call",
         );
 
-        // **And the silence waits for the game's own sound to have carried that ask out**, which is more than the
-        // one run the restore's own frame gives it: what orb has asked for is a command in the player's own
-        // queue, and stopping a buffer the play has not reached yet stops nothing. A launch of 妖々夢 heard
-        // exactly that — `the track asked for is stopped again` in the log and the song audible after it.
+        // **And the silence taken off in the restore's own frame**, the ask having been carried out there: what
+        // a restore asks for is the call that *makes* a stream — `Th07`'s `PLAY_BGM` — so the buffer being
+        // stopped is one that exists and is playing. While the ask was a queued command instead, stopping it
+        // here stopped nothing, and a launch of 妖々夢 heard exactly that: `the track asked for is stopped
+        // again` in the log and the song audible after it.
         assert!(
-            !log.said("this chapter had nothing audible"),
-            "the sound was taken off in the restore's own frame, where the ask it made is still in the queue:\
-             \n  {}",
+            log.said("this chapter had nothing audible"),
+            "the sound this chapter had none of was not taken off in the restore's own frame:\n  {}",
             log.lines().join("\n  ")
         );
-        game.frame();
 
         // And a track asked for, which is what leaves the player holding a stream at all.
         assert_eq!(
@@ -312,15 +311,11 @@ fn the_song_of_th07_is_put_back_where_the_ask_for_its_track_was_carried_out() {
              running the queue over the stream that copy has just put back",
         );
 
-        // Nothing seeked yet, the ask being a command the player has not walked to its end: a seek here is a seek
-        // of the track the chapter's own replaced, which is the launch that read `could not be put`.
-        assert!(
-            !log.said("restore: the song"),
-            "the song was seeked in the restore's own frame, where the track asked for is not playing yet:\n  {}",
-            log.lines().join("\n  ")
-        );
-        game.frame();
-
+        // **And the song put where the chapter had it in the restore's own frame**, the track being playing by
+        // then: what a restore asks for is the call that *makes* a stream — `Th07`'s `PLAY_BGM` — which is
+        // carried out where it is made and leaves nothing in the player's queue. A seek made while the ask was
+        // still a queued command was a seek of the track the chapter's own replaced, and the launch that read
+        // `could not be put` is what said so; the ask is no longer queued, so there is nothing to wait for.
         assert!(
             log.said(&format!(
                 "restore: the song picked up at {HEARD_AT} in the track's own file"

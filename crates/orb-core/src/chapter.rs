@@ -1004,7 +1004,8 @@ impl Chapters {
             let fight = self.fighting.get_or_insert(Fight::Midboss);
             let was = *fight;
             if recorded == Some(Fight::Stage)
-                || its_own_song.unwrap_or_else(|| identity != stage_music)
+                || its_own_song
+                    .unwrap_or_else(|| a_track_other_than_the_stages(identity, stage_music))
             {
                 *fight = Fight::Stage;
             }
@@ -1455,9 +1456,9 @@ impl Chapters {
     /// carries.
     fn boss_has_own_music(&self, game: &dyn Game, state: &State) -> bool {
         state.boss_present
-            && game
-                .the_fights_own_song_is_playing()
-                .unwrap_or_else(|| game.music_identity() != self.stage_music)
+            && game.the_fights_own_song_is_playing().unwrap_or_else(|| {
+                a_track_other_than_the_stages(game.music_identity(), self.stage_music)
+            })
     }
 
     fn after_restore(&mut self, mark: Mark) {
@@ -1523,6 +1524,18 @@ impl Chapters {
         };
         self.starts.clear();
     }
+}
+
+/// Whether a track is playing and is not the one the stage began under, which is how a game that cannot name
+/// its own two songs tells the fight it ends with from a midboss.
+///
+/// **Nothing playing is not another track.** The identity is read through the stream, so a player holding none
+/// answers `None` — and compared straight, that is unequal to the stage's own song and every fight comes out the
+/// stage's. A launch of 妖々夢 was left there by a restore that could not put the music back: its second stage's
+/// midboss was read as the fight the stage ends with, so beating it set the stage won and a judging pass could
+/// not step past that defeat.
+fn a_track_other_than_the_stages(playing: Option<u32>, the_stages: Option<u32>) -> bool {
+    playing.is_some_and(|playing| Some(playing) != the_stages)
 }
 
 /// Puts a checkpoint back, keeping across it the one thing a rewind must not take back.
@@ -2309,6 +2322,48 @@ mod tests {
             "BOSS SPELL 1",
             "the chapter left standing at the stage's end is not the card that was being fought",
         );
+    }
+
+    /// **No music at all says nothing about which fight is on.**
+    ///
+    /// Where the game cannot name its own two songs, which fight it is comes from the track having changed since
+    /// the stage began. A track that has *gone* is not a track that has changed: the stream is what the identity
+    /// is read through, and a stage playing nothing reads as `None` — which compares unequal to the stage's own
+    /// song and so answers every fight the stage's own.
+    ///
+    /// A launch of 妖々夢 is the measurement, by way of a restore that left the player holding no stream: from
+    /// there its second stage's *midboss* was read as the fight the stage ends with, so beating it set the stage
+    /// won and the judging pass could not step past that defeat.
+    #[test]
+    fn a_fight_with_nothing_playing_is_no_fight_of_the_stages_own() {
+        let mut stage = Stage::laid_out(Some(scratch("orb-chapter-no-music")), false);
+        // The stage's own song from before its start, so what the stage began under is a track and not nothing.
+        stage.image.plays_a_track(STAGE_TRACK);
+        stage.settle(empty);
+        for frame in 0..300 {
+            stage.frame(waves(frame));
+        }
+
+        // And the sound gone: a stream the game has taken down and not made again, which is what a restore that
+        // could not put the music back leaves.
+        stage.image.plays_no_track();
+        stage.frame(fight(320, 0, None));
+        assert_eq!(
+            named(&stage.chapters),
+            "MIDBOSS NONSPELL 1",
+            "a fight with nothing playing was read as the fight the stage ends with",
+        );
+
+        // And its defeat hands the stage back rather than winning it.
+        for frame in 321..500 {
+            stage.frame(fight(frame, (frame - 320) as i32, None));
+        }
+        stage.frame(empty(since(500)));
+        assert!(
+            !stage.chapters.stage_won(),
+            "beating that fight was taken for the stage being over",
+        );
+        assert!(matches!(stage.chapters.cause(), Cause::StageAfterMidboss));
     }
 
     /// **The chapter a fight arrived in takes the name its song gives it.**

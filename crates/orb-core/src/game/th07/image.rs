@@ -272,6 +272,14 @@ const SLOT_NAME_BYTES: usize = 0x100;
 /// And the wrapper the stream keeps its sound buffer behind, whose first word is the buffer DirectSound
 /// made — the one word orb reads rather than calls.
 const BUFFER_WRAPPER: usize = 0x033a_3000;
+/// How many buffers that wrapper is the array of, at `+0x10` of the stream: what the game's own take-down of a
+/// stream is bounded by — 0x45d860 walks `i < [stream+0x10]`, reads `[[stream+0x4] + i*4]` and calls
+/// `IDirectSoundBuffer::Stop` through it (slot 18, `+0x48` of the vtable), and the play command's first phase
+/// is that call, 0x44cc23.
+///
+/// Here rather than beside the stream's other offsets in the parent, because orb neither reads nor writes it:
+/// what it is for is a laid-out game taking a stream down the way the real one does.
+const STREAM_BUFFER_COUNT: usize = 0x10;
 /// The slot that texture is in, which is nothing but a number orb has to carry from the sprite to the array.
 const PANEL_TEXTURE_SLOT: u32 = 0x15;
 /// `front.anm`'s own 32x32 tile as a piece of its 256x256 sheet: sprite 12, at (0, 224).
@@ -1717,6 +1725,9 @@ impl Image {
         space.write::<usize>(super::G_SOUND_PLAYER + super::STREAM, STREAM);
         space.write::<usize>(STREAM + super::STREAM_BUFFER, BUFFER_WRAPPER);
         space.write::<usize>(BUFFER_WRAPPER, sound.buffer_object());
+        // And how many buffers that array is, which is what the game's own take-down of this stream walks —
+        // see `STREAM_BUFFER_COUNT`. One, this being the one buffer a laid-out sound is played through.
+        space.write::<u32>(STREAM + STREAM_BUFFER_COUNT, 1);
         space.write::<u32>(STREAM + super::STREAM_BUFFER_BYTES, sound.buffer_size());
         space.write::<u32>(STREAM + super::STREAM_CHUNK, sound.notify_size());
         space.write::<u32>(STREAM + super::STREAM_WRITE_AT, 0);
@@ -1807,8 +1818,19 @@ impl Image {
         QUEUED_PLAYS.lock().unwrap().clear();
         TRACKS_STARTED.lock().unwrap().clear();
         SOUND_COMMANDS_RUN.store(0, Ordering::Relaxed);
+        *MADE_A_STREAM_OVER.lock().unwrap() = None;
+        // The name the game's own two calls hand `PlayBGM` — see `Th07`'s `MUSIC_FILE` — laid where the game
+        // keeps it, so that what orb passes is a name and not an address nothing reads.
+        // As much room as a name is read out of, which is what makes the read answer at all: a name is read as
+        // the whole of that buffer and a shorter mapping is a read of memory that is not there.
+        let space = self.space();
+        if space.has_room(super::MUSIC_FILE, MUSIC_FILE_NAME_BYTES) {
+            space.map(super::MUSIC_FILE, MUSIC_FILE_NAME_BYTES, Kind::Private);
+        }
+        space.write_bytes(super::MUSIC_FILE, MUSIC_FILE_NAME.to_bytes_with_nul());
         super::set_stop_music(stops_the_music as *const () as usize);
         super::set_start_music(starts_the_music as *const () as usize);
+        super::set_play_bgm(plays_the_bgm as *const () as usize);
         super::set_play_sounds(runs_the_sound_commands as *const () as usize);
         || {
             (
@@ -1822,6 +1844,13 @@ impl Image {
     /// not — see [`runs_the_sound_commands`].
     pub fn runs_the_sound_commands(&self) {
         runs_the_sound_commands(super::G_SOUND_PLAYER);
+    }
+
+    /// And the game's own script asking for one of its slots, which is what fills that queue: a stage's build
+    /// asks for the stage's song and the ECL asks for the fight's — see [`asks_for_a_song`]. Nothing carries it
+    /// out until a frame's sound runs.
+    pub fn the_script_asks_for_a_song(&self, slot: u32) {
+        asks_for_a_song(slot);
     }
 
     /// And run until the play queued in it has been carried out, which is what the game's own stage build does
@@ -1843,6 +1872,12 @@ impl Image {
     /// slot.
     pub fn music_started(&self) -> Vec<String> {
         TRACKS_STARTED.lock().unwrap().clone()
+    }
+
+    /// And the file the last stream was made over, which is the name `PlayBGM` was handed — see
+    /// [`plays_the_bgm`]. Nothing where no stream has been made.
+    pub fn made_a_stream_over(&self) -> Option<String> {
+        MADE_A_STREAM_OVER.lock().unwrap().clone()
     }
 
     /// The three of the game's own that a practice-score read is made of, handed over — and a way to ask what
@@ -2032,6 +2067,14 @@ static MUSIC_STARTED: AtomicU32 = AtomicU32::new(0);
 /// restore writes over its object, and a laid-out game has no such thread for anything here to say that about.
 static QUEUED_PLAYS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 static TRACKS_STARTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// And the file a stream was last made over, which is what [`plays_the_bgm`] is given.
+static MADE_A_STREAM_OVER: Mutex<Option<String>> = Mutex::new(None);
+/// The name the game's own calls hand `PlayBGM`, which is the file every track of this game is in — see
+/// `Th07`'s `MUSIC_FILE` for where the game keeps it and which calls pass it.
+const MUSIC_FILE_NAME: &CStr = c"thbgm.dat";
+/// How much of a name that call reads, which is the room the player keeps the one it is given in — `+0x38bc`,
+/// the buffer 0x44c041 copies into.
+const MUSIC_FILE_NAME_BYTES: usize = 0x100;
 /// And how many times the queue has been run, which is the game's own sound work: once a frame, where the
 /// frame's own call is the only thing running it.
 static SOUND_COMMANDS_RUN: AtomicU32 = AtomicU32::new(0);
@@ -2050,12 +2093,20 @@ extern "thiscall" fn stops_the_music(_supervisor: usize) {
     orb_sim::Sound::taken_down();
 }
 
+/// **Asking for a song is asking for one of the player's slots**, which is what the stage's build, the script
+/// and a restore all do — and what it leaves is a command in the player's queue rather than a track playing.
+/// The stream that command needs is `PlayBGM`'s to make; see [`plays_the_bgm`].
+///
 /// **The slot is carried and not checked here**, and that is the point of the queue below: what this stood in
 /// for once was `assert_eq!(slot, Th07::MUSIC_SLOT)`, an assertion held against the constant orb passes, which
 /// no wrong slot can fail. A stand-in for a call that *resolves* something has to resolve it the way the game
 /// does, or the test over it is a test of nothing — the launch that found this heard the title screen's song
 /// where a chapter's own should have come back, with the suite green.
 extern "thiscall" fn starts_the_music(_supervisor: usize, slot: u32) {
+    asks_for_a_song(slot);
+}
+
+fn asks_for_a_song(slot: u32) {
     MUSIC_STARTED.fetch_add(1, Ordering::Relaxed);
     QUEUED_PLAYS.lock().unwrap().push(slot);
     // And the player's own queue saying so, which is what orb reads to know the ask has not been carried out
@@ -2084,6 +2135,72 @@ const RUNS_A_PLAY_TAKES: u32 = 2;
 ///
 /// A slot nothing was loaded into is a name no record carries, and that is the file's first track rather than
 /// nothing at all: the same fallback the player's own lookup takes.
+/// `CSound::Stop` over the buffers the player's stream owns, as the play command's first phase does it — see
+/// the call in [`runs_the_sound_commands`].
+///
+/// Nothing where the count is zero: a stream that owns no buffers has none to stop, which is what a stream
+/// whose buffers DirectSound has already taken back is.
+fn takes_the_stream_down(stream: usize) {
+    let count = mem::read_committed::<u32>(stream + STREAM_BUFFER_COUNT).unwrap_or(0);
+    let Some(array) = mem::read_committed::<usize>(stream + super::STREAM_BUFFER) else {
+        return;
+    };
+    for at in 0..count as usize {
+        let Some(buffer) = mem::read_committed::<usize>(array + at * size_of::<usize>()) else {
+            continue;
+        };
+        orb_api::dsound::stop(orb_api::SoundBuffer(buffer));
+    }
+}
+
+/// And the buffer filled from the source, which is the play command's last phase: 0x44cd1d into 0x45df50,
+/// which refuses outright where the stream's own buffer array holds nothing (0x45df5f) and otherwise locks the
+/// buffer that array's first entry names.
+///
+/// Whether that entry is a buffer anybody still owns is what a restore decides, so this is where a play walking
+/// a stream the memory copy resurrected shows: a lock is a call on the buffer, and a released one refuses it.
+fn fills_the_buffer(stream: usize) -> bool {
+    let Some(array) = mem::read_committed::<usize>(stream + super::STREAM_BUFFER) else {
+        return false;
+    };
+    let Some(buffer) = mem::read_committed::<usize>(array).filter(|it| *it != 0) else {
+        return false;
+    };
+    let Some(bytes) = mem::read_committed::<u32>(stream + super::STREAM_BUFFER_BYTES) else {
+        return false;
+    };
+    let buffer = orb_api::SoundBuffer(buffer);
+    let (asked, locked) = orb_api::dsound::lock(buffer, 0, bytes, 0);
+    if asked < 0 {
+        return false;
+    }
+    orb_api::dsound::unlock(buffer, locked);
+    true
+}
+
+/// `SoundPlayer::PlayBGM`, which is the only call that *makes* a stream — see `Th07`'s `PLAY_BGM`.
+///
+/// **What it makes is one stream over the whole music file, and no track**: the name it is given is that file's,
+/// and which of the file's records is playing is a play's to decide. So this puts the stream and its buffer
+/// where a laid-out game keeps them and leaves the source's record alone.
+///
+/// **The name is written down rather than assumed**, for the reason [`asks_for_a_song`] carries its slot rather
+/// than checking it: a stand-in that ignores what it is given cannot fail on being given the wrong thing, and a
+/// launch of 妖々夢 handed this call a *track's* name — the game answered -1, left the player holding no stream
+/// at all, and its own sound then read through that null field and faulted at 0x44d023.
+extern "thiscall" fn plays_the_bgm(_player: usize, name: usize) -> i32 {
+    let name = super::name_at(name, MUSIC_FILE_NAME_BYTES).unwrap_or_default();
+    *MADE_A_STREAM_OVER.lock().unwrap() = Some(String::from_utf8_lossy(&name).into_owned());
+    unsafe {
+        mem::write::<usize>(super::G_SOUND_PLAYER + super::STREAM, STREAM);
+        // The buffer this stream owns, which a made stream owns one of — see [`STREAM_BUFFER_COUNT`].
+        mem::write::<u32>(STREAM + STREAM_BUFFER_COUNT, 1);
+    }
+    // The buffer live again, this being where the game makes the one it plays a track through.
+    orb_sim::Sound::started_again();
+    0
+}
+
 extern "thiscall" fn runs_the_sound_commands(_player: usize) {
     SOUND_COMMANDS_RUN.fetch_add(1, Ordering::Relaxed);
     // A phase advanced and the command left where it is, which is what a run that is not a command's last does
@@ -2100,15 +2217,27 @@ extern "thiscall" fn runs_the_sound_commands(_player: usize) {
     PLAYS_WALKED.store(0, Ordering::Relaxed);
     let queued: Vec<u32> = QUEUED_PLAYS.lock().unwrap().drain(..).collect();
     unsafe { mem::write::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS, 0) };
+    // **A play makes no stream, and that is the whole of why this walks the phases the game's does.** The
+    // command reuses the one the player's own field names: 0x44cc23 stops the buffers it owns, 0x44cce1 puts
+    // the record the slot names on its source, and 0x44cd1d fills its buffer from that source. What *makes* a
+    // stream is `PlayBGM` and nothing else — see [`plays_the_bgm`] — so a play asked for while that field
+    // names nothing is dropped where the game drops it, at 0x44cbf3.
+    let stream =
+        mem::read_committed::<usize>(super::G_SOUND_PLAYER + super::STREAM).filter(|it| *it != 0);
+    let Some(stream) = stream else {
+        return;
+    };
+    takes_the_stream_down(stream);
     for slot in queued {
         let record = slot_holds(slot)
             .and_then(|name| record_of(&name))
             .unwrap_or(MUSIC_RECORDS);
-        unsafe {
-            mem::write::<usize>(super::G_SOUND_PLAYER + super::STREAM, STREAM);
-            mem::write::<usize>(SOURCE + super::SOURCE_RECORD, record);
+        unsafe { mem::write::<usize>(SOURCE + super::SOURCE_RECORD, record) };
+        // And nothing audible where the buffer would not take the sound, which is a stream whose buffer is not
+        // one anybody owns any more.
+        if !fills_the_buffer(stream) {
+            continue;
         }
-        // The buffer live again, this being where the game makes the stream it plays a track through.
         orb_sim::Sound::started_again();
         let track = super::name_at(record + super::RECORD_NAME, super::RECORD_NAME_BYTES)
             .unwrap_or_default();

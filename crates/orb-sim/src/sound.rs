@@ -414,6 +414,12 @@ pub(crate) mod buffer {
         if handle != BUFFER {
             return;
         }
+        // Counted like every other call on a released buffer — see [`released`] — because this is the one the
+        // *game* makes: the play command's first phase stops the stream it is replacing, and a restore is what
+        // decides whether the object that field names is anybody's.
+        if released() {
+            return;
+        }
         let sound = streaming();
         sound.status.set(sound.status.get() & !DSBSTATUS_PLAYING);
     }

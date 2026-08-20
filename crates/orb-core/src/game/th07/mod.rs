@@ -1333,6 +1333,30 @@ handed_over!(FOG_OFF_AT, fog_off, set_fog_off, FOG_OFF);
 /// chapter had it, and a command still sitting in that queue is none of those three having happened yet.
 const STOP_MUSIC: usize = 0x0043a05f;
 const START_MUSIC: usize = 0x00439ec1;
+/// `SoundPlayer::PlayBGM`, `__thiscall` on the player, taking the name of the track to play — which it copies
+/// into `+0x38bc` (0x44c041) before it takes the current stream down, works a buffer size out of the file's own
+/// format, makes the event and the thread, and hands all of it to 0x45c8e0.
+///
+/// **The only call that makes a stream**, which is why a restore needs it. The game's own play at 0x439ec1
+/// queues command 2 instead, and that command reuses the stream the player's own field names: it stops the
+/// buffers that stream owns (0x44cc23), points its source at the record the slot names (0x44cce1) and fills its
+/// buffer (0x44cd1d). None of that makes anything, so a play asked for after the music has been taken down —
+/// which frees the stream and releases its buffer, 0x44cebd — is a play walking whatever the memory copy left
+/// in that field.
+const PLAY_BGM: usize = 0x0044c020;
+
+/// **And the name [`PLAY_BGM`] takes is the file every track is in**, not a track's: the game's own two calls
+/// hand it the string at 0x496fac, `thbgm.dat` (0x438cdf and 0x43aa10 — the other backend gets `th07.dat` at
+/// 0x497150). 0x45c8e0 makes one streaming sound over that file, and which track is playing is the record its
+/// source is pointed at — which is what the game's own play at 0x439ec1 is for.
+///
+/// The game's own string rather than one of orb's, so that what it is handed is what the game hands it.
+const MUSIC_FILE: usize = 0x00496fac;
+/// And the thread the music is streamed on, its handle, and the event it waits on — all three made by
+/// [`PLAY_BGM`] and closed by the take-down at 0x44cebd, and all three carried in the player's own memory. So
+/// all three come back with a chapter, naming handles the take-down has closed.
+const MUSIC_THREAD_HANDLE: usize = 0x618;
+const MUSIC_EVENT: usize = 0x39c0;
 
 /// **The two songs a stage's own data names, and the slots its build loads them into**: its own at
 /// `[0x1347f9c]+0x290` into slot 0 (0x42f1d5, played at 0x42f216), and the fight it ends with at `+0x310` into
@@ -1347,7 +1371,7 @@ const START_MUSIC: usize = 0x00439ec1;
 /// The names there are the `.mid` ones, `bgm/th07_12.mid` and its like, where a slot holds the same name with
 /// `wav` written over it (0x439e92) and a record holds the file's own name with no directory. So what the three
 /// are compared by is the stem — see [`file_stem`].
-/// **And a slot is what [`START_MUSIC`] takes, which is why the two above are the whole of the answer.** The
+/// **And a slot is what the game's own play at 0x439ec1 takes, which is why the two above are the whole of the answer.** The
 /// load at 0x439dd0 copies the name it is given, writes `wav` over its extension (0x439e92) and sends command 1
 /// with the slot and that name, which 0x44c242 copies into a 0x100-byte buffer of that slot's own at `+0x28bc`
 /// of the player. The play, command 2, reads that buffer back (0x44cc95), looks the name up in the record array
@@ -1405,6 +1429,7 @@ handed_over!(
     set_start_music,
     START_MUSIC
 );
+handed_over!(PLAY_BGM_AT, play_bgm_call, set_play_bgm, PLAY_BGM);
 handed_over!(
     PLAY_SOUNDS_AT,
     play_sounds_call,
@@ -1833,7 +1858,7 @@ impl Th07 {
     /// The commands the game's own two music calls leave standing, carried out — which is what makes either of
     /// them the music having changed rather than a command in a queue.
     ///
-    /// On the backend a launch of this game makes, [`STOP_MUSIC`] and [`START_MUSIC`] write into the queue at
+    /// On the backend a launch of this game makes, [`STOP_MUSIC`] and the game's own play at 0x439ec1 write into the queue at
     /// [`SOUND_COMMANDS`] and return; [`PLAY_SOUNDS`] is what walks it.
     ///
     /// **Run until that queue is empty rather than once**, which is what the game's own stage build does at
@@ -2212,6 +2237,37 @@ impl Game for Th07 {
             STAGE_SONG_SLOT
         };
         log!("music: restarting slot {slot}, the chapter's own track being {name}");
+        // **The stream the copy resurrected let go of before the game is asked for anything.** Those bytes are
+        // a chapter's: the object they describe was freed and its sound buffer released when the track changed
+        // — the take-down at 0x44cebd closes the thread and the event and calls the stream's own destructor —
+        // and no memory copy brings a released COM object back. So every handle the player's memory now
+        // carries names something the game has already given up.
+        //
+        // **A play walks that.** The command the game's own play queues reuses the stream this field names
+        // rather than making one: it stops the buffers that stream owns, points its source at a record and
+        // fills its buffer. A launch of 妖々夢 stepping about in stage 3 faulted twice over doing it —
+        // `0x0045d8d5` with `E_INVALIDARG` left by an `IDirectSoundBuffer::Stop` that had written over the
+        // game's own frame, and then a call through address zero from the fill at 0x45dfaf once the released
+        // buffer's block had been reused.
+        //
+        // So the stream is made again before the track is asked for, [`PLAY_BGM`] being the one call that makes
+        // one — and these are cleared first so that its own take-down of the current stream walks nothing,
+        // exactly as `th06::restart_stage_music` clears its own before asking.
+        unsafe {
+            mem::write::<usize>(G_SOUND_PLAYER + STREAM, 0);
+            mem::write::<u32>(G_SOUND_PLAYER + MUSIC_THREAD_ID, 0);
+            mem::write::<usize>(G_SOUND_PLAYER + MUSIC_THREAD_HANDLE, 0);
+            mem::write::<usize>(G_SOUND_PLAYER + MUSIC_EVENT, 0);
+        }
+        let make: unsafe extern "thiscall" fn(usize, usize) -> i32 =
+            unsafe { std::mem::transmute(play_bgm_call()) };
+        let made = unsafe { make(G_SOUND_PLAYER, MUSIC_FILE) };
+        if made < 0 {
+            log!("music: the game would not make a stream over its own music file ({made})");
+            return false;
+        }
+        // And the track on that stream, which is the slot asked for: a stream is the file, and which of the
+        // file's records is playing is what a play decides.
         let start: unsafe extern "thiscall" fn(usize, u32) =
             unsafe { std::mem::transmute(start_music_call()) };
         unsafe { start(G_SUPERVISOR, slot) };
