@@ -502,6 +502,22 @@ const SCORE_SHOWN: usize = 0x00;
 /// to start with the cherry it had, filling towards what it was filling towards, with the border it had
 /// earned. See [`Th07::run_state`].
 const SCORE_BASELINE: usize = 0x88;
+/// **The eight numbers a run is made with, none of which a resume puts back.** 0x42e3da draws each as
+/// `(rand % 0x186a0) + 0x198f` — a number between 6543 and 106542 — writing the first to [`SCORE_BASELINE`]
+/// and the rest to the seven words at `+0x34`. `[run+0x3c]`, the third of those seven, is carried into
+/// `+0xac` at 0x42dc96 and 0x42e5fa and from there into the float at [`CHERRY_FILLING_TOWARDS`], with
+/// `+0xb0` taking what the call between them answered.
+///
+/// Drawn as the run's own object is allocated — 0x42e951, right after the `malloc(0xc8)` at 0x42e93f — so
+/// they are a *run's* numbers rather than a stage's, and a run picked up out of a file is a new run whose
+/// eight are drawn again from wherever its own generator stands.
+const RUN_RANDOMS_AT: usize = 0x34;
+const RUN_RANDOMS: usize = 7;
+const CHERRY_CARRIED: usize = 0xac;
+const CHERRY_CARRIED_ON: usize = 0xb0;
+/// And what the cherry is filling towards as the panel draws it, `[0x62f884]`: the float 0x42dcb8 and
+/// 0x42e0ef write, which is the number [`G_CHERRY_TARGET`] beside it is the integer of.
+const CHERRY_FILLING_TOWARDS: usize = 0x0062f884;
 const G_CHERRY: usize = 0x0062f88c;
 const G_CHERRY_TARGET: usize = 0x0062f888;
 const G_CHERRY_PLUS: usize = 0x0062f890;
@@ -3496,6 +3512,46 @@ impl Game for Th07 {
     /// stage's own build left.
     unsafe fn run_state(&self) -> RunState {
         let run = unsafe { self.run_numbers() };
+        // **Both of the score's fields, because a stage's own start reads the live one as nothing.** A run of
+        // 妖々夢 wrote every chapter of stage 4 down with `score=0` and the reproduction line of the frame nine
+        // frames later said `score=6756516` — the same field, read twice within nine frames of a stage nobody
+        // could earn six million in. So one of the two is not what this reads, and which is decided here:
+        // asked once a stage, where [`Th07::run_state`] is asked once a stage. See [`SCORE`] and
+        // [`SCORE_SHOWN`], and `resume::Saved` for what a resume then writes back over a run's own score.
+        if let Some(run) = run {
+            detail!(
+                "th07: the run's score is {} live and {} on the panel",
+                unsafe { mem::read::<u32>(run + SCORE) },
+                unsafe { mem::read::<u32>(run + SCORE_SHOWN) },
+            );
+            // **And the cherry's own machinery, which a resume puts back three statics of and nothing else.**
+            // 0x42e3da draws eight numbers as a run is made — `(rand % 100000) + 0x198f` apiece — and writes
+            // them to the baseline and to the seven at `+0x34`; `[run+0x3c]` is then carried through `+0xac`
+            // into [`CHERRY_FILLING_TOWARDS`] at 0x42dc96 and 0x42e5fa. A resumed run is a *new* run, so every
+            // one of them is drawn again and none of them is the number the run being put back was played
+            // with — and a stage resumed with the cherry filling towards somewhere else is a stage whose
+            // borders come up elsewhere.
+            //
+            // Said so that the two sessions can be held against each other: a run of stage 1, whose cherry is
+            // nothing, was picked up and reproduced every one of its 3479 frames, and a run picked up in
+            // stage 2 parted inside its first thousand. Which of these numbers a resume has to carry is what
+            // this line is for. See [`SCORE_BASELINE`] and [`Th07::set_run_state`].
+            let drawn: Vec<String> = (0..RUN_RANDOMS)
+                .map(|at| {
+                    let word = unsafe { mem::read::<i32>(run + RUN_RANDOMS_AT + at * 4) };
+                    format!("{word}")
+                })
+                .collect();
+            detail!(
+                "th07: the cherry is filling towards {} of {}, baseline {}, carried {} and {}, drawn {}",
+                unsafe { mem::read::<f32>(CHERRY_FILLING_TOWARDS) },
+                unsafe { mem::read::<i32>(G_CHERRY_TARGET) },
+                unsafe { mem::read::<i32>(run + SCORE_BASELINE) },
+                unsafe { mem::read::<i32>(run + CHERRY_CARRIED) },
+                unsafe { mem::read::<i32>(run + CHERRY_CARRIED_ON) },
+                drawn.join(" "),
+            );
+        }
         let cherry = |at: usize| {
             run.map_or(0, |run| {
                 let baseline = unsafe { mem::read::<i32>(run + SCORE_BASELINE) };

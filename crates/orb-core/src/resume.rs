@@ -1349,9 +1349,16 @@ mod tests {
         assert_eq!(decode(&encode(&quiet)), Some(quiet));
     }
 
-    /// **A file with no generators in it is still a run to offer**, which is every file written before orb began
-    /// writing them down: a run of 紅魔郷 left unfinished is not one to drop because a launch has learnt to write
-    /// something more about a stage. What such a playback gives up is only the line saying where it parted.
+    /// **A file with no generators in it is still a run to offer**, which is every file written before orb
+    /// began writing them down: a run of 紅魔郷 left unfinished is not one to drop because a launch has learnt
+    /// to write something more about a stage, and 紅魔郷 is the game people already have.
+    ///
+    /// **What such a playback gives up is more than the line saying where it parted**, which is what it looked
+    /// like when this was written. A 妖々夢 run of stage 6 out of one of these parted somewhere in the sixty
+    /// frames after 853, the player was hit at 1249, and the run died out at 5900 of the 24119 frames it was
+    /// aiming at — and nothing in the log could say which frame it went wrong on. Refusing the file is still
+    /// not the answer while the version is what says which files those are: it is one number for both games —
+    /// see [`VERSION`] — so refusing 妖々夢's would refuse 紅魔郷's with them.
     #[test]
     fn a_file_from_before_the_generators_is_read_and_offered() {
         let mut older = saved();
@@ -1359,9 +1366,9 @@ mod tests {
         assert_eq!(decode(&encode(&older)), Some(older));
     }
 
-    /// And one with *some* of them is refused, that being a file whose frames do not line up: the buttons of a
-    /// frame and the generator it was pressed with are held together by their index, so a list that runs out
-    /// part way through would have a playback held against another frame's number.
+    /// And one with *some* of them is refused too, that being a file whose frames do not line up: the buttons
+    /// of a frame and the generator it was pressed with are held together by their index, so a list that runs
+    /// out part way through would have a playback held against another frame's number.
     #[test]
     fn a_file_with_some_of_the_generators_is_refused() {
         let mut half = saved();
