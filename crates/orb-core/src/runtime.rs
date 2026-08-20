@@ -2051,9 +2051,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // 妖々夢 run picked up in stage 6 parted somewhere in the sixty frames after 853 and nothing narrowed
         // it further.
         //
-        // Diagnostic work, so it happens where `self_check` says — and only while a stage is running, a frame
+        // At the verbose level, which costs log and nothing else — and only while a stage is running, a frame
         // of the front end having no run to be about.
-        if runtime.config.self_check && state.in_run && !state.paused {
+        if log::wanted(log::VERBOSE) && state.in_run && !state.paused {
             log!(
                 "resume: frame {} played with the generator at {:#06x}",
                 state.stage_frames,
@@ -2936,9 +2936,12 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // this holds the other — and the frames those lines fall on are orb's own count rather than the
         // stage's, so a series taken every so often here would line up with that one on no frame at all.
         //
-        // A write apiece, which for the deepest chapter of a stage is a few seconds added to a playback
-        // that already takes tens of them. Diagnostic work, so it happens where `self_check` says.
-        if runtime.config.self_check && reached.stage_frames > was {
+        // A write apiece, which for the deepest chapter of a stage is a few seconds added to a playback that
+        // already takes tens of them. **At the verbose level and not behind `self_check`**, which is where it
+        // was: that flag also has a chapter fingerprint every region it saved, and a snapshot that costs 2ms
+        // costs 204ms with it — a stutter at every boundary, on a run somebody is playing to leave a file
+        // worth picking up. What this costs is log and nothing else.
+        if log::wanted(log::VERBOSE) && reached.stage_frames > was {
             log!(
                 "resume: frame {} played back with the generator at {:#06x}",
                 reached.stage_frames,

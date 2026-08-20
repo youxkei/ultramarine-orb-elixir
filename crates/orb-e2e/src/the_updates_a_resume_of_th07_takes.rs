@@ -145,20 +145,21 @@ fn a_second_playback_of_th07_in_one_session_is_watched_from_its_own_first_frame(
     });
 }
 
-/// **Every played-back frame's generator where something is being diagnosed**, which is what a run whose file
-/// holds none of its own can be held against: the log of the session that recorded it carries the same number
-/// on the state line a run writes, so the two series in one log name the frame a playback parted on.
+/// **Every frame's generator at the verbose level, played and played back alike**, which is what a run whose
+/// file holds none of its own can be held against: one series is left by the session that played the run and
+/// the other by the launch that picked it up, and the first frame they differ on is where the playback parted.
+///
+/// **At that level and not behind `self_check`**, which is where this began: that flag has a chapter fingerprint
+/// every region it saved, and the snapshot a boundary takes went from 2ms to 204ms with it — a stutter at every
+/// chapter of the run somebody is playing to leave the file. Two series of numbers cost log and nothing else.
 #[test]
-fn a_playback_of_th07_says_every_frames_generator_where_a_self_check_is_on() {
+fn a_playback_of_th07_says_every_frames_generator_where_the_log_is_verbose() {
     in_its_own_process(|| {
         let game = Fake::attach_configured(
             Display::agreed(120),
             "th07-playback-generators",
             Work::wandering(WORK_US),
-            |config| {
-                config.log_level = LogLevel::Verbose;
-                config.self_check = true;
-            },
+            |config| config.log_level = LogLevel::Verbose,
         );
         let log = game.log();
         game.streams_its_song(0);

@@ -94,7 +94,8 @@ fn a_run_of_th07_whose_chapter_was_retried_is_put_back_at_the_chapter_after_it()
             log.lines().join("\n  "),
         );
         assert_eq!(
-            game.state().stage_frames, at,
+            game.state().stage_frames,
+            at,
             "the run came back at another frame of the stage",
         );
     });
