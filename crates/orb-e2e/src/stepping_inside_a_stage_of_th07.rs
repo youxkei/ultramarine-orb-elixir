@@ -144,6 +144,88 @@ fn a_step_inside_a_stage_of_th07_lands_on_the_chapter_start_either_side_of_where
     });
 }
 
+/// **A chapter taken while the game's own sound is mid-ask calls nothing on the buffer.**
+///
+/// A step back whose chapter was taken under another track takes the music down and asks the game for the
+/// track that chapter had — and that ask is a command in the player's own queue, walked by the frame's own
+/// sound. The step forward after it is `run_to`, which walks the calc chain and nothing else, so the ask
+/// stands for every frame of the replay while the memory copy has put the player's stream field back to the
+/// object the take-down deleted. Reading the sound there is reading a released COM object: what its methods
+/// do is not defined, and orb must not call them.
+///
+/// A launch of 妖々夢 is why. Stepping back to stage 2's own start wrote
+/// `restore: the track has changed since this snapshot; taking the music down` and
+/// `music: restarting slot 0, the chapter's own track being th07_04.wav`, and the replay after it faulted
+/// taking a chapter — `0x7ae3ec1c`, `Snapshot::update+0x143c`, reading `0x60` with `edi` zero. That
+/// instruction is `self.untracked = Vec::new()` and `edi` is `self`: the report's `esp=0x001aefac` is four
+/// bytes below where that frame's own prologue puts it, so every `[esp+X]` of the function read one slot
+/// along and `self`, spilled once, came back zero. One of the calls on the dead buffer had returned with the
+/// stack short, and what it corrupted was orb's own frame.
+#[test]
+fn a_chapter_of_th07_taken_while_the_sound_is_mid_ask_calls_nothing_on_the_buffer() {
+    in_its_own_process(|| {
+        // The table being built as well as stepped through, because of what the boundary has to be: a
+        // boundary of the pass's own list is one the replay reaches again off the script clock alone, where
+        // the fight a laid-out game is driven through by hand is not put back by a restore.
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-stepping-mid-ask",
+            Work::wandering(WORK_US),
+            |config| {
+                config.chapter_stepping = true;
+                config.chapter_tuning = true;
+                config.during_replay = true;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        // A wave, and then nothing to shoot at: the gap the pass proposes a boundary a second into.
+        game.image().enemies_alive(A_WAVE);
+        game.frames(THE_WAVE_LASTS);
+        let wave_ended_at = game.state().script_frames;
+        game.image().enemies_alive(0);
+        let proposed_at = wave_ended_at + A_SECOND_IN;
+        game.frames_until("the boundary the gap is", 600, || {
+            log.said(&format!("(script {proposed_at}): tl {proposed_at}"))
+        });
+        game.frames(APART);
+
+        // The fight's own track playing, which is what leaves the chapter behind it taken under a track that
+        // is gone: the step back onto that boundary is then the restore that takes the music down and asks
+        // the game for the track the chapter it puts back had.
+        game.plays_another_song();
+        steps(&game, BACK);
+        assert!(
+            log.said("taking the music down"),
+            "the step back did not take the music down, so nothing here is about a released buffer:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            orb_sim::Sound::calls_on_a_released_buffer(),
+            0,
+            "orb called the buffer the game had taken down:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
+/// How many enemies the wave before the gap has: anything above nothing, the detector asking only whether
+/// there is something to shoot at.
+const A_WAVE: i32 = 4;
+/// How long that wave lasts, in frames: past the shortest a chapter may be, so the gap after it is one the
+/// proposal's own floor on the frames since the last chapter is already clear of.
+const THE_WAVE_LASTS: u32 = 180;
+/// The frames of nothing to shoot at a proposal is made a second into, which is `tuning::ENEMY_GAP_FRAMES` —
+/// written out here for the reason every other number an e2e test holds is: a test that read it off the code
+/// under test would agree with it whatever either said.
+const A_SECOND_IN: i32 = 60;
+
 /// A pad on the host, declared the way every e2e test about one declares it: buttons enough for the game's
 /// own mapping to name any of them, and an axis over a whole 16-bit travel.
 const PAD_BUTTONS: u32 = 16;

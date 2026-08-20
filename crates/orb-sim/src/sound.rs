@@ -12,7 +12,9 @@
 
 use std::cell::Cell;
 
-use orb_api::dsound::{DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING};
+use orb_api::dsound::{
+    DSBPLAY_LOOPING, DSBSTATUS_BUFFER_LOST, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING,
+};
 use orb_api::{Hresult, Kind, LockedBuffer, SoundBuffer};
 
 use crate::Sim;
@@ -83,6 +85,8 @@ thread_local! {
     /// has just made look the same in memory and differ only in whether calls on them work. See
     /// [`Sound::taken_down`].
     static RELEASED: Cell<bool> = const { Cell::new(false) };
+    /// And how many calls have been made on it since — see [`Sound::calls_on_a_released_buffer`].
+    static CALLS_WHILE_RELEASED: Cell<u32> = const { Cell::new(0) };
 }
 
 /// # An intermittent that is still to find
@@ -108,8 +112,24 @@ fn streaming() -> &'static Sound {
 }
 
 /// Whether the buffer that sound is played through has been released — see [`RELEASED`].
+///
+/// **Counting the calls made after it was, which is what an e2e test holds orb to.** A released COM object is
+/// memory whose owner has gone: what its methods do is not defined, and a real DirectSound answered one of them
+/// with the stack four bytes short — which corrupted the caller's own frame and faulted it several thousand
+/// instructions later, inside `Snapshot::update`. So the rule is that orb calls nothing on it, and a refusal
+/// here is not enough to hold orb to that: this game refuses, and the game that crashed answered.
+///
+/// **The stack coming back short is not something any e2e test can reach**, and the reason is the seam rather
+/// than the fake: `orb_api::dsound` routes every slot to this host's own Rust method and never reaches the
+/// vtable call in `real::dsound`, so under a simulated Windows there is no foreign calling convention for a
+/// return to be wrong about. What a test can hold orb to is the call not being made, which is what the count
+/// is for.
 fn released() -> bool {
-    RELEASED.get()
+    let released = RELEASED.get();
+    if released {
+        CALLS_WHILE_RELEASED.set(CALLS_WHILE_RELEASED.get() + 1);
+    }
+    released
 }
 
 impl Sound {
@@ -148,6 +168,12 @@ impl Sound {
     /// thread.
     pub fn taken_down() {
         RELEASED.set(true);
+        CALLS_WHILE_RELEASED.set(0);
+    }
+
+    /// How many calls have been made on the buffer since the game took it down — see [`released`].
+    pub fn calls_on_a_released_buffer() -> u32 {
+        CALLS_WHILE_RELEASED.get()
     }
 
     /// And a buffer the game has made again **and started**, which is what starting a track leaves: the same
@@ -317,18 +343,40 @@ pub(crate) mod buffer {
     /// of the game's memory and never asks the buffer for, so what DirectSound reports as its own write
     /// cursor is not that and nothing here has an opinion about it.
     pub fn position(handle: SoundBuffer) -> (Hresult, u32, u32) {
-        if handle != BUFFER || released() {
+        if handle != BUFFER {
             return (REFUSED, 0, 0);
         }
         let play = streaming().play.get();
+        // A released buffer answers this, as the one that crashed a launch of 妖々夢 did — see [`status`].
+        released();
         (OK, play, play)
     }
 
+    /// **A released buffer answers, and says it is lost**, which is what the real one did: 妖々夢's crash
+    /// walked `Music::capture` past its own `asked < 0` here and on into the lock, so this slot cannot have
+    /// refused. The lost bit is the other half of that walk — `with_locked_buffer` reads this again after a
+    /// refused lock and only calls `Restore` where the bit is set, and it called `Restore`.
+    ///
+    /// **It is nothing of the sound that is playing.** The object's owner has gone; what its methods do is
+    /// not defined, and one of them returned with the stack four bytes short. So the status here is the lost
+    /// bit alone — not `DSBSTATUS_PLAYING`, which would have `Music::margin` reading a dead buffer's cursor
+    /// as a live one.
     pub fn status(handle: SoundBuffer) -> (Hresult, u32) {
-        if handle != BUFFER || released() {
+        if handle != BUFFER {
             return (REFUSED, 0);
         }
+        if released() {
+            return (OK, super::DSBSTATUS_BUFFER_LOST);
+        }
         (OK, streaming().status.get())
+    }
+
+    /// `Restore`, which is the slot the crash's own call chain ends at: nothing to do here, no buffer of
+    /// anybody's here having been lost, and the call counted like every other made on a released one.
+    pub fn restore(handle: SoundBuffer) {
+        if handle == BUFFER {
+            released();
+        }
     }
 
     /// `Lock` over the whole buffer, which is the only lock orb takes: one starting at zero never wraps,

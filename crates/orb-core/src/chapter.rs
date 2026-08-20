@@ -1395,6 +1395,23 @@ impl Chapters {
         let identity = game.music_identity();
         let policy = if self.boss_has_own_music(game, state) {
             Music::KeepPlaying
+        } else if game.a_sound_command_is_in_flight() {
+            // **Nothing of the sound is read while the game's own sound has an ask outstanding.** What the
+            // player's stream field names then is not a stream: a restore takes the music down, asks for the
+            // track the chapter it puts back had, and copies the game's memory — so the field comes back
+            // pointing at the object the take-down deleted, and the ask that would replace it is a command in
+            // the game's own queue. The queue is walked by the frame's own sound, which `runtime::run_to`
+            // skips, so through a whole replay that field names a released COM object whose leftover vtable
+            // pointer still satisfies `mem::vtable_in_image`.
+            //
+            // **And what such an object does is not defined.** A launch of 妖々夢 stepping back in stage 2
+            // wrote `taking the music down` and `music: restarting slot 0`, and the replay after it faulted
+            // taking a chapter: `Snapshot::update+0x143c`, reading `0x60` with `edi` zero, which is
+            // `self.untracked = Vec::new()` with `self` read as null. The report's `esp` was four bytes below
+            // where that frame's prologue puts it, so one of the calls made on the dead buffer had returned
+            // with the stack short and every `[esp+X]` after it read one slot along.
+            detail!("snapshot: the game's own sound is mid-ask; this chapter keeps no music");
+            Music::Rewind(None)
         } else {
             Music::Rewind(game.music())
         };

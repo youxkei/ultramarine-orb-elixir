@@ -895,9 +895,9 @@ impl Win for Sim {
         sound::buffer::set_position(buffer, position);
     }
 
-    /// Nothing. Buffers are never lost here: what `Restore` is for is a device that has been taken away,
-    /// which no e2e test does.
-    fn restore_buffer(&self, _buffer: SoundBuffer) {}
+    fn restore_buffer(&self, buffer: SoundBuffer) {
+        sound::buffer::restore(buffer);
+    }
 }
 
 #[cfg(test)]
