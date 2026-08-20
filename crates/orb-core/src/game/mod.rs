@@ -1352,10 +1352,19 @@ pub trait Game {
     /// the player reads it. And nothing while a replay is being watched, where what the run acts on is the
     /// recording rather than the keyboard.
     ///
+    /// **`moved_on` is whether this read is the first of a frame of the run**, and what it decides is the
+    /// *pair*: a run reads a bomb as an edge, so the word it last acted on has to be the frame before's rather
+    /// than the read before's. 妖々夢 reads the keyboard again for a frame it did not advance the run on — its
+    /// own slowdown answers the manager's 3, which stops the chain walk before both the player's job and the
+    /// copy this stands in for — so on such a read the game moves neither word, and a hand-over that moved
+    /// them made the pair hold one word twice. The press on that frame is then no edge, and which frames it
+    /// happens on is how many updates the game spent on each: a run's own buttons played back in a burst of
+    /// them skip elsewhere than the run did.
+    ///
     /// # Safety
     /// Must run on the game's main thread, from inside that read.
-    unsafe fn hand_the_read_to_the_run(&self, word: u16) {
-        let _ = word;
+    unsafe fn hand_the_read_to_the_run(&self, word: u16, moved_on: bool) {
+        let _ = (word, moved_on);
     }
 
     /// Which bits of a frame's input decide how a run goes, and so are the ones worth writing

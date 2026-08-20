@@ -19,7 +19,7 @@
 
 use std::ffi::c_void;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicUsize, Ordering};
 
 use orb_config::{Config, Language};
 
@@ -181,10 +181,18 @@ mod keys {
 /// stage it cannot load does.
 const RESUME_START_FRAMES: u32 = 600;
 
-/// How much longer than the frame it is aiming at a playback may run for, which is slack for a
-/// clock that has stopped rather than room to reach anything: the game's own stage clock counts
-/// every update of a stage, so one update is one frame of it.
+/// How many updates in a row a playback may run without the stage's own clock moving before it gives up on
+/// that clock — and **not** how many updates a stage's frames may take, which is the game's own business.
+///
+/// 妖々夢 skips the run on one update in five while it is slowing itself down (0x42e186), so a stage of a
+/// few thousand frames takes as many updates again — and a bound counting updates against the frame being
+/// aimed at gave up a quarter of the way into stage 6. A second of updates in a row with the clock standing
+/// still is a clock that has stopped, whatever the game is doing with the rest of them.
 const STALLED_FRAMES: u32 = 60;
+
+/// How far a playback goes between saying so: ten seconds of the run it is putting back, which for the deepest
+/// chapter of a stage is a line every few seconds of waiting and forty of them in all.
+const SAID_EVERY: u32 = 600;
 
 /// A stop on a chapter step, for a target the run never reaches — a replay that
 /// has ended, or a stage that has no further boundary.
@@ -417,6 +425,10 @@ pub static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
 /// Whether the keyboard has been out of reach since it was last read, and so needs
 /// getting back before the next read.
 pub static INPUT_LOST: AtomicBool = AtomicBool::new(false);
+/// Which frame of a run the word it acts on was last handed over for, and [`NO_FRAME`] where that was a read
+/// outside a stage — see [`the_first_read_of`], and `Game::hand_the_read_to_the_run` for what it decides.
+static HANDED_OVER_FOR: AtomicI64 = AtomicI64::new(NO_FRAME);
+const NO_FRAME: i64 = -1;
 /// Whether the front end's own decide is being kept from the game — see [`held_back`]. Set for as
 /// long as the screen orb has a question about is up with a run of a chapter under the cursor, and
 /// left alone while the question itself is up: the frame that writes it ends in the question's own
@@ -1352,8 +1364,10 @@ pub extern "system" fn get_input() -> u16 {
         }
         // Through the same hand-over the keyboard's own word goes through: a run being played back into place
         // is a run whose frames have to land where they landed, and a frame played on last frame's buttons is
-        // not that frame — see `Game::hand_the_read_to_the_run`.
-        unsafe { game.hand_the_read_to_the_run(buttons) };
+        // not that frame — see `Game::hand_the_read_to_the_run`. Which is also where the frame this read is
+        // for matters most: a playback drives its updates in a burst, so the game skips the run on other
+        // frames than it did while somebody was playing it.
+        unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
     }
 
@@ -1503,8 +1517,21 @@ unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     // And handed to the run here, which is the read's own moment: a game whose own hand-over comes after the
     // update that acts on it is a game played a frame late — see `Game::hand_the_read_to_the_run`. Every way
     // out of this hook comes through here, so what the run is given is what the game was given.
-    unsafe { game.hand_the_read_to_the_run(buttons) };
+    unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
     buttons
+}
+
+/// Whether this read is the first one of a frame of the run, which is the half of the hand-over that a run
+/// reads its edges off — see [`Game::hand_the_read_to_the_run`], where what it costs to get wrong is written.
+///
+/// Every read outside a stage is one of its own: what a frame of the front end hands the run is read by
+/// nothing, and holding two of them together would be an edge kept across a run being started.
+fn the_first_read_of(frame: Option<u32>) -> bool {
+    let Some(frame) = frame else {
+        HANDED_OVER_FOR.store(NO_FRAME, Ordering::Relaxed);
+        return true;
+    };
+    HANDED_OVER_FOR.swap(i64::from(frame), Ordering::Relaxed) != i64::from(frame)
 }
 
 /// Runs after `th06::GameManager::AddedCallback`, where the game has just put a stage's numbers in
@@ -2844,18 +2871,41 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // attempt that did not survive were written over by the one that did — so a death here is a
     // playback that has come out of step, and the frame it happened on is where to look.
     let mut hit = None;
-    // A bound on a clock that has stopped rather than on how far there is to go: an update of a
-    // stage is one of its frames, so a playback that has run more updates than the frame it aims at
-    // is one whose updates are going somewhere else.
-    let limit = at + STALLED_FRAMES;
+    // A bound on a clock that has stopped, which is the updates since it last moved and **not** a count
+    // of them against the frame being aimed at.
+    //
+    // **An update of a stage is not a frame of it.** 妖々夢 slows its own run down when the screen fills:
+    // 0x42e186 divides the manager's own count of updates by five and answers the one that leaves nothing
+    // over with 3, which skips both of the run's clocks. So the updates a stage's frames take is however
+    // many the game feels like, and a bound of `at + 60` of them ran out first — a session picked a run up
+    // in stage 6 and got `24179 update(s) run; stage 6 frame 5900 ... at frame 24119`, the run left standing
+    // a quarter of the way through the stage in the bullets of a frame nobody was playing.
+    let mut stalled = 0;
     while reached.stage_frames < at
         && reached.playing
-        && frames < limit
+        && stalled < STALLED_FRAMES
         && ran != CHAIN_EXIT_SUCCESS
         && ran != CHAIN_EXIT_ERROR
     {
+        let was = reached.stage_frames;
         ran = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         reached = unsafe { runtime.game.read_state() };
+        stalled = if reached.stage_frames > was {
+            0
+        } else {
+            stalled + 1
+        };
+        // **How far it has got, every so often.** The whole playback is one frame of the game: nothing is drawn
+        // and the window does not answer for as long as it takes, which for a chapter deep in a stage is
+        // minutes — and from outside, a game that has stopped answering is a game that has hung. This is the
+        // one thing that tells the two apart, so it is said at the level a run is ordinarily logged at and
+        // said as it happens rather than in the frame's slack, there being no slack until it is over.
+        if reached.stage_frames / SAID_EVERY != was / SAID_EVERY {
+            log!(
+                "resume: {} of {at} frame(s) played back, {frames} update(s) in",
+                reached.stage_frames,
+            );
+        }
         unsafe {
             runtime.chapters.observe(
                 runtime.game,

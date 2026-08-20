@@ -3308,13 +3308,19 @@ impl Game for Th07 {
     /// The recorder still runs and still copies, and copies the same value: what it keeps as last frame's is
     /// then this frame's, which is why the pair is written here in the same order — the next frame's read puts
     /// the word that has just been acted on into last frame's before it moves the other on.
-    unsafe fn hand_the_read_to_the_run(&self, word: u16) {
+    unsafe fn hand_the_read_to_the_run(&self, word: u16, moved_on: bool) {
         if unsafe { mem::read::<u32>(G_RUN_KIND) } & RUN_IS_A_REPLAY != 0 {
             return;
         }
         unsafe {
-            let acted_on = mem::read::<u16>(G_INPUT_THE_RUN_ACTS_ON);
-            mem::write::<u16>(G_INPUT_THE_RUN_ACTED_ON, acted_on);
+            // Last frame's only where the frame moved on, which is what the game's own copy does by never
+            // running on the updates it skips the run on — see `Game::hand_the_read_to_the_run`. The word the
+            // run acts on is written either way: what the update that does advance it acts on is the last
+            // thing the keyboard said before it, which is also the word that frame is written down as.
+            if moved_on {
+                let acted_on = mem::read::<u16>(G_INPUT_THE_RUN_ACTS_ON);
+                mem::write::<u16>(G_INPUT_THE_RUN_ACTED_ON, acted_on);
+            }
             mem::write::<u16>(G_INPUT_THE_RUN_ACTS_ON, word);
         }
     }

@@ -63,17 +63,33 @@ const NO_KEY_HELD: u16 = 0;
 /// here presses.
 ///
 /// The order the game's own read fills them in is shoot, bomb, focus, menu, up, down, left, right and skip,
-/// one bit apiece from 0x1 — which is what `Th07`'s own `PAD_UP` and the two menu masks are read off. Six
-/// rather than nine because focus, the menu button and the skip are not keys any e2e test here holds: what
-/// these have to answer is a press of orb's own menus, which is the shot button, and a direction.
-const MAP: [(u8, u16); 6] = [
+/// one bit apiece from 0x1 — which is what `Th07`'s own `PAD_UP` and the two menu masks are read off. Focus
+/// and the skip are left out because no e2e test here holds either: what these have to answer is a press of
+/// orb's own menus, which is the shot button, and a direction.
+///
+/// **The menu button is in, and it is the one that does something to a stage**: the manager takes its edge off
+/// the word the read left and puts the pause menu up — see [`Fake::follows_its_manager`].
+const MAP: [(u8, u16); 7] = [
     (keys::Z, 0x1),
     (keys::X, 0x2),
+    (keys::ESCAPE, MENU_BUTTON),
     (keys::UP, 0x10),
     (keys::DOWN, 0x20),
     (LEFT, 0x40),
     (RIGHT, 0x80),
 ];
+
+/// The bit that puts the game's own pause menu up, and the shot bit that takes it down again — its first item
+/// being 続ける.
+const MENU_BUTTON: u16 = 0x8;
+const MENU_DECIDE: u16 = 0x1;
+
+/// Which update of a run this game does not advance it on, where it is slowing itself down: 0x42e186 divides
+/// the manager's own count by five and skips the one that leaves nothing over — see
+/// [`Fake::slows_its_own_run_down`].
+///
+/// Public because an e2e test about what such an update does has to run enough of them to reach one.
+pub const SLOWED_EVERY: u32 = 5;
 
 /// The two arrow keys orb's own menus do not read, so `orb_sim::keys` does not name them — the four it does
 /// read come from there, which is what makes an e2e test pressing `Z` at one of orb's questions and this game
@@ -275,6 +291,10 @@ pub struct Fake {
     /// Whether a run of this game goes on by itself: its two clocks one frame further on per frame — see
     /// [`Fake::the_run_goes_on`].
     run_goes_on: Cell<bool>,
+    /// Whether this game is slowing its own run down, and how many updates of one have gone by — see
+    /// [`Fake::slows_its_own_run_down`], which is the update in [`SLOWED_EVERY`] that moves neither clock.
+    slowed: Cell<bool>,
+    updates_of_the_run: Cell<u32>,
     /// How long a stage of this game lasts before the next one is built, where an e2e test says.
     ///
     /// Nothing by default, which is a stage that never ends: every test about one stage wants that, and one
@@ -489,6 +509,8 @@ impl Fake {
             reads_the_keys: the_game_this_is().hooks().input.is_some(),
             reads_the_pad_by_number: the_game_this_is().hooks().pad_buttons.is_some(),
             run_goes_on: Cell::new(false),
+            slowed: Cell::new(false),
+            updates_of_the_run: Cell::new(0),
             stage_frames: Cell::new(None),
             fight_won_at: Cell::new(None),
             ending_updates: Cell::new(0),
@@ -1485,6 +1507,23 @@ impl Fake {
         self.run_goes_on.set(true);
     }
 
+    /// **And this game slowing its own run down, which is what makes an update of it not a frame of it.**
+    /// 0x42e186 divides the manager's own count of them by five and, where nothing is left over, sets the byte
+    /// at `G_GAME_MANAGER + 0xd` and answers 3 — the same 3 that skips both clocks — so one update in
+    /// [`SLOWED_EVERY`] moves the run nowhere. It is gated on `[0x9a9a80]` having reached 0x80, which is why an
+    /// e2e test asks for it rather than every laid-out run having it.
+    ///
+    /// **What it is here for is the arithmetic a playback is bounded by**: orb drives updates itself to put a
+    /// run back, so a stage of 24119 frames is not 24119 updates — and a bound that counted updates as frames
+    /// gave up on a 妖々夢 run at frame 5900 of 24119 after 24179 of them, leaving the run standing in the
+    /// middle of a stage.
+    ///
+    /// The byte itself is not written: nothing of orb reads it — see `Th07`'s `GAME_MENU_UP`, where it is
+    /// written down beside its neighbour — and what a test can ask about is the clocks.
+    pub fn slows_its_own_run_down(&self) {
+        self.slowed.set(true);
+    }
+
     /// What orb reads of the run, for an e2e test that asks what a chapter put back: the game's own memory
     /// through the same reads orb's own frame makes.
     pub fn state(&self) -> orb_core::game::State {
@@ -1493,6 +1532,15 @@ impl Fake {
 
     /// The word the game's own input read came back with on the frame just run, for an e2e test that
     /// pushed a pad.
+    /// The word the run **last** acted on, which is the half of the pair a press is an edge against: a bomb is
+    /// a press rather than a hold, so what says one happened is the two words together.
+    ///
+    /// The other half is [`Fake::the_player_read`], which is what the player's own job read on the frame just
+    /// run.
+    pub fn word_the_run_acted_on(&self) -> u16 {
+        self.image.the_word_the_run_acted_on()
+    }
+
     pub fn word_the_input_read_answered(&self) -> u16 {
         self.word.get()
     }
@@ -1521,7 +1569,11 @@ impl Fake {
         // run's landing is held against the second of those, so a game that never wrote one down has nothing for
         // that comparison to be about — and a scene built with either still standing is a press nobody made being
         // spent, which is what a transition clearing them is for.
+        //
+        // The word the read left is kept first, because the manager below reads the pause off the pair of them.
+        let read_before = self.image.the_word_the_read_left();
         self.image.the_read_left_the_word(self.word.get());
+        self.follows_its_manager(read_before);
         // **And the word the run acts on written where this game writes it, which is not here.** The read is
         // the supervisor's own job at chain priority 0; what copies it into the run's word is the recorder, at
         // priority 0x10 (0x443b9a) — and the player's own job is priority 8 (0x442ab6), which reads that word
@@ -1533,12 +1585,20 @@ impl Fake {
         // reads, then the copy. The middle one is what an e2e test has to be able to ask about — the word a
         // frame is *played* with — so it is kept rather than acted on, this game having no player to move.
         self.follows_its_supervisor();
-        self.the_player_read
-            .set(self.image.the_word_the_run_acts_on());
-        // And the copy the recorder makes, out of the word the read left: the same value orb's own hand-over
-        // put there, which is why the lag is the order and not the copy.
-        self.image
-            .the_run_acts_on_the_word(self.image.the_word_the_read_left());
+        // **And the manager's own 3 stops that walk**, which is what an update it does not advance the run on
+        // is: the player's job and the recorder's are both below it, so neither the word the run acts on nor
+        // last frame's of it is touched — and a press made on such a frame is still a press when the update
+        // that does advance the run reads the pair. See [`Fake::slows_its_own_run_down`].
+        let state = self.state();
+        let advances = !state.in_run || (!state.paused && self.advances_the_run());
+        if advances {
+            self.the_player_read
+                .set(self.image.the_word_the_run_acts_on());
+            // And the copy the recorder makes, out of the word the read left: the same value orb's own
+            // hand-over put there, which is why the lag is the order and not the copy.
+            self.image
+                .the_run_acts_on_the_word(self.image.the_word_the_read_left());
+        }
         // And the run's own two clocks, where an e2e test asked for a run that goes on: the frames the stage
         // has run and the frames its script has, each one further on. **A stage that stands still is not a
         // stage** — orb waits a stage's own settling out before it takes the first chapter of one, judges
@@ -1550,7 +1610,7 @@ impl Fake {
         //
         // Every run and not only one somebody is playing: a replay's stage runs its own clocks the same way,
         // and a replay whose clocks stood still is one no e2e test could tell from a run orb had stopped.
-        let state = self.state();
+        //
         // The stage over, where an e2e test said how long one lasts: the next one built inside this update,
         // which is what a transition of this game is. Instead of the clocks below rather than beside them —
         // the stage that comes out of it is at its own first frame, and one more would be the frame after.
@@ -1559,7 +1619,10 @@ impl Fake {
         }
         if state.in_run && Some(state.stage_frames) == self.stage_frames.get() {
             self.moves_on_to_the_stage(state.stage + 1);
-        } else if self.run_goes_on.get() && state.in_run {
+        } else if self.run_goes_on.get() && state.in_run && advances {
+            // Not while the game's own menu is up, which is what that flag *is*: the manager returns before any
+            // job of the run runs — see `Th07`'s `GAME_MENU_UP` — so neither clock moves and the frame the game
+            // did not advance the run on is what `resume::Record::note` writes down twice.
             self.image.has_been_in_the_stage_for(state.stage_frames + 1);
             self.image
                 .the_script_has_run_for(state.script_frames.saturating_add(1));
@@ -1591,6 +1654,44 @@ impl Fake {
             }
         }
         self.sim().clock().advance_micros(self.work_this_frame());
+    }
+
+    /// **The pause menu put up and taken down, which the manager does off the word the read left.** 0x42d927
+    /// takes the menu bit out of that word and 0x42d939 holds it against last frame's of the same word, so what
+    /// puts the menu up is the button's own edge — and what the flag then does is stop the run's update, which
+    /// is why the clocks below stand still while it is up.
+    ///
+    /// **Here because it is what makes a run's own buttons dangerous to feed back.** 妖々夢's replay never
+    /// reaches this: the recorder writes a watched replay's entry into the word the *run* acts on, and the word
+    /// the read left keeps whatever the keyboard did. A resume of orb's goes in through the read instead, so
+    /// every bit it feeds is a bit this reads — and a laid-out game that left the pause to a test's own
+    /// `is_paused` could not tell a resume that opens the menu from one that does not.
+    ///
+    /// Only in a run, the manager's update being what runs there: the mode question's own cancel is this key at
+    /// the front end, where nothing of a stage is standing.
+    /// Whether this update moves the run's clocks at all — see [`Fake::slows_its_own_run_down`], which is the
+    /// game's own answer of 3 to one update in [`SLOWED_EVERY`].
+    ///
+    /// Counted per update of a run rather than per frame of the host, because that is what the game counts:
+    /// every update orb drives itself is one of them, which is the whole point of it.
+    fn advances_the_run(&self) -> bool {
+        let updates = self.updates_of_the_run.get().wrapping_add(1);
+        self.updates_of_the_run.set(updates);
+        !self.slowed.get() || !updates.is_multiple_of(SLOWED_EVERY)
+    }
+
+    fn follows_its_manager(&self, read_before: u16) {
+        if !self.state().in_run {
+            return;
+        }
+        let word = self.word.get();
+        if self.image.is_it_paused() {
+            if word & MENU_DECIDE != 0 && read_before & MENU_DECIDE == 0 {
+                self.image.is_not_paused();
+            }
+        } else if word & MENU_BUTTON != 0 && read_before & MENU_BUTTON == 0 {
+            self.image.is_paused();
+        }
     }
 
     /// The half of a scene change that is the game's: orb asks for the ranking after a run has ended by writing

@@ -962,6 +962,21 @@ impl Image {
             .write::<u8>(super::G_GAME_MANAGER + super::GAME_MENU_UP, 1);
     }
 
+    /// And that menu gone, which is its own first item — 続ける — taken: the flag down and the run's update
+    /// running again.
+    pub fn is_not_paused(&self) {
+        self.space()
+            .write::<u8>(super::G_GAME_MANAGER + super::GAME_MENU_UP, 0);
+    }
+
+    /// Whether it is up, for a laid-out game whose own frame has to do what the manager's update does about
+    /// it — see `Th07`'s `GAME_MENU_UP`, and [`Image::the_word_the_read_left`] for the word it goes up on.
+    pub fn is_it_paused(&self) -> bool {
+        self.space()
+            .read::<u8>(super::G_GAME_MANAGER + super::GAME_MENU_UP)
+            != 0
+    }
+
     /// And a replay being watched rather than a run being played, which is the bit the game sets as it
     /// loads one.
     pub fn is_watching_a_replay(&self) {

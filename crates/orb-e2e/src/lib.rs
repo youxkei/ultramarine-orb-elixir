@@ -190,6 +190,8 @@ mod the_snapshot_held_against_itself;
 #[cfg(test)]
 mod the_snapshot_of_th07_held_against_itself;
 #[cfg(test)]
+mod the_updates_a_resume_of_th07_takes;
+#[cfg(test)]
 mod the_window;
 #[cfg(test)]
 mod the_window_going_behind;
@@ -199,3 +201,5 @@ mod the_window_of_th07;
 mod the_windows_orb_leaves_alone;
 #[cfg(test)]
 mod the_windows_orb_leaves_alone_of_th07;
+#[cfg(test)]
+mod the_word_a_run_of_th07_is_written_down_as;
