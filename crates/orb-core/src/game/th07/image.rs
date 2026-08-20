@@ -272,6 +272,15 @@ const SLOT_NAME_BYTES: usize = 0x100;
 /// And the wrapper the stream keeps its sound buffer behind, whose first word is the buffer DirectSound
 /// made — the one word orb reads rather than calls.
 const BUFFER_WRAPPER: usize = 0x033a_3000;
+/// その他の記録 as the file and the block hold them — see `Th07`'s `G_PLAY_RECORDS` for what is in there and
+/// which of the game's own code reads and writes it. Here rather than in the parent because only a laid-out game
+/// needs the layout: orb hands the block's address to the game's own parse and the game's own write takes it
+/// from there.
+const PLAY_RECORDS_BYTES: usize = 0x160;
+/// `"PLST"` as a little-endian dword, which the block is headed with (0x438d51) and the game's own parse matches
+/// (0x4454b7) — the same shape as `CARD_RECORD_TAG`.
+const PLAY_RECORDS_TAG: u32 = u32::from_le_bytes(*b"PLST");
+
 /// How many buffers that wrapper is the array of, at `+0x10` of the stream: what the game's own take-down of a
 /// stream is bounded by — 0x45d860 walks `i < [stream+0x10]`, reads `[[stream+0x4] + i*4]` and calls
 /// `IDirectSoundBuffer::Stop` through it (slot 18, `+0x48` of the vtable), and the play command's first phase
@@ -1453,6 +1462,80 @@ impl Image {
         set_score_file(name, held);
     }
 
+    /// And the file with その他の記録 in it, which is the one chunk that carries both totals and every count
+    /// under them — see `Th07`'s `G_PLAY_RECORDS`. The two times are all a test needs of it, so those are what
+    /// go in: the hours, minutes and seconds the game keeps each as.
+    pub fn its_score_file_records_times(
+        &self,
+        name: &str,
+        running: (u32, u32, u32),
+        play: (u32, u32, u32),
+    ) {
+        let mut chunk = vec![0u8; PLAY_RECORDS_BYTES];
+        chunk[..4].copy_from_slice(&PLAY_RECORDS_TAG.to_le_bytes());
+        chunk[0x4..0x6].copy_from_slice(&(PLAY_RECORDS_BYTES as u16).to_le_bytes());
+        chunk[0x6..0x8].copy_from_slice(&(PLAY_RECORDS_BYTES as u16).to_le_bytes());
+        chunk[0x8] = 1;
+        for (total, time) in [(super::RUNNING_TIME, running), (super::PLAY_TIME, play)] {
+            let (hours, minutes, seconds) = time;
+            for (at, held) in [(0, hours), (4, minutes), (8, seconds)] {
+                let at = total + at;
+                chunk[at..at + 4].copy_from_slice(&held.to_le_bytes());
+            }
+        }
+        let mut held = score_file(name);
+        held.extend_from_slice(&chunk);
+        set_score_file(name, held);
+    }
+
+    /// And what the block holds of each now, which is where a parse of one of those files puts them.
+    pub fn the_times_it_records(&self) -> ((u32, u32, u32), (u32, u32, u32)) {
+        let read = |total: usize| {
+            let at = |offset| {
+                mem::read_committed::<u32>(super::G_PLAY_RECORDS + total + offset)
+                    .unwrap_or_default()
+            };
+            (at(0), at(4), at(8))
+        };
+        (read(super::RUNNING_TIME), read(super::PLAY_TIME))
+    }
+
+    /// A span of 総プレイ時間 counted the way the game counts one: milliseconds added to the last of the four
+    /// and carried up through seconds and minutes into hours — 0x43a3f4, and 0x43a2ff for the other total.
+    ///
+    /// **Where the game puts a span and not where orb would**: the three points that call it are the front end's
+    /// own update, a run beginning and a run's teardown, so a test says one by saying which of those the game is
+    /// in and then that a span happened.
+    pub fn counts_a_play_span(&self, milliseconds: u32) {
+        self.counts_a_span(super::PLAY_TIME, milliseconds);
+    }
+
+    /// And a span of 総起動時間, which is the same arithmetic on the three before it: that one is every frame the
+    /// game has been up, so it is counted wherever the game is.
+    pub fn counts_a_running_span(&self, milliseconds: u32) {
+        self.counts_a_span(super::RUNNING_TIME, milliseconds);
+    }
+
+    fn counts_a_span(&self, total: usize, milliseconds: u32) {
+        let space = self.space();
+        let at = |offset| super::G_PLAY_RECORDS + total + offset;
+        // Read out as the one number the four are, added to, and put back carried — which is what the game's own
+        // chain of divisions leaves, the block being normalised at every step of it.
+        let held = [0, 4, 8, 0xc].map(|offset| space.read::<u32>(at(offset)));
+        let [hours, minutes, seconds, ms] = held;
+        let total = ((hours as u64 * 60 + minutes as u64) * 60 + seconds as u64) * 1000
+            + ms as u64
+            + milliseconds as u64;
+        for (offset, held) in [
+            (0, total / 3_600_000),
+            (4, total / 60_000 % 60),
+            (8, total / 1000 % 60),
+            (0xc, total % 1000),
+        ] {
+            space.write::<u32>(at(offset), held as u32);
+        }
+    }
+
     /// And the save the game makes for itself, which its own run build makes before it empties the records
     /// (0x42e646): the same call orb asks for, made where the game makes it.
     pub fn saves_its_score_file(&self, from: &str, into: Option<&str>) {
@@ -1899,6 +1982,9 @@ impl Image {
         // And the card records' own parse, which orb calls here as well as hooks: what the front end read is
         // the game's own file's, and this is the call that lays the mode's own over it.
         super::set_parse_card_records(parses_the_card_records as *const () as usize);
+        // And その他の記録's, which orb calls for the same reason: the two totals and the counts under them are
+        // a record of runs, so the mode's own file is where they belong.
+        super::set_parse_play_records(parses_the_play_records as *const () as usize);
         super::set_release_score_file(releases_the_score_file as *const () as usize);
         || {
             (
@@ -2435,6 +2521,35 @@ extern "fastcall" fn reads_the_score_file(_name: *const u8) -> usize {
         mem::write_bytes(SCORE_FILE_IMAGE + FILE_HEADER_BYTES, &held);
     }
     SCORE_FILE_IMAGE
+}
+
+/// その他の記録 out of a file's own image, as 0x44547f takes them: the chunk tagged `PLST` copied whole over
+/// whatever the caller gave.
+unsafe extern "fastcall" fn parses_the_play_records(image: usize, records: usize) -> i32 {
+    let Some(chunks) = mem::read_committed::<u32>(image + FILE_CHUNKS_AT) else {
+        return -1;
+    };
+    let Some(bytes) = mem::read_committed::<u32>(image + FILE_BYTES) else {
+        return -1;
+    };
+    let mut at = image + chunks as usize;
+    let end = image + bytes as usize;
+    while at + PLAY_RECORDS_BYTES <= end {
+        if mem::read_committed::<u32>(at) == Some(PLAY_RECORDS_TAG)
+            && mem::read_committed::<u8>(at + 8) == Some(1)
+        {
+            let chunk = unsafe { mem::read_bytes(at, PLAY_RECORDS_BYTES) };
+            unsafe { mem::write_bytes(records, &chunk) };
+            return 0;
+        }
+        // Chunk by chunk, by the size each carries — which is what the game's own walk steps by (0x4454ef).
+        let step = mem::read_committed::<u16>(at + 4).unwrap_or_default() as usize;
+        if step == 0 {
+            return -1;
+        }
+        at += step;
+    }
+    0
 }
 
 extern "fastcall" fn parses_the_practice_scores(file: usize, into: usize) -> i32 {

@@ -143,6 +143,72 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
     });
 }
 
+/// The two play times その他の記録 is seeded with, one per file: hours, minutes and seconds, the way the game
+/// keeps them. Different in every field, so a read that landed in the wrong file cannot come out right.
+const THE_GAMES_PLAY_TIME: (u32, u32, u32) = (1, 42, 32);
+const THE_MODES_PLAY_TIME: (u32, u32, u32) = (7, 13, 51);
+/// And 総起動時間 in each, which the same read replaces and which belongs to neither mode: the game has been up
+/// for as long as it has been up whichever of them a sitting is spent in.
+const THE_GAMES_RUNNING_TIME: (u32, u32, u32) = (3, 8, 19);
+const THE_MODES_RUNNING_TIME: (u32, u32, u32) = (11, 27, 4);
+
+/// A span of time the game counted while no mode had been chosen: long enough to carry into minutes, so that a
+/// test cannot pass on seconds alone.
+const A_SPAN_MS: u32 = 95_000;
+
+/// That span added to a time the game keeps as hours, minutes and seconds.
+fn plus(time: (u32, u32, u32), milliseconds: u32) -> (u32, u32, u32) {
+    let (hours, minutes, seconds) = time;
+    let total = ((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds;
+    (total / 3_600_000, total / 60_000 % 60, total / 1000 % 60)
+}
+
+/// **Time spent before a mode was chosen belongs to both files**, which is what the title screen and the replay
+/// menu are: nobody has said yet whether the runs of this sitting are ones a rewind can be had in. So the span
+/// counted there is carried onto whichever file the sitting turns out to write.
+///
+/// Left alone it is worse than lost. The block the game keeps その他の記録 in is replaced wholesale when the
+/// mode's own file is read over it — see `Th07::read_what_the_modes_file_records` — so the span counted before
+/// that read is dropped, and before orb read that file at all it was written into the *other* mode's file.
+#[test]
+fn the_time_of_th07_before_a_mode_was_chosen_is_counted_in_the_modes_own_file() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            Display::agreed(120),
+            "th07-the-play-time",
+            Work::wandering(WORK_US),
+        );
+        game.image().its_score_file_records_times(
+            "score.dat",
+            THE_GAMES_RUNNING_TIME,
+            THE_GAMES_PLAY_TIME,
+        );
+        game.image().its_score_file_records_times(
+            "pointdevice_score.dat",
+            THE_MODES_RUNNING_TIME,
+            THE_MODES_PLAY_TIME,
+        );
+
+        // A span of each counted with the front end up, which is where no mode has been chosen. The frame either
+        // side of it is what orb sees it in: what a span *is* is the block having gone up since the last look.
+        game.frame();
+        game.image().counts_a_play_span(A_SPAN_MS);
+        game.image().counts_a_running_span(A_SPAN_MS);
+        game.frame();
+
+        // And the mode settled, which is the read that lays that file's own records over the block.
+        game.reads_what_its_menus_offer();
+        assert_eq!(
+            game.image().the_times_it_records(),
+            (
+                plus(THE_MODES_RUNNING_TIME, A_SPAN_MS),
+                plus(THE_MODES_PLAY_TIME, A_SPAN_MS),
+            ),
+            "the time counted before a mode was chosen is not in the mode's own file",
+        );
+    });
+}
+
 #[test]
 fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
     in_its_own_process(|| {
@@ -169,6 +235,19 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
         // of the game's own file whichever mode orb is in: a first 完全無欠 session answering it out of a
         // new file of its own would lock every stage a `score.dat` had already earned. orb brackets exactly
         // that callback, which in this game is 0x45c4c8 — see `Th07::hooks`.
+        // その他の記録 in each of the two files, and not the same in both: what a play time is is time spent in
+        // a mode, so which file a read of it lands in is the whole question below.
+        game.image().its_score_file_records_times(
+            "score.dat",
+            THE_GAMES_RUNNING_TIME,
+            THE_GAMES_PLAY_TIME,
+        );
+        game.image().its_score_file_records_times(
+            "pointdevice_score.dat",
+            THE_MODES_RUNNING_TIME,
+            THE_MODES_PLAY_TIME,
+        );
+
         assert_eq!(
             game.reads_what_its_menus_offer(),
             "score.dat",
@@ -186,6 +265,16 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
                 .said("score: what the mode's own file records read out of it again"),
             "the mode's own records were left as the game's own file had them:\n  {}",
             game.log().lines().join("\n  ")
+        );
+
+        // **And その他の記録 is one of those records**, which is the screen headed by the two totals: a play time
+        // is time spent in a mode, and the counts under it are counts of that mode's runs. Left as the game's
+        // own file has them, the block the game writes carries the other mode's totals into this mode's file —
+        // and it is written whole, out of the block, by the game's own save.
+        assert_eq!(
+            game.image().the_times_it_records(),
+            (THE_MODES_RUNNING_TIME, THE_MODES_PLAY_TIME),
+            "その他の記録 came back as the game's own file has them, not the mode's",
         );
 
         // And the game's file is never written in this mode: the one write 妖々夢 makes of it is the screen a

@@ -1850,6 +1850,10 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
+    // Before anything that can return early, because what this watches is the game's own counting of time and
+    // the frames it counts on include the ones orb holds the chain back for — the mode question among them, which
+    // is exactly the screen where nobody has chosen yet whose time it is.
+    unsafe { runtime.game.notice_the_time() };
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.

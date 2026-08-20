@@ -602,6 +602,16 @@ pub trait Game {
     /// Must run on the game's main thread, with the game past initialisation.
     unsafe fn read_state(&self) -> State;
 
+    /// Notices what the game has counted of its own play time since the frame before, so that a span counted
+    /// before anybody chose a mode can be carried onto whichever file the sitting turns out to write.
+    ///
+    /// **Nothing for a game whose score file does not record one**, which is what the default is: 紅魔郷's
+    /// その他の記録 has no such total, so there is nothing of it to attribute.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, once per frame.
+    unsafe fn notice_the_time(&self) {}
+
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn window(&self) -> Hwnd;

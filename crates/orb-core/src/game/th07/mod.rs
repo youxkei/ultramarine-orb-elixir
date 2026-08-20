@@ -1251,11 +1251,55 @@ const SAVE_PHASE_WRITES: i32 = 0x13;
 const PARSE_CARD_RECORDS: usize = 0x00445069;
 /// `push ebp; mov ebp,esp; sub esp,0x14` — position-independent, 6 bytes, read out of the exe at that address.
 const PARSE_CARD_RECORDS_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x14];
+
+/// **And the same parse for what the game calls その他の記録**: 0x44547f, the file's image in `ecx` and the
+/// destination in `edx`, which walks the image's chunks the way [`PARSE_CARD_RECORDS`] does and copies the one
+/// tagged `PLST` — 0x58 dwords of it, at 0x4454d4 — over whatever it is given.
+///
+/// That block is [`G_PLAY_RECORDS`], and it is the whole of that screen: the two totals it heads with and every
+/// count under them. The write puts it in the file as it stands (0x445829 copies it out of the block itself),
+/// so what a file records is whatever is in that block when the game saves.
+const PARSE_PLAY_RECORDS: usize = 0x0044547f;
+
+/// その他の記録 as the game keeps them, which is the `PLST` chunk in its own memory: the tag at `+0`, the sizes
+/// at `+4` and `+6`, the version byte at `+8` that both the parse and the write hold at 1, and the records from
+/// `+0xc`.
+///
+/// **Both totals are wall-clock**, kept as hours, minutes and seconds rather than one number: 0x43a3f4 takes
+/// `timeGetTime`'s difference from its own mark and divides it by 0x36ee80, 0xea60 and 0x3e8 into the three.
+/// **How long it is, what it is tagged and where each record sits are the laid-out game's**, which is what
+/// reads and writes them: orb hands this address to the game's own parse and the game's own write takes it from
+/// here, so the only code that needs the layout is the one standing in for those — see `image.rs`.
+///
+/// What it holds, for the reader rather than for any code here:
+///
+/// - `+0xc`, three dwords: **総起動時間**, hours, minutes and seconds. Every frame the game has been up —
+///   0x43a27f brings it to now, and every draw of that screen and the write itself call it first (0x448109,
+///   0x445824).
+/// - `+0x1c`, three more: **総プレイ時間**. Added to by 0x43a3f4, which is called at three points and nowhere
+///   else — the front end's own update (0x403ed1), a run beginning (0x42d9d7) and a run's teardown (0x42f37e) —
+///   so it is the time between those.
+/// - `+0x28` onward: a record per difficulty, 0x2c apart. One field of those is orb's to write: **リトライ回数**
+///   at `+0x48` with its total at `+0x150`, which the game bumps at 0x42ee85 for a run that began while the
+///   supervisor was asked for 0xa — the pause menu's 「最初からやり直す」. **Nothing bumps it in pointdevice
+///   mode**, a rewind being what replaces both dying and starting over, which is what leaves it free for the
+///   retries orb counts.
+const G_PLAY_RECORDS: usize = 0x0062f4e0;
+/// Where the two totals' fours sit in it, which are the fields of the block orb reads and writes for itself.
+const RUNNING_TIME: usize = 0xc;
+const PLAY_TIME: usize = 0x1c;
+
 handed_over!(
     PARSE_CARD_RECORDS_SLOT,
     parse_card_records,
     set_parse_card_records,
     PARSE_CARD_RECORDS
+);
+handed_over!(
+    PARSE_PLAY_RECORDS_SLOT,
+    parse_play_records,
+    set_parse_play_records,
+    PARSE_PLAY_RECORDS
 );
 
 /// The read of the score file that fills the ranking, which is that screen's own added callback: 0x449b05,
@@ -1421,6 +1465,17 @@ handed_over!(DRAW_STRING_AT, draw_string, set_draw_string, DRAW_STRING);
 handed_over!(BORDER_UP_AT, border_up, set_border_up, BORDER_UP);
 /// What [`Th07::says_what_it_reads_of_the_front_end`] said last, so that it says it once per change.
 static SAID_OF_THE_FRONT_END: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+
+/// 総プレイ時間 as [`Th07::notice_the_time`] last saw it, and how much of it was counted before anybody had
+/// chosen a mode — see [`G_PLAY_RECORDS`].
+///
+/// Statics because what they are about is the sitting rather than any one frame, and because nothing above
+/// `Game` has a place for a game's own bookkeeping: the pair is written on the game's main thread and read on
+/// it, the way [`SAID_OF_THE_FRONT_END`] is.
+static WATCHED_RUNNING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static WATCHED_PLAY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SINCE_THE_LAUNCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static UNATTRIBUTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 handed_over!(STOP_MUSIC_AT, stop_music_call, set_stop_music, STOP_MUSIC);
 handed_over!(
@@ -1794,6 +1849,32 @@ impl Th07 {
 
     /// The track the source is reading, as the name its own record carries — see [`RECORD_NAME`]. Nothing
     /// where no track is playing.
+    /// One of the block's two totals as the one number its four dwords are: milliseconds, which is what the game
+    /// counts in before it carries them up — see [`G_PLAY_RECORDS`].
+    fn the_time(total: usize) -> u64 {
+        let at = |offset| {
+            mem::read_committed::<u32>(G_PLAY_RECORDS + total + offset).unwrap_or_default() as u64
+        };
+        ((at(0) * 60 + at(4)) * 60 + at(8)) * 1000 + at(0xc)
+    }
+
+    /// And put back the way the game leaves it, carried into hours, minutes, seconds and the milliseconds
+    /// behind them: every field of it is normalised at every step of the game's own chain of divisions, so a
+    /// block written any other way is one that screen would read out wrong.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn set_time(total: usize, milliseconds: u64) {
+        for (offset, held) in [
+            (0, milliseconds / 3_600_000),
+            (4, milliseconds / 60_000 % 60),
+            (8, milliseconds / 1000 % 60),
+            (0xc, milliseconds % 1000),
+        ] {
+            unsafe { mem::write::<u32>(G_PLAY_RECORDS + total + offset, held as u32) };
+        }
+    }
+
     fn the_track_playing() -> Option<Vec<u8>> {
         let stream = Self::the_stream()?;
         let source = mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)?;
@@ -2895,6 +2976,28 @@ impl Game for Th07 {
     ///
     /// Asked for by the name orb asks for, which is what puts the answer in the mode's file: the fork is over
     /// `CreateFileA` and decides by the name, so this open lands where every other open of `score.dat` lands.
+    unsafe fn notice_the_time(&self) {
+        // **Whose a span of 総プレイ時間 is, is where the game was when it was counted.** The three points that
+        // add one are the front end's own update and a run's two ends, so a span counted outside a run is one
+        // nobody has said the mode of yet — see [`G_PLAY_RECORDS`].
+        let playing = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_SCENE) } == SCENE_RUN;
+        // **総起動時間 is nobody's either way**: the game has been up for as long as it has been up whichever
+        // mode the sitting is spent in, so every span of it belongs to both files and all of it is carried.
+        for (total, watched, carried) in [
+            (RUNNING_TIME, &WATCHED_RUNNING, &SINCE_THE_LAUNCH),
+            (PLAY_TIME, &WATCHED_PLAY, &UNATTRIBUTED),
+        ] {
+            let now = Self::the_time(total);
+            let before = watched.swap(now, Ordering::Relaxed);
+            // Only ever forward: the block going *back* is the mode's own file being laid over it, which is the
+            // one thing here that is not the game counting — and there the mark is set again by hand.
+            let span = now.saturating_sub(before);
+            if span > 0 && !(playing && total == PLAY_TIME) {
+                carried.fetch_add(span, Ordering::Relaxed);
+            }
+        }
+    }
+
     unsafe fn read_what_the_modes_file_records(&self) {
         let read: unsafe extern "fastcall" fn(*const u8) -> usize =
             unsafe { std::mem::transmute(read_score_file()) };
@@ -2902,6 +3005,12 @@ impl Game for Th07 {
             unsafe { std::mem::transmute(parse_practice_scores()) };
         let cards: unsafe extern "fastcall" fn(usize, usize) -> i32 =
             unsafe { std::mem::transmute(parse_card_records()) };
+        // And その他の記録, which are a record of runs like the two above: the play time under a mode is time
+        // spent in that mode, and the counts beneath it are counts of that mode's runs. Left as the game's own
+        // file has them, the block the game writes whole at a save carries one mode's totals into the other's
+        // file — see [`G_PLAY_RECORDS`].
+        let records: unsafe extern "fastcall" fn(usize, usize) -> i32 =
+            unsafe { std::mem::transmute(parse_play_records()) };
         let release: unsafe extern "fastcall" fn(usize) =
             unsafe { std::mem::transmute(release_score_file()) };
         let file = unsafe { read(crate::score::asked_for()) };
@@ -2910,7 +3019,34 @@ impl Game for Th07 {
         }
         unsafe { scores(file, G_PRACTICE_SCORES) };
         unsafe { cards(file, G_CARD_RECORDS) };
+        unsafe { records(file, G_PLAY_RECORDS) };
         unsafe { release(file) };
+        // **And the time nobody had chosen the mode of put back on top of what that file records.** The block
+        // has just been replaced wholesale, so a span counted before this read would be gone — and a sitting
+        // spent at the title before a mode was picked is time in both modes and lost from neither.
+        for (total, watched, carried, what) in [
+            (
+                RUNNING_TIME,
+                &WATCHED_RUNNING,
+                &SINCE_THE_LAUNCH,
+                "the game has been up",
+            ),
+            (
+                PLAY_TIME,
+                &WATCHED_PLAY,
+                &UNATTRIBUTED,
+                "counted before a mode was chosen",
+            ),
+        ] {
+            let carried = carried.load(Ordering::Relaxed);
+            if carried > 0 {
+                unsafe { Self::set_time(total, Self::the_time(total) + carried) };
+                log!("score: the {carried}ms {what} carried onto the mode's own file");
+            }
+            // Whatever the file and the carry left, which is where the next span is measured from: the read is
+            // not the game counting, and a mark left behind it would make the difference one.
+            watched.store(Self::the_time(total), Ordering::Relaxed);
+        }
         log!("score: what the mode's own file records read out of it again");
     }
 
