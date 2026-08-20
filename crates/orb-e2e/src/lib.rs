@@ -164,6 +164,8 @@ mod the_player_a_stage_starts;
 #[cfg(test)]
 mod the_process_orb_woke_up_in;
 #[cfg(test)]
+mod the_run_a_retried_chapter_of_th07_writes_down;
+#[cfg(test)]
 mod the_run_left_behind;
 #[cfg(test)]
 mod the_run_of_th07_left_behind;
