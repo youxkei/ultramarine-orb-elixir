@@ -120,6 +120,10 @@ const A_TEXTURE: usize = 0x0338_1000;
 /// reads through. Bases of this file's choosing, the lengths the game's own.
 const STREAM: usize = 0x033a_0000;
 const SOURCE: usize = 0x033a_1000;
+/// And where the pair the game makes for the *next* track lands, which is not where the last pair was: a track
+/// change deletes both and allocates both again — see [`Image::streams_it_again_elsewhere`].
+const ANOTHER_STREAM: usize = 0x033a_8000;
+const ANOTHER_SOURCE: usize = 0x033a_9000;
 
 /// The score-file object a save allocates, laid out where that allocation would be: a base of this file's
 /// choosing, and the one field of it anything reads is the phase at `super::RESULT_PHASE` — which is what says
@@ -1776,6 +1780,20 @@ impl Image {
             STAGE_SONGS + super::FIGHT_SONG_NAME,
             fight.to_bytes_with_nul(),
         );
+        // And the one a fight's second phase brings, which is the game's own string rather than this stage's —
+        // see `Th07`'s `SECOND_PHASE_SONG`. Laid out here because a real game always has it: it is a constant of
+        // the exe, so a laid-out one without it is a game orb reads a name out of and finds nothing.
+        if space.has_room(super::SECOND_PHASE_SONG, super::SONG_NAME_BYTES) {
+            space.map(
+                super::SECOND_PHASE_SONG,
+                super::SONG_NAME_BYTES,
+                Kind::Private,
+            );
+        }
+        space.write_bytes(
+            super::SECOND_PHASE_SONG,
+            SECOND_PHASE_SONG_NAME.to_bytes_with_nul(),
+        );
     }
 
     /// And a track loaded into one of the player's own slots, which is what a stage's build does with two of
@@ -1805,29 +1823,66 @@ impl Image {
     /// Its own call because installing a sound tells the address space where the buffer is, and a second
     /// telling is a region laid out twice.
     pub fn streams_it_again(&self, sound: &orb_sim::Sound, track: Track, left: u32) {
+        self.streams_it_at(STREAM, SOURCE, sound, track, left);
+    }
+
+    /// **And another track through objects the game made somewhere else**, which is what a track change really
+    /// leaves: the stop deletes the stream and its source (0x44cf18) and the play makes new ones (0x45cb93), so
+    /// where they land is the allocator's to say and not the same place every time.
+    ///
+    /// Its own call because nothing else needs it: what it is for is a restore that skips *the addresses it
+    /// wrote down* rather than the ones the sound is at now — which is a restore writing over the stream the
+    /// game is playing through.
+    pub fn streams_it_again_elsewhere(&self, sound: &orb_sim::Sound, track: Track, left: u32) {
+        self.streams_it_at(ANOTHER_STREAM, ANOTHER_SOURCE, sound, track, left);
+    }
+
+    fn streams_it_at(
+        &self,
+        stream: usize,
+        source: usize,
+        sound: &orb_sim::Sound,
+        track: Track,
+        left: u32,
+    ) {
         let space = self.space();
         for (base, bytes) in [
-            (STREAM, super::STREAM_BYTES),
-            (SOURCE, super::SOURCE_BYTES),
+            (stream, super::STREAM_BYTES),
+            (source, super::SOURCE_BYTES),
             (BUFFER_WRAPPER, size_of::<usize>()),
         ] {
             if space.has_room(base, bytes) {
                 space.map(base, bytes, Kind::Private);
             }
         }
-        space.write::<usize>(super::G_SOUND_PLAYER + super::STREAM, STREAM);
-        space.write::<usize>(STREAM + super::STREAM_BUFFER, BUFFER_WRAPPER);
+        space.write::<usize>(super::G_SOUND_PLAYER + super::STREAM, stream);
+        space.write::<usize>(stream + super::STREAM_BUFFER, BUFFER_WRAPPER);
         space.write::<usize>(BUFFER_WRAPPER, sound.buffer_object());
         // And how many buffers that array is, which is what the game's own take-down of this stream walks —
         // see `STREAM_BUFFER_COUNT`. One, this being the one buffer a laid-out sound is played through.
-        space.write::<u32>(STREAM + STREAM_BUFFER_COUNT, 1);
-        space.write::<u32>(STREAM + super::STREAM_BUFFER_BYTES, sound.buffer_size());
-        space.write::<u32>(STREAM + super::STREAM_CHUNK, sound.notify_size());
-        space.write::<u32>(STREAM + super::STREAM_WRITE_AT, 0);
-        space.write::<usize>(STREAM + super::STREAM_SOURCE, SOURCE);
-        space.write::<usize>(SOURCE + super::SOURCE_FILE, sound.mmio());
-        space.write::<u32>(SOURCE + super::SOURCE_LEFT, left);
-        space.write::<usize>(SOURCE + super::SOURCE_RECORD, record_named(track.name));
+        space.write::<u32>(stream + STREAM_BUFFER_COUNT, 1);
+        space.write::<u32>(stream + super::STREAM_BUFFER_BYTES, sound.buffer_size());
+        space.write::<u32>(stream + super::STREAM_CHUNK, sound.notify_size());
+        space.write::<u32>(stream + super::STREAM_WRITE_AT, 0);
+        space.write::<usize>(stream + super::STREAM_SOURCE, source);
+        space.write::<usize>(source + super::SOURCE_FILE, sound.mmio());
+        space.write::<u32>(source + super::SOURCE_LEFT, left);
+        space.write::<usize>(source + super::SOURCE_RECORD, record_named(track.name));
+    }
+
+    /// Which stream the player names now and how much of the track that one believes is left, which is the
+    /// countdown the loop is taken on — read wherever that stream is.
+    ///
+    /// Both, because the pair is what a restore can get wrong: the field naming another object is one thing and
+    /// the object's own countdown having been written over is another. Nothing where the chain is broken, which
+    /// is a player naming no stream at all.
+    pub fn the_stream_its_player_names(&self) -> Option<(usize, u32)> {
+        let stream = mem::read_committed::<usize>(super::G_SOUND_PLAYER + super::STREAM)
+            .filter(|it| *it != 0)?;
+        let source =
+            mem::read_committed::<usize>(stream + super::STREAM_SOURCE).filter(|it| *it != 0)?;
+        let left = mem::read_committed::<u32>(source + super::SOURCE_LEFT)?;
+        Some((stream, left))
     }
 
     /// The stream where the game leaves it when nothing is playing, which is what the player's own field says
@@ -2178,6 +2233,9 @@ static MADE_A_STREAM_OVER: Mutex<Option<String>> = Mutex::new(None);
 /// The name the game's own calls hand `PlayBGM`, which is the file every track of this game is in — see
 /// `Th07`'s `MUSIC_FILE` for where the game keeps it and which calls pass it.
 const MUSIC_FILE_NAME: &CStr = c"thbgm.dat";
+/// And the name the game's own sixth stage loads its second phase's song by, which is a string of the exe's —
+/// see `Th07`'s `SECOND_PHASE_SONG`.
+const SECOND_PHASE_SONG_NAME: &CStr = c"bgm/th07_13b.mid";
 /// How much of a name that call reads, which is the room the player keeps the one it is given in — `+0x38bc`,
 /// the buffer 0x44c041 copies into.
 const MUSIC_FILE_NAME_BYTES: usize = 0x100;

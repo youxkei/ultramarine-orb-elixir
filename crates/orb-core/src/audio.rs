@@ -9,9 +9,7 @@
 //!
 //! **Which file, and how it is moved, is the one thing the two games do not share** — see [`Track`].
 
-use orb_api::dsound::{
-    self, DSBPLAY_LOOPING, DSBSTATUS_BUFFER_LOST, DSBSTATUS_LOOPING, DSBSTATUS_PLAYING,
-};
+use orb_api::dsound::{self, DSBPLAY_LOOPING, DSBSTATUS_BUFFER_LOST, DSBSTATUS_PLAYING};
 use orb_api::{SoundBuffer, module};
 
 use crate::{detail, log};
@@ -117,7 +115,6 @@ pub struct Saved {
     bytes: Vec<u8>,
     play_cursor: u32,
     playing: bool,
-    looping: bool,
     file_position: i32,
     /// What `write_offset` held while all of the above was read.
     token: u32,
@@ -175,8 +172,9 @@ impl Music {
         Some(Saved {
             bytes,
             play_cursor,
+            // **And not whether it was going round**, which a played stream always is: see
+            // [`Music::restore`], where a capture that found that bit clear was heard as the music stopping.
             playing: status & DSBSTATUS_PLAYING != 0,
-            looping: status & DSBSTATUS_LOOPING != 0,
             file_position,
             token,
             identity,
@@ -203,19 +201,48 @@ impl Music {
     /// Must run after the game's memory has been restored, so the streaming
     /// bookkeeping and what this puts back describe the same instant. No game
     /// thread may be suspended, and `still_current` must hold.
+    /// **Going round whatever the capture found**, which is the one thing here that is not put back as it was:
+    /// a streaming buffer *is* a ring — the game's own thread writes into it ahead of the mixer and the mixer
+    /// wraps at its end for as long as the track lasts — so `DSBPLAY_LOOPING` is what a played stream is and not
+    /// a state a chapter was taken in. A launch of 妖々夢 retrying a resumed stage's first chapter had it back
+    /// as `status 0x1`, playing with that bit clear: every number the restore asked for came back and the music
+    /// stopped where the buffer ended, with the game's own thread still filling one nobody was playing.
     pub unsafe fn restore(&self, saved: &Saved) {
         dsound::stop(self.buffer);
-        unsafe {
-            self.with_locked_buffer(|locked| locked.copy_from_slice(&saved.bytes));
-            dsound::set_current_position(self.buffer, saved.play_cursor);
-            if saved.file_position >= 0 {
-                self.track.seek(saved.file_position, SEEK_SET);
-            }
-        }
+        let locked = unsafe {
+            self.with_locked_buffer(|locked| locked.copy_from_slice(&saved.bytes))
+                .is_some()
+        };
+        dsound::set_current_position(self.buffer, saved.play_cursor);
+        let seeked = if saved.file_position >= 0 {
+            unsafe { self.track.seek(saved.file_position, SEEK_SET) }
+        } else {
+            saved.file_position
+        };
         if saved.playing {
-            let flags = if saved.looping { DSBPLAY_LOOPING } else { 0 };
-            dsound::play(self.buffer, 0, 0, flags);
+            dsound::play(self.buffer, 0, 0, DSBPLAY_LOOPING);
         }
+        // **What was put back, and what the game's own bookkeeping says beside it.** A chapter whose track has
+        // not changed is put back through this and nothing is written down about it, which is a restore whose
+        // sound can only be reported as "the music stopped" — a launch of 妖々夢 retrying stage 4's first
+        // chapter had exactly that to go on. The pair to watch is the file and the countdown the loop is taken
+        // on: they are moved by the streaming thread together, and this puts one of them back while the memory
+        // copy puts the other.
+        let (asked, status) = dsound::get_status(self.buffer);
+        let (_, cursor, _) = dsound::get_current_position(self.buffer);
+        detail!(
+            "sound: put back at {} in the file (asked {}), cursor {} (asked {}), \
+             {} byte(s) left, next write at {:?}, {} locked, status {status:#x} (asked {asked}), \
+             {}",
+            seeked,
+            saved.file_position,
+            cursor,
+            saved.play_cursor,
+            orb_api::mem::read_committed::<u32>(self.bytes_left).unwrap_or_default(),
+            self.token(),
+            if locked { "buffer" } else { "nothing" },
+            if saved.playing { "playing" } else { "silent" },
+        );
     }
 
     /// The mixer stopped and nothing else touched, which is what a chapter that had a stream and no sound
@@ -340,7 +367,9 @@ impl Music {
     /// Must run on the game's main thread, between frames, with no game thread suspended: this locks
     /// the buffer, which the streaming thread can be inside DirectSound holding.
     pub unsafe fn play_from(&self, offset: i32) -> bool {
-        let (asked, status) = dsound::get_status(self.buffer);
+        // Asked so that a buffer nobody can ask about is left alone, and the status itself is not read: what
+        // this plays it back as is a ring, for [`Music::restore`]'s reason.
+        let (asked, _) = dsound::get_status(self.buffer);
         if asked < 0 {
             return false;
         }
@@ -380,12 +409,7 @@ impl Music {
         }
         dsound::set_current_position(self.buffer, 0);
         unsafe { orb_api::mem::write::<u32>(self.write_offset, 0) };
-        let flags = if status & DSBSTATUS_LOOPING != 0 {
-            DSBPLAY_LOOPING
-        } else {
-            0
-        };
-        dsound::play(self.buffer, 0, 0, flags);
+        dsound::play(self.buffer, 0, 0, DSBPLAY_LOOPING);
         true
     }
 

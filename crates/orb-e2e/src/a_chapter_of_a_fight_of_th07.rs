@@ -14,6 +14,7 @@
 use crate::fake::th07::Fake;
 use crate::fake::{Display, Launched, READS_KEYS_AFTER, Work, in_its_own_process};
 use orb_config::LogLevel;
+use orb_sim::keys;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
@@ -206,6 +207,116 @@ fn a_midboss_of_th07_is_a_midboss_whatever_the_stages_start_was_taken_under() {
         on(&game);
         game.the_stages_own_boss_arrives();
         chapter(&game, 4, "a boss nonspell");
+    });
+}
+
+/// **And a chapter of the fight's second phase keeps its music like every other of that fight.**
+///
+/// The song a second phase brings is a third one, and its name is the game's own rather than its stage's — see
+/// `Th07`'s `SECOND_PHASE_SONG`. Read against the two the stage's data carries it is neither the stage's song nor
+/// the fight's, so a chapter taken there is one whose music a restore *rewinds* while the chapters either side of
+/// it are left playing.
+///
+/// A launch of 妖々夢 is what that cost: retrying a chapter of its sixth stage's second phase, the song was heard
+/// looping over a stretch of itself and then still playing at the title — the restore having put back a stream
+/// the second phase had already replaced.
+#[test]
+fn a_chapter_of_th07s_second_phase_keeps_its_music() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-second-phase",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        // The fight the stage ends with, whose chapters are the ones left playing.
+        on(&game);
+        game.the_stages_own_boss_arrives();
+        chapter(&game, 2, "a boss nonspell");
+        let first_phase = log
+            .lines()
+            .iter()
+            .find(|line| line.contains("chapter 2 at frame"))
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            first_phase.contains("music=keep"),
+            "the fight's own song was rewound with a chapter of its fight: {first_phase}",
+        );
+
+        // And its second phase, which is the third song: the same fight, so the same answer.
+        on(&game);
+        game.its_second_phase_begins();
+        game.the_attack_changes();
+        chapter(&game, 3, "a boss nonspell");
+        let second_phase = log
+            .lines()
+            .iter()
+            .find(|line| line.contains("chapter 3 at frame"))
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            second_phase.contains("music=keep"),
+            "a chapter of the second phase rewinds a song the chapters around it leave playing: \
+             {second_phase}",
+        );
+    });
+}
+
+/// **And a chapter left playing leaves the stream the game is playing through alone**, wherever that stream now
+/// is.
+///
+/// A track change deletes the stream and its source and makes both again, so the pair the player names after one
+/// is not the pair it named before. What a restore holds back is the ranges the sound was in *when the chapter
+/// was taken*: read from there, the stream the game is playing through now is not held back at all, and the
+/// snapshot's bytes go over its own — the countdown the loop is taken on among them.
+///
+/// Which is heard as the song going round a stretch of itself: the countdown runs out where the file is not, so
+/// no loop of the track is taken and the buffer plays its own contents over. A launch of 妖々夢 retrying a
+/// chapter of its sixth stage's fight had exactly that, and the song still playing at the title after it.
+#[test]
+fn a_chapter_of_th07_left_playing_leaves_the_stream_it_is_playing_through() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-stream-elsewhere",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        // A chapter of the fight, taken with the fight's own song playing: one left playing rather than rewound.
+        on(&game);
+        game.the_stages_own_boss_arrives();
+        chapter(&game, 2, "a boss nonspell");
+
+        // And then the second phase, whose stream is a pair of objects made somewhere else. The countdown that
+        // one is on is what a restore must not touch.
+        game.its_second_phase_begins();
+        let playing_through = game.the_stream_its_player_names();
+        assert!(
+            playing_through.is_some(),
+            "the second phase left the player naming no stream",
+        );
+
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 2"));
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        assert_eq!(
+            game.the_stream_its_player_names(),
+            playing_through,
+            "the restore did not leave the stream the game is playing through as it was:\n  {}",
+            log.lines().join("\n  ")
+        );
     });
 }
 

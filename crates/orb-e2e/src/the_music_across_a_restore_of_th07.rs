@@ -208,16 +208,17 @@ fn a_chapter_of_th07_taken_with_nothing_audible_comes_back_to_that_silence() {
             "the music was not taken down through the game's own call",
         );
 
-        // **And the silence taken off in the restore's own frame**, the ask having been carried out there: what
-        // a restore asks for is the call that *makes* a stream — `Th07`'s `PLAY_BGM` — so the buffer being
-        // stopped is one that exists and is playing. While the ask was a queued command instead, stopping it
-        // here stopped nothing, and a launch of 妖々夢 heard exactly that: `the track asked for is stopped
-        // again` in the log and the song audible after it.
+        // **And the silence waits for the game's own sound to have carried that ask out**, which is more than the
+        // one run the restore's own frame gives it: what orb has asked for is a command in the player's own
+        // queue, and stopping a buffer the play has not reached yet stops nothing. A launch of 妖々夢 heard
+        // exactly that — `the track asked for is stopped again` in the log and the song audible after it.
         assert!(
-            log.said("this chapter had nothing audible"),
-            "the sound this chapter had none of was not taken off in the restore's own frame:\n  {}",
+            !log.said("this chapter had nothing audible"),
+            "the sound was taken off in the restore's own frame, where the ask it made is still in the queue:\
+             \n  {}",
             log.lines().join("\n  ")
         );
+        game.frame();
 
         // And a track asked for, which is what leaves the player holding a stream at all.
         assert_eq!(
@@ -311,11 +312,15 @@ fn the_song_of_th07_is_put_back_where_the_ask_for_its_track_was_carried_out() {
              running the queue over the stream that copy has just put back",
         );
 
-        // **And the song put where the chapter had it in the restore's own frame**, the track being playing by
-        // then: what a restore asks for is the call that *makes* a stream — `Th07`'s `PLAY_BGM` — which is
-        // carried out where it is made and leaves nothing in the player's queue. A seek made while the ask was
-        // still a queued command was a seek of the track the chapter's own replaced, and the launch that read
-        // `could not be put` is what said so; the ask is no longer queued, so there is nothing to wait for.
+        // Nothing seeked yet, the ask being a command the player has not walked to its end: a seek here is a seek
+        // of the track the chapter's own replaced, which is the launch that read `could not be put`.
+        assert!(
+            !log.said("restore: the song"),
+            "the song was seeked in the restore's own frame, where the track asked for is not playing yet:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.frame();
+
         assert!(
             log.said(&format!(
                 "restore: the song picked up at {HEARD_AT} in the track's own file"
@@ -330,6 +335,56 @@ fn the_song_of_th07_is_put_back_where_the_ask_for_its_track_was_carried_out() {
             game.stream_now().position,
             HEARD_AT + STREAM_BUFFER as i32,
             "the file was left where the track that had replaced the chapter's read to",
+        );
+    });
+}
+
+/// **A stream comes back going round, whatever the flag said when the chapter was taken.**
+///
+/// A streaming buffer is a ring: the game's own thread writes into it ahead of the mixer and the mixer wraps at
+/// its end for as long as the track lasts. So `DSBPLAY_LOOPING` is not a state of the moment a chapter was taken
+/// in but what a played stream *is*, and a restore that puts back what the status happened to say stops the
+/// music wherever the buffer's end falls.
+///
+/// A launch of 妖々夢 is the measurement, on a resumed run whose fourth stage was retried from its first
+/// chapter: `sound: put back at 133329344 in the file (asked 133329344), cursor 0 (asked 0), 42468336 byte(s)
+/// left, next write at Some(0), buffer locked, status 0x1 (asked 0), playing`. Every number the restore asked
+/// for came back — and `0x1` is playing with the ring bit clear, which is the music stopping partway with the
+/// game's own thread still filling a buffer nobody was playing.
+#[test]
+fn the_stream_of_th07_comes_back_going_round() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-music-looping",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(HEARD_AT);
+        // The buffer playing with the ring bit clear **before the chapter is taken**, which is what that
+        // launch's was taken in: what a restore puts back is the state the capture found.
+        game.plays_without_looping();
+        game.in_a_pointdevice_run();
+        assert!(log.said("music: true"));
+        assert!(!game.stream_now().looping, "the sound was left going round");
+
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        let stream = game.stream_now();
+        assert!(
+            stream.playing && stream.looping,
+            "the stream came back {}, so the music stops where the buffer ends:\n  {}",
+            if stream.playing {
+                "playing once"
+            } else {
+                "silent"
+            },
+            log.lines().join("\n  ")
         );
     });
 }

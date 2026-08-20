@@ -142,6 +142,15 @@ pub const FIGHT_TRACK: Track = Track {
     loops_at: 0x40,
     bytes: 0x400,
 };
+/// And the one a fight's second phase brings, whose name the game carries itself rather than in the stage's
+/// data — see `Th07`'s `SECOND_PHASE_SONG`. `th07_13b` and not `th07_13`, which is why the two names that data
+/// holds cannot answer for it.
+pub const SECOND_PHASE_TRACK: Track = Track {
+    name: c"th07_13b.wav",
+    at: 0x1800,
+    loops_at: 0x40,
+    bytes: 0x400,
+};
 
 /// And the slots a stage's build loads the last two into: its own song in 0 and its boss's in 1, which is the
 /// order 0x42f1d5 and 0x42f1ec load them in.
@@ -190,6 +199,9 @@ pub struct Stream {
     pub play_cursor: u32,
     pub position: i32,
     pub playing: bool,
+    /// Whether the buffer is going round, which for a streaming one is the only way it can be played — see
+    /// `orb_sim::Sound::looping`.
+    pub looping: bool,
 }
 
 /// The class 妖々夢 registers its window with, which is 紅魔郷's too: `BASE`, at 0x497bd0 in this exe. What
@@ -732,7 +744,7 @@ impl Fake {
         // out of them, before the stream: a track is started by naming a slot, and which slot is the stage's
         // music comes from those names.
         self.image
-            .holds_its_music_file(&[TITLE_TRACK, TRACK, FIGHT_TRACK]);
+            .holds_its_music_file(&[TITLE_TRACK, TRACK, FIGHT_TRACK, SECOND_PHASE_TRACK]);
         self.image
             .names_its_songs(&named_in_the_table(TRACK), &named_in_the_table(FIGHT_TRACK));
         self.image.loads_a_slot(STAGE_SLOT, &loaded_as(TRACK));
@@ -870,7 +882,14 @@ impl Fake {
             play_cursor: sound.play_cursor(),
             position: sound.position(),
             playing: sound.playing(),
+            looping: sound.looping(),
         })
+    }
+
+    /// The buffer playing without going round, which is the state a chapter of a resumed run of 妖々夢 was
+    /// measured being taken in — see `orb_sim::Sound::plays_without_looping`.
+    pub fn plays_without_looping(&self) {
+        self.with_the_sound(orb_sim::Sound::plays_without_looping);
     }
 
     /// # Panics
@@ -895,6 +914,24 @@ impl Fake {
     pub fn the_stages_own_boss_arrives(&self) {
         self.plays_another_song();
         self.the_boss_arrives();
+    }
+
+    /// And its second phase, which is another song again: the one the game loads out of a name of its own — see
+    /// [`SECOND_PHASE_TRACK`]. The fight carries on, so nothing about the boss changes here.
+    ///
+    /// **Through objects made somewhere else**, which is what a track change leaves: the stream and its source
+    /// are deleted and allocated again, so the pair the player names is not the pair it named before.
+    pub fn its_second_phase_begins(&self) {
+        let sound = self.sound.borrow();
+        let sound = sound.as_ref().expect("a sound this e2e test asked for");
+        self.image
+            .streams_it_again_elsewhere(sound, SECOND_PHASE_TRACK, SECOND_PHASE_TRACK.bytes);
+    }
+
+    /// Which stream the player names now and the countdown that one is on — see
+    /// `Image::the_stream_its_player_names`.
+    pub fn the_stream_its_player_names(&self) -> Option<(usize, u32)> {
+        self.image.the_stream_its_player_names()
     }
 
     /// The fight moving on to its next attack, which the game says by putting the boss's own timer back to

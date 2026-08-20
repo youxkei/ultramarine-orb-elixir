@@ -427,6 +427,31 @@ impl Snapshot {
     ///
     /// So the sound is not restored in that case: it is torn down through the game
     /// first and started again after, which is what [`Snapshot::restore`] does.
+    /// What a restore that touched none of the sound left it as: the pair the loop is taken on — the countdown
+    /// and where the file is — with the buffer's own state beside them.
+    ///
+    /// **The pair is the point.** The streaming thread moves both together, and a restore that put one back
+    /// without the other is a stream that loops over a stretch of itself: the countdown runs out where the file
+    /// is not, so no loop of the *track* is taken and the buffer goes round its own contents. Which is why both
+    /// are said here whether or not this arm changed anything — a chapter kept playing had its own memory held
+    /// back, and what that leaves is the question.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn say_what_the_sound_was_left_as(&self, game: &dyn crate::game::Game) {
+        let Some(live) = game.music() else {
+            return detail!("sound: nothing is playing for this chapter to be put back into");
+        };
+        detail!(
+            "sound: left playing — {} byte(s) left, next write at {:?}, track {:?}, \
+             {} range(s) held back",
+            mem::read_committed::<u32>(live.bytes_left).unwrap_or_default(),
+            live.token(),
+            game.music_identity(),
+            self.preserve.len(),
+        );
+    }
+
     fn music_still_playing(&self, game: &dyn crate::game::Game) -> bool {
         let Some((music, saved)) = &self.music else {
             return true;
@@ -531,8 +556,26 @@ impl Snapshot {
         //
         // Nothing is held back when the sound has been taken down: there is no
         // longer anything live in those ranges to protect.
-        let mut holes = if same_track {
-            self.preserve.clone()
+        // **The ranges the sound is in *now*, and not the ones this snapshot wrote down.** A chapter whose music
+        // is left playing is one whose sound the restore must not touch — and which objects that is, is a
+        // question about the sound the game is playing through at this moment, not the one it was playing
+        // through when the chapter was taken. A track change deletes the stream and its source and makes both
+        // again somewhere else, so the written-down addresses hold back memory nobody is playing through and
+        // leave the live stream to be written over: its countdown, its source, the buffer it names.
+        //
+        // Measured on 妖々夢: retrying a chapter of stage 6's fight, whose second phase had replaced that
+        // stream, left the song going round a stretch of itself and still playing at the title.
+        //
+        // What the snapshot's own list still decides is *whether* the sound is held back at all, which is the
+        // chapter's own policy — see `Chapters::audio_for`.
+        let mut holes = if same_track && !self.preserve.is_empty() {
+            game.audio_state()
+                .iter()
+                .map(|range| Region {
+                    base: range.start,
+                    len: range.len(),
+                })
+                .collect()
         } else {
             Vec::new()
         };
@@ -562,7 +605,12 @@ impl Snapshot {
                 unsafe { game.restart_stage_music() };
                 self.leave_the_song_to_be_picked_up();
             }
-            _ => {}
+            // **The music left playing, which is what a chapter of a boss's own fight is put back with** — see
+            // `Chapters::audio_for`. Nothing is done to the sound and its own memory was held back, so what this
+            // says is only what it was left as: a restore whose sound is wrong afterwards has nothing else to be
+            // read from, which is what a launch of 妖々夢 retrying stage 6's second phase came back with —
+            // the song looping over a section of itself, and still playing at the title afterwards.
+            _ => unsafe { self.say_what_the_sound_was_left_as(game) },
         }
         for region in failed {
             log!(

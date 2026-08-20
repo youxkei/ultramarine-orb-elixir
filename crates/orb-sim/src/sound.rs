@@ -316,6 +316,19 @@ impl Sound {
     pub fn playing(&self) -> bool {
         self.status.get() & DSBSTATUS_PLAYING != 0
     }
+
+    /// And whether it is going round, which for a streaming buffer is the only way it can be played: the game's
+    /// own thread writes into it as a ring, so a play without that flag is heard as the music stopping wherever
+    /// the buffer's end falls.
+    pub fn looping(&self) -> bool {
+        self.status.get() & DSBSTATUS_LOOPING != 0
+    }
+
+    /// The buffer going round *not* set, which a launch of 妖々夢 was measured in: a chapter of a resumed run
+    /// whose sound came back `status 0x1` — playing, and stopping at the buffer's end.
+    pub fn plays_without_looping(&self) {
+        self.status.set(DSBSTATUS_PLAYING);
+    }
 }
 
 impl Drop for Sound {

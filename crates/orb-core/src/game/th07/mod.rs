@@ -1439,6 +1439,18 @@ const MUSIC_EVENT: usize = 0x39c0;
 /// loaded into plays the first track in `thbgm.dat` rather than nothing at all — which is what asking for slot
 /// 0x1f did: 0x1f is where the *other* backend's object keeps a named file (0x4369c0), the music thread has no
 /// such slot, and the first track of that file is the title screen's song.
+/// **And the song a fight's second phase brings, which is the game's own name and not its stage's**: the string
+/// at 0x4986b4, `bgm/th07_13b.mid`, which stage 6's build loads into a slot of its own at 0x42f233 — the branch
+/// it takes where `[gm+0x95ec]` is 6 (0x42f206).
+///
+/// **So the two names above cannot answer for it, and a launch of 妖々夢 is what that cost.** Its sixth stage's
+/// second phase is that song, whose stem is `th07_13b` where the fight's own is `th07_13`: read against the
+/// stage's data alone it is neither the stage's song nor the fight's, so a chapter taken in the second phase is
+/// one whose music a restore *rewinds* while every chapter around it is left playing. What that was heard as is
+/// the song looping over a stretch of itself and then still playing at the title, the restore having put a
+/// stream back that the second phase had already replaced.
+const SECOND_PHASE_SONG: usize = 0x004986b4;
+
 const G_MUSIC_TABLE: usize = 0x01347f9c;
 const STAGE_SONG_NAME: usize = 0x290;
 const FIGHT_SONG_NAME: usize = 0x310;
@@ -2259,7 +2271,11 @@ impl Game for Th07 {
     fn the_fights_own_song_is_playing(&self) -> Option<bool> {
         let track = Self::the_track_playing()?;
         let (_, fight) = Self::the_stages_own_songs()?;
-        Some(same_song(&fight, &track))
+        // **Or the one a second phase brings**, which is a song of the fight's as much as that one and is not in
+        // the stage's data at all — see [`SECOND_PHASE_SONG`].
+        let second_phase = name_at(SECOND_PHASE_SONG, SONG_NAME_BYTES)
+            .is_some_and(|second| same_song(&second, &track));
+        Some(same_song(&fight, &track) || second_phase)
     }
 
     /// The family this game draws its own text in, which orb's own screens are drawn in too — see
@@ -3736,6 +3752,15 @@ mod tests {
     const FIGHT_TRACK: image::Track = image::Track {
         name: c"th07_03.wav",
         at: 0x1400,
+        loops_at: 0x40,
+        bytes: 0x400,
+    };
+    /// And the one a fight's second phase brings, whose name is the game's own rather than its stage's — see
+    /// [`SECOND_PHASE_SONG`]. `th07_13b` and not `th07_13`, which is the whole reason the two the stage's data
+    /// carries cannot answer for it.
+    const SECOND_PHASE_TRACK: image::Track = image::Track {
+        name: c"th07_13b.wav",
+        at: 0x1800,
         loops_at: 0x40,
         bytes: 0x400,
     };
@@ -5237,7 +5262,7 @@ mod tests {
             0x80,
             0x20,
         );
-        image.holds_its_music_file(&[TITLE_TRACK, STAGE_TRACK, FIGHT_TRACK]);
+        image.holds_its_music_file(&[TITLE_TRACK, STAGE_TRACK, FIGHT_TRACK, SECOND_PHASE_TRACK]);
         image.streams_a_track(&sound, STAGE_TRACK, STAGE_TRACK.bytes);
         let stage = Th07.music_identity().expect("the track this test laid out");
 
@@ -5255,6 +5280,15 @@ mod tests {
             Some(stage),
             "two tracks came out as the same track, so a chapter cannot tell them apart"
         );
+
+        // **And the third song, which is the fight's as well**: stage 6's build loads one more into a slot of its
+        // own — see [`SECOND_PHASE_SONG`] — and that name is in the exe rather than in the stage's data, so the
+        // two above cannot answer for it. A launch of 妖々夢 is what it costs: its sixth stage's second phase
+        // came out as neither the stage's song nor the fight's, so a chapter taken there was one whose music a
+        // restore rewinds while the chapters around it are left playing, and the song was heard looping over a
+        // stretch of itself and then still playing at the title.
+        image.streams_it_again(&sound, SECOND_PHASE_TRACK, SECOND_PHASE_TRACK.bytes);
+        assert_eq!(Th07.the_fights_own_song_is_playing(), Some(true));
     }
 
     /// The one range of the game's memory a restore must leave alone, and nothing at all before the sprite
