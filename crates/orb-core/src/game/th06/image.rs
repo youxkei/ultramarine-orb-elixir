@@ -2031,6 +2031,16 @@ impl Image {
         orb_sim::Sound::started_again();
     }
 
+    /// And no track at all, which is what the player holds before a stage has started its music — and what a
+    /// restore of a chapter taken then leaves behind it, the stream the fight's own track played through
+    /// having gone with it.
+    pub fn plays_no_track(&self) {
+        self.space().write::<usize>(
+            super::G_SOUND_PLAYER + super::sound_player::BACKGROUND_MUSIC,
+            0,
+        );
+    }
+
     /// And the whole of the sound that track is streamed through, for an e2e test about the stream itself:
     /// the buffer the game plays and the file handle it reads it out of, beside the wave file's own
     /// numbers.

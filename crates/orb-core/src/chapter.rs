@@ -130,7 +130,7 @@ pub struct Chapters {
 }
 
 /// Which of a stage's two kinds of fight is on.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Fight {
     /// The stage runs on past it, so the waves after it are the same stage carrying on.
     Midboss,
@@ -330,6 +330,15 @@ impl Cause {
             Self::BossNonspell => "BOSS_NONSPELL",
             Self::BossSpell => "BOSS_SPELL",
             Self::Boundary(_) => "TABLE",
+        }
+    }
+
+    /// Which fight a chapter that began for this reason was under, where it was under one at all.
+    fn fight(self) -> Option<Fight> {
+        match self {
+            Self::MidbossNonspell | Self::MidbossSpell => Some(Fight::Midboss),
+            Self::BossNonspell | Self::BossSpell => Some(Fight::Stage),
+            Self::StageStart | Self::StageAfterMidboss | Self::Boundary(_) => None,
         }
     }
 }
@@ -610,6 +619,39 @@ impl Chapters {
             .iter()
             .filter(|(_, cause)| self.kept(*cause))
             .map(|(frame, _)| *frame)
+    }
+
+    /// Calls the chapter being played something else, everywhere its name is kept: the mark it is being
+    /// played under, the record its start is in — which is what the count in its name comes out of and what
+    /// [`Chapters::recorded_fight`] answers from — and the mark inside the snapshot it began with.
+    ///
+    /// That last one because a restore puts the mark back: left as it was, going back to this chapter would
+    /// take the name away again and the menu offering it would call it what it arrived as.
+    fn rename_chapter(&mut self, named: Cause) {
+        self.mark.cause = named;
+        if let Ok(at) = self
+            .starts
+            .binary_search_by_key(&self.mark.started_at, |(at, _)| *at)
+        {
+            self.starts[at].1 = named;
+        }
+        if let Some(mark) = self.snapshots.newest_mark() {
+            mark.cause = named;
+        }
+    }
+
+    /// Which fight this stage recorded the chapter holding a frame under, for a frame it has been
+    /// through before.
+    ///
+    /// The newest boundary at or before the frame, a chapter running until the next one begins. A frame
+    /// past everything recorded is answered from the chapter it is in all the same: the stage's own boss
+    /// going down ends the stage rather than beginning a chapter, so the last thing recorded under a fight
+    /// is the attack it is beaten during.
+    fn recorded_fight(&self, frame: u32) -> Option<Fight> {
+        self.starts
+            .iter()
+            .rfind(|(at, _)| *at <= frame)
+            .and_then(|(_, cause)| cause.fight())
     }
 
     /// Whether this boundary of the current stage is one somebody put there.
@@ -932,19 +974,80 @@ impl Chapters {
         // two songs, the stage's and the boss's, and the game plays the second one for the
         // boss it ends with. What the timeline is doing does not say it — the wait it parks
         // on for a boss, `RunEclTimeline`'s `case 0xc`, is also how stage 3 waits for its
-        // *midboss*, which called that fight the stage's own.
+        // *midboss*, which called that fight the stage's own. Neither does anything a boss
+        // carries: both games register a midboss and the boss they end with alike, and
+        // [docs/adr/0021](../../../docs/adr/0021-which-fight-is-on-is-the-music-and-the-stages-record-where-it-has-one.md)
+        // holds where each of them says it instead and what is left of that by the time this reads it.
         //
         // The game's own answer where it has one, and that comparison where it has not: what a
         // stage's start was snapshotted under is not always the stage's own song — see
         // `Game::the_fights_own_song_is_playing`.
         let boss_appeared = current.boss_present && !self.seen.boss_present;
         if current.boss_present {
+            let its_own_song = game.the_fights_own_song_is_playing();
+            let identity = game.music_identity();
+            let stage_music = self.stage_music;
+            // **And what this stage already recorded about this frame, where it has been through it
+            // before.** A step back replays part of a stage over frames the game's own sound never runs
+            // on — `runtime::run_to` walks the calc chain and nothing else — and the restore has asked the
+            // game for the track the chapter it put back was taken under. So the music over a replayed
+            // fight is the stage's own whatever fight it is, and read off it the stage's own boss is a
+            // midboss: whose going down hands the stage back and takes a chapter, the one boundary a stage
+            // does not have. A launch of 妖々夢 stepping about in its second stage had the whole of that
+            // stage's fight as `a midboss nonspell` and a chapter for the boss going down.
+            //
+            // It can only raise the answer, the same way the music can: a boss recorded as a midboss is
+            // this misreading itself, and a fight the stage has no boundary under the frame of — the
+            // midboss's defeat lost to a death, and the boss after it read against the midboss's last
+            // spellcard — is one the music is still right about.
+            let recorded = self.recorded_fight(state.stage_frames);
             let fight = self.fighting.get_or_insert(Fight::Midboss);
-            if game
-                .the_fights_own_song_is_playing()
-                .unwrap_or_else(|| game.music_identity() != self.stage_music)
+            let was = *fight;
+            if recorded == Some(Fight::Stage)
+                || its_own_song.unwrap_or_else(|| identity != stage_music)
             {
                 *fight = Fight::Stage;
+            }
+            // What the answer was read off, on the frame a fight arrives and on any frame it changes:
+            // which of these three has gone stale is the whole question a fight read as the wrong one
+            // turns on, and a launch cannot be asked it afterwards.
+            let became_the_stages = *fight != was;
+            if boss_appeared || became_the_stages {
+                detail!(
+                    "fight: {} — recorded {recorded:?}, its own song {its_own_song:?}, \
+                     playing {identity:?}, the stage's {stage_music:?}",
+                    if *fight == Fight::Stage {
+                        "the stage's own"
+                    } else {
+                        "a midboss"
+                    },
+                );
+            }
+            // **And the chapter the fight arrived in called what the fight turned out to be.** The song the
+            // stage ends with does not always start on the frame its boss arrives — a launch of 妖々夢 read
+            // `its own song Some(false)` on the frame stage 2's boss took a chapter and `Some(true)` on the
+            // next one — so the chapter for that arrival is there before the answer is. Left as it arrived it
+            // is a midboss chapter for the fight the stage ends with, and it is what `recorded_fight` answers
+            // with for those frames ever after.
+            //
+            // The same shape as the spellcard declared after the chapter its attack began, and bounded the
+            // same way: what arrives late is the name of the fight rather than another fight.
+            let named = match self.mark.cause {
+                Cause::MidbossNonspell => Some(Cause::BossNonspell),
+                Cause::MidbossSpell => Some(Cause::BossSpell),
+                _ => None,
+            };
+            if became_the_stages
+                && elapsed < MIN_CHAPTER_FRAMES
+                && let Some(named) = named
+            {
+                self.rename_chapter(named);
+                log!(
+                    "stage {} chapter {} at frame {}: the fight it began is the stage's own after all",
+                    state.stage + 1,
+                    self.mark.number,
+                    self.mark.started_at,
+                );
             }
         }
         // Beating a midboss hands the stage back, and the waves that follow want a
@@ -1001,19 +1104,7 @@ impl Chapters {
                 _ => None,
             };
             if let Some(named) = named {
-                self.mark.cause = named;
-                if let Ok(at) = self
-                    .starts
-                    .binary_search_by_key(&self.mark.started_at, |(at, _)| *at)
-                {
-                    self.starts[at].1 = named;
-                }
-                // And in the snapshot taken where the chapter began, which is the mark a restore of
-                // it puts back: left as it was, going back to this chapter would take its name away
-                // again and the menu offering it would call it the nonspell it arrived as.
-                if let Some(mark) = self.snapshots.newest_mark() {
-                    mark.cause = named;
-                }
+                self.rename_chapter(named);
                 log!(
                     "stage {} chapter {} at frame {}: the attack it began has a name after all",
                     state.stage + 1,
@@ -1523,6 +1614,14 @@ mod tests {
     /// detector reads is the clock of the attack it is on — and a fight laid out has to have one all
     /// the same, the life being read through the pointer that says there is a boss at all.
     const BOSS_LIFE: i32 = 1500;
+
+    /// The stage's own song, which a stage whose music has started is playing and which the fight it ends
+    /// with is told from.
+    const STAGE_TRACK: Track = Track {
+        length: 0x38f2,
+        loop_start: 0x800,
+        loop_end: 0x3800,
+    };
 
     /// The track the fight a stage *ends* with brings, which is the second of the two songs a stage's
     /// data names.
@@ -2060,6 +2159,110 @@ mod tests {
         }
         stage.frame(fight(511, 0, None));
         assert_eq!(named(&stage.chapters), "BOSS NONSPELL 1");
+    }
+
+    /// **A fight replayed is the fight the stage recorded**, whatever the music says by then.
+    ///
+    /// Which of a stage's two fights is on is read off the music, the stage's data naming the second song for
+    /// the boss it ends with. **A step back replays part of the stage over frames where the game's own sound
+    /// never runs** — `runtime::run_to` walks the calc chain and nothing else — and the restore has asked the
+    /// game for the track the chapter it put back was taken under. So the track over a replayed fight is the
+    /// stage's own, and read off it the stage's boss is a midboss: whose going down hands the stage back and
+    /// takes a chapter, which is the one boundary a stage does not have.
+    ///
+    /// A launch of 妖々夢 found it. Stepping about in its second stage left the whole of that stage's fight
+    /// logged as `a midboss nonspell` and `a midboss spellcard`, and the boss going down took a chapter of its
+    /// own. What answers instead is what the stage already knows: the chapter it divided this frame into the
+    /// first time through, which is the same list the stepping keys move between.
+    #[test]
+    fn a_fight_replayed_is_the_fight_the_stage_recorded() {
+        let mut stage = Stage::tuned("orb-chapter-fight-replayed");
+        for frame in 0..300 {
+            stage.frame(waves(frame));
+        }
+        let before_the_fight = stage.chapters.mark;
+
+        // The stage's own boss, under the second of the two songs the stage names: the track laid out where
+        // the game would start it, which is what tells this fight from a midboss.
+        stage.image.plays_a_track(BOSS_TRACK);
+        stage.frame(fight(320, 0, None));
+        assert_eq!(named(&stage.chapters), "BOSS NONSPELL 1");
+
+        // What a step back leaves: the mark and the signals back with the memory, and the music the track
+        // that chapter had — which for a chapter of the stage's own waves is no track at all.
+        stage.chapters.mark = before_the_fight;
+        stage.chapters.seen = Seen::of(&stage.standing_on(waves(299)));
+        stage.chapters.fighting = None;
+        stage.image.plays_no_track();
+
+        // And the fight again, which the replay brings: the same frame, and nothing about the sound to read
+        // it off.
+        stage.frame(fight(320, 0, None));
+        assert_eq!(
+            named(&stage.chapters),
+            "BOSS NONSPELL 1",
+            "the fight the stage ends with was read as a midboss on the way through it again",
+        );
+
+        // And the boss going down through it: the stage is over, so the defeat is no boundary and the
+        // stage is won.
+        for frame in 321..700 {
+            stage.frame(fight(frame, (frame - 320) as i32, None));
+        }
+        stage.frame(empty(since(700)));
+        assert_eq!(
+            named(&stage.chapters),
+            "BOSS NONSPELL 1",
+            "the stage's own boss going down took a chapter",
+        );
+        assert!(
+            stage.chapters.stage_won(),
+            "the stage was not won by its own boss going down",
+        );
+    }
+
+    /// **The chapter a fight arrived in takes the name its song gives it.**
+    ///
+    /// The song the stage ends with does not always start on the frame its boss arrives. A launch of 妖々夢
+    /// read `its own song Some(false)` on the frame stage 2's boss took a chapter — frame 8099 — and
+    /// `Some(true)` on the frame after it. Left as it arrived, that chapter is a midboss nonspell for the
+    /// fight the stage ends with, and it is what [`Chapters::recorded_fight`] answers with for those frames
+    /// ever after: a step back into it replays the fight as a midboss, whose going down takes a chapter.
+    ///
+    /// The same shape as the spellcard that names itself after the chapter its attack began — what arrives
+    /// late is the name of the fight rather than another fight — so the chapter takes it while it is younger
+    /// than [`MIN_CHAPTER_FRAMES`], in the record and in the snapshot a retry offers it out of as well.
+    #[test]
+    fn the_chapter_a_fight_arrived_in_takes_the_name_its_song_gives_it() {
+        let mut stage = Stage::laid_out(Some(scratch("orb-chapter-fight-named-late")), false);
+        // The stage's own song from before its start, which is what a fight arriving under it is read
+        // against.
+        stage.image.plays_a_track(STAGE_TRACK);
+        stage.settle(empty);
+        for frame in 0..300 {
+            stage.frame(waves(frame));
+        }
+
+        // The boss, arriving with the stage's own song still playing: nothing about the sound tells this
+        // fight from a midboss yet.
+        stage.frame(fight(320, 0, None));
+        assert_eq!(named(&stage.chapters), "MIDBOSS NONSPELL 1");
+
+        // And its own song a frame later, which is the stage's data saying which fight it is.
+        stage.image.plays_a_track(BOSS_TRACK);
+        stage.frame(fight(321, 1, None));
+        assert_eq!(
+            named(&stage.chapters),
+            "BOSS NONSPELL 1",
+            "the chapter the fight arrived in kept the name it arrived under",
+        );
+        assert!(
+            offered(&stage.chapters)
+                .iter()
+                .any(|(name, _)| name == "BOSS NONSPELL 1"),
+            "a retry offers the chapter under the name it arrived under: {:?}",
+            offered(&stage.chapters),
+        );
     }
 
     /// A chapter reached twice is the same chapter. The count comes out of the frames this
