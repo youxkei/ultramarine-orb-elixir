@@ -1126,7 +1126,21 @@ impl Chapters {
         }
         // The boss timer is reset to zero every time the script moves to the
         // next attack, spell or not.
+        //
+        // **Except while one card stays declared, where the reset is the defeat.** A card is one attack with
+        // one timer, so the fight moving on shows as the card changing as well; the boss's life running out
+        // during its last card resets that timer with the card still up and the game plays the death out
+        // underneath it. Read as an attack, that is a chapter whose whole content is the defeat — a fight
+        // with nothing left to fight, which is what stepping back into it goes to.
+        //
+        // Measured on 妖々夢: stage 2's card 25 began at frame 13346 and its timer started again at 14983
+        // with `boss_life=1`, the boss gone 60 frames later. The chapter the defeat closes is dropped for
+        // being shorter than [`MIN_CHAPTER_FRAMES`], and 60 is exactly that — so the drop cannot be what
+        // covers this, and the reset is refused here instead.
+        let a_card_still_up =
+            current.spellcard.is_some() && current.spellcard == self.seen.spellcard;
         let attack_changed = current.boss_present
+            && !a_card_still_up
             && matches!(
                 (self.seen.boss_timer, current.boss_timer),
                 (Some(before), Some(now)) if now < before
@@ -2238,6 +2252,65 @@ mod tests {
         );
     }
 
+    /// The card a boss is beaten during, by its own record.
+    const A_CARD: i32 = 25;
+
+    /// **A card whose timer starts again is not another attack, and the defeat is what it is.**
+    ///
+    /// The timer resetting is how the fight moving on to its next attack is read, and the defeat resets it
+    /// too: the boss's life runs out during its last card, the card stays declared, and the timer goes back to
+    /// nothing while the game plays the death out. Read as an attack that is a chapter offered for the
+    /// defeat — a fight with nothing left to fight, one bomb from over.
+    ///
+    /// A launch of 妖々夢 is the measurement: stage 2's chapter 11 began card 25 at frame 13346, and chapter
+    /// 12 began at 14983 on the *same* card 25 with `attack_frames=1` and `boss_life=1`, with the boss gone 60
+    /// frames later. **Sixty**, which is why the chapter the defeat closes was not dropped either — that rule
+    /// asks for shorter than [`MIN_CHAPTER_FRAMES`], and this was exactly it.
+    #[test]
+    fn the_same_card_whose_timer_starts_again_is_not_another_attack() {
+        let mut stage = Stage::tuned("orb-chapter-card-timer-again");
+        for frame in 0..300 {
+            stage.frame(waves(frame));
+        }
+
+        // The stage's own boss, under the second of the two songs its stage names, and the card it puts up.
+        stage.image.plays_a_track(BOSS_TRACK);
+        stage.frame(fight(320, 0, None));
+        assert_eq!(named(&stage.chapters), "BOSS NONSPELL 1");
+        for frame in 321..500 {
+            stage.frame(fight(frame, (frame - 320) as i32, None));
+        }
+        stage.frame(fight(500, 0, Some(A_CARD)));
+        assert_eq!(named(&stage.chapters), "BOSS SPELL 1");
+        for frame in 501..800 {
+            stage.frame(fight(frame, (frame - 500) as i32, Some(A_CARD)));
+        }
+        let the_cards_chapter = stage.chapters.number();
+
+        // The boss beaten during it: the same card still declared and its own timer started again.
+        stage.frame(fight(800, 1, Some(A_CARD)));
+        assert_eq!(
+            stage.chapters.number(),
+            the_cards_chapter,
+            "the defeat inside the card began a chapter of its own",
+        );
+
+        // And the death played out, which is the stage over with the card's chapter the last one there is.
+        for frame in 801..860 {
+            stage.frame(fight(frame, (frame - 800) as i32, Some(A_CARD)));
+        }
+        stage.frame(empty(since(860)));
+        assert!(
+            stage.chapters.stage_won(),
+            "the stage was not won by its own boss going down",
+        );
+        assert_eq!(
+            named(&stage.chapters),
+            "BOSS SPELL 1",
+            "the chapter left standing at the stage's end is not the card that was being fought",
+        );
+    }
+
     /// **The chapter a fight arrived in takes the name its song gives it.**
     ///
     /// The song the stage ends with does not always start on the frame its boss arrives. A launch of 妖々夢
@@ -2491,18 +2564,24 @@ mod tests {
         for frame in 0..200 {
             stage.frame(spell(frame, frame as i32));
         }
-        // The spellcard is bombed out and the next attack begins while the bomb is still
-        // going: the boss's timer starts again from nothing.
+        // The spellcard is bombed out and the next attack begins while the bomb is still going: the card is
+        // no longer declared and the boss's timer starts again from nothing.
+        //
+        // **The card gone rather than still up**, which is what the fight moving on looks like — the event
+        // behind this is the bomb between the last two of Cirno's spellcards, whose nonspell it swallowed, so
+        // what the guard lifts on is another attack than the one it came down over. A card still declared
+        // with its timer started again is the *defeat* instead, and no boundary at all — see
+        // `the_same_card_whose_timer_starts_again_is_not_another_attack`.
         let bombed = Frame {
             bombing: true,
-            ..spell(200, 0)
+            ..fight(200, 0, None)
         };
         // Whose fight it is comes from the music, which no track is laid out for here, so
         // either naming will do — what matters is that the change was taken.
         assert!(stage.frame(bombed));
         assert!(matches!(
             stage.chapters.cause(),
-            Cause::BossSpell | Cause::MidbossSpell
+            Cause::BossNonspell | Cause::MidbossNonspell
         ));
     }
 
