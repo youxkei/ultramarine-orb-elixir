@@ -324,6 +324,17 @@ const PAD_DOWN: u16 = 0x20;
 const PAD_LEFT: u16 = 0x40;
 const PAD_RIGHT: u16 = 0x80;
 
+/// And the four buttons of that word, which are the first, second, third and ninth of the same table —
+/// shoot, bomb, focus and skip. **What a judging pass is driven with**, a pad being what somebody watching
+/// a stage go by has in their hands.
+///
+/// The two menu masks above are made of these and the keyboard's own: `MENU_DECIDE` is shoot with return
+/// and `MENU_CANCEL` is bomb with the menu button.
+const BUTTON_SHOT: u16 = 0x001;
+const BUTTON_BOMB: u16 = 0x002;
+const BUTTON_FOCUS: u16 = 0x004;
+const BUTTON_SKIP: u16 = 0x100;
+
 /// The device set up: called once it exists and after every reset, before anything is presented.
 ///
 /// **Three call sites, and together they are what identifies it.** 0x435187 is the tail of 0x434bd0, the
@@ -2918,6 +2929,12 @@ impl Game for Th07 {
             down: word & PAD_DOWN != 0,
             decide: word & MENU_DECIDE != 0,
             cancel: word & MENU_CANCEL != 0,
+            left: word & PAD_LEFT != 0,
+            right: word & PAD_RIGHT != 0,
+            shot: word & BUTTON_SHOT != 0,
+            bomb: word & BUTTON_BOMB != 0,
+            focus: word & BUTTON_FOCUS != 0,
+            skip: word & BUTTON_SKIP != 0,
         }
     }
 

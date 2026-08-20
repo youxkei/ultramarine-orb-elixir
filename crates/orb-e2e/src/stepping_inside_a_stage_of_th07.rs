@@ -144,6 +144,66 @@ fn a_step_inside_a_stage_of_th07_lands_on_the_chapter_start_either_side_of_where
     });
 }
 
+/// A pad on the host, declared the way every e2e test about one declares it: buttons enough for the game's
+/// own mapping to name any of them, and an axis over a whole 16-bit travel.
+const PAD_BUTTONS: u32 = 16;
+const PAD_TRAVEL: (u32, u32) = (0, 65535);
+
+/// Where a hat points, as winmm gives it: hundredths of a degree clockwise from up, and `0xffff` for a hat
+/// that is not being pushed at all.
+const HAT_LEFT: u32 = 27000;
+const HAT_CENTRED: u32 = 0xffff;
+
+/// **The judging hand on a pad**, which is the hand this pass is driven with: somebody watching a stage go
+/// by has a controller in their hands and the keyboard across the room.
+///
+/// The hat where the stepping keys are, since the four directions are the four things a boundary is judged
+/// with: right and left step between them, up and down judge the one the game is standing on. What the
+/// buttons are is `Th07`'s own mapping — shoot, bomb, focus, menu, up, down, left, right, skip — so a press
+/// here is the press the game itself would read.
+#[test]
+fn the_judging_hand_of_th07_steps_on_a_pad() {
+    in_its_own_process(|| {
+        let game = judging("th07-judging-on-a-pad");
+        let log = game.log();
+        game.sim()
+            .joystick()
+            .attach(PAD_BUTTONS, PAD_TRAVEL.0, PAD_TRAVEL.1);
+        game.frames_until("an overlay", 8, || log.said("overlay: ready"));
+        game.frames_until_a_thread("the pad named", || log.said("joystick: winmm 0 is"));
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        // A chapter to step back to, which is the fight arriving.
+        game.frames(APART);
+        game.the_boss_arrives();
+        game.frames_until("the fight's own chapter", APART, || log.said("chapter 2"));
+        let the_fight = game.state().stage_frames;
+        game.frames(APART);
+
+        // The hat pushed left and let go, which is the press the left key is.
+        let from = log.written();
+        game.sim().joystick().pushes_the_hat(HAT_LEFT);
+        game.frames_until_a_thread("the hat read", || log.written() > from);
+        game.frames(2);
+        game.sim().joystick().pushes_the_hat(HAT_CENTRED);
+        game.frames(2);
+
+        assert!(
+            log.said_since(from, "step: held"),
+            "the hat pushed left held the pass nowhere:\n  {}",
+            log.lines().split_off(from).join("\n  "),
+        );
+        assert_eq!(
+            game.state().stage_frames,
+            the_fight,
+            "the step back on the pad did not land on the chapter the fight began",
+        );
+    });
+}
+
 /// The frames the pass is given between the ask and the build, over which a hold would still be a hold.
 const BEFORE_THE_BUILD: u32 = 2;
 

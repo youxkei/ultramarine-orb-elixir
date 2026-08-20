@@ -2323,9 +2323,9 @@ table of its own; `tuning.txt` beside it is the same boundaries with what
 has been decided about each — `keep`, `adjust` or `drop`, and whether a person put it there —
 and is read back when orb starts. So a stage is not one sitting's work: it can be looked at,
 judged in part, left, and picked up where it was. Both are written whole as soon as anything is
-decided, as well as at every stage's end and on `tuning_write_key` — looking at a few boundaries
-and then closing the game is how a sitting ends, and nothing about it should have to be
-remembered. So edit `tuning.txt` only while nothing is running.
+decided, and at every stage's end — looking at a few boundaries and then closing the game is how a
+sitting ends, and nothing about it should have to be remembered. So edit `tuning.txt` only while
+nothing is running.
 
 Entering a stage keeps everything already known about it and forgets only how far the detector
 had got, which is about the pass rather than about the stage. A stage neither visited nor read

@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use orb_config::{Config, Language};
 
 use crate::game::{Game, Pad, RunStart, State};
-use crate::input::Keyboard;
+use crate::input::{Keyboard, Pads};
 use crate::lives_ui::LivesMark;
 use crate::menu_ui::By;
 use crate::mode_ui::{Answer, Mode, ModeMenu};
@@ -162,7 +162,6 @@ mod keys {
 
     /// Puts a boundary at the frame the game is on, and writes both files.
     pub const ADD: VirtualKey = A;
-    pub const WRITE: VirtualKey = D;
     /// Steps to the boundary either side of this frame, and holds or lets go.
     pub const NEXT: VirtualKey = RIGHT;
     pub const PREVIOUS: VirtualKey = LEFT;
@@ -202,6 +201,9 @@ pub struct Runtime {
     frames: u32,
     previous: Option<State>,
     keyboard: Keyboard,
+    /// The pads, as the judging hand reads them: a controller is what somebody watching a stage go by has
+    /// in their hands, so every key that pass uses is one of the game's own buttons too.
+    pads: Pads,
     /// Where the mouse pointer was, for the frame loop that takes it off the screen once nothing has
     /// moved it.
     mouse: Mouse,
@@ -817,6 +819,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             frames: 0,
             previous: None,
             keyboard: Keyboard::new(),
+            pads: Pads::new(),
             mouse: Mouse::new(),
             overlay: None,
             overlay_attempts: OVERLAY_ATTEMPTS,
@@ -2487,15 +2490,23 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
         // The run being over is what puts this back, and not a pause or a menu: what it answers is
         // whether *this* run has been in a stage, which a run stopped inside one has.
         runtime.played &= state.in_run;
+        runtime.pads.forget();
         return Step::Carry;
     }
     runtime.played |= state.playing;
-    let next = runtime.keyboard.pressed(keys::NEXT.0);
-    let previous = runtime.keyboard.pressed(keys::PREVIOUS.0);
-    let hold = runtime.keyboard.pressed(keys::HOLD.0);
+    // The pads, on the frames a pass is watching and on no others: reaching the device the game holds costs
+    // the game's own poll, a hundred microseconds of it, and nothing outside a pass reads these buttons.
+    runtime.pads.poll(unsafe { pad(runtime.game) });
+    // **Either hand**, the keys and the game's own buttons: a judging pass is watched with a controller in
+    // hand, so the four directions step and judge and the buttons are the keys held with a step. Which
+    // button is which is where the keys are named.
+    let next = runtime.keyboard.pressed(keys::NEXT.0) || runtime.pads.pressed(|pad| pad.right);
+    let previous =
+        runtime.keyboard.pressed(keys::PREVIOUS.0) || runtime.pads.pressed(|pad| pad.left);
+    let hold = runtime.keyboard.pressed(keys::HOLD.0) || runtime.pads.pressed(|pad| pad.skip);
     // Held rather than pressed: they say what the stepping keys mean, like a shift.
-    let across = runtime.keyboard.held(keys::ACROSS.0);
-    let dropped = runtime.keyboard.held(keys::DROPPED.0);
+    let across = runtime.keyboard.held(keys::ACROSS.0) || runtime.pads.held(|pad| pad.focus);
+    let dropped = runtime.keyboard.held(keys::DROPPED.0) || runtime.pads.held(|pad| pad.bomb);
     if next || previous {
         detail!(
             "step: {} pressed, across {}, dropped {}",
@@ -3190,10 +3201,9 @@ unsafe fn stress(runtime: &mut Runtime, state: &State) {
 /// by itself at the end of every stage; these are for a boundary the detector puts
 /// in the wrong place, or misses.
 fn tune(runtime: &mut Runtime, state: &State) {
-    let add = runtime.keyboard.pressed(keys::ADD.0);
-    let write = runtime.keyboard.pressed(keys::WRITE.0);
-    let keep = runtime.keyboard.pressed(keys::KEEP.0);
-    let drop = runtime.keyboard.pressed(keys::DROP.0);
+    let add = runtime.keyboard.pressed(keys::ADD.0) || runtime.pads.pressed(|pad| pad.shot);
+    let keep = runtime.keyboard.pressed(keys::KEEP.0) || runtime.pads.pressed(|pad| pad.up);
+    let drop = runtime.keyboard.pressed(keys::DROP.0) || runtime.pads.pressed(|pad| pad.down);
 
     // These go through `Chapters`, which is what knows whether the frame the game is
     // standing on has a boundary of the table's: a boss's boundaries are the game's own
@@ -3223,8 +3233,13 @@ fn tune(runtime: &mut Runtime, state: &State) {
     // Written out as soon as anything is decided, not only at the end of the stage:
     // a session that is closed in the middle of one — which is how looking at a few
     // boundaries and stopping goes — would otherwise lose everything it decided.
-    // Two files of a few hundred bytes, and only on a keypress.
-    if (add || keep || drop || write)
+    // Two files of a few hundred bytes, and only on a press.
+    //
+    // **On every decision and on nothing else.** A key of its own for writing them was here and went: what
+    // it could write that a decision does not is the detector's own proposals for the stage in hand, which
+    // a stage's end writes anyway — so all it was ever for was a pass about to be closed mid-stage, and it
+    // was never once pressed.
+    if (add || keep || drop)
         && let Some(tuning) = runtime.chapters.tuning()
     {
         tuning.write(runtime.game);

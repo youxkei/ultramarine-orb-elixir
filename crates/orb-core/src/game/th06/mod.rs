@@ -2305,8 +2305,17 @@ impl Th06 {
         // The low side of the Y axis is up, it being measured downwards; and a d-pad reports in the
         // hat rather than on the axes at all.
         let (stick_up, stick_down) = axis(reading.y);
-        let (hat_up, hat_down, ..) = hat(reading.pov);
-        self.pad_from(reading.buttons, stick_up || hat_up, stick_down || hat_down)
+        let (stick_left, stick_right) = axis(reading.x);
+        let (hat_up, hat_down, hat_left, hat_right) = hat(reading.pov);
+        self.pad_from(
+            reading.buttons,
+            (
+                stick_up || hat_up,
+                stick_down || hat_down,
+                stick_left || hat_left,
+                stick_right || hat_right,
+            ),
+        )
     }
 
     /// The pad the game itself polls, where its own enumeration found one. `None` where there is no
@@ -2317,12 +2326,21 @@ impl Th06 {
         // beside that mapping — not the winmm caps, which describe another device entirely.
         let threshold =
             i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_Y_AXIS) });
-        let (hat_up, hat_down, ..) = hat(state.hats[0]);
+        let (hat_up, hat_down, hat_left, hat_right) = hat(state.hats[0]);
         let y = state.axes[AXIS_Y];
+        // The sideways pair against the configuration's own X threshold, which is the axis the game reads
+        // left and right off — see [`Th06::stick`], whose two comparisons these are.
+        let sideways =
+            i32::from(unsafe { mem::read::<i16>(G_SUPERVISOR + supervisor::CFG_PAD_X_AXIS) });
+        let x = state.axes[AXIS_X];
         Some(self.pad_from(
             buttons_mask(&state),
-            y < -threshold || hat_up,
-            y > threshold || hat_down,
+            (
+                y < -threshold || hat_up,
+                y > threshold || hat_down,
+                x < -sideways || hat_left,
+                x > sideways || hat_right,
+            ),
         ))
     }
 
@@ -2379,13 +2397,23 @@ impl Th06 {
     /// What a frame's buttons and directions mean to a menu, whichever of the devices they
     /// were read from. Only the directions differ between them: a button is a button by the same
     /// number either way.
-    fn pad_from(&self, buttons: u32, up: bool, down: bool) -> Pad {
+    fn pad_from(&self, buttons: u32, pushed: (bool, bool, bool, bool)) -> Pad {
+        let (up, down, left, right) = pushed;
         Pad {
             up: up || self.held(supervisor::CFG_UP_BUTTON, buttons),
             down: down || self.held(supervisor::CFG_DOWN_BUTTON, buttons),
             decide: self.held(supervisor::CFG_SHOOT_BUTTON, buttons),
             cancel: self.held(supervisor::CFG_BOMB_BUTTON, buttons)
                 || self.held(supervisor::CFG_MENU_BUTTON, buttons),
+            // The rest of what this game's own configuration names, which is what a judging pass is driven
+            // with: the four directions a boundary is stepped between and judged with, and the buttons the
+            // keys held with a step are.
+            left: left || self.held(supervisor::CFG_LEFT_BUTTON, buttons),
+            right: right || self.held(supervisor::CFG_RIGHT_BUTTON, buttons),
+            shot: self.held(supervisor::CFG_SHOOT_BUTTON, buttons),
+            bomb: self.held(supervisor::CFG_BOMB_BUTTON, buttons),
+            focus: self.held(supervisor::CFG_FOCUS_BUTTON, buttons),
+            skip: self.held(supervisor::CFG_SKIP_BUTTON, buttons),
         }
     }
 

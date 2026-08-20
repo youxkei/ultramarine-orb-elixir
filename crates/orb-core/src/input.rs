@@ -1,10 +1,12 @@
-//! Keyboard reading for orb's own keys.
+//! Keyboard and pad reading for orb's own keys.
 //!
 //! Read directly rather than through the game's input state, because the keys
 //! that matter most are the ones pressed while the game's update — and with it
 //! its input handling — is deliberately not running.
 
 use orb_api::{Hwnd, keyboard, window};
+
+use crate::game::Pad;
 
 const DOWN: u8 = 0x80;
 
@@ -22,6 +24,64 @@ pub struct Keyboard {
 impl Default for Keyboard {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// What the pads are pushing now and what they were pushing last frame, so that a push can be told from a
+/// hold: the same pair the keyboard keeps, and for the same reason — a step is a press and the key held with
+/// one is a hold.
+///
+/// **For the judging hand**, which is a hand on a controller: somebody watching a stage go by has one in
+/// their hands and the keyboard across the room. Every key that pass uses is a button of the game's own —
+/// see `runtime`'s `keys` and [`crate::game::Pad`].
+#[derive(Default)]
+pub struct Pads {
+    previous: Pad,
+    current: Pad,
+    /// Whether the pair describes two frames of reading. What it is for is the first frame after a stretch
+    /// of not reading at all — see [`Pads::forget`].
+    reading: bool,
+}
+
+impl Pads {
+    pub const fn new() -> Self {
+        Self {
+            previous: Pad::none(),
+            current: Pad::none(),
+            reading: false,
+        }
+    }
+
+    /// Takes this frame's reading, keeping the one before it.
+    ///
+    /// **Whatever is pushed on the first frame of reading counts as already held**, which is the rule the
+    /// keyboard's own read follows and for the same reason: a button held from before the pass began would
+    /// otherwise be a press on the frame it starts, and the press it would be read as is a boundary put
+    /// down or a step taken that nobody asked for.
+    pub fn poll(&mut self, pushing: Pad) {
+        if std::mem::replace(&mut self.reading, true) {
+            self.previous = std::mem::replace(&mut self.current, pushing);
+        } else {
+            self.previous = pushing;
+            self.current = pushing;
+        }
+    }
+
+    /// Says nothing is being read, for the frames a pass is not watching: the pads are not asked on those —
+    /// a read of the device the game holds costs the game's own poll — and what is pushed when it starts
+    /// watching again is held rather than pressed.
+    pub fn forget(&mut self) {
+        self.reading = false;
+    }
+
+    /// Whether `of` is pushed now and was not last frame, which is a press.
+    pub fn pressed(&self, of: impl Fn(&Pad) -> bool) -> bool {
+        of(&self.current) && !of(&self.previous)
+    }
+
+    /// And whether it is pushed at all, which is what a key held with another one is read as.
+    pub fn held(&self, of: impl Fn(&Pad) -> bool) -> bool {
+        of(&self.current)
     }
 }
 

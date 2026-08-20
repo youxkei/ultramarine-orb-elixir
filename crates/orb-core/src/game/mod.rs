@@ -401,9 +401,38 @@ pub struct Pad {
     pub down: bool,
     pub decide: bool,
     pub cancel: bool,
+    /// The other two directions, and the game's own four buttons. **What a judging pass is driven with**:
+    /// somebody watching a stage go by has a controller in their hands, so every key that pass uses has to
+    /// be one of these — see `runtime`'s `keys`.
+    ///
+    /// Named as the game's own buttons rather than as what orb does with them, because that is what they
+    /// are: which of them orb reads as a step and which as the key held with one is orb's business and is
+    /// written where those keys are.
+    pub left: bool,
+    pub right: bool,
+    pub shot: bool,
+    pub bomb: bool,
+    pub focus: bool,
+    pub skip: bool,
 }
 
 impl Pad {
+    /// Nothing pushed, which is what a pad orb has not read yet is: `Default` in a `const`.
+    pub const fn none() -> Self {
+        Self {
+            up: false,
+            down: false,
+            decide: false,
+            cancel: false,
+            left: false,
+            right: false,
+            shot: false,
+            bomb: false,
+            focus: false,
+            skip: false,
+        }
+    }
+
     /// Two pads' worth of pushing as one. 紅魔郷 is a one-player game, so every pad on the machine is
     /// that one player's and which of them a push came from is nothing a menu has any use for.
     pub fn or(self, other: Self) -> Self {
@@ -412,6 +441,12 @@ impl Pad {
             down: self.down || other.down,
             decide: self.decide || other.decide,
             cancel: self.cancel || other.cancel,
+            left: self.left || other.left,
+            right: self.right || other.right,
+            shot: self.shot || other.shot,
+            bomb: self.bomb || other.bomb,
+            focus: self.focus || other.focus,
+            skip: self.skip || other.skip,
         }
     }
 }

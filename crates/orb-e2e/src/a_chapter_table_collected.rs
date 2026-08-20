@@ -25,7 +25,6 @@ const PREVIOUS: u8 = orb_config::keys::LEFT.0;
 /// no chapter, so the ordinary stepping between chapter starts cannot reach it.
 const DROPPED: u8 = orb_config::keys::CTRL.0;
 const ADD: u8 = orb_config::keys::A.0;
-const WRITE: u8 = orb_config::keys::D.0;
 const KEEP: u8 = orb_config::keys::UP.0;
 const DROP: u8 = orb_config::keys::DOWN.0;
 
@@ -271,14 +270,14 @@ fn a_judging_pass_decides_the_boundary_it_is_held_on_and_takes_a_hand_placed_one
             "the hand-placed boundary is still written down after being judged out:\n{state}",
         );
 
-        // And the write key alone writes both files, for a pass that has looked and decided nothing.
-        game.press(WRITE);
+        // And the decision itself wrote both files, which is what makes a sitting picked up where it was:
+        // there is no asking for a write, and nothing to remember about closing the game.
         assert!(
             log.said(&format!(
                 "tuning: wrote {}",
                 game.dir().join(STATE).display()
             )),
-            "the write key wrote nothing:\n  {}",
+            "deciding about a boundary wrote nothing:\n  {}",
             log.lines().join("\n  ")
         );
     });
@@ -323,10 +322,15 @@ fn what_a_sitting_decided_is_read_back_by_the_one_after_it() {
         // there and still says which hand put it there.
         game.streams_its_song(0);
         game.watches_a_replay_of_its_stages();
+        // A stage that ends, which is what writes the table of a pass that has decided nothing: both files
+        // go out on every decision and at every stage's end, and this sitting only looked.
+        game.stages_last(BOSS_ARRIVES + GAP as u32);
         game.frames_until("the stage played past the gap", 900, || {
             game.state().stage_frames > BOSS_ARRIVES
         });
-        game.press(WRITE);
+        game.frames_until("the stage's own end", GAP as u32 * 2, || {
+            game.log().said("tuning: wrote")
+        });
         let table = read(&game, TABLE);
         assert!(
             !table.contains(&format!("({PROPOSED_AT})")),
