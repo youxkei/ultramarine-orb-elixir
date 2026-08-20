@@ -26,7 +26,7 @@ use std::ops::Range;
 
 use crate::audio;
 use crate::memtrack::Region;
-use crate::{detail, log};
+use crate::{crash, detail, log};
 use orb_api::{mem, thread};
 
 /// How a snapshot treats the game's sound.
@@ -227,6 +227,7 @@ impl Buffer {
 
 impl Drop for Buffer {
     fn drop(&mut self) {
+        crash::doing(crash::Doing::GivingABufferBack, 0, 0);
         mem::count_private_region_again(self.bytes.as_ptr() as usize);
     }
 }
@@ -361,17 +362,23 @@ impl Snapshot {
         // goes round once there and the `continue` is the real game's alone.
         let mut saved_music = None;
         for _ in 0..AUDIO_ATTEMPTS {
+            crash::doing(crash::Doing::CapturingTheSound, 0, 0);
             saved_music = music.and_then(|music| {
                 let saved = unsafe { music.capture(audio.identity) }?;
                 Some((music, saved))
             });
             {
                 let _suspended = suspend(audio.thread);
-                for entry in &mut self.saved {
+                let regions = self.saved.len();
+                for (at, entry) in self.saved.iter_mut().enumerate() {
+                    // Which copy this is, for a fault inside one to be read by: what a crash in here turns
+                    // on is which region and how far through, and the address alone says neither.
+                    crash::doing(crash::Doing::CopyingARegion, at + 1, regions);
                     unsafe {
                         mem::copy_out(entry.region.base, entry.data.base(), entry.region.len)
                     };
                 }
+                crash::doing(crash::Doing::TakingASnapshot, 0, 0);
             }
             match &saved_music {
                 Some((music, saved)) if !music.agrees_with_memory(saved) => continue,
@@ -540,10 +547,13 @@ impl Snapshot {
         }
         {
             let _suspended = suspend(self.audio_thread);
-            for entry in writable {
+            let regions = writable.len();
+            for (at, entry) in writable.into_iter().enumerate() {
+                crash::doing(crash::Doing::PuttingARegionBack, at + 1, regions);
                 unsafe { restore_region(entry, &holes) };
             }
         }
+        crash::doing(crash::Doing::PuttingTheSoundBack, 0, 0);
         // After the memory copy, so the streaming bookkeeping this has to agree
         // with is already back in place.
         match &self.music {

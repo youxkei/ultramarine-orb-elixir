@@ -143,6 +143,42 @@ pub unsafe fn commit(address: usize, len: usize) -> bool {
     unsafe { host::commit(address, len) }
 }
 
+/// The ranges [`keep_out_of_private_regions`] named, as `(base, len)`: where orb keeps its own copies.
+///
+/// For naming memory a fault touched. A number on its own says nothing about whose the memory is, and
+/// which of the game's, a chapter's copy or orb's own bookkeeping it belongs to is what a crash is read
+/// for — see `orb_core::crash`.
+pub fn orbs_own() -> Vec<(usize, usize)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.orbs_own();
+    }
+    host::orbs_own()
+}
+
+/// The ranges [`a_restore_needs`] named, as `(base, len)`: what the chapters orb is holding would put back.
+pub fn what_a_restore_needs() -> Vec<(usize, usize)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.what_a_restore_needs();
+    }
+    host::what_a_restore_needs()
+}
+
+/// Every heap orb knows this process has — the process's own and the ones the game created — and whether
+/// each still validates.
+///
+/// **Asked at a crash and nowhere else**: walking a heap's own structures is what `HeapValidate` does, and
+/// a heap that fails it has been written over by somebody. That answer is the difference between a pointer
+/// that was never anything and memory somebody had already corrupted, which no address tells apart.
+pub fn heaps() -> Vec<(usize, bool)> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.heaps();
+    }
+    host::heaps()
+}
+
 /// Which allocation the pages at `address` belong to, and nothing where they belong to none.
 ///
 /// The reservation they were handed out in — `MEMORY_BASIC_INFORMATION`'s `AllocationBase` on a real
@@ -481,6 +517,15 @@ mod host {
     }
     pub fn allocation_at(_address: usize) -> Option<usize> {
         no_windows("mem::allocation_at")
+    }
+    pub fn orbs_own() -> Vec<(usize, usize)> {
+        no_windows("mem::orbs_own")
+    }
+    pub fn what_a_restore_needs() -> Vec<(usize, usize)> {
+        no_windows("mem::what_a_restore_needs")
+    }
+    pub fn heaps() -> Vec<(usize, bool)> {
+        no_windows("mem::heaps")
     }
     pub unsafe fn replace_word(_address: usize, _value: usize) -> Option<usize> {
         no_windows("mem::replace_word")

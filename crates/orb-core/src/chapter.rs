@@ -13,6 +13,7 @@ use std::fmt;
 use std::ops::Range;
 use std::path::PathBuf;
 
+use crate::crash;
 use crate::game::{Game, State};
 use crate::memtrack;
 use crate::profile;
@@ -1438,6 +1439,7 @@ unsafe fn take(
 ) -> Snapshot {
     let started = profile::now();
     let regions = unsafe { memtrack::regions(data.clone()) };
+    crash::doing(crash::Doing::TakingASnapshot, 0, 0);
     let snapshot = match previous {
         Some(checkpoint) => {
             let mut snapshot = checkpoint.snapshot;
@@ -1468,6 +1470,9 @@ unsafe fn take(
             log!("self_check:   {:#010x}+{:#x}", region.base, region.len);
         }
     }
+    // Nothing of orb's in flight any more: what a fault says about that has to be about the frame it
+    // happened on, so a note left standing would name work that finished seconds ago.
+    crash::doing(crash::Doing::Nothing, 0, 0);
     snapshot
 }
 

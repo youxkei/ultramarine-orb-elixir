@@ -260,6 +260,18 @@ pub trait Win: Send + Sync + 'static {
     /// still the ones it saved.
     fn allocation_at(&self, address: usize) -> Option<usize>;
 
+    /// The ranges [`keep_out_of_private_regions`](Win::keep_out_of_private_regions) named, for naming the
+    /// memory a fault touched.
+    fn orbs_own(&self) -> Vec<(usize, usize)>;
+
+    /// The ranges [`a_restore_needs`](Win::a_restore_needs) named, for the same.
+    fn what_a_restore_needs(&self) -> Vec<(usize, usize)>;
+
+    /// Every heap orb knows this process has, and whether each still validates. Asked at a crash: a heap
+    /// that fails is memory somebody wrote over, which no address tells from a pointer that was never
+    /// anything.
+    fn heaps(&self) -> Vec<(usize, bool)>;
+
     /// Says a snapshot orb is holding would put `base..base + len` back, so that the address space is
     /// kept for it — see [`hold_what_a_restore_needs`](Win::hold_what_a_restore_needs). One call per
     /// snapshot naming a range, and [`a_restore_is_done_with`](Win::a_restore_is_done_with) as each

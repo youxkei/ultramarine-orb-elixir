@@ -478,6 +478,23 @@ impl Win for Sim {
         self.space.allocation_at(address)
     }
 
+    /// Nothing, for the reason [`private_regions`](Sim::private_regions) answers with nothing: the ranges
+    /// orb names as its own are the test binary's own allocations, and this is one 32-bit address space
+    /// where a laid-out region can hold the same numbers.
+    fn orbs_own(&self) -> Vec<(usize, usize)> {
+        Vec::new()
+    }
+
+    fn what_a_restore_needs(&self) -> Vec<(usize, usize)> {
+        self.needed.lock().unwrap().clone()
+    }
+
+    /// No heaps, there being none here to validate: a laid-out game's memory is this space and not a heap
+    /// anybody walks.
+    fn heaps(&self) -> Vec<(usize, bool)> {
+        Vec::new()
+    }
+
     fn a_restore_needs(&self, base: usize, len: usize) {
         self.needed.lock().unwrap().push((base, len));
     }

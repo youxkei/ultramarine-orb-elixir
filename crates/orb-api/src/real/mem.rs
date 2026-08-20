@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Memory::{
-    GetProcessHeap, HeapLock, HeapUnlock, HeapWalk, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_PRIVATE,
-    MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
+    GetProcessHeap, HeapLock, HeapUnlock, HeapValidate, HeapWalk, MEM_COMMIT, MEM_FREE, MEM_IMAGE,
+    MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
     PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY,
     PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY, VirtualAlloc, VirtualProtect, VirtualQuery,
 };
@@ -253,6 +253,36 @@ pub fn forget_reservation(base: usize) {
         return;
     };
     tracked.reservations.retain(|(at, _)| *at != base);
+}
+
+pub fn orbs_own() -> Vec<(usize, usize)> {
+    OURS.lock().map(|ours| ours.clone()).unwrap_or_default()
+}
+
+pub fn what_a_restore_needs() -> Vec<(usize, usize)> {
+    NEEDED
+        .lock()
+        .map(|needed| needed.clone())
+        .unwrap_or_default()
+}
+
+pub fn heaps() -> Vec<(usize, bool)> {
+    let mut heaps = vec![unsafe { GetProcessHeap() } as usize];
+    if let Ok(tracked) = TRACKED.lock() {
+        for heap in &tracked.heaps {
+            if !heaps.contains(heap) {
+                heaps.push(*heap);
+            }
+        }
+    }
+    heaps
+        .into_iter()
+        .filter(|heap| *heap != 0)
+        .map(|heap| {
+            let sound = unsafe { HeapValidate(heap as *mut c_void, 0, std::ptr::null()) } != 0;
+            (heap, sound)
+        })
+        .collect()
 }
 
 pub fn allocation_at(address: usize) -> Option<usize> {

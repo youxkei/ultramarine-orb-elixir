@@ -17,7 +17,7 @@
 
 use std::ops::Range;
 
-use crate::{detail, profile};
+use crate::{crash, detail, profile};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Region {
@@ -46,10 +46,14 @@ impl Region {
 /// `data` must be the exe's `.data` range.
 pub unsafe fn regions(data: Range<usize>) -> Vec<Region> {
     let started = profile::now();
+    // The walk takes the heaps' own locks and reads their structures, so a fault inside it is a heap that
+    // has been written over rather than anything of orb's — see `crash::Doing`.
+    crash::doing(crash::Doing::WalkingTheHeaps, 0, 0);
     let regions: Vec<Region> = orb_api::mem::game_regions(&data)
         .into_iter()
         .map(|(base, len)| Region { base, len })
         .collect();
+    crash::doing(crash::Doing::Nothing, 0, 0);
     unsafe { profile::record(profile::Phase::Regions, started) };
     // Which pages a chapter is a copy of, said in full: what a restore writes over is exactly this, so a
     // range in it that turns out not to be the game's is read off here and nowhere else.
