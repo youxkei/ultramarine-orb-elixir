@@ -4508,16 +4508,35 @@ mod tests {
         assert_eq!((state.lives, state.bombs, state.deaths), (3, 2, 4));
     }
 
-    /// A stage per entry and nothing in any of them, which is what makes a chapter of this game fall at a stage's
-    /// start and nowhere inside it — and what lets a `--chapter-tuning` run write a line of the table per stage.
+    /// A stage per entry, and every boundary in one a hand's and ahead of the one before it.
+    ///
+    /// **What this is against is the paste**, the table being written beside the game by a judging pass and copied
+    /// into `chapters.rs` by somebody: a number dropped in the wrong row, out of order or twice over is a chapter
+    /// beginning where nobody put one, and none of it shows in a build. Every one of them is a hand's because this
+    /// game's waves never empty — see `chapters.rs` — and the shortest a chapter may be reads that flag, so a
+    /// number pasted as the detector's would divide a stage differently than the pass that chose it.
     #[test]
-    fn the_midstage_table_is_a_stage_per_entry_with_nothing_in_any_of_them() {
+    fn the_midstage_table_is_a_stage_per_entry_of_hands_in_the_order_they_come() {
         let table = Th07.midstage_table();
         assert_eq!(table.len(), STAGES as usize);
-        assert!(
-            table.iter().all(|stage| stage.is_empty()),
-            "a boundary nobody has measured would take a chapter inside a stage"
-        );
+        for (stage, boundaries) in table.iter().enumerate() {
+            let frames: Vec<i32> = boundaries.iter().map(|boundary| boundary.frame).collect();
+            assert!(
+                boundaries.iter().all(|boundary| boundary.by_hand),
+                "stage {} has a boundary the detector cannot have proposed here: {frames:?}",
+                stage + 1,
+            );
+            assert!(
+                frames.windows(2).all(|pair| pair[0] < pair[1]),
+                "stage {}'s boundaries are not in the order the stage reaches them: {frames:?}",
+                stage + 1,
+            );
+            assert!(
+                frames.iter().all(|frame| *frame > 0),
+                "stage {} has a boundary before its own start: {frames:?}",
+                stage + 1,
+            );
+        }
     }
 
     /// The music a chapter is taken with, read off the two objects a play leaves: the buffer DirectSound made, how
