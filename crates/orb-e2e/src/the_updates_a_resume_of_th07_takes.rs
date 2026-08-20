@@ -145,15 +145,20 @@ fn a_second_playback_of_th07_in_one_session_is_watched_from_its_own_first_frame(
     });
 }
 
-/// **Every frame's generator at the verbose level, played and played back alike**, which is what a run whose
-/// file holds none of its own can be held against: one series is left by the session that played the run and
-/// the other by the launch that picked it up, and the first frame they differ on is where the playback parted.
+/// **Every frame's reproduction line at the verbose level, played and played back alike**: one series is left
+/// by the session that played the run and the other by the launch that picked it up, and the first frame they
+/// differ on is where the playback parted — with the *field* that differs saying what parted.
+///
+/// The generator alone said only that one had. A run of stage 2 held against its own playback parted at frame
+/// 802 with both of the boundaries after it — 1549 and 2827 — still landing on the same frames, so the world
+/// drew differently while the script did not, and nothing in a series of generators tells a player somewhere
+/// else from an item nobody picked up.
 ///
 /// **At that level and not behind `self_check`**, which is where this began: that flag has a chapter fingerprint
 /// every region it saved, and the snapshot a boundary takes went from 2ms to 204ms with it — a stutter at every
-/// chapter of the run somebody is playing to leave the file. Two series of numbers cost log and nothing else.
+/// chapter of the run somebody is playing to leave the file. These lines cost log and nothing else.
 #[test]
-fn a_playback_of_th07_says_every_frames_generator_where_the_log_is_verbose() {
+fn a_playback_of_th07_says_every_frames_own_line_where_the_log_is_verbose() {
     in_its_own_process(|| {
         let game = Fake::attach_configured(
             Display::agreed(120),
@@ -177,11 +182,11 @@ fn a_playback_of_th07_says_every_frames_generator_where_the_log_is_verbose() {
         let played = log
             .lines()
             .iter()
-            .filter(|line| line.contains("played with the generator at"))
+            .filter(|line| line.contains("played with replay_frame="))
             .count();
         assert!(
             played >= at as usize,
-            "the run said the generator on {played} of the {at} frames it was played for:\n  {}",
+            "the run said its own line on {played} of the {at} frames it was played for:\n  {}",
             log.lines().join("\n  "),
         );
 
@@ -193,12 +198,12 @@ fn a_playback_of_th07_says_every_frames_generator_where_the_log_is_verbose() {
         let said = log
             .lines()
             .iter()
-            .filter(|line| line.contains("played back with the generator at"))
+            .filter(|line| line.contains("played back with replay_frame="))
             .count();
         assert_eq!(
             said,
             at as usize - 1,
-            "the playback said the generator on {said} of the {at} frames it played:\n  {}",
+            "the playback said its own line on {said} of the {at} frames it played:\n  {}",
             log.lines().join("\n  "),
         );
     });

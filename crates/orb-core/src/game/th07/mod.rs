@@ -463,6 +463,52 @@ const G_RUN_NUMBERS: usize = 0x00626278;
 /// `docs/adr/` then rather than in a cast here.
 const POWER: usize = 0x7c;
 
+/// **What an item's cherry is worked out from, `[run+0x18]`.** 0x4338e3 reads it, makes
+/// `(count / 40) * 10 + 300` of it, and hands that to 0x42f5a2 — which is the cherry going up:
+/// `[gm+0x961c]` is [`G_CHERRY`], clamped at `[gm+0x9618]`, which is [`G_CHERRY_TARGET`], and
+/// `[gm+0x9620]`, [`G_CHERRY_PLUS`], goes up with it. 0x43369a reads the same count for the same sum and
+/// puts that into [`SCORE`] instead, which is the other kind of item.
+///
+/// **So it is not a tally, it is what this game runs on**: the cherry is what a border comes up on and what
+/// an extra life is paid for out of, and a stage played again with the count back at nothing is a stage whose
+/// items fill the cherry at another rate. Nothing in a reproduction line says so and adding to the cherry
+/// draws no words, so two runs stay in step for as long as it takes a threshold to arrive.
+///
+/// One routine adds to it, 0x43eb90, which adds one to `[run+0x14]` beside it — the stage's own count, capped
+/// at 9999 and drawn on the panel at 0x42a395, and carried by nobody — and takes 2000 points at 0x43ed12. The
+/// cap here is 999999, at 0x43ebcb.
+///
+/// **The game's own replay restore carries it**: 0x44327f writes it into a stage's record and 0x443841 puts it
+/// back, and the run's own build zeroes it at 0x42ea7c. So a run picked up out of a file starts from nothing
+/// unless a resume writes it, which is what a session measured — a run picked up in stage 2 reproduced 830
+/// frames of itself word for word and then took 2000 points nobody had scored, and had its third life 865
+/// frames before the run it was reproducing.
+const COUNTED_ALL_RUN: usize = 0x18;
+
+/// **The cards this run has captured, `[run+0x1c]`.** 0x410479 adds one to it inside the routine that counts a
+/// capture against the card's own record — 0x4103fb, `+0x6a` of a [`G_CARD_RECORDS`] entry, and the byte at
+/// `+0x2a` written three instructions earlier.
+///
+/// **Carried because the game's own replay restore carries it**, 0x443347 into a stage's record and 0x443922
+/// back out, and because a run of 妖々夢 fills its cherry at a rate its captures decide. Nothing in the exe
+/// reads this field where a stage is being played, so what it is read *for* has not been found here; the
+/// game's own record is what says it belongs to a stage's start.
+const CARDS_CAPTURED: usize = 0x1c;
+
+/// **The step 妖々夢's awards have climbed to, `[0x62f644]`**, which is an index into the 31 dwords at
+/// 0x49ecf8 — 10, 20, 30 … 100, 200 … 1000, 2000, 3000 … 12000, 12800. 0x432efe adds one to it, 0x432f19 holds
+/// it at 30, 0x432f27 reads the table by it and 0x432f42 adds a tenth of what it finds to [`SCORE`]. It goes
+/// back to nothing at 0x432fb2 and where the player is hit, at 0x440d6a.
+///
+/// **This is what a resumed run of 妖々夢 was getting wrong, and the arithmetic is what says so**: a run picked
+/// up in stage 2 reproduced 978 frames of itself word for word and then took 3 where the run had taken 203 —
+/// 30 against 2030, a difference of exactly 2000, which is entry 19 of that table. The recording carried the
+/// step its first stage had climbed to; the run put back started from the bottom. A stage 1 resume, whose step
+/// is at the bottom either way, had reproduced all 3479 of its frames.
+///
+/// The game's own replay restore carries it, 0x4432f1 into a stage's record and 0x443865 back out.
+const AWARD_STEP: usize = 0x0062f644;
+
 /// The score, `[run+0x4]`, and the point items, `[run+0x28]`.
 ///
 /// **The score is capped where a score is capped**: the run's teardown at 0x42f45d clamps this field to
@@ -477,6 +523,11 @@ const POWER: usize = 0x7c;
 /// at 0x32 or 0xc8 by difficulty is the first step, higher for the Extra and the Phantasm.
 const SCORE: usize = 0x4;
 const POINT_ITEMS: usize = 0x28;
+/// The two behind that count, which are as much a number a stage starts with as the count is: how far the
+/// point value has climbed and how many items the next step wants. A stage resumed with the ladder a fresh
+/// run has is a stage whose items are worth what a first stage's are.
+const POINT_VALUE_STEP: usize = 0x2c;
+const POINT_VALUE_NEXT: usize = 0x30;
 
 /// The score the panel shows, `[run+0x0]`, which the run's own end catches up with [`SCORE`]: the teardown
 /// at 0x42f483 copies one into the other, and so does every way out of the pause menu — 0x403b8b, 0x403bd0
@@ -505,22 +556,41 @@ const SCORE_SHOWN: usize = 0x00;
 /// to start with the cherry it had, filling towards what it was filling towards, with the border it had
 /// earned. See [`Th07::run_state`].
 const SCORE_BASELINE: usize = 0x88;
-/// **The eight numbers a run is made with, none of which a resume puts back.** 0x42e3da draws each as
-/// `(rand % 0x186a0) + 0x198f` — a number between 6543 and 106542 — writing the first to [`SCORE_BASELINE`]
-/// and the rest to the seven words at `+0x34`. `[run+0x3c]`, the third of those seven, is carried into
-/// `+0xac` at 0x42dc96 and 0x42e5fa and from there into the float at [`CHERRY_FILLING_TOWARDS`], with
-/// `+0xb0` taking what the call between them answered.
+/// **The noise the seal is drawn over, and a resume writes none of it.** 0x42e3da fills the run's object with
+/// it as the object is allocated — `(rand % 0x186a0) + 0x198f` apiece, a number between 6543 and 106542 — into
+/// the seven words at `+0x34`, the eight at `+0x8c`, and floats at `+0x54`, `+0x58`, `+0x60` and `+0x64`, which
+/// are the words standing between [`DEATHS`], [`LIVES`] and [`BOMBS`]. Everything from `+0x34` to `+0xac` is
+/// inside the sum [`RESEAL`] takes.
 ///
-/// Drawn as the run's own object is allocated — 0x42e951, right after the `malloc(0xc8)` at 0x42e93f — so
-/// they are a *run's* numbers rather than a stage's, and a run picked up out of a file is a new run whose
-/// eight are drawn again from wherever its own generator stands.
+/// **The game draws them again whenever it likes, which is what says they carry nothing:** [`RESEAL`] redraws
+/// `+0x3c` and `+0x98` on every one of its calls, and 0x43b5c0 redraws `+0x34` through `+0x44` and the floats
+/// at `+0x70`, `+0x74` and `+0x78` outright. Nothing else in the exe reads any of the seven: `+0x3c` is the one
+/// the seal keeps, and 0x42dc96 and 0x42e5fa are the two reseals written out inline copying it into `+0xac`.
+///
+/// **And [`SEALED_WORD`] is why writing them costs the run**, it being the third of the seven.
+///
+/// **Only a laid-out game needs these two addresses**, which is why they are behind that gate: what orb does
+/// with the words is nothing, and what a laid-out game does with them is have the build draw them so that the
+/// generator has moved before a stage's seed is settled — which is the whole of why a resume writes that seed
+/// where it does.
+#[cfg(any(test, feature = "sim"))]
 const RUN_RANDOMS_AT: usize = 0x34;
+#[cfg(any(test, feature = "sim"))]
 const RUN_RANDOMS: usize = 7;
-const CHERRY_CARRIED: usize = 0xac;
-const CHERRY_CARRIED_ON: usize = 0xb0;
-/// And what the cherry is filling towards as the panel draws it, `[0x62f884]`: the float 0x42dcb8 and
-/// 0x42e0ef write, which is the number [`G_CHERRY_TARGET`] beside it is the integer of.
-const CHERRY_FILLING_TOWARDS: usize = 0x0062f884;
+/// **The word [`RESEAL`] draws and the copy of it the check compares, `[run+0x3c]` and `[run+0xac]`.** They are
+/// the pair that ends a resumed run: a reseal leaves them equal, a write into either afterwards leaves them
+/// apart, and the first update to reach a guarded number reads the check's answer and tears the game down.
+///
+/// Which is what a launch measured — a run picked up with the noise above written back *after*
+/// [`Th07::set_run_state`] reseals was over one update later, its ranking read as if the run had ended, and the
+/// same run with the noise left alone played 2842 of its frames.
+///
+/// **Only a laid-out game needs the two**, for the same reason: orb never writes either of them, and a laid-out
+/// game's seal is what a test holds a resume to.
+#[cfg(any(test, feature = "sim"))]
+const SEALED_WORD: usize = 0x3c;
+#[cfg(any(test, feature = "sim"))]
+const SEALED_COPY: usize = 0xac;
 const G_CHERRY: usize = 0x0062f88c;
 const G_CHERRY_TARGET: usize = 0x0062f888;
 const G_CHERRY_PLUS: usize = 0x0062f890;
@@ -1481,13 +1551,29 @@ const FIGHT_SONG_SLOT: u32 = 1;
 /// `th07::GameManager::Reseal`, `__thiscall` on [`G_GAME_MANAGER`] taking nothing: what makes a changed
 /// number pass the check at 0x404fe0 instead of wrecking the game — see [`DEATHS`] for what failing it does.
 ///
-/// **It costs two draws of the generator**, which is why it is written down here rather than treated as a
-/// bookkeeping call: 0x4012b0 asks 0x4318d0 on [`G_RANDOM`] twice, takes each modulo 0x186a0 and salts it by
-/// 0x198f into `[run+0x3c]` and the field beside it, and 0x404fe0 recomputes `[run+0xac]` and `[run+0xb0]`
-/// from those two and four more. So anything of orb's that reseals moves the generator on, and a stage
-/// resumed from a recording has to have its seed put back *after* the last reseal — which is exactly the
-/// order the game's own replay restore uses at 0x443790: the numbers with their reseals first, the seed into
-/// 0x49fe20 last, at 0x443910.
+/// **What it writes is four fields of the run and one of the manager**: two draws of the generator into
+/// `[run+0x3c]` and `[run+0x98]`, each `(rand % 0x186a0) + 0x198f`; `[run+0xac]` a copy of the first of them;
+/// `[run+0xb0]` the sum 0x42d7be takes over `run+0x34` through `run+0xac` and three ranges outside the run —
+/// `[0x626278]+0xb4` for 0x14 bytes, all 0x38 of the run's header at `[0x626274]`, and 0x38 bytes at 0x575a68;
+/// and `[gm+0x9614]` the float of `[run+0xb0] + [run+0x98]`.
+///
+/// **And the check is two comparisons over exactly those five, neither of which takes the sum again**:
+/// `[run+0xac]` against `[run+0xbc] * 0xfc + [run+0x3c]`, and `[run+0xb0] + [run+0x98]` against `[gm+0x9614]`
+/// rounded back to a whole number. `0xfc` is `(run+0xac) - (run+0x34) + 0x84` worked out at 0x405003, and
+/// `[run+0xbc]` is nothing while a run is played, so the first comparison is `[run+0xac]` against `[run+0x3c]`
+/// — which is what this call had just made of them. So a write of orb's into any of the five is
+/// a run that ends on its next update, and every guarded write of the game's own asks the check first: 0x42d5d8
+/// for [`LIVES`], 0x42d61d for [`BOMBS`], 0x4325eb for [`POWER`], 0x43b75b for [`DEATHS`], and five more sites
+/// besides.
+///
+/// **`[gm+0x9614]` is not what the cherry is filling towards, which it was read as for a launch** —
+/// [`G_CHERRY_TARGET`] is that, and every `fstp` into `[gm+0x9614]` between 0x42dcb8 and 0x42e62c is one of
+/// these calls written out inline.
+///
+/// **It also costs two draws of the generator**, which is why it is written down here rather than treated as a
+/// bookkeeping call: anything of orb's that reseals moves the generator on, so a stage resumed from a recording
+/// has to have its seed put back *after* the last reseal — which is exactly the order the game's own replay
+/// restore uses at 0x443790: the numbers with their reseals first, the seed into 0x49fe20 last, at 0x443910.
 ///
 /// Handed over for `handed_over!`'s own reason: it is code, and a laid-out game has none.
 const RESEAL: usize = 0x004012b0;
@@ -3564,33 +3650,13 @@ impl Game for Th07 {
                 unsafe { mem::read::<u32>(run + SCORE) },
                 unsafe { mem::read::<u32>(run + SCORE_SHOWN) },
             );
-            // **And the cherry's own machinery, which a resume puts back three statics of and nothing else.**
-            // 0x42e3da draws eight numbers as a run is made — `(rand % 100000) + 0x198f` apiece — and writes
-            // them to the baseline and to the seven at `+0x34`; `[run+0x3c]` is then carried through `+0xac`
-            // into [`CHERRY_FILLING_TOWARDS`] at 0x42dc96 and 0x42e5fa. A resumed run is a *new* run, so every
-            // one of them is drawn again and none of them is the number the run being put back was played
-            // with — and a stage resumed with the cherry filling towards somewhere else is a stage whose
-            // borders come up elsewhere.
-            //
-            // Said so that the two sessions can be held against each other: a run of stage 1, whose cherry is
-            // nothing, was picked up and reproduced every one of its 3479 frames, and a run picked up in
-            // stage 2 parted inside its first thousand. Which of these numbers a resume has to carry is what
-            // this line is for. See [`SCORE_BASELINE`] and [`Th07::set_run_state`].
-            let drawn: Vec<String> = (0..RUN_RANDOMS)
-                .map(|at| {
-                    let word = unsafe { mem::read::<i32>(run + RUN_RANDOMS_AT + at * 4) };
-                    format!("{word}")
-                })
-                .collect();
-            detail!(
-                "th07: the cherry is filling towards {} of {}, baseline {}, carried {} and {}, drawn {}",
-                unsafe { mem::read::<f32>(CHERRY_FILLING_TOWARDS) },
-                unsafe { mem::read::<i32>(G_CHERRY_TARGET) },
-                unsafe { mem::read::<i32>(run + SCORE_BASELINE) },
-                unsafe { mem::read::<i32>(run + CHERRY_CARRIED) },
-                unsafe { mem::read::<i32>(run + CHERRY_CARRIED_ON) },
-                drawn.join(" "),
-            );
+            // **And the baseline the cherry is counted from**, which is the run's own and drawn afresh for a run
+            // picked up out of a file: the three statics a resume writes go back against whatever this holds,
+            // and a line that says what it held is what a landing's cherry can be read against. See
+            // [`SCORE_BASELINE`] and [`Th07::set_run_state`].
+            detail!("th07: the cherry is counted from {}", unsafe {
+                mem::read::<i32>(run + SCORE_BASELINE)
+            });
         }
         let cherry = |at: usize| {
             run.map_or(0, |run| {
@@ -3600,6 +3666,9 @@ impl Game for Th07 {
         };
         resume::encode_state(&resume::Numbers {
             score: run.map_or(0, |run| unsafe { mem::read(run + SCORE) }),
+            score_shown: run.map_or(0, |run| unsafe { mem::read(run + SCORE_SHOWN) }),
+            point_value_step: run.map_or(0, |run| unsafe { mem::read(run + POINT_VALUE_STEP) }),
+            point_value_next: run.map_or(0, |run| unsafe { mem::read(run + POINT_VALUE_NEXT) }),
             seed: unsafe { mem::read(G_GAME_MANAGER + SEED_AT_STAGE_START) },
             point_items: run.map_or(0, |run| unsafe { mem::read::<u32>(run + POINT_ITEMS) }
                 as u16),
@@ -3610,6 +3679,9 @@ impl Game for Th07 {
             cherry: cherry(G_CHERRY),
             cherry_target: cherry(G_CHERRY_TARGET),
             cherry_plus: cherry(G_CHERRY_PLUS),
+            counted: run.map_or(0, |run| unsafe { mem::read(run + COUNTED_ALL_RUN) }),
+            captured: run.map_or(0, |run| unsafe { mem::read(run + CARDS_CAPTURED) }),
+            award_step: unsafe { mem::read(AWARD_STEP) },
         })
     }
 
@@ -3620,15 +3692,16 @@ impl Game for Th07 {
     /// the build draws the stage out of it. Written here it would be written *after* those draws, and a 妖々夢 run
     /// picked up out of its file parted from the run at the stage's first frame because of it.
     ///
-    /// **Every field this writes is one the game seals**, and one write of any of them without the call that
-    /// follows is a launch that tears its own graphics down a moment later — [`DEATHS`] says what that looks
-    /// like. So the seal is not an afterthought here; it is what makes the writes allowed.
+    /// **The order here is the sum [`RESEAL`] takes**, `run+0x34` through `run+0xac`: [`LIVES`], [`BOMBS`],
+    /// [`POWER`] and [`DEATHS`] are inside it and go in before the seal, and one write of any of them without the
+    /// call that follows is a launch that tears its own graphics down a moment later — [`DEATHS`] says what that
+    /// looks like. The score's two fields, the point items and the two of the point value's ladder are below the
+    /// range and could go either side of it.
     ///
-    /// The three of `RunState` this game has nothing for are not written, and the cherry is — each of its
-    /// three against the baseline *this* stage has, which is what the game's own restore does at 0x44387d.
-    /// The cherry+ is the one of them that is not written outright: 0x4438c1 holds it to
-    /// [`CHERRY_FOR_A_BORDER`] and puts the border up where the record had earned one, which is
-    /// [`BORDER_UP`].
+    /// The cherry is written after, its three being statics: each against the baseline *this* stage has, which
+    /// is what the game's own restore does at 0x44387d. The cherry+ is the one of them not written outright:
+    /// 0x4438c1 holds it to [`CHERRY_FOR_A_BORDER`] and puts the border up where the record had earned one,
+    /// which is [`BORDER_UP`].
     unsafe fn set_run_state(&self, state: &[u8]) {
         let Some(state) = resume::decode_state(state) else {
             return log!("resume: the numbers put back are not a run of this game's");
@@ -3638,11 +3711,28 @@ impl Game for Th07 {
         let Some(run) = run else { return };
         unsafe {
             mem::write::<u32>(run + SCORE, state.score);
+            // And the number the panel is drawing, which the game's own teardown and every way out of its pause
+            // menu catch up with that one: left as the front end had it, a resumed stage draws the wrong score
+            // and counts up to the run's from there.
+            mem::write::<u32>(run + SCORE_SHOWN, state.score_shown);
             mem::write::<u32>(run + POINT_ITEMS, u32::from(state.point_items));
+            // The two behind that count, which say what an item is worth: a stage resumed at a first stage's
+            // step is a stage whose point items are worth a first stage's.
+            mem::write::<u32>(run + POINT_VALUE_STEP, state.point_value_step);
+            mem::write::<u32>(run + POINT_VALUE_NEXT, state.point_value_next);
             mem::write::<f32>(run + LIVES, f32::from(state.lives));
             mem::write::<f32>(run + BOMBS, f32::from(state.bombs));
             mem::write::<f32>(run + POWER, f32::from(state.power));
             mem::write::<f32>(run + DEATHS, state.deaths as f32);
+            // What the cherry an item gives is worked out from, which the build has just put back to nothing:
+            // left there, a resumed stage fills its cherry at a first stage's rate and comes to a border, and
+            // to the life a border is paid for with, somewhere the run never did.
+            mem::write::<i32>(run + COUNTED_ALL_RUN, state.counted);
+            mem::write::<i32>(run + CARDS_CAPTURED, state.captured);
+            // And the step the awards have climbed to, which is a static rather than one of the run's own
+            // numbers and so outside the seal: left at the bottom, the first thing this stage collects is worth
+            // what a first stage's is, and the run parts from itself there.
+            mem::write::<u8>(AWARD_STEP, state.award_step);
         }
         // **The seal draws twice, and the generator is put back over those draws** — which is what the game
         // itself does around this very call: 0x42f07e saves [`G_RANDOM`], 0x42f08b seals, 0x42f094 writes the
@@ -3654,6 +3744,12 @@ impl Game for Th07 {
         unsafe { mem::write::<u16>(G_RANDOM, drawing_from) };
         // The cherry after the seal and outside it: none of these three is a field the seal covers — they are
         // statics rather than the run's own numbers — and the game's own restore writes them here too.
+        //
+        // **Against the baseline this run was given rather than the one it is putting back**, which is what the
+        // game's own restore does at 0x44387d: the baseline is drawn afresh for every run and the three are
+        // counts from it, so a stage's cherry is the same cherry against either of them. Two launches were spent
+        // on writing the recorded one back into `+0x88` with the noise beside it, and it is [`RUN_RANDOMS_AT`]
+        // that says what that costs.
         let baseline = unsafe { mem::read::<i32>(run + SCORE_BASELINE) };
         let earned = state.cherry_plus >= CHERRY_FOR_A_BORDER as i32;
         let plus = if earned {
@@ -3671,6 +3767,16 @@ impl Game for Th07 {
                 unsafe { std::mem::transmute(border_up()) };
             unsafe { border(G_PLAYER) };
         }
+        // **And what the game holds once all of that has run**, which is not the same question as what was
+        // written: the seal between them is the game's own code over the same fields, and a launch found the
+        // score coming back as the *previous* run's — `score=0` written and `score=1170166` in the landing
+        // line, which is a number no part of this run put there. Read back here, where the writes and the seal
+        // have both happened and the stage has not been updated yet, so the two lines in the log are the same
+        // moment from either side.
+        detail!(
+            "th07: the numbers put back read back as {}",
+            self.say_run_state(&unsafe { self.run_state() }),
+        );
     }
 
     /// The front end still up and a run already asked for, which is the one frame where what the run *is* is
@@ -3832,6 +3938,9 @@ mod tests {
     fn nothing() -> resume::Numbers {
         resume::Numbers {
             score: 0,
+            score_shown: 0,
+            point_value_step: 0,
+            point_value_next: 0,
             seed: 0,
             point_items: 0,
             power: 0,
@@ -3841,6 +3950,9 @@ mod tests {
             cherry: 0,
             cherry_target: 0,
             cherry_plus: 0,
+            counted: 0,
+            captured: 0,
+            award_step: 0,
         }
     }
 

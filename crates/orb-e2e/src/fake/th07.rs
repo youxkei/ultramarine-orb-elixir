@@ -1156,6 +1156,13 @@ impl Fake {
     /// # Panics
     /// Naming whichever step the resume did not get past.
     pub fn picks_the_run_up(&self) {
+        self.picks_the_run_up_at(FIRST_STAGE);
+    }
+
+    /// And the same at a stage other than the one a run starts on, which is what a file written past the first
+    /// asks the build for: the numbers a stage starts with are read where that stage starts, so a run put back
+    /// with a *second* stage's is a run whose file was written in one.
+    pub fn picks_the_run_up_at(&self, stage: i32) {
         let log = self.log();
         let from = log.written();
         self.at_the_shot_select();
@@ -1175,7 +1182,7 @@ impl Fake {
         self.frames_until("the stage the run was left in asked for", 8, || {
             log.said_since(from, "the run is being built at that stage")
         });
-        self.builds_a_stage();
+        self.builds_the_stage(stage);
         // **And the stage's own song playing, which is what that build leaves**: it loads its two slots and asks
         // for the first of them, and by the stage's first frame the play has been carried out. Said here rather
         // than in the build itself, because a stage is also built for a chapter that was taken before its song
@@ -1315,7 +1322,15 @@ impl Fake {
         let next = self.seed.get().rotate_left(3).wrapping_add(0x2b1d) | 1;
         self.seed.set(next);
         self.image.generator_is_at(next);
-        self.image.the_stage_began_with_the_seed(next);
+        // **The run's own eight numbers drawn out of it first**, which is the order the game's own callback has
+        // them in: 0x42e951 draws them near its head, 0x42f0a4 writes the stage's seed down after that, and the
+        // call to `STAGE_BUILD` — the one moment a resume writes a seed — is at 0x42f0b4, after both. So these
+        // eight come off a word no resume can put back, and a stage built a second time draws eight others.
+        self.image.the_stage_draws_the_runs_numbers();
+        // And the seed the stage is written down as having begun with, which is the generator as it stands once
+        // those draws have moved it — the number 0x42f0a4 copies, and so the number a resume puts back.
+        self.image
+            .the_stage_began_with_the_seed(self.image.the_generator_now());
     }
 
     /// And the stage laid out **out of that seed**, which is what makes the seed matter: the frames of the stage

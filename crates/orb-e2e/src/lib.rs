@@ -116,6 +116,8 @@ mod the_card_name_across_a_restore_of_th07;
 #[cfg(test)]
 mod the_cards_a_run_of_th07_counted;
 #[cfg(test)]
+mod the_count_a_run_of_th07_carries;
+#[cfg(test)]
 mod the_dpad_moving_the_player;
 #[cfg(test)]
 mod the_ending;
@@ -151,6 +153,8 @@ mod the_mouse_pointer_over_the_game;
 mod the_music_across_a_restore;
 #[cfg(test)]
 mod the_music_across_a_restore_of_th07;
+#[cfg(test)]
+mod the_numbers_a_run_of_th07_was_made_with;
 #[cfg(test)]
 mod the_pacing_of_th07;
 #[cfg(test)]
@@ -189,6 +193,8 @@ mod the_screens_of_th07_in_english;
 mod the_snapshot_held_against_itself;
 #[cfg(test)]
 mod the_snapshot_of_th07_held_against_itself;
+#[cfg(test)]
+mod the_step_th07s_awards_have_climbed;
 #[cfg(test)]
 mod the_updates_a_resume_of_th07_takes;
 #[cfg(test)]

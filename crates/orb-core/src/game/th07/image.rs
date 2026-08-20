@@ -619,6 +619,35 @@ impl Image {
         );
     }
 
+    /// And the number the panel draws, `[run+0x0]`, which the game's own teardown and every way out of its
+    /// pause menu catch up with the score above — see `Th07`'s own `SCORE_SHOWN`.
+    pub fn the_panel_shows(&self, score: u32) {
+        self.space()
+            .write::<u32>(RUN_NUMBERS.start + super::SCORE_SHOWN, score);
+    }
+
+    pub fn the_score_the_panel_shows(&self) -> u32 {
+        self.space()
+            .read::<u32>(RUN_NUMBERS.start + super::SCORE_SHOWN)
+    }
+
+    /// How far the point value has climbed and how many items the next step of it wants, which is 妖々夢's own
+    /// 点 system: 0x4333bd compares the count against the second of these and, where it has reached it, raises
+    /// the first and works the second out again — see `Th07`'s own `SCORE`, where the arithmetic is written down.
+    pub fn the_point_value_has_climbed(&self, step: u32, next: u32) {
+        let space = self.space();
+        space.write::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_STEP, step);
+        space.write::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_NEXT, next);
+    }
+
+    pub fn the_point_value_it_has_climbed(&self) -> (u32, u32) {
+        let space = self.space();
+        (
+            space.read::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_STEP),
+            space.read::<u32>(RUN_NUMBERS.start + super::POINT_VALUE_NEXT),
+        )
+    }
+
     /// Where the run's own numbers are, for a test that reads a field back rather than through `Th07`.
     pub fn run_numbers_at(&self) -> usize {
         RUN_NUMBERS.start
@@ -1167,6 +1196,89 @@ impl Image {
     /// built: what `Th07::run_chosen` reads, and so the frame a resume can point that build at a stage on.
     pub fn a_run_has_been_chosen(&self) {
         self.is_in_scene(SCENE_FRONT_END, SCENE_RUN);
+    }
+
+    /// **The numbers a run's own build draws for it, out of the generator as the real ones are.**
+    ///
+    /// 0x42e3da draws eight, each `(rand % 0x186a0) + 0x198f`: the baseline every reader of the cherry measures
+    /// from — `[run+0x88]` — and the seven words at `[run+0x34]`, which are noise the seal is drawn over. It
+    /// draws more of it than that; these are the ones a resume ever went near.
+    ///
+    /// **Drawn before a resumed run's seed goes in, which is why a laid-out game draws them at all.** The call
+    /// is at 0x42e951, near the head of `GameManager::AddedCallback`, and the call to `STAGE_BUILD` — the one
+    /// moment a resume can write the seed — is at 0x42f0b4, after it. So the draws move the generator where no
+    /// resume can put it back, which is what makes the seed's own moment the one it is.
+    ///
+    /// **And the pair the check compares left agreeing**, `[run+0x3c]` and `[run+0xac]`: the build's own reseal
+    /// at 0x42f08b makes the copy right after these draws, and a run that started out failing the check is one
+    /// [`Image::the_seal_holds`] could say nothing about. The generator is not moved for it — the step
+    /// `Fake::settles_a_seed_for_the_stage` takes stands for that reseal's two draws already.
+    pub fn the_stage_draws_the_runs_numbers(&self) {
+        let space = self.space();
+        let drawn = || {
+            let word = space.read::<u16>(super::G_RANDOM);
+            let next = word.rotate_left(7) ^ 0x5bd1 | 1;
+            space.write::<u16>(super::G_RANDOM, next);
+            i32::from(next) % 0x186a0 + 0x198f
+        };
+        space.write::<i32>(RUN_NUMBERS.start + super::SCORE_BASELINE, drawn());
+        for at in 0..super::RUN_RANDOMS {
+            let word = drawn();
+            space.write::<i32>(RUN_NUMBERS.start + super::RUN_RANDOMS_AT + at * 4, word);
+        }
+        // **And the two counts a run keeps of itself put back to nothing**, which the same callback does at
+        // 0x42ea7c: a run picked up out of a file is a new run, so what it carries of the recorded run's is
+        // whatever the resume writes and nothing else.
+        space.write::<i32>(RUN_NUMBERS.start + super::COUNTED_ALL_RUN, 0);
+        space.write::<i32>(RUN_NUMBERS.start + super::CARDS_CAPTURED, 0);
+        // And the step the awards have climbed to back at the bottom, which is where a run that has collected
+        // nothing yet has it.
+        space.write::<u8>(super::AWARD_STEP, 0);
+        seals_the_pair();
+    }
+
+    /// **The count a run's items have their cherry worked out from**, `[run+0x18]` — see
+    /// [`super::COUNTED_ALL_RUN`], and the draw above for the build putting it back to nothing the way 0x42ea7c
+    /// does.
+    pub fn the_run_has_counted(&self, counted: i32) {
+        self.space()
+            .write::<i32>(RUN_NUMBERS.start + super::COUNTED_ALL_RUN, counted);
+    }
+
+    pub fn the_count_the_run_carries(&self) -> i32 {
+        self.space()
+            .read::<i32>(RUN_NUMBERS.start + super::COUNTED_ALL_RUN)
+    }
+
+    /// **The step the run's awards have climbed to**, `[0x62f644]` — see [`super::AWARD_STEP`], which is the
+    /// table that step is an index into and the arithmetic that says a resume has to carry it.
+    pub fn the_awards_have_climbed_to(&self, step: u8) {
+        self.space().write::<u8>(super::AWARD_STEP, step);
+    }
+
+    pub fn the_step_the_awards_have_climbed(&self) -> u8 {
+        self.space().read::<u8>(super::AWARD_STEP)
+    }
+
+    /// And the cards the run has captured, `[run+0x1c]` — see [`super::CARDS_CAPTURED`].
+    pub fn the_run_has_captured(&self, captured: i32) {
+        self.space()
+            .write::<i32>(RUN_NUMBERS.start + super::CARDS_CAPTURED, captured);
+    }
+
+    pub fn the_cards_the_run_has_captured(&self) -> i32 {
+        self.space()
+            .read::<i32>(RUN_NUMBERS.start + super::CARDS_CAPTURED)
+    }
+
+    /// **Whether the seal the game checks still holds**, which is `[run+0xac]` against `[run+0x3c]` — see
+    /// [`super::RESEAL`] for the two comparisons 0x404fe0 makes and why this is the one that catches a write of
+    /// orb's. A run whose pair has come apart is a run the game ends on its next update, so this is what a test
+    /// asks of a resume instead of laying out the tearing-down itself.
+    pub fn the_seal_holds(&self) -> bool {
+        let space = self.space();
+        space.read::<i32>(RUN_NUMBERS.start + super::SEALED_COPY)
+            == space.read::<i32>(RUN_NUMBERS.start + super::SEALED_WORD)
     }
 
     /// The shot select up, with a difficulty and a character already chosen and a shot under the cursor —
@@ -2195,6 +2307,23 @@ extern "thiscall" fn seals_the_numbers(_game_manager: usize) {
     // does the same. A laid-out seal that left the generator alone is one no test could ask that of.
     unsafe {
         mem::write::<u16>(super::G_RANDOM, drawing_from.rotate_left(7) ^ 0x51ed | 1);
+    }
+    seals_the_pair();
+}
+
+/// **The word and its copy the check holds against each other**, which is the part of [`super::RESEAL`] a test
+/// can be written over: 0x4012b0 draws `[run+0x3c]` afresh and writes it into `[run+0xac]`, and 0x404fe0
+/// compares the two. The word is drawn out of the generator rather than left as it was, since a copy of an
+/// unchanged word would pass the check whatever a resume wrote into it in between.
+///
+/// The generator's own step is the caller's: [`seals_the_numbers`] has already taken one for the real call's two
+/// draws, and a build's draws stand for its reseal's.
+fn seals_the_pair() {
+    let word = unsafe { mem::read::<u16>(super::G_RANDOM) };
+    let sealed = i32::from(word) % 0x186a0 + 0x198f;
+    unsafe {
+        mem::write::<i32>(RUN_NUMBERS.start + super::SEALED_WORD, sealed);
+        mem::write::<i32>(RUN_NUMBERS.start + super::SEALED_COPY, sealed);
     }
 }
 

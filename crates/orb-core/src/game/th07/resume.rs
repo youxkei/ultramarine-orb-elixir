@@ -37,6 +37,14 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Numbers {
     pub score: u32,
+    /// The score the panel is drawing, which the game's own teardown and every way out of its pause menu catch
+    /// up with the one above: a stage resumed without it draws the number the front end left and counts up to
+    /// the run's from there.
+    pub score_shown: u32,
+    /// How far the point value has climbed and how many items its next step wants — 妖々夢's own 点 system.
+    /// A stage resumed at a first stage's step is a stage whose items are worth a first stage's.
+    pub point_value_step: u32,
+    pub point_value_next: u32,
     /// What the generator was seeded with as the stage began. The whole of why the buttons alone are not
     /// enough: the game takes this from wherever the generator had got to, so a stage played again from a
     /// different seed is a different stage.
@@ -49,6 +57,14 @@ pub struct Numbers {
     pub cherry: i32,
     pub cherry_target: i32,
     pub cherry_plus: i32,
+    /// What an item's cherry is worked out from, which the run's own build puts back to nothing: a stage
+    /// resumed without it fills its cherry at a first stage's rate. See `Th07::run_state`.
+    pub counted: i32,
+    /// And the cards this run has captured, which the game's own replay restore carries for the same reason.
+    pub captured: i32,
+    /// The step this run's awards have climbed to, which is what a collection is worth: a stage resumed at the
+    /// bottom of it takes 30 where the run took 2030. See `Th07::run_state`.
+    pub award_step: u8,
 }
 
 /// Those numbers as the bytes the machinery carries about — see `Game::run_state`, which is where the shape
@@ -67,6 +83,13 @@ pub fn decode_state(bytes: &[u8]) -> Option<Numbers> {
 /// **One, and 妖々夢's own.** The number 紅魔郷's file carries is that file's; a run of this game written down
 /// before this file was its own says 2 and is refused, which is what it deserves: those are the files whose
 /// runs cannot be reproduced.
+///
+/// **And it stays one while this game is unreleased, however the fields change.** What a version is for is the
+/// files already on somebody's disk, and there are none of those to keep readable: 妖々夢 has not shipped, so
+/// every file is one this tree wrote and can be thrown away. A field added or dropped is refused by
+/// `deny_unknown_fields` on the way in anyway — which is what refuses the files version 1 wrote with the eight
+/// numbers of [`super::Th07::set_run_state`]'s own story in them — so raising the number would buy nothing but
+/// a second reason for the same refusal.
 const VERSION: u32 = 1;
 
 /// The file, whole. Written every time rather than appended to: it describes one chapter of one run, and the
@@ -76,6 +99,9 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
     // file of another game's could fail to read, and one of those is a file in the wrong directory.
     let numbers = decode_state(&saved.state).unwrap_or(Numbers {
         score: 0,
+        score_shown: 0,
+        point_value_step: 0,
+        point_value_next: 0,
         seed: 0,
         point_items: 0,
         power: 0,
@@ -85,6 +111,9 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         cherry: 0,
         cherry_target: 0,
         cherry_plus: 0,
+        counted: 0,
+        captured: 0,
+        award_step: 0,
     });
     let written = Written {
         version: VERSION,
@@ -103,6 +132,9 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         },
         start: WrittenStart {
             score: numbers.score,
+            shown: numbers.score_shown,
+            point_value_step: numbers.point_value_step,
+            point_value_next: numbers.point_value_next,
             seed: numbers.seed,
             points: numbers.point_items,
             power: numbers.power,
@@ -112,6 +144,9 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             cherry: numbers.cherry,
             cherry_target: numbers.cherry_target,
             cherry_plus: numbers.cherry_plus,
+            counted: numbers.counted,
+            captured: numbers.captured,
+            award_step: numbers.award_step,
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
@@ -156,6 +191,9 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
         },
         state: encode_state(&Numbers {
             score: written.start.score,
+            score_shown: written.start.shown,
+            point_value_step: written.start.point_value_step,
+            point_value_next: written.start.point_value_next,
             seed: written.start.seed,
             point_items: written.start.points,
             power: written.start.power,
@@ -165,6 +203,9 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
             cherry: written.start.cherry,
             cherry_target: written.start.cherry_target,
             cherry_plus: written.start.cherry_plus,
+            counted: written.start.counted,
+            captured: written.start.captured,
+            award_step: written.start.award_step,
         }),
         at,
         chapter: written.chapter.number,
@@ -246,6 +287,11 @@ struct WrittenChapter {
 #[serde(deny_unknown_fields)]
 struct WrittenStart {
     score: u32,
+    /// The one the panel is drawing, and the two behind the count of point items: how far their value has
+    /// climbed and how many the next step of it wants.
+    shown: u32,
+    point_value_step: u32,
+    point_value_next: u32,
     #[serde(with = "hex")]
     seed: u16,
     points: u16,
@@ -258,6 +304,12 @@ struct WrittenStart {
     cherry: i32,
     cherry_target: i32,
     cherry_plus: i32,
+    /// And what an item's cherry is worked out from, and the cards captured beside it: counts of the run's
+    /// rather than the stage's, which the game's own replay record carries for the same reason.
+    counted: i32,
+    captured: i32,
+    /// And the step this run's awards have climbed to, which is what a collection is worth.
+    award_step: u8,
 }
 
 /// A number written the way every line of the log that mentions this one writes it. The seed is the
@@ -328,6 +380,9 @@ mod tests {
             },
             state: encode_state(&Numbers {
                 score: 36_662_377,
+                score_shown: 36_662_370,
+                point_value_step: 12,
+                point_value_next: 5_320,
                 seed: 0x4ccc,
                 point_items: 993,
                 power: 128,
@@ -337,6 +392,9 @@ mod tests {
                 cherry: 282_330,
                 cherry_target: 282_330,
                 cherry_plus: 25_200,
+                counted: 9_614,
+                captured: 11,
+                award_step: 19,
             }),
             at: 12,
             chapter: 14,

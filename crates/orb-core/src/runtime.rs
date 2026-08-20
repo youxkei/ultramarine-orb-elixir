@@ -2051,13 +2051,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // 妖々夢 run picked up in stage 6 parted somewhere in the sixty frames after 853 and nothing narrowed
         // it further.
         //
+        // **The whole reproduction line and not the generator alone**, because which *field* parts first is
+        // the answer: the generator says a playback has stopped reproducing the run and nothing about why, and
+        // a run of stage 2 held against its own playback parted at frame 802 with the boundaries at 1549 and
+        // 2827 still landing on the same frames — so the world drew differently while the script did not, and
+        // what has to be told apart is a player somewhere else from an item nobody picked up. Every field of
+        // it is in this line: see `Game::reproduction`.
+        //
         // At the verbose level, which costs log and nothing else — and only while a stage is running, a frame
         // of the front end having no run to be about.
         if log::wanted(log::VERBOSE) && state.in_run && !state.paused {
             log!(
-                "resume: frame {} played with the generator at {:#06x}",
+                "resume: frame {} played with {}",
                 state.stage_frames,
-                state.random_seed,
+                unsafe { runtime.game.reproduction() },
             );
         }
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
@@ -2943,9 +2950,9 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // worth picking up. What this costs is log and nothing else.
         if log::wanted(log::VERBOSE) && reached.stage_frames > was {
             log!(
-                "resume: frame {} played back with the generator at {:#06x}",
+                "resume: frame {} played back with {}",
                 reached.stage_frames,
-                reached.random_seed,
+                unsafe { runtime.game.reproduction() },
             );
         }
         unsafe {
@@ -2961,6 +2968,22 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         }
         frames += 1;
     }
+    // **Which of the four ways out it took**, because they are four different faults and the line below says
+    // only where the run got to. A playback that stopped after one update was read as a stall, as a run that
+    // died, and as a chain that had given up, and none of the three was written down anywhere — the frame it
+    // reached is the same number whichever of them happened.
+    log!(
+        "resume: the playback stopped because {}",
+        if reached.stage_frames >= at {
+            "it reached the frame the chapter began on".to_owned()
+        } else if !reached.playing {
+            "the run stopped being one: the game is no longer playing a stage".to_owned()
+        } else if stalled >= STALLED_FRAMES {
+            format!("the stage's clock stood still for {stalled} update(s)")
+        } else {
+            format!("the game's own chain gave up on the frame: it answered {ran}")
+        },
+    );
     if let Some(frame) = hit {
         log!(
             "resume: the player was hit at frame {frame}, which a path that survived does not do; \
