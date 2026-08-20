@@ -2193,6 +2193,27 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
     }
 
+    // **And the same menu where the game was asked to give the run up and begin it again**, which is its pause
+    // menu's own 「最初からやり直す」. In a mode whose runs are rewound that ask has nowhere to land: nothing
+    // here is lost, so starting the *run* over is the one way to throw a stage's chapters away — and it is the
+    // only way to reach a chapter again without dying first, which is what this mode is for.
+    //
+    // So the ask is taken back off and what it opens is the question of where to start over from, which already
+    // holds every answer the item could have meant: this chapter, one further back, the stage, or the title.
+    if runtime.chaptering()
+        && runtime.retry.is_none()
+        && runtime.chapters.can_retry()
+        && unsafe { runtime.game.asked_to_start_the_run_over() }
+    {
+        unsafe { runtime.game.keep_the_run_where_it_is() };
+        log!(
+            "retry: the run was asked to start over in chapter {}; where from is the question",
+            runtime.chapters.number(),
+        );
+        let chapters = offered(runtime);
+        runtime.retry = Some(RetryMenu::new(runtime.language, chapters));
+    }
+
     // The question after the character select, where a run has been chosen and a chapter of that
     // same run — the same difficulty, character and shot — was left unfinished. Read off the disk
     // here rather than kept from startup: what it offers is the chapter the last session stopped at,

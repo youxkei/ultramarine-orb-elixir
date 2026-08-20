@@ -1488,6 +1488,16 @@ impl Image {
         set_score_file(name, held);
     }
 
+    /// リトライ回数 as the block holds it: the difficulty's own and the total beside it — see `Th07`'s
+    /// `G_PLAY_RECORDS` for which field that is and what fills it in each mode.
+    pub fn the_retries_it_records(&self, difficulty: usize) -> (u32, u32) {
+        let read = |at| mem::read_committed::<u32>(at).unwrap_or_default();
+        (
+            read(super::G_PLAY_RECORDS + super::RETRIES + difficulty * super::PLAY_RECORD_BYTES),
+            read(super::G_PLAY_RECORDS + super::RETRIES_TOTAL),
+        )
+    }
+
     /// And what the block holds of each now, which is where a parse of one of those files puts them.
     pub fn the_times_it_records(&self) -> ((u32, u32, u32), (u32, u32, u32)) {
         let read = |total: usize| {
@@ -1927,6 +1937,16 @@ impl Image {
     /// not — see [`runs_the_sound_commands`].
     pub fn runs_the_sound_commands(&self) {
         runs_the_sound_commands(super::G_SOUND_PLAYER);
+    }
+
+    /// The pause menu's own 「最初からやり直す」 chosen, which is the run asked to be given up and begun again:
+    /// the scene the supervisor is asked for, set the way 0x403908 sets it — see `Th07`'s `SCENE_START_OVER`.
+    ///
+    /// The item itself is a sprite rather than a string and its menu is the game's own, so what a test says is
+    /// the ask that item leaves behind it.
+    pub fn the_pause_menu_asks_to_start_over(&self) {
+        self.space()
+            .write::<i32>(super::G_SUPERVISOR + super::SUPERVISOR_WANTED, 0xa);
     }
 
     /// And the game's own script asking for one of its slots, which is what fills that queue: a stage's build

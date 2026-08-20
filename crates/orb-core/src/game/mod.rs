@@ -602,6 +602,38 @@ pub trait Game {
     /// Must run on the game's main thread, with the game past initialisation.
     unsafe fn read_state(&self) -> State;
 
+    /// Counts one more retry where the game's own records have somewhere to keep it, so that その他の記録 says
+    /// what a mode whose runs are rewound cost.
+    ///
+    /// **The game's own field for it and not a new one**: its pause menu's 「最初からやり直す」 fills it in a
+    /// legacy run, and in a mode where that item asks orb's question instead nothing else ever does — so what a
+    /// chapter cost goes where somebody reading that screen already looks.
+    ///
+    /// Nothing for a game whose records have no such field, which is what the default is.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn count_a_retry(&self) {}
+
+    /// Whether the game has been asked to give the run up and begin it again, which is what its pause menu's
+    /// own 「最初からやり直す」 asks for.
+    ///
+    /// **A question rather than a hook**, because the ask is a field the game acts on a scene later: it is set
+    /// inside the update orb's frame wraps and read outside it, so a frame is long enough to answer it in.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn asked_to_start_the_run_over(&self) -> bool {
+        false
+    }
+
+    /// And the run left where it is instead, the ask taken back off: what a mode whose runs are rewound has to
+    /// offer in its place is where to rewind *to*, which is the retry menu.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn keep_the_run_where_it_is(&self) {}
+
     /// Notices what the game has counted of its own play time since the frame before, so that a span counted
     /// before anybody chose a mode can be carried onto whichever file the sitting turns out to write.
     ///

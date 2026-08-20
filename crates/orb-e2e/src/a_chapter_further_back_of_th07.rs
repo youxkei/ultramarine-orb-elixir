@@ -315,3 +315,54 @@ fn the_chapters_behind_the_one_lost_in_th07_are_listed_and_are_where_choosing_on
         );
     });
 }
+
+/// **The pause menu's own 「最初からやり直す」 asks the same question**, which is the one way to reach a chapter
+/// again without dying first.
+///
+/// What that item asks the game for is the run given up and begun again from its first stage — see `Th07`'s
+/// `SCENE_START_OVER`. In a mode whose runs are rewound there is nothing to give up: it would be the only way to
+/// throw a stage's chapters away, and it is the game's own way of filling リトライ回数, which in this mode is
+/// orb's to fill with the retries a chapter cost. So the ask is taken back off and what opens instead is where
+/// to start over from — every answer the item could have meant, and one it could not: this chapter again.
+#[test]
+fn the_pause_menus_start_over_of_th07_asks_where_to_start_over_from() {
+    in_its_own_process(|| {
+        let game = a_run("th07-asked-to-start-over");
+        let log = game.log();
+
+        game.image().the_pause_menu_asks_to_start_over();
+        game.one_frame();
+        assert!(
+            log.said("retry: the run was asked to start over in chapter 1"),
+            "the ask was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        reads(&game, STAGE_START, &[AGAIN, STAGE, QUIT], AGAIN);
+
+        // **And the run is where it was**, which is what taking the ask off means: left standing, the scene the
+        // game is on its way to is the run beginning again, and every chapter of this stage goes with it.
+        assert_eq!(
+            game.state().wanted,
+            SCENE_RUN,
+            "the game was left on its way to a run that begins again",
+        );
+
+        // And answered, which puts the chapter back the way a death's answer does — and costs a retry, this
+        // being a chapter played again whatever brought somebody to the question.
+        chooses(&game, 0, "retry chapter 1 (retry 1)");
+
+        // **And that retry is in その他の記録**, on the difficulty this run is being played on and in the total
+        // beside it. It is the game's own field for リトライ回数, which nothing else fills in this mode: the
+        // item that fills it in a legacy run is the one that has just asked orb's question instead.
+        assert_eq!(
+            game.image()
+                .the_retries_it_records(crate::fake::th07::DIFFICULTY as usize),
+            (1, 1),
+            "the retry a chapter cost is not in the records the game keeps",
+        );
+    });
+}
+
+/// The scene a run is played in, which is what the game is asked for once the ask to start over is taken off —
+/// `Th07`'s own `SCENE_RUN`, written out here for the reason every other number an e2e test holds is.
+const SCENE_RUN: i32 = 2;

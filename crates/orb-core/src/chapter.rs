@@ -1366,7 +1366,7 @@ impl Chapters {
         }
         self.snapshots.keeping(at + 1);
         self.after_restore(mark);
-        self.retries += 1;
+        unsafe { self.count_a_retry(game) };
         log!("retry chapter {} (retry {})", mark.number, self.retries);
         true
     }
@@ -1377,13 +1377,29 @@ impl Chapters {
         if !unsafe { self.rewind_stage(game) } {
             return false;
         }
-        self.retries += 1;
+        unsafe { self.count_a_retry(game) };
         log!(
             "retry stage from chapter {} (retry {})",
             self.mark.number,
             self.retries
         );
         true
+    }
+
+    /// One more retry: orb's own count, which the panel and the resume file carry, and the game's own records
+    /// where they have a field for it.
+    ///
+    /// **Only for a run somebody is playing**, which is the same rule the card attempt above goes by: a pass
+    /// stepping about in a replay retries nothing anybody attempted, and a number in その他の記録 that a pass
+    /// put there is a record of nobody's play.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn count_a_retry(&mut self, game: &dyn Game) {
+        self.retries += 1;
+        if self.somebody_playing {
+            unsafe { game.count_a_retry() };
+        }
     }
 
     /// Puts the stage back to its start without counting a retry, for stepping

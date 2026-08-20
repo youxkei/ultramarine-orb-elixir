@@ -994,6 +994,11 @@ const RUN_IS_A_REPLAY: u32 = 1 << 3;
 /// first is the one whose frames are played.
 const SCENE_RUN: i32 = 2;
 const SCENE_RUN_AGAIN: i32 = 3;
+/// And the scene the pause menu's 「最初からやり直す」 asks for, which is the run given up and begun again from
+/// its first stage: 0x403908 sets it, after the same 0x14-frame wait its sibling waits to ask for the title
+/// with — and 0x42ee73 counts a run that began under it as リトライ回数, which is how that field is filled at
+/// all.
+const SCENE_START_OVER: i32 = 0xa;
 
 /// And the scene an ending is, which is 9: the transition into it runs the run's own teardown at 0x42f45d and
 /// then 0x41e820, and that function is the ending's register — it allocates the object, hangs a calc element
@@ -1288,6 +1293,16 @@ const G_PLAY_RECORDS: usize = 0x0062f4e0;
 /// Where the two totals' fours sit in it, which are the fields of the block orb reads and writes for itself.
 const RUNNING_TIME: usize = 0xc;
 const PLAY_TIME: usize = 0x1c;
+/// And リトライ回数: one per difficulty at that stride from `+0x48`, with the total of them where the record
+/// after the last would begin — `+0x48 + 6*0x2c`, which is `+0x150`, the six being the columns that screen
+/// heads with (Easy, Norm, Hard, Luna, Extra, Phants) and the seventh its Total.
+const PLAY_RECORD_BYTES: usize = 0x2c;
+const DIFFICULTIES: usize = 6;
+const RETRIES: usize = 0x48;
+const RETRIES_TOTAL: usize = RETRIES + DIFFICULTIES * PLAY_RECORD_BYTES;
+/// What the game holds every count of that block at, which the helper at 0x42e81b is given each time it bumps
+/// one — 999999, the largest a six-digit column can show.
+const RECORD_CAP: u32 = 999_999;
 
 handed_over!(
     PARSE_CARD_RECORDS_SLOT,
@@ -2976,6 +2991,40 @@ impl Game for Th07 {
     ///
     /// Asked for by the name orb asks for, which is what puts the answer in the mode's file: the fork is over
     /// `CreateFileA` and decides by the name, so this open lands where every other open of `score.dat` lands.
+    unsafe fn count_a_retry(&self) {
+        // The difficulty's own and the total beside it, which is the pair the game's own bump moves (0x42ee85
+        // and 0x42ee95) — and held at the same cap its helper holds every count of this block at.
+        // The difficulty out of the same field the game's own bump reads it from (0x42ee7c), which is the game
+        // manager's own — see [`DIFFICULTY`].
+        let difficulty = unsafe { mem::read::<i32>(G_GAME_MANAGER + DIFFICULTY) };
+        let Ok(difficulty) = usize::try_from(difficulty).map(|it| it.min(DIFFICULTIES)) else {
+            return;
+        };
+        if difficulty == DIFFICULTIES {
+            return log!("score: no difficulty of this game's is set; no retry counted");
+        }
+        for at in [
+            G_PLAY_RECORDS + RETRIES + difficulty * PLAY_RECORD_BYTES,
+            G_PLAY_RECORDS + RETRIES_TOTAL,
+        ] {
+            let standing = mem::read_committed::<u32>(at).unwrap_or_default();
+            unsafe { mem::write::<u32>(at, standing.saturating_add(1).min(RECORD_CAP)) };
+        }
+    }
+
+    unsafe fn asked_to_start_the_run_over(&self) -> bool {
+        let wanted = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED) };
+        wanted == SCENE_START_OVER
+    }
+
+    unsafe fn keep_the_run_where_it_is(&self) {
+        // The scene the game is *in*, which is what asking for no change is: the pause menu has already closed
+        // itself by the frame this is answered in — it clears its own phase before it asks (0x4038fb) — so the
+        // run carries on where it was, with orb's own question in front of it.
+        let scene = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_SCENE) };
+        unsafe { mem::write::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED, scene) };
+    }
+
     unsafe fn notice_the_time(&self) {
         // **Whose a span of 総プレイ時間 is, is where the game was when it was counted.** The three points that
         // add one are the front end's own update and a run's two ends, so a span counted outside a run is one
