@@ -1514,9 +1514,10 @@ impl Fake {
     /// e2e test asks for it rather than every laid-out run having it.
     ///
     /// **What it is here for is the arithmetic a playback is bounded by**: orb drives updates itself to put a
-    /// run back, so a stage of 24119 frames is not 24119 updates — and a bound that counted updates as frames
-    /// gave up on a 妖々夢 run at frame 5900 of 24119 after 24179 of them, leaving the run standing in the
-    /// middle of a stage.
+    /// run back, so a stage of 24119 frames is not 24119 updates and a bound counting them as frames runs out
+    /// with the run still going. Stage 5 is where this is on and stage 6 is not, so it is the way a session
+    /// has *not* shown yet — the one it did show is a clock that stopped, which `resume`'s own bound is
+    /// written against.
     ///
     /// The byte itself is not written: nothing of orb reads it — see `Th07`'s `GAME_MENU_UP`, where it is
     /// written down beside its neighbour — and what a test can ask about is the clocks.

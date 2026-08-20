@@ -1,20 +1,25 @@
-//! **An update of 妖々夢 is not a frame of its run, and a playback is bounded as though it were.**
+//! **An update of 妖々夢 is not a frame of its run, and a playback was bounded as though it were.**
 //!
 //! orb drives the updates itself to put a run back: it calls the game's own calc chain again and again inside
 //! one frame of its own, feeding a frame's buttons to each, until the stage's clock reaches the frame the
-//! chapter began on. What bounded that loop was a count of those updates against the frame it was aiming at —
-//! one update being one frame of a stage — and 妖々夢 does not agree: 0x42e186 divides the manager's own count
-//! of updates by five and answers 3 to the one that leaves nothing over, which skips both of the run's clocks.
+//! chapter began on. What bounded that loop was a count of those updates against the frame it was aiming at,
+//! and the two are not the same count for either of two reasons.
 //!
-//! So a stage of 24119 frames is not 24119 updates, and the bound ran out first. A 妖々夢 session picked a run
-//! up in stage 6 and got `24179 update(s) run; stage 6 frame 5900 ... written down as chapter 14 at frame
-//! 24119` — the run left standing a quarter of the way through the stage, unpaused, in the bullets of a frame
-//! nobody was playing. Which is what somebody sitting at the keyboard sees as being hit while the game comes
-//! back.
+//! **The one a session has shown is a clock that stopped.** A run picked up in stage 6 got `24179 update(s)
+//! run; stage 6 frame 5900 ... written down as chapter 14 at frame 24119`, which is the frame it aimed at plus
+//! the slack: 5959 of those updates played the run in, and the eighteen thousand after them went by with the
+//! clock where it was, the run having died out. Bounded on the clock instead, the same playback gives up at
+//! 5959 and the game is back in the player's hands fifteen seconds sooner.
 //!
-//! **The bound that says the same thing without the arithmetic is the clock itself**: a playback whose stage
-//! clock has not moved for as many updates in a row as this one allows is a playback that is not going
-//! anywhere, and one whose clock is still moving is worth another update however many it has taken.
+//! **The one the exe shows is the game slowing its own run down.** 0x42e186 divides the manager's own count of
+//! updates by five and answers 3 to the one that leaves nothing over, which skips both of the run's clocks —
+//! stage 5 has it and stage 6 does not, so a stage played through that takes as many updates again and a bound
+//! of `at + 60` would run out with the run still going. That is what the e2e test below drives, no session
+//! having shown it.
+//!
+//! **The bound that covers both without the arithmetic is the clock itself**: a playback whose stage clock has
+//! not moved for as many updates in a row as this one allows is a playback that is not going anywhere, and one
+//! whose clock is still moving is worth another update however many it has taken.
 
 use crate::fake::th07::{Fake, SLOWED_EVERY};
 use crate::fake::{Display, Launched, Work, in_its_own_process};
@@ -140,6 +145,64 @@ fn a_second_playback_of_th07_in_one_session_is_watched_from_its_own_first_frame(
     });
 }
 
+/// **Every played-back frame's generator where something is being diagnosed**, which is what a run whose file
+/// holds none of its own can be held against: the log of the session that recorded it carries the same number
+/// on the state line a run writes, so the two series in one log name the frame a playback parted on.
+#[test]
+fn a_playback_of_th07_says_every_frames_generator_where_a_self_check_is_on() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-playback-generators",
+            Work::wandering(WORK_US),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+                config.self_check = true;
+            },
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.frames(APART);
+        game.a_card_starts(CARD, CARD_NAME);
+        game.frames_until("the card's chapter", APART, || log.said("chapter 2"));
+        let at = game.state().stage_frames;
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said(&format!("at frame {at}, {at} frame(s) of buttons"))
+        });
+
+        // The frames somebody played, said the same way: the two series are what hold a playback to the run it
+        // is reproducing, so a run whose file carries no generator of its own is still held to one.
+        let played = log
+            .lines()
+            .iter()
+            .filter(|line| line.contains("played with the generator at"))
+            .count();
+        assert!(
+            played >= at as usize,
+            "the run said the generator on {played} of the {at} frames it was played for:\n  {}",
+            log.lines().join("\n  "),
+        );
+
+        game.gives_the_run_up();
+        game.picks_the_run_up();
+        // One line per frame the playback moved the run onto, which is every frame of it but the one it began
+        // standing on — that one is the stage's own start, and its generator is what the chapter line above
+        // already carries.
+        let said = log
+            .lines()
+            .iter()
+            .filter(|line| line.contains("played back with the generator at"))
+            .count();
+        assert_eq!(
+            said,
+            at as usize - 1,
+            "the playback said the generator on {said} of the {at} frames it played:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// A chapter deep in a stage is reached however many updates of a slowed run that takes.
 #[test]
 fn a_run_of_th07_is_put_back_at_a_chapter_deeper_than_the_updates_it_takes() {
@@ -185,6 +248,15 @@ fn a_run_of_th07_is_put_back_at_a_chapter_deeper_than_the_updates_it_takes() {
         assert!(
             log.said(&format!("of {at} frame(s) played back")),
             "the playback said nothing on the way through {at} frames:\n  {}",
+            log.lines().join("\n  "),
+        );
+        // **And the generator with it**, which is the one number a playback can be held against by hand: the
+        // periodic state line a run writes carries it too, so a run recorded in one session and played back in
+        // another leaves two series of it in the same log, and the first pair that differs is where the
+        // playback parted. That is how a run whose file holds no generator of its own is diagnosed at all.
+        assert!(
+            log.said("update(s) in, the generator at 0x"),
+            "the playback said nothing about the generator:\n  {}",
             log.lines().join("\n  "),
         );
         assert_eq!(

@@ -184,10 +184,15 @@ const RESUME_START_FRAMES: u32 = 600;
 /// How many updates in a row a playback may run without the stage's own clock moving before it gives up on
 /// that clock — and **not** how many updates a stage's frames may take, which is the game's own business.
 ///
-/// 妖々夢 skips the run on one update in five while it is slowing itself down (0x42e186), so a stage of a
-/// few thousand frames takes as many updates again — and a bound counting updates against the frame being
-/// aimed at gave up a quarter of the way into stage 6. A second of updates in a row with the clock standing
-/// still is a clock that has stopped, whatever the game is doing with the rest of them.
+/// **What a count of updates against the frame being aimed at spends is the difference on nothing.** A run
+/// picked up in stage 6 ran `24179 update(s)` — the frame it was aiming at plus this — and reached frame
+/// 5900: 5959 of them played the run in, and the other eighteen thousand were spent after it had died out
+/// with the clock standing still. Bounded on the clock, the same playback gives up at 5959 and the game is
+/// back in the player's hands fifteen seconds sooner.
+///
+/// And the other way the two counts differ, which no session has shown yet: 妖々夢 skips the run on one
+/// update in five while it is slowing itself down (0x42e186), so a stage played through that takes as many
+/// updates again — stage 5 has it and stage 6 does not.
 const STALLED_FRAMES: u32 = 60;
 
 /// How far a playback goes between saying so: ten seconds of the run it is putting back, which for the deepest
@@ -2038,6 +2043,23 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             };
         }
         unsafe { reproduced(runtime, &state) };
+        // **And the generator of every frame somebody plays, where something is being diagnosed.** The same
+        // line a playback writes — see [`play_in`] — so a run played by hand and a run picked up out of the
+        // file it left hold their generators against each other frame for frame, and the first frame the two
+        // differ is where the playback stopped reproducing the run. Held against the state line a run writes
+        // anyway, the comparison is only as fine as that line is often, which is once every sixty frames: a
+        // 妖々夢 run picked up in stage 6 parted somewhere in the sixty frames after 853 and nothing narrowed
+        // it further.
+        //
+        // Diagnostic work, so it happens where `self_check` says — and only while a stage is running, a frame
+        // of the front end having no run to be about.
+        if runtime.config.self_check && state.in_run && !state.paused {
+            log!(
+                "resume: frame {} played with the generator at {:#06x}",
+                state.stage_frames,
+                state.random_seed,
+            );
+        }
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
             break;
         }
@@ -2874,12 +2896,12 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // A bound on a clock that has stopped, which is the updates since it last moved and **not** a count
     // of them against the frame being aimed at.
     //
-    // **An update of a stage is not a frame of it.** 妖々夢 slows its own run down when the screen fills:
-    // 0x42e186 divides the manager's own count of updates by five and answers the one that leaves nothing
-    // over with 3, which skips both of the run's clocks. So the updates a stage's frames take is however
-    // many the game feels like, and a bound of `at + 60` of them ran out first — a session picked a run up
-    // in stage 6 and got `24179 update(s) run; stage 6 frame 5900 ... at frame 24119`, the run left standing
-    // a quarter of the way through the stage in the bullets of a frame nobody was playing.
+    // **An update of a stage is not a frame of it**, for two reasons that are not the same. The one a
+    // session has shown: a playback whose run dies out stops advancing the clock and every update after
+    // that is spent on nothing — `24179 update(s) run; stage 6 frame 5900`, of which 5959 played the run in
+    // and eighteen thousand went by with the clock where it was. The one the exe shows: 妖々夢 slows its own
+    // run down when the screen fills, 0x42e186 answering one update in five with the 3 that skips both
+    // clocks, so a stage played through that takes as many updates again.
     let mut stalled = 0;
     while reached.stage_frames < at
         && reached.playing
@@ -2902,8 +2924,25 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // said as it happens rather than in the frame's slack, there being no slack until it is over.
         if reached.stage_frames / SAID_EVERY != was / SAID_EVERY {
             log!(
-                "resume: {} of {at} frame(s) played back, {frames} update(s) in",
+                "resume: {} of {at} frame(s) played back, {frames} update(s) in, the generator at \
+                 {:#06x}",
                 reached.stage_frames,
+                reached.random_seed,
+            );
+        }
+        // **And every frame of it where something is being diagnosed**, which is the only way to hold a
+        // playback to a run whose file has no generator of its own: the periodic state line a run writes
+        // carries the generator too, so the log of the session that recorded the run holds one series and
+        // this holds the other — and the frames those lines fall on are orb's own count rather than the
+        // stage's, so a series taken every so often here would line up with that one on no frame at all.
+        //
+        // A write apiece, which for the deepest chapter of a stage is a few seconds added to a playback
+        // that already takes tens of them. Diagnostic work, so it happens where `self_check` says.
+        if runtime.config.self_check && reached.stage_frames > was {
+            log!(
+                "resume: frame {} played back with the generator at {:#06x}",
+                reached.stage_frames,
+                reached.random_seed,
             );
         }
         unsafe {
