@@ -11,6 +11,9 @@ pub mod chapters;
 /// crates that drive it — which is where the e2e tests live.
 #[cfg(any(test, feature = "sim"))]
 pub mod image;
+/// The file a run of this game left unfinished is written in, which is this game's own and frozen at what
+/// shipped — see `Game::encode_resume`.
+pub mod resume;
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,7 +25,7 @@ use crate::audio::{Music, Track};
 // `crate::joystick::axis`.
 use crate::game::{
     Axis, Boundary, Call, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, Reproduction, RunStart, RunState, State,
+    Rect, Reproduction, RunStart, State,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
@@ -1735,84 +1738,39 @@ impl Game for Th06 {
     /// **The seed comes out of `randomSeed`, not the generator.** That field is where the same
     /// callback copies the generator's seed as a stage begins, so it still says what the stage
     /// started from once the stage has drawn from it.
-    unsafe fn run_state(&self) -> RunState {
-        unsafe {
-            RunState {
-                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
-                seed: mem::read(G_GAME_MANAGER + game_manager::RANDOM_SEED),
-                point_items: mem::read(G_GAME_MANAGER + game_manager::POINT_ITEMS),
-                power: mem::read(G_GAME_MANAGER + game_manager::CURRENT_POWER),
-                lives: mem::read(G_GAME_MANAGER + game_manager::LIVES_REMAINING),
-                bombs: mem::read(G_GAME_MANAGER + game_manager::BOMBS_REMAINING),
-                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
-                power_items: mem::read(G_GAME_MANAGER + game_manager::POWER_ITEMS),
-                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
-                deaths: mem::read(G_GAME_MANAGER + game_manager::DEATHS),
-                // 紅魔郷 has no cherry: its extra lives are paid for out of the score, which
-                // `extra_lives` above is the count of. Three numbers this game never reads.
-                cherry: 0,
-                cherry_target: 0,
-                cherry_plus: 0,
-            }
-        }
+    fn encode_resume(&self, saved: &crate::resume::Kept) -> Vec<u8> {
+        resume::encode(saved)
     }
 
-    /// The same writes `ReplayManager::AddedCallbackDemo` makes, in the same places, plus the two
-    /// it has no need of.
-    ///
-    /// `extraLives` because that function does not write it: the replay branch of
-    /// `GameManager::AddedCallback` raises the count with a loop against the score thresholds
-    /// instead, which can only ever raise it — and a resume writing the score without it would
-    /// have the game hand out every extra life the run has already had. Which is the fault
-    /// `jump_to_stage` describes: a life the recording never got, and the subrank that came with
-    /// it.
-    ///
-    /// `deaths` because the result screen shows it and a resumed run's count should be the run's.
-    /// The two counters beside it — the ones a fresh stage zeroes — are left alone: the game's own
-    /// replay does not carry them either, and nothing but that screen reads them.
-    unsafe fn set_run_state(&self, state: &RunState) {
-        unsafe {
-            // Both, and the increment between them cleared: `guiScore` is the number on the panel
-            // and it chases `score`, so leaving it behind would show the score counting up from
-            // wherever the front end left it.
-            mem::write::<u32>(G_GAME_MANAGER + game_manager::GUI_SCORE, state.score);
-            mem::write::<u32>(G_GAME_MANAGER + game_manager::SCORE, state.score);
-            mem::write::<u32>(G_GAME_MANAGER + game_manager::NEXT_SCORE_INCREMENT, 0);
-            // The seed is not here: it goes in before the stage is built — see `set_run_seed` — and
-            // by this point the loading has drawn from the generator, as it did in the run that was
-            // written down.
-            mem::write::<u16>(
-                G_GAME_MANAGER + game_manager::POINT_ITEMS,
-                state.point_items,
-            );
-            mem::write::<u16>(G_GAME_MANAGER + game_manager::CURRENT_POWER, state.power);
-            mem::write::<i8>(G_GAME_MANAGER + game_manager::LIVES_REMAINING, state.lives);
-            mem::write::<i8>(G_GAME_MANAGER + game_manager::BOMBS_REMAINING, state.bombs);
-            mem::write::<i32>(G_GAME_MANAGER + game_manager::RANK, state.rank);
-            mem::write::<i8>(
-                G_GAME_MANAGER + game_manager::POWER_ITEMS,
-                state.power_items,
-            );
-            mem::write::<i8>(
-                G_GAME_MANAGER + game_manager::EXTRA_LIVES,
-                state.extra_lives,
-            );
-            mem::write::<i32>(G_GAME_MANAGER + game_manager::DEATHS, state.deaths);
-        }
+    fn decode_resume(&self, bytes: &[u8]) -> Option<crate::resume::Kept> {
+        resume::decode(bytes)
     }
 
-    /// The generator, and the `GameManager` copy of it beside it.
-    ///
-    /// Both, because this runs where `GameManager::AddedCallback` has already taken its copy — see
-    /// `STAGE_REGISTER_CHAIN` for why it cannot run any earlier — and the copy is what a stage
-    /// written down reads its seed from, orb's own record included. Left as the game set it, the
-    /// generator would be right and the number written down for the next resume of that stage wrong.
-    /// The count of numbers drawn is not touched: the callback has just zeroed it, which is what a
-    /// stage starts from.
-    unsafe fn set_run_seed(&self, seed: u16) {
-        unsafe {
-            mem::write::<u16>(G_RNG, seed);
-            mem::write::<u16>(G_GAME_MANAGER + game_manager::RANDOM_SEED, seed);
+    unsafe fn run_state(&self) -> Vec<u8> {
+        resume::encode_state(&unsafe { self.numbers() })
+    }
+
+    unsafe fn set_run_state(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the numbers put back are not a run of this game's");
+        };
+        unsafe { self.put_the_numbers_back(&state) };
+    }
+
+    unsafe fn seed_the_stage(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the seed put back is not a run of this game's");
+        };
+        unsafe { self.seed(state.seed) };
+    }
+
+    fn say_run_state(&self, state: &[u8]) -> String {
+        match resume::decode_state(state) {
+            Some(state) => format!(
+                "score={} seed={:#06x} lives={} bombs={} power={} rank={}",
+                state.score, state.seed, state.lives, state.bombs, state.power, state.rank,
+            ),
+            None => "numbers of another game's run".to_owned(),
         }
     }
 
@@ -2289,6 +2247,96 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
+    /// **The numbers this stage began with, read where the game keeps them.**
+    ///
+    /// The seed comes out of `randomSeed`, not the generator: that field is where the added callback copies
+    /// the generator's seed as a stage begins, so it still says what the stage started from once the stage has
+    /// drawn from it.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn numbers(&self) -> resume::Numbers {
+        unsafe {
+            resume::Numbers {
+                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
+                seed: mem::read(G_GAME_MANAGER + game_manager::RANDOM_SEED),
+                point_items: mem::read(G_GAME_MANAGER + game_manager::POINT_ITEMS),
+                power: mem::read(G_GAME_MANAGER + game_manager::CURRENT_POWER),
+                lives: mem::read(G_GAME_MANAGER + game_manager::LIVES_REMAINING),
+                bombs: mem::read(G_GAME_MANAGER + game_manager::BOMBS_REMAINING),
+                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
+                power_items: mem::read(G_GAME_MANAGER + game_manager::POWER_ITEMS),
+                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
+                deaths: mem::read(G_GAME_MANAGER + game_manager::DEATHS),
+            }
+        }
+    }
+
+    /// The same writes `ReplayManager::AddedCallbackDemo` makes, in the same places, plus the two
+    /// it has no need of.
+    ///
+    /// `extraLives` because that function does not write it: the replay branch of
+    /// `GameManager::AddedCallback` raises the count with a loop against the score thresholds
+    /// instead, which can only ever raise it — and a resume writing the score without it would
+    /// have the game hand out every extra life the run has already had. Which is the fault
+    /// `jump_to_stage` describes: a life the recording never got, and the subrank that came with
+    /// it.
+    ///
+    /// `deaths` because the result screen shows it and a resumed run's count should be the run's.
+    /// The two counters beside it — the ones a fresh stage zeroes — are left alone: the game's own
+    /// replay does not carry them either, and nothing but that screen reads them.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, where the game has a stage built and has not yet updated it.
+    unsafe fn put_the_numbers_back(&self, state: &resume::Numbers) {
+        unsafe {
+            // Both, and the increment between them cleared: `guiScore` is the number on the panel
+            // and it chases `score`, so leaving it behind would show the score counting up from
+            // wherever the front end left it.
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::GUI_SCORE, state.score);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::SCORE, state.score);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::NEXT_SCORE_INCREMENT, 0);
+            // The seed is not here: it goes in before the stage is built — see [`Th06::seed`] — and
+            // by this point the loading has drawn from the generator, as it did in the run that was
+            // written down.
+            mem::write::<u16>(
+                G_GAME_MANAGER + game_manager::POINT_ITEMS,
+                state.point_items,
+            );
+            mem::write::<u16>(G_GAME_MANAGER + game_manager::CURRENT_POWER, state.power);
+            mem::write::<i8>(G_GAME_MANAGER + game_manager::LIVES_REMAINING, state.lives);
+            mem::write::<i8>(G_GAME_MANAGER + game_manager::BOMBS_REMAINING, state.bombs);
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::RANK, state.rank);
+            mem::write::<i8>(
+                G_GAME_MANAGER + game_manager::POWER_ITEMS,
+                state.power_items,
+            );
+            mem::write::<i8>(
+                G_GAME_MANAGER + game_manager::EXTRA_LIVES,
+                state.extra_lives,
+            );
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::DEATHS, state.deaths);
+        }
+    }
+
+    /// The generator, and the `GameManager` copy of it beside it.
+    ///
+    /// Both, because this runs where `GameManager::AddedCallback` has already taken its copy — see
+    /// `STAGE_REGISTER_CHAIN` for why it cannot run any earlier — and the copy is what a stage
+    /// written down reads its seed from, orb's own record included. Left as the game set it, the
+    /// generator would be right and the number written down for the next resume of that stage wrong.
+    /// The count of numbers drawn is not touched: the callback has just zeroed it, which is what a
+    /// stage starts from.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, before the stage is built.
+    unsafe fn seed(&self, seed: u16) {
+        unsafe {
+            mem::write::<u16>(G_RNG, seed);
+            mem::write::<u16>(G_GAME_MANAGER + game_manager::RANDOM_SEED, seed);
+        }
+    }
+
     /// One pad orb sampled, in the terms a menu of orb's needs it: the game's own mapping, read where
     /// `Controller::GetControllerInput` reads it, and the axis read the way that function reads it.
     ///

@@ -128,8 +128,6 @@ mod the_frame_a_scene_is_built_on;
 #[cfg(test)]
 mod the_frame_a_scene_of_th07_is_built_on;
 #[cfg(test)]
-mod the_generators_a_run_of_th07_is_held_to;
-#[cfg(test)]
 mod the_handles_a_restore_leaves_alone;
 #[cfg(test)]
 mod the_handles_a_restore_leaves_alone_of_th07;

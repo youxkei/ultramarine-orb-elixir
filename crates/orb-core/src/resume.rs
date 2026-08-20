@@ -42,13 +42,13 @@
 //! Written down here instead, the run stays an ordinary recording run throughout, and a second
 //! quit is this machinery over again.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 
-use crate::game::{Game, RunStart, RunState};
+use crate::game::{Game, RunStart};
 use crate::sync::MainThread;
 use crate::{detail, log};
 
@@ -75,19 +75,9 @@ const DIRECTORY: &str = "pointdevice_resume";
 /// way.
 const EXTENSION: &str = "msgpack";
 
-/// What this file's fields mean. Written into it and refused on the way back in, so a file from
-/// another version is a line in the log rather than a run started with fields read as each other.
-///
-/// **What does not raise it is a field that may be absent.** The generators were written down beside the buttons
-/// and this went to 3 for them, which refused every file already on disk — a run of 紅魔郷 left unfinished
-/// stopped being offered because a launch had learnt to write something extra about 妖々夢. A new field that is
-/// read as nothing where it is missing cannot be read as another field either, which is the whole of what this
-/// number is for. So it stays at 2, and [`Written::generators`] defaults.
-const VERSION: u32 = 2;
-
 /// Longer than any stage of any run: half an hour of one at 60 frames a second. A bound on what a
 /// file can ask to be allocated for, and on the frame number a record will write down at all.
-const MAX_STAGE_FRAMES: u32 = 60 * 60 * 30;
+pub(crate) const MAX_STAGE_FRAMES: u32 = 60 * 60 * 30;
 
 /// Whether a run's inputs are being kept at all.
 ///
@@ -98,12 +88,19 @@ static KEEPING: AtomicBool = AtomicBool::new(false);
 
 static RECORD: MainThread<Record> = MainThread::new(Record::new());
 
-/// Everything the file holds: which run it was, the numbers the stage started with, and the
-/// buttons pressed since.
+/// **What putting a run back takes**: which run it was, the numbers the stage started with, the buttons of
+/// every frame since and the generator each was pressed with, and where the chapter and its song are.
+///
+/// Not *the file* — the file is the game's, and what it holds is that game's business: see
+/// [`Game::encode_resume`], and the two games' own `resume` modules for what each writes. This is the other
+/// side of that seam, and it is the whole of what the machinery here knows about a kept run.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Saved {
+pub struct Kept {
     pub run: RunStart,
-    pub state: RunState,
+    /// The numbers that stage started with, **in the game's own bytes and opaque here** — see
+    /// [`Game::run_state`], which is where what a run *is* stops being anything this module knows. They came
+    /// out of the game and go back into it, and into its own file in between.
+    pub state: Vec<u8>,
     /// The stage frame the chapter began on, which is where the playback stops. The buttons below
     /// are the frames before it, since a chapter begins with its own first frame not yet run.
     pub at: u32,
@@ -135,7 +132,7 @@ pub struct Saved {
     pub generators: Vec<Option<u16>>,
 }
 
-impl Saved {
+impl Kept {
     /// Where the run stopped, for the item that offers to pick it up. Not which run it is: the
     /// question is asked where the player has just chosen that themselves.
     pub fn describe(&self) -> String {
@@ -148,7 +145,7 @@ impl Saved {
     }
 }
 
-impl fmt::Display for Saved {
+impl fmt::Display for Kept {
     /// For the log, where what is wanted is the numbers rather than the names: this is what a
     /// landing is held against.
     ///
@@ -159,10 +156,12 @@ impl fmt::Display for Saved {
     /// line a launch picks one up with.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let with_a_word = self.generators.iter().flatten().count();
+        // **The run's own numbers are not here.** They are the game's bytes — see [`Kept::state`] — so what
+        // says them is the game, and the two lines this one is written into say it after this: `Game::run_state`
+        // for why, and `Game::say_run_state` for the words.
         write!(
             f,
-            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons {}, \
-             diff={} char={}-{} score={} seed={:#06x} lives={} bombs={} power={} rank={}",
+            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons {}, diff={} char={}-{}",
             self.run.stage + 1,
             self.chapter,
             self.name,
@@ -178,12 +177,6 @@ impl fmt::Display for Saved {
             self.run.difficulty,
             self.run.character,
             self.run.shot_type,
-            self.state.score,
-            self.state.seed,
-            self.state.lives,
-            self.state.bombs,
-            self.state.power,
-            self.state.rank,
         )
     }
 }
@@ -225,8 +218,9 @@ struct Played {
 struct Record {
     /// Which stage the buttons belong to, and `None` when nothing is being kept.
     stage: Option<i32>,
-    /// The run's numbers as that stage began, read where the game itself puts them in place.
-    start: RunState,
+    /// The run's numbers as that stage began, read where the game itself puts them in place — the game's own
+    /// bytes, and empty while nothing is being kept.
+    start: Vec<u8>,
     /// One entry per stage frame — see [`Played`].
     played: Vec<Played>,
     /// The frame a playback was first found to have parted from the run it is reproducing, so that it is said
@@ -239,7 +233,7 @@ struct Record {
     /// Set while a saved run is being played in, and taken when it arrives.
     feeding: Option<Landing>,
     /// A saved run whose stage the game has been asked to build, waiting for it to be built.
-    starting: Option<Saved>,
+    starting: Option<Kept>,
 }
 
 impl Record {
@@ -249,21 +243,7 @@ impl Record {
     const fn new() -> Self {
         Self {
             stage: None,
-            start: RunState {
-                score: 0,
-                seed: 0,
-                point_items: 0,
-                power: 0,
-                lives: 0,
-                bombs: 0,
-                rank: 0,
-                power_items: 0,
-                extra_lives: 0,
-                deaths: 0,
-                cherry: 0,
-                cherry_target: 0,
-                cherry_plus: 0,
-            },
+            start: Vec::new(),
             played: Vec::new(),
             parted: None,
             fed: None,
@@ -398,8 +378,11 @@ pub unsafe fn noted(frame: u32, buttons: u16, generator: u16) {
 pub unsafe fn stage_building(game: &dyn Game) {
     let record = unsafe { RECORD.get() };
     if let Some(saved) = &record.starting {
-        unsafe { game.set_run_seed(saved.state.seed) };
-        detail!("resume: the generator seeded {:#06x}", saved.state.seed);
+        unsafe { game.seed_the_stage(&saved.state) };
+        detail!(
+            "resume: the stage seeded from {}",
+            game.say_run_state(&saved.state),
+        );
     }
 }
 
@@ -439,8 +422,11 @@ pub unsafe fn stage_begun(game: &dyn Game) {
         }
         unsafe { game.set_run_state(&saved.state) };
         record.stage = Some(state.stage);
+        log!(
+            "resume: {saved} {}; playing its buttons in",
+            game.say_run_state(&saved.state),
+        );
         record.start = saved.state;
-        log!("resume: {saved}; playing its buttons in");
         unsafe { hold_captures(game) };
         record.feeding = Some(Landing {
             at: saved.at,
@@ -480,14 +466,9 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     record.parted = None;
     record.feeding = None;
     detail!(
-        "resume: stage {} begins with score={} seed={:#06x} lives={} bombs={} power={} rank={}",
+        "resume: stage {} begins with {}",
         state.stage + 1,
-        record.start.score,
-        record.start.seed,
-        record.start.lives,
-        record.start.bombs,
-        record.start.power,
-        record.start.rank,
+        game.say_run_state(&record.start),
     );
 }
 
@@ -584,7 +565,7 @@ pub unsafe fn forget() {
 ///
 /// # Safety
 /// Must run on the game's main thread, between frames, on a frame [`Game::run_chosen`] is true of.
-pub unsafe fn begin(game: &dyn Game, saved: Saved) -> bool {
+pub unsafe fn begin(game: &dyn Game, saved: Kept) -> bool {
     if !unsafe { game.start_stage(saved.run.stage) } {
         log!("resume: the game did not take {saved}");
         return false;
@@ -631,9 +612,11 @@ pub unsafe fn write(
         );
         return false;
     }
-    let saved = Saved {
+    let saved = Kept {
         run,
-        state: record.start,
+        // Cloned rather than taken: the record goes on being the record of this stage, and the next chapter
+        // of it is written from the same numbers.
+        state: record.start.clone(),
         at,
         chapter,
         name: name.to_owned(),
@@ -648,16 +631,38 @@ pub unsafe fn write(
             .iter()
             .map(|played| played.buttons)
             .collect(),
-        // One per frame, and nothing for a frame the run has no word for — see [`Written::generators`]. A
-        // frame with none is one played back out of a file from before they were written down, and what the
-        // frames beside it hold is what says where a later playback of *them* parts.
+        // One per frame, and nothing for a frame the run has no word for. A frame with none is one played
+        // back out of a file that had none for it, and what the frames beside it hold is what says where a
+        // later playback of *them* parts — see the game's own file for whether it will carry such a frame at
+        // all: `th07::resume` refuses a file with any frame unaccounted for, `th06::resume` cannot.
         generators: record.played[..at as usize]
             .iter()
             .map(|played| played.generator)
             .collect(),
     };
-    handed_over(path, saved);
+    // The game's own file, asked for here where the game is at hand: the thread that writes it has none.
+    handed_over(Handed {
+        path,
+        bytes: game.encode_resume(&saved),
+        said: format!("{saved} {}", game.say_run_state(&saved.state)),
+        chapter: saved.chapter,
+    });
     true
+}
+
+/// A chapter on its way to the disk: where it goes, the bytes to put there, and what the log calls it.
+///
+/// **The bytes and not the chapter itself**, because the bytes are the *game's* — see
+/// `Game::encode_resume`, which is where a file's shape lives now — and the thread that writes them has no
+/// game to ask. Reading the run and asking its game for its file are both the frame's work; what is left
+/// for the thread is the write, which is the part that takes a disk's time.
+struct Handed {
+    path: PathBuf,
+    bytes: Vec<u8>,
+    /// The line the write is said with, worked out where the chapter still is one.
+    said: String,
+    /// And its number, for the line saying a chapter was overtaken before it reached the disk.
+    chapter: u32,
 }
 
 /// What the thread that writes chapters down is waiting for.
@@ -666,7 +671,7 @@ pub unsafe fn write(
 /// waiting when the next one arrives is one nothing wants: the newer answers the same question, and a
 /// queue would spend a slow disk's time writing places the run has already left.
 struct Waiting {
-    next: Option<(PathBuf, Saved)>,
+    next: Option<Handed>,
     /// Whether the writer has been asked to stop, and whether it has — see [`stop_writing`].
     stopping: bool,
     stopped: bool,
@@ -713,7 +718,7 @@ const SLOW_WRITE_US: i64 = 16_666;
 ///
 /// Where no thread can be made, the write happens here instead: a chapter written down in the frame is
 /// worse than a frame, and a chapter not written down at all is a run nobody can pick up.
-fn handed_over(path: PathBuf, saved: Saved) {
+fn handed_over(handed: Handed) {
     if WRITING
         .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
         .is_ok()
@@ -723,16 +728,16 @@ fn handed_over(path: PathBuf, saved: Saved) {
     {
         log!("resume: cannot start a thread; chapters are written down in the frame");
         WRITING.store(false, Ordering::Relaxed);
-        written(&path, &saved);
+        written(&handed);
         return;
     }
     let Ok(mut waiting) = WAITING.lock() else {
         return log!("resume: the writer left its own state locked; nothing more is written down");
     };
-    let overwritten = waiting.next.replace((path, saved));
+    let overwritten = waiting.next.replace(handed);
     drop(waiting);
     CHANGED.notify_all();
-    if let Some((_, overwritten)) = overwritten {
+    if let Some(overwritten) = overwritten {
         detail!(
             "resume: chapter {} was still waiting to be written; the newer one is what the file wants",
             overwritten.chapter,
@@ -761,9 +766,9 @@ fn writing() {
         }
         // Whatever is waiting goes first, stopping or not: a chapter handed over and then dropped is a
         // run somebody would be offered the chapter before.
-        if let Some((path, saved)) = waiting.next.take() {
+        if let Some(handed) = waiting.next.take() {
             drop(waiting);
-            written(&path, &saved);
+            written(&handed);
             continue;
         }
         waiting.stopped = true;
@@ -818,7 +823,10 @@ pub fn stop_writing() {
 ///
 /// The microseconds are the point of the line as much as the chapter is: the write being slow enough
 /// to stop a frame is what took it off the frame, and this is where that is read.
-fn written(path: &Path, saved: &Saved) -> bool {
+fn written(handed: &Handed) -> bool {
+    let Handed {
+        path, bytes, said, ..
+    } = handed;
     let started = crate::profile::now();
     // The directory is made where it is written rather than at startup, so an installation nobody
     // has left a run in has nothing of orb's beside the game but the log.
@@ -828,7 +836,7 @@ fn written(path: &Path, saved: &Saved) -> bool {
         log!("resume: cannot make {}: {error}", parent.display());
         return false;
     }
-    match orb_api::fs::write(path, &encode(saved)) {
+    match orb_api::fs::write(path, bytes) {
         Ok(()) => {
             let us = crate::profile::since(started);
             // Not left to `verbose` alone, where this line was: a session on the machine a slow write
@@ -841,7 +849,7 @@ fn written(path: &Path, saved: &Saved) -> bool {
                     path.display(),
                 );
             }
-            detail!("resume: {saved} written to {} in {us}us", path.display(),);
+            detail!("resume: {said} written to {} in {us}us", path.display(),);
             true
         }
         Err(error) => {
@@ -867,7 +875,7 @@ fn slot(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
 /// The file's own idea of which run it is has to name the same slot. It always will, being what named
 /// the file — so a mismatch is a file somebody moved or edited, and starting a run from it would be
 /// starting the wrong one.
-pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
+pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Kept> {
     let path = slot(dir, game, run)?;
     let bytes = match orb_api::fs::read(&path) {
         Ok(bytes) => bytes,
@@ -877,10 +885,12 @@ pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
             return None;
         }
     };
-    let saved = match decode(&bytes) {
+    let saved = match game.decode_resume(&bytes) {
         Some(saved) => saved,
         // Left where it is rather than deleted: a file that cannot be read is worth looking at, and
-        // orb deleting it is what would stop anyone doing so.
+        // orb deleting it is what would stop anyone doing so. A file this game's own reader does not
+        // know is one of those: another game's, another version of this game's own, or a run left
+        // before the file carried what putting it back takes.
         None => {
             log!(
                 "resume: cannot make sense of {}; it is left alone",
@@ -899,7 +909,11 @@ pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
         );
         return None;
     }
-    log!("resume: {} holds {saved}", path.display());
+    log!(
+        "resume: {} holds {saved} {}",
+        path.display(),
+        game.say_run_state(&saved.state),
+    );
     Some(saved)
 }
 
@@ -910,10 +924,10 @@ pub fn load(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<Saved> {
 /// being started, and there is nothing to check the file's own idea of itself against yet. Silent
 /// about a file it cannot read, unlike [`load`]: the front end is not the place to say so, and the
 /// answer is the same either way — nothing to offer.
-pub fn peek(dir: &Path, slot: &str) -> Option<String> {
+pub fn peek(dir: &Path, game: &dyn Game, slot: &str) -> Option<String> {
     let path = dir.join(DIRECTORY).join(slot).with_extension(EXTENSION);
     let bytes = orb_api::fs::read(&path).ok()?;
-    Some(decode(&bytes)?.describe())
+    Some(game.decode_resume(&bytes)?.describe())
 }
 
 /// What runs have been left unfinished, as the names of their files, for the log at startup: which
@@ -946,266 +960,6 @@ pub fn discard(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
             None
         }
     }
-}
-
-/// Rewrites a slot's file as one from before orb wrote the generators down, which is what every file already
-/// on a disk was: [`VERSION`] stayed at 2 so those files are still offered — see [`Written::generators`].
-///
-/// **Only an e2e test asks for this, and there is no other way to get such a file now**: every write puts the
-/// generators in, so a run left before they existed cannot be played into being any more. What the tests hold
-/// orb to is what happens to the *next* file — a run picked up out of one of these has frames nothing but its
-/// own playback can speak for, and those words are what stops the blindness spreading from file to file.
-#[cfg(feature = "sim")]
-pub fn take_the_generators_out(dir: &Path, slot: &str) -> bool {
-    let path = dir.join(DIRECTORY).join(slot).with_extension(EXTENSION);
-    let Some(mut saved) = orb_api::fs::read(&path).ok().as_deref().and_then(decode) else {
-        return false;
-    };
-    saved.generators.clear();
-    orb_api::fs::write(&path, &encode(&saved)).is_ok()
-}
-
-/// The file's own shape, which is not the game's structs: the names in it are the file's business,
-/// so that a field renamed in [`RunStart`] is not a file that reads differently afterwards.
-///
-/// `deny_unknown_fields` throughout, because a field nothing knows is a file from another version
-/// or another program, and reading one of those halfway is worse than not reading it.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Written {
-    version: u32,
-    run: WrittenRun,
-    chapter: WrittenChapter,
-    start: WrittenStart,
-    /// The reproduction line exactly as the log prints it, kept as the one string it is: a landing is
-    /// held against it by field name — see [`differs`] — so what is compared is this text either way,
-    /// and the file shows the line somebody can hold against the log by eye.
-    ///
-    /// **Two things it cannot say, both worth knowing before changing anything near it.** Changing what
-    /// [`crate::game::Reproduction`] puts in this line makes every file written before the change
-    /// disagree at its first field, and [`VERSION`] does not catch it: the line is opaque to the reader,
-    /// which is the price of holding the log's own text. And a run written down by one build and picked
-    /// up by another whose midstage table differs lands on a chapter the second build names and numbers
-    /// differently, which passes unnoticed — what is compared here is the reproduction and not the name.
-    landing: String,
-    /// The buttons held from each frame they changed on, keyed by that frame.
-    ///
-    /// Only the changes, which is how the game writes its own record: everything between two of them
-    /// is the first one's, and a stage's worth of frames comes to a few hundred entries. A map rather
-    /// than a list of pairs, so that they are in order because a map of frames is, rather than because
-    /// something checked; it is also a byte less each, and a converter prints one per line where a list
-    /// of pairs is two.
-    ///
-    /// **The keys being numbers is what stops that converter writing JSON**, which has no way to say a map key
-    /// that is not a string: `msgpack2json` on one of these answers `map key is not a string`, and its debug view
-    /// — `msgpack2json -d` — is what prints the file. See [`EXTENSION`].
-    buttons: BTreeMap<u32, u16>,
-    /// The generator's own state on every one of those frames — see [`Saved::generators`] for what it is for.
-    ///
-    /// **A list and not a map of the changes**, which is the opposite of the buttons above and for the opposite
-    /// reason: a generator moves on nearly every frame, so a map of changes would be every frame with a key in
-    /// front of it. A stage's worth is 8500 entries, which is 26KB as an array of words against 43KB as a map
-    /// of them, and the index is the frame either way.
-    ///
-    /// **Absent in a file written before orb wrote them down**, which is what the default is for: such a run is
-    /// still a run to offer, and what it costs is only that a playback of it cannot say where it parted. See
-    /// [`VERSION`], which is deliberately not raised for a field that may be missing.
-    ///
-    /// **And nothing in the entry of a frame that has no word**, which is what carries that cost one frame at a
-    /// time: a run picked up out of a file with none plays those frames back without ever reading the keyboard
-    /// for them, so they have nothing to write down, and the frames the player then plays have words of their
-    /// own. As one list of words that had to be whole, those wordless frames emptied the list they were in and
-    /// every file the run wrote afterwards was as blind as the one it came out of.
-    #[serde(default)]
-    generators: Vec<Option<u16>>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WrittenRun {
-    difficulty: i32,
-    character: i32,
-    shot: i32,
-    stage: i32,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WrittenChapter {
-    number: u32,
-    frame: u32,
-    retries: u32,
-    name: String,
-    /// Where the song was in the track's own file, and `null` where the stream would not say — which
-    /// is a resume that leaves the music as the stage started it.
-    song: Option<i32>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WrittenStart {
-    score: u32,
-    #[serde(with = "hex")]
-    seed: u16,
-    points: u16,
-    power: u16,
-    lives: i8,
-    bombs: i8,
-    rank: i32,
-    power_items: i8,
-    extra_lives: i8,
-    deaths: i32,
-    /// 妖々夢's three, which is what took this file from version 1 to version 2: a run of that game cannot
-    /// be picked up without them — see `game::RunState` — and a file written before they were here has no
-    /// field for them, so it is refused rather than read with three zeros in their place.
-    cherry: i32,
-    cherry_target: i32,
-    cherry_plus: i32,
-}
-
-/// A number written the way every line of the log that mentions this one writes it. The seed is the
-/// generator's state rather than a quantity, and `0x1a2b` is what it is called everywhere else.
-mod hex {
-    use serde::{Deserialize, Deserializer, Serializer, de::Error};
-
-    pub fn serialize<S: Serializer>(value: &u16, into: S) -> Result<S::Ok, S::Error> {
-        into.serialize_str(&format!("{value:#06x}"))
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<u16, D::Error> {
-        let text = String::deserialize(from)?;
-        super::number(&text)
-            .and_then(|value| u16::try_from(value).ok())
-            .ok_or_else(|| D::Error::custom(format!("not a number: {text}")))
-    }
-}
-
-/// The file, whole. Written every time rather than appended to: it describes one chapter of one
-/// run, and the one it describes is the newest.
-fn encode(saved: &Saved) -> Vec<u8> {
-    let written = Written {
-        version: VERSION,
-        run: WrittenRun {
-            difficulty: saved.run.difficulty,
-            character: saved.run.character,
-            shot: saved.run.shot_type,
-            stage: saved.run.stage,
-        },
-        chapter: WrittenChapter {
-            number: saved.chapter,
-            frame: saved.at,
-            retries: saved.retries,
-            name: saved.name.clone(),
-            song: saved.song,
-        },
-        start: WrittenStart {
-            score: saved.state.score,
-            seed: saved.state.seed,
-            points: saved.state.point_items,
-            power: saved.state.power,
-            lives: saved.state.lives,
-            bombs: saved.state.bombs,
-            rank: saved.state.rank,
-            power_items: saved.state.power_items,
-            extra_lives: saved.state.extra_lives,
-            deaths: saved.state.deaths,
-            cherry: saved.state.cherry,
-            cherry_target: saved.state.cherry_target,
-            cherry_plus: saved.state.cherry_plus,
-        },
-        landing: saved.landing.clone(),
-        buttons: changes(&saved.buttons),
-        generators: saved.generators.clone(),
-    };
-    // With the names in it, so that the file says what its own fields are: see [`EXTENSION`]. Nothing
-    // in it can fail to serialize — every field is a number, a string or a pair of numbers — so a
-    // failure here is a file that would say nothing about the run, which is what no bytes read as.
-    rmp_serde::to_vec_named(&written).unwrap_or_default()
-}
-
-/// Reads it back, and `None` for anything that is not a file this version wrote: a field missing or
-/// unknown, a number that is not one, a version that is not this one.
-fn decode(bytes: &[u8]) -> Option<Saved> {
-    let written: Written = rmp_serde::from_slice(bytes).ok()?;
-    if written.version != VERSION {
-        return None;
-    }
-    let changes = written.buttons;
-    let at = written.chapter.frame;
-    // Nothing at or past the frame the buttons are meant to reach, that being a record which does not
-    // describe the chapter beside it. They are in order already, a map of frames being kept that way.
-    if at > MAX_STAGE_FRAMES || changes.keys().last().is_some_and(|frame| *frame >= at) {
-        return None;
-    }
-    // And an entry for every frame the buttons reach, or no list at all: the playback holds the two together
-    // by frame — see [`Played`] — so a list that is shorter is one whose frames do not line up, and reading it
-    // would be a playback held against another frame's generator. No list at all is a file from before orb
-    // wrote them down, which is a run to offer with nothing to say about where a playback of it parts. An
-    // entry that holds nothing is a frame of that kind on its own, and costs only its own check.
-    if !written.generators.is_empty() && written.generators.len() != at as usize {
-        return None;
-    }
-    Some(Saved {
-        run: RunStart {
-            difficulty: written.run.difficulty,
-            character: written.run.character,
-            shot_type: written.run.shot,
-            // Not in the file, there being nothing to say: a practice run has no slot to be written
-            // in — see `Game::run_slot` — so every file is a full run's.
-            practice: false,
-            stage: written.run.stage,
-        },
-        state: RunState {
-            score: written.start.score,
-            seed: written.start.seed,
-            point_items: written.start.points,
-            power: written.start.power,
-            lives: written.start.lives,
-            bombs: written.start.bombs,
-            rank: written.start.rank,
-            power_items: written.start.power_items,
-            extra_lives: written.start.extra_lives,
-            deaths: written.start.deaths,
-            cherry: written.start.cherry,
-            cherry_target: written.start.cherry_target,
-            cherry_plus: written.start.cherry_plus,
-        },
-        at,
-        chapter: written.chapter.number,
-        name: written.chapter.name,
-        retries: written.chapter.retries,
-        song: written.chapter.song,
-        landing: written.landing,
-        buttons: dense(&changes, at),
-        generators: written.generators,
-    })
-}
-
-/// The frames the buttons changed on, out of one entry per frame: everything between two changes is
-/// the first one's, which is what a run with a key held down is.
-fn changes(buttons: &[u16]) -> BTreeMap<u32, u16> {
-    let mut changes = BTreeMap::new();
-    let mut held = 0;
-    for (frame, pressed) in buttons.iter().enumerate() {
-        if *pressed != held {
-            changes.insert(frame as u32, *pressed);
-            held = *pressed;
-        }
-    }
-    changes
-}
-
-/// One entry per frame again, out of the frames the buttons changed on.
-fn dense(changes: &BTreeMap<u32, u16>, upto: u32) -> Vec<u16> {
-    let mut buttons = vec![0; upto as usize];
-    let mut frames = changes.keys().copied().skip(1);
-    for (frame, held) in changes {
-        let until = frames.next().unwrap_or(upto).min(upto);
-        for slot in &mut buttons[*frame as usize..until as usize] {
-            *slot = *held;
-        }
-    }
-    buttons
 }
 
 /// The first field two reproduction lines disagree on, and `None` where they agree.
@@ -1250,205 +1004,9 @@ impl<'a> Fields<'a> {
     }
 }
 
-/// A number as this file writes them: decimal, or hexadecimal where it is one to hold against the
-/// log, which writes the seed and a frame's buttons that way.
-fn number(text: &str) -> Option<i64> {
-    let text = text.trim();
-    match text.strip_prefix("0x") {
-        Some(hex) => i64::from_str_radix(hex, 16).ok(),
-        None => text.parse().ok(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{MAX_STAGE_FRAMES, Played, Record, Saved, VERSION, decode, encode};
-    use crate::game::{RunStart, RunState};
-
-    pub fn saved() -> Saved {
-        Saved {
-            run: RunStart {
-                difficulty: 3,
-                character: 1,
-                shot_type: 0,
-                practice: false,
-                stage: 3,
-            },
-            state: RunState {
-                score: 7417420,
-                seed: 0x1a2b,
-                point_items: 328,
-                power: 128,
-                lives: 2,
-                bombs: 3,
-                rank: 21,
-                power_items: 44,
-                extra_lives: 1,
-                deaths: 6,
-                cherry: 41_000,
-                cherry_target: 50_000,
-                cherry_plus: 12_345,
-            },
-            at: 12,
-            chapter: 17,
-            name: "BOSS SPELL 2".to_owned(),
-            retries: 42,
-            song: Some(1234567),
-            landing: "replay_frame=-1 input=0x0000 randoms=1234".to_owned(),
-            buttons: vec![0, 0, 1, 1, 1, 0x41, 0x41, 0, 0, 0, 0x101, 0x101],
-            // One per frame like the buttons, and every one different: what the file has to carry through is
-            // the frame each of them belongs to, so a list that survived the round trip in the wrong order
-            // would read as a playback parting on the first frame it was held against. **And one frame with
-            // no word**, which is a frame this run played back out of a file that had none for it.
-            generators: vec![
-                Some(0x1000),
-                Some(0x1001),
-                None,
-                Some(0x1003),
-                Some(0x1004),
-                Some(0x1005),
-                Some(0x1006),
-                Some(0x1007),
-                Some(0x1008),
-                Some(0x1009),
-                Some(0x100a),
-                Some(0x100b),
-            ],
-        }
-    }
-
-    /// Every field of it, since a resume is a run started from these numbers: one read back as
-    /// another is a run that plays out differently and says nothing about why.
-    #[test]
-    fn what_is_written_is_what_is_read_back() {
-        assert_eq!(decode(&encode(&saved())), Some(saved()));
-    }
-
-    /// The buttons are written as the frames they changed on and come back one per frame, holding
-    /// the last change through to the chapter — which is what a run with a key held down is.
-    #[test]
-    fn the_buttons_come_back_one_per_frame() {
-        let mut held = saved();
-        held.at = 6;
-        held.buttons = vec![0, 0, 1, 1, 1, 1];
-        held.generators.truncate(6);
-        // One entry, not six frames.
-        assert_eq!(
-            super::changes(&held.buttons),
-            std::collections::BTreeMap::from([(2, 1)]),
-        );
-        assert_eq!(decode(&encode(&held)), Some(held));
-    }
-
-    /// A stream that would not say where the song was is written as nothing rather than as a number
-    /// standing for nothing, and read back as a resume that leaves the music as the stage started it.
-    #[test]
-    fn a_chapter_with_no_song_position_is_read_as_having_none() {
-        let mut quiet = saved();
-        quiet.song = None;
-        assert_eq!(decode(&encode(&quiet)), Some(quiet));
-    }
-
-    /// **A file with no generators in it is still a run to offer**, which is every file written before orb
-    /// began writing them down: a run of 紅魔郷 left unfinished is not one to drop because a launch has learnt
-    /// to write something more about a stage, and 紅魔郷 is the game people already have.
-    ///
-    /// **What such a playback gives up is more than the line saying where it parted**, which is what it looked
-    /// like when this was written. A 妖々夢 run of stage 6 out of one of these parted somewhere in the sixty
-    /// frames after 853, the player was hit at 1249, and the run died out at 5900 of the 24119 frames it was
-    /// aiming at — and nothing in the log could say which frame it went wrong on. Refusing the file is still
-    /// not the answer while the version is what says which files those are: it is one number for both games —
-    /// see [`VERSION`] — so refusing 妖々夢's would refuse 紅魔郷's with them.
-    #[test]
-    fn a_file_from_before_the_generators_is_read_and_offered() {
-        let mut older = saved();
-        older.generators = Vec::new();
-        assert_eq!(decode(&encode(&older)), Some(older));
-    }
-
-    /// And one with *some* of them is refused too, that being a file whose frames do not line up: the buttons
-    /// of a frame and the generator it was pressed with are held together by their index, so a list that runs
-    /// out part way through would have a playback held against another frame's number.
-    #[test]
-    fn a_file_with_some_of_the_generators_is_refused() {
-        let mut half = saved();
-        half.generators.truncate(half.buttons.len() - 1);
-        assert!(decode(&encode(&half)).is_none());
-    }
-
-    /// A chapter at the stage's own start has none of them, which is a run resumed by building
-    /// the stage and playing nothing.
-    #[test]
-    fn a_stage_start_holds_no_buttons() {
-        let mut start = saved();
-        start.at = 0;
-        start.chapter = 1;
-        start.name = "MIDSTAGE 1".to_owned();
-        start.buttons = Vec::new();
-        start.generators = Vec::new();
-        assert_eq!(decode(&encode(&start)), Some(start));
-    }
-
-    /// A file this version did not write is refused rather than read with its fields taken for each
-    /// other, and so is one that has lost a field, gained one nothing knows, or holds a field of
-    /// another kind than it should.
-    ///
-    /// Written as MessagePack maps here rather than by editing bytes, since what has to be refused is
-    /// a *file* of that shape however it came to be one.
-    #[test]
-    fn a_file_this_version_did_not_write_is_refused() {
-        use rmpv::Value;
-
-        let whole = || match rmpv::decode::read_value(&mut encode(&saved()).as_slice()) {
-            Ok(Value::Map(fields)) => fields,
-            other => panic!("not a map: {other:?}"),
-        };
-        let refused = |fields: Vec<(Value, Value)>| {
-            let mut bytes = Vec::new();
-            rmpv::encode::write_value(&mut bytes, &Value::Map(fields)).expect("written");
-            assert!(decode(&bytes).is_none());
-        };
-        let named = |name: &str| Value::String(name.into());
-        let replacing = |name: &str, with: Value| {
-            let mut fields = whole();
-            let at = fields
-                .iter()
-                .position(|(key, _)| *key == named(name))
-                .expect("a field of that name");
-            fields[at].1 = with;
-            fields
-        };
-
-        // The whole of it, untouched, is the file that is read — everything below is that file with
-        // one thing wrong with it.
-        assert_eq!(decode(&encode(&saved())), Some(saved()));
-
-        refused(replacing("version", Value::from(VERSION + 1)));
-        refused(replacing("landing", Value::from(0)));
-        refused(
-            whole()
-                .into_iter()
-                .filter(|(key, _)| *key != named("start"))
-                .collect(),
-        );
-        refused({
-            let mut fields = whole();
-            fields.push((named("elsewhere"), Value::from(1)));
-            fields
-        });
-        // A frame at or past the one the buttons are meant to reach is a record that does not
-        // describe the chapter beside it.
-        let held_from = |frames: [u32; 2]| {
-            Value::Map(
-                frames
-                    .iter()
-                    .map(|frame| (Value::from(*frame), Value::from(1)))
-                    .collect(),
-            )
-        };
-        refused(replacing("buttons", held_from([2, 12])));
-        refused(replacing("buttons", held_from([2, saved().at])));
-    }
+    use super::{MAX_STAGE_FRAMES, Played, Record};
 
     /// A chapter played again writes over the frames it plays again, so what a chapter's own save
     /// holds is the attempt that survived to reach it. Which is why a restore drops nothing here.
@@ -1508,17 +1066,14 @@ mod tests {
         );
     }
 
-    /// A frame number no stage reaches is not one to allocate for, whatever asked.
+    /// A frame number no stage reaches is not one to write down, whatever asked. What a *file* saying such a
+    /// frame is refused for is each game's own — see `th06::resume` and `th07::resume`.
     #[test]
-    fn a_frame_no_stage_reaches_is_refused() {
+    fn a_frame_no_stage_reaches_is_not_written_down() {
         let mut record = Record::new();
         record.stage = Some(0);
         record.note(MAX_STAGE_FRAMES, 0x001, 0x1234);
         assert!(record.played.is_empty());
-
-        let mut far = saved();
-        far.at = MAX_STAGE_FRAMES + 1;
-        assert!(decode(&encode(&far)).is_none());
     }
 
     /// The buttons are handed back for the frames before the chapter and not for the chapter's

@@ -42,6 +42,9 @@ pub mod chapters;
 /// crates that drive it — which is where the scenarios live.
 #[cfg(any(test, feature = "sim"))]
 pub mod image;
+/// The file a run of this game left unfinished is written in, which is this game's own — see
+/// `Game::encode_resume`.
+pub mod resume;
 
 use std::ffi::c_void;
 use std::ops::Range;
@@ -57,7 +60,7 @@ use orb_api::{Device, SoundBuffer, Texture, Viewport};
 use crate::audio::{Music, Track};
 use crate::game::{
     Boundary, Call, Entered, Face, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, Reproduction, RunStart, RunState, State,
+    Rect, Reproduction, RunStart, State,
 };
 use crate::{detail, log};
 
@@ -3510,14 +3513,51 @@ impl Game for Th07 {
     /// **The cherry is answered as a count from the run's own baseline**, which is how the game reads it
     /// everywhere: what a stage played again has to start with is the count, and the baseline is whatever that
     /// stage's own build left.
-    unsafe fn run_state(&self) -> RunState {
+    fn encode_resume(&self, saved: &crate::resume::Kept) -> Vec<u8> {
+        resume::encode(saved)
+    }
+
+    fn decode_resume(&self, bytes: &[u8]) -> Option<crate::resume::Kept> {
+        resume::decode(bytes)
+    }
+
+    /// The generator, and the copy the game keeps beside it: the two writes the build makes in the other
+    /// order, so that a stage built after this draws what the stage being played again drew.
+    unsafe fn seed_the_stage(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the seed put back is not a run of this game's");
+        };
+        unsafe {
+            mem::write::<u16>(G_RANDOM, state.seed);
+            mem::write::<u16>(G_GAME_MANAGER + SEED_AT_STAGE_START, state.seed);
+        }
+    }
+
+    fn say_run_state(&self, state: &[u8]) -> String {
+        match resume::decode_state(state) {
+            Some(state) => format!(
+                "score={} seed={:#06x} lives={} bombs={} power={} cherry={} of {} plus={}",
+                state.score,
+                state.seed,
+                state.lives,
+                state.bombs,
+                state.power,
+                state.cherry,
+                state.cherry_target,
+                state.cherry_plus,
+            ),
+            None => "numbers of another game's run".to_owned(),
+        }
+    }
+
+    unsafe fn run_state(&self) -> Vec<u8> {
         let run = unsafe { self.run_numbers() };
         // **Both of the score's fields, because a stage's own start reads the live one as nothing.** A run of
         // 妖々夢 wrote every chapter of stage 4 down with `score=0` and the reproduction line of the frame nine
         // frames later said `score=6756516` — the same field, read twice within nine frames of a stage nobody
         // could earn six million in. So one of the two is not what this reads, and which is decided here:
         // asked once a stage, where [`Th07::run_state`] is asked once a stage. See [`SCORE`] and
-        // [`SCORE_SHOWN`], and `resume::Saved` for what a resume then writes back over a run's own score.
+        // [`SCORE_SHOWN`], and `resume::Kept` for what a resume then writes back over a run's own score.
         if let Some(run) = run {
             detail!(
                 "th07: the run's score is {} live and {} on the panel",
@@ -3558,7 +3598,7 @@ impl Game for Th07 {
                 unsafe { mem::read::<i32>(at) }.wrapping_sub(baseline)
             })
         };
-        RunState {
+        resume::encode_state(&resume::Numbers {
             score: run.map_or(0, |run| unsafe { mem::read(run + SCORE) }),
             seed: unsafe { mem::read(G_GAME_MANAGER + SEED_AT_STAGE_START) },
             point_items: run.map_or(0, |run| unsafe { mem::read::<u32>(run + POINT_ITEMS) }
@@ -3566,14 +3606,11 @@ impl Game for Th07 {
             power: run.map_or(0, |run| unsafe { mem::read::<f32>(run + POWER) } as u16),
             lives: run.map_or(0, |run| unsafe { mem::read::<f32>(run + LIVES) } as i8),
             bombs: run.map_or(0, |run| unsafe { mem::read::<f32>(run + BOMBS) } as i8),
-            rank: 0,
-            power_items: 0,
-            extra_lives: 0,
             deaths: run.map_or(0, |run| unsafe { mem::read::<f32>(run + DEATHS) } as i32),
             cherry: cherry(G_CHERRY),
             cherry_target: cherry(G_CHERRY_TARGET),
             cherry_plus: cherry(G_CHERRY_PLUS),
-        }
+        })
     }
 
     /// The numbers back and the game asked to seal them, with the generator held still over that call — see
@@ -3592,7 +3629,11 @@ impl Game for Th07 {
     /// The cherry+ is the one of them that is not written outright: 0x4438c1 holds it to
     /// [`CHERRY_FOR_A_BORDER`] and puts the border up where the record had earned one, which is
     /// [`BORDER_UP`].
-    unsafe fn set_run_state(&self, state: &RunState) {
+    unsafe fn set_run_state(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the numbers put back are not a run of this game's");
+        };
+        let state = &state;
         let run = unsafe { self.run_numbers() };
         let Some(run) = run else { return };
         unsafe {
@@ -3629,15 +3670,6 @@ impl Game for Th07 {
             let border: unsafe extern "thiscall" fn(usize) =
                 unsafe { std::mem::transmute(border_up()) };
             unsafe { border(G_PLAYER) };
-        }
-    }
-
-    /// The generator, and the copy the game keeps beside it: the two writes the build makes in the other
-    /// order, so that a stage built after this draws what the stage being played again drew.
-    unsafe fn set_run_seed(&self, seed: u16) {
-        unsafe {
-            mem::write::<u16>(G_RANDOM, seed);
-            mem::write::<u16>(G_GAME_MANAGER + SEED_AT_STAGE_START, seed);
         }
     }
 
@@ -3795,6 +3827,23 @@ mod tests {
     use super::*;
     use crate::game::th07::image::Image;
 
+    /// A run of this game with nothing in it, for a test that says which of the numbers it is about: the rest
+    /// are written as nothing so that what a test wrote is what it can hold the game to.
+    fn nothing() -> resume::Numbers {
+        resume::Numbers {
+            score: 0,
+            seed: 0,
+            point_items: 0,
+            power: 0,
+            lives: 0,
+            bombs: 0,
+            deaths: 0,
+            cherry: 0,
+            cherry_target: 0,
+            cherry_plus: 0,
+        }
+    }
+
     /// The records of `thbgm.dat` the tests over the music are played out of: the title screen's, which is the
     /// file's first record and so what a play of a slot nothing was loaded into comes out as; the stage's own; and
     /// the one the fight it ends with brings. Small, and no two of them sharing a place in the file, so a restore
@@ -3921,27 +3970,13 @@ mod tests {
         image.the_cherry_is(1_000_000, 0, 0, 0);
         let bordered = image.hands_over_the_border();
 
-        let start = RunState {
+        let start = resume::Numbers {
             cherry: 0x1000,
             cherry_target: 0xc350,
             cherry_plus: CHERRY_FOR_A_BORDER as i32 + 0x500,
-            ..RunState {
-                score: 0,
-                seed: 0,
-                point_items: 0,
-                power: 0,
-                lives: 0,
-                bombs: 0,
-                rank: 0,
-                power_items: 0,
-                extra_lives: 0,
-                deaths: 0,
-                cherry: 0,
-                cherry_target: 0,
-                cherry_plus: 0,
-            }
+            ..nothing()
         };
-        unsafe { Th07.set_run_state(&start) };
+        unsafe { Th07.set_run_state(&resume::encode_state(&start)) };
 
         assert_eq!(
             image.the_cherry(),
@@ -4307,9 +4342,9 @@ mod tests {
     /// The numbers a stage started with, which is what a run picked up in a later launch is given back, and
     /// the seed put in the two places the game keeps it.
     ///
-    /// Three of `RunState`'s ten are nothing here and the test says so: this game keeps no count of power
-    /// items and no count of extra lives paid for, and it has no rank — see [`SCORE`] for what `+0x30`, the
-    /// field that looked like one, turned out to be.
+    /// **And they are this game's own numbers**, which is what `th07::resume::Numbers` is: no rank, no count of
+    /// power items and no count of extra lives paid for, because this game reads none of the three — see
+    /// [`SCORE`] for what `+0x30`, the field that looked like a rank, turned out to be.
     #[test]
     fn a_stages_numbers_are_the_runs_own_and_the_seed_is_kept_twice() {
         let image = Image::laid_out_seeded(0);
@@ -4323,23 +4358,29 @@ mod tests {
         image.the_run_has_scored(12_345_678, 640);
         image.the_stage_began_with_the_seed(0xbeef);
 
-        let start = unsafe { Th07.run_state() };
+        let start =
+            resume::decode_state(&unsafe { Th07.run_state() }).expect("this game's numbers");
         assert_eq!(start.score, 12_345_678);
         assert_eq!(start.point_items, 640);
         assert_eq!(start.seed, 0xbeef);
         assert_eq!((start.lives, start.bombs, start.deaths), (2, 3, 1));
         assert_eq!(start.power, 96);
-        assert_eq!(
-            (start.rank, start.power_items, start.extra_lives),
-            (0, 0, 0)
-        );
 
         // And the seed put back into both places: the generator, which the stage draws from, and the copy the
         // game itself keeps for a replay — a stage given one and not the other plays out differently the next
-        // time it is written down.
-        unsafe { Th07.set_run_seed(0x1234) };
+        // time it is written down. Out of the run's own bytes, which is where a seed comes from now.
+        let seeding = resume::encode_state(&resume::Numbers {
+            seed: 0x1234,
+            ..nothing()
+        });
+        unsafe { Th07.seed_the_stage(&seeding) };
         assert_eq!(unsafe { Th07.read_state() }.random_seed, 0x1234);
-        assert_eq!(unsafe { Th07.run_state() }.seed, 0x1234);
+        assert_eq!(
+            resume::decode_state(&unsafe { Th07.run_state() })
+                .expect("this game's numbers")
+                .seed,
+            0x1234,
+        );
     }
 
     /// And those numbers put back: every field this game has written, the game asked to seal them, and **the
@@ -4360,7 +4401,7 @@ mod tests {
         let _bordered = image.hands_over_the_border();
         image.is_playing(0, 0);
 
-        let going_back = RunState {
+        let numbers = resume::Numbers {
             score: 98_765_432,
             seed: 0x5555,
             point_items: 128,
@@ -4368,13 +4409,9 @@ mod tests {
             lives: 4,
             bombs: 2,
             deaths: 3,
-            rank: 0,
-            power_items: 0,
-            extra_lives: 0,
-            cherry: 0,
-            cherry_target: 0,
-            cherry_plus: 0,
+            ..nothing()
         };
+        let going_back = resume::encode_state(&numbers);
         // Nothing at all before a run is built, there being no numbers to write into — and nothing asked of the
         // game either, a seal over numbers that never went back being a seal over somebody else's.
         unsafe { Th07.set_run_state(&going_back) };
@@ -4395,13 +4432,12 @@ mod tests {
         // the stage's, and two of them spent here would be a stage nobody played — see `STAGE_BUILD`.
         assert_eq!(unsafe { Th07.read_state() }.random_seed, 0x1234);
         // The seed itself is untouched here, going in at the build instead.
-        assert_eq!(unsafe { Th07.run_state() }.seed, 0xaaaa);
         assert_eq!(
-            unsafe { Th07.run_state() },
-            RunState {
+            resume::decode_state(&unsafe { Th07.run_state() }),
+            Some(resume::Numbers {
                 seed: 0xaaaa,
-                ..going_back
-            },
+                ..numbers
+            }),
             "every number but the seed is the one that went in"
         );
     }

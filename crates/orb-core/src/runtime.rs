@@ -287,7 +287,7 @@ pub struct Runtime {
     given_up: bool,
     /// `Some` while the game is frozen on the question of where to start a run that has one left
     /// unfinished, holding the run that would be picked up.
-    asking_resume: Option<(resume_ui::ResumeMenu, resume::Saved)>,
+    asking_resume: Option<(resume_ui::ResumeMenu, resume::Kept)>,
     /// The line drawn on the shot type select where the run under the cursor has a chapter written
     /// down. Kept across frames because it holds what it read, the screen being one somebody sits on.
     mark: resume_ui::Mark,
@@ -319,7 +319,7 @@ struct Started {
     /// not a thing to leave resting on that.
     slot: String,
     /// The chapter to put back, where that is what was asked for.
-    saved: Option<resume::Saved>,
+    saved: Option<resume::Kept>,
 }
 
 /// The game this process is, as the attach settled it out of [`game::KNOWN`].
@@ -2309,9 +2309,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .flatten();
     let pointed = pointing.as_ref().and_then(|run| runtime.game.run_slot(run));
     let base = &runtime.config.base_dir;
-    runtime
-        .mark
-        .pointing(pointed.as_deref(), |slot| resume::peek(base, slot));
+    runtime.mark.pointing(pointed.as_deref(), |slot| {
+        resume::peek(base, runtime.game, slot)
+    });
 
     // And the press that would choose an item is kept from the game on both of the screens orb has a
     // question about — the title menu and the shot type select — so that a question goes on the press
@@ -2476,7 +2476,7 @@ fn ask_where_to_start(
 ///
 /// # Safety
 /// Must run on the game's main thread, between frames.
-unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resume::Saved, by: By) {
+unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resume::Kept, by: By) {
     let slot = runtime.game.run_slot(&saved.run);
     let picked_up = match answer {
         resume_ui::Answer::Continue => {

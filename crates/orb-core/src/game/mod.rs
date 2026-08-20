@@ -484,46 +484,16 @@ pub struct RunStart {
     pub stage: i32,
 }
 
-/// The run's numbers as a stage begins, which is the state a stage needs to be played again and
-/// nothing else.
+/// **There is no shared shape for the run's numbers.** What a stage has to start with is the game's own —
+/// see [`Game::run_state`], which hands them over as that game's bytes, and the two games' own
+/// `resume` modules, where each says what its own file holds.
 ///
-/// These are the fields the game's own replay keeps per stage — see `SPEC.md` for the record they
-/// are read out of — plus the count of deaths, which the replay leaves behind because the result
-/// screen is the only thing that reads it. Everything else a stage starts with is either loaded
-/// with the stage or set the same way every time, so it is the same on both sides of a resume.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct RunState {
-    pub score: u32,
-    /// What the generator was seeded with as the stage began. The whole of why the buttons alone
-    /// are not enough: the game takes this from wherever the generator had got to, so a stage
-    /// played again from a different seed is a different stage.
-    pub seed: u16,
-    pub point_items: u16,
-    pub power: u16,
-    pub lives: i8,
-    pub bombs: i8,
-    /// What the game makes of how the run is going, which the enemies read.
-    pub rank: i32,
-    pub power_items: i8,
-    /// How many extra lives the score has already paid for, so the next one is not paid twice.
-    pub extra_lives: i8,
-    pub deaths: i32,
-    /// 妖々夢's cherry: what it stands at, what it is filling towards, and the cherry+ beside it.
-    ///
-    /// **Three fields of this struct and not a game's own blob**, which is the shape the rest of it already
-    /// has: `rank` and `power_items` are 紅魔郷's own vocabulary and 妖々夢 answers nothing for them, so a
-    /// game answering nothing for these three is the same trade the other way round. What settled it is that
-    /// they are numbers a stage has to *start with* — the cherry pays for 妖々夢's extra lives the way the
-    /// score pays for 紅魔郷's — and that is what this struct is.
-    ///
-    /// Each is kept the way the game keeps it, as a count from the baseline the game measures it from, so
-    /// that a resumed stage's own baseline is what they are put back against. Zero for a game with no such
-    /// thing, which is a number that game never reads.
-    pub cherry: i32,
-    pub cherry_target: i32,
-    pub cherry_plus: i32,
-}
-
+/// It was one struct, with 紅魔郷's rank, power items and extra lives beside 妖々夢's cherry, and each game
+/// wrote nothing into the other's fields. What that cost was not the six wasted numbers: it was that the file
+/// they went into had one version between the two games, so a field 妖々夢 needed could not be added without
+/// refusing every 紅魔郷 run on a disk. It was added without the version being raised, a run of 妖々夢 was
+/// picked up out of a file that predated it, and the playback parted from the run with nothing in the log
+/// able to say where.
 /// A face the host is asked for by name, as the game itself asks for one: the family, whether it is wanted
 /// bold, the height that ask carries, and how much bigger than the size it is drawn at that comes out.
 ///
@@ -1407,23 +1377,51 @@ pub trait Game {
     /// check three callers have to remember.
     fn run_slot(&self, run: &RunStart) -> Option<String>;
 
-    /// The run's numbers, which at a stage's own first frame are the numbers that stage started
-    /// with.
+    /// **The file a run left unfinished is written in, which is this game's own.**
+    ///
+    /// What [`crate::resume`] does with a kept run — when to write it, where the file goes, playing the
+    /// buttons back into a stage, holding the landing against what was written down — is the same work for
+    /// either game. What a *file* holds is not: 紅魔郷 keeps a rank, a count of power items and a count of the
+    /// extra lives its score has paid for, where 妖々夢 keeps a cherry it pays its own with, and each game
+    /// wrote nothing into the other's fields for as long as the two shared one shape.
+    ///
+    /// **And one version number stood in front of both**, which is what settled it: the generator of every
+    /// frame — the one thing that can say where a playback stopped reproducing a run — went into the file
+    /// without that number being raised, because raising it would have refused every 紅魔郷 run already on a
+    /// disk. A 妖々夢 run picked up out of a file from before it parted from itself inside its first thousand
+    /// frames and nothing in the log could say where. So the file is the game's, and each game's version is
+    /// its own: `th06::resume` is frozen at what shipped, `th07::resume` starts again at 1.
+    fn encode_resume(&self, saved: &crate::resume::Kept) -> Vec<u8>;
+
+    /// And back, or `None` for bytes that are not a file this game wrote.
+    fn decode_resume(&self, bytes: &[u8]) -> Option<crate::resume::Kept>;
+
+    /// **The run's numbers as this stage began, in the game's own bytes.**
+    ///
+    /// Opaque here, and the whole point of that: what a run *is* differs between the games and the
+    /// machinery does not need to know. 紅魔郷 pays for extra lives out of the score and keeps a rank its
+    /// enemies read; 妖々夢 pays for them out of a cherry it draws from its own generator as the run is made,
+    /// and keeps a baseline every reader of that cherry measures from. They were one struct with both games'
+    /// fields in it, each writing nothing into the other's — and with the shape shared, a number 妖々夢 needed
+    /// could not be added without touching the game people already have.
+    ///
+    /// These bytes go into the game's own file and come back out of it — see [`Game::encode_resume`] — so
+    /// nothing but the game that wrote them ever looks inside.
     ///
     /// # Safety
     /// Must run on the game's main thread, with a run in progress.
-    unsafe fn run_state(&self) -> RunState;
+    unsafe fn run_state(&self) -> Vec<u8>;
 
-    /// Puts them back, the way the game's own replay puts a stage's numbers back — all but the seed,
-    /// which is [`Game::set_run_seed`]'s and has to be earlier.
+    /// Puts them back, the way the game's own replay puts a stage's numbers back — all but the seed, which
+    /// is [`Game::seed_the_stage`]'s and has to be earlier.
     ///
     /// # Safety
     /// Must run on the game's main thread, where the game has a stage built and has not yet
-    /// updated it — see [`Hooks::stage_begun`].
-    unsafe fn set_run_state(&self, state: &RunState);
+    /// updated it — see [`Hooks::stage_begun`]. `state` must be bytes this game's own
+    /// [`Game::run_state`] produced.
+    unsafe fn set_run_state(&self, state: &[u8]);
 
-    /// Seeds the generator for the stage the game is about to build, and puts its own copy of the
-    /// seed beside it.
+    /// Seeds the generator for the stage the game is about to build, out of those same bytes.
     ///
     /// Apart from the rest of a stage's numbers because it goes in at another moment: building a
     /// stage draws from the generator, so the seed has to be in before that, where the numbers cannot
@@ -1433,7 +1431,11 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, from the hook over [`Hooks::stage_building`], before the
     /// original.
-    unsafe fn set_run_seed(&self, seed: u16);
+    unsafe fn seed_the_stage(&self, state: &[u8]);
+
+    /// And what those bytes say, for the log: the game's own numbers in the game's own words, since a line
+    /// about a run of 紅魔郷 has a rank in it and one about a run of 妖々夢 has a cherry.
+    fn say_run_state(&self, state: &[u8]) -> String;
 
     /// Whether the game's front end has asked for a run and nothing of that run has been built yet.
     ///
