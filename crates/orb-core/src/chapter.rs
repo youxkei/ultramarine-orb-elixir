@@ -861,6 +861,13 @@ impl Chapters {
         }
 
         if self.stage != Some(state.stage) {
+            // **Nothing of the stage before this one is this one's**, from the frame the game is in it: no
+            // chapter has begun here, so there is no boundary to have been reached, nothing to step to and
+            // nothing to go back into. What is kept until the stage's own start settles is otherwise the
+            // stage that has gone — and 紅魔郷 washed the play field green over the opening of every stage
+            // for it, the wash a boundary gets going by the *cause* of the chapter the game has come to
+            // rest on and that cause being the last fight's of the stage before.
+            self.the_stage_was_left();
             // The frame counter restarting is what says the stage has replaced
             // the scene before it, rather than merely being announced.
             if state.stage_frames <= 1 {

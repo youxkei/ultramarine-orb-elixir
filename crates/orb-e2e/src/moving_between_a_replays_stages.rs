@@ -12,7 +12,7 @@
 //! What the laid-out game plays is a record of its own — `Fake::watches_a_replay_of_its_stages` — and the
 //! comparison is the same one, field for field, over the frames an e2e test has the patience for.
 
-use crate::fake::th06::{Fake, the_run};
+use crate::fake::th06::{ATTACK_CHANGES, Fake, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::Th06;
@@ -564,6 +564,45 @@ fn a_stage_played_twice_across_a_move_agrees_to_the_last_digit() {
         assert!(
             first.last().expect("an update").randoms > first[0].randoms,
             "the stage drew nothing from the generator over {COMPARED} updates",
+        );
+    });
+}
+
+/// **The stage a move arrives in gets no wash over its start**, whatever the setting says and whoever is
+/// watching.
+///
+/// A judging pass washes every boundary it reaches — the wash is the instrument it is run with, so what a
+/// run's own setting says about one does not come into it — and the one boundary that gets none is a
+/// stage's own start. What a wash goes by is the *cause* of the chapter the game has come to rest on, and
+/// until the stage arrived in has taken its own first chapter that cause is the last chapter's of the stage
+/// left behind: a fight's, which is a wash. So the frames a new stage settles over washed the field green
+/// over the opening of a stage.
+///
+/// Seen on 妖々夢, whose stages end without spending a frame outside the scene a run is played in, and asked
+/// here as well because the cause is nothing to do with either game: what a stage being left has to leave
+/// behind is everything it held.
+#[test]
+fn the_stage_a_move_arrives_in_is_not_washed_over_its_start() {
+    in_its_own_process(|| {
+        let game = watching("a-replay-no-wash-at-a-stage-moved-to");
+        // The stage's own fight fought, which is what makes the chapter before the move a fight's rather
+        // than the stage's own start — and a stage's start is the one cause that washes nothing.
+        game.fights_its_boss_out();
+        game.frames_until(
+            "the fight of the stage played into",
+            ATTACK_CHANGES + 200,
+            || game.state().stage_frames > ATTACK_CHANGES,
+        );
+
+        // Out to the next stage, with everything drawn from here watched: the move, the build, and the
+        // frames the new stage's own start settles over.
+        game.forget();
+        moves_to_the_stage(&game, NEXT, 1);
+        game.frames(120);
+        let washed = game.drawn().clears.clone();
+        assert!(
+            washed.is_empty(),
+            "the field was washed over the start of the stage moved to: {washed:#010x?}",
         );
     });
 }

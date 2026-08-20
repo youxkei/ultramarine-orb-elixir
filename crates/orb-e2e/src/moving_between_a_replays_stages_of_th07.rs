@@ -168,26 +168,24 @@ fn a_stage_left_behind_of_th07_is_neither_gone_back_into_nor_a_wall_in_the_stage
             log.lines().split_off(from).join("\n  "),
         );
         // And no wash over the stage arrived in: a stage's own start is the one boundary that gets none,
-        // and the cause a wash goes by was the fight of the stage left behind.
+        // and the cause a wash goes by was the fight of the stage left behind. Over the frames the new
+        // stage's start settles across, those being the ones a wash would be drawn on.
+        game.frames(30);
         let washed = game.drawn().clears.clone();
         assert!(
             washed.is_empty(),
             "the field was washed over the start of the stage moved to: {washed:#010x?}",
         );
 
-        // And a step back, which is where the stage left behind would come back: it has nowhere to go, the
-        // chapters of that stage being none of this one's.
-        let before = game.state();
+        // And a step back, which is where the stage left behind would come back: what it finds is this
+        // stage's own start and nothing behind that, the chapters of the stage left being none of this
+        // one's.
         game.press(BACK);
         assert_eq!(
             game.state().stage,
             SECOND,
             "a step back went into the stage that was left behind:\n  {}",
             log.lines().split_off(from).join("\n  "),
-        );
-        assert!(
-            game.state().stage_frames >= before.stage_frames,
-            "the stage's own clock went back to a stage that is not loaded any more",
         );
     });
 }

@@ -23,8 +23,8 @@
 //! over a death would be a second answer to what the next stage begins with.
 
 use crate::fake::th06::{
-    FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, Open, PLAYER_AREA_SIZE, PLAYER_AREA_TOP_LEFT,
-    RANK_AT_A_RUNS_START, SHAKE_FRAMES, the_run,
+    ATTACK_CHANGES, FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, Open, PLAYER_AREA_SIZE,
+    PLAYER_AREA_TOP_LEFT, RANK_AT_A_RUNS_START, SHAKE_FRAMES, the_run,
 };
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
@@ -325,6 +325,22 @@ fn a_new_run_puts_the_arcade_region_and_the_runs_own_numbers_back() {
     });
 }
 
+/// The colour orb fills the play field with for a boundary, without the alpha it fades through: a quad of
+/// it on the field is a wash, and nothing else of orb's or of the game's is that colour.
+const WASH: u32 = 0x0040_ff40;
+
+/// The washes among what has been drawn, as the colours they came out as.
+///
+/// A quad and not a clear: the wash is a fill through the overlay, over the play field and no further.
+fn washes(game: &Fake) -> Vec<u32> {
+    game.drawn()
+        .quads
+        .iter()
+        .map(|quad| quad.color)
+        .filter(|color| color & 0x00ff_ffff == WASH)
+        .collect()
+}
+
 /// **A stage's own start gets no wash**, which is the one boundary that does not: a stage beginning is
 /// already unmistakable from the title, the music and an empty field.
 ///
@@ -346,19 +362,39 @@ fn the_start_of_a_stage_after_a_transition_is_not_washed() {
                 config.boundary_flash = true;
             },
         );
-        game.stages_last(STAGE_FRAMES);
-        game.in_a_legacy_run();
+        // A stage long enough for its own fight, and the fight fought: what the wash at a stage's start is
+        // drawn from is the *cause* of the chapter before it, so a stage whose last chapter was its own
+        // start is a stage this could not go wrong over.
+        game.stages_last(ATTACK_CHANGES + 60);
+        game.fights_its_boss_out();
+
+        // A 完全無欠モード run, chapters being what a wash is about at all: a run with none takes no
+        // boundary and washes nothing wherever it is.
+        //
+        // The first stage of it is a stage's start like any other: nothing has been played, so there is
+        // nothing a wash could be about.
+        game.forget();
+        game.in_a_pointdevice_run();
+        game.frames(60);
+        let washed = washes(&game);
+        assert!(
+            washed.is_empty(),
+            "the field was washed over the start of a run's first stage: {washed:#010x?}",
+        );
 
         // Into the stage after the first, and every frame of the way there watched: the transition itself,
         // the frames the new stage's start settles over, and its own first chapter.
-        game.frames_until("the first stage played", STAGE_FRAMES / 2, || {
-            game.state().stage_frames > 30
+        game.frames_until("the fight's last attack", ATTACK_CHANGES + 60, || {
+            game.state().stage_frames > ATTACK_CHANGES
         });
+        // Past that attack's own wash, which is a boundary of the fight and belongs there: what this is
+        // about is a wash with a stage's start under it.
+        game.frames(30);
         game.forget();
-        game.frames_until("the stage after the first", STAGE_FRAMES + 60, || {
+        game.frames_until("the stage after the first", ATTACK_CHANGES + 200, || {
             game.state().stage == 1
         });
-        let washed = game.drawn().clears.clone();
+        let washed = washes(&game);
         assert!(
             washed.is_empty(),
             "the field was washed on the way into a stage: {washed:#010x?}",
@@ -366,7 +402,7 @@ fn the_start_of_a_stage_after_a_transition_is_not_washed() {
 
         // And the frames after it, over which the new stage's own first chapter is taken.
         game.frames(120);
-        let washed = game.drawn().clears.clone();
+        let washed = washes(&game);
         assert!(
             washed.is_empty(),
             "the field was washed over the start of a stage: {washed:#010x?}",
