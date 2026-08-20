@@ -195,6 +195,60 @@ fn the_frame_a_replay_of_th07_was_asked_for_is_not_a_stage_that_has_ended() {
     });
 }
 
+/// When the fight this stage ends with is won, and how long the stage runs on after that: the second is
+/// what 妖々夢's own stages do, which is 281 to 496 frames of a boss going down, its items and what is
+/// said over them.
+const FIGHT_WON: u32 = 600;
+const STAGE_ENDS: u32 = FIGHT_WON + 300;
+
+/// **A step forward stays in the stage it was made in.**
+///
+/// Leaving one is the across key's own, and what it takes is the game being asked to start the replay
+/// somewhere else — see `moving_between_a_replays_stages_of_th07.rs`. A plain step forward runs the game
+/// on to the next chapter of *this* stage, so what has to stop it where the stage has no next chapter is
+/// the stage's own end.
+///
+/// **紅魔郷 stops it by leaving the gameplay scene and 妖々夢 never does**: its supervisor does a whole
+/// transition inside one update, so the run is in the scene a run is played in on every frame of one, and
+/// a loop watching that scene runs straight through into the stage after. A launch found it: `next` at the
+/// end of a fight ran on and the pass came to rest in stage 2, with the stage it was judging torn down
+/// behind it and nothing of its chapters left to go back into.
+#[test]
+fn a_step_forward_inside_a_stage_of_th07_does_not_leave_it() {
+    in_its_own_process(|| {
+        let game = judging("th07-a-step-forward-past-the-stage");
+        let log = game.log();
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+        // The fight the stage ends with, under the boss's own song, and the stage running on past the win
+        // the way this game's do. Past the shortest a chapter may be first, so the fight's own arrival is a
+        // chapter rather than one folded into the stage's start.
+        game.frames(APART);
+        game.the_stages_own_boss_arrives();
+        game.frames_until("the boss's chapter", APART, || log.said("chapter 2"));
+        game.the_fight_is_won_at(FIGHT_WON);
+        game.stages_last(STAGE_ENDS);
+
+        // A step forward with no chapter ahead of it: what it aims at is a chapter this stage never begins,
+        // so what has to stop it is the fight being won — and if nothing does, the stage ends under it.
+        let from = log.written();
+        game.press(NEXT);
+        assert_eq!(
+            game.state().stage,
+            0,
+            "the step forward left the stage it was made in:\n  {}",
+            log.lines().split_off(from).join("\n  "),
+        );
+        assert!(
+            log.said_since(from, "step: held in stage 1"),
+            "the step forward did not come to rest in the stage it was made in:\n  {}",
+            log.lines().split_off(from).join("\n  "),
+        );
+    });
+}
+
 /// The wall's own line, which says which stage it is about and how to leave it.
 const WALL: &str = "step: stage 1 has ended; the across key with next or back leaves it";
 

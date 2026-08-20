@@ -2677,6 +2677,9 @@ unsafe fn leave(runtime: &mut Runtime, state: &State, forward: bool) -> Option<S
         log!("step: the replay has no stage {}", stage + 1);
         return None;
     }
+    // Everything kept of the stage being left goes with the ask: what a snapshot of it names is released
+    // by the load, and the chapters of a stage are none of the next one's.
+    runtime.chapters.the_stage_was_left();
     // The game has to run for it to build that stage, so nothing is held.
     runtime.held = false;
     runtime.walled = false;
@@ -2733,6 +2736,13 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
     let mut frames = 0;
     while !aim.reached(&reached, runtime.chapters.number())
         && reached.playing
+        // **And the stage's own fight not yet won**, which is where this stage ends and so where a step
+        // inside it has to stop. `playing` is what stops it on 紅魔郷 — the game leaves the gameplay scene
+        // for the frames a transition takes — and 妖々夢 leaves it for none of them: its supervisor tears
+        // the stage down, builds the next and puts the scene back inside one update, so a loop watching the
+        // scene runs on into the stage after. A launch found it: `next` at the end of a fight came to rest
+        // in stage 2, with the stage it was judging gone and no chapter of it left to go back into.
+        && !runtime.chapters.stage_won()
         && !reached.paused
         && frames < STEP_LIMIT_FRAMES
         && ran != CHAIN_EXIT_SUCCESS

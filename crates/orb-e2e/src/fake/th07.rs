@@ -263,6 +263,15 @@ pub struct Fake {
     /// Whether a run of this game goes on by itself: its two clocks one frame further on per frame — see
     /// [`Fake::the_run_goes_on`].
     run_goes_on: Cell<bool>,
+    /// How long a stage of this game lasts before the next one is built, where an e2e test says.
+    ///
+    /// Nothing by default, which is a stage that never ends: every test about one stage wants that, and one
+    /// about what happens *at* a stage's end says how long it is.
+    stage_frames: Cell<Option<u32>>,
+    /// The frame the fight this stage ends with is won on, where an e2e test says: the slot emptied, which
+    /// is what a defeat is. Apart from the stage's own length because the two are apart in the game —
+    /// 妖々夢 runs on for 281 to 496 frames after its boss goes down.
+    fight_won_at: Cell<Option<u32>>,
     /// How many updates the ending's own script has left, and whether what it does then is leave its scene
     /// rather than hand over to the roll — see [`Fake::an_ending_is_running`].
     ending_updates: Cell<i32>,
@@ -468,6 +477,8 @@ impl Fake {
             reads_the_keys: the_game_this_is().hooks().input.is_some(),
             reads_the_pad_by_number: the_game_this_is().hooks().pad_buttons.is_some(),
             run_goes_on: Cell::new(false),
+            stage_frames: Cell::new(None),
+            fight_won_at: Cell::new(None),
             ending_updates: Cell::new(0),
             ending_leaves: Cell::new(false),
             sound: RefCell::new(None),
@@ -1408,6 +1419,26 @@ impl Fake {
         self.panel_tile.set(false);
     }
 
+    /// How long each of this game's stages lasts before the next one is built.
+    ///
+    /// Nothing by default, which is a stage that never ends. **What ends one here is what ends one in
+    /// 妖々夢: a single update**, the transition being the supervisor's own whole job — see
+    /// [`Fake::moves_on_to_the_stage`] — so no frame of it is a frame outside the scene a run is played in
+    /// and nothing watching the scene sees a stage end at all.
+    pub fn stages_last(&self, frames: u32) {
+        self.stage_frames.set(Some(frames));
+    }
+
+    /// And the frame the fight the stage ends with is won on, which is the slot emptied.
+    ///
+    /// Beside [`stages_last`](Fake::stages_last) rather than inside it, because the two are apart in the
+    /// game: 妖々夢 runs on for 281 to 496 frames after its boss goes down — its death, the items it
+    /// leaves and whatever is said over them — and what a step forward has to stop at is the first of the
+    /// two.
+    pub fn the_fight_is_won_at(&self, frames: u32) {
+        self.fight_won_at.set(Some(frames));
+    }
+
     /// Has the run go on by itself from here: its two clocks one frame further on with every frame, which is
     /// what a stage does and what the mode is read off — see [`Fake::update`].
     ///
@@ -1483,7 +1514,15 @@ impl Fake {
         // Every run and not only one somebody is playing: a replay's stage runs its own clocks the same way,
         // and a replay whose clocks stood still is one no e2e test could tell from a run orb had stopped.
         let state = self.state();
-        if self.run_goes_on.get() && state.in_run {
+        // The stage over, where an e2e test said how long one lasts: the next one built inside this update,
+        // which is what a transition of this game is. Instead of the clocks below rather than beside them —
+        // the stage that comes out of it is at its own first frame, and one more would be the frame after.
+        if state.in_run && Some(state.stage_frames) == self.fight_won_at.get() {
+            self.the_boss_is_beaten();
+        }
+        if state.in_run && Some(state.stage_frames) == self.stage_frames.get() {
+            self.moves_on_to_the_stage(state.stage + 1);
+        } else if self.run_goes_on.get() && state.in_run {
             self.image.has_been_in_the_stage_for(state.stage_frames + 1);
             self.image
                 .the_script_has_run_for(state.script_frames.saturating_add(1));

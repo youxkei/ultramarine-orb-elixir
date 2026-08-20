@@ -1333,6 +1333,10 @@ impl Chapters {
     fn after_restore(&mut self, mark: Mark) {
         self.mark = mark;
         self.resync = true;
+        // The run is back before wherever it had got to, so the stage's own fight is ahead of it again —
+        // whatever it was when the snapshot was put back. What this answers is the run as it stands, and a
+        // step back past a defeat is a defeat that has not happened.
+        self.won = false;
     }
 
     /// Writes out whatever the tuning pass has found, if one is running.
@@ -1340,6 +1344,33 @@ impl Chapters {
         if let Midstage::Tuning(tuning) = &self.midstage {
             tuning.write(game);
         }
+    }
+
+    /// Drops what a stage being left holds, on the frame the game is asked to load another one.
+    ///
+    /// **What a snapshot of a stage names is released as the next one loads** — which is why
+    /// [`begin_stage`](Chapters::begin_stage) drops them — and a stage *begins* a few frames after it is
+    /// built, once its own start has settled. Between the ask and that beginning, everything kept is the
+    /// stage that has gone: a launch of 妖々夢 stepped back in those frames and put the first stage's own
+    /// start into a process that had loaded the second, which drew over green and faulted inside the game
+    /// an update later. The same frames had the fight of the stage left behind still won, so the pass was
+    /// walled in the stage it had just arrived in, and its chapter's cause was that fight's — a wash over
+    /// a stage's own start, which is the one boundary that gets none.
+    ///
+    /// The run itself carries on: its retries and what a resume has written down are the run's rather than
+    /// this stage's.
+    pub fn the_stage_was_left(&mut self) {
+        self.stage = None;
+        self.settling_until = None;
+        self.snapshots.keeping(0);
+        self.starts.clear();
+        self.won = false;
+        self.mark = Mark {
+            number: 0,
+            started_at: 0,
+            midstage_upto: i32::MIN,
+            cause: Cause::StageStart,
+        };
     }
 
     /// Drops everything on leaving the run: the snapshots describe a stage that

@@ -324,3 +324,52 @@ fn a_new_run_puts_the_arcade_region_and_the_runs_own_numbers_back() {
         );
     });
 }
+
+/// **A stage's own start gets no wash**, which is the one boundary that does not: a stage beginning is
+/// already unmistakable from the title, the music and an empty field.
+///
+/// What makes it a case rather than a line of code is *when* a stage begins. `Chapters` takes the new
+/// stage's first chapter once its start has settled, and until then what it holds is the stage before it —
+/// so the frames in between are a stage the game has arrived in and a chapter, and a cause, belonging to
+/// the one it left. A wash goes by the cause, so those frames wash the field green over the opening of a
+/// stage: seen in a launch, and it is the fight of the *last* stage being what says so.
+#[test]
+fn the_start_of_a_stage_after_a_transition_is_not_washed() {
+    in_its_own_process(|| {
+        // With the wash on, which is what this is about: the setting is a run's own and off by default, so
+        // a launch that left it there is one no boundary marks at all.
+        let game = Fake::attach(
+            "a-stage-transition-no-wash-at-the-start",
+            the_run(),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+                config.boundary_flash = true;
+            },
+        );
+        game.stages_last(STAGE_FRAMES);
+        game.in_a_legacy_run();
+
+        // Into the stage after the first, and every frame of the way there watched: the transition itself,
+        // the frames the new stage's start settles over, and its own first chapter.
+        game.frames_until("the first stage played", STAGE_FRAMES / 2, || {
+            game.state().stage_frames > 30
+        });
+        game.forget();
+        game.frames_until("the stage after the first", STAGE_FRAMES + 60, || {
+            game.state().stage == 1
+        });
+        let washed = game.drawn().clears.clone();
+        assert!(
+            washed.is_empty(),
+            "the field was washed on the way into a stage: {washed:#010x?}",
+        );
+
+        // And the frames after it, over which the new stage's own first chapter is taken.
+        game.frames(120);
+        let washed = game.drawn().clears.clone();
+        assert!(
+            washed.is_empty(),
+            "the field was washed over the start of a stage: {washed:#010x?}",
+        );
+    });
+}

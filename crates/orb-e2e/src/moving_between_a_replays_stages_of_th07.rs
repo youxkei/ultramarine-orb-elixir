@@ -124,6 +124,74 @@ fn a_move_between_the_stages_of_a_replay_of_th07_is_asked_of_the_game_and_the_pa
     });
 }
 
+/// **Nothing of the stage left behind is left to go back into, and nothing of it walls the stage arrived
+/// in.**
+///
+/// A stage's chapters are snapshots of memory that stage had: the game loads a stage's own on the way in
+/// and releases what the last one had, so a snapshot of the stage before this one names objects that are
+/// gone. `Chapters` drops them as a stage *begins* — and a stage begins a few frames after it is built,
+/// once its own start has settled — which leaves the frames in between, where the pass is in the stage
+/// arrived at and the chapters kept are the ones it left.
+///
+/// **A launch walked into it.** The across key took a pass out of a stage whose fight it had just won, and
+/// on the frame after: the wall said `stage 2 has ended`, the fight of the stage *before* it still being
+/// won as far as anything knew; and a step back put the first stage's own start back into a process that
+/// had loaded the second — `step: held at the stage's start (script 9)`, the game in a stage it had torn
+/// down, everything drawn over green, and 妖々夢 faulting inside itself an update later.
+#[test]
+fn a_stage_left_behind_of_th07_is_neither_gone_back_into_nor_a_wall_in_the_stage_arrived_at() {
+    in_its_own_process(|| {
+        let game = watching("th07-a-replay-leaving-a-stage");
+        let log = game.log();
+        game.frames_until("the stage played into", 600, || {
+            game.state().stage_frames > INTO_THE_STAGE
+        });
+
+        // The fight this stage ends with, won: what the wall is for, and what must not still be true of the
+        // stage after it.
+        game.the_stages_own_boss_arrives();
+        game.frames_until("the fight's own chapter", INTO_THE_STAGE, || {
+            log.said("chapter 2")
+        });
+        game.the_boss_is_beaten();
+        game.frames(2);
+
+        // Out to the next stage, and the frames before its own start has settled: the pass is in the stage it
+        // moved to and what it holds is still the stage it left.
+        let from = log.written();
+        game.forget();
+        moves(&game, NEXT);
+        game.moves_on_to_the_stage(SECOND);
+        assert!(
+            !log.said_since(from, "stage 2 has ended"),
+            "the stage moved to was walled by the fight of the stage left behind:\n  {}",
+            log.lines().split_off(from).join("\n  "),
+        );
+        // And no wash over the stage arrived in: a stage's own start is the one boundary that gets none,
+        // and the cause a wash goes by was the fight of the stage left behind.
+        let washed = game.drawn().clears.clone();
+        assert!(
+            washed.is_empty(),
+            "the field was washed over the start of the stage moved to: {washed:#010x?}",
+        );
+
+        // And a step back, which is where the stage left behind would come back: it has nowhere to go, the
+        // chapters of that stage being none of this one's.
+        let before = game.state();
+        game.press(BACK);
+        assert_eq!(
+            game.state().stage,
+            SECOND,
+            "a step back went into the stage that was left behind:\n  {}",
+            log.lines().split_off(from).join("\n  "),
+        );
+        assert!(
+            game.state().stage_frames >= before.stage_frames,
+            "the stage's own clock went back to a stage that is not loaded any more",
+        );
+    });
+}
+
 /// And a stage the replay does not cover: the move is refused, said out loud, and nothing of the pass moves.
 ///
 /// Which is the half that cannot be left to the game: the load of a stage a replay has no record of fails inside
