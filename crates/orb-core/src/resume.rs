@@ -123,9 +123,16 @@ pub struct Saved {
     /// One entry per stage frame, `0..at`.
     pub buttons: Vec<u16>,
     /// And the generator's own state on each of those frames, which is what says whether a playback is still
-    /// reproducing the run — see [`Record::feed`]. One entry per frame like the buttons, and no shorter: a
-    /// playback compares the frames it has and says nothing about the rest.
-    pub generators: Vec<u16>,
+    /// reproducing the run — see [`Record::feed`]. One entry per frame like the buttons, and no shorter, with
+    /// nothing for a frame the run has no word for: a playback compares the frames that have one and says
+    /// nothing about the rest.
+    ///
+    /// **Per frame and not all-or-none.** They were all-or-none, and a run picked up out of a file from before
+    /// orb wrote them down — every file on a disk, [`VERSION`] having stayed at 2 for them — wrote a list with
+    /// nothing in it at every chapter after that, because the frames it had played back had no word to carry
+    /// forward. One such file made every file after it as blind as itself, and a 妖々夢 session was played
+    /// through with the only check that names a parting frame switched off.
+    pub generators: Vec<Option<u16>>,
 }
 
 impl Saved {
@@ -144,16 +151,30 @@ impl Saved {
 impl fmt::Display for Saved {
     /// For the log, where what is wanted is the numbers rather than the names: this is what a
     /// landing is held against.
+    ///
+    /// **And whether the generators are in it**, which is the one thing about a file that decides whether
+    /// anything can say where a playback of it parted. A session was played out of a file that had none and
+    /// nothing in the log mentioned it, so the parting line never came and its absence read as a playback
+    /// that had not parted. Said at both ends, this being the line the writer hands a file over with and the
+    /// line a launch picks one up with.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let with_a_word = self.generators.iter().flatten().count();
         write!(
             f,
-            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons, \
+            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons {}, \
              diff={} char={}-{} score={} seed={:#06x} lives={} bombs={} power={} rank={}",
             self.run.stage + 1,
             self.chapter,
             self.name,
             self.at,
             self.buttons.len(),
+            if with_a_word == self.buttons.len() {
+                "and the generator each was played with".to_owned()
+            } else if with_a_word == 0 {
+                "and no generator for any of them".to_owned()
+            } else {
+                format!("and the generator on {with_a_word} of them")
+            },
             self.run.difficulty,
             self.run.character,
             self.run.shot_type,
@@ -211,6 +232,10 @@ struct Record {
     /// The frame a playback was first found to have parted from the run it is reproducing, so that it is said
     /// once rather than for every frame after it.
     parted: Option<u32>,
+    /// The last frame a playback was asked for buttons for, and whether the frames it has been asked for went
+    /// in order — see [`Record::feed`], which is where a gap in them is said.
+    fed: Option<u32>,
+    skipped: bool,
     /// Set while a saved run is being played in, and taken when it arrives.
     feeding: Option<Landing>,
     /// A saved run whose stage the game has been asked to build, waiting for it to be built.
@@ -241,6 +266,8 @@ impl Record {
             },
             played: Vec::new(),
             parted: None,
+            fed: None,
+            skipped: false,
             feeding: None,
             starting: None,
         }
@@ -281,8 +308,32 @@ impl Record {
         if frame >= at {
             return None;
         }
+        // **The frames a playback is asked for go one at a time**, the same frame twice being ordinary — the
+        // game reads the keyboard more than once on a frame it spends with a menu up, and on one its own
+        // slowdown does not advance the run on. One that *jumps* is not: the buttons of the frames stepped over
+        // are never fed to anything, so the update that would have acted on them acts on the frame before's,
+        // and a run played with a press missing looks like a run that simply went differently. Said once, this
+        // being a thing about the playback rather than about a frame of it, and needing nothing written down
+        // about the run to catch — which is what the generator below needs.
+        if let Some(last) = self.fed
+            && frame != last
+            && frame != last + 1
+            && !self.skipped
+        {
+            self.skipped = true;
+            log!(
+                "resume: the playback was fed frame {frame} straight after frame {last}, which is not \
+                 the next frame of the run"
+            );
+        }
+        self.fed = Some(frame);
         let played = self.played.get(frame as usize).copied()?;
         let word = played.buttons;
+        // **Not written down as this playback's where the run has none.** A fed frame is one nothing reads the
+        // keyboard for, so [`Record::note`] never sees it again and a word put here would be carried into every
+        // file after it as the run's own — and the frames with none are exactly the frames a playback is
+        // suspected of parting on. What the file would then hold against the next playback is the parting
+        // itself, which is a check that agrees with whatever went wrong.
         if self.parted.is_none()
             && let Some(was) = played.generator
             && was != generator
@@ -300,6 +351,8 @@ impl Record {
         self.stage = None;
         self.played.clear();
         self.parted = None;
+        self.fed = None;
+        self.skipped = false;
         self.feeding = None;
         self.starting = None;
     }
@@ -406,7 +459,7 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             .enumerate()
             .map(|(frame, buttons)| Played {
                 buttons: *buttons,
-                generator: saved.generators.get(frame).copied(),
+                generator: saved.generators.get(frame).copied().flatten(),
             })
             .collect();
         return;
@@ -595,14 +648,13 @@ pub unsafe fn write(
             .iter()
             .map(|played| played.buttons)
             .collect(),
-        // All of them or none, which is what the file may hold — see [`Written::generators`]. A frame with none
-        // is one played back out of a file from before they were written down, and a list with a hole in it
-        // would be one whose frames no longer line up.
+        // One per frame, and nothing for a frame the run has no word for — see [`Written::generators`]. A
+        // frame with none is one played back out of a file from before they were written down, and what the
+        // frames beside it hold is what says where a later playback of *them* parts.
         generators: record.played[..at as usize]
             .iter()
             .map(|played| played.generator)
-            .collect::<Option<Vec<u16>>>()
-            .unwrap_or_default(),
+            .collect(),
     };
     handed_over(path, saved);
     true
@@ -896,6 +948,23 @@ pub fn discard(dir: &Path, game: &dyn Game, run: &RunStart) -> Option<PathBuf> {
     }
 }
 
+/// Rewrites a slot's file as one from before orb wrote the generators down, which is what every file already
+/// on a disk was: [`VERSION`] stayed at 2 so those files are still offered — see [`Written::generators`].
+///
+/// **Only an e2e test asks for this, and there is no other way to get such a file now**: every write puts the
+/// generators in, so a run left before they existed cannot be played into being any more. What the tests hold
+/// orb to is what happens to the *next* file — a run picked up out of one of these has frames nothing but its
+/// own playback can speak for, and those words are what stops the blindness spreading from file to file.
+#[cfg(feature = "sim")]
+pub fn take_the_generators_out(dir: &Path, slot: &str) -> bool {
+    let path = dir.join(DIRECTORY).join(slot).with_extension(EXTENSION);
+    let Some(mut saved) = orb_api::fs::read(&path).ok().as_deref().and_then(decode) else {
+        return false;
+    };
+    saved.generators.clear();
+    orb_api::fs::write(&path, &encode(&saved)).is_ok()
+}
+
 /// The file's own shape, which is not the game's structs: the names in it are the file's business,
 /// so that a field renamed in [`RunStart`] is not a file that reads differently afterwards.
 ///
@@ -941,8 +1010,14 @@ struct Written {
     /// **Absent in a file written before orb wrote them down**, which is what the default is for: such a run is
     /// still a run to offer, and what it costs is only that a playback of it cannot say where it parted. See
     /// [`VERSION`], which is deliberately not raised for a field that may be missing.
+    ///
+    /// **And nothing in the entry of a frame that has no word**, which is what carries that cost one frame at a
+    /// time: a run picked up out of a file with none plays those frames back without ever reading the keyboard
+    /// for them, so they have nothing to write down, and the frames the player then plays have words of their
+    /// own. As one list of words that had to be whole, those wordless frames emptied the list they were in and
+    /// every file the run wrote afterwards was as blind as the one it came out of.
     #[serde(default)]
-    generators: Vec<u16>,
+    generators: Vec<Option<u16>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1062,10 +1137,11 @@ fn decode(bytes: &[u8]) -> Option<Saved> {
     if at > MAX_STAGE_FRAMES || changes.keys().last().is_some_and(|frame| *frame >= at) {
         return None;
     }
-    // And one generator per frame the buttons reach, or none at all: the playback holds the two together by
-    // frame — see [`Played`] — so a file with some of them is one whose frames do not line up, and reading it
-    // would be a playback held against another frame's generator. None at all is a file from before orb wrote
-    // them down, which is a run to offer with nothing to say about where a playback of it parts.
+    // And an entry for every frame the buttons reach, or no list at all: the playback holds the two together
+    // by frame — see [`Played`] — so a list that is shorter is one whose frames do not line up, and reading it
+    // would be a playback held against another frame's generator. No list at all is a file from before orb
+    // wrote them down, which is a run to offer with nothing to say about where a playback of it parts. An
+    // entry that holds nothing is a frame of that kind on its own, and costs only its own check.
     if !written.generators.is_empty() && written.generators.len() != at as usize {
         return None;
     }
@@ -1222,10 +1298,21 @@ mod tests {
             buttons: vec![0, 0, 1, 1, 1, 0x41, 0x41, 0, 0, 0, 0x101, 0x101],
             // One per frame like the buttons, and every one different: what the file has to carry through is
             // the frame each of them belongs to, so a list that survived the round trip in the wrong order
-            // would read as a playback parting on the first frame it was held against.
+            // would read as a playback parting on the first frame it was held against. **And one frame with
+            // no word**, which is a frame this run played back out of a file that had none for it.
             generators: vec![
-                0x1000, 0x1001, 0x1002, 0x1003, 0x1004, 0x1005, 0x1006, 0x1007, 0x1008, 0x1009,
-                0x100a, 0x100b,
+                Some(0x1000),
+                Some(0x1001),
+                None,
+                Some(0x1003),
+                Some(0x1004),
+                Some(0x1005),
+                Some(0x1006),
+                Some(0x1007),
+                Some(0x1008),
+                Some(0x1009),
+                Some(0x100a),
+                Some(0x100b),
             ],
         }
     }
@@ -1457,6 +1544,54 @@ mod tests {
         // And the frame after it, also out of step, does not take the name off the first.
         assert_eq!(record.feed(2, 0xcc), Some(2));
         assert_eq!(record.parted, Some(1));
+    }
+
+    /// **A fed frame the run has no word for is left with none**, and the frames beside it are held to theirs:
+    /// what such a frame came out of is a file from before orb wrote the generators down, and this playback's
+    /// own generator is not the run's. Written down here it would go into every file after this one as the
+    /// run's own, and the next playback of those frames would be held against a parting rather than a run.
+    #[test]
+    fn a_fed_frame_the_run_has_no_generator_for_is_neither_held_nor_written_down() {
+        let mut record = feeding_a_run();
+        record.played[1].generator = None;
+
+        assert_eq!(record.feed(1, 0xbb), Some(1));
+        assert_eq!(
+            record.parted, None,
+            "a frame with no word was called a parting"
+        );
+        assert_eq!(
+            record.played[1].generator, None,
+            "the playback's own generator was written down as the run's",
+        );
+
+        // And the frame after it, which does have one, is still held to it.
+        assert_eq!(record.feed(2, 0xcc), Some(2));
+        assert_eq!(record.parted, Some(2));
+    }
+
+    /// **A playback asked for a frame that is not the next one is said out loud**, and the same frame asked for
+    /// twice is not: the game reads the keyboard more than once on a frame it spends with a menu up, where a
+    /// jump is a frame of the run whose buttons nothing was ever fed.
+    ///
+    /// What this catches needs nothing written down about the run, which is what the generator check needs —
+    /// so it catches it in a run picked up out of a file from before orb wrote the generators down.
+    #[test]
+    fn a_playback_asked_for_a_frame_that_is_not_the_next_one_says_so() {
+        let mut record = feeding_a_run();
+        assert_eq!(record.feed(0, 0xa0), Some(0));
+        assert_eq!(record.feed(0, 0xa0), Some(0));
+        assert_eq!(record.feed(1, 0xa1), Some(1));
+        assert_eq!(record.feed(2, 0xa2), Some(2));
+        assert!(!record.skipped, "frames in order were called a jump");
+
+        let mut jumped = feeding_a_run();
+        assert_eq!(jumped.feed(0, 0xa0), Some(0));
+        assert_eq!(jumped.feed(2, 0xa2), Some(2));
+        assert!(
+            jumped.skipped,
+            "frame 2 fed straight after frame 0 was not said",
+        );
     }
 
     /// **A frame written down while a record already holds a run played back is one entry and not two**, which
