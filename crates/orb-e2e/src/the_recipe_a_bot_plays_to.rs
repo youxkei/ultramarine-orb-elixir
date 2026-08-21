@@ -118,6 +118,45 @@ fn a_press_with_an_until_is_tapped_until_it_is_reached() {
     });
 }
 
+/// **A step can give up, which is what stops a recipe holding a launch for ever.**
+///
+/// What a step waits for may never happen: a `play_until` a stage the run died before reaching waits on a
+/// screen the rules do not press, and a launch nobody is watching sits there until somebody comes back and
+/// closes it by hand. A bound says how long that step is worth waiting through, and the log says which of the
+/// two ended it.
+#[test]
+fn a_step_that_gives_up_ends_when_it_says() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-giving-up",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- wait_until: { question: resume }\n  give_up_after: 3\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        let pressed = words(&game, 5);
+        assert_eq!(
+            pressed,
+            vec![(0, 3), (BOMB, 2)],
+            "the step waiting for a question nothing put up did not give up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log().said("autoplay: step 1 of 2 gave up"),
+            "giving up was not said:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// And a recipe nothing can be read out of is a launch that says so and plays nothing, rather than one that
 /// presses whatever a half-read file came to.
 #[test]

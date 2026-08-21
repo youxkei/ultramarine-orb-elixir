@@ -55,11 +55,18 @@ pub enum Step {
         buttons: Vec<String>,
         frames: u32,
         until: Option<Until>,
+        give_up_after: Option<u32>,
     },
     /// The game played by its own rules until something is reached.
-    Play(Until),
+    Play {
+        until: Until,
+        give_up_after: Option<u32>,
+    },
     /// And nothing held until something is reached, which is what waiting for a screen to come up is.
-    Wait(Until),
+    Wait {
+        until: Until,
+        give_up_after: Option<u32>,
+    },
     /// The game closed, which is a recipe nobody is watching having finished.
     Quit,
 }
@@ -91,6 +98,13 @@ struct Written {
     /// A `press`'s own, which is what turns it into a tap — beside `frames` rather than in place of it, those
     /// being how long each tap holds.
     until: Option<WrittenUntil>,
+    /// How many frames a step is worth waiting through, for one whose `until` may never happen.
+    ///
+    /// **Which is what stops a recipe holding a launch for ever.** A `play_until` a stage the run died before
+    /// reaching waits on a screen the rules do not press, and a launch nobody is watching sits there until
+    /// somebody closes it by hand — so a step that can go wrong that way says how long it is worth waiting
+    /// through, and the walker says in the log which of the two ended it.
+    give_up_after: Option<u32>,
     play_until: Option<WrittenUntil>,
     wait_until: Option<WrittenUntil>,
     quit: Option<bool>,
@@ -120,6 +134,15 @@ impl WrittenUntil {
     }
 }
 
+/// A bound checked the way every other count of frames in here is: nothing to wait through is a step that
+/// never happens.
+fn gives_up(frames: Option<u32>, at: usize) -> Result<Option<u32>, String> {
+    match frames {
+        Some(0) => Err(format!("step {at} gives up before it starts")),
+        held => Ok(held),
+    }
+}
+
 /// Reads one, or says what is wrong with it.
 ///
 /// A whole-list parse and `deny_unknown_fields` throughout, for the resume file's reason: a key nothing knows
@@ -135,6 +158,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 press: Some(buttons),
                 frames,
                 until,
+                give_up_after,
                 play_until: None,
                 wait_until: None,
                 quit: None,
@@ -145,28 +169,38 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     buttons: buttons.clone(),
                     frames: *frames,
                     until: until.as_ref().map(|until| until.read(at)).transpose()?,
+                    give_up_after: gives_up(*give_up_after, at)?,
                 },
             },
             Written {
                 press: None,
                 frames: None,
                 until: None,
+                give_up_after,
                 play_until: Some(until),
                 wait_until: None,
                 quit: None,
-            } => Step::Play(until.read(at)?),
+            } => Step::Play {
+                until: until.read(at)?,
+                give_up_after: gives_up(*give_up_after, at)?,
+            },
             Written {
                 press: None,
                 frames: None,
                 until: None,
+                give_up_after,
                 play_until: None,
                 wait_until: Some(until),
                 quit: None,
-            } => Step::Wait(until.read(at)?),
+            } => Step::Wait {
+                until: until.read(at)?,
+                give_up_after: gives_up(*give_up_after, at)?,
+            },
             Written {
                 press: None,
                 frames: None,
                 until: None,
+                give_up_after: None,
                 play_until: None,
                 wait_until: None,
                 quit: Some(true),
@@ -202,12 +236,19 @@ mod tests {
                     buttons: vec!["decide".to_owned()],
                     frames: 2,
                     until: None,
+                    give_up_after: None,
                 },
-                Step::Play(Until::Chapter {
-                    stage: 2,
-                    chapter: 3,
-                }),
-                Step::Wait(Until::Question("resume".to_owned())),
+                Step::Play {
+                    until: Until::Chapter {
+                        stage: 2,
+                        chapter: 3,
+                    },
+                    give_up_after: None,
+                },
+                Step::Wait {
+                    until: Until::Question("resume".to_owned()),
+                    give_up_after: None,
+                },
                 Step::Quit,
             ]),
         );
@@ -223,7 +264,28 @@ mod tests {
                 buttons: vec!["decide".to_owned()],
                 frames: 10,
                 until: Some(Until::Question("mode".to_owned())),
+                give_up_after: None,
             }]),
+        );
+    }
+
+    /// **A step can say how long it is worth waiting through**, which is what stops a recipe holding a launch
+    /// for ever: a `play_until` a stage the run died before reaching waits on a screen the rules do not press.
+    #[test]
+    fn a_step_can_say_how_long_it_is_worth_waiting_through() {
+        assert_eq!(
+            read("- play_until: { stage: 2, chapter: 3 }\n  give_up_after: 30000\n"),
+            Ok(vec![Step::Play {
+                until: Until::Chapter {
+                    stage: 2,
+                    chapter: 3,
+                },
+                give_up_after: Some(30000),
+            }]),
+        );
+        assert_eq!(
+            read("- wait_until: { question: resume }\n  give_up_after: 0\n"),
+            Err("step 1 gives up before it starts".to_owned()),
         );
     }
 
@@ -239,12 +301,17 @@ mod tests {
     /// say: a tap of `decide` answers that question the frame it comes up, so what it was waiting for was gone
     /// before the frame the walker next looked at — the step never ended, and the rules never got a frame. A
     /// chapter is reached rather than offered, so nothing the tap presses can take it away again.
+    /// **And every step that could wait for something that will not happen says how long it is worth waiting
+    /// through**, so that a launch nobody is watching closes itself: a run that died before stage 2 leaves orb's
+    /// own retry menu up, which the rules do not press, and one that was left there ran for an hour before
+    /// anybody noticed.
     #[test]
     fn the_recipes_the_partings_measurement_is_taken_with_read() {
         assert_eq!(
             read(
                 "- press: [decide]\n  frames: 10\n  until: { stage: 1, chapter: 1 }\n\
-                 - play_until: { stage: 2, chapter: 3 }\n\
+                 \x20 give_up_after: 3600\n\
+                 - play_until: { stage: 2, chapter: 3 }\n  give_up_after: 36000\n\
                  - quit: true\n"
             ),
             Ok(vec![
@@ -255,29 +322,40 @@ mod tests {
                         stage: 1,
                         chapter: 1,
                     }),
+                    give_up_after: Some(3600),
                 },
-                Step::Play(Until::Chapter {
-                    stage: 2,
-                    chapter: 3,
-                }),
+                Step::Play {
+                    until: Until::Chapter {
+                        stage: 2,
+                        chapter: 3,
+                    },
+                    give_up_after: Some(36000),
+                },
                 Step::Quit,
             ]),
         );
         assert_eq!(
             read(
-                "- wait_until: { question: resume }\n\
+                "- wait_until: { question: resume }\n  give_up_after: 1800\n\
                  - press: [decide]\n  frames: 2\n\
                  - play_until: { frames: 600 }\n\
                  - quit: true\n"
             ),
             Ok(vec![
-                Step::Wait(Until::Question("resume".to_owned())),
+                Step::Wait {
+                    until: Until::Question("resume".to_owned()),
+                    give_up_after: Some(1800),
+                },
                 Step::Press {
                     buttons: vec!["decide".to_owned()],
                     frames: 2,
                     until: None,
+                    give_up_after: None,
                 },
-                Step::Play(Until::Frames(600)),
+                Step::Play {
+                    until: Until::Frames(600),
+                    give_up_after: None,
+                },
                 Step::Quit,
             ]),
         );

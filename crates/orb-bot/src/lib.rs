@@ -24,7 +24,9 @@
 //! - press: [decide]                        # the title, the difficulty, the character, the shot and orb's own
 //!   frames: 10                             # question — tapped, a menu answering the frame a button goes down
 //!   until: { stage: 1, chapter: 1 }         # and stopping at something no press of its own can take away
+//!   give_up_after: 3600
 //! - play_until: { stage: 2, chapter: 3 }    # play by the rules as far as stage 2's midboss
+//!   give_up_after: 36000                    # or close, a run that died leaving a menu the rules do not press
 //! - quit: true                             # closed in the middle, which is what leaves a run to pick up
 //! ```
 //!
@@ -62,9 +64,16 @@ enum Step {
         frames: u32,
         /// Tapped until this is reached, rather than held the once: `frames` down, `frames` up, over and over.
         until: Option<Wait>,
+        give_up_after: Option<u32>,
     },
-    Play(Wait),
-    Wait(Wait),
+    Play {
+        until: Wait,
+        give_up_after: Option<u32>,
+    },
+    Wait {
+        until: Wait,
+        give_up_after: Option<u32>,
+    },
     Quit,
 }
 
@@ -103,6 +112,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                 buttons,
                 frames,
                 until,
+                give_up_after,
             } => {
                 let mut word = 0;
                 for name in &buttons {
@@ -122,14 +132,27 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                     word,
                     frames,
                     until,
+                    give_up_after,
                 }
             }
-            recipe::Step::Play(until) => match waiting(until, at) {
-                Some(wait) => Step::Play(wait),
+            recipe::Step::Play {
+                until,
+                give_up_after,
+            } => match waiting(until, at) {
+                Some(until) => Step::Play {
+                    until,
+                    give_up_after,
+                },
                 None => return,
             },
-            recipe::Step::Wait(until) => match waiting(until, at) {
-                Some(wait) => Step::Wait(wait),
+            recipe::Step::Wait {
+                until,
+                give_up_after,
+            } => match waiting(until, at) {
+                Some(until) => Step::Wait {
+                    until,
+                    give_up_after,
+                },
                 None => return,
             },
             recipe::Step::Quit => Step::Quit,
@@ -183,6 +206,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             word,
             frames,
             until: None,
+            ..
         } => (*word, playing.frames >= *frames),
         // **Tapped**: down for `frames`, up for as many, over and over. The cycle is counted rather than the
         // taps, so a step that ends mid-cycle ends there — what the next step presses is its own business, and
@@ -191,6 +215,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             word,
             frames,
             until: Some(wait),
+            ..
         } => (
             if (playing.frames - 1) % (frames * 2) < *frames {
                 *word
@@ -199,10 +224,10 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             },
             waited(wait, reached, playing.frames),
         ),
-        Step::Wait(wait) => (0, waited(wait, reached, playing.frames)),
-        Step::Play(wait) => (
+        Step::Wait { until, .. } => (0, waited(until, reached, playing.frames)),
+        Step::Play { until, .. } => (
             unsafe { game.word_to_press() },
-            waited(wait, reached, playing.frames),
+            waited(until, reached, playing.frames),
         ),
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which
         // one the launch stopped on, and the game is asked to close.
@@ -219,13 +244,26 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             (0, false)
         }
     };
-    if over {
+    // **Or the step's bound reached, which is what stops a recipe holding a launch for ever**: a step waiting
+    // for something that will not happen ends here rather than never, and the log says which of the two ended
+    // it — `done` and `gave up` being a recipe that worked and one that did not.
+    let gave_up = !over
+        && match step {
+            Step::Press { give_up_after, .. }
+            | Step::Play { give_up_after, .. }
+            | Step::Wait { give_up_after, .. } => {
+                give_up_after.is_some_and(|bound| playing.frames >= bound)
+            }
+            Step::Quit => false,
+        };
+    if over || gave_up {
         playing.at += 1;
         playing.frames = 0;
         log!(
-            "autoplay: step {} of {} done",
+            "autoplay: step {} of {} {}",
             playing.at,
-            playing.steps.len()
+            playing.steps.len(),
+            if gave_up { "gave up" } else { "done" }
         );
     }
     Some(word)

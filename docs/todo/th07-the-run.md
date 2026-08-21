@@ -842,9 +842,16 @@ down a screen a recipe cannot see the items of.
 - press: [decide]                        # the title, the difficulty, the character, the shot and orb's own
   frames: 10                             # question, and stopping once the run is actually running
   until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
 - play_until: { stage: 2, chapter: 3 }    # the rules, as far as 2面's midboss
+  give_up_after: 36000
 - quit: true
 ```
+
+**Every step that could wait for something that will not happen says how long it is worth waiting through.** A
+run that dies before stage 2 leaves orb's own retry menu up, which the rules do not press — and a launch left
+there runs until somebody notices and closes it by hand, which is exactly what happened once. The bound is what
+makes the launch close itself, and `autoplay: step N of M gave up` in the log is what says it did.
 
 **The tap waits for the first chapter and not for the mode question**, which is what the first launch of it had
 to say: a tap of `decide` answers that question the frame it comes up, so what the step was waiting for was gone
@@ -856,6 +863,7 @@ at its starting position until something shot it — `player=192.00,384.00` for 
 
 ```yaml
 - wait_until: { question: resume }
+  give_up_after: 1800
 - press: [decide]
   frames: 2
 - play_until: { frames: 600 }             # long enough for the reproduction lines to part
