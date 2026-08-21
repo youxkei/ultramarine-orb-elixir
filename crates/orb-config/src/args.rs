@@ -123,6 +123,13 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     sent_keys: bool,
 
+    /// play the run itself, out of what the game holds: the shot held, and the bomb the frame the
+    /// player is hit. For having a run to pick up out of a file without playing one — nothing is
+    /// made invulnerable and every record a played run leaves is left, so what it leaves behind is
+    /// a run
+    #[arg(long, help_heading = FAULT)]
+    autoplay: bool,
+
     /// do not write down what a run pressed, so no chapter can be picked up in a later launch.
     /// Takes the game's input read and the moment a stage's numbers are put in place out of
     /// orb's hands, and leaves pointdevice_resume/ alone
@@ -243,6 +250,9 @@ impl Config {
         }
         if options.sent_keys {
             self.sent_keys = true;
+        }
+        if options.autoplay {
+            self.autoplay = true;
         }
         if options.no_frame_loop {
             self.own_frame_loop = false;

@@ -3440,7 +3440,7 @@ const RETURN_ALL: u32 = 0xff;
 /// client would be answering the question orb's arithmetic is being asked.
 #[allow(clippy::too_many_arguments)]
 unsafe extern "system" fn create_window(
-    _ex_style: u32,
+    ex_style: u32,
     _class_name: *const u8,
     _window_name: *const u8,
     style: u32,
@@ -3459,7 +3459,11 @@ unsafe extern "system" fn create_window(
         right: x + width,
         bottom: y + height,
     };
-    running().sim().windows().create_window(asked, style).0 as *mut c_void
+    running()
+        .sim()
+        .windows()
+        .create_window(asked, style, ex_style)
+        .0 as *mut c_void
 }
 
 /// `SoundPlayer::PlaySounds`: the time an e2e test says this frame's sounds cost, a laid-out game having

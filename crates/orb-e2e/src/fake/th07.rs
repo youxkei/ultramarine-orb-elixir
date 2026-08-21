@@ -2086,7 +2086,7 @@ unsafe extern "system" fn create_file(
 /// worked out from.
 #[allow(clippy::too_many_arguments)]
 unsafe extern "system" fn create_window(
-    _ex_style: u32,
+    ex_style: u32,
     _class_name: *const u8,
     _window_name: *const u8,
     style: u32,
@@ -2105,5 +2105,9 @@ unsafe extern "system" fn create_window(
         right: x + width,
         bottom: y + height,
     };
-    running().sim().windows().create_window(asked, style).0 as *mut c_void
+    running()
+        .sim()
+        .windows()
+        .create_window(asked, style, ex_style)
+        .0 as *mut c_void
 }

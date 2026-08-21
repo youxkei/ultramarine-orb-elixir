@@ -1501,6 +1501,24 @@ pub trait Game {
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> String;
 
+    /// **The word this frame of a stage is played with where orb is playing the game itself**, or `None` for a
+    /// game that has no rules written for it.
+    ///
+    /// Handed to the run through the same read a resumed run's own recorded words go through, so what a bot
+    /// plays is a run in every other way: nothing is made invulnerable, nothing is sent from outside, and every
+    /// record a played run leaves is left. What it is for is `Config::autoplay`.
+    ///
+    /// **The rules are the game's and so is everything they are worked out from** — where its player is, what
+    /// its items are worth going for, what its own state byte says has just happened. A shared bot could only
+    /// be the union of every game's vocabulary, which for 東方 is not one kind of game, so this answers a word
+    /// and nothing here knows how it was arrived at.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    unsafe fn bot_word(&self) -> Option<u16> {
+        None
+    }
+
     /// **Whether the game is on the update that runs while a stage is still being built**, where the
     /// replay's own clock does not exist yet and the player and the play field read as zeroes.
     ///

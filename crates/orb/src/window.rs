@@ -63,6 +63,7 @@ pub unsafe fn install(
     module: usize,
     content: (u32, u32),
     screen: Screen,
+    out_of_the_way: bool,
 ) -> Result<(), hook::Error> {
     let previous = unsafe {
         hook::install_import(
@@ -93,6 +94,7 @@ pub unsafe fn install(
             std::mem::transmute::<usize, orb_core::window::CreateWindowExA>(previous),
             content,
             screen,
+            out_of_the_way,
         )
     };
     Ok(())

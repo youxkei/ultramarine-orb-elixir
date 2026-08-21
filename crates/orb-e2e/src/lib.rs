@@ -110,6 +110,8 @@ mod th07s_window_going_behind;
 #[cfg(test)]
 mod the_address_space_a_chapter_of_th07_needs;
 #[cfg(test)]
+mod the_bot_playing_th07;
+#[cfg(test)]
 mod the_card_name_across_a_restore;
 #[cfg(test)]
 mod the_card_name_across_a_restore_of_th07;
@@ -201,6 +203,8 @@ mod the_step_th07s_awards_have_climbed;
 mod the_updates_a_resume_of_th07_takes;
 #[cfg(test)]
 mod the_window;
+#[cfg(test)]
+mod the_window_a_bot_plays_in;
 #[cfg(test)]
 mod the_window_going_behind;
 #[cfg(test)]

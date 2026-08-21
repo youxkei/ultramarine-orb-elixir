@@ -361,7 +361,7 @@ fn attach() {
     // the monitor and a size is a window of that size, and either way it is a window rather than
     // the display taken exclusively — which is what leaves orb somewhere to draw the numbers
     // beside the game, and what the letterbox is presented into.
-    match unsafe { window::install(exe, game.content_size(), config.screen) } {
+    match unsafe { window::install(exe, game.content_size(), config.screen, config.autoplay) } {
         Ok(()) => log!("screen: window hooks installed"),
         Err(error) => log!("screen: {error}; the window is left as the game makes it"),
     }

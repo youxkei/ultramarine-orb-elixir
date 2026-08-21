@@ -393,6 +393,13 @@ pub static PAD_BUTTONS: AtomicUsize = AtomicUsize::new(0);
 /// `true` to begin with, which is what leaves a real launch's behaviour exactly as it was: there the hook is
 /// only ever reached because it was installed, and being installed is the decision already taken.
 pub static BLOCK_REPLAY_SAVE: AtomicBool = AtomicBool::new(true);
+
+/// Whether orb is playing the game itself — `Config::autoplay`, kept here for [`get_input`]'s reason: that
+/// hook is reached from the game's own read and has no `Runtime` to ask, the way [`BLOCK_REPLAY_SAVE`] has
+/// none either.
+///
+/// `false` to begin with, which is a launch nobody asked to play itself.
+static AUTOPLAY: AtomicBool = AtomicBool::new(false);
 /// The game's chain functions, which orb has hooked, so calling them from its own
 /// frame loop still runs everything orb does per frame.
 pub static RUN_CALC_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
@@ -645,6 +652,10 @@ pub unsafe fn attach_to(
     unsafe { resume::forget() };
     // The decision [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
     BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
+    AUTOPLAY.store(config.autoplay, Ordering::Relaxed);
+    if config.autoplay {
+        log!("autoplay: orb is playing this run itself");
+    }
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -683,7 +694,12 @@ pub unsafe fn attach_to(
     // laid-out game reaches the rewrite by calling it rather than by having its imports patched. Always,
     // as [`attach`] installs it always — the answer is orb's whichever of the two the settings say.
     unsafe {
-        crate::window::install_over(originals.create_window, game.content_size(), config.screen)
+        crate::window::install_over(
+            originals.create_window,
+            game.content_size(),
+            config.screen,
+            config.autoplay,
+        )
     };
     // And the pointer over that window, whose rewrite is reached the same way: a laid-out game calls it
     // where the real one's patched `ShowCursor` entry would have taken it. With the setting handed over
@@ -1374,6 +1390,17 @@ pub extern "system" fn get_input() -> u16 {
         // frames than it did while somebody was playing it.
         unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
+    }
+    // **And the word orb plays the game with where it is playing it itself**, in the same place and through the
+    // same hand-over: a bot's frame is a frame of a run in every way a recorded frame is. After the playback
+    // above, so that a run being put back is put back with what it was played with and not with what a bot
+    // would do instead — see `Game::bot_word` and `Config::autoplay`.
+    if AUTOPLAY.load(Ordering::Relaxed)
+        && let Some(frame) = frame
+        && let Some(word) = unsafe { game.bot_word() }
+    {
+        unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(Some(frame))) };
+        return word;
     }
 
     // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`

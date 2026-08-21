@@ -744,6 +744,14 @@ impl Image {
             .write::<i32>(super::G_PLAYER + super::PLAYER_COMING_BACK_FRAMES, 0);
     }
 
+    /// **The player hit and not yet dead**, which is the state the hit test leaves at 0x43ee0e: the death
+    /// handler is called out of the *update* that finds it, at 0x441fee, so this is what stands for the
+    /// updates in between — and a bomb pressed in them is 妖々夢's 決死結界 rather than a bomb spent.
+    pub fn the_player_has_been_hit(&self) {
+        self.space()
+            .write::<i8>(super::G_PLAYER + super::PLAYER_STATE, 2);
+    }
+
     /// The player in the middle of dying, which is the state its own death handler sets: not the state a run
     /// is played in, and so unsettled.
     pub fn the_player_is_dying(&self) {

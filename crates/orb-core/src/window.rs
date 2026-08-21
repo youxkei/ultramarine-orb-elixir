@@ -57,6 +57,9 @@ const BAR_MARGIN: i32 = 8;
 static CONTENT: MainThread<(u32, u32)> = MainThread::new((640, 480));
 /// How much of the screen the game is to get, out of `orb.yaml`.
 static SCREEN: MainThread<Screen> = MainThread::new(Screen::Fullscreen);
+/// And whether the window is one orb plays in rather than one somebody does — `Config::autoplay`, which
+/// takes that decision off the settings entirely. See [`placed_out_of_the_way`].
+static OUT_OF_THE_WAY: MainThread<bool> = MainThread::new(false);
 /// The window created for the game, which is the device's window.
 ///
 /// **Here rather than with the rewrite that stores it.** `orb::window`'s replacement of
@@ -134,8 +137,13 @@ static CREATE_WINDOW_EX_A: AtomicUsize = AtomicUsize::new(0);
 /// # Safety
 /// `original` must be the game's own `CreateWindowExA` and outlive the last window it makes, and this must
 /// run on the thread the game's frames will run on and before it creates that window.
-pub unsafe fn install_over(original: CreateWindowExA, content: (u32, u32), screen: Screen) {
-    unsafe { settle(content, screen) };
+pub unsafe fn install_over(
+    original: CreateWindowExA,
+    content: (u32, u32),
+    screen: Screen,
+    out_of_the_way: bool,
+) {
+    unsafe { settle(content, screen, out_of_the_way) };
     CREATE_WINDOW_EX_A.store(original as usize, Ordering::Relaxed);
     ENABLED.store(true, Ordering::Relaxed);
 }
@@ -189,11 +197,19 @@ pub unsafe extern "system" fn create_window_ex_a(
             )
         };
     };
-    let wanted = placed(monitor, unsafe { screen() });
+    // A window orb plays in is not the settings': see `placed_out_of_the_way`, which is where that is
+    // argued, and `Config::autoplay`, which is what asks for one.
+    let wanted = if unsafe { *OUT_OF_THE_WAY.get() } {
+        placed_out_of_the_way(monitor)
+    } else {
+        placed(monitor, unsafe { screen() })
+    };
 
     let window = unsafe {
         original(
-            ex_style,
+            // Added to the game's own rather than written over it: what the game asked for is the game's
+            // business and the only placement that asks for any of this is the one orb plays in.
+            ex_style | wanted.ex_style,
             class_name,
             window_name,
             wanted.style,
@@ -234,7 +250,7 @@ pub unsafe extern "system" fn create_window_ex_a(
 ///
 /// # Safety
 /// Must run on the thread the game's frames will run on, and before the game creates its window.
-pub unsafe fn settle(content: (u32, u32), screen: Screen) {
+pub unsafe fn settle(content: (u32, u32), screen: Screen, out_of_the_way: bool) {
     // Before the window exists, which is the only moment this can be said. Without it every
     // size below is a size Windows scales behind the game's back: a 1280x720 window asked for on
     // a monitor at 150% is 1920x1080 of screen, and the monitor a fullscreen window is measured
@@ -257,6 +273,7 @@ pub unsafe fn settle(content: (u32, u32), screen: Screen) {
     unsafe {
         *CONTENT.get() = content;
         *SCREEN.get() = screen;
+        *OUT_OF_THE_WAY.get() = out_of_the_way;
     }
 }
 
@@ -626,7 +643,48 @@ fn report_no_bar(client: Rect, letterbox: Rect) {
 /// own coordinates.
 pub struct Placed {
     pub style: u32,
+    /// The extended style, which is nothing for a window somebody plays in — see
+    /// [`placed_out_of_the_way`], the one placement that asks for any.
+    pub ex_style: u32,
     pub area: Rect,
+}
+
+/// `WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW`, written out for [`BORDERLESS_STYLE`]'s reason: what an
+/// extended style is is the game's own `CreateWindowExA` argument.
+///
+/// The dialog frame is what a window orb plays in is asked to look like; the tool window beside it is what
+/// keeps it off the taskbar and out of alt-tab, which is what *not being in the way* takes and the half to
+/// drop if a window nobody can alt-tab to turns out to be worse.
+pub const DIALOG_EX_STYLE: u32 = 0x0000_0001 | 0x0000_0080;
+
+/// The client a window orb plays in is given: half of a 640x480 game, which is small enough to sit in a
+/// corner of somebody's screen and big enough to see what the bot is doing to the run.
+const OUT_OF_THE_WAY_CLIENT: (i32, i32) = (320, 240);
+
+/// **Where a window orb plays the game in goes**: that client, in the monitor's bottom-left corner, framed
+/// as a dialog and kept off the taskbar.
+///
+/// Whatever the settings say, and that is the point: `Config::autoplay` is a run nobody is watching, played
+/// on the machine somebody is working on. Fullscreen there would be orb taking the screen for a run that is
+/// not theirs.
+///
+/// Against the corner rather than inset from it: a window whose caption is off the top of the screen cannot
+/// be moved back on — see [`centred`] — and a bottom-left corner has that trouble nowhere.
+pub fn placed_out_of_the_way(monitor: Rect) -> Placed {
+    let client = Rect::sized(OUT_OF_THE_WAY_CLIENT.0, OUT_OF_THE_WAY_CLIENT.1);
+    // A failure leaves the rectangle as the client area, which is a window a frame too small rather than no
+    // window at all — `placed`'s own answer to the same call failing.
+    let area = orb_api::window::adjust_window_rect(client, WINDOWED_STYLE, false).unwrap_or(client);
+    Placed {
+        style: WINDOWED_STYLE,
+        ex_style: DIALOG_EX_STYLE,
+        area: Rect {
+            left: monitor.left,
+            top: monitor.bottom - area.height(),
+            right: monitor.left + area.width(),
+            bottom: monitor.bottom,
+        },
+    }
 }
 
 /// Where the game's window goes.
@@ -638,6 +696,7 @@ pub fn placed(monitor: Rect, screen: Screen) -> Placed {
     let Screen::Window { width, height } = screen else {
         return Placed {
             style: BORDERLESS_STYLE,
+            ex_style: 0,
             area: monitor,
         };
     };
@@ -647,6 +706,7 @@ pub fn placed(monitor: Rect, screen: Screen) -> Placed {
     let area = orb_api::window::adjust_window_rect(client, WINDOWED_STYLE, false).unwrap_or(client);
     Placed {
         style: WINDOWED_STYLE,
+        ex_style: 0,
         area: centred(monitor, area),
     }
 }

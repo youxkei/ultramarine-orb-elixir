@@ -47,6 +47,27 @@ pub struct Config {
     /// rather than assumed, and `orb-e2e`'s `keys_from_another_program` is that measurement as an
     /// e2e test: a key another program sent reaches the game only once orb has let the device go.
     pub sent_keys: bool,
+    /// **orb plays the run itself**, the way somebody at the keyboard would: the word a frame is played with
+    /// is worked out from what the game itself holds and handed to the run through the same read a playback's
+    /// own words go through.
+    ///
+    /// What it is for is every measurement of a resume: each one has cost somebody a stage of 妖々夢 and
+    /// another every time the file grew a field, and a run the machine plays is a run to be had again on
+    /// demand. Which game knows how is the game's — see `Game::bot_word`.
+    ///
+    /// **Not `--clear` and not `--sent-keys`.** The first makes the player invulnerable and refuses to write
+    /// anything down, so it leaves no run to pick up; the second hands the keyboard to another program, which
+    /// cannot see what the game holds and so cannot dodge, collect or take a death back.
+    ///
+    /// **And nothing else about the run is any different**, the score file and the ranking included: what this
+    /// is for is measuring a resume, and a resume is measured against a run somebody played — so a run that
+    /// was written down differently, or not written down, is not the thing being measured. The word a frame is
+    /// played with is the whole of what this changes.
+    ///
+    /// **No key in `orb.yaml`, and off unless `--autoplay` is passed.** A launch nobody asked cannot play
+    /// itself, and a settings file cannot ask for it — which is what keeps it out of a launch somebody means
+    /// to play.
+    pub autoplay: bool,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
@@ -415,6 +436,7 @@ impl Config {
             track_memory: true,
             resume: true,
             sent_keys: false,
+            autoplay: false,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,

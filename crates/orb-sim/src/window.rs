@@ -108,6 +108,9 @@ pub struct Made {
     pub client: Rect,
     /// Whether the style it was made with is one that has a frame.
     pub framed: bool,
+    /// And the extended style it was made with, whole and unread: what a window is *asked* for is the
+    /// question an e2e test has, and which bits of it mean what is Windows' business and the test's.
+    pub ex_style: u32,
 }
 
 /// A stack of lines this host has been asked to write in the black beside the game: where it went, and
@@ -253,7 +256,7 @@ impl Windows {
     /// The client is that size less the frame, which is the half of `AdjustWindowRect` that runs the
     /// other way: a caller that asked for the client's own size and did not adjust it gets a client a
     /// frame too small, and that is the defect this can catch.
-    pub fn create_window(&self, asked: Rect, style: u32) -> Hwnd {
+    pub fn create_window(&self, asked: Rect, style: u32, ex_style: u32) -> Hwnd {
         let framed = has_a_frame(style);
         let frame = if framed {
             *self.frame.lock().unwrap()
@@ -270,6 +273,7 @@ impl Windows {
             asked,
             client: Rect::sized(asked.width() - frame.width, asked.height() - frame.height),
             framed,
+            ex_style,
         });
         handle
     }

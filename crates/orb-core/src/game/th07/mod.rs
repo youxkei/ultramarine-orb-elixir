@@ -35,6 +35,9 @@
 //! no regions, no music, no run in progress, no button worth writing down — and no method answers a
 //! guess.
 
+/// What orb plays this game with where it is playing it itself, which is this game's own rules — see
+/// `Game::bot_word`.
+mod bot;
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
 
@@ -821,6 +824,9 @@ const G_PLAYER: usize = 0x004bdad8;
 /// be taken or begun in any of the four.
 const PLAYER_STATE: usize = 0x2408;
 const PLAYER_NORMAL: i8 = 0;
+/// And the one a bomb is still 決死結界 in: 2, which the hit test leaves at 0x43ee0e and the update the death
+/// handler runs on finds at 0x441fee — see [`bot`].
+const PLAYER_HIT: i8 = 2;
 /// And the one of the five [`Th07::make_invulnerable`] writes: 3, which the respawn at 0x441785 enters and
 /// which nothing can hit — the two hit tests, 0x43e375 and 0x43e360, answer *survived* for any state but 0.
 ///
@@ -3982,6 +3988,10 @@ impl Game for Th07 {
         let Some(result) = result else { return false };
         mem::read_committed::<i32>(result + RESULT_PHASE)
             .is_some_and(|phase| phase == RESULT_FROM_A_RUN || phase == RESULT_FROM_A_PRACTICE_RUN)
+    }
+
+    unsafe fn bot_word(&self) -> Option<u16> {
+        Some(unsafe { bot::word() })
     }
 
     unsafe fn mid_build(&self) -> bool {
