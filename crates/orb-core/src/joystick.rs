@@ -260,7 +260,22 @@ fn poll() -> ! {
     let mut polls = 0;
     let mut total = 0;
     let mut swept = 0;
+    let mut said_winmm_is_put_down = false;
     loop {
+        // **A pad XInput answers for is read there and nowhere else.** An XInput pad is a winmm device
+        // too, so a sweep finds one pad twice, and one press pushes both of them: which of the two
+        // `last_pushed` then picked was whichever interface reported that press later. A session of
+        // 妖々夢 on a pad that showed up as `winmm 1` and `xinput 0` wrote the line below eighteen
+        // times — nine pairs, forty milliseconds apart — and a press whose socket stops being sampled
+        // partway through it is a press the game is never told about: the player pushed the d-pad and
+        // did not move, let go and moved further.
+        //
+        // Put down rather than ranked below, because a socket left with a reading is a socket
+        // `last_pushed` can still pick and `has_a_pad` still counts: cleared, an XInput pad unplugged
+        // leaves nothing answering anywhere, which is the condition that sweeps winmm again.
+        //
+        // Worked out as the cycle goes, XInput's slots being read first — see [`sockets`].
+        let mut on_xinput = false;
         // Every socket once a second, which is what finds a pad that has just been plugged in — and
         // that is every cycle while nothing answers, the wait between two of those being a second
         // already.
@@ -272,6 +287,10 @@ fn poll() -> ! {
         // orb's reading it twenty times a cycle is a thread charging the frame for its own sampling.
         let mut at = started;
         for socket in &mut sockets {
+            if on_xinput && socket.is_winmm() {
+                socket.reading = None;
+                continue;
+            }
             if sweeping || socket.has_a_pad() {
                 let answered = socket.read();
                 // Which of them somebody is holding, as far as anything here can tell: the one they
@@ -285,6 +304,20 @@ fn poll() -> ! {
                 socket.report(answered, now - at);
                 at = now;
             }
+            if !socket.is_winmm() {
+                on_xinput |= socket.has_a_pad();
+            }
+        }
+        if said_winmm_is_put_down != on_xinput {
+            said_winmm_is_put_down = on_xinput;
+            log!(
+                "joystick: {}",
+                if on_xinput {
+                    "winmm is left alone while XInput answers for a pad, one pad being both"
+                } else {
+                    "nothing answers on XInput; winmm's own devices are read again"
+                },
+            );
         }
         let cost = at - started;
         let pad = last_pushed(&sockets);
@@ -365,7 +398,11 @@ fn last_pushed(sockets: &[Socket]) -> Option<&Socket> {
 fn sockets() -> Vec<Socket> {
     let winmm = (0..orb_api::joystick::count()).map(Which::Winmm);
     let xinput = (0..orb_api::xinput::SLOTS).map(Which::Xinput);
-    winmm.chain(xinput).map(Socket::new).collect()
+    // **XInput's slots before winmm's devices**, which is the order they are *read* in and the whole of
+    // why the order is written down here: one pad answers on both, and the winmm half of it is put down
+    // by [`reading`] as soon as the XInput half has answered. Read the other way round, the first cycle
+    // of a launch chooses the winmm half before anything has asked XInput.
+    xinput.chain(winmm).map(Socket::new).collect()
 }
 
 /// One place a pad can be, and what orb last read there.

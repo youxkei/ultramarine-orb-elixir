@@ -160,6 +160,8 @@ mod the_pacing_of_th07;
 #[cfg(test)]
 mod the_pad_half_of_the_input_read;
 #[cfg(test)]
+mod the_pad_seen_on_both_winmm_and_xinput;
+#[cfg(test)]
 mod the_player_a_stage_of_th07_starts;
 #[cfg(test)]
 mod the_player_a_stage_starts;
