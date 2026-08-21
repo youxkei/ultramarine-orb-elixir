@@ -1486,11 +1486,18 @@ impl Image {
     /// An enemy in one of the manager's own slots, alive the way its own walk reads alive — bit 7 of
     /// `+0x2e28` — and where it is.
     pub fn an_enemy_is_at(&self, slot: usize, x: f32, y: f32) {
+        self.an_enemy_of_size_is_at(slot, x, y, (0.0, 0.0));
+    }
+
+    /// And one with a body of its own, which is what a boss has: the size the player's own test is given.
+    pub fn an_enemy_of_size_is_at(&self, slot: usize, x: f32, y: f32, size: (f32, f32)) {
         let enemy = super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES;
         let space = self.space();
         space.write::<u8>(enemy + super::ENEMY_ALIVE, super::ENEMY_ALIVE_BIT);
         space.write::<f32>(enemy + super::ENEMY_POSITION, x);
         space.write::<f32>(enemy + super::ENEMY_POSITION + size_of::<f32>(), y);
+        space.write::<f32>(enemy + super::ENEMY_SIZE, size.0);
+        space.write::<f32>(enemy + super::ENEMY_SIZE + size_of::<f32>(), size.1);
     }
 
     /// Where the boss is, written into the slot [`Image::a_boss_is_fighting`] hands out — so the two go

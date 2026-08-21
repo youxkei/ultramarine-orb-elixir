@@ -828,9 +828,12 @@ hazard will be**, and there are two leads and no third:
   early; and 0x42619f and 0x426287 are two more branches nobody has read. One of those is where a bullet that
   turns gets its turn, and a projection along a straight line is wrong for it in exactly the way a hit with room
   to spare looks.
-- **A laser that turns.** `bot::steer` reads the angle at `+0x4a4` and uses it for every frame it looks at, and
-  nothing reads what moves that angle. 妖々夢 has cards of turning lasers — 1面's last is one — so a beam three
-  frames from now is not where the model puts it.
+- **A laser that turns**, and this one has been looked for and is not where it would be convenient. `+0x4a4` is
+  written where a laser is made — 0x424f6e out of the spawn's own argument, and 0x424f96 adds the angle to the
+  player that 0x442370 answers, which is a beam aimed as it appears — and the laser's own update steps it
+  nowhere. So a turning beam is turned by the boss's script, and three frames of it cannot be had without
+  reading that script. What `bot::steer` does instead is use the angle it has now, which for a beam that turns
+  slowly is nearly right and for one that sweeps is not.
 
 Both are the same shape of reading: which of a thing's states it is in, and what that state does to it per
 frame. And both are worth doing only against the hit log — `autoplay: hit while pressing …, with … of room` is

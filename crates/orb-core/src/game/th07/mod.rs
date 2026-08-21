@@ -908,6 +908,17 @@ const ENEMY_SLOTS: usize = 0x1e0;
 const ENEMY_ALIVE: usize = 0x2e28;
 const ENEMY_ALIVE_BIT: u8 = 0x80;
 
+/// **An enemy's own size**, two floats at `+0x2b3c` — and a body is a wide thing, so a bot that took one for a
+/// point is a bot clipped by every boss it stands under.
+///
+/// 0x420eb2 hands the test its position at `+0x2b0c` and 0x420ea8 this beside it, and 0x420490 divides it by
+/// [`ENEMY_BOX_OF_ITS_SIZE`] before handing the player the box at 0x43e260 — which halves it again to make the
+/// box. So what reaches the player is a third of this on each side.
+const ENEMY_SIZE: usize = 0x2b3c;
+/// What 0x420551 divides an enemy's size by before the player is asked about the box of it: 0x498bdc, which is
+/// one and a half.
+const ENEMY_BOX_OF_ITS_SIZE: f32 = 1.5;
+
 /// The bosses, as **eight pointers** at `+0x954598` — and whether any is there is the game's own answer:
 /// 0x4232a0 walks those eight and returns 1 at the first that is not null, which is what `boss_present` is.
 const BOSSES: usize = 0x954598;

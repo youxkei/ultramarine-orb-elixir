@@ -433,6 +433,87 @@ fn what_the_bot_presses_is_written_down_for_the_run() {
     });
 }
 
+/// **A laser that turns is left by how much it turned**, which is a thing to remember rather than to read.
+///
+/// Nothing in a laser's own update moves its angle — 0x424f6e writes it where one is made and its boss's script
+/// moves it after that — so there is no field to project from. What there is is the angle it had last frame, and
+/// the difference is the turn.
+///
+/// A beam through the top of the field, missing the player by a good margin and swinging towards it: still clear
+/// where it points now, and over the frames looked at it arrives.
+#[test]
+fn the_bot_leaves_a_laser_that_is_turning_onto_it() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-a-turning-laser");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        let straight_down = std::f32::consts::FRAC_PI_2;
+        let beam = |off: f32| {
+            game.image().a_laser_is_at(
+                11,
+                (MIDDLE, FIELD.1),
+                straight_down - off,
+                (0.0, FIELD.3),
+                A_STEP * 2.0,
+            );
+        };
+
+        // The first frame has nothing to compare with, so the beam is only where it points — wide of the player.
+        beam(0.05);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left a beam that was pointing wide of it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And now it has turned a little towards it. Where it points is still wide; where it is going is not.
+        beam(0.04);
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood under a beam that was swinging onto it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **An enemy's own body is part of what a hit is**, a boss being a wide thing to stand under.
+///
+/// Taken for a point, the model says clear where the body reaches — which is what a hit with room to spare looks
+/// like, and the run that reported `with 4.4 of room` was on a boss. The game hands its own test the size at
+/// `+0x2b3c` and a third of it on each side is what arrives.
+#[test]
+fn an_enemys_own_body_is_part_of_what_a_hit_is() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-an-enemys-own-body");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Two steps out, which the player's own box alone does not reach.
+        let out = MIDDLE + A_STEP * 2.0;
+
+        game.image().an_enemy_is_at(4, out, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for a body that could not reach it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the same place with a body wide enough that a third of it closes the gap.
+        game.image()
+            .an_enemy_of_size_is_at(4, out, LOW, (A_STEP * 6.0, A_STEP * 6.0));
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood inside a body wide enough to reach it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A laser is left, which the bullets and the enemies alone never were.**
 ///
 /// A launch that could not see them was hit eighteen times on 4面's boss, and every one of those hits said the

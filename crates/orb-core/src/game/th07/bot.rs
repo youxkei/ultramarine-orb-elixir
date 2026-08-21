@@ -46,14 +46,15 @@ use crate::log;
 use super::{
     BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STEP, BULLETS,
     BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT,
-    ENEMY_BYTES, ENEMY_POSITION, ENEMY_SLOTS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
-    G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE,
-    G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES,
-    ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS,
-    LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_NEAR, LASER_ORIGIN,
-    LASER_PHASE, LASER_SLOTS, LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
-    PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_POSITION, PLAYER_SPEED_SCALE,
-    PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION, ENEMY_SIZE, ENEMY_SLOTS, FIELD_HEIGHT,
+    FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER,
+    G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
+    ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT,
+    ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
+    LASER_FAR, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_WIDTH, MENU_CANCEL,
+    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
+    PLAYER_POSITION, PLAYER_SPEED_SCALE, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL,
+    SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -178,6 +179,34 @@ static FRAMES: AtomicU32 = AtomicU32::new(0);
 /// Whether the player was hit last frame, so that a hit is said once rather than once a frame of the window it
 /// opened.
 static WAS_HIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// **The angle each laser slot had last frame**, which is the only way to know how fast one is turning: nothing
+/// in a laser's own update moves its angle — 0x424f6e writes it where one is made and its boss's script moves it
+/// after that — so there is no rate to read, only a difference to keep.
+///
+/// A quiet NaN for a slot that was not a laser last frame, so that one just made is not given the turn of
+/// whatever used the slot before it.
+static LAST_ANGLE: [AtomicU32; LASER_SLOTS] = [const { AtomicU32::new(NO_ANGLE) }; LASER_SLOTS];
+const NO_ANGLE: u32 = 0x7fc0_0000;
+
+/// How far a laser's beam turned since last frame, and nothing for one that was not there then.
+///
+/// Wrapped into half a turn either way, an angle being a thing that comes back round: the difference across
+/// that seam is a whole turn of nonsense and the beam did not move at all.
+fn turned(slot: usize, angle: f32) -> f32 {
+    let was = f32::from_bits(LAST_ANGLE[slot].swap(angle.to_bits(), Ordering::Relaxed));
+    if was.is_nan() {
+        return 0.0;
+    }
+    let turn = angle - was;
+    let round = std::f32::consts::TAU;
+    turn - round * (turn / round).round()
+}
+
+/// Says a slot holds no laser, so the next one to use it starts without a turn.
+fn turns_no_more(slot: usize) {
+    LAST_ANGLE[slot].store(NO_ANGLE, Ordering::Relaxed);
+}
 
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
 // still is one of the [`MOVES`] and the one a tie goes to, so the frame the player is there is a frame nothing
@@ -323,19 +352,23 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
     // **And the enemies, whose bodies are as solid as a bullet in this game.** Which is what a run on its way
     // to an item walks into: the item was dropped by something, and that something is still standing over it.
     //
-    // A point, its own box not being read: an enemy is a wide thing and this understates it, so a bot that is
-    // clipped by one is a reading to take — `[enemy+0x2b0c]` is where it is and what its box is is not known.
-    // Where it is and not where it is going, an enemy being moved by its own script rather than by a step of its
-    // own that could be read.
+    // **With its own body**, a third of `+0x2b3c` on each side, which is what 0x420490 and the box test it calls
+    // make of that size between them: a boss taken for a point is a boss the model says there is room under
+    // while its body reaches. Where it is and not where it is going, an enemy being moved by its own script
+    // rather than by a step of its own that could be read.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
         if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
             continue;
         }
+        let (wx, wy) = unsafe { position(enemy + ENEMY_SIZE) };
         against(
             unsafe { position(enemy + ENEMY_POSITION) },
             (0.0, 0.0),
-            (0.0, 0.0),
+            (
+                wx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                wy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+            ),
         );
     }
     // **And the lasers, which are the one hazard a distance cannot stand in for**: a beam is a place, not a
@@ -350,17 +383,22 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
         if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0
             || unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING
         {
+            turns_no_more(slot);
             continue;
         }
         let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
         let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
+        let turn = turned(slot, angle);
         let (near, far) = (unsafe { mem::read::<f32>(laser + LASER_NEAR) }, unsafe {
             mem::read::<f32>(laser + LASER_FAR)
         });
         let across = unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0;
-        let (cos, sin) = (angle.cos(), angle.sin());
         for (judged, path) in judged.iter_mut().zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
+                // Where the beam will be pointing by then, which is where it points now plus as many of its own
+                // turns as there are frames to look.
+                let ahead = angle + turn * (frame + 1) as f32;
+                let (cos, sin) = (ahead.cos(), ahead.sin());
                 let (dx, dy) = (x - ox, y - oy);
                 let along = dx * cos + dy * sin;
                 let off = (-dx * sin + dy * cos).abs();
