@@ -443,6 +443,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             stage: 0,
             chapter: 0,
             question: None,
+            over: false,
         },
         pressing: None,
     });
@@ -2381,6 +2382,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .as_mut()
     {
         playing.reached.stage = state.stage + 1;
+        // **And whether there is a run at all**, which is what makes a `play` step end: a run that lost its last
+        // life leaves the game on its own screen, the rules press nothing there, and a step waiting for a stage
+        // would sit out its whole bound. Here rather than where the rest of [`Reached`] is filled, because this
+        // is where the state is read.
+        playing.reached.over = !state.in_run;
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb

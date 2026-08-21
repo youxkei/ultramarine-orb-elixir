@@ -160,6 +160,46 @@ fn a_step_that_gives_up_ends_when_it_says() {
     });
 }
 
+/// **A `play` step ends where the run is over**, there being nothing left to play.
+///
+/// Which is what a launch nobody is watching needs of it: a run that lost its last life leaves the game on its
+/// own screen, and the rules press nothing there — so the step waited out its whole bound while the log said
+/// `still waiting` sixty times over. An attempt that failed should end and let the next one start.
+#[test]
+fn a_play_step_ends_where_the_run_is_over() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-with-the-run-over",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { stage: 6, chapter: 30 }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        // The scene a run that lost its last life leaves the game in, which is not a run's.
+        let over = game.image().scene_of_a_run_over();
+        game.image().is_in_scene(over, over);
+
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 gave up"),
+            "the step went on playing a run that was over:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
 /// **A step that is getting nowhere says so, over and over, for as long as it is getting nowhere.**
 ///
 /// Which is what a launch nobody is watching needs of its log: three launches in a row sat on a screen the

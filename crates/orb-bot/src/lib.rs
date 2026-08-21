@@ -277,12 +277,17 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // **Or the step's bound reached, which is what stops a recipe holding a launch for ever**: a step waiting
     // for something that will not happen ends here rather than never, and the log says which of the two ended
     // it — `done` and `gave up` being a recipe that worked and one that did not.
+    //
+    // **And a `play` gives up the moment the run is over**, whatever its bound: there is nothing left to play,
+    // the game is on its own screen for it, and the rules press nothing there — so a step waiting for a stage
+    // would sit out its whole bound. An attempt that failed ends and lets the next one start.
     let gave_up = !over
         && match step {
-            Step::Press { give_up_after, .. }
-            | Step::Play { give_up_after, .. }
-            | Step::Wait { give_up_after, .. } => {
+            Step::Press { give_up_after, .. } | Step::Wait { give_up_after, .. } => {
                 give_up_after.is_some_and(|bound| playing.frames >= bound)
+            }
+            Step::Play { give_up_after, .. } => {
+                reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             Step::Quit => false,
         };
@@ -334,6 +339,7 @@ mod tests {
             stage: 1,
             chapter: 1,
             question,
+            over: false,
         }
     }
 

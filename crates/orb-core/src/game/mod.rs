@@ -1597,6 +1597,10 @@ pub struct Reached {
     pub stage: i32,
     pub chapter: u32,
     pub question: Option<Question>,
+    /// **Whether the run is over**, which is what makes a `play` step end: there is nothing left to play, the
+    /// game is on its own screen for it, and the rules press nothing there — so a step that waited for a stage
+    /// would wait out its whole bound saying `still waiting` while nothing happened.
+    pub over: bool,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.
