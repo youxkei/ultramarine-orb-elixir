@@ -47,12 +47,13 @@ use super::{
     BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STEP, BULLETS,
     BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT,
     ENEMY_BYTES, ENEMY_POSITION, ENEMY_SLOTS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
-    G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_MOTION_SCALE, G_PLAYER,
-    G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY,
-    ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, MENU_CANCEL,
-    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
-    PLAYER_POSITION, PLAYER_SPEED_SCALE, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL,
-    SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE,
+    G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES,
+    ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS,
+    LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_NEAR, LASER_ORIGIN,
+    LASER_PHASE, LASER_SLOTS, LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
+    PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_POSITION, PLAYER_SPEED_SCALE,
+    PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -108,6 +109,44 @@ const A_PROBE: f32 = 8.0;
 /// answer is where holding it *leads*. Three is far enough to leave in and near enough that a bullet's own step
 /// still describes where it goes — a bullet turns, and nothing here reads what turns it.
 const LOOK_AHEAD: usize = 3;
+
+/// **What a move came to**: which of the frames looked at it is hit on, and how near it got to anything.
+///
+/// The frames as a set of bits rather than a count, so that two bullets reaching the same frame is one frame
+/// hit and not two — what a move is ranked by is how many frames of it are lost, and the first one lost.
+#[derive(Clone, Copy)]
+struct Judged {
+    on: u32,
+    near: f32,
+}
+
+impl Judged {
+    const CLEAR: Self = Self {
+        on: 0,
+        near: f32::INFINITY,
+    };
+
+    fn hit(&mut self, frame: usize) {
+        self.on |= 1 << frame;
+    }
+
+    fn clear(self) -> bool {
+        self.on == 0
+    }
+
+    fn hits(self) -> u32 {
+        self.on.count_ones()
+    }
+
+    /// The first frame it is hit on, and past every frame looked at for one that is not hit at all.
+    fn first(self) -> u32 {
+        if self.on == 0 {
+            u32::MAX
+        } else {
+            self.on.trailing_zeros()
+        }
+    }
+}
 
 /// The nine one-frame moves, as the word each is and the direction it goes in.
 ///
@@ -247,16 +286,21 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
     // same size — so one number standing in for every one of them is a different test rather than an
     // approximation of that one. What each move is judged by is therefore *which frame it is first hit on*, and
     // the room left over is only for the log and for choosing between moves that are all hit.
+    // **How many of the frames it is hit on and which is the first**, rather than whether any of them is: a
+    // player already inside something is hit on the first frame whatever it presses, so a move that has to be
+    // clear all the way is a bot with nothing open to it — which falls through to the most room, and the most
+    // room is the fleeing all this exists instead of. Fewest hit is a move that gets out; latest first is a move
+    // that has longer before it has to.
     let (mine_x, mine_y) = unsafe { player_box() };
-    let mut judged = [(None::<usize>, f32::INFINITY); MOVES.len()];
+    let mut judged = [Judged::CLEAR; MOVES.len()];
     let mut against = |(hx, hy): (f32, f32), (sx, sy): (f32, f32), (wx, wy): (f32, f32)| {
-        for ((hit, near), path) in judged.iter_mut().zip(&lands) {
+        for (judged, path) in judged.iter_mut().zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
                 let ahead = (frame + 1) as f32;
                 let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
-                *near = near.min(dx * dx + dy * dy);
+                judged.near = judged.near.min(dx * dx + dy * dy);
                 if dx < mine_x + wx && dy < mine_y + wy {
-                    *hit = Some(hit.map_or(frame, |had| had.min(frame)));
+                    judged.hit(frame);
                 }
             }
         }
@@ -294,32 +338,69 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
             (0.0, 0.0),
         );
     }
+    // **And the lasers, which are the one hazard a distance cannot stand in for**: a beam is a place, not a
+    // point, so a move is judged inside the beam's own frame — turn the landing about the origin by the angle
+    // and it is *along* and *across*, which is the shape the game's own test at 0x43e6b0 makes of it.
+    //
+    // The width it has *now*, which is what makes the warning line a hazard the size it looks: a beam about to
+    // fire is thin and the one firing is not. And the angle it has now, which a turning beam will not have in
+    // the frames looked at — nothing here reads what turns one, so a card of those is a card this understates.
+    for slot in 0..LASER_SLOTS {
+        let laser = G_LASERS + slot * LASER_BYTES;
+        if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0
+            || unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING
+        {
+            continue;
+        }
+        let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
+        let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
+        let (near, far) = (unsafe { mem::read::<f32>(laser + LASER_NEAR) }, unsafe {
+            mem::read::<f32>(laser + LASER_FAR)
+        });
+        let across = unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0;
+        let (cos, sin) = (angle.cos(), angle.sin());
+        for (judged, path) in judged.iter_mut().zip(&lands) {
+            for (frame, (x, y)) in path.iter().enumerate() {
+                let (dx, dy) = (x - ox, y - oy);
+                let along = dx * cos + dy * sin;
+                let off = (-dx * sin + dy * cos).abs();
+                if along > near - mine_x && along < far + mine_x && off < across + mine_y {
+                    judged.hit(frame);
+                }
+            }
+        }
+    }
     // **The nearest to where it wants to be, of the moves nothing will be at.** Which is not the same as the
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
     // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
-    let mut best: Option<(u16, Option<usize>, f32, f32)> = None;
-    for (((word, _, _), (hit, near)), land) in MOVES.iter().zip(judged).zip(lands) {
+    let mut best: Option<(u16, Judged, f32)> = None;
+    for (((word, _, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
         // frames after it are what the move is judged *hit* by and not where it is going.
         let (x, y) = land[0];
         let towards = (x - wanted.0).powi(2) + (y - wanted.1).powi(2);
-        // Open first, then nearest to where it wants to be — and **where nothing is open, whichever is hit
-        // latest**, which is what a pattern with no way out of it needs: the most *room* is not the most time,
-        // and a launch that took the roomiest move walked into the next frame's wall with it. Strictly better
-        // only, so a tie goes to the earlier of [`MOVES`]: standing still is first, and a bot that took the last
-        // of a tie would step between two of them every frame.
+        // Clear first, then nearest to where it wants to be. And where nothing is clear: **fewest frames hit,
+        // then the latest first hit, then the most room** — a move that gets out over a move that has longer
+        // before it has to, and either over a move that merely has space around it, which is the fleeing all
+        // this exists instead of. Strictly better only, so a tie goes to the earlier of [`MOVES`]: standing
+        // still is first, and a bot that took the last of a tie would step between two of them every frame.
         let better = match best {
             None => true,
-            Some((_, was_hit, was_towards, was_near)) => match (was_hit, hit) {
-                (Some(_), None) => true,
-                (None, Some(_)) => false,
-                (None, None) => towards < was_towards,
-                (Some(had), Some(now)) => now > had || (now == had && near > was_near),
+            Some((_, was, was_towards)) => match (was.clear(), judged.clear()) {
+                (false, true) => true,
+                (true, false) => false,
+                (true, true) => towards < was_towards,
+                (false, false) => {
+                    judged.hits() < was.hits()
+                        || (judged.hits() == was.hits()
+                            && (judged.first() > was.first()
+                                || (judged.first() == was.first() && judged.near > was.near)))
+                }
             },
         };
         if better {
-            best = Some((*word, hit, towards, near));
+            best = Some((*word, judged, towards));
         }
     }
     // **What the 低速移動 under a boss is off for is anything that could reach the player at all**, and not
@@ -327,11 +408,11 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
     // bullet is a hit the halving has already been paid for. The reach is as far as anything gets in the frames
     // looked at, so nothing here is a margin of its own.
     let reach = straight * LOOK_AHEAD as f32;
-    let (word, hit, _, near) = best.unwrap_or((0, None, 0.0, 0.0));
+    let (word, judged_it, _) = best.unwrap_or((0, Judged::CLEAR, 0.0));
     (
         word,
-        hit.is_some() || judged[0].1 <= reach * reach,
-        hit.is_none().then(|| near.sqrt()),
+        !judged_it.clear() || judged[0].near <= reach * reach,
+        judged_it.clear().then(|| judged_it.near.sqrt()),
     )
 }
 

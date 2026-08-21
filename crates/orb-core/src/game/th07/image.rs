@@ -1452,6 +1452,37 @@ impl Image {
         space.write::<f32>(super::G_MOTION_SCALE, 1.0);
     }
 
+    /// A laser in one of the slots, firing: where it comes from, which way it points, how far along it reaches
+    /// and how wide it is.
+    pub fn a_laser_is_at(
+        &self,
+        slot: usize,
+        origin: (f32, f32),
+        angle: f32,
+        along: (f32, f32),
+        width: f32,
+    ) {
+        let laser = super::G_LASERS + slot * super::LASER_BYTES;
+        let space = self.space();
+        space.write::<u32>(laser + super::LASER_ALIVE, 1);
+        space.write::<f32>(laser + super::LASER_ORIGIN, origin.0);
+        space.write::<f32>(laser + super::LASER_ORIGIN + size_of::<f32>(), origin.1);
+        space.write::<f32>(laser + super::LASER_ANGLE, angle);
+        space.write::<f32>(laser + super::LASER_NEAR, along.0);
+        space.write::<f32>(laser + super::LASER_FAR, along.1);
+        space.write::<f32>(laser + super::LASER_WIDTH, width);
+        // Nought of its phases through, which is a beam that is still there to be hit by.
+        space.write::<u8>(laser + super::LASER_PHASE, 0);
+    }
+
+    /// And one that has gone past the phase both of the game's own walks stop looking at.
+    pub fn the_laser_is_fading(&self, slot: usize) {
+        self.space().write::<u8>(
+            super::G_LASERS + slot * super::LASER_BYTES + super::LASER_PHASE,
+            super::LASER_FADING,
+        );
+    }
+
     /// An enemy in one of the manager's own slots, alive the way its own walk reads alive — bit 7 of
     /// `+0x2e28` — and where it is.
     pub fn an_enemy_is_at(&self, slot: usize, x: f32, y: f32) {

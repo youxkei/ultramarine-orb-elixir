@@ -833,10 +833,17 @@ run that never knew. What is read off the exe so far, out of the two walks of th
 | which phase | `+0x4e8` | both walks skip a laser whose phase has reached 2, and 0x424877 sets it to 2 |
 | a flag word | `+0x4e4` | 0x42484b tests bit 2 of it against the reason the walk was made |
 
-**What is not read is the one thing that matters**: the test a laser hits the *player* by. The two walks found
-are a laser cancelling bullets (0x418b40) and a laser being turned into items (0x424800), and neither touches
-0x4bdad8 — so the player's own laser test is somewhere else, and until it is found there is nothing to say which
-phase is dangerous or what the width means.
+**What is not read is the one thing that matters**: the test a laser hits the *player* by. Both callers of the
+geometry at 0x4185d0 — 0x4189ed and 0x418cec — hand it a *bullet's* position at `+0xb8c`, so both are a laser
+against a bullet and neither is against 0x4bdad8. Which leaves two possibilities and no way to choose between
+them yet: the player's own test is somewhere these two greps did not reach, or **a laser reaches the player as
+one of the bullet slots' own five states**, in which case the box test at 0x425e89 already covers it and the bot
+already sees it as a bullet of that size.
+
+The second would explain the shape of things — 0x40 slots of geometry for drawing a beam, and the collision
+going through the bullet path like everything else. What would settle it is one laser spellcard watched with the
+hit log on: a hit there saying it had room is a laser the bot cannot see, and no hit at all through 1面's last
+card is the other answer.
 
 **And 妖々夢 has two kinds**, which the same reading has to cover: the one that draws a warning line before it
 fires, whose warning is not a hazard, and the one that turns, whose angle is not the angle it will have in the

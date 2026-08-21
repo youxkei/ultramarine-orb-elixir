@@ -975,6 +975,28 @@ const BULLET_COUNT: usize = 0x37a128;
 /// manager's `+0x366628` — and there is no count kept anywhere, so orb counts them itself. 64 reads a frame
 /// is what the game's own walk costs.
 const G_LASERS: usize = 0x00995f80;
+
+/// **What one of those slots is**, read off the walks and the player's own test of them:
+///
+/// - the origin is `+0x498`, three floats — 0x426713 hands that address to the player's laser test at 0x43e6b0
+///   and 0x418cec to the one bullets go through at 0x4185d0
+/// - the angle is `+0x4a4`, handed to the same test beside it and to the sin/cos at 0x417af0 by 0x4248db
+/// - along the beam it runs from `+0x4a8` to `+0x4ac`, whose difference 0x418be0 takes for a length and whose
+///   midpoint 0x418c04 works out
+/// - how wide it is now is `+0x4b4`, and `+0x4b8` is what 0x4267a2 keeps the last of it in
+/// - and `+0x4e8` is how far through its own phases it is, which 0x426790 steps and both bullet walks skip a
+///   laser that has reached [`LASER_FADING`] of
+///
+/// **Why the bot has to see them**: a launch that could not was hit eighteen times on 4面's boss, and every one
+/// of those hits said the move it was taken on had twenty units of room — which is a hazard that is not in the
+/// model at all rather than a hitbox got wrong. The lasers were the only thing left it could not see.
+const LASER_ORIGIN: usize = 0x498;
+const LASER_ANGLE: usize = 0x4a4;
+const LASER_NEAR: usize = 0x4a8;
+const LASER_FAR: usize = 0x4ac;
+const LASER_WIDTH: usize = 0x4b4;
+const LASER_PHASE: usize = 0x4e8;
+const LASER_FADING: u8 = 2;
 const LASER_BYTES: usize = 0x4ec;
 const LASER_SLOTS: usize = 0x40;
 const LASER_ALIVE: usize = 0x4d4;

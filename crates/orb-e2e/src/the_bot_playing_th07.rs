@@ -433,6 +433,47 @@ fn what_the_bot_presses_is_written_down_for_the_run() {
     });
 }
 
+/// **A laser is left, which the bullets and the enemies alone never were.**
+///
+/// A launch that could not see them was hit eighteen times on 4面's boss, and every one of those hits said the
+/// move it was taken on had twenty units of room — which is not a hitbox got wrong but a hazard that is not in
+/// the model at all.
+///
+/// One straight down the player's own column and wide enough to cover it, so the way out is sideways; and then
+/// the same one past the phase the game's own walks stop looking at, which is nothing to leave for.
+#[test]
+fn the_bot_leaves_a_laser_that_is_firing() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-a-laser");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // From the top of the field straight down, reaching past where the player stands, and a step wide.
+        game.image().a_laser_is_at(
+            7,
+            (MIDDLE, FIELD.1),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, FIELD.3),
+            A_STEP * 2.0,
+        );
+
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed == LEFT || pressed == RIGHT,
+            "the bot stood in a firing laser, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_laser_is_fading(7);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left for a laser the game had stopped looking at:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its
