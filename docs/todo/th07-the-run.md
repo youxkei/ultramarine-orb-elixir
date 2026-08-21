@@ -817,6 +817,32 @@ The rules 妖々夢 is played by are in `crates/orb-core/src/game/th07/bot.rs`, 
 `the_bot_playing_th07.rs` that pins it. **What no laid-out game can say is whether they clear the game**, and
 that is this section: a launch says it, and a run that dies says which rule to look at.
 
+### The lasers, which the bot does not see
+
+`bot::steer` reads every bullet and every enemy and **no laser at all**, so a run that is clipped by one is a
+run that never knew. What is read off the exe so far, out of the two walks of the 0x40 slots of 0x4ec bytes at
+0x995f80:
+
+| what | where | how it was read |
+| --- | --- | --- |
+| alive | `+0x4d4` | what both walks test — 0x418b80 and 0x42483d |
+| the origin | `+0x498`, three floats | 0x418cec hands `laser+0x498` to the geometry at 0x4185d0 as the beam's base |
+| the angle | `+0x4a4` | 0x4248db hands it to the sin/cos at 0x417af0 |
+| along the beam | `+0x4a8` near, `+0x4ac` far | 0x418be0 takes their difference for a length and 0x418c04 their midpoint |
+| how wide | `+0x4b4`, out of `+0x4b8` | 0x4248ac copies the one into the other |
+| which phase | `+0x4e8` | both walks skip a laser whose phase has reached 2, and 0x424877 sets it to 2 |
+| a flag word | `+0x4e4` | 0x42484b tests bit 2 of it against the reason the walk was made |
+
+**What is not read is the one thing that matters**: the test a laser hits the *player* by. The two walks found
+are a laser cancelling bullets (0x418b40) and a laser being turned into items (0x424800), and neither touches
+0x4bdad8 — so the player's own laser test is somewhere else, and until it is found there is nothing to say which
+phase is dangerous or what the width means.
+
+**And 妖々夢 has two kinds**, which the same reading has to cover: the one that draws a warning line before it
+fires, whose warning is not a hazard, and the one that turns, whose angle is not the angle it will have in the
+frames a move is judged over. So the work is that test, the phases, and whatever moves the angle — and then the
+same box overlap the bullets go through, against a segment rather than a point.
+
 ### The recipes the resume's own parting is measured with
 
 The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run

@@ -412,6 +412,27 @@ fn the_bot_steps_around_a_bullet_rather_than_fleeing_it() {
     });
 }
 
+/// **What the bot presses is written down**, or the whole harness is pointless.
+///
+/// A run orb kept no buttons for is a run nothing can pick up, and a run to pick up is the one thing the bot
+/// exists to make: the first launch that played its way to 2面 left `resume: not written — 0 frame(s) of buttons`
+/// behind it, because the word went to the game by a path of its own instead of through the one place a read is
+/// noted.
+#[test]
+fn what_the_bot_presses_is_written_down_for_the_run() {
+    in_its_own_process(|| {
+        let game = playing("th07-the-bot-is-written-down");
+        game.in_a_pointdevice_run();
+
+        game.frames(120);
+        assert!(
+            !game.log().said("0 frame(s) of buttons"),
+            "the run kept none of what the bot pressed:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its

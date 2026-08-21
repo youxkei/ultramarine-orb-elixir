@@ -1503,9 +1503,12 @@ pub extern "system" fn get_input() -> u16 {
     // Asked for where the frame began rather than here, so that a walker counting the frames it has been on a
     // step counts each of them once — this read happens more than once on some screens, and orb's own menus want
     // the same word out of [`pad`]. See [`what_is_reached`].
+    // **Through [`noted`] like every other way out of this hook**, which is what writes a frame's buttons down
+    // for the chapter it belongs to. A path of its own here is a run orb kept nothing of — and a run to pick up
+    // out of a file is the one thing a bot exists to make: the first launch that played its way into 2面 left
+    // `resume: not written — 0 frame(s) of buttons` behind it, and there was nothing to measure.
     if let Some(word) = pressing() {
-        unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(frame)) };
-        return word;
+        return unsafe { noted(game, frame, word) };
     }
 
     // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
