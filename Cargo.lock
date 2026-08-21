@@ -207,6 +207,7 @@ version = "0.11.0-dev"
 dependencies = [
  "miniz_oxide",
  "orb-api",
+ "orb-bot",
  "orb-config",
  "orb-core",
  "orb-sim",
@@ -221,6 +222,14 @@ name = "orb-api"
 version = "0.11.0-dev"
 dependencies = [
  "windows-sys",
+]
+
+[[package]]
+name = "orb-bot"
+version = "0.11.0-dev"
+dependencies = [
+ "orb-config",
+ "orb-core",
 ]
 
 [[package]]
@@ -251,6 +260,7 @@ name = "orb-e2e"
 version = "0.11.0-dev"
 dependencies = [
  "orb-api",
+ "orb-bot",
  "orb-config",
  "orb-core",
  "orb-sim",

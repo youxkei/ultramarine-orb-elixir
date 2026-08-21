@@ -1501,36 +1501,28 @@ pub trait Game {
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> String;
 
-    /// **The recipe this launch is to play to**, read where this game's own names for its buttons are, and
-    /// `true` where anything is going to be played.
+    /// **The bit a recipe's button name is in this game's own word**, or `None` for a name it has nothing for.
     ///
-    /// `false` for a launch nobody asked to play itself, and for one whose recipe could not be read — a step
-    /// naming a button this game has not is a recipe written for another, and pressing the rest of it would be
-    /// driving somebody's screens by guesswork. The grammar of one is `orb_config::recipe`'s and the names are
-    /// the game's; a game with no rules of its own reads none and plays nothing.
+    /// What a bot presses is a name in a file — `decide`, `focus`, `left` — and what one *is* differs from game
+    /// to game: `decide` is a shot and a return key in 妖々夢 and something else in the next game. So the names
+    /// are resolved here and the recipe that holds them is `orb-bot`'s.
     ///
-    /// # Safety
-    /// Must run at the attach, before the game has been asked for a frame.
-    unsafe fn settle_the_recipe(&self, _recipe: Option<&str>) -> bool {
-        false
+    /// `None` for everything, from a game nobody has written a bot's vocabulary for.
+    fn button_bit(&self, _name: &str) -> Option<u16> {
+        None
     }
 
-    /// **The word this frame of a stage is played with where orb is playing the game itself**, or `None` for a
-    /// game that has no rules written for it.
+    /// **The word one frame of a stage is played with by this game's own rules**, for a bot that has run out of
+    /// steps to press.
     ///
-    /// Handed to the run through the same read a resumed run's own recorded words go through, so what a bot
-    /// plays is a run in every other way: nothing is made invulnerable, nothing is sent from outside, and every
-    /// record a played run leaves is left. What it is for is `Config::autoplay`.
-    ///
-    /// **The rules are the game's and so is everything they are worked out from** — where its player is, what
-    /// its items are worth going for, what its own state byte says has just happened. A shared bot could only
-    /// be the union of every game's vocabulary, which for 東方 is not one kind of game, so this answers a word
-    /// and nothing here knows how it was arrived at.
+    /// Where its player is, what its items are worth going for, and what its own state byte says has just
+    /// happened are questions about this game, so the rules are here — and nothing outside knows how the word
+    /// was arrived at. Nothing held, for a game with no rules written for it.
     ///
     /// # Safety
-    /// Must run on the game's main thread, with a stage running.
-    unsafe fn bot_word(&self) -> Option<u16> {
-        None
+    /// Must run on the game's main thread.
+    unsafe fn playing_word(&self) -> u16 {
+        0
     }
 
     /// **Whether the game is on the update that runs while a stage is still being built**, where the
@@ -1591,6 +1583,29 @@ pub const fn hand(frame: i32) -> Boundary {
         frame,
         by_hand: true,
     }
+}
+
+/// **What orb knows about where a run has got to and a game does not**, for the recipe a launch playing
+/// itself is walking — see [`Game::bot_word`].
+///
+/// Three numbers rather than a game's own vocabulary: a stage, a chapter of it, and which of orb's own
+/// questions is up are orb's own — `State` and `chapter::Chapters` are where the first two come from, and the
+/// third is a menu orb draws itself. Nothing of any game is in it, which is what makes it shared.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Reached {
+    /// Counted from one, the way the log counts it.
+    pub stage: i32,
+    pub chapter: u32,
+    pub question: Option<Question>,
+}
+
+/// The questions of orb's own a recipe can wait for, by the names it writes them as.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Question {
+    /// `mode` — which of the two things a run is.
+    Mode,
+    /// `resume` — where to start, for a run left unfinished.
+    Resume,
 }
 
 /// The game's state for one frame, read all at once so that everything in it

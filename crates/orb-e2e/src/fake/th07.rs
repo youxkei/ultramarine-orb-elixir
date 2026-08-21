@@ -428,6 +428,9 @@ impl Fake {
         // The memory hooks patch an import table there is none of.
         config.track_memory = false;
         settings(&mut config);
+        // Kept before the attach takes the rest of it: what plays the run is installed after the attach — the
+        // log being what a refused recipe has to speak through — and by then the config has moved.
+        let recipe = config.autoplay.clone();
         // The font is there for the harness's own device and gone before orb reaches for one: **a 妖々夢
         // install has no `font.ttf` beside its exe.** 紅魔郷 ships one and 妖々夢 keeps its fonts inside
         // `th07.dat`, so what orb draws here it draws in a face of the machine's own — see
@@ -550,6 +553,15 @@ impl Fake {
                 },
             )
         };
+        // **Whoever is playing this run, installed where a real launch installs it**: `orb`'s attach reaches
+        // `orb_bot::install` and nothing of orb-core does, so an e2e test over a bot has to reach it too — the
+        // slot is what both fill, and a test that left it empty would be testing orb without one.
+        //
+        // After the attach, as a real launch's is: what a refused recipe has to say goes in the log, and the
+        // log is not there to be written to until the attach has settled it.
+        if let Some(recipe) = &recipe {
+            unsafe { orb_bot::install(recipe, the_game_this_is()) };
+        }
         fake.frame_takes(work);
         fake
     }

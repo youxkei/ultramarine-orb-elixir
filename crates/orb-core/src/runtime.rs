@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicUsize, Ordering}
 
 use orb_config::{Config, Language};
 
-use crate::game::{Game, Pad, RunStart, State};
+use crate::game::{Game, Pad, Question, Reached, RunStart, State};
 use crate::input::{Keyboard, Pads};
 use crate::lives_ui::LivesMark;
 use crate::menu_ui::By;
@@ -398,8 +398,52 @@ pub static BLOCK_REPLAY_SAVE: AtomicBool = AtomicBool::new(true);
 /// hook is reached from the game's own read and has no `Runtime` to ask, the way [`BLOCK_REPLAY_SAVE`] has
 /// none either.
 ///
-/// `false` to begin with, which is a launch nobody asked to play itself.
-static AUTOPLAY: AtomicBool = AtomicBool::new(false);
+/// **The slot whatever is playing this run goes in**, and nothing about how it plays.
+///
+/// A bot is a harness rather than any part of what orb does for somebody playing, so what walks a recipe is
+/// `orb-bot` and what is here is the seam it is installed through — the same shape
+/// [`crate::window::install_over`], [`crate::score::install_over`] and [`crate::joystick::install_over`]
+/// have, where this crate keeps the slot and something else decides what goes in it.
+///
+/// Empty to begin with, which is a launch nobody asked to play itself: the read hook then answers out of the
+/// keyboard, the way it always has.
+static PLAYING_IT: std::sync::Mutex<Option<Playing>> = std::sync::Mutex::new(None);
+
+/// **Whatever is playing the run, asked for a word.** The game to work one out of, and where the run has got
+/// to — which is what orb knows and no game does. `None` is a word the keyboard is to answer instead.
+pub type PlaysTheRun = fn(&'static dyn Game, Reached) -> Option<u16>;
+
+/// What is installed there: that, and where the run had got to when the frame hook last looked.
+struct Playing {
+    word: PlaysTheRun,
+    reached: Reached,
+}
+
+/// The game closed, for whatever is playing the run having finished with it.
+///
+/// Here rather than reached for directly, so that what asks for a process to end goes through the crate that
+/// owns the process's own life — and through the seam, which is what a laid-out host answers instead of
+/// ending a test binary.
+pub fn close_the_game() {
+    orb_api::process::exit(0);
+}
+
+/// Installs one, or takes what is there out.
+///
+/// # Safety
+/// Must run at the attach, before the game has been asked for a frame.
+pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
+    *PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = word.map(|word| Playing {
+        word,
+        reached: Reached {
+            stage: 0,
+            chapter: 0,
+            question: None,
+        },
+    });
+}
 /// The game's chain functions, which orb has hooked, so calling them from its own
 /// frame loop still runs everything orb does per frame.
 pub static RUN_CALC_CHAIN_TARGET: AtomicUsize = AtomicUsize::new(0);
@@ -652,12 +696,6 @@ pub unsafe fn attach_to(
     unsafe { resume::forget() };
     // The decision [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
     BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
-    // The recipe read where the game's own names for its buttons are — see `Game::settle_the_recipe`, which
-    // is what says whether anything is being played at all.
-    AUTOPLAY.store(
-        unsafe { game.settle_the_recipe(config.autoplay.as_deref()) },
-        Ordering::Relaxed,
-    );
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -1399,8 +1437,12 @@ pub extern "system" fn get_input() -> u16 {
     // would do instead — see `Game::bot_word` and `Config::autoplay`.
     // **Every read and not only a stage's**, because the steps of a recipe are screens: the mode question, the
     // title, the difficulty and the shot are all read through here and none of them is a frame of a stage.
-    if AUTOPLAY.load(Ordering::Relaxed)
-        && let Some(word) = unsafe { game.bot_word() }
+    if let Some((word, reached)) = PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .map(|playing| (playing.word, playing.reached))
+        && let Some(word) = word(game, reached)
     {
         unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(frame)) };
         return word;
@@ -2265,6 +2307,28 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // something is being diagnosed.
     if runtime.config.stress_restore_frames > 0 || runtime.config.self_check {
         unsafe { watch_music(runtime, &state) };
+    }
+
+    // Where the run has got to, for the recipe a launch playing itself is being played to: what carries one
+    // out is the game's, and this is the part of it orb knows and no game does — see `Game::bot_word`. Said
+    // here because the read that asks for a word is the game's own keyboard, with no `Runtime` anywhere near
+    // it; one frame of lag at the very worst, on a question about which screen is up.
+    if let Some(playing) = PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        playing.reached = Reached {
+            stage: state.stage + 1,
+            chapter: runtime.chapters.number(),
+            question: if runtime.asking.is_some() {
+                Some(Question::Mode)
+            } else if runtime.asking_resume.is_some() {
+                Some(Question::Resume)
+            } else {
+                None
+            },
+        };
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb

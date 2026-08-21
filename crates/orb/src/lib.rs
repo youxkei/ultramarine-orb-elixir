@@ -372,6 +372,12 @@ fn attach() {
         Ok(()) => log!("screen: window hooks installed"),
         Err(error) => log!("screen: {error}; the window is left as the game makes it"),
     }
+    // **And whoever is playing this run, where a recipe was named.** The harness that plays it is its own
+    // crate and this is the one place it is reached from — nothing of orb-core knows how a run is played, it
+    // only keeps the slot. A launch nobody asked to play itself installs nothing and reads its keyboard.
+    if let Some(recipe) = &config.autoplay {
+        unsafe { orb_bot::install(recipe, game) };
+    }
     // And the pointer over that window, where the settings ask for it: a window is where Windows draws
     // one, and nothing in the game is played with the mouse. Left out rather than installed and idle
     // where they do not, the entry being worth patching only for a launch that is taking the pointer off.

@@ -20,6 +20,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 orb-api.workspace = true
+orb-bot.workspace = true
 orb-config.workspace = true
 orb-core.workspace = true
 serde = { version = "1", features = ["derive"] }

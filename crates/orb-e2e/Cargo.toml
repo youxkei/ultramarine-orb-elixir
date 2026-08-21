@@ -23,6 +23,7 @@ publish.workspace = true
 # laid-out game has neither an import table nor PE headers. See
 # [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 orb-api = { workspace = true }
+orb-bot = { workspace = true }
 orb-config = { workspace = true }
 # `sim` is what carries `game::th06::image` — the game laid out by hand, which is what the fake writes
 # a run into — and the seam's install point with it.

@@ -4,6 +4,7 @@ members = [
     "crates/launcher",
     "crates/orb",
     "crates/orb-api",
+    "crates/orb-bot",
     "crates/orb-config",
     "crates/orb-core",
     "crates/orb-e2e",
@@ -28,6 +29,7 @@ publish = false
 
 [workspace.dependencies]
 orb-api = { path = "crates/orb-api" }
+orb-bot = { path = "crates/orb-bot" }
 orb-config = { path = "crates/orb-config" }
 orb-core = { path = "crates/orb-core" }
 orb-sim = { path = "crates/orb-sim" }
