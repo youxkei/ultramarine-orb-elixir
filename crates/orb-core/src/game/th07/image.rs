@@ -587,12 +587,6 @@ impl Image {
         space.write::<usize>(super::G_RUN_NUMBERS, RUN_NUMBERS.start);
     }
 
-    /// And no run's numbers at all, which is every screen outside a run: the pointer the game's own field
-    /// holds until a run's build allocates the block, and holds again the moment one is freed.
-    pub fn has_no_runs_numbers(&self) {
-        self.space().write::<usize>(super::G_RUN_NUMBERS, 0);
-    }
-
     /// And the power that run's shot is at, which the game keeps as a float.
     pub fn shot_is_at_power(&self, power: f32) {
         self.space()

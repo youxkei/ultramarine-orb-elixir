@@ -17,6 +17,18 @@
 //! `wait` is a `press` of nothing with an `until` — the frames a screen takes to come up are as unwritable as
 //! a stage's. `quit` closes the game, which is the last step of a recipe nobody is watching.
 //!
+//! **And a `press` with an `until` of its own is a tap**: down for its frames, up for as many, over and over
+//! until what it waits for is reached. Which is how a run is *started* without counting the screens on the way
+//! — a menu answers the frame a button goes down, so a word held across four screens takes one of them, and
+//! how many there are is not something a recipe can know: which item a title menu comes up on is whatever the
+//! game's own score file last remembered.
+//!
+//! **What a tap waits for has to be something the tap cannot take away.** A tap of `decide` waiting on a
+//! `question` answers that question the frame it comes up, so the frame the walker next looks at has no
+//! question up and the step never ends — which is a launch that walked its whole front end and then tapped
+//! through a stage without the rules ever getting a frame. A `stage` and a `chapter` are *reached*, so no press
+//! can undo one.
+//!
 //! **The grammar is here and the names are the game's.** A list of button names, a stage and a chapter and a
 //! question is the same list whatever game reads it, so it is read once — and what `decide` *is*, and which
 //! chapter a stage's midboss falls in, differ from game to game, so nothing here resolves either.
@@ -31,8 +43,19 @@ use serde::Deserialize;
 /// One step of a recipe, as [`read`] hands it over: one of four things and never two.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
-    /// A word held for a number of frames, which is what a screen takes.
-    Press { buttons: Vec<String>, frames: u32 },
+    /// A word held for a number of frames, which is what a screen takes — or **tapped** for as long as it
+    /// takes, where an `until` says what it is waiting for: held for `frames`, released for as many, over and
+    /// over.
+    ///
+    /// Tapped rather than held because a menu answers the frame a button goes down: a word held across four
+    /// screens takes one of them. And for as long as it takes rather than a count of taps, because how many
+    /// screens there are between the title and a stage is not something a recipe can know — which item a title
+    /// menu comes up on is whatever the game's own score file last remembered.
+    Press {
+        buttons: Vec<String>,
+        frames: u32,
+        until: Option<Until>,
+    },
     /// The game played by its own rules until something is reached.
     Play(Until),
     /// And nothing held until something is reached, which is what waiting for a screen to come up is.
@@ -65,6 +88,9 @@ pub enum Until {
 struct Written {
     press: Option<Vec<String>>,
     frames: Option<u32>,
+    /// A `press`'s own, which is what turns it into a tap — beside `frames` rather than in place of it, those
+    /// being how long each tap holds.
+    until: Option<WrittenUntil>,
     play_until: Option<WrittenUntil>,
     wait_until: Option<WrittenUntil>,
     quit: Option<bool>,
@@ -108,6 +134,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             Written {
                 press: Some(buttons),
                 frames,
+                until,
                 play_until: None,
                 wait_until: None,
                 quit: None,
@@ -117,11 +144,13 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 Some(frames) => Step::Press {
                     buttons: buttons.clone(),
                     frames: *frames,
+                    until: until.as_ref().map(|until| until.read(at)).transpose()?,
                 },
             },
             Written {
                 press: None,
                 frames: None,
+                until: None,
                 play_until: Some(until),
                 wait_until: None,
                 quit: None,
@@ -129,6 +158,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             Written {
                 press: None,
                 frames: None,
+                until: None,
                 play_until: None,
                 wait_until: Some(until),
                 quit: None,
@@ -136,6 +166,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             Written {
                 press: None,
                 frames: None,
+                until: None,
                 play_until: None,
                 wait_until: None,
                 quit: Some(true),
@@ -170,6 +201,7 @@ mod tests {
                 Step::Press {
                     buttons: vec!["decide".to_owned()],
                     frames: 2,
+                    until: None,
                 },
                 Step::Play(Until::Chapter {
                     stage: 2,
@@ -181,43 +213,69 @@ mod tests {
         );
     }
 
-    /// And the recipe the resume's own parting is measured with, word for word as `docs/todo/th07-the-run.md`
-    /// carries it — a grammar this stopped reading is a measurement nobody can take again, and the file that
-    /// holds it says nothing when it goes stale.
-    ///
-    /// The released stretch between the two presses is the whole reason it is not the recipe above: a menu
-    /// takes a press where the bit goes up, so two presses with nothing between them are one press.
+    /// A press with an `until` is one step and not two, and it keeps its frames: those are how long each tap
+    /// holds, not how long the step lasts.
     #[test]
-    fn the_recipe_the_partings_measurement_is_taken_with_reads() {
+    fn a_press_can_be_tapped_until_something_is_reached() {
+        assert_eq!(
+            read("- press: [decide]\n  frames: 10\n  until: { question: mode }\n"),
+            Ok(vec![Step::Press {
+                buttons: vec!["decide".to_owned()],
+                frames: 10,
+                until: Some(Until::Question("mode".to_owned())),
+            }]),
+        );
+    }
+
+    /// And the two recipes the resume's own parting is measured with, word for word as
+    /// `docs/todo/th07-the-run.md` carries them — a grammar this stopped reading is a measurement nobody can
+    /// take again, and the file that holds them says nothing when it goes stale.
+    ///
+    /// **Two launches and no pause menu.** A run wants closing in the middle for a resume to have anything to
+    /// pick up, and `quit` closes the game where it stands — where leaving through the pause menu would be a
+    /// cursor to walk down a screen this grammar cannot see the items of.
+    ///
+    /// **And the tap waits for the first chapter and not for the mode question**, which is what a launch had to
+    /// say: a tap of `decide` answers that question the frame it comes up, so what it was waiting for was gone
+    /// before the frame the walker next looked at — the step never ended, and the rules never got a frame. A
+    /// chapter is reached rather than offered, so nothing the tap presses can take it away again.
+    #[test]
+    fn the_recipes_the_partings_measurement_is_taken_with_read() {
         assert_eq!(
             read(
-                "- press: [decide]\n  frames: 2\n\
-                 - wait_until: { frames: 10 }\n\
+                "- press: [decide]\n  frames: 10\n  until: { stage: 1, chapter: 1 }\n\
                  - play_until: { stage: 2, chapter: 3 }\n\
-                 - press: [cancel]\n  frames: 2\n\
-                 - wait_until: { question: resume }\n\
-                 - press: [decide]\n  frames: 2\n\
-                 - play_until: { frames: 600 }\n\
                  - quit: true\n"
             ),
             Ok(vec![
                 Step::Press {
                     buttons: vec!["decide".to_owned()],
-                    frames: 2,
+                    frames: 10,
+                    until: Some(Until::Chapter {
+                        stage: 1,
+                        chapter: 1,
+                    }),
                 },
-                Step::Wait(Until::Frames(10)),
                 Step::Play(Until::Chapter {
                     stage: 2,
                     chapter: 3,
                 }),
-                Step::Press {
-                    buttons: vec!["cancel".to_owned()],
-                    frames: 2,
-                },
+                Step::Quit,
+            ]),
+        );
+        assert_eq!(
+            read(
+                "- wait_until: { question: resume }\n\
+                 - press: [decide]\n  frames: 2\n\
+                 - play_until: { frames: 600 }\n\
+                 - quit: true\n"
+            ),
+            Ok(vec![
                 Step::Wait(Until::Question("resume".to_owned())),
                 Step::Press {
                     buttons: vec!["decide".to_owned()],
                     frames: 2,
+                    until: None,
                 },
                 Step::Play(Until::Frames(600)),
                 Step::Quit,

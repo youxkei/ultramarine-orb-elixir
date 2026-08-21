@@ -817,11 +817,11 @@ The rules 妖々夢 is played by are in `crates/orb-core/src/game/th07/bot.rs`, 
 `the_bot_playing_th07.rs` that pins it. **What no laid-out game can say is whether they clear the game**, and
 that is this section: a launch says it, and a run that dies says which rule to look at.
 
-### The recipe the resume's own parting is measured with
+### The recipes the resume's own parting is measured with
 
 The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run
 that was recorded, at the frame the two of them part. It is measured by playing the same stretch twice, which
-is what this is:
+is two launches: one that plays into stage 2 and is closed there, and one that takes the run back.
 
 **It is run against a copy of the install and never against the one somebody plays in.** A played game writes
 its records beside itself — `score.dat`, the replays, `pointdevice_resume/`, `orb.log` — so a bot let loose in
@@ -832,15 +832,30 @@ What the copy needs is `th07.exe`, `th07.dat`, `thbgm.dat`, `th07.cfg` and `scor
 The copy has to be somewhere a Windows process can open, which a path under this repository is not — the
 recipe is read by the game's own process, at the attach.
 
+**Two launches and no pause menu.** A run wants closing in the middle for a resume to have anything to pick up,
+and `quit` closes the game where it stands; leaving through the pause menu instead would be a cursor to walk
+down a screen a recipe cannot see the items of.
+
+`played-into-stage-2.yaml`, beside that copy's exe since the game's own process is what reads it:
+
 ```yaml
-# Beside that copy's exe, since the game's own process is what reads it: `<copy>\parting.yaml`.
-- press: [decide]                        # orb's own question, which of the two things a run is
-  frames: 2
-- wait_until: { frames: 10 }             # released, or the next press is no edge for the menu to see
+- press: [decide]                        # the title, the difficulty, the character, the shot and orb's own
+  frames: 10                             # question, and stopping once the run is actually running
+  until: { stage: 1, chapter: 1 }
 - play_until: { stage: 2, chapter: 3 }    # the rules, as far as 2面's midboss
-- press: [cancel]                        # the pause menu, and out of the run
-  frames: 2
-- wait_until: { question: resume }        # until orb offers the run back
+- quit: true
+```
+
+**The tap waits for the first chapter and not for the mode question**, which is what the first launch of it had
+to say: a tap of `decide` answers that question the frame it comes up, so what the step was waiting for was gone
+before the frame the walker next looked at. The step never ended, the rules never got a frame, and the run sat
+at its starting position until something shot it — `player=192.00,384.00` for all 1676 frames of it, and not one
+`autoplay: step N of M done` in the log. A chapter is reached rather than offered, so no press can undo one.
+
+`took-the-run-back.yaml`:
+
+```yaml
+- wait_until: { question: resume }
 - press: [decide]
   frames: 2
 - play_until: { frames: 600 }             # long enough for the reproduction lines to part
@@ -848,14 +863,18 @@ recipe is read by the game's own process, at the attach.
 ```
 
 ```sh
-scripts/run.sh <copy> --autoplay='<copy in windows>\parting.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\played-into-stage-2.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\took-the-run-back.yaml' --log=verbose
 ```
 
-**What the launch has to say** is two things, and the first is not about the parting at all: whether the
-presses got through the front end. `autoplay: step N of M done` is one line per step, so a recipe that stopped
-on step 1 is a `frames` too short or a screen that wanted a press this recipe has not got. Only once every step
-is done does the second question — which frame the two `reproduction` lines part on, and which field of them
-differs — have a run behind it.
+The first launch's log wants keeping before the second overwrites it: `orb.log` is one file beside the exe, and
+what the parting is read out of is the two runs' `reproduction` lines side by side.
+
+**What a launch has to say** is two things, and the first is not about the parting at all: whether the presses
+got through the front end. `autoplay: step N of M done` is one line per step, so a recipe that stopped on its
+first is a screen that wanted a press this recipe has not got. Only once every step is done does the second
+question — which frame the two `reproduction` lines part on, and which field of them differs — have a run
+behind it.
 
 ## The font, which was a question and is now a decision
 

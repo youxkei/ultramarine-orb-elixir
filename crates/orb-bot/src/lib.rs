@@ -21,16 +21,11 @@
 //! `Config::autoplay` is the text of a recipe and [`orb_config::recipe`] is its grammar.
 //!
 //! ```yaml
-//! - press: [decide]                        # answer the mode question
-//!   frames: 2
+//! - press: [decide]                        # the title, the difficulty, the character, the shot and orb's own
+//!   frames: 10                             # question — tapped, a menu answering the frame a button goes down
+//!   until: { stage: 1, chapter: 1 }         # and stopping at something no press of its own can take away
 //! - play_until: { stage: 2, chapter: 3 }    # play by the rules as far as stage 2's midboss
-//! - press: [cancel]                        # the pause menu, and out of the run
-//!   frames: 2
-//! - wait_until: { question: resume }        # until orb offers the run back
-//! - press: [decide]
-//!   frames: 2
-//! - play_until: { frames: 600 }
-//! - quit: true
+//! - quit: true                             # closed in the middle, which is what leaves a run to pick up
 //! ```
 //!
 //! **What each name and each rule is, is the game's** — `Game::button_bit` and `Game::word_to_press`. A shared
@@ -62,7 +57,12 @@ struct Playing {
 
 /// One step, with its buttons already turned into the word they are and its question already resolved.
 enum Step {
-    Press { word: u16, frames: u32 },
+    Press {
+        word: u16,
+        frames: u32,
+        /// Tapped until this is reached, rather than held the once: `frames` down, `frames` up, over and over.
+        until: Option<Wait>,
+    },
     Play(Wait),
     Wait(Wait),
     Quit,
@@ -99,7 +99,11 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
     for (index, step) in written.into_iter().enumerate() {
         let at = index + 1;
         let step = match step {
-            recipe::Step::Press { buttons, frames } => {
+            recipe::Step::Press {
+                buttons,
+                frames,
+                until,
+            } => {
                 let mut word = 0;
                 for name in &buttons {
                     let Some(bit) = game.button_bit(name) else {
@@ -110,7 +114,15 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                     };
                     word |= bit;
                 }
-                Step::Press { word, frames }
+                let until = match until.map(|until| waiting(until, at)) {
+                    Some(None) => return,
+                    held => held.flatten(),
+                };
+                Step::Press {
+                    word,
+                    frames,
+                    until,
+                }
             }
             recipe::Step::Play(until) => match waiting(until, at) {
                 Some(wait) => Step::Play(wait),
@@ -167,7 +179,26 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     };
     playing.frames += 1;
     let (word, over) = match step {
-        Step::Press { word, frames } => (*word, playing.frames >= *frames),
+        Step::Press {
+            word,
+            frames,
+            until: None,
+        } => (*word, playing.frames >= *frames),
+        // **Tapped**: down for `frames`, up for as many, over and over. The cycle is counted rather than the
+        // taps, so a step that ends mid-cycle ends there — what the next step presses is its own business, and
+        // a screen already gone is not waiting on this one to let go.
+        Step::Press {
+            word,
+            frames,
+            until: Some(wait),
+        } => (
+            if (playing.frames - 1) % (frames * 2) < *frames {
+                *word
+            } else {
+                0
+            },
+            waited(wait, reached, playing.frames),
+        ),
         Step::Wait(wait) => (0, waited(wait, reached, playing.frames)),
         Step::Play(wait) => (
             unsafe { game.word_to_press() },

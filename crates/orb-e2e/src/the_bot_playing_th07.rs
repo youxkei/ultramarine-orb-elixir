@@ -60,8 +60,7 @@ fn playing(name: &str) -> Box<Fake> {
 #[test]
 fn the_bot_holds_the_shot_down() {
     in_its_own_process(|| {
-        let game = playing("th07-the-bot-shoots");
-        game.image().the_player_is_playing();
+        let game = in_a_stage("th07-the-bot-shoots");
 
         game.frames(30);
         assert_eq!(
@@ -81,8 +80,7 @@ fn the_bot_holds_the_shot_down() {
 #[test]
 fn the_bot_bombs_the_frame_the_player_is_hit() {
     in_its_own_process(|| {
-        let game = playing("th07-the-bot-death-bombs");
-        game.image().the_player_is_playing();
+        let game = in_a_stage("th07-the-bot-death-bombs");
         game.frames(30);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & BOMB,
@@ -124,11 +122,12 @@ const MIDDLE: f32 = 192.0;
 /// A stage running, with a field to move about in and nobody fighting — what the rules about where to be are
 /// read against.
 ///
-/// A run's own numbers and no pause menu, because those two are what the rules read to know a stage is running
-/// at all: a screen with neither is a screen 十字キー walks a menu on.
+/// The supervisor's own scene set to a run's and no pause menu, because those two are what the rules read to
+/// know a stage is running at all — see [`the_bot_presses_nothing_at_the_front_end`].
 fn in_a_stage(name: &str) -> Box<Fake> {
     let game = playing(name);
     game.image().the_player_is_playing();
+    game.image().is_playing(1, 1);
     game.image().has_a_runs_numbers();
     game.image().is_not_paused();
     game.image()
@@ -300,29 +299,54 @@ fn the_bot_stops_where_it_wanted_to_be() {
     });
 }
 
-/// Nothing is steered where no stage is running. A run that died out of a `play_until` is a launch sitting on
-/// the title screen with the rules still being asked for a word, and 十字キー there is a menu being walked
-/// through by something that cannot read it.
+/// **Nothing at all is pressed while a stage is still being built**, the shot included: the player and the
+/// play field read as zeroes on those updates, so a rule that pressed there would be pressing on numbers that
+/// are not the run's yet — which is the very stretch a resume is measured across.
 #[test]
-fn the_bot_steers_nothing_off_a_stage() {
+fn the_bot_presses_nothing_while_a_stage_is_being_built() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-off-a-stage");
-        game.image().the_player_is_at(FIELD.0, FIELD.1);
-        game.image().has_no_runs_numbers();
+        let game = in_a_stage("th07-the-bot-mid-build");
+        game.image().the_stage_is_being_rebuilt();
+        game.image().the_play_field_is(0.0, 0.0, 0.0, 0.0);
+        game.image().the_player_is_at(0.0, 0.0);
 
         game.frames(1);
         assert_eq!(
-            game.image().the_word_the_run_acts_on() & PAD,
+            game.image().the_word_the_run_acts_on(),
             0,
-            "the bot steered with no run to steer in:\n  {}",
+            "the bot pressed on an update with no stage built yet:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
 }
 
-/// Nor while the run is paused, where the same 十字キー walks 妖々夢's own pause menu.
+/// **And a run's numbers being there is not a stage running.** The front end is up with the pointer to them
+/// still set — which is the launch that walked 妖々夢's own title menu onto 終了 and took it: nothing had been
+/// played, so the play field read as zeroes, so the y the rules wanted was above the field's own top, so
+/// [`UP`] went in and the cursor wrapped from the first item to the last.
 #[test]
-fn the_bot_steers_nothing_while_the_run_is_paused() {
+fn the_bot_presses_nothing_at_the_front_end() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-at-the-front-end");
+        game.image().the_front_end_is_up();
+        // Everything a stage leaves behind still where it was, and the field never filled in: the state the
+        // launch was really in, rather than one tidied up first.
+        game.image().the_play_field_is(0.0, 0.0, 0.0, 0.0);
+        game.image().the_player_is_at(0.0, 0.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on(),
+            0,
+            "the bot pressed at the front end:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// Nor while the run is paused, which is 妖々夢's own pause menu — the same shot, and the same 十字キー.
+#[test]
+fn the_bot_presses_nothing_while_the_run_is_paused() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-paused");
         game.image().the_player_is_at(FIELD.0, FIELD.1);
@@ -330,7 +354,7 @@ fn the_bot_steers_nothing_while_the_run_is_paused() {
 
         game.frames(1);
         assert_eq!(
-            game.image().the_word_the_run_acts_on() & PAD,
+            game.image().the_word_the_run_acts_on(),
             0,
             "the bot walked the pause menu:\n  {}",
             game.log().lines().join("\n  "),

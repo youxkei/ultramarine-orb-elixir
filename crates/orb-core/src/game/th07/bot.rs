@@ -32,9 +32,10 @@ use orb_api::mem;
 
 use super::{
     BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP,
-    FIELD_WIDTH, G_GAME_MANAGER, G_ITEM_MANAGER, G_PLAYER, GAME_MENU_UP, ITEM_ALIVE, ITEM_BYTES,
-    ITEM_KIND, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT,
-    PAD_RIGHT, PAD_UP, PLAYER_HIT, PLAYER_POSITION, PLAYER_STATE, Th07,
+    FIELD_WIDTH, G_GAME_MANAGER, G_ITEM_MANAGER, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
+    ITEM_BYTES, ITEM_KIND, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, MENU_CANCEL, MENU_DECIDE,
+    PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_HIT, PLAYER_POSITION, PLAYER_STATE, SCENE_RUN,
+    SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -81,6 +82,14 @@ const CLOSE_ENOUGH: f32 = 8.0;
 /// # Safety
 /// Must run on the game's main thread.
 pub unsafe fn word_to_press() -> u16 {
+    // **Nothing at all off a stage, the shot included.** The rules are asked for a word by the game's own
+    // keyboard read, which every screen makes — and a menu of this game's is taken by the shot as much as by
+    // the return key, so a word held on the title screen walks that menu once and then holds it, while
+    // 十字キー there moves a cursor these rules cannot read. The front end is the recipe's to drive, one press
+    // to a screen; a rule pressing alongside it is a press nobody wrote.
+    if !unsafe { in_a_stage() } {
+        return 0;
+    }
     let mut word = BUTTON_SHOT;
     // **The frame the player is hit and not the frames after it.** 0x43ee0e leaves the state at 2 and the
     // update calls the death handler at 0x441fee where it finds it, so the bomb has to go in while that
@@ -88,24 +97,24 @@ pub unsafe fn word_to_press() -> u16 {
     if unsafe { mem::read::<i8>(G_PLAYER + PLAYER_STATE) } == PLAYER_HIT {
         word |= BUTTON_BOMB;
     }
-    // **Steered only while a stage is actually running.** The rules are asked for a word by the game's own
-    // keyboard read, which every screen makes — so a run that died out of a `play_until` would have them
-    // walking the title menu with 十字キー, and a paused one 妖々夢's own pause menu. Neither is a menu these
-    // rules can read, and the recipe is what drives a menu.
-    if !unsafe { in_a_stage() } {
-        return word;
-    }
     let wanted = unsafe { where_to_be() };
     word | unsafe { towards(wanted) }
 }
 
 /// Whether a stage is running to be steered in.
 ///
+/// **The supervisor's own scene and not the run's numbers being there**, which is what this was and what it
+/// cost: a launch reached the title screen with that pointer still set, so the rules ran with the play field
+/// never filled in — a field of zeroes puts the y they want above its own top, and the [`PAD_UP`] that went in
+/// wrapped 妖々夢's title menu from its first item round to 終了, which the shot beside it then took. The scene
+/// is the same thing `Th07::read_state` answers `playing` out of, and it is a run's on no other screen.
+///
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn in_a_stage() -> bool {
-    unsafe { Th07.run_numbers() }.is_some()
-        && unsafe { mem::read::<u8>(G_GAME_MANAGER + GAME_MENU_UP) } == 0
+    let scene = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_SCENE) };
+    let paused = unsafe { mem::read::<u8>(G_GAME_MANAGER + GAME_MENU_UP) };
+    scene == SCENE_RUN && paused == 0
 }
 
 /// Where the rules want the player: the x whatever is worth being under has, and the y always low.
