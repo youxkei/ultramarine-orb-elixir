@@ -652,6 +652,25 @@ const RUN_RANDOMS: usize = 7;
 const SEALED_WORD: usize = 0x3c;
 #[cfg(any(test, feature = "sim"))]
 const SEALED_COPY: usize = 0xac;
+/// **The two things the game's own replay restore puts back that a resume does not**, said in the log at a
+/// stage's start rather than written — see `docs/th07/asm.md` for the whole of what that restore does.
+///
+/// `[0x62f8a4]` is `[gm+0x9634]`, filled at 0x42e3a4 out of the per-shot table at `[0x49f5d0 + shot*0xc]` and
+/// put back from a stage's record at 0x4437ea. Nine sites in 0x40e and 0x412 read it, four of them with
+/// `fimul`. `[0x626274]` is the run's header, `malloc(0x38)` at 0x45bf3f, copied out of the replay's own
+/// header at 0x4438ff; the only fields anything reads while a stage is played are `+0x1c`, the difficulty,
+/// and `+0x25`, a flag.
+///
+/// **Said and not restored, because whether they need restoring is not established.** Nothing in the exe
+/// writes `[0x62f8a4]` while a run is played, and the header's other 54 bytes are read by nothing, so both
+/// read as things a resume gets for free — from the shot the front end was driven to, and from the difficulty
+/// it chose. A run of 妖々夢 picked up in stage 2 still parts from itself, and three times now a number has
+/// been carried on that kind of reasoning and turned out not to be the one. So this is the reading that
+/// settles it: a stage's start says them on both sides, and a launch says whether they agree.
+const SHOTS_OWN_NUMBER: usize = 0x0062f8a4;
+const G_RUN_HEADER: usize = 0x00626274;
+const RUN_HEADER_BYTES: usize = 0x38;
+
 const G_CHERRY: usize = 0x0062f88c;
 const G_CHERRY_TARGET: usize = 0x0062f888;
 const G_CHERRY_PLUS: usize = 0x0062f890;
@@ -3744,6 +3763,25 @@ impl Game for Th07 {
             detail!("th07: the cherry is counted from {}", unsafe {
                 mem::read::<i32>(run + SCORE_BASELINE)
             });
+            // And the two the game's own replay restore puts back and a resume does not — see
+            // [`SHOTS_OWN_NUMBER`], which says why they are said here rather than written. Said in
+            // `Th07::run_state` so that both sides say them: a chapter written down asks this, and so does
+            // the read-back at the end of [`Th07::set_run_state`].
+            let header: Vec<String> = (0..RUN_HEADER_BYTES / size_of::<u32>())
+                .map(|at| {
+                    let word = mem::read_committed::<usize>(G_RUN_HEADER)
+                        .filter(|header| *header != 0)
+                        .and_then(|header| {
+                            mem::read_committed::<u32>(header + at * size_of::<u32>())
+                        });
+                    word.map_or_else(|| "-".to_owned(), |word| format!("{word:#010x}"))
+                })
+                .collect();
+            detail!(
+                "th07: the shot's own number is {}, the run's header is {}",
+                unsafe { mem::read::<u32>(SHOTS_OWN_NUMBER) },
+                header.join(" "),
+            );
         }
         let cherry = |at: usize| {
             run.map_or(0, |run| {
