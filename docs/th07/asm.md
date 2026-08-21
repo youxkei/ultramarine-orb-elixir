@@ -139,6 +139,36 @@ position. A replay started at stage 5 builds its player the same way a run does.
 stage is played: `+0x1c`, the difficulty, held against 3 at `0x42829a` and `0x42b492`, and `+0x25`, a flag
 tested at `0x402b0d`, `0x42e0f7`, `0x43a19e`, `0x442d0e` and `0x442f02`.
 
+**`0x62f8a4` does differ between a run played into a stage and a run built at it**, and a pair of launches is
+what says so: the same 2面 held `0x20` entered by a transition against `0x10` built by a resume, read off the
+dump at the stage's start on both sides.
+
+Two readings said otherwise and both were wrong in the same way. `0x42e38c`, which fills it out of
+`[0x49f5d0 + shot*0xc]`, is called from `0x42eafb` as well as from `0x42f06c` — but `0x42eafb` is *inside* the
+block `0x42e89b` jumps over, so a transition reaches neither the fill nor the zeroing of `[run+0x18]` at
+`0x42ea7c` beside it. And the grep that found no other writer looked for the address as an operand:
+**`0x40ecf1` hands the address out**, as one entry of the dispatcher that answers with a pointer to the
+variable an index names — the entry beside `[0x626280]`, the difficulty — so what writes it is a script, and no
+absolute store in the exe mentions it.
+
+What reads it is the player's own per-frame code, nine sites in `0x40e` and `0x412`, four of them with
+`fimul`: `0x412bab` works out `current + (target - current) * this / [0x498a84]` and writes it back where it
+came from, over the pair at `[player+0x2ba8]` and `[player+0x2bac]` that `0x40fe0a` and `0x40fe17` set to
+-0.5 and +0.5. So the number is a rate, twice the rate is a world whose player walks at twice the speed, and a
+few hundred frames of that is a world that collects items the run did not.
+
+`[0x626274]`, the run's header, is the other half of the same pair and needs no restoring: the two entries into
+one 2面 held all fourteen of its words the same.
+
+### And the mirror: where a stage's record is written
+
+`0x443040` writes one, indexed the same way, and its caller is `0x443d17` — `0x443aa0`'s mode 0, reached from
+`0x42f1d0`, which is the **normal run's** branch of the same callback. `0x42f1d0` is past `0x42f0b4`, so a
+stage's record is written *after* the stage has been built, while a replay's restore runs *before*.
+
+The float fields go in through `0x48b8a0`, which is `_ftol2`: `fistp` and then a correction by the sign and
+the remainder, which is **truncation toward zero** and not a round.
+
 ## What a collection is worth
 
 `0x42f5a2` is the cherry going up, `__thiscall` on the game manager taking an amount:
@@ -177,6 +207,7 @@ never written** anywhere in the exe.
 - What event the twelve `[player+0x2408] = 3` sites are. They are in the item code's own address range and
   each spawns four things and plays sound 13; which item or which collection is not read.
 - What `[0x12fe0d0]` is.
-- Whether `0x62f8a4` ever changes during a run. Nothing writes it but `0x42e3a4` and `0x443550`, so it
-  reads as a per-shot constant — and the replay restore carrying it says the game does not treat it as one.
+- Which script instruction writes `0x62f8a4`, and what the number means to the pair it walks. That it changes
+  during a run is established — a pair of launches read `0x20` against `0x10` — and so is the route, the
+  dispatcher at `0x40ecf1`; which `.ecl` opcode takes that route is not.
 - What the 54 bytes of `[0x626274]` nothing reads are for.

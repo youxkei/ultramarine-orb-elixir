@@ -102,6 +102,22 @@ struct Reproduction {
     award_step: u8,
     counted: i32,
     captured: i32,
+    /// **The three numbers a border comes up on**, each a count from [`SCORE_BASELINE`] the way every reader
+    /// of them takes it: the cherry, the most it can be, and the cherry+.
+    ///
+    /// Here because the cherry+ is what puts a border up — over 50000 and 森羅結界 fires, and 妖々夢's own
+    /// manual is what says so — and a border absorbs every item on the screen, deflects a bullet, and is
+    /// counted in [`COUNTED_ALL_RUN`], which decides what the next item's cherry is. So two passes whose
+    /// borders come up on different frames are two different runs from there, and **none of it shows in any
+    /// other field of this line**: the cherry moves without the generator moving, so a divergence in it is
+    /// invisible until the border it leads to arrives.
+    ///
+    /// Which is measured: a run of 妖々夢 picked up in stage 2 agreed with the run for 807 frames and then
+    /// deflected a hit the run had not, `counted` going up on the one side alone. Where the cherry+ parted is
+    /// what this says.
+    cherry: i32,
+    cherry_most: i32,
+    cherry_plus: i32,
 }
 
 impl std::fmt::Display for Reproduction {
@@ -109,7 +125,7 @@ impl std::fmt::Display for Reproduction {
         write!(
             out,
             "replay_frame={} input={:#06x} player={:.2},{:.2} randoms={} rng={:#06x} items={} \
-             score={} step={} counted={} captured={}",
+             score={} step={} counted={} captured={} cherry={} of {} plus={}",
             self.replay_frame,
             self.input,
             self.player.0,
@@ -121,6 +137,9 @@ impl std::fmt::Display for Reproduction {
             self.award_step,
             self.counted,
             self.captured,
+            self.cherry,
+            self.cherry_most,
+            self.cherry_plus,
         )
     }
 }
@@ -1908,7 +1927,22 @@ impl Th07 {
             award_step: unsafe { mem::read(AWARD_STEP) },
             counted: run.map_or(0, |run| unsafe { mem::read(run + COUNTED_ALL_RUN) }),
             captured: run.map_or(0, |run| unsafe { mem::read(run + CARDS_CAPTURED) }),
+            cherry: unsafe { self.counted_from_the_baseline(G_CHERRY) },
+            cherry_most: unsafe { self.counted_from_the_baseline(G_CHERRY_TARGET) },
+            cherry_plus: unsafe { self.counted_from_the_baseline(G_CHERRY_PLUS) },
         }
+    }
+
+    /// One of the cherry's three statics as every reader of it in the game reads it: what it stands at, less
+    /// the run's own [`SCORE_BASELINE`]. Nothing where there is no run to take a baseline off.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn counted_from_the_baseline(&self, at: usize) -> i32 {
+        unsafe { self.run_numbers() }.map_or(0, |run| {
+            let baseline = unsafe { mem::read::<i32>(run + SCORE_BASELINE) };
+            unsafe { mem::read::<i32>(at) }.wrapping_sub(baseline)
+        })
     }
 
     /// The run's own numbers, or nothing where there is no run: the pointer at [`G_RUN_NUMBERS`] is null
@@ -4259,6 +4293,9 @@ mod tests {
         image.the_run_has_counted(9_614);
         image.the_run_has_captured(11);
         image.the_awards_have_climbed_to(19);
+        // The three the border comes up on, each said as the count from the baseline the line carries them as
+        // — so a baseline of its own here is what says the line is not printing the raw statics.
+        image.the_cherry_is(40_455, 73_380, 200_030, 19_040);
 
         assert!(
             unsafe { Th07.mid_build() },
@@ -4272,7 +4309,7 @@ mod tests {
         assert_eq!(
             unsafe { Th07.reproduction() },
             "replay_frame=4886 input=0x0050 player=-64.00,128.00 randoms=909 rng=0x4321 items=12 \
-             score=7654321 step=19 counted=9614 captured=11",
+             score=7654321 step=19 counted=9614 captured=11 cherry=73380 of 200030 plus=19040",
         );
     }
 
