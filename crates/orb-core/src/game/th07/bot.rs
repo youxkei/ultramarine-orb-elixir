@@ -9,20 +9,23 @@
 //! what orb does for somebody playing, so its own machinery is a crate outside the logic that ships. What is
 //! left here is the two answers that need this game's addresses, which is what the game seam is for.
 //!
-//! **The rules are Normal's**, where the bullets are thin enough that a run does not have to dodge to live:
+//! **The rules are Normal's**, and dodging comes before all of them:
 //!
-//! - the shot held on every frame
-//! - the bomb on the frame the player is hit, which is 決死結界 — the death handler runs out of the *update*
-//!   that finds [`super::PLAYER_STATE`] at 2, so a bomb pressed while it stands is a death taken back
-//! - the y held [`ABOVE_THE_BOTTOM`] off the field's bottom edge, always
-//! - the x held on the boss under a boss, on the nearest power item where one is on the screen, and in the
-//!   middle of the field with neither
+//! - the shot held on every frame, and [`BUTTON_SKIP`] while a dialogue is up
+//! - the bomb the frame the player is hit, which is 決死結界 — 0x440cf0 counts a window down while
+//!   [`super::PLAYER_STATE`] stands at 2, and a bomb inside it is a death taken back
+//! - **a bullet within [`DANGER`] and the frame is spent leaving**: the safest of the nine one-frame moves,
+//!   scored by how near the nearest bullet gets to where each lands
+//! - and with nothing near, the way to a power item — the big one over a small one wherever both are up — or
+//!   the boss's own x with the y low, or the middle of the field low
 //!
-//! **The y is one rule and not two** — held low through the way as well as through a fight — because a power
-//! item falls: 0x432d27 steps its own y down every update, so a run that lines its x up and stays low is
-//! handed the item where it is safe to be, while one that climbed to meet it would be up among the bullets
-//! for nothing. Which is also why nothing here presses for a 雑魚: the shot is held on every frame already,
-//! and what a killed one drops falls to whoever is under it.
+//! **Dodging is the first of them because a bomb is a hit that was not stepped out of.** A launch that played
+//! stage 1 without it spent two of its three bombs on 決死結界 by the midboss, and every one of those was a
+//! frame with somewhere to stand. So the two are not blended — inside [`DANGER`] the bullets are the whole of
+//! the decision and outside it they are not read at all, a blend being what walks into a bullet for an item.
+//!
+//! Nothing here presses for a 雑魚: the shot is held on every frame already, and what a killed one drops falls
+//! to whoever is under it.
 //!
 //! **Which is not a claim that they clear the game.** Nothing laid out by hand can say that; a launch says it,
 //! and what a launch that dies says is which rule to look at. So the rules go in one at a time, each with the
@@ -31,11 +34,12 @@
 use orb_api::mem;
 
 use super::{
-    BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP,
-    FIELD_WIDTH, G_GAME_MANAGER, G_ITEM_MANAGER, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
-    ITEM_BYTES, ITEM_KIND, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, MENU_CANCEL, MENU_DECIDE,
-    PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_HIT, PLAYER_POSITION, PLAYER_STATE, SCENE_RUN,
-    SUPERVISOR_SCENE, Th07,
+    BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SLOTS, BULLET_STEP, BULLETS, BUTTON_BOMB,
+    BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
+    G_BULLET_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP,
+    ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BYTES, ITEM_KIND, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS,
+    MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_HIT, PLAYER_POSITION,
+    PLAYER_STATE, SCENE_RUN, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -60,12 +64,44 @@ pub fn bit(name: &str) -> Option<u16> {
     })
 }
 
-/// How far off the field's bottom edge the player is held, in the game's own units.
+/// How far off the field's bottom edge the player waits with nothing to go to, in the game's own units.
 ///
-/// **A rule's own number and not a measurement of anything.** Off the edge outright is where the clamp at
-/// 0x43f474 would hold the player against a wall it cannot read, and far enough up to be worth dodging in is
-/// where the y would have to be read against the bullets — which is a rule this bot does not have.
+/// **A rule's own number and not a measurement of anything.** Against the edge outright is where the clamp at
+/// 0x43f474 holds the player with the whole of one side taken away from it, and this much up leaves the room a
+/// dodge needs on every side of it.
 const ABOVE_THE_BOTTOM: f32 = 48.0;
+
+/// How near a bullet has to be for the frame to be spent leaving rather than on where it was going.
+///
+/// **A rule's own number too.** Every bomb this bot spends is a hit it could have stepped out of, so the band
+/// is wide enough to leave in — and no wider, a bot that dodged the whole screen being one that never collects
+/// anything.
+const DANGER: f32 = 40.0;
+
+/// How far a candidate move is probed, which is a length rather than the step the game would really take: what
+/// it is for is telling nine directions apart, and the frame's own step is three indirections whose one wrong
+/// pointer is a bot that never moves — see [`CLOSE_ENOUGH`].
+const A_PROBE: f32 = 8.0;
+
+/// The nine one-frame moves, as the word each is and the direction it goes in.
+///
+/// **Standing still is first**, which is what settles a tie: where two moves are equally safe the bot holds its
+/// ground rather than stepping back and forth between them every frame.
+const MOVES: [(u16, f32, f32); 9] = [
+    (0, 0.0, 0.0),
+    (PAD_UP, 0.0, -1.0),
+    (PAD_DOWN, 0.0, 1.0),
+    (PAD_LEFT, -1.0, 0.0),
+    (PAD_RIGHT, 1.0, 0.0),
+    (PAD_UP | PAD_LEFT, -DIAGONAL, -DIAGONAL),
+    (PAD_UP | PAD_RIGHT, DIAGONAL, -DIAGONAL),
+    (PAD_DOWN | PAD_LEFT, -DIAGONAL, DIAGONAL),
+    (PAD_DOWN | PAD_RIGHT, DIAGONAL, DIAGONAL),
+];
+
+/// A diagonal's own share of a step, which is the game's: 0x43f165 loads the speed's `+0x2c` for those where a
+/// straight move takes `+0x24`, and what a corner of the unit square is is the same number either way.
+const DIAGONAL: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 /// How near the place it wants to be is near enough to press nothing.
 ///
@@ -91,14 +127,83 @@ pub unsafe fn word_to_press() -> u16 {
         return 0;
     }
     let mut word = BUTTON_SHOT;
-    // **The frame the player is hit and not the frames after it.** 0x43ee0e leaves the state at 2 and the
-    // update calls the death handler at 0x441fee where it finds it, so the bomb has to go in while that
-    // stands — a frame later the deaths and the lives have already moved and a bomb is a bomb spent.
+    // **The frame the player is hit and not the frames after it.** 0x43edc0 leaves the state at 2 and zeroes
+    // the timer, and 0x440cf0 counts `[player+0x23f8]` down from there while the state stands — a window this
+    // presses into rather than a single frame, and one whose end takes the life.
     if unsafe { mem::read::<i8>(G_PLAYER + PLAYER_STATE) } == PLAYER_HIT {
         word |= BUTTON_BOMB;
     }
-    let wanted = unsafe { where_to_be() };
-    word | unsafe { towards(wanted) }
+    // A dialogue read at the game's own pace is the afternoon this was written to save.
+    if unsafe { Th07::dialogue_line() }.is_some() {
+        word |= BUTTON_SKIP;
+    }
+    let (steer, dodging) = unsafe { steer() };
+    // **低速移動 under a boss**, which is where this game's shots do their damage — and off again the moment
+    // there is something to dodge, the same key halving the step a dodge is made of.
+    if !dodging && unsafe { Th07::boss() }.is_some() {
+        word |= BUTTON_FOCUS;
+    }
+    word | steer
+}
+
+/// **The 十字キー of the safest of the nine one-frame moves**, or the one towards where the rules want to be
+/// where nothing is near enough to dodge.
+///
+/// The safety of a move is how near the nearest bullet gets to where that move lands — so the choice covers
+/// every direction at once, and up and down are dodges as much as left and right. Two regimes and not a blend,
+/// because a blend is a bot that walks into a bullet for an item: inside [`DANGER`] the frame is the dodge, and
+/// outside it the bullets are not read at all.
+///
+/// **Lasers are not in this.** They are their own manager's slots — [`super::G_LASERS`] — and a length and an
+/// angle rather than a point, so nothing here would make them a distance; a launch that dies on one is what
+/// says whether that matters.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn steer() -> (u16, bool) {
+    let at = unsafe { player() };
+    let field = unsafe { field() };
+    let wanted = unsafe { where_to_be(field) };
+    // Where each move lands, held inside the field the way the clamp at 0x43f416 would hold it: a move into a
+    // wall is a move that does not happen, and scoring it as though it did would pick it.
+    let lands = MOVES.map(|(_, dx, dy)| {
+        (
+            (at.0 + dx * A_PROBE).clamp(field.0, field.0 + field.2),
+            (at.1 + dy * A_PROBE).clamp(field.1, field.1 + field.3),
+        )
+    });
+    // One walk of the slots and nine running minima out of it, rather than nine walks. Squared throughout: what
+    // is wanted is which is nearest and not how near, and a square root a slot is a square root wasted.
+    let mut nearest = [f32::INFINITY; MOVES.len()];
+    for slot in 0..BULLET_SLOTS {
+        let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
+        if unsafe { mem::read::<u16>(bullet + BULLET_ALIVE) } == 0 {
+            continue;
+        }
+        // Where it will be and not where it is: its own update adds its step before the frame this word is
+        // played on, so the bullet a dodge has to miss is the one a frame ahead.
+        let (bx, by) = unsafe { position(bullet + BULLET_POSITION) };
+        let (sx, sy) = unsafe { position(bullet + BULLET_STEP) };
+        let (bx, by) = (bx + sx, by + sy);
+        for (near, (x, y)) in nearest.iter_mut().zip(lands) {
+            *near = near.min((x - bx).powi(2) + (y - by).powi(2));
+        }
+    }
+    if nearest[0] >= DANGER * DANGER {
+        return (unsafe { towards(wanted) }, false);
+    }
+    // The **first** of the safest and not the last, which is what [`MOVES`]'s own order is for: `max_by` hands
+    // back the last of a tie, so standing still would lose every one of them to a diagonal and the bot would
+    // step between two equally safe places every frame.
+    let word = MOVES
+        .iter()
+        .zip(nearest)
+        .fold(None, |best, ((word, _, _), near)| match best {
+            Some((_, safest)) if near <= safest => best,
+            _ => Some((*word, near)),
+        })
+        .map_or(0, |(word, _)| word);
+    (word, true)
 }
 
 /// Whether a stage is running to be steered in.
@@ -121,18 +226,28 @@ unsafe fn in_a_stage() -> bool {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn where_to_be() -> (f32, f32) {
-    let field = unsafe { field() };
-    let x = match unsafe { Th07::boss() } {
-        Some(boss) => unsafe { mem::read::<f32>(boss + super::ENEMY_POSITION) },
-        // The nearest power item, or the middle of the field where there is none — a place to wait that is
-        // the shortest way to wherever the next one falls.
-        None => unsafe { nearest_power_item() }.unwrap_or(field.0 + field.2 / 2.0),
-    };
-    (x, field.1 + field.3 - ABOVE_THE_BOTTOM)
+unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    // A power item at the place it actually is, the y as much as the x, so one high up the field is one the bot
+    // goes up for. Under a boss it is that boss's x with the y low, a fight being a thing to stand under rather
+    // than to reach; and with neither it is the middle, low — the shortest way to wherever the next one falls.
+    if let Some(item) = unsafe { nearest_power_item() } {
+        return item;
+    }
+    match unsafe { Th07::boss() } {
+        Some(boss) => (
+            unsafe { mem::read::<f32>(boss + super::ENEMY_POSITION) },
+            low,
+        ),
+        None => (field.0 + field.2 / 2.0, low),
+    }
 }
 
-/// The x of the nearest power item on the screen, or `None` where none is.
+/// The power item worth going for, or `None` where there is none.
+///
+/// **A big one beats a small one wherever both are on the screen**, whatever the distances: 妖々夢's
+/// 大パワーアイテム is eight steps of power against the small one's one, so it is worth crossing the field for
+/// where the small one is worth a step aside. Between two of a kind it is the nearer.
 ///
 /// **Every slot walked and not the live count taken**, because the count says how many there are and not
 /// which slots they are in: the manager leaves a collected item's own numbers where they were and clears
@@ -140,16 +255,26 @@ unsafe fn where_to_be() -> (f32, f32) {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn nearest_power_item() -> Option<f32> {
+unsafe fn nearest_power_item() -> Option<(f32, f32)> {
     let (at_x, at_y) = unsafe { player() };
     (0..ITEM_SLOTS)
         .map(|slot| G_ITEM_MANAGER + slot * ITEM_BYTES)
         .filter(|item| unsafe { mem::read::<i8>(item + ITEM_ALIVE) } != 0)
-        .filter(|item| unsafe { mem::read::<i8>(item + ITEM_KIND) } == ITEM_POWER)
-        .map(|item| unsafe { position(item + ITEM_POSITION) })
-        .map(|(x, y)| ((x - at_x).powi(2) + (y - at_y).powi(2), x))
-        .min_by(|(near, _), (far, _)| near.total_cmp(far))
-        .map(|(_, x)| x)
+        .filter_map(|item| {
+            let worth = match unsafe { mem::read::<i8>(item + ITEM_KIND) } {
+                ITEM_BIG_POWER => 1,
+                ITEM_POWER => 0,
+                _ => return None,
+            };
+            let at = unsafe { position(item + ITEM_POSITION) };
+            Some((worth, (at.0 - at_x).powi(2) + (at.1 - at_y).powi(2), at))
+        })
+        // The worth first and the distance only inside it, which is what makes a big one across the field beat
+        // a small one under the player's hand.
+        .max_by(|(ours, ourm, _), (theirs, theirm, _)| {
+            ours.cmp(theirs).then(theirm.total_cmp(ourm))
+        })
+        .map(|(_, _, at)| at)
 }
 
 /// The 十字キー bits that take the player towards `wanted`, and nothing for an axis it is already on.

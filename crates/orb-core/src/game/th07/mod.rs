@@ -1101,7 +1101,29 @@ const ITEM_SLOTS: usize = 0x44c;
 const ITEM_POSITION: usize = 0x24c;
 const ITEM_KIND: usize = 0x27c;
 const ITEM_ALIVE: usize = 0x27d;
+
+/// The two kinds of power item, and **what tells them apart is how many steps each is worth**: the entry
+/// [`ITEM_POWER`] leads to hands 1 to the step at 0x432fb9 and the entry [`ITEM_BIG_POWER`] leads to hands 8 at
+/// 0x433466 — 妖々夢's 大パワーアイテム. Both read `[run+0x7c]` against 128 first and award a score off the
+/// chain instead where the shot is already full, and the spawn at 0x433b75 is the third place they are treated
+/// as the one thing.
 const ITEM_POWER: i8 = 0;
+const ITEM_BIG_POWER: i8 = 2;
+
+/// The bullets on the screen: **the slots start at `+0xb8c0`** of their own manager and each is
+/// [`BULLET_BYTES`], which is the walk 0x425a6c sets up and 0x4263b3 steps — backwards, and wrapping through
+/// `+0x35a000`, so all [`BULLET_SLOTS`] of them are visited whichever one it began on.
+///
+/// `+0xbfc` is the state the walk tests, a word the dispatch at 0x425b82 jumps through five entries of; the
+/// count at [`BULLET_COUNT`] is raised for every slot whose state is not nothing, so not-nothing is alive.
+/// `+0xb8c` is where it is and `+0xb98` is what its update adds to that, three floats each, which is the
+/// motion at 0x425ccd.
+const BULLETS: usize = 0xb8c0;
+const BULLET_BYTES: usize = 0xd68;
+const BULLET_SLOTS: usize = 0x400;
+const BULLET_ALIVE: usize = 0xbfc;
+const BULLET_POSITION: usize = 0xb8c;
+const BULLET_STEP: usize = 0xb98;
 
 /// Where an enemy is, `+0x2b0c` of it — and a boss is an enemy, so this is where the boss is.
 ///

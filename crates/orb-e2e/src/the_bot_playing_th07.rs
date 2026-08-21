@@ -9,17 +9,16 @@
 //! outside: the word goes in where a playback's own words go in — see `resume::fed` and the read hook in
 //! `runtime` — and what it is made of is the game's own numbers, read where the game keeps them.
 //!
-//! The rules are 妖々夢 on Normal, where the bullets are thin enough that a run does not need to dodge:
+//! The rules are 妖々夢 on Normal, and dodging comes before all of them:
 //!
-//! - the shot held, always
-//! - the bomb the frame the player is hit, which is 妖々夢's own 決死結界 — [`PLAYER_STATE`] is 2 for the
-//!   updates between the hit test finding a bullet and the death handler running, so a bomb pressed there is a
-//!   death taken back
-//! - the y held low in the play field, always — a power item falls, so lining its x up and waiting under it
-//!   is being handed the item without climbing into the bullets for it
-//! - the x held on the boss under a boss, on the nearest power item where one is on the screen, and in the
-//!   middle of the field with neither
-//! - and none of the four steered off a stage or under the pause menu, where the same 十字キー walks a menu
+//! - the shot held, always, and Ctrl while a dialogue is up
+//! - the bomb the frame the player is hit, which is 妖々夢's own 決死結界 — [`PLAYER_STATE`] stands at 2 while
+//!   the game counts a window down, and a bomb inside it is a death taken back
+//! - **a bullet near the player and the frame is spent leaving**: the safest of the nine one-frame moves,
+//!   which is why up and down are dodges as much as left and right
+//! - and with nothing near, the way to a power item — the big one over a small one wherever both are up — or
+//!   the boss's own x with the y low, or the middle of the field low
+//! - none of it pressed off a stage, under the pause menu, or on an update with no stage built yet
 //!
 //! What no laid-out game can say is whether the rules clear the game. That is what a launch says, and the
 //! reason this file holds the rules one at a time instead: a run that dies in stage 3 is a rule that needs
@@ -35,6 +34,9 @@ const WORK_US: i64 = 700;
 /// 妖々夢's own first two buttons, as `Th07` has them: shoot and bomb.
 const SHOT: u16 = 0x001;
 const BOMB: u16 = 0x002;
+/// The one that skips a dialogue, which is Ctrl, and the one that slows the player down, which is Shift.
+const SKIP: u16 = 0x100;
+const FOCUS: u16 = 0x004;
 
 fn playing(name: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
@@ -107,10 +109,11 @@ const RIGHT: u16 = 0x080;
 /// All four, for an assertion about a frame nothing should have been steered on.
 const PAD: u16 = UP | DOWN | LEFT | RIGHT;
 
-/// The two kinds of item these place, as the table at 0x433a5a indexes them: 0 is the one that steps the power
-/// up and 1 is the one worth a score off the chain.
+/// The kinds of item these place, as the table at 0x433a5a indexes them: 0 steps the power up by one, 2 by
+/// eight — 大パワーアイテム — and 1 is the one worth a score off the chain.
 const POWER: i8 = 0;
 const POINT: i8 = 1;
+const BIG_POWER: i8 = 2;
 
 /// A field for these to place things in, as the game's own clamp reads it: left, top, width, height.
 const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
@@ -163,10 +166,10 @@ fn the_bot_keeps_the_player_low() {
     });
 }
 
-/// A power item's x is lined up with, which is what a run of 妖々夢 spends a stage's way through doing: the
-/// item falls, so the x is the whole of what has to be got right.
+/// A power item is gone to, which is what a run of 妖々夢 spends a stage's way through doing — and gone to
+/// where it is, up the field as much as across it.
 #[test]
-fn the_bot_lines_up_with_a_power_item() {
+fn the_bot_goes_for_a_power_item() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-takes-power");
         game.image().the_player_is_at(100.0, LOW);
@@ -177,8 +180,161 @@ fn the_bot_lines_up_with_a_power_item() {
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT | UP,
+            "the bot did not go up and across to the power item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// And **the big one over a small one wherever both are on the screen**, whatever the distances: 妖々夢's
+/// 大パワーアイテム is eight steps of power against the small one's one, so a stage that drops one drops the
+/// thing worth crossing the screen for.
+#[test]
+fn the_bot_goes_for_a_big_power_item_over_a_small_one() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-takes-the-big-power");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The small one under the player's own hand and the big one across the field, so that distance alone
+        // would pick the wrong one.
+        game.image().an_item_is_at(11, POWER, MIDDLE, LOW);
+        game.image().an_item_is_at(900, BIG_POWER, 40.0, 100.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT | UP,
+            "the bot took the small power item under it over the big one:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A bullet near the player is what the frame is spent on, whatever else is on the screen.** Every bomb this
+/// bot spends is a hit it could have moved out of, so dodging comes before the power it was on its way to.
+#[test]
+fn the_bot_dodges_before_it_collects() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-dodges");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The power item to the left, and a bullet on the way to it.
+        game.image().an_item_is_at(700, POWER, 100.0, LOW);
+        game.image()
+            .a_bullet_is_at(500, MIDDLE - 8.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
             RIGHT,
-            "the bot did not line up with the power item to its right:\n  {}",
+            "the bot walked into the bullet on its way to the item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// And **up and down are dodges as much as left and right**: hemmed in on both sides, the way out is the axis
+/// nothing is on.
+#[test]
+fn the_bot_dodges_upwards_where_both_sides_are_shut() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-dodges-upwards");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(3, MIDDLE - 16.0, LOW, (0.0, 0.0));
+        game.image()
+            .a_bullet_is_at(900, MIDDLE + 16.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            UP,
+            "the bot stood between two bullets rather than leaving:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// A bullet is dodged by where it **will be**, not where it is: its own update adds its step to its position
+/// before the frame this word is played on.
+///
+/// Down and to the left of the player and going down and to the right, which is the case that tells the two
+/// apart — away from where it *is* is to the right, and away from where it is *going* is up.
+#[test]
+fn the_bot_dodges_where_the_bullet_is_going() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-dodges-ahead");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(500, MIDDLE - 16.0, LOW, (16.0, 16.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            UP,
+            "the bot dodged where the bullet was rather than where it was going:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A boss is shot at 低速移動**, which is where 妖々夢's shots do their damage — and only where there is
+/// nothing to dodge, the same key halving the step a dodge is made of.
+#[test]
+fn the_bot_shoots_a_boss_slowed_down() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-focuses-on-a-boss");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            0,
+            "the bot slowed down with no boss to shoot at",
+        );
+
+        game.image().a_boss_is_fighting(1000, 0);
+        game.image().the_boss_is_at(MIDDLE, 100.0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            FOCUS,
+            "the bot shot the boss at full speed:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And a bullet near it takes the slowing off again: a dodge at half a step is half a dodge.
+        game.image()
+            .a_bullet_is_at(500, MIDDLE - 8.0, LOW, (0.0, 0.0));
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            0,
+            "the bot dodged at half a step:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// A dialogue is skipped, which is 妖々夢's own Ctrl: a bot that sat through every one of them would spend the
+/// afternoon it was written to save.
+#[test]
+fn the_bot_skips_a_dialogue() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-skips-a-dialogue");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & SKIP,
+            0,
+            "the bot skipped with no dialogue up",
+        );
+
+        game.image().has_a_dialogue();
+        game.image().the_dialogue_is_at_line(0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & SKIP,
+            SKIP,
+            "the bot did not skip the dialogue:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -362,12 +518,12 @@ fn the_bot_presses_nothing_while_the_run_is_paused() {
     });
 }
 
-/// A boss takes the bot off the items, an item across the screen during a fight being a fight left to walk
-/// back into.
+/// **A power item is gone for during a fight too.** A boss drops them, and power is what shortens the next
+/// fight — the boss's own x is where to be with nothing better to do, not a place to be held to.
 #[test]
-fn a_boss_takes_the_bot_off_the_items() {
+fn a_power_item_takes_the_bot_off_a_boss() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-fights-rather-than-collects");
+        let game = in_a_stage("th07-the-bot-collects-during-a-fight");
         game.image().a_boss_is_fighting(1000, 0);
         game.image().the_boss_is_at(100.0, 100.0);
         game.image().the_player_is_at(100.0, LOW);
@@ -376,8 +532,8 @@ fn a_boss_takes_the_bot_off_the_items() {
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            0,
-            "the bot left the boss to go for an item:\n  {}",
+            RIGHT | UP,
+            "the bot stood under the boss with power on the screen:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

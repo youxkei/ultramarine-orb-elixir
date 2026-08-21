@@ -1391,6 +1391,19 @@ impl Image {
         );
     }
 
+    /// A bullet in one of its manager's own slots, alive and where its update would leave it: where it is and
+    /// what that update adds to it every frame.
+    pub fn a_bullet_is_at(&self, slot: usize, x: f32, y: f32, step: (f32, f32)) {
+        let bullet = super::G_BULLET_MANAGER + super::BULLETS + slot * super::BULLET_BYTES;
+        let space = self.space();
+        // The state the walk tests, whose 1 is the first of the five its dispatch knows.
+        space.write::<u16>(bullet + super::BULLET_ALIVE, 1);
+        space.write::<f32>(bullet + super::BULLET_POSITION, x);
+        space.write::<f32>(bullet + super::BULLET_POSITION + size_of::<f32>(), y);
+        space.write::<f32>(bullet + super::BULLET_STEP, step.0);
+        space.write::<f32>(bullet + super::BULLET_STEP + size_of::<f32>(), step.1);
+    }
+
     /// Where the boss is, written into the slot [`Image::a_boss_is_fighting`] hands out — so the two go
     /// together, this one being the position of the enemy that one made a boss.
     pub fn the_boss_is_at(&self, x: f32, y: f32) {
