@@ -76,6 +76,17 @@ struct Launch {
 /// moment the settings could be asked for.
 const MINE: &str = "Read here and not handed on to the game";
 
+/// **Whether the settings are asked**: outright, or because the file wants them and there is a hand there
+/// to answer with.
+///
+/// The dialog is modal and waits, so a launch playing itself to a recipe would sit on it for as long as the
+/// machine was left alone — no game started, and nothing but the dialog to say so. `--settings` still asks,
+/// that being somebody typing it at the keyboard they are sitting at, and it is already the one thing that
+/// asks where the file says not to.
+fn asks_the_settings(ask_at_startup: bool, settings: bool, options: &Options) -> bool {
+    settings || (ask_at_startup && !options.plays_itself())
+}
+
 /// What a host that cannot make the timer orb's frame loop waits on is told.
 ///
 /// Its own words rather than the DLL's, because the two are different situations: the DLL's message is
@@ -330,7 +341,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Before the options are applied, so that what is written back is the settings and not one
     // launch's arguments — and before the game starts, since the DLL reads the same file from
     // inside it.
-    if config.ask_at_startup || launch.settings {
+    if asks_the_settings(config.ask_at_startup, launch.settings, &launch.options) {
         let game_cfg = config.game_dir.join(known.cfg);
         // Said before the dialog, because a pad answering it the wrong way round is this mapping and
         // there is nowhere else it is written down in a form anybody can read.
@@ -615,7 +626,8 @@ fn load_library(process: &inject::Process, dll: &Path) -> Result<(), Box<dyn Err
 #[cfg(test)]
 mod tests {
     use super::{
-        Launch, Refused, bad_command_line, config_path, game_in, no_timer_text, verify_game_exe,
+        Launch, Refused, asks_the_settings, bad_command_line, config_path, game_in, no_timer_text,
+        verify_game_exe,
     };
     use clap::Parser;
     use orb_config::Language;
@@ -821,5 +833,39 @@ mod tests {
         let asked =
             Launch::try_parse_from(["orb", "--help"]).expect_err("the help came back as options");
         assert!(!asked.use_stderr());
+    }
+
+    /// **A launch that plays itself is not asked the settings.** The dialog is modal and waits for a
+    /// hand: a machine left to play a recipe by itself would sit on it until somebody came back, with
+    /// no game ever started and nothing in the log to say why.
+    #[test]
+    fn a_launch_that_plays_itself_is_not_asked_the_settings() {
+        let asked = |ask_at_startup: bool, arguments: &[&str]| {
+            let launch =
+                Launch::try_parse_from(std::iter::once("orb").chain(arguments.iter().copied()))
+                    .expect("a command line orb has every option for");
+            asks_the_settings(ask_at_startup, launch.settings, &launch.options)
+        };
+
+        assert!(
+            asked(true, &[]),
+            "a launch with nobody playing it was not asked",
+        );
+        assert!(
+            !asked(true, &[r"--autoplay=C:\game\recipe.yaml"]),
+            "a launch playing itself was asked the settings",
+        );
+        // `--settings` is somebody typing it at the keyboard they are sitting at, so it is answered
+        // however the run is played — and it is already the one thing that asks where the file says
+        // not to.
+        assert!(
+            asked(true, &["--settings", r"--autoplay=C:\game\recipe.yaml"]),
+            "the settings asked for outright were not asked",
+        );
+        assert!(!asked(false, &[]), "a file saying not to ask was asked");
+        assert!(
+            asked(false, &["--settings"]),
+            "the settings asked for outright were not asked over the file",
+        );
     }
 }

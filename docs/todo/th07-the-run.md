@@ -823,8 +823,17 @@ The parting is the one thing in this file still open — `counted` climbing on t
 that was recorded, at the frame the two of them part. It is measured by playing the same stretch twice, which
 is what this is:
 
+**It is run against a copy of the install and never against the one somebody plays in.** A played game writes
+its records beside itself — `score.dat`, the replays, `pointdevice_resume/`, `orb.log` — so a bot let loose in
+that directory overwrites the evidence of every session before it, including the one it was started to explain.
+What the copy needs is `th07.exe`, `th07.dat`, `thbgm.dat`, `th07.cfg` and `score.dat`, and it wants none of the
+`replay*/` directories: the run this measures is one the bot plays from nothing.
+
+The copy has to be somewhere a Windows process can open, which a path under this repository is not — the
+recipe is read by the game's own process, at the attach.
+
 ```yaml
-# Beside the game's exe, since the game's own process is what reads it: `L:\game\...\th07\parting.yaml`.
+# Beside that copy's exe, since the game's own process is what reads it: `<copy>\parting.yaml`.
 - press: [decide]                        # orb's own question, which of the two things a run is
   frames: 2
 - wait_until: { frames: 10 }             # released, or the next press is no edge for the menu to see
@@ -839,7 +848,7 @@ is what this is:
 ```
 
 ```sh
-scripts/run.sh /path/to/th07 --autoplay='L:\game\ShanghaiAlice\th07\parting.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\parting.yaml' --log=verbose
 ```
 
 **What the launch has to say** is two things, and the first is not about the parting at all: whether the

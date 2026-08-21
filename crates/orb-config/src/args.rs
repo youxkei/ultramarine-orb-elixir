@@ -171,6 +171,15 @@ impl Options {
             .filter(|word| word.starts_with("--"));
         CommandLine::try_parse_from(std::iter::once("orb").chain(words)).map(|line| line.options)
     }
+
+    /// **Whether this launch plays the run itself**, which is `--autoplay` naming a recipe.
+    ///
+    /// Asked before the recipe is read, and so of the option rather than of [`Config::autoplay`]: a file
+    /// that would not open leaves that as nothing, and a launch nobody is sitting at is still a launch
+    /// nobody is sitting at — see the settings dialog in the launcher.
+    pub fn plays_itself(&self) -> bool {
+        self.autoplay.is_some()
+    }
 }
 
 impl Config {
