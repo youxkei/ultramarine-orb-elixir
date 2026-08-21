@@ -49,6 +49,19 @@ use orb_core::runtime;
 /// frame being nothing beside a frame.
 static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
 
+/// How long a tap holds and then lets go for, where the walker taps something a recipe did not ask for: long
+/// enough that a screen with a wait of its own takes the press, short enough to be through a menu of a few
+/// items in a moment.
+const A_TAP: u32 = 10;
+
+/// How often a step that has not ended says how long it has been going.
+///
+/// **Which is what a launch nobody is watching needs of its log.** Three launches in a row sat on a screen the
+/// rules could not answer, and every one of them was found by somebody looking at the screen rather than at the
+/// log — so a step says where it is at, and a stall is a thing to `grep` for. Ten seconds of frames, which is
+/// often enough to catch one and rare enough that a `play_until` a whole stage away says it a few dozen times.
+const STILL_WAITING: u32 = 600;
+
 struct Playing {
     steps: Vec<Step>,
     /// Which step is being carried out, and how many frames of it have gone by. A step is finished by moving
@@ -179,6 +192,7 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::Question(name) => Wait::Question(match name.as_str() {
             "mode" => Question::Mode,
             "resume" => Question::Resume,
+            "retry" => Question::Retry,
             _ => {
                 log!(
                     "autoplay: the recipe cannot be read: step {at} waits for a question orb does \
@@ -196,9 +210,25 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let playing = held.as_mut()?;
+    // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: 完全無欠モード
+    // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
+    // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
+    // rather than held, a menu answering the frame a button goes down.
+    if reached.question == Some(Question::Retry) {
+        playing.frames += 1;
+        return Some(if ((playing.frames - 1) / A_TAP).is_multiple_of(2) {
+            game.button_bit("decide").unwrap_or(0)
+        } else {
+            0
+        });
+    }
     let Some(step) = playing.steps.get(playing.at) else {
-        // Past the last step, which is the run played by the game's own rules for as long as it lasts.
-        return Some(unsafe { game.word_to_press() });
+        // Past the last step, which is the run played by the game's own rules for as long as it lasts — and
+        // **nothing at all where those have nothing to say**, which is not the same as a word of no buttons:
+        // this is the read the game makes on every screen, and a rule with no opinion about the screen that is
+        // up should leave the read where it found it. A `wait` step's own silence is a word and stays one.
+        let word = unsafe { game.word_to_press() };
+        return (word != 0).then_some(word);
     };
     playing.frames += 1;
     let (word, over) = match step {
@@ -265,6 +295,15 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             playing.steps.len(),
             if gave_up { "gave up" } else { "done" }
         );
+    } else if playing.frames.is_multiple_of(STILL_WAITING) {
+        // **Where it has got to, for a launch nobody is watching.** A step that never ends is the shape every
+        // stall so far has had, and until this said so each of them was found by somebody looking at the screen.
+        log!(
+            "autoplay: step {} of {} is still waiting, {} frame(s) in",
+            playing.at + 1,
+            playing.steps.len(),
+            playing.frames,
+        );
     }
     Some(word)
 }
@@ -278,4 +317,57 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         Wait::Question(question) => reached.question == Some(*question),
         Wait::Frames(wanted) => frames >= *wanted,
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{A_TAP, install, word_to_press};
+    use orb_core::game::{Game, Question, Reached, th07::Th07};
+
+    /// The game these are read against, which is 妖々夢 for the reason every recipe test uses it: what a button
+    /// name *is* is the game's, and this is the game whose bot the recipes were written for.
+    const GAME: &Th07 = &Th07;
+
+    /// Where the run has got to, with a question of orb's own up or none.
+    fn reached(question: Option<Question>) -> Reached {
+        Reached {
+            stage: 1,
+            chapter: 1,
+            question,
+        }
+    }
+
+    /// **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on.
+    ///
+    /// 完全無欠モード is a mode whose whole content is that a death is retried, and a launch that sat on that
+    /// menu stopped at its first death — waiting out its step's own bound on the screen it died on. It cannot be
+    /// a step, because a death lands in the middle of one and no recipe can say when.
+    ///
+    /// **Tapped and not held**, a menu answering the frame a button goes down: held, it walks one screen of the
+    /// menu and then holds it.
+    #[test]
+    fn orbs_own_offer_to_retry_is_taken_wherever_it_comes_up() {
+        // A recipe of no steps, so that nothing but the offer decides what is pressed.
+        unsafe { install("[]", GAME) };
+        let decide = GAME
+            .button_bit("decide")
+            .expect("妖々夢 decides with something");
+
+        let mut pressed = Vec::new();
+        for _ in 0..A_TAP * 2 {
+            pressed.push(word_to_press(GAME, reached(Some(Question::Retry))));
+        }
+        assert_eq!(
+            pressed,
+            [
+                vec![Some(decide); A_TAP as usize],
+                vec![Some(0); A_TAP as usize]
+            ]
+            .concat(),
+            "the offer was not tapped for {A_TAP} frames and let go for as many",
+        );
+    }
+    // What is pressed with no offer up is the run played by the game's own rules, which reads where the game
+    // keeps its numbers — so it is read against a laid-out game rather than here: `orb-e2e`'s
+    // `the_bot_playing_th07`.
 }

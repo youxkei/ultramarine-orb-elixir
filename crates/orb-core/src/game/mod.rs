@@ -1606,6 +1606,10 @@ pub enum Question {
     Mode,
     /// `resume` — where to start, for a run left unfinished.
     Resume,
+    /// `retry` — where to start again, for a run that died. Which is the whole of the mode being played, so a
+    /// bot takes it wherever it comes up rather than waiting for a step to say so: a death lands in the middle
+    /// of one.
+    Retry,
 }
 
 /// The game's state for one frame, read all at once so that everything in it

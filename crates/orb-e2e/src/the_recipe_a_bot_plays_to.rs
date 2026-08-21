@@ -31,6 +31,9 @@ const WORK_US: i64 = 700;
 const SHOT: u16 = 0x001;
 const BOMB: u16 = 0x002;
 
+/// How often a step that has not ended says how long it has been, as `orb_bot::STILL_WAITING` has it.
+const STILL_WAITING: u32 = 600;
+
 /// A recipe of two steps, each a word and how long to hold it — the shape every screen is driven with.
 const RECIPE: &str = "\
 - press: [shot]
@@ -152,6 +155,45 @@ fn a_step_that_gives_up_ends_when_it_says() {
         assert!(
             game.log().said("autoplay: step 1 of 2 gave up"),
             "giving up was not said:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A step that is getting nowhere says so, over and over, for as long as it is getting nowhere.**
+///
+/// Which is what a launch nobody is watching needs of its log: three launches in a row sat on a screen the
+/// rules could not answer — orb's own offer to retry a death, whose menu reads the keyboard rather than the word
+/// the bot presses — and every one of them was found by somebody looking at the screen. A line at a time makes
+/// it `grep`, and the count in it says how long.
+#[test]
+fn a_step_that_is_getting_nowhere_says_so() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-getting-nowhere",
+            Work::wandering(WORK_US),
+            |config| {
+                // Waiting for something nothing will put up, and with nothing to end it: the shape every stall
+                // has had.
+                config.autoplay = Some("- wait_until: { question: retry }\n".to_owned());
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        words(&game, STILL_WAITING * 2 + 10);
+        let said = game
+            .log()
+            .lines()
+            .iter()
+            .filter(|line| line.contains("autoplay: step 1 of 1 is still waiting"))
+            .count();
+        assert_eq!(
+            said,
+            2,
+            "a step that got nowhere for {} frames did not say so twice:\n  {}",
+            STILL_WAITING * 2,
             game.log().lines().join("\n  "),
         );
     });

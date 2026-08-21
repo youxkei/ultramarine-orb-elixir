@@ -417,6 +417,8 @@ pub type PlaysTheRun = fn(&'static dyn Game, Reached) -> Option<u16>;
 struct Playing {
     word: PlaysTheRun,
     reached: Reached,
+    /// What it is pressing this frame, asked for once where the frame begins — see [`what_is_reached`].
+    pressing: Option<u16>,
 }
 
 /// The game closed, for whatever is playing the run having finished with it.
@@ -442,6 +444,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             chapter: 0,
             question: None,
         },
+        pressing: None,
     });
 }
 /// The game's chain functions, which orb has hooked, so calling them from its own
@@ -953,7 +956,62 @@ impl Runtime {
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn pad(game: &dyn Game) -> Pad {
-    unsafe { game.pad(joystick::reading()) }
+    let mut pad = unsafe { game.pad(joystick::reading()) };
+    // **And what a launch playing itself is pressing, as though it were pushing the pad.** orb's own screens —
+    // the mode question, the offer of a run left unfinished, the offer to retry a death — read the keyboard and
+    // the pad, and a bot's word goes to the *game*: without this there is no way for one to answer them, and a
+    // launch that died sat on that offer until somebody looked at the screen. The pad rather than the keyboard
+    // because a pad is already a set of named buttons, which is what a word is.
+    if let Some(word) = pressing() {
+        let held = |name| game.button_bit(name).is_some_and(|bit| word & bit != 0);
+        pad.shot |= held("shot");
+        pad.bomb |= held("bomb");
+        pad.focus |= held("focus");
+        pad.skip |= held("skip");
+        pad.up |= held("up");
+        pad.down |= held("down");
+        pad.left |= held("left");
+        pad.right |= held("right");
+    }
+    pad
+}
+
+/// **Where the run has got to and what the bot presses for it**, worked out once where the frame begins.
+///
+/// Once because the walker counts the frames it has been on a step, so a second ask would be a second frame;
+/// and *here* because the blocks after this one hold the frame back and return — orb's own offer to retry a
+/// death is one of them, so a fill any later never says a retry is up at all, which is a bot that cannot be told
+/// to answer it.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn what_is_reached(runtime: &Runtime) {
+    let mut held = PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(playing) = held.as_mut() else {
+        return;
+    };
+    playing.reached.chapter = runtime.chapters.number();
+    playing.reached.question = if runtime.asking.is_some() {
+        Some(Question::Mode)
+    } else if runtime.asking_resume.is_some() {
+        Some(Question::Resume)
+    } else if runtime.retry.is_some() {
+        Some(Question::Retry)
+    } else {
+        None
+    };
+    playing.pressing = (playing.word)(runtime.game, playing.reached);
+}
+
+/// What the bot is pressing this frame, or nothing where no launch is playing itself.
+fn pressing() -> Option<u16> {
+    PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .and_then(|playing| playing.pressing)
 }
 
 /// Takes the answer to the mode question: what a run does, and which of the two files the
@@ -1437,13 +1495,10 @@ pub extern "system" fn get_input() -> u16 {
     // would do instead — see `Game::word_to_press` and `Config::autoplay`.
     // **Every read and not only a stage's**, because the steps of a recipe are screens: the mode question, the
     // title, the difficulty and the shot are all read through here and none of them is a frame of a stage.
-    if let Some((word, reached)) = PLAYING_IT
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .as_ref()
-        .map(|playing| (playing.word, playing.reached))
-        && let Some(word) = word(game, reached)
-    {
+    // Asked for where the frame began rather than here, so that a walker counting the frames it has been on a
+    // step counts each of them once — this read happens more than once on some screens, and orb's own menus want
+    // the same word out of [`pad`]. See [`what_is_reached`].
+    if let Some(word) = pressing() {
         unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(frame)) };
         return word;
     }
@@ -1954,6 +2009,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
+    unsafe { what_is_reached(runtime) };
     // Before anything that can return early, because what this watches is the game's own counting of time and
     // the frames it counts on include the ones orb holds the chain back for — the mode question among them, which
     // is exactly the screen where nobody has chosen yet whose time it is.
@@ -2309,26 +2365,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         unsafe { watch_music(runtime, &state) };
     }
 
-    // Where the run has got to, for the recipe a launch playing itself is being played to: what carries one
-    // out is the game's, and this is the part of it orb knows and no game does — see `Game::word_to_press`. Said
-    // here because the read that asks for a word is the game's own keyboard, with no `Runtime` anywhere near
-    // it; one frame of lag at the very worst, on a question about which screen is up.
+    // The stage a run has got to, which is the one part of [`Reached`] that needs a stage read: the rest of it
+    // is filled where the frame begins — see [`what_is_reached`], and the reason it cannot wait until here.
     if let Some(playing) = PLAYING_IT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_mut()
     {
-        playing.reached = Reached {
-            stage: state.stage + 1,
-            chapter: runtime.chapters.number(),
-            question: if runtime.asking.is_some() {
-                Some(Question::Mode)
-            } else if runtime.asking_resume.is_some() {
-                Some(Question::Resume)
-            } else {
-                None
-            },
-        };
+        playing.reached.stage = state.stage + 1;
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb
