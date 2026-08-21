@@ -817,6 +817,25 @@ The rules 妖々夢 is played by are in `crates/orb-core/src/game/th07/bot.rs`, 
 `the_bot_playing_th07.rs` that pins it. **What no laid-out game can say is whether they clear the game**, and
 that is this section: a launch says it, and a run that dies says which rule to look at.
 
+### What is left between the bot and a run it is never hit on
+
+Four stages with one hit is where it stands, and that hit said `with 6.4 of room` — the box overlap the game's
+own test uses said the move was clear and the game hit it anyway. So what is left is not a hitbox but **where a
+hazard will be**, and there are two leads and no third:
+
+- **A bullet's motion is not one branch.** 0x425ccd adds `+0xb98` to the position, which is what `bot::steer`
+  projects; 0x425faf adds `+0xb98` scaled by `[0x498a54]/[0x498a70]`, which is slower and so only makes the bot
+  early; and 0x42619f and 0x426287 are two more branches nobody has read. One of those is where a bullet that
+  turns gets its turn, and a projection along a straight line is wrong for it in exactly the way a hit with room
+  to spare looks.
+- **A laser that turns.** `bot::steer` reads the angle at `+0x4a4` and uses it for every frame it looks at, and
+  nothing reads what moves that angle. 妖々夢 has cards of turning lasers — 1面's last is one — so a beam three
+  frames from now is not where the model puts it.
+
+Both are the same shape of reading: which of a thing's states it is in, and what that state does to it per
+frame. And both are worth doing only against the hit log — `autoplay: hit while pressing …, with … of room` is
+what says whether a change helped, and it is what turned 72 hits into 1.
+
 ### The lasers, which the bot does not see
 
 `bot::steer` reads every bullet and every enemy and **no laser at all**, so a run that is clipped by one is a
