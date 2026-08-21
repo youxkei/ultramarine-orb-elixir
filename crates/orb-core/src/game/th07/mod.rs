@@ -60,9 +60,70 @@ use orb_api::{Device, SoundBuffer, Texture, Viewport};
 use crate::audio::{Music, Track};
 use crate::game::{
     Boundary, Call, Entered, Face, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, Reproduction, RunStart, State,
+    Rect, RunStart, State,
 };
 use crate::{detail, log};
+
+/// **What one pass of a stage of 妖々夢 is held against another's**, which is this game's numbers and
+/// nobody else's — see `Game::reproduction` for why the type is per game and what a shared one carried.
+///
+/// **Four of 紅魔郷's are gone from it**, which is what a shared struct had this game answering zero for:
+/// the box the player is held inside, the extra lives the score has paid for, and the rank and the subrank.
+/// 妖々夢 pays for its extra lives out of the cherry and has no rank at all.
+///
+/// **And three of its own are in it**, which is what a divergence of the family this game keeps producing
+/// turns on: two runs of a stage agreed on every field of the old line — the same buttons, the same place,
+/// the same items in the air, the same word out of the generator — and then one of them took 2000 points
+/// the other did not. See [`AWARD_STEP`], which is what an award is charged against, and
+/// [`COUNTED_ALL_RUN`] beside it. A line that does not carry them is a line that says a divergence is
+/// somewhere without saying where.
+///
+/// A field changed here makes every file already written disagree at it — a chapter is written down with
+/// the line of its own frame — and the version does not catch it. Which is why this is 妖々夢's own and
+/// changing it cannot reach 紅魔郷, whose file is frozen at what shipped.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Reproduction {
+    /// `ReplayManager::frameId`, which the replay walks its record of inputs by. Its own count, not the
+    /// stage's: a frame the game does not update does not advance it. Negative while a stage is still
+    /// being built, which is `Game::reproduction`'s `None`.
+    replay_frame: i32,
+    /// The buttons the update acted on.
+    input: u16,
+    player: (f32, f32),
+    /// How many numbers have come out of the generator since the stage seeded it, and the generator
+    /// itself — which is the one number a wrong stage start can be wrong in while every other field of
+    /// this line is right.
+    randoms: u32,
+    seed: u16,
+    /// Items in the air, which nothing about a stage's start puts back to none.
+    items: u32,
+    /// The score as the run holds it, which is [`SCORE`] and not the number the panel draws.
+    score: u32,
+    award_step: u8,
+    counted: i32,
+    captured: i32,
+}
+
+impl std::fmt::Display for Reproduction {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "replay_frame={} input={:#06x} player={:.2},{:.2} randoms={} rng={:#06x} items={} \
+             score={} step={} counted={} captured={}",
+            self.replay_frame,
+            self.input,
+            self.player.0,
+            self.player.1,
+            self.randoms,
+            self.seed,
+            self.items,
+            self.score,
+            self.award_step,
+            self.counted,
+            self.captured,
+        )
+    }
+}
 
 pub struct Th07;
 
@@ -1805,6 +1866,32 @@ const PANEL_DRAW: usize = 0x00427f22;
 const CHAIN_DRAW_LIST: usize = 0x20;
 
 impl Th07 {
+    /// **What a pass of one of this game's stages is**, every number of it read where this game keeps it —
+    /// see [`Reproduction`], which is 妖々夢's own type, and `Game::reproduction`, which is the line.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    unsafe fn reproduced(&self) -> Reproduction {
+        let run = unsafe { self.run_numbers() };
+        Reproduction {
+            replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
+                .filter(|manager| *manager != 0)
+                .and_then(mem::read_committed::<i32>)
+                .unwrap_or(-1),
+            input: unsafe { mem::read(G_INPUT_THE_RUN_ACTS_ON) },
+            player: (unsafe { mem::read(G_PLAYER + PLAYER_POSITION) }, unsafe {
+                mem::read(G_PLAYER + PLAYER_POSITION + size_of::<f32>())
+            }),
+            randoms: unsafe { mem::read(G_RANDOM + RANDOMS_DRAWN) },
+            seed: unsafe { mem::read(G_RANDOM) },
+            items: unsafe { mem::read(G_ITEM_MANAGER + ITEM_COUNT) },
+            score: run.map_or(0, |run| unsafe { mem::read(run + SCORE) }),
+            award_step: unsafe { mem::read(AWARD_STEP) },
+            counted: run.map_or(0, |run| unsafe { mem::read(run + COUNTED_ALL_RUN) }),
+            captured: run.map_or(0, |run| unsafe { mem::read(run + CARDS_CAPTURED) }),
+        }
+    }
+
     /// The run's own numbers, or nothing where there is no run: the pointer at [`G_RUN_NUMBERS`] is null
     /// until the added callback allocated the object, and every read of a field of it goes through here.
     ///
@@ -3619,19 +3706,19 @@ impl Game for Th07 {
         }
     }
 
+    /// **Every field of them, out of the struct rather than out of a list written here.**
+    ///
+    /// A list is a second place to edit whenever [`resume::Numbers`] grows, and it is the place nothing
+    /// fails when it is wrong. Three numbers were added to what a resume carries over three launches and
+    /// not one of them reached this line, so each of those launches produced a log that could not answer
+    /// the question the next launch was asked for — and the question was answered in the end by reading the
+    /// file off the disk, which only worked because nothing had overwritten it yet.
+    ///
+    /// The seed is said again in front of it because a generator's state is `0x1a2b` everywhere else in the
+    /// log and `{:?}` has no way to say so.
     fn say_run_state(&self, state: &[u8]) -> String {
         match resume::decode_state(state) {
-            Some(state) => format!(
-                "score={} seed={:#06x} lives={} bombs={} power={} cherry={} of {} plus={}",
-                state.score,
-                state.seed,
-                state.lives,
-                state.bombs,
-                state.power,
-                state.cherry,
-                state.cherry_target,
-                state.cherry_plus,
-            ),
+            Some(state) => format!("seed={:#06x} {state:?}", state.seed),
             None => "numbers of another game's run".to_owned(),
         }
     }
@@ -3825,34 +3912,12 @@ impl Game for Th07 {
             .is_some_and(|phase| phase == RESULT_FROM_A_RUN || phase == RESULT_FROM_A_PRACTICE_RUN)
     }
 
-    /// What a run's own frame looks like, for telling a resumed run from the recording it came from — every
-    /// field of it read where this game keeps it.
-    ///
-    /// **Three are nothing and each says why.** `extra_lives` and `rank` and `sub_rank` are 紅魔郷's: this game
-    /// pays its extra lives out of the three cherry counters rather than the score and has no rank at all —
-    /// [`Th07::run_state`] and [`SCORE`] say where those readings come from. And `player_area` is unread: the
-    /// play area is a constant here ([`PLAY_AREA`]) and whether the game narrows the player's own is not
-    /// measured, so a zero says *unknown* rather than *unchanged*.
-    unsafe fn reproduction(&self) -> Reproduction {
-        let run = unsafe { self.run_numbers() };
-        Reproduction {
-            replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
-                .filter(|manager| *manager != 0)
-                .and_then(mem::read_committed::<i32>)
-                .unwrap_or(-1),
-            input: unsafe { mem::read(G_INPUT_THE_RUN_ACTS_ON) },
-            player: (unsafe { mem::read(G_PLAYER + PLAYER_POSITION) }, unsafe {
-                mem::read(G_PLAYER + PLAYER_POSITION + size_of::<f32>())
-            }),
-            player_area: (0.0, 0.0),
-            randoms: unsafe { mem::read(G_RANDOM + RANDOMS_DRAWN) },
-            seed: unsafe { mem::read(G_RANDOM) },
-            items: unsafe { mem::read(G_ITEM_MANAGER + ITEM_COUNT) },
-            score: run.map_or(0, |run| unsafe { mem::read(run + SCORE) }),
-            extra_lives: 0,
-            rank: 0,
-            sub_rank: 0,
-        }
+    unsafe fn mid_build(&self) -> bool {
+        unsafe { self.reproduced() }.replay_frame < 0
+    }
+
+    unsafe fn reproduction(&self) -> String {
+        unsafe { self.reproduced() }.to_string()
     }
 
     /// The table [`chapters`] holds, which is a stage per entry and nothing in any of them yet — so a chapter
@@ -4128,17 +4193,18 @@ mod tests {
         assert!(!unsafe { Th07.read_state() }.in_dialogue);
     }
 
-    /// Every field of a frame's reproduction read where this game keeps that field, which is what a resumed run
-    /// is held against: the word the run acts on, the player's position, the generator and how many numbers it
-    /// has drawn, the items on the screen, the run's score, and the frame a playback is on.
+    /// Every number of a frame's reproduction read where this game keeps it, and said in the line a resumed
+    /// run is held against: the word the run acts on, the player's position, the generator and how many
+    /// numbers it has drawn, the items in the air, the run's score, and the three counts an award is charged
+    /// against.
     ///
-    /// **The replay's frame is -1 where nothing is playing back**, rather than 0: frame 0 is a replay on its
-    /// first frame, and a resume that compared the two would call a landing right on a run that has no replay at
-    /// all.
+    /// **The line itself and not fields**, because the line is what the file keeps and what
+    /// `resume::differs` holds against another — see [`Th07::reproduction`]. Which is also why it is written
+    /// out here in full: a field renamed or dropped is every file already written disagreeing at it, and
+    /// this is the test that says so out loud.
     ///
-    /// Four of the fields are nothing here and the test says so: this game pays its extra lives out of the cherry
-    /// rather than the score and has no rank of either kind, and whether it narrows the player's own area is
-    /// unmeasured — see [`Th07::reproduction`].
+    /// **And nothing at all where no replay is playing back**, which is a stage still being built: its
+    /// numbers do not exist yet, so there is nothing to hold against another pass.
     #[test]
     fn a_frames_reproduction_is_read_where_this_game_keeps_each_of_them() {
         let image = Image::laid_out_seeded(0);
@@ -4152,28 +4218,24 @@ mod tests {
         image.generator_is_at(0x4321);
         image.the_generator_has_drawn(909);
         image.items_alive(12);
+        image.the_run_has_counted(9_614);
+        image.the_run_has_captured(11);
+        image.the_awards_have_climbed_to(19);
 
-        let landed = unsafe { Th07.reproduction() };
-        assert_eq!(landed.input, PAD_LEFT | PAD_UP);
-        assert_eq!(landed.player, (-64.0, 128.0));
-        assert_eq!((landed.seed, landed.randoms), (0x4321, 909));
-        assert_eq!(landed.items, 12);
-        assert_eq!(landed.score, 7_654_321);
-        assert_eq!(landed.replay_frame, -1, "no replay is playing back");
-        assert_eq!(
-            (
-                landed.extra_lives,
-                landed.rank,
-                landed.sub_rank,
-                landed.player_area
-            ),
-            (0, 0, 0, (0.0, 0.0))
+        assert!(
+            unsafe { Th07.mid_build() },
+            "a stage with no replay frame was not read as one still being built",
         );
 
-        // And a replay being watched: the frame is that manager's own counter.
+        // And the line, with a replay being watched: the frame in front of it is that manager's own counter.
         image.a_replay_covers_the_stage(3);
-        image.the_replay_is_at(4242);
-        assert_eq!(unsafe { Th07.reproduction() }.replay_frame, 4242);
+        image.the_replay_is_at(4886);
+        assert!(!unsafe { Th07.mid_build() });
+        assert_eq!(
+            unsafe { Th07.reproduction() },
+            "replay_frame=4886 input=0x0050 player=-64.00,128.00 randoms=909 rng=0x4321 items=12 \
+             score=7654321 step=19 counted=9614 captured=11",
+        );
     }
 
     /// A menu of the game's own stops a run, which is what `paused` says: the update refuses to run the

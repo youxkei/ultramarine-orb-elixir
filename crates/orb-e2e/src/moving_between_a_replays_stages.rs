@@ -15,9 +15,10 @@
 use crate::fake::th06::{ATTACK_CHANGES, Fake, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
+use orb_core::game::Game;
+use orb_core::game::th06::Reproduction;
 use orb_core::game::th06::Th06;
 use orb_core::game::th06::image::{RECORD_ENDS_AT, chain_job};
-use orb_core::game::{Game, Reproduction};
 
 /// The two keys a stage move is made of, as orb fixes them: the across key held, and next or back
 /// pressed. `orb_config::keys` is where their numbers are, orb's own names for them being its own.
@@ -232,7 +233,7 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
         let game = watching("a-replay-the-shake");
         // Where a stage starts the player, which is what the next one has to start it at as well: measured
         // from the arcade region, and that region is what a shake writes over.
-        let starts_at = unsafe { Th06.reproduction() }.player;
+        let starts_at = unsafe { Th06.reproduced() }.player;
         game.frames_until("the stage played into", 600, || {
             game.state().stage_frames > INTO_THE_STAGE
         });
@@ -275,7 +276,7 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
 
         // Which is what the next stage's player is measured from, so it starts where a stage starts one.
         assert_eq!(
-            unsafe { Th06.reproduction() }.player,
+            unsafe { Th06.reproduced() }.player,
             starts_at,
             "the stage after the shake began the player somewhere a stage does not",
         );
@@ -293,7 +294,7 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
 fn a_screen_shake_left_to_run_out_puts_the_region_back_itself() {
     in_its_own_process(|| {
         let game = watching("a-replay-the-shake-run-out");
-        let starts_at = unsafe { Th06.reproduction() }.player;
+        let starts_at = unsafe { Th06.reproduced() }.player;
         let field = Th06.play_area();
         game.frames_until("the stage played into", 600, || {
             game.state().stage_frames > INTO_THE_STAGE
@@ -330,7 +331,7 @@ fn a_screen_shake_left_to_run_out_puts_the_region_back_itself() {
             game.log().lines().join("\n  ")
         );
         assert_eq!(
-            unsafe { Th06.reproduction() }.player,
+            unsafe { Th06.reproduced() }.player,
             starts_at,
             "the stage after the shake began the player somewhere a stage does not",
         );
@@ -359,19 +360,19 @@ fn a_shakes_own_frames_each_draw_four_numbers() {
         });
 
         // The stage on its own first.
-        let before = unsafe { Th06.reproduction() }.randoms;
+        let before = unsafe { Th06.reproduced() }.randoms;
         game.frames(COUNTED);
-        let quiet = unsafe { Th06.reproduction() }.randoms - before;
+        let quiet = unsafe { Th06.reproduced() }.randoms - before;
 
         // And the same span with a shake running through the whole of it.
         game.bombs();
-        let at_the_bomb = unsafe { Th06.reproduction() }.randoms;
+        let at_the_bomb = unsafe { Th06.reproduced() }.randoms;
         game.frames(COUNTED);
         assert!(
             game.image().shaking_the_screen(),
             "the shake was over before the span this counts, so what it counted is not a shake's",
         );
-        let shaken = unsafe { Th06.reproduction() }.randoms - at_the_bomb;
+        let shaken = unsafe { Th06.reproduced() }.randoms - at_the_bomb;
         assert_eq!(
             shaken - quiet,
             4 * COUNTED,
@@ -523,10 +524,10 @@ fn a_stage_played_twice_across_a_move_agrees_to_the_last_digit() {
             // That frame's own numbers first, it being the stage's first update: a pass that only recorded
             // what the frames after it left would be a pass with the first update missing from both sides.
             let mut line = Vec::with_capacity(over as usize + 1);
-            line.push(unsafe { Th06.reproduction() });
+            line.push(unsafe { Th06.reproduced() });
             for _ in 0..over {
                 game.frame();
-                line.push(unsafe { Th06.reproduction() });
+                line.push(unsafe { Th06.reproduced() });
             }
             line
         };

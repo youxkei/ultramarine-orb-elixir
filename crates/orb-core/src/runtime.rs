@@ -3023,9 +3023,11 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // was left holding it reads as a death on the frame the resume landed.
     runtime.previous = None;
     let landed = unsafe { runtime.game.reproduction() };
+    // The score is not on this line, the reproduction lines under it carrying it: what a game keeps a score
+    // in is that game's own field and this is every game's summary — see `Game::reproduction`.
     log!(
         "resume: {frames} update(s) run; stage {} frame {} (script {}) in chapter {} ({}), \
-         written down as chapter {} ({}) at frame {}; lives={} bombs={} power={} score={}",
+         written down as chapter {} ({}) at frame {}; lives={} bombs={} power={}",
         reached.stage + 1,
         reached.stage_frames,
         reached.script_frames,
@@ -3040,9 +3042,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         reached.lives,
         reached.bombs,
         reached.power,
-        landed.score,
     );
-    let landed = landed.to_string();
     match resume::differs(&landing.reproduction, &landed) {
         None => log!("resume: the landing is the frame that was written down, field for field"),
         Some(field) => {
@@ -3232,13 +3232,14 @@ unsafe fn reproduced(runtime: &Runtime, state: &State) {
         return;
     }
     let game = runtime.game;
-    let reproduction = unsafe { game.reproduction() };
     // The update that runs while the game is building a stage, where the replay's own
     // clock does not exist yet and the player and the play field read as zeroes. There is
-    // nothing there to hold against another pass.
-    if reproduction.replay_frame < 0 {
+    // nothing there to hold against another pass, and which field says so is the game's —
+    // see `Game::mid_build`.
+    if unsafe { game.mid_build() } {
         return;
     }
+    let reproduction = unsafe { game.reproduction() };
     detail!(
         "sync: stage={} frame={} script={} {} lives={} bombs={} power={} deaths={} \
          enemies={} bullets={} lasers={} attack={} spell={}{}{}",

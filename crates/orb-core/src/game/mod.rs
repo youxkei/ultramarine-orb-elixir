@@ -1468,9 +1468,51 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn run_finished(&self) -> bool;
 
+    /// **The line one pass of a stage is held against another's, in the game's own words.**
+    ///
+    /// Two passes over one stage have to agree on all of it, frame for frame. That is the premise
+    /// chapters rest on — a boundary is a frame number, and a step back replays the stage to reach it —
+    /// so when they disagree, the first frame they disagree on and which of its numbers it was are the
+    /// whole of the diagnosis.
+    ///
+    /// **The numbers in it are the game's own and so is the type they are held in** —
+    /// `th06::Reproduction` and `th07::Reproduction`, the way each game's resume file has its own
+    /// `Numbers`. What stood here before was one struct carrying the union of both: the box the player is
+    /// held inside, the extra lives the score has paid for, the rank and the subrank are 紅魔郷's, and
+    /// 妖々夢 answered zero for all four and printed them on every line. The union of every 東方 game is
+    /// not one kind of game to take a union of — a photo game and a versus game have none of the four
+    /// either, and no lives to pay for at all.
+    ///
+    /// A line rather than either type, because the two things done with one are printing it and holding it
+    /// against a written one — and the written one is text, a file's own field being the line as the log
+    /// prints it so that somebody can hold the two together by eye. [`crate::resume::differs`] is what
+    /// holds them, by splitting `key=value` and comparing by name, and it knows no game's names.
+    ///
+    /// Always a line, `replay_frame=-1` and zeroes included: the frame before a stage exists is a frame two
+    /// passes agree about as much as any other. What skips such a frame is [`Game::mid_build`], and only
+    /// the one instrument that has nothing to say about it.
+    ///
+    /// **What a line says cannot be changed without the files that hold one becoming unreadable in the
+    /// only way [`crate::resume`] cannot catch**: a chapter is written down with the line of its own
+    /// frame, and a file written before the change disagrees at the first field of it while the version
+    /// says nothing is wrong. Which is per game, this being per game.
+    ///
     /// # Safety
     /// Must run on the game's main thread, with a stage running.
-    unsafe fn reproduction(&self) -> Reproduction;
+    unsafe fn reproduction(&self) -> String;
+
+    /// **Whether the game is on the update that runs while a stage is still being built**, where the
+    /// replay's own clock does not exist yet and the player and the play field read as zeroes.
+    ///
+    /// Asked by the one instrument with nothing to say about such a frame — the `sync:` line a `--judge`
+    /// pass writes — and by nothing else: a resume writes a line for every frame it plays, that frame
+    /// included, because two passes agree about it as much as about any other.
+    ///
+    /// Which field says so is the game's, this being per game like [`Game::reproduction`].
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn mid_build(&self) -> bool;
 
     /// Midstage chapter boundaries per stage.
     fn midstage_table(&self) -> &'static [&'static [Boundary]];
@@ -1516,69 +1558,6 @@ pub const fn hand(frame: i32) -> Boundary {
     Boundary {
         frame,
         by_hand: true,
-    }
-}
-
-/// What says whether a stage is playing out the same way it did the last time it was
-/// played: the clock the replay feeds its inputs on and the buttons it fed, where the
-/// player is, and how many numbers the game has drawn from its generator.
-///
-/// Two passes over one stage of one replay have to agree on all of it, frame for frame.
-/// That is the premise chapters rest on — a boundary is a frame number, and a step back
-/// replays the stage to reach it — so when they disagree, the first frame they disagree
-/// on and which of these numbers it was are the whole of the diagnosis.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Reproduction {
-    /// `ReplayManager::frameId`, which the replay walks its record of inputs by. Its
-    /// own count, not the stage's: a frame the game does not update does not advance it.
-    pub replay_frame: i32,
-    /// The buttons the update acted on, after the replay has put its own in.
-    pub input: u16,
-    pub player: (f32, f32),
-    /// The top and the height of the box the player is held inside, which is also what
-    /// the player's place at a stage's start is measured from. Nothing on the way into a
-    /// stage puts it back where the stage was reached from another one.
-    pub player_area: (f32, f32),
-    /// How many numbers have come out of the generator since the stage seeded it.
-    pub randoms: u32,
-    /// The generator itself, which is the one number a wrong stage start can be wrong in while
-    /// every other field of this line is right: a resumed stage 2 agreed on all of them with the
-    /// seed 2048 draws out, the player's place being the player's own inputs and the bullets being
-    /// the stage's script. Not the `GameManager` copy the file's own header carries — this is what
-    /// the next number out of it will be made from.
-    pub seed: u16,
-    /// Items in the air, which nothing about a stage's start puts back to none.
-    pub items: u32,
-    /// The score as shown, which is what an extra life is measured against.
-    pub score: u32,
-    /// How many extra lives the score has already paid for, so that the next one is
-    /// not paid for twice.
-    pub extra_lives: i8,
-    /// What the game makes of how the run is going, which enemies read.
-    pub rank: i32,
-    pub sub_rank: i32,
-}
-
-impl fmt::Display for Reproduction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "replay_frame={} input={:#06x} player={:.2},{:.2} area={:.2}+{:.2} randoms={} \
-             rng={:#06x} items={} score={} extras={} rank={} subrank={}",
-            self.replay_frame,
-            self.input,
-            self.player.0,
-            self.player.1,
-            self.player_area.0,
-            self.player_area.1,
-            self.randoms,
-            self.seed,
-            self.items,
-            self.score,
-            self.extra_lives,
-            self.rank,
-            self.sub_rank,
-        )
     }
 }
 

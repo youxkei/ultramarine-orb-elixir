@@ -25,7 +25,6 @@
 use crate::fake::th06::{Fake, PLAYER_STARTS_ABOVE, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
-use orb_core::game::Game;
 use orb_core::game::th06::Th06;
 use orb_core::game::th06::image::Scene;
 use orb_sim::keys;
@@ -146,7 +145,7 @@ fn the_input_word_is_zeroed_on_the_frame_a_scene_is_built() {
         );
         let (across, down) = game.image().arcade_region_size();
         assert_eq!(
-            unsafe { Th06.reproduction() }.player,
+            unsafe { Th06.reproduced() }.player,
             (across / 2.0, down - PLAYER_STARTS_ABOVE),
             "the new stage's first update moved the player on a key held in the stage before it",
         );

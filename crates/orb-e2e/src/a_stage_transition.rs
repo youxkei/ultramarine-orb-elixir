@@ -198,7 +198,7 @@ fn a_run_starts_at_the_difficultys_own_rank_and_a_transition_leaves_it_alone() {
         let game = launched("a-stage-transition-the-rank");
         game.stages_last(STAGE_FRAMES);
         game.in_a_legacy_run();
-        let started = unsafe { Th06.reproduction() };
+        let started = unsafe { Th06.reproduced() };
         assert_eq!(
             (started.rank, started.sub_rank),
             (RANK_AT_A_RUNS_START, 0),
@@ -208,7 +208,7 @@ fn a_run_starts_at_the_difficultys_own_rank_and_a_transition_leaves_it_alone() {
         game.frames_until("the stage after the first", STAGE_FRAMES + 60, || {
             game.state().stage == 1
         });
-        let moved = unsafe { Th06.reproduction() };
+        let moved = unsafe { Th06.reproduced() };
         assert_eq!(
             (moved.rank, moved.sub_rank),
             (RANK_AT_A_RUNS_START, 0),
@@ -230,7 +230,7 @@ fn a_run_holds_its_player_inside_the_games_own_movement_area() {
         let game = launched("a-stage-transition-the-movement-area");
         game.in_a_legacy_run();
         assert_eq!(
-            unsafe { Th06.reproduction() }.player_area,
+            unsafe { Th06.reproduced() }.player_area,
             (PLAYER_AREA_TOP_LEFT.1, PLAYER_AREA_SIZE.1),
             "the run was given the arcade region as the box its player is held inside",
         );
@@ -242,7 +242,7 @@ fn a_run_holds_its_player_inside_the_games_own_movement_area() {
         game.frames(INVULNERABLE_AFTER_SPAWNING as u32);
         game.keyboard().set(keys::DOWN, false);
         assert_eq!(
-            unsafe { Th06.reproduction() }.player.1,
+            unsafe { Th06.reproduced() }.player.1,
             floor,
             "the player was let past the foot of the box the game holds them inside",
         );
@@ -272,7 +272,7 @@ fn a_new_run_puts_the_arcade_region_and_the_runs_own_numbers_back() {
         game.in_a_legacy_run();
         // Where a stage starts the player when the region is the game's own, which is what the second run
         // has to arrive back at.
-        let starts_at = unsafe { Th06.reproduction() }.player;
+        let starts_at = unsafe { Th06.reproduced() }.player;
 
         // A life lost and a bomb, and the run given up inside the shake's own frames: one that had run out
         // would have put the region back itself.
@@ -311,7 +311,7 @@ fn a_new_run_puts_the_arcade_region_and_the_runs_own_numbers_back() {
         // And the run after it, which is the branch this is about.
         starts_another_run(&game);
         assert_eq!(
-            unsafe { Th06.reproduction() }.player,
+            unsafe { Th06.reproduced() }.player,
             starts_at,
             "the new run started its player somewhere a stage does not, which is the arcade region the \
              last run's bomb left moved being what it was measured from",

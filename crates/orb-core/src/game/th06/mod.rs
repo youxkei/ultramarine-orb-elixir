@@ -25,10 +25,76 @@ use crate::audio::{Music, Track};
 // `crate::joystick::axis`.
 use crate::game::{
     Axis, Boundary, Call, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, Reproduction, RunStart, State,
+    Rect, RunStart, State,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
+
+/// **What one pass of a stage of 紅魔郷 is held against another's**, which is this game's numbers and
+/// nobody else's — see `Game::reproduction` for why the type is per game and what a shared one carried.
+///
+/// **Not a field of it may change**, and that is what makes it worth its own type here rather than a
+/// format string: a chapter is written down in the resume file with the line of its own frame, kept as the
+/// text the log printed, and 紅魔郷 is released. A field added, dropped or renamed makes every file on
+/// somebody's disk disagree at that field while the file's version says nothing is wrong. So this is the
+/// line as it shipped, and a number worth having about *this* game goes in a line of its own.
+/// **Public because 紅魔郷's own tests read these one at a time** — the rank a run starts at, the box the
+/// player is held inside, where a stage starts them. What everything outside this game holds against another
+/// pass is the line, and [`Th06::reproduced`] is where a test gets the numbers behind it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Reproduction {
+    /// `ReplayManager::frameId`, which the replay walks its record of inputs by. Its own count, not the
+    /// stage's: a frame the game does not update does not advance it. Negative while a stage is still
+    /// being built, which is `Game::reproduction`'s `None`.
+    pub replay_frame: i32,
+    /// The buttons the update acted on, after the replay has put its own in.
+    pub input: u16,
+    pub player: (f32, f32),
+    /// The top and the height of the box the player is held inside, which is also what the player's place
+    /// at a stage's start is measured from. Nothing on the way into a stage puts it back where the stage
+    /// was reached from another one.
+    pub player_area: (f32, f32),
+    /// How many numbers have come out of the generator since the stage seeded it.
+    pub randoms: u32,
+    /// The generator itself, which is the one number a wrong stage start can be wrong in while every other
+    /// field of this line is right: a resumed stage 2 agreed on all of them with the seed 2048 draws out,
+    /// the player's place being the player's own inputs and the bullets being the stage's script. Not the
+    /// `GameManager` copy the file's own header carries — this is what the next number out of it will be
+    /// made from.
+    pub seed: u16,
+    /// Items in the air, which nothing about a stage's start puts back to none.
+    pub items: u32,
+    /// The score as shown, which is what an extra life is measured against.
+    pub score: u32,
+    /// How many extra lives the score has already paid for, so that the next one is not paid for twice.
+    pub extra_lives: i8,
+    /// What the game makes of how the run is going, which enemies read.
+    pub rank: i32,
+    pub sub_rank: i32,
+}
+
+impl std::fmt::Display for Reproduction {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "replay_frame={} input={:#06x} player={:.2},{:.2} area={:.2}+{:.2} randoms={} \
+             rng={:#06x} items={} score={} extras={} rank={} subrank={}",
+            self.replay_frame,
+            self.input,
+            self.player.0,
+            self.player.1,
+            self.player_area.0,
+            self.player_area.1,
+            self.randoms,
+            self.seed,
+            self.items,
+            self.score,
+            self.extra_lives,
+            self.rank,
+            self.sub_rank,
+        )
+    }
+}
 use orb_api::d3d8::{self, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER};
 use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
@@ -1764,12 +1830,15 @@ impl Game for Th06 {
         unsafe { self.seed(state.seed) };
     }
 
+    /// **Every field of them, out of the struct rather than out of a list written here** — see
+    /// `Th07::say_run_state` for what a list written here cost. This one was short of four of 紅魔郷's own
+    /// numbers, the point items and the extra lives among them, for as long as it was a list.
+    ///
+    /// The seed is said again in front of it because a generator's state is `0x1a2b` everywhere else in the
+    /// log and `{:?}` has no way to say so.
     fn say_run_state(&self, state: &[u8]) -> String {
         match resume::decode_state(state) {
-            Some(state) => format!(
-                "score={} seed={:#06x} lives={} bombs={} power={} rank={}",
-                state.score, state.seed, state.lives, state.bombs, state.power, state.rank,
-            ),
+            Some(state) => format!("seed={:#06x} {state:?}", state.seed),
             None => "numbers of another game's run".to_owned(),
         }
     }
@@ -1814,33 +1883,12 @@ impl Game for Th06 {
         scene == STATE_RESULTSCREEN_FROMGAME
     }
 
-    unsafe fn reproduction(&self) -> Reproduction {
-        unsafe {
-            Reproduction {
-                replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
-                    .filter(|manager| *manager != 0)
-                    .and_then(mem::read_committed::<i32>)
-                    .unwrap_or(-1),
-                input: mem::read(G_CUR_FRAME_INPUT),
-                player: (
-                    mem::read(G_PLAYER + player::POSITION_CENTER),
-                    mem::read(G_PLAYER + player::POSITION_CENTER + size_of::<f32>()),
-                ),
-                player_area: (
-                    mem::read(
-                        G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT + size_of::<f32>(),
-                    ),
-                    mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE + size_of::<f32>()),
-                ),
-                randoms: mem::read(G_RNG + RNG_GENERATION_COUNT),
-                seed: mem::read(G_RNG),
-                items: mem::read(G_ITEM_MANAGER + ITEM_COUNT),
-                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
-                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
-                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
-                sub_rank: mem::read(G_GAME_MANAGER + game_manager::SUB_RANK),
-            }
-        }
+    unsafe fn reproduction(&self) -> String {
+        unsafe { self.reproduced() }.to_string()
+    }
+
+    unsafe fn mid_build(&self) -> bool {
+        unsafe { self.reproduced() }.replay_frame < 0
     }
 
     /// The state and the frames left under it, both, and only from the two states the player can
@@ -2247,6 +2295,43 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
+    /// The numbers behind [`Game::reproduction`]'s line, read where this game keeps each of them.
+    ///
+    /// **Here rather than inside that method because 紅魔郷's own tests read them one at a time**: the rank
+    /// a run starts at, the box the player is held inside, where a stage starts them. Everything outside
+    /// this game gets the line — see [`Reproduction`].
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    pub unsafe fn reproduced(&self) -> Reproduction {
+        unsafe {
+            Reproduction {
+                replay_frame: mem::read_committed::<usize>(G_REPLAY_MANAGER)
+                    .filter(|manager| *manager != 0)
+                    .and_then(mem::read_committed::<i32>)
+                    .unwrap_or(-1),
+                input: mem::read(G_CUR_FRAME_INPUT),
+                player: (
+                    mem::read(G_PLAYER + player::POSITION_CENTER),
+                    mem::read(G_PLAYER + player::POSITION_CENTER + size_of::<f32>()),
+                ),
+                player_area: (
+                    mem::read(
+                        G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT + size_of::<f32>(),
+                    ),
+                    mem::read(G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE + size_of::<f32>()),
+                ),
+                randoms: mem::read(G_RNG + RNG_GENERATION_COUNT),
+                seed: mem::read(G_RNG),
+                items: mem::read(G_ITEM_MANAGER + ITEM_COUNT),
+                score: mem::read(G_GAME_MANAGER + game_manager::GUI_SCORE),
+                extra_lives: mem::read(G_GAME_MANAGER + game_manager::EXTRA_LIVES),
+                rank: mem::read(G_GAME_MANAGER + game_manager::RANK),
+                sub_rank: mem::read(G_GAME_MANAGER + game_manager::SUB_RANK),
+            }
+        }
+    }
+
     /// **The numbers this stage began with, read where the game keeps them.**
     ///
     /// The seed comes out of `randomSeed`, not the generator: that field is where the added callback copies

@@ -626,7 +626,7 @@ pub unsafe fn write(
         song: game
             .music()
             .and_then(|music| unsafe { music.audible_offset() }),
-        landing: unsafe { game.reproduction() }.to_string(),
+        landing: unsafe { game.reproduction() },
         buttons: record.played[..at as usize]
             .iter()
             .map(|played| played.buttons)
