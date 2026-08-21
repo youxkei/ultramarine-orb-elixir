@@ -33,7 +33,7 @@
 //! - quit: true
 //! ```
 //!
-//! **What each name and each rule is, is the game's** — `Game::button_bit` and `Game::playing_word`. A shared
+//! **What each name and each rule is, is the game's** — `Game::button_bit` and `Game::word_to_press`. A shared
 //! bot could only be the union of every game's vocabulary, and 東方 is not one kind of game to take a union
 //! of.
 
@@ -133,7 +133,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
         at: 0,
         frames: 0,
     });
-    unsafe { runtime::plays_the_run(Some(word)) };
+    unsafe { runtime::plays_the_run(Some(word_to_press)) };
 }
 
 /// One `until` with its question resolved, or `None` — said in the log — for a name orb does not put up.
@@ -155,22 +155,22 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
     })
 }
 
-/// The word this frame is played with, which is what the slot in `orb_core::runtime` is filled with.
-fn word(game: &'static dyn Game, reached: Reached) -> Option<u16> {
+/// The word the bot presses this frame, which is what the slot in `orb_core::runtime` is filled with.
+fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     let mut held = PLAYING
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let playing = held.as_mut()?;
     let Some(step) = playing.steps.get(playing.at) else {
         // Past the last step, which is the run played by the game's own rules for as long as it lasts.
-        return Some(unsafe { game.playing_word() });
+        return Some(unsafe { game.word_to_press() });
     };
     playing.frames += 1;
     let (word, over) = match step {
         Step::Press { word, frames } => (*word, playing.frames >= *frames),
         Step::Wait(wait) => (0, waited(wait, reached, playing.frames)),
         Step::Play(wait) => (
-            unsafe { game.playing_word() },
+            unsafe { game.word_to_press() },
             waited(wait, reached, playing.frames),
         ),
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which

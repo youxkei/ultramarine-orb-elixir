@@ -1512,16 +1512,16 @@ pub trait Game {
         None
     }
 
-    /// **The word one frame of a stage is played with by this game's own rules**, for a bot that has run out of
-    /// steps to press.
+    /// **The word this game's own rules press this frame**, for a bot that has run out of recipe steps and is
+    /// playing the stage it is in.
     ///
     /// Where its player is, what its items are worth going for, and what its own state byte says has just
     /// happened are questions about this game, so the rules are here — and nothing outside knows how the word
-    /// was arrived at. Nothing held, for a game with no rules written for it.
+    /// was arrived at. Nothing pressed, for a game with no rules written for it.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn playing_word(&self) -> u16 {
+    unsafe fn word_to_press(&self) -> u16 {
         0
     }
 
@@ -1586,7 +1586,7 @@ pub const fn hand(frame: i32) -> Boundary {
 }
 
 /// **What orb knows about where a run has got to and a game does not**, for the recipe a launch playing
-/// itself is walking — see [`Game::bot_word`].
+/// itself is walking — see [`Game::word_to_press`].
 ///
 /// Three numbers rather than a game's own vocabulary: a stage, a chapter of it, and which of orb's own
 /// questions is up are orb's own — `State` and `chapter::Chapters` are where the first two come from, and the

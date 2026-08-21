@@ -36,7 +36,7 @@
 //! guess.
 
 /// What orb plays this game with where it is playing it itself, which is this game's own rules — see
-/// `Game::bot_word`.
+/// `Game::word_to_press`.
 mod bot;
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
@@ -1086,6 +1086,41 @@ const G_SHOT_COMBINED: usize = 0x0062f647;
 /// bytes adds one for each that is alive.
 const G_ITEM_MANAGER: usize = 0x00575c70;
 const ITEM_COUNT: usize = 0xae2ec;
+
+/// One of those slots, as the three walks over them read it: **the slots start at the manager itself** — the
+/// walk at 0x4329a6 begins from `this` — and each is [`ITEM_BYTES`] with its position at `+0x24c`, what kind
+/// of item it is at `+0x27c` and whether it is there at all at `+0x27d`.
+///
+/// The position is `+0x24c` because 0x432c9f hands that address to the player's own angle-to-a-point at
+/// 0x442370 and steers the item along the answer, which is an item on its way to somebody who collected it.
+/// The kind is `+0x27c` because 0x432ede jumps through the ten-entry table at 0x433a5a on it, and the entry
+/// [`ITEM_POWER`] leads to is the one that reads `[run+0x7c]` against 128 and steps the power up — the power
+/// item and nothing else. Alive is `+0x27d` because it is what the counting walk at 0x432a3f tests.
+const ITEM_BYTES: usize = 0x288;
+const ITEM_SLOTS: usize = 0x44c;
+const ITEM_POSITION: usize = 0x24c;
+const ITEM_KIND: usize = 0x27c;
+const ITEM_ALIVE: usize = 0x27d;
+const ITEM_POWER: i8 = 0;
+
+/// Where an enemy is, `+0x2b0c` of it — and a boss is an enemy, so this is where the boss is.
+///
+/// 0x421aa1 hands that address to the item manager's own spawn as the place an enemy's drops come out of, and
+/// 0x40e83b reads the three floats from it in a row through `_ftol2` for what the panel draws. So it is the
+/// enemy's own position and the y is `+0x2b10`.
+const ENEMY_POSITION: usize = 0x2b0c;
+
+/// The play field the player is held inside, as the game's own clamp reads it: `+0x9604` and `+0x9608` are its
+/// left and top edge and `+0x960c` and `+0x9610` its width and height, all four floats.
+///
+/// 0x43f416 is the clamp — it puts the x back to `[+0x9604]` where it went under and to
+/// `[+0x9604] + [+0x960c]` where it went over, and 0x43f474 does the same to the y with the other two. So
+/// these four are the field in the game's own coordinates, which is what a bot has instead of a screen size
+/// written down.
+const FIELD_LEFT: usize = 0x9604;
+const FIELD_TOP: usize = 0x9608;
+const FIELD_WIDTH: usize = 0x960c;
+const FIELD_HEIGHT: usize = 0x9610;
 
 /// How many numbers the generator has been asked for, `+0x4` of it: the step at 0x431870 adds one every time
 /// it is called. Which is what makes it worth writing down beside a chapter — two runs of the same stage that
@@ -3994,8 +4029,8 @@ impl Game for Th07 {
         bot::bit(name)
     }
 
-    unsafe fn playing_word(&self) -> u16 {
-        unsafe { bot::word() }
+    unsafe fn word_to_press(&self) -> u16 {
+        unsafe { bot::word_to_press() }
     }
 
     unsafe fn mid_build(&self) -> bool {

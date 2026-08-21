@@ -54,7 +54,7 @@ pub struct Config {
     ///
     /// What it is for is every measurement of a resume: each one has cost somebody a stage of 妖々夢 and
     /// another every time the file grew a field, and a run the machine plays is a run to be had again on
-    /// demand. Which game knows how is the game's — see `Game::bot_word`.
+    /// demand. Which game knows how is the game's — see `Game::word_to_press`.
     ///
     /// **Not `--clear` and not `--sent-keys`.** The first makes the player invulnerable and refuses to write
     /// anything down, so it leaves no run to pick up; the second hands the keyboard to another program, which

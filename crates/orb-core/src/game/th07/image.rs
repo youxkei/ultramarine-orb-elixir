@@ -587,6 +587,12 @@ impl Image {
         space.write::<usize>(super::G_RUN_NUMBERS, RUN_NUMBERS.start);
     }
 
+    /// And no run's numbers at all, which is every screen outside a run: the pointer the game's own field
+    /// holds until a run's build allocates the block, and holds again the moment one is freed.
+    pub fn has_no_runs_numbers(&self) {
+        self.space().write::<usize>(super::G_RUN_NUMBERS, 0);
+    }
+
     /// And the power that run's shot is at, which the game keeps as a float.
     pub fn shot_is_at_power(&self, power: f32) {
         self.space()
@@ -1366,6 +1372,48 @@ impl Image {
     pub fn items_alive(&self, items: i32) {
         self.space()
             .write::<i32>(super::G_ITEM_MANAGER + super::ITEM_COUNT, items);
+    }
+
+    /// An item of `kind` in one of the manager's own slots, where the spawn at 0x4326f0 would leave it: alive,
+    /// with its kind and its position.
+    ///
+    /// The slot is the test's to name, because which slot an item is in is the whole question a walk answers —
+    /// a rule that only ever looked at the first would pass a laid-out game and miss every real one.
+    pub fn an_item_is_at(&self, slot: usize, kind: i8, x: f32, y: f32) {
+        let item = super::G_ITEM_MANAGER + slot * super::ITEM_BYTES;
+        let space = self.space();
+        space.write::<i8>(item + super::ITEM_ALIVE, 1);
+        space.write::<i8>(item + super::ITEM_KIND, kind);
+        space.write::<f32>(item + super::ITEM_POSITION, x);
+        space.write::<f32>(item + super::ITEM_POSITION + size_of::<f32>(), y);
+    }
+
+    /// And a slot with nothing in it, which is what the collect at 0x433b5a leaves: the alive byte cleared and
+    /// what was in it left where it was, exactly as the game leaves it.
+    pub fn the_item_is_gone(&self, slot: usize) {
+        self.space().write::<i8>(
+            super::G_ITEM_MANAGER + slot * super::ITEM_BYTES + super::ITEM_ALIVE,
+            0,
+        );
+    }
+
+    /// Where the boss is, written into the slot [`Image::a_boss_is_fighting`] hands out — so the two go
+    /// together, this one being the position of the enemy that one made a boss.
+    pub fn the_boss_is_at(&self, x: f32, y: f32) {
+        let boss = super::G_ENEMY_MANAGER + ENEMIES;
+        let space = self.space();
+        space.write::<f32>(boss + super::ENEMY_POSITION, x);
+        space.write::<f32>(boss + super::ENEMY_POSITION + size_of::<f32>(), y);
+    }
+
+    /// The play field the player is held inside, as the stage's own build leaves it for the clamp at 0x43f416
+    /// to read.
+    pub fn the_play_field_is(&self, left: f32, top: f32, width: f32, height: f32) {
+        let space = self.space();
+        space.write::<f32>(super::G_GAME_MANAGER + super::FIELD_LEFT, left);
+        space.write::<f32>(super::G_GAME_MANAGER + super::FIELD_TOP, top);
+        space.write::<f32>(super::G_GAME_MANAGER + super::FIELD_WIDTH, width);
+        space.write::<f32>(super::G_GAME_MANAGER + super::FIELD_HEIGHT, height);
     }
 
     /// The word a run acts on, which is where the recorder puts what was read and where a replay puts what it

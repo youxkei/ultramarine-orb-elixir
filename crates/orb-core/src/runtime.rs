@@ -1434,7 +1434,7 @@ pub extern "system" fn get_input() -> u16 {
     // **And the word orb plays the game with where it is playing it itself**, in the same place and through the
     // same hand-over: a bot's frame is a frame of a run in every way a recorded frame is. After the playback
     // above, so that a run being put back is put back with what it was played with and not with what a bot
-    // would do instead — see `Game::bot_word` and `Config::autoplay`.
+    // would do instead — see `Game::word_to_press` and `Config::autoplay`.
     // **Every read and not only a stage's**, because the steps of a recipe are screens: the mode question, the
     // title, the difficulty and the shot are all read through here and none of them is a frame of a stage.
     if let Some((word, reached)) = PLAYING_IT
@@ -2310,7 +2310,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     }
 
     // Where the run has got to, for the recipe a launch playing itself is being played to: what carries one
-    // out is the game's, and this is the part of it orb knows and no game does — see `Game::bot_word`. Said
+    // out is the game's, and this is the part of it orb knows and no game does — see `Game::word_to_press`. Said
     // here because the read that asks for a word is the game's own keyboard, with no `Runtime` anywhere near
     // it; one frame of lag at the very worst, on a question about which screen is up.
     if let Some(playing) = PLAYING_IT

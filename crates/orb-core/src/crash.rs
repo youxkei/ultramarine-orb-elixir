@@ -158,6 +158,15 @@ pub fn doing(what: Doing, a: usize, b: usize) {
     DOING[0].store(what.tag(), Ordering::Relaxed);
 }
 
+/// What it says orb is in the middle of, as one reading.
+fn was_doing() -> (Doing, usize, usize) {
+    (
+        Doing::from_tag(DOING[0].load(Ordering::Relaxed)),
+        DOING[1].load(Ordering::Relaxed),
+        DOING[2].load(Ordering::Relaxed),
+    )
+}
+
 /// The symbols a module's own file holds, as `(rva, name)` sorted by address.
 ///
 /// **Read out of the file rather than out of the loaded image**, because the symbol table is not part of
@@ -264,6 +273,19 @@ pub struct Fault {
 /// Every line begins `crash:` and stands on its own, because a log is read by grepping it and a fault is
 /// the one thing in there somebody comes looking for.
 pub fn lines(fault: &Fault, around: &dyn Around) -> Vec<String> {
+    written_down(fault, around, was_doing())
+}
+
+/// And with what orb was in the middle of handed in rather than read out of [`DOING`].
+///
+/// **Which is what makes it testable at all.** [`DOING`] is one word for the whole process and the code that
+/// writes it is the snapshot's and the chapter's, so a test that set it and then read the message back was
+/// racing every other test in the binary that took a snapshot — and lost, naming whatever that one was doing.
+fn written_down(
+    fault: &Fault,
+    around: &dyn Around,
+    was_doing: (Doing, usize, usize),
+) -> Vec<String> {
     let name = |address| around.name(address);
     let mut lines = vec![format!(
         "crash: code {:#010x} at {:#010x} in {}",
@@ -334,12 +356,8 @@ pub fn lines(fault: &Fault, around: &dyn Around) -> Vec<String> {
     // What orb was in the middle of, and whether the heaps are still sound: a fault on a pointer that was
     // never anything and a fault inside a heap somebody had written over look the same from the address, and
     // they are opposite problems.
-    let what = Doing::from_tag(DOING[0].load(Ordering::Relaxed));
+    let (what, a, b) = was_doing;
     if what != Doing::Nothing {
-        let (a, b) = (
-            DOING[1].load(Ordering::Relaxed),
-            DOING[2].load(Ordering::Relaxed),
-        );
         // The two numbers only where the work counts something, which is what makes them mean anything:
         // a region being copied is one of five and a buffer being given back is not one of anything.
         lines.push(if b == 0 {
@@ -387,7 +405,9 @@ fn callers(mut ebp: usize) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Around, Doing, Fault, Registers, Touching, Whose, doing, lines, nearest, symbols};
+    use super::{
+        Around, Doing, Fault, Registers, Touching, Whose, lines, nearest, symbols, written_down,
+    };
     use orb_api::Kind;
 
     /// A host that names modules the way the real one does and knows two ranges: what a chapter saved, and
@@ -504,19 +524,36 @@ mod tests {
     fn a_fault_says_what_orb_was_doing_when_it_happened() {
         let sim = std::sync::Arc::new(orb_sim::Sim::new());
         let _installed = sim.enter();
-        doing(Doing::CopyingARegion, 2, 5);
         let fault = Fault {
             code: 0xc000_0005u32 as i32,
             at: 0x0045_0db1,
             touching: None,
             registers: Registers::default(),
         };
-        let said = lines(&fault, &Host).join("\n");
+        let said = written_down(&fault, &Host, (Doing::CopyingARegion, 2, 5)).join("\n");
         assert!(
             said.contains("crash: orb was copying a region, 2 of 5"),
             "the fault does not say what orb was in the middle of:\n{said}",
         );
-        doing(Doing::Nothing, 0, 0);
+    }
+
+    /// And says nothing about it where orb is in the middle of nothing, which is every fault that is not
+    /// inside one of the four pieces of work [`doing`] is called around.
+    #[test]
+    fn a_fault_outside_orbs_own_work_says_nothing_about_it() {
+        let sim = std::sync::Arc::new(orb_sim::Sim::new());
+        let _installed = sim.enter();
+        let fault = Fault {
+            code: 0xc000_0005u32 as i32,
+            at: 0x0045_0db1,
+            touching: None,
+            registers: Registers::default(),
+        };
+        let said = written_down(&fault, &Host, (Doing::Nothing, 0, 0)).join("\n");
+        assert!(
+            !said.contains("crash: orb was"),
+            "the fault said orb was in the middle of something it was not:\n{said}",
+        );
     }
 
     /// **And orb's own frames by name.** A module and an offset is where the manual work began every time
