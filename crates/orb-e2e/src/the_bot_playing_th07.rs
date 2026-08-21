@@ -189,6 +189,9 @@ fn in_a_stage(name: &str) -> Box<Fake> {
     // side of, so the two are not the same distance and a diagonal is not simply the better move.
     game.image()
         .the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
+    // And a box for it to be hit in. With a bullet of no size of its own this is the whole of what a hit is, so
+    // these read as "nearer than a step on both axes and it is a hit".
+    game.image().the_players_box_is((A_STEP, A_STEP));
     game.image()
         .the_play_field_is(FIELD.0, FIELD.1, FIELD.2, FIELD.3);
     game.image().no_boss_is_fighting();
@@ -280,23 +283,26 @@ fn the_bot_stays_in_the_bottom_third_of_the_field() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-stays-in-its-band");
         game.image().the_player_is_at(MIDDLE, LOW);
-        // As high up the field as an item goes, so that nothing but the band stops the bot following it.
+        // As high up the field as an item goes, so that nothing but the band decides what is done about it.
         game.image().an_item_is_at(700, BIG_POWER, MIDDLE, 8.0);
 
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            UP,
-            "the bot did not come up at all for the item above it:\n  {}",
+            0,
+            "the bot came up out of its band for an item above it:\n  {}",
             game.log().lines().join("\n  "),
         );
 
-        game.image().the_player_is_at(MIDDLE, BAND_TOP);
+        // And one inside the band is gone up to, that being a place it may be.
+        game.image().the_item_is_gone(700);
+        game.image()
+            .an_item_is_at(800, BIG_POWER, MIDDLE, BAND_TOP + 8.0);
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            0,
-            "the bot left the bottom third of the field for an item above it:\n  {}",
+            UP,
+            "the bot did not come up for an item inside its own band:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -318,7 +324,9 @@ fn the_bot_goes_for_a_big_power_item_over_a_small_one() {
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            LEFT | UP,
+            // Across and not up-and-across: the big one is above the band, so what is gone to is its x at the
+            // line the bot waits on — see [`the_bot_stays_in_the_bottom_third_of_the_field`].
+            LEFT,
             "the bot took the small power item under it over the big one:\n  {}",
             game.log().lines().join("\n  "),
         );
@@ -399,6 +407,138 @@ fn the_bot_steps_around_a_bullet_rather_than_fleeing_it() {
             game.image().the_word_the_run_acts_on() & PAD,
             LEFT,
             "the bot fled the bullet instead of stepping out from under it to the item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
+///
+/// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its
+/// size — so a number standing in for every bullet is a different test rather than an approximation of that one.
+/// Which two launches paid for: the hits they reported had 2.1 and 3.7 units of room by that number's reckoning.
+///
+/// Here the same place is safe for a bullet of no size and a hit for a wide one.
+#[test]
+fn a_bullets_own_size_is_part_of_what_a_hit_is() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-bullets-own-size");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // A step and a half out, which the player's own box alone does not reach.
+        let out = MIDDLE + A_STEP * 1.5;
+
+        game.image().a_bullet_is_at(500, out, LOW, (0.0, 0.0));
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for a bullet of no size that could not reach it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the same place, with a bullet wide enough that its own half closes the gap.
+        game.image().a_bullet_of_size_is_at(
+            500,
+            out,
+            LOW,
+            (0.0, 0.0),
+            (A_STEP * 2.0, A_STEP * 2.0),
+        );
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood inside a bullet wide enough to reach it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **Where nothing is open, the move that stays clear longest is taken.**
+///
+/// Which is what a pattern with no way out of it needs: the most *room* is not the same as the most time, and
+/// a launch that took the roomiest move walked into the next frame's wall with it. Three frames of clear is
+/// three frames for the pattern to move on in.
+#[test]
+fn the_bot_takes_the_longest_way_out_where_nothing_is_open() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-lasts-longest");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Sitting on where it stands and on every place one step of it leads, so that the corners are shut by
+        // those too — and one more out to the right, which the third step of going that way reaches and the
+        // first two do not.
+        for (slot, (x, y)) in [
+            (MIDDLE, LOW),
+            (MIDDLE, LOW - A_STEP),
+            (MIDDLE, LOW + A_STEP),
+            (MIDDLE - A_STEP, LOW),
+            (MIDDLE + A_STEP * 3.0, LOW),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            game.image().a_bullet_is_at(slot + 1, x, y, (0.0, 0.0));
+        }
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot did not take the one way that lasted:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A hit says what the rules thought of the move that took it.**
+///
+/// Which is the whole of what is left to find out. A frame ahead is computed and a move nothing will be at is
+/// chosen, so a run that is hit at all means one of three things and no others: something on the screen is not
+/// in the model — the lasers are not, and a bullet that turns may not move the way one step of its own says —
+/// or every one of the nine was shut, or the move chosen was not the move made. The line says which: the room
+/// the model left, or that it had none to leave.
+#[test]
+fn a_hit_says_what_the_rules_thought_of_the_move_that_took_it() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-says-what-was-thought");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert!(
+            !game.log().said("autoplay: hit"),
+            "a hit was said on a frame nothing had hit the player on",
+        );
+
+        game.image().the_player_has_been_hit();
+        game.frames(1);
+        assert!(
+            game.log().said("autoplay: hit while"),
+            "the hit did not say what the rules thought of the move:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A step aside is a way out and not another hit.** Which needs the room a move opens to be wider than what
+/// counts as being hit: where the two are the same, every neighbour of a place a bullet crosses is a hit too,
+/// so no move is open, and the choice falls through to the most room — which is the fleeing the whole of this
+/// exists instead of, and fleeing a boss's pattern is 決死結界 after 決死結界.
+///
+/// A bullet coming straight down the player's own column, arriving where it stands and with a step's room on
+/// every side: one of those steps has to be taken, and taken straight — a corner is what the most room picks
+/// when nothing is open, so a corner here says nothing was.
+#[test]
+fn the_bot_steps_out_of_the_way_of_a_bullet_a_step_wide_of_it() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-has-room-to-step");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(500, MIDDLE, LOW - A_STEP, (0.0, A_STEP));
+
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            [UP, DOWN, LEFT, RIGHT].contains(&pressed),
+            "the bot did not take one of the steps open to it, pressing {pressed:#05x}:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

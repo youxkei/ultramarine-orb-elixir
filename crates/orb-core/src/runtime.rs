@@ -972,6 +972,11 @@ unsafe fn pad(game: &dyn Game) -> Pad {
         pad.down |= held("down");
         pad.left |= held("left");
         pad.right |= held("right");
+        // **And the two the menus actually read** — `Menu::read` takes its answer off `decide` and `cancel` and
+        // off nothing else, so a fold that set the buttons and left these two is a bot whose every press went
+        // nowhere. Which is what one did: it died, was offered the retry, and sat on it.
+        pad.decide |= held("decide");
+        pad.cancel |= held("cancel");
     }
     pad
 }

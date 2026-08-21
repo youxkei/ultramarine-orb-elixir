@@ -1164,6 +1164,23 @@ const BULLET_ALIVE: usize = 0xbfc;
 const BULLET_POSITION: usize = 0xb8c;
 const BULLET_STEP: usize = 0xb98;
 
+/// **A bullet's own size**, two floats at `+0xb7c` — and no two kinds of bullet have the same one.
+///
+/// Which is the whole of what a hit *is*, because the game's own test is two boxes overlapping and not a
+/// distance: 0x425e89 hands the player `bullet+0xb8c` as a place and `bullet+0xb7c` as a size, and 0x43e294
+/// makes a box of them — the place give or take half the size, `0x498a70` being two. So a distance with one
+/// number for every bullet is not an approximation of that test, it is a different test.
+const BULLET_SIZE: usize = 0xb7c;
+
+/// And the player's own box, which is the other half of it: the smaller corner at `+0x948` and the larger at
+/// `+0x954`, three floats each, both in the field's own coordinates.
+///
+/// 0x43e2e7 through 0x43e320 is the overlap — each edge of the one against the matching edge of the other, and
+/// any that clears means no hit. Read rather than written down because it is the shot's own box and differs by
+/// character.
+const PLAYER_BOX_MIN: usize = 0x948;
+const PLAYER_BOX_MAX: usize = 0x954;
+
 /// Where an enemy is, `+0x2b0c` of it — and a boss is an enemy, so this is where the boss is.
 ///
 /// 0x421aa1 hands that address to the item manager's own spawn as the place an enemy's drops come out of, and

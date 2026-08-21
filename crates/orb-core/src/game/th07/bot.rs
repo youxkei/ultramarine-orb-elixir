@@ -41,16 +41,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use orb_api::mem;
 
+use crate::log;
+
 use super::{
-    BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SLOTS, BULLET_STEP, BULLETS, BUTTON_BOMB,
-    BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BYTES,
-    ENEMY_POSITION, ENEMY_SLOTS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
+    BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STEP, BULLETS,
+    BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT,
+    ENEMY_BYTES, ENEMY_POSITION, ENEMY_SLOTS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
     G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_MOTION_SCALE, G_PLAYER,
     G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY,
     ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, MENU_CANCEL,
-    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_HIT, PLAYER_POSITION,
-    PLAYER_SPEED_SCALE, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT,
-    SUPERVISOR_SCENE, Th07,
+    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
+    PLAYER_POSITION, PLAYER_SPEED_SCALE, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL,
+    SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -91,18 +93,10 @@ const ABOVE_THE_BOTTOM: f32 = 48.0;
 /// never up among the bullets for anything, and one thing to change rather than a reason to chase each time.
 const THE_BAND: f32 = 1.0 / 3.0;
 
-/// How near counts as being where a bullet is, which is what makes a move unsafe.
-///
-/// **A rule's own number, and the one thing here that is not a distance to keep.** The next frame's positions
-/// are known — a bullet's own step is `+0xb98` — so a move only has to be somewhere none of them will be, and
-/// keeping *away* from them besides is a bot that spends the stage leaving: the screen of a 妖々夢 stage is
-/// never empty and being near a bullet is the ordinary state of playing at all. So this is a hitbox and not a
-/// margin, wide enough to cover the player's own box and a bullet's without either being read.
-///
-/// **And smaller than [`A_PROBE`]**, which is what leaves a gap to step into: a hitbox as wide as the step
-/// makes every neighbour of a place a bullet crosses unsafe too, and then nothing is safe and the choice falls
-/// back to the most room — which is the fleeing this exists instead of.
-const HIT: f32 = 4.0;
+// **Nothing here is a hitbox of its own**, which two launches paid for: one number standing in for every
+// bullet's size was four, and hits came back saying the move they were taken on had 2.1 and 3.7 units of room —
+// so no single number was ever going to be it. What a hit is is the game's own test, two boxes overlapping, and
+// both boxes are read: `[player+0x948]`..`+0x954` and each bullet's own `+0xb7c`.
 
 /// How far a candidate move is followed for one frame where the game's own step cannot be read at all, a bot
 /// that stood still being worse than one that moved by a guess.
@@ -142,6 +136,10 @@ const SHOT_LET_GO_EVERY: u32 = 60;
 /// pause menu and it is the clear screen's own wait that this is for.
 static FRAMES: AtomicU32 = AtomicU32::new(0);
 
+/// Whether the player was hit last frame, so that a hit is said once rather than once a frame of the window it
+/// opened.
+static WAS_HIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
 // still is one of the [`MOVES`] and the one a tie goes to, so the frame the player is there is a frame nothing
 // is pressed for.
@@ -180,7 +178,21 @@ pub unsafe fn word_to_press() -> u16 {
     if unsafe { Th07::dialogue_line() }.is_some() {
         word |= BUTTON_SKIP;
     }
-    let (steer, dodging) = unsafe { steer() };
+    let (steer, dodging, room) = unsafe { steer() };
+    // **What the rules thought of the move a hit was taken on.** A frame ahead is computed and a move nothing
+    // will be at is chosen, so a run that is hit at all means one of three things and no others: something on
+    // the screen is not in the model, or every one of the nine was shut, or the move chosen was not the move
+    // made. Which of them it was is the one thing a launch can say and nothing here can.
+    // Said once for the hit and not once for every frame of the window it opened: 決死結界 stands for as long as
+    // the game counts it down, and a line a frame turns one hit into a page of them.
+    if WAS_HIT.swap(word & BUTTON_BOMB != 0, Ordering::Relaxed) != (word & BUTTON_BOMB != 0)
+        && word & BUTTON_BOMB != 0
+    {
+        match room {
+            Some(room) => log!("autoplay: hit while pressing {steer:#05x}, with {room:.1} of room"),
+            None => log!("autoplay: hit while pressing {steer:#05x}, with nowhere open to it"),
+        }
+    }
     // **低速移動 under a boss**, which is where this game's shots do their damage — and off again the moment
     // anything could reach the player at all, the same key halving the step a dodge is made of.
     if !dodging && unsafe { Th07::boss() }.is_some() {
@@ -203,7 +215,7 @@ pub unsafe fn word_to_press() -> u16 {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn steer() -> (u16, bool) {
+unsafe fn steer() -> (u16, bool, Option<f32>) {
     let at = unsafe { player() };
     let field = unsafe { field() };
     let wanted = unsafe { where_to_be(field) };
@@ -230,15 +242,22 @@ unsafe fn steer() -> (u16, bool) {
             )
         })
     });
-    // One walk of the slots and nine running minima out of it, rather than nine walks. Squared throughout: what
-    // is wanted is which is nearest and not how near, and a square root a slot is a square root wasted.
-    let mut nearest = [f32::INFINITY; MOVES.len()];
-    let mut against = |(hx, hy): (f32, f32), (sx, sy): (f32, f32)| {
-        for (near, path) in nearest.iter_mut().zip(&lands) {
+    // **Two boxes overlapping, which is the game's own test and not a distance**: 0x43e294 makes a box of a
+    // bullet's place and its own size and compares it with the player's, and no two kinds of bullet are the
+    // same size — so one number standing in for every one of them is a different test rather than an
+    // approximation of that one. What each move is judged by is therefore *which frame it is first hit on*, and
+    // the room left over is only for the log and for choosing between moves that are all hit.
+    let (mine_x, mine_y) = unsafe { player_box() };
+    let mut judged = [(None::<usize>, f32::INFINITY); MOVES.len()];
+    let mut against = |(hx, hy): (f32, f32), (sx, sy): (f32, f32), (wx, wy): (f32, f32)| {
+        for ((hit, near), path) in judged.iter_mut().zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
                 let ahead = (frame + 1) as f32;
-                let (bx, by) = (hx + sx * ahead, hy + sy * ahead);
-                *near = near.min((x - bx).powi(2) + (y - by).powi(2));
+                let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
+                *near = near.min(dx * dx + dy * dy);
+                if dx < mine_x + wx && dy < mine_y + wy {
+                    *hit = Some(hit.map_or(frame, |had| had.min(frame)));
+                }
             }
         }
     };
@@ -248,57 +267,85 @@ unsafe fn steer() -> (u16, bool) {
             continue;
         }
         // Its own update adds its step to its position every frame, so where it will be in a frame's time is
-        // where it is plus as many steps as there are frames to look.
-        against(unsafe { position(bullet + BULLET_POSITION) }, unsafe {
-            position(bullet + BULLET_STEP)
-        });
+        // where it is plus as many steps as there are frames to look — and its own half, which is half of the
+        // size the hit test is given.
+        let (wx, wy) = unsafe { position(bullet + BULLET_SIZE) };
+        against(
+            unsafe { position(bullet + BULLET_POSITION) },
+            unsafe { position(bullet + BULLET_STEP) },
+            (wx / 2.0, wy / 2.0),
+        );
     }
     // **And the enemies, whose bodies are as solid as a bullet in this game.** Which is what a run on its way
     // to an item walks into: the item was dropped by something, and that something is still standing over it.
-    // Where they are and not where they are going, an enemy being moved by its own script rather than by a step
-    // of its own that could be read.
+    //
+    // A point, its own box not being read: an enemy is a wide thing and this understates it, so a bot that is
+    // clipped by one is a reading to take — `[enemy+0x2b0c]` is where it is and what its box is is not known.
+    // Where it is and not where it is going, an enemy being moved by its own script rather than by a step of its
+    // own that could be read.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
         if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
             continue;
         }
-        against(unsafe { position(enemy + ENEMY_POSITION) }, (0.0, 0.0));
+        against(
+            unsafe { position(enemy + ENEMY_POSITION) },
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
     }
     // **The nearest to where it wants to be, of the moves nothing will be at.** Which is not the same as the
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
     // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
-    let mut best: Option<(u16, bool, f32, f32)> = None;
-    for (((word, _, _), clear), land) in MOVES.iter().zip(nearest).zip(lands) {
-        let safe = clear > HIT * HIT;
+    let mut best: Option<(u16, Option<usize>, f32, f32)> = None;
+    for (((word, _, _), (hit, near)), land) in MOVES.iter().zip(judged).zip(lands) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
-        // frames after it are what the move is judged *safe* by and not where it is going.
+        // frames after it are what the move is judged *hit* by and not where it is going.
         let (x, y) = land[0];
         let towards = (x - wanted.0).powi(2) + (y - wanted.1).powi(2);
-        // Safe first, then nearest to where it wants to be — and where nothing is safe, the most room, which is
-        // the least bad rather than a choice. Strictly better only, so a tie goes to the earlier of [`MOVES`]:
-        // standing still is first, and a bot that took the last of a tie would step between two of them every
-        // frame.
+        // Open first, then nearest to where it wants to be — and **where nothing is open, whichever is hit
+        // latest**, which is what a pattern with no way out of it needs: the most *room* is not the most time,
+        // and a launch that took the roomiest move walked into the next frame's wall with it. Strictly better
+        // only, so a tie goes to the earlier of [`MOVES`]: standing still is first, and a bot that took the last
+        // of a tie would step between two of them every frame.
         let better = match best {
             None => true,
-            Some((_, was_safe, was_towards, was_clear)) => match (was_safe, safe) {
-                (false, true) => true,
-                (true, false) => false,
-                (true, true) => towards < was_towards,
-                (false, false) => clear > was_clear,
+            Some((_, was_hit, was_towards, was_near)) => match (was_hit, hit) {
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => towards < was_towards,
+                (Some(had), Some(now)) => now > had || (now == had && near > was_near),
             },
         };
         if better {
-            best = Some((*word, safe, towards, clear));
+            best = Some((*word, hit, towards, near));
         }
     }
     // **What the 低速移動 under a boss is off for is anything that could reach the player at all**, and not
     // only what would hit it this frame: slowing down halves the step a dodge is made of, so by the frame a
-    // bullet is a hit the halving has already been paid for. The reach is what it is — [`HIT`] plus as far as
-    // anything gets in the frames looked at — so nothing here is a margin of its own.
-    let reach = HIT + straight * LOOK_AHEAD as f32;
-    let (word, safe, ..) = best.unwrap_or((0, true, 0.0, 0.0));
-    (word, !safe || nearest[0] <= reach * reach)
+    // bullet is a hit the halving has already been paid for. The reach is as far as anything gets in the frames
+    // looked at, so nothing here is a margin of its own.
+    let reach = straight * LOOK_AHEAD as f32;
+    let (word, hit, _, near) = best.unwrap_or((0, None, 0.0, 0.0));
+    (
+        word,
+        hit.is_some() || judged[0].1 <= reach * reach,
+        hit.is_none().then(|| near.sqrt()),
+    )
+}
+
+/// **Half the player's own box**, which is the player's half of what a hit is.
+///
+/// Read rather than written down because it is the shot's own box and differs by character — and where it cannot
+/// be read there is nothing to be hit anyway, a launch outside a run having no player.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn player_box() -> (f32, f32) {
+    let min = unsafe { position(G_PLAYER + PLAYER_BOX_MIN) };
+    let max = unsafe { position(G_PLAYER + PLAYER_BOX_MAX) };
+    (((max.0 - min.0) / 2.0).abs(), ((max.1 - min.1) / 2.0).abs())
 }
 
 /// Whether a stage is running to be steered in.
@@ -333,7 +380,11 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
             None => (field.0 + field.2 / 2.0, low),
         },
     };
-    (x, y.max(the_band(field)))
+    // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
+    // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
+    // field, moving only sideways, with the dodge it wanted to make upwards pulled straight back. Waiting low is
+    // where the item arrives anyway.
+    (x, if y >= the_band(field) { y } else { low })
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.

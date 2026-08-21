@@ -1391,9 +1391,23 @@ impl Image {
         );
     }
 
-    /// A bullet in one of its manager's own slots, alive and where its update would leave it: where it is and
-    /// what that update adds to it every frame.
+    /// A bullet in one of its manager's own slots, alive and where its update would leave it: where it is, what
+    /// that update adds to it every frame, and **the size the hit test is given** — no two kinds of bullet
+    /// having the same one.
     pub fn a_bullet_is_at(&self, slot: usize, x: f32, y: f32, step: (f32, f32)) {
+        self.a_bullet_of_size_is_at(slot, x, y, step, (0.0, 0.0));
+    }
+
+    /// And one with a size of its own, for what only a size can say: the bullet whose own box is what reaches
+    /// the player rather than the player's reaching it.
+    pub fn a_bullet_of_size_is_at(
+        &self,
+        slot: usize,
+        x: f32,
+        y: f32,
+        step: (f32, f32),
+        size: (f32, f32),
+    ) {
         let bullet = super::G_BULLET_MANAGER + super::BULLETS + slot * super::BULLET_BYTES;
         let space = self.space();
         // The state the walk tests, whose 1 is the first of the five its dispatch knows.
@@ -1402,6 +1416,26 @@ impl Image {
         space.write::<f32>(bullet + super::BULLET_POSITION + size_of::<f32>(), y);
         space.write::<f32>(bullet + super::BULLET_STEP, step.0);
         space.write::<f32>(bullet + super::BULLET_STEP + size_of::<f32>(), step.1);
+        space.write::<f32>(bullet + super::BULLET_SIZE, size.0);
+        space.write::<f32>(bullet + super::BULLET_SIZE + size_of::<f32>(), size.1);
+    }
+
+    /// The player's own box, as the game's own hit test reads it: the smaller corner and the larger.
+    ///
+    /// Round nothing in particular, because what is read off it is how wide it is and not where: the real one
+    /// follows the player and orb carries its half-extents to wherever a move would land.
+    pub fn the_players_box_is(&self, half: (f32, f32)) {
+        let space = self.space();
+        space.write::<f32>(super::G_PLAYER + super::PLAYER_BOX_MIN, -half.0);
+        space.write::<f32>(
+            super::G_PLAYER + super::PLAYER_BOX_MIN + size_of::<f32>(),
+            -half.1,
+        );
+        space.write::<f32>(super::G_PLAYER + super::PLAYER_BOX_MAX, half.0);
+        space.write::<f32>(
+            super::G_PLAYER + super::PLAYER_BOX_MAX + size_of::<f32>(),
+            half.1,
+        );
     }
 
     /// What one frame of holding a direction moves the player by, as the game's own build leaves it: the speed
