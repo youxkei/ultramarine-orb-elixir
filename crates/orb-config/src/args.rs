@@ -15,6 +15,8 @@
 //! arguments, alongside the `--config` that is its business alone, and the DLL out of the
 //! command line of the process it is inside.
 
+use std::path::PathBuf;
+
 use clap::{Args, Parser};
 
 use crate::{Config, LogLevel};
@@ -123,12 +125,13 @@ pub struct Options {
     #[arg(long, help_heading = FAULT)]
     sent_keys: bool,
 
-    /// play the run itself, out of what the game holds: the shot held, and the bomb the frame the
-    /// player is hit. For having a run to pick up out of a file without playing one — nothing is
-    /// made invulnerable and every record a played run leaves is left, so what it leaves behind is
-    /// a run
-    #[arg(long, help_heading = FAULT)]
-    autoplay: bool,
+    /// play the run itself, to the recipe in this file: a list of steps, each a word to hold and how
+    /// many frames to hold it for, and then the run played out of what the game holds — the shot
+    /// held, and the bomb the frame the player is hit. For having a run to pick up out of a file
+    /// without playing one; nothing is made invulnerable and every record a played run leaves is
+    /// left, so what it leaves behind is a run
+    #[arg(long, require_equals = true, value_name = "RECIPE", help_heading = FAULT)]
+    autoplay: Option<PathBuf>,
 
     /// do not write down what a run pressed, so no chapter can be picked up in a later launch.
     /// Takes the game's input read and the moment a stage's numbers are put in place out of
@@ -251,8 +254,15 @@ impl Config {
         if options.sent_keys {
             self.sent_keys = true;
         }
-        if options.autoplay {
-            self.autoplay = true;
+        // Read here rather than carried as a path, so that what reaches a game is the recipe itself: a path
+        // handed on would be a second thing to have gone wrong by the time anything could say so, and the
+        // launcher is where a file that will not open is still worth a word about. A recipe that cannot be
+        // read at all leaves this as nothing, which is a launch that plays nothing and says why.
+        if let Some(recipe) = &options.autoplay {
+            match std::fs::read_to_string(recipe) {
+                Ok(text) => self.autoplay = Some(text),
+                Err(why) => eprintln!("orb: {} cannot be read: {why}", recipe.display()),
+            }
         }
         if options.no_frame_loop {
             self.own_frame_loop = false;

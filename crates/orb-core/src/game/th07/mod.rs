@@ -3990,8 +3990,12 @@ impl Game for Th07 {
             .is_some_and(|phase| phase == RESULT_FROM_A_RUN || phase == RESULT_FROM_A_PRACTICE_RUN)
     }
 
+    unsafe fn settle_the_recipe(&self, recipe: Option<&str>) -> bool {
+        bot::settle(recipe)
+    }
+
     unsafe fn bot_word(&self) -> Option<u16> {
-        Some(unsafe { bot::word() })
+        unsafe { bot::word() }
     }
 
     unsafe fn mid_build(&self) -> bool {

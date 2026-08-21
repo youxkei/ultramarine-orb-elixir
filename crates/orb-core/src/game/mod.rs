@@ -1501,6 +1501,20 @@ pub trait Game {
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> String;
 
+    /// **The recipe this launch is to play to**, read where this game's own names for its buttons are, and
+    /// `true` where anything is going to be played.
+    ///
+    /// `false` for a launch nobody asked to play itself, and for one whose recipe could not be read — a step
+    /// naming a button this game has not is a recipe written for another, and pressing the rest of it would be
+    /// driving somebody's screens by guesswork. The grammar of one is `orb_config::recipe`'s and the names are
+    /// the game's; a game with no rules of its own reads none and plays nothing.
+    ///
+    /// # Safety
+    /// Must run at the attach, before the game has been asked for a frame.
+    unsafe fn settle_the_recipe(&self, _recipe: Option<&str>) -> bool {
+        false
+    }
+
     /// **The word this frame of a stage is played with where orb is playing the game itself**, or `None` for a
     /// game that has no rules written for it.
     ///

@@ -652,10 +652,12 @@ pub unsafe fn attach_to(
     unsafe { resume::forget() };
     // The decision [`attach`] takes by installing a hook or not — see [`BLOCK_REPLAY_SAVE`].
     BLOCK_REPLAY_SAVE.store(config.block_replay_save, Ordering::Relaxed);
-    AUTOPLAY.store(config.autoplay, Ordering::Relaxed);
-    if config.autoplay {
-        log!("autoplay: orb is playing this run itself");
-    }
+    // The recipe read where the game's own names for its buttons are — see `Game::settle_the_recipe`, which
+    // is what says whether anything is being played at all.
+    AUTOPLAY.store(
+        unsafe { game.settle_the_recipe(config.autoplay.as_deref()) },
+        Ordering::Relaxed,
+    );
     for (slot, original) in [
         (&RUN_CALC_CHAIN, originals.update as usize),
         (&RUN_DRAW_CHAIN, originals.draw as usize),
@@ -698,7 +700,7 @@ pub unsafe fn attach_to(
             originals.create_window,
             game.content_size(),
             config.screen,
-            config.autoplay,
+            config.autoplay.is_some(),
         )
     };
     // And the pointer over that window, whose rewrite is reached the same way: a laid-out game calls it
@@ -1395,11 +1397,12 @@ pub extern "system" fn get_input() -> u16 {
     // same hand-over: a bot's frame is a frame of a run in every way a recorded frame is. After the playback
     // above, so that a run being put back is put back with what it was played with and not with what a bot
     // would do instead — see `Game::bot_word` and `Config::autoplay`.
+    // **Every read and not only a stage's**, because the steps of a recipe are screens: the mode question, the
+    // title, the difficulty and the shot are all read through here and none of them is a frame of a stage.
     if AUTOPLAY.load(Ordering::Relaxed)
-        && let Some(frame) = frame
         && let Some(word) = unsafe { game.bot_word() }
     {
-        unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(Some(frame))) };
+        unsafe { game.hand_the_read_to_the_run(word, the_first_read_of(frame)) };
         return word;
     }
 

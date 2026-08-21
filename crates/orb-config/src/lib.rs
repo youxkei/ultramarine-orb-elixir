@@ -18,6 +18,7 @@ use serde::Deserialize;
 pub mod args;
 mod file;
 pub mod keys;
+pub mod recipe;
 
 pub use keys::VirtualKey;
 
@@ -64,10 +65,14 @@ pub struct Config {
     /// was written down differently, or not written down, is not the thing being measured. The word a frame is
     /// played with is the whole of what this changes.
     ///
-    /// **No key in `orb.yaml`, and off unless `--autoplay` is passed.** A launch nobody asked cannot play
-    /// itself, and a settings file cannot ask for it — which is what keeps it out of a launch somebody means
-    /// to play.
-    pub autoplay: bool,
+    /// **No key in `orb.yaml`, and nothing unless `--autoplay` names a recipe.** A launch nobody asked cannot
+    /// play itself, and a settings file cannot ask for it — which is what keeps it out of a launch somebody
+    /// means to play.
+    ///
+    /// The recipe's own text and not the path it was read from: what the recipe *is* is the game's to read —
+    /// its buttons are that game's — and a text carried here is one an e2e test can hand over without a file
+    /// to put it in. `--autoplay` is where the path is turned into this.
+    pub autoplay: Option<String>,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
@@ -436,7 +441,7 @@ impl Config {
             track_memory: true,
             resume: true,
             sent_keys: false,
-            autoplay: false,
+            autoplay: None,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,

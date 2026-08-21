@@ -54,7 +54,7 @@ fn a_bots_window_is_small_in_the_corner_and_framed_as_a_dialog() {
             "th07-the-bots-window",
             Work::wandering(WORK_US),
             |config| {
-                config.autoplay = true;
+                config.autoplay = Some("[]".to_owned());
                 config.screen = Screen::Fullscreen;
                 config.log_level = LogLevel::Verbose;
             },

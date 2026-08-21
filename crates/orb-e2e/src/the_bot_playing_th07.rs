@@ -38,12 +38,17 @@ fn playing(name: &str) -> Box<Fake> {
         name,
         Work::wandering(WORK_US),
         |config| {
-            config.autoplay = true;
+            // A recipe of no steps, which is a run played from its first frame: what these two are about is
+            // the rules and not the screens on the way in.
+            config.autoplay = Some("[]".to_owned());
             config.log_level = LogLevel::Verbose;
         },
     );
     game.streams_its_song(0);
-    game.in_a_pointdevice_run();
+    // **Nothing of the menus driven here.** A launch playing to a recipe answers every read of the game's own
+    // keyboard, so a test that pressed its way into a run would be pressing against the bot — and the word
+    // each frame was handed is written where a test can read it whatever screen is up. What these two are
+    // about is the word, and the player's own state is put where they want it outright.
     game
 }
 
