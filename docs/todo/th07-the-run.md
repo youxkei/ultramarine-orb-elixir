@@ -804,6 +804,50 @@ why the flag above exists: what it takes out of the check is the playing, not th
   So each field lands with an e2e test *and* wants a launch behind it — which is the same rule the frame
   loop cost once already.
 
+## The bot, which is how the launches above stop costing somebody an afternoon
+
+`--autoplay=<recipe>` hands orb a recipe and orb plays the run to it: `press`, `play_until`, `wait_until`,
+`quit`, whose grammar is `orb-config`'s `recipe` and whose walker is the `orb-bot` crate. **Off unless that
+argument is given** — there is no `orb.yaml` key for it, so no launch of somebody's own can turn it on by
+accident — and what it presses goes in where a playback's own recorded words go in, so a run it played leaves
+the same score file and the same ranking a run somebody played leaves. Anything less is not a run to measure a
+resume against.
+
+The rules 妖々夢 is played by are in `crates/orb-core/src/game/th07/bot.rs`, each with the e2e test in
+`the_bot_playing_th07.rs` that pins it. **What no laid-out game can say is whether they clear the game**, and
+that is this section: a launch says it, and a run that dies says which rule to look at.
+
+### The recipe the resume's own parting is measured with
+
+The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run
+that was recorded, at the frame the two of them part. It is measured by playing the same stretch twice, which
+is what this is:
+
+```yaml
+# Beside the game's exe, since the game's own process is what reads it: `L:\game\...\th07\parting.yaml`.
+- press: [decide]                        # orb's own question, which of the two things a run is
+  frames: 2
+- wait_until: { frames: 10 }             # released, or the next press is no edge for the menu to see
+- play_until: { stage: 2, chapter: 3 }    # the rules, as far as 2面's midboss
+- press: [cancel]                        # the pause menu, and out of the run
+  frames: 2
+- wait_until: { question: resume }        # until orb offers the run back
+- press: [decide]
+  frames: 2
+- play_until: { frames: 600 }             # long enough for the reproduction lines to part
+- quit: true
+```
+
+```sh
+scripts/run.sh /path/to/th07 --autoplay='L:\game\ShanghaiAlice\th07\parting.yaml' --log=verbose
+```
+
+**What the launch has to say** is two things, and the first is not about the parting at all: whether the
+presses got through the front end. `autoplay: step N of M done` is one line per step, so a recipe that stopped
+on step 1 is a `frames` too short or a screen that wanted a press this recipe has not got. Only once every step
+is done does the second question — which frame the two `reproduction` lines part on, and which field of them
+differs — have a run behind it.
+
 ## The font, which was a question and is now a decision
 
 Taken: [0019](../adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md). There is no

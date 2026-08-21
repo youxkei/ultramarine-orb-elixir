@@ -181,6 +181,50 @@ mod tests {
         );
     }
 
+    /// And the recipe the resume's own parting is measured with, word for word as `docs/todo/th07-the-run.md`
+    /// carries it — a grammar this stopped reading is a measurement nobody can take again, and the file that
+    /// holds it says nothing when it goes stale.
+    ///
+    /// The released stretch between the two presses is the whole reason it is not the recipe above: a menu
+    /// takes a press where the bit goes up, so two presses with nothing between them are one press.
+    #[test]
+    fn the_recipe_the_partings_measurement_is_taken_with_reads() {
+        assert_eq!(
+            read(
+                "- press: [decide]\n  frames: 2\n\
+                 - wait_until: { frames: 10 }\n\
+                 - play_until: { stage: 2, chapter: 3 }\n\
+                 - press: [cancel]\n  frames: 2\n\
+                 - wait_until: { question: resume }\n\
+                 - press: [decide]\n  frames: 2\n\
+                 - play_until: { frames: 600 }\n\
+                 - quit: true\n"
+            ),
+            Ok(vec![
+                Step::Press {
+                    buttons: vec!["decide".to_owned()],
+                    frames: 2,
+                },
+                Step::Wait(Until::Frames(10)),
+                Step::Play(Until::Chapter {
+                    stage: 2,
+                    chapter: 3,
+                }),
+                Step::Press {
+                    buttons: vec!["cancel".to_owned()],
+                    frames: 2,
+                },
+                Step::Wait(Until::Question("resume".to_owned())),
+                Step::Press {
+                    buttons: vec!["decide".to_owned()],
+                    frames: 2,
+                },
+                Step::Play(Until::Frames(600)),
+                Step::Quit,
+            ]),
+        );
+    }
+
     /// **A step that is over before it starts is refused**, rather than skipped: a recipe is carried out a
     /// step at a time and counted in the log, so one whose steps do not all happen is one nobody can hold
     /// against the file it came from.
