@@ -87,6 +87,10 @@ const RUN_NUMBERS: Range<usize> = 0x0320_0000..0x0320_00c8;
 /// choosing, long enough to reach the dialogue's line at its far end.
 const GUI: Range<usize> = 0x0330_0000..0x0332_0000;
 
+/// The speed struct the player points at, which in the real game is off the allocator and so is in none of
+/// [`DATA`]: a base of this file's choosing, long enough to hold the two fields orb reads.
+const PLAYER_SPEEDS: Range<usize> = 0x0340_0000..0x0340_0100;
+
 /// The ending's own object, allocated with the scene in the real game: a base of this file's choosing, long
 /// enough to reach its script.
 const ENDING: Range<usize> = 0x0334_0000..0x0334_3000;
@@ -298,12 +302,8 @@ const PANEL_TEXTURE_SLOT: u32 = 0x15;
 /// `front.anm`'s own 32x32 tile as a piece of its 256x256 sheet: sprite 12, at (0, 224).
 const PANEL_TILE_UV: [f32; 4] = [0.0, 224.0 / 256.0, 32.0 / 256.0, 1.0];
 
-/// Where the enemy manager's own slots begin, `+0x4f50` of it — which the update walks from at 0x4207ae.
-///
-/// Here rather than beside the count in the parent because orb reads no slot of its own accord: it follows
-/// the manager's boss pointer wherever that points. What this is for is handing out an address that really is
-/// one of those slots, so a laid-out boss sits where a boss sits.
-const ENEMIES: usize = 0x4f50;
+/// Where the enemy manager's own slots begin, which the parent names now that orb walks them itself.
+use super::ENEMIES;
 
 /// Which pad button is which as the game's own defaults have it, which is what a launch with nobody's
 /// `th07.cfg` in it reads: the 18 bytes at 0x49ee40, copied to the mapping at 0x4399d3.
@@ -1402,6 +1402,30 @@ impl Image {
         space.write::<f32>(bullet + super::BULLET_POSITION + size_of::<f32>(), y);
         space.write::<f32>(bullet + super::BULLET_STEP, step.0);
         space.write::<f32>(bullet + super::BULLET_STEP + size_of::<f32>(), step.1);
+    }
+
+    /// What one frame of holding a direction moves the player by, as the game's own build leaves it: the speed
+    /// struct the player points at, and both of the scales at one so that the step is the speed.
+    pub fn the_player_steps_by(&self, straight: f32, diagonal: f32) {
+        let space = self.space();
+        if space.has_room(PLAYER_SPEEDS.start, PLAYER_SPEEDS.len()) {
+            space.map(PLAYER_SPEEDS.start, PLAYER_SPEEDS.len(), Kind::Private);
+        }
+        space.write::<usize>(super::G_PLAYER + super::PLAYER_SPEEDS, PLAYER_SPEEDS.start);
+        space.write::<f32>(PLAYER_SPEEDS.start + super::SPEED_STRAIGHT, straight);
+        space.write::<f32>(PLAYER_SPEEDS.start + super::SPEED_DIAGONAL, diagonal);
+        space.write::<f32>(super::G_PLAYER + super::PLAYER_SPEED_SCALE, 1.0);
+        space.write::<f32>(super::G_MOTION_SCALE, 1.0);
+    }
+
+    /// An enemy in one of the manager's own slots, alive the way its own walk reads alive — bit 7 of
+    /// `+0x2e28` — and where it is.
+    pub fn an_enemy_is_at(&self, slot: usize, x: f32, y: f32) {
+        let enemy = super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES;
+        let space = self.space();
+        space.write::<u8>(enemy + super::ENEMY_ALIVE, super::ENEMY_ALIVE_BIT);
+        space.write::<f32>(enemy + super::ENEMY_POSITION, x);
+        space.write::<f32>(enemy + super::ENEMY_POSITION + size_of::<f32>(), y);
     }
 
     /// Where the boss is, written into the slot [`Image::a_boss_is_fighting`] hands out — so the two go

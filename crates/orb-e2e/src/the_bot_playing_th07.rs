@@ -11,13 +11,17 @@
 //!
 //! The rules are 妖々夢 on Normal, and dodging comes before all of them:
 //!
-//! - the shot held, always, and Ctrl while a dialogue is up
+//! - the shot held, let go for a frame every second so that a screen waiting for a press gets one, and Ctrl
+//!   while a dialogue is up
 //! - the bomb the frame the player is hit, which is 妖々夢's own 決死結界 — [`PLAYER_STATE`] stands at 2 while
 //!   the game counts a window down, and a bomb inside it is a death taken back
-//! - **a bullet near the player and the frame is spent leaving**: the safest of the nine one-frame moves,
-//!   which is why up and down are dodges as much as left and right
-//! - and with nothing near, the way to a power item — the big one over a small one wherever both are up — or
-//!   the boss's own x with the y low, or the middle of the field low
+//! - **the nearest to where it wants to be, of the nine moves nothing will be at**: holding each is followed
+//!   three frames out against every bullet's own step, so a bullet is stepped around rather than fled from and
+//!   the item behind it is still gone for. An enemy counts as much as a bullet, its body being as solid here
+//! - and with nothing near, whichever item is worth most — a life, a bomb, the big power item, the small one,
+//!   the point item, the cherry — or the boss's own x with the y low, or the middle of the field low
+//! - **all of it inside the bottom third of the field**, dodges included, which is what three launches that
+//!   went up and stayed up bought
 //! - none of it pressed off a stage, under the pause menu, or on an update with no stage built yet
 //!
 //! What no laid-out game can say is whether the rules clear the game. That is what a launch says, and the
@@ -37,6 +41,8 @@ const BOMB: u16 = 0x002;
 /// The one that skips a dialogue, which is Ctrl, and the one that slows the player down, which is Shift.
 const SKIP: u16 = 0x100;
 const FOCUS: u16 = 0x004;
+/// How often the shot is let go for a frame, as `bot::SHOT_LET_GO_EVERY` has it.
+const SHOT_LET_GO_EVERY: u32 = 60;
 
 fn playing(name: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
@@ -69,6 +75,43 @@ fn the_bot_holds_the_shot_down() {
             game.image().the_word_the_run_acts_on() & SHOT,
             SHOT,
             "the bot played a frame of a stage without the shot held:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And lets it go for a frame now and then, so that a screen waiting for a press gets one.** The stage's own
+/// clear screen goes on to the next stage the frame the shot goes down and otherwise waits out its own timer,
+/// and a run holding the shot since the stage began never gives it that frame: one launch spent 60 seconds
+/// between 1面's last chapter and 2面's first.
+///
+/// Which is a rule about the *edge* and not about the fire rate. A frame in every
+/// [`the_shot_is_let_go_every`](Self) is a shot in sixty, and 妖々夢's own shot fires off the player's timer
+/// rather than off a press.
+#[test]
+fn the_bot_lets_the_shot_go_for_a_frame_now_and_then() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-lets-the-shot-go");
+        let mut let_go = 0;
+        let mut runs = 0;
+        let mut holding = true;
+        for _ in 0..SHOT_LET_GO_EVERY * 2 {
+            game.frame();
+            let held = game.image().the_word_the_run_acts_on() & SHOT != 0;
+            if !held {
+                let_go += 1;
+                if holding {
+                    runs += 1;
+                }
+            }
+            holding = held;
+        }
+
+        assert_eq!(
+            (let_go, runs),
+            (2, 2),
+            "the shot was not let go for one frame twice over {} frames:\n  {}",
+            SHOT_LET_GO_EVERY * 2,
             game.log().lines().join("\n  "),
         );
     });
@@ -109,18 +152,27 @@ const RIGHT: u16 = 0x080;
 /// All four, for an assertion about a frame nothing should have been steered on.
 const PAD: u16 = UP | DOWN | LEFT | RIGHT;
 
-/// The kinds of item these place, as the table at 0x433a5a indexes them: 0 steps the power up by one, 2 by
-/// eight — 大パワーアイテム — and 1 is the one worth a score off the chain.
+/// The kinds of item these place, as the table at 0x433a5a indexes them: 0 steps the power up by one and 2 by
+/// eight — 大パワーアイテム — 5 is the life and 3 the bomb, 1 is worth a score off the chain and 7 fills the
+/// cherry. 9 is more cherry, and stands here for a kind the rules give no place of its own.
 const POWER: i8 = 0;
 const POINT: i8 = 1;
 const BIG_POWER: i8 = 2;
+const BOMB_ITEM: i8 = 3;
+const LIFE: i8 = 5;
+const CHERRY: i8 = 7;
+const NO_PLACE: i8 = 9;
 
 /// A field for these to place things in, as the game's own clamp reads it: left, top, width, height.
 const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
-/// The y the rules hold in that field, off its bottom edge — and the x they wait on with nothing to be under,
-/// which is the middle of it.
+/// The y the rules wait at in that field, off its bottom edge — and the x they wait on with nothing to be
+/// under, which is the middle of it.
 const LOW: f32 = 400.0;
 const MIDDLE: f32 = 192.0;
+/// And the top of the band it moves in, which is the bottom third of that field.
+const BAND_TOP: f32 = FIELD.1 + FIELD.3 * 2.0 / 3.0;
+/// What one frame of holding a direction moves the player by in these, straight.
+const A_STEP: f32 = 4.0;
 
 /// A stage running, with a field to move about in and nobody fighting — what the rules about where to be are
 /// read against.
@@ -133,6 +185,10 @@ fn in_a_stage(name: &str) -> Box<Fake> {
     game.image().is_playing(1, 1);
     game.image().has_a_runs_numbers();
     game.image().is_not_paused();
+    // A step of the shape the game's own is: a diagonal covers a corner of the square a straight move covers a
+    // side of, so the two are not the same distance and a diagonal is not simply the better move.
+    game.image()
+        .the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
     game.image()
         .the_play_field_is(FIELD.0, FIELD.1, FIELD.2, FIELD.3);
     game.image().no_boss_is_fighting();
@@ -166,22 +222,81 @@ fn the_bot_keeps_the_player_low() {
     });
 }
 
-/// A power item is gone to, which is what a run of 妖々夢 spends a stage's way through doing — and gone to
-/// where it is, up the field as much as across it.
+/// **The order the items are taken in**, which is what each is worth: a life, then a bomb, then the big power
+/// item over the small one, then the point item, then the cherry — and last, any kind these rules give no place
+/// of its own, so that nothing on the screen is walked past.
+///
+/// Each in turn is taken away so that which way the bot steers says which of what is left it went for. All of
+/// them level with the player, so the answer is left or right and nothing else.
 #[test]
-fn the_bot_goes_for_a_power_item() {
+fn the_bot_takes_the_items_in_their_own_order() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-takes-power");
-        game.image().the_player_is_at(100.0, LOW);
-        // A slot well up the manager's array, because which slot an item is in is the whole question its walk
-        // answers — a rule that only ever looked at the first would pass a laid-out game and miss every launch.
-        game.image().an_item_is_at(700, POWER, 200.0, 300.0);
+        let game = in_a_stage("th07-the-bot-takes-them-in-order");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        let (left, right) = (40.0, 340.0);
+        // The slot, the kind and the side it is on, in the order they are worth going for.
+        let order = [
+            (1, LIFE, left, LEFT),
+            (2, BOMB_ITEM, right, RIGHT),
+            (3, BIG_POWER, left, LEFT),
+            (700, POWER, right, RIGHT),
+            (800, POINT, left, LEFT),
+            (900, CHERRY, right, RIGHT),
+            (1000, NO_PLACE, left, LEFT),
+        ];
+        for (slot, kind, x, _) in order {
+            game.image().an_item_is_at(slot, kind, x, LOW);
+        }
+
+        for (slot, kind, _, wanted) in order {
+            game.frames(1);
+            assert_eq!(
+                game.image().the_word_the_run_acts_on() & PAD,
+                wanted,
+                "the bot did not go for kind {kind} while it was the best on the screen:\n  {}",
+                game.log().lines().join("\n  "),
+            );
+            game.image().the_item_is_gone(slot);
+        }
 
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            RIGHT | UP,
-            "the bot did not go up and across to the power item:\n  {}",
+            0,
+            "the bot steered with the screen empty and itself where it waits:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The bottom third of the field is the whole of where it moves**, whatever is above it: an item, a boss, or
+/// the collection at the top of the field that every item comes in to.
+///
+/// Which is a bound and not a preference — three launches went up for one of those and stayed up, and each time
+/// the reason it stayed was a different one. What the band gives up is the collection at the top; what it buys
+/// is a run that is never up among the bullets for anything.
+#[test]
+fn the_bot_stays_in_the_bottom_third_of_the_field() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-stays-in-its-band");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // As high up the field as an item goes, so that nothing but the band stops the bot following it.
+        game.image().an_item_is_at(700, BIG_POWER, MIDDLE, 8.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            UP,
+            "the bot did not come up at all for the item above it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_player_is_at(MIDDLE, BAND_TOP);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left the bottom third of the field for an item above it:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -210,68 +325,124 @@ fn the_bot_goes_for_a_big_power_item_over_a_small_one() {
     });
 }
 
-/// **A bullet near the player is what the frame is spent on, whatever else is on the screen.** Every bomb this
-/// bot spends is a hit it could have moved out of, so dodging comes before the power it was on its way to.
+/// **An enemy is dodged as much as a bullet**, its body being as solid as one in 妖々夢 — and it is what a run
+/// on its way to an item walks into, the item having been dropped by whatever is still standing over it.
 #[test]
-fn the_bot_dodges_before_it_collects() {
+fn the_bot_dodges_an_enemy_on_its_way_to_an_item() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-dodges");
+        let game = in_a_stage("th07-the-bot-dodges-an-enemy");
         game.image().the_player_is_at(MIDDLE, LOW);
-        // The power item to the left, and a bullet on the way to it.
+        // The item to the left, and the enemy that dropped it between the two.
         game.image().an_item_is_at(700, POWER, 100.0, LOW);
-        game.image()
-            .a_bullet_is_at(500, MIDDLE - 8.0, LOW, (0.0, 0.0));
+        game.image().an_enemy_is_at(9, MIDDLE - 8.0, LOW);
 
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT | UP,
+            "the bot walked into the enemy on its way to the item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A move is followed by the step the game would really take**, and not by a length of the rules' own
+/// choosing.
+///
+/// Which is what a boss fight cost: a bot that stepped aside by twice what it really moved left itself in the
+/// bullet's path every time, and every hit it took was a bomb — bombs 3, 2, 1, 0 through 1面's boss with the
+/// deaths still at zero. So the step is read where the game works it out, and here it is read back: with an item
+/// half a long step away the bot stays where it is, a step being an overshoot, and with a short one it moves.
+#[test]
+fn the_bot_follows_a_move_by_the_games_own_step() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-steps-as-the-game-does");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().an_item_is_at(700, POWER, MIDDLE + 5.0, LOW);
+
+        game.image().the_player_steps_by(10.0, 7.0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stepped ten to close five:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_player_steps_by(2.0, 1.4);
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
             RIGHT,
-            "the bot walked into the bullet on its way to the item:\n  {}",
+            "the bot stood still with a step short enough to close on the item:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
 }
 
-/// And **up and down are dodges as much as left and right**: hemmed in on both sides, the way out is the axis
-/// nothing is on.
+/// **A bullet is stepped around and not fled from.** The next frames' positions are known, so what a move has
+/// to be is somewhere none of them will be — keeping *away* from bullets besides is a bot that spends the stage
+/// leaving, and the item it was on its way to is still worth going to behind one that has passed.
 #[test]
-fn the_bot_dodges_upwards_where_both_sides_are_shut() {
+fn the_bot_steps_around_a_bullet_rather_than_fleeing_it() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-dodges-upwards");
+        let game = in_a_stage("th07-the-bot-steps-around");
         game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().an_item_is_at(700, POWER, 100.0, LOW);
+        // Coming down onto where the player stands: a step to the side is out of its way, and the item is that
+        // way too.
         game.image()
-            .a_bullet_is_at(3, MIDDLE - 16.0, LOW, (0.0, 0.0));
-        game.image()
-            .a_bullet_is_at(900, MIDDLE + 16.0, LOW, (0.0, 0.0));
+            .a_bullet_is_at(500, MIDDLE, LOW - 24.0, (0.0, 8.0));
 
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            UP,
-            "the bot stood between two bullets rather than leaving:\n  {}",
+            LEFT,
+            "the bot fled the bullet instead of stepping out from under it to the item:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
 }
 
-/// A bullet is dodged by where it **will be**, not where it is: its own update adds its step to its position
-/// before the frame this word is played on.
-///
-/// Down and to the left of the player and going down and to the right, which is the case that tells the two
-/// apart — away from where it *is* is to the right, and away from where it is *going* is up.
+/// And **the frames after the next one count too**: a bullet three frames from where the player stands is a
+/// bullet to be somewhere else for, and one frame of warning is not enough to be anywhere.
 #[test]
-fn the_bot_dodges_where_the_bullet_is_going() {
+fn the_bot_leaves_for_a_bullet_that_is_frames_away() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-dodges-ahead");
+        let game = in_a_stage("th07-the-bot-looks-ahead");
         game.image().the_player_is_at(MIDDLE, LOW);
+        // Three of its own steps above the player and coming down onto it: a frame ahead it is still clear.
         game.image()
-            .a_bullet_is_at(500, MIDDLE - 16.0, LOW, (16.0, 16.0));
+            .a_bullet_is_at(500, MIDDLE, LOW - 24.0, (0.0, 8.0));
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood where a bullet would be in three frames:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a bullet it has room from stops nothing.** A band wide enough to take in most of what is on the screen
+/// is a bot that spends every frame leaving and never collects anything: the screen of a 妖々夢 stage is never
+/// empty, and being somewhere near a bullet is the ordinary state of playing at all.
+#[test]
+fn the_bot_is_not_stopped_by_a_bullet_it_has_room_from() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-keeps-going");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().an_item_is_at(700, POWER, 100.0, LOW);
+        // Four steps up the field, which is room enough that this frame is not about it.
+        game.image()
+            .a_bullet_is_at(500, MIDDLE, LOW - 32.0, (0.0, 0.0));
 
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            UP,
-            "the bot dodged where the bullet was rather than where it was going:\n  {}",
+            LEFT,
+            "the bot stopped collecting for a bullet it had room from:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -301,9 +472,12 @@ fn the_bot_shoots_a_boss_slowed_down() {
             game.log().lines().join("\n  "),
         );
 
-        // And a bullet near it takes the slowing off again: a dodge at half a step is half a dodge.
+        // **And anything that could reach it takes the slowing off again, hit or not**: a dodge at half a step
+        // is half a dodge, and by the frame a bullet is a hit the halving has already been paid for. This one is
+        // three of its own steps away and going nowhere near — a hit next frame it is not, and it is close
+        // enough to want the whole step back.
         game.image()
-            .a_bullet_is_at(500, MIDDLE - 8.0, LOW, (0.0, 0.0));
+            .a_bullet_is_at(500, MIDDLE + A_STEP * 3.0, LOW, (0.0, 0.0));
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & FOCUS,
@@ -377,26 +551,7 @@ fn the_bot_goes_for_the_nearest_power_item() {
     });
 }
 
-/// An item that is not a power item is left where it is. The rules are about power, and what 妖々夢 does with
-/// the rest of them is collect the screen the moment the border goes up.
-#[test]
-fn the_bot_leaves_an_item_that_is_not_power() {
-    in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-leaves-a-point-item");
-        game.image().the_player_is_at(MIDDLE, LOW);
-        game.image().an_item_is_at(700, POINT, 380.0, 300.0);
-
-        game.frames(1);
-        assert_eq!(
-            game.image().the_word_the_run_acts_on() & PAD,
-            0,
-            "the bot steered towards an item that was not a power item:\n  {}",
-            game.log().lines().join("\n  "),
-        );
-    });
-}
-
-/// And a slot whose item has been collected is not an item, whatever is still written in it.
+/// A slot whose item has been collected is not an item, whatever is still written in it.
 #[test]
 fn the_bot_leaves_a_slot_whose_item_is_gone() {
     in_its_own_process(|| {
@@ -532,7 +687,9 @@ fn a_power_item_takes_the_bot_off_a_boss() {
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
-            RIGHT | UP,
+            // Across and not up-and-across: the item is most of a field away to the side and a little way up,
+            // so the step that closes the most of that is the straight one. The climb comes once the x is met.
+            RIGHT,
             "the bot stood under the boss with power on the screen:\n  {}",
             game.log().lines().join("\n  "),
         );

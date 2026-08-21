@@ -850,6 +850,20 @@ const PLAYER_INVULNERABLE_FRAMES: i32 = 0xf0;
 /// is a bomb going off *at the player*.
 const PLAYER_POSITION: usize = 0x930;
 
+/// **What one frame of holding a direction moves the player by**, which the game works out at 0x43f0f5 and
+/// 0x43f378: the speed struct is the pointer at `+0xb7e70`, `+0x24` of it is a straight move's and `+0x2c` a
+/// diagonal's own share of one, and each is multiplied by `+0x23f0` of the player — `+0x23f4` for the y — and
+/// then by [`G_MOTION_SCALE`].
+///
+/// **Worth the three indirections after all.** A bot that guessed this instead spent a boss fight stepping
+/// aside by twice what it really moved, so every sidestep left it in the bullet's path and every hit it took
+/// was a bomb: bombs 3, 2, 1, 0 through 1面's boss with the deaths still at zero.
+const PLAYER_SPEEDS: usize = 0xb7e70;
+const SPEED_STRAIGHT: usize = 0x24;
+const SPEED_DIAGONAL: usize = 0x2c;
+const PLAYER_SPEED_SCALE: usize = 0x23f0;
+const G_MOTION_SCALE: usize = 0x00575ac8;
+
 /// Whether a bomb is going off, `+0x16a20` of the player — the flag its own update branches on.
 ///
 /// 0x4409f0 is that update: where the flag is set it runs the bomb's own object at `+0x16a30`, and where it
@@ -886,6 +900,13 @@ const ANM_TEXTURE_SLOTS: usize = 0x108;
 /// frame, which is what orb would otherwise walk 480 slots to work out.
 const G_ENEMY_MANAGER: usize = 0x009a9b00;
 const ENEMY_COUNT: usize = 0x9545bc;
+/// The slots that walk is over, for the walk orb makes of its own: **an enemy is something to keep away
+/// from**, its body being as solid as a bullet, so where they are is read the same way the bullets are.
+const ENEMIES: usize = 0x4f50;
+const ENEMY_BYTES: usize = 0x4f48;
+const ENEMY_SLOTS: usize = 0x1e0;
+const ENEMY_ALIVE: usize = 0x2e28;
+const ENEMY_ALIVE_BIT: u8 = 0x80;
 
 /// The bosses, as **eight pointers** at `+0x954598` — and whether any is there is the game's own answer:
 /// 0x4232a0 walks those eight and returns 1 at the first that is not null, which is what `boss_present` is.
@@ -1102,13 +1123,31 @@ const ITEM_POSITION: usize = 0x24c;
 const ITEM_KIND: usize = 0x27c;
 const ITEM_ALIVE: usize = 0x27d;
 
-/// The two kinds of power item, and **what tells them apart is how many steps each is worth**: the entry
-/// [`ITEM_POWER`] leads to hands 1 to the step at 0x432fb9 and the entry [`ITEM_BIG_POWER`] leads to hands 8 at
-/// 0x433466 — 妖々夢's 大パワーアイテム. Both read `[run+0x7c]` against 128 first and award a score off the
-/// chain instead where the shot is already full, and the spawn at 0x433b75 is the third place they are treated
-/// as the one thing.
+/// **The kinds of item, each read off the entry the table at 0x433a5a sends it to**, which is where what one
+/// is worth is settled:
+///
+/// - [`ITEM_POWER`] hands 1 to the power step at 0x432fb9, and [`ITEM_BIG_POWER`] hands 8 at 0x433466 —
+///   妖々夢's 大パワーアイテム. Both read `[run+0x7c]` against 128 first and award a score off the chain
+///   instead where the shot is already full, and the spawn at 0x433b75 is the third place the two are treated
+///   as the one thing.
+/// - [`ITEM_LIFE`] calls 0x42d83a, which reads `[run+0x5c]` — the lives — against 8, so it is the 残機アイテム;
+///   [`ITEM_BOMB`] reads `[run+0x68]`, the bombs, against the same 8.
+/// - [`ITEM_POINT`] is the one worth a score off the chain at 0x4330d2, and [`ITEM_CHERRY`] reads the cherry
+///   at 0x62f88c against what it is filling towards at 0x43375f.
+///
+/// The six of the ten these name are the six a bot has an order for; the rest are more cherry, and what any of
+/// them is worth is not read anywhere but here.
 const ITEM_POWER: i8 = 0;
+const ITEM_POINT: i8 = 1;
 const ITEM_BIG_POWER: i8 = 2;
+const ITEM_BOMB: i8 = 3;
+const ITEM_LIFE: i8 = 5;
+const ITEM_CHERRY: i8 = 7;
+
+// **妖々夢's collection at the top of the play field is read and not used.** `[[0x575948]+0x20]` is the y above
+// which an item comes in to the player — 0x432c74 compares the player's own y against it and 0x432cd2 marks the
+// item as homing where the player is the higher of the two — and going up to it is what the bot's rules gave up
+// on, three launches having gone up there and stayed. See `bot::THE_BAND` for what was chosen instead.
 
 /// The bullets on the screen: **the slots start at `+0xb8c0`** of their own manager and each is
 /// [`BULLET_BYTES`], which is the walk 0x425a6c sets up and 0x4263b3 steps — backwards, and wrapping through
