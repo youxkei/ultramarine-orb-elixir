@@ -1186,6 +1186,131 @@ fn the_room_a_move_has_is_measured_between_the_boxes() {
     });
 }
 
+/// **A third of the field with the fire clearly piled into it is not where the bot waits.**
+///
+/// Which is the one thing the moves themselves cannot say. Each of the nine asks whether it is hit over the
+/// frames looked at, so a bot can stand in the thick of a pattern for as long as the next twelve frames happen
+/// to be survivable and be somewhere with nothing open the moment they are not — and the hits say so: `nowhere
+/// open to it` with a model holding 123 bullets and nine bodies, which is not a hazard missed but a place
+/// chosen.
+///
+/// So the field is cut into three down its width, the bullets in each are counted, and where the rules want to
+/// be is moved out of a third that is *clearly* the thickest. **Clearly, and by a factor**: an ordinary
+/// imbalance is not a reason to leave a fight, and a factor means the same thing at thirty bullets as at three
+/// hundred where a difference would not.
+#[test]
+fn a_third_of_the_field_with_the_fire_piled_into_it_is_not_waited_in() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-keeps-out-of-the-thick");
+        game.image().the_player_is_at(MIDDLE, LOW);
+
+        // Nothing anywhere near the player, so no move of the nine is shut and the only thing that can move it
+        // is where it wants to be.
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left the middle of an empty field:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And a pile of them in the middle third, high up the field and going nowhere.
+        for slot in 0..30 {
+            game.image()
+                .a_bullet_is_at(slot, MIDDLE, LOW - 40.0, (0.0, 0.0));
+        }
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed == LEFT || pressed == RIGHT,
+            "the bot waited in the thickest third of the field, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A point item is not worth walking into the thick of it for, and a big power item is.**
+///
+/// Which is where the two rules meet: the thickest third is not somewhere to wait, and an item is somewhere to
+/// go — so one of them has to give, and what decides is what the item is worth. Being crushed costs a bomb at
+/// best and the run at worst, and a point item is worth neither; a 1up, a bomb, or the eight steps of power the
+/// big one carries are worth the crossing.
+#[test]
+fn the_thick_of_it_is_crossed_for_a_big_power_item_and_not_for_a_point() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-weighs-the-item-against-the-fire");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The fire piled into the left third, high up and going nowhere, and the item in among it.
+        for slot in 0..30 {
+            game.image()
+                .a_bullet_is_at(slot, FIELD.0 + 60.0, LOW - 40.0, (0.0, 0.0));
+        }
+        game.image().an_item_is_at(700, POINT, FIELD.0 + 60.0, LOW);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & LEFT,
+            0,
+            "the bot went into the thick of it for a point item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the same place, worth crossing for.
+        game.image().the_item_is_gone(700);
+        game.image()
+            .an_item_is_at(701, BIG_POWER, FIELD.0 + 60.0, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & LEFT,
+            LEFT,
+            "the bot left the big power item where it lay:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **Of two open moves the same distance from what the rules want, the emptier side is taken.**
+///
+/// Which costs nothing to know and nothing to decide: the room each move has is already measured, and this only
+/// says what to do where the wanting cannot tell two moves apart — which is every symmetric pair, and so every
+/// frame the bot is standing where it wanted to be. Today that goes to whichever comes first in the list of
+/// moves, a fixed bias towards one side of the screen with nothing behind it.
+///
+/// **The lowest priority there is**, deliberately. Ranked above the wanting it makes a bot that steps whenever a
+/// neighbour is a shade freer and never arrives — five of these tests said so at once — and as a threshold on
+/// how cramped is too cramped the number has to be guessed. As a tie-break it can only replace an arbitrary
+/// choice with a measured one.
+#[test]
+fn of_two_open_moves_the_same_way_off_the_emptier_side_is_taken() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-takes-the-emptier-side");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // One coming down the player's own column, late enough that standing still is what it shuts and the
+        // ways aside stay open — so the choice is between moves, all of them the same way off the middle.
+        game.image()
+            .a_bullet_is_at(0, MIDDLE, LOW - A_STEP * 10.0, (0.0, A_STEP));
+        // And one sitting off to the left, near enough to take the room off that side and not to shut it.
+        game.image()
+            .a_bullet_is_at(1, MIDDLE - A_STEP * 4.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert_eq!(
+            pressed & RIGHT,
+            RIGHT,
+            "the bot did not take the emptier of two sides it wanted equally, pressing \
+             {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed & LEFT,
+            0,
+            "the bot went towards the bullet it had room from, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **With nothing open, the move taken is the one whose trouble is furthest off** — and not the one that runs
 /// into least of it.
 ///

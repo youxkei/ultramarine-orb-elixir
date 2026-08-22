@@ -705,8 +705,8 @@ unsafe fn steer() -> Steered {
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
     // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
-    let mut best: Option<(u16, Judged, f32)> = None;
-    for (((word, _, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
+    let mut best: Option<(u16, Judged, f32, f32)> = None;
+    for (((word, dx, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
         // frames after it are what the move is judged *hit* by and not where it is going.
         let (x, y) = land[0];
@@ -724,20 +724,37 @@ unsafe fn steer() -> Steered {
         // order was hit nine times before 3面's boss where the one before it reached 4面 without a scratch.
         let better = match best {
             None => true,
-            Some((_, was, was_towards)) => match (was.clear(), judged.clear()) {
+            Some((_, was, was_dx, was_towards)) => match (was.clear(), judged.clear()) {
                 (false, true) => true,
                 (true, false) => false,
-                (true, true) => towards < was_towards,
+                // **And the emptier of two the wanting cannot tell apart.** Every symmetric pair is such a
+                // tie, and so is every frame the bot is standing where it wanted to be — which today went to
+                // whichever comes first in [`MOVES`], a fixed lean to one side of the screen with nothing
+                // behind it. The room is already measured, so this costs nothing and overrides nothing: above
+                // the wanting the same number makes a bot that steps whenever a neighbour is a shade freer and
+                // never arrives, and as a threshold on how cramped is too cramped it has to be guessed.
+                (true, true) => {
+                    towards < was_towards || (towards == was_towards && judged.room > was.room)
+                }
+                // **And with nothing open, sideways before anything else that lasts as long.** The fire's
+                // thickness is a thing of *x*: it comes from above and follows the player down, so a move that
+                // does not change the x cannot get out of it — down buys frames and arrives at the wall, which
+                // is where three runs were hit at `y = 432` with nowhere open to them. Only after the sideways
+                // ones does the room decide.
                 (false, false) => {
+                    let sideways = *dx != 0.0;
+                    let was_sideways = was_dx != 0.0;
                     judged.first() > was.first()
                         || (judged.first() == was.first()
                             && (judged.hits() < was.hits()
-                                || (judged.hits() == was.hits() && judged.room > was.room)))
+                                || (judged.hits() == was.hits()
+                                    && ((sideways && !was_sideways)
+                                        || (sideways == was_sideways && judged.room > was.room)))))
                 }
             },
         };
         if better {
-            best = Some((*word, judged, towards));
+            best = Some((*word, judged, *dx, towards));
         }
     }
     // **What the 低速移動 under a boss is off for is anything that reaches the move chosen** inside the frames
@@ -752,7 +769,7 @@ unsafe fn steer() -> Steered {
     // the move chosen is clear on almost every frame, that being what choosing it means, so a slowing taken off
     // by it is a slowing never taken off. Where holding still keeps the player out of everything for the frames
     // looked at, the step is not what the frame is for and the damage is.
-    let (word, judged_it, _) = best.unwrap_or((0, Judged::CLEAR, 0.0));
+    let (word, judged_it, _, _) = best.unwrap_or((0, Judged::CLEAR, 0.0, 0.0));
     let chosen = MOVES.iter().position(|(it, _, _)| *it == word);
     Steered {
         word,
@@ -803,12 +820,33 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
     // which is the shortest way to wherever the next item falls.
-    let (x, y) = match unsafe { the_item_worth_going_for() } {
+    let going_for = unsafe { the_item_worth_going_for() };
+    let (x, y) = match going_for {
         Some((_, at)) => at,
         None => match unsafe { the_boss_to_stand_under(field) } {
             Some(x) => (x, low),
             None => (field.0 + field.2 / 2.0, low),
         },
+    };
+    // **And out of a third of the field the fire is clearly piled into**, whichever of the three that x is in.
+    //
+    // Which is the one thing the nine moves cannot say between them: each asks whether *it* is hit over the
+    // frames looked at, so the bot will stand in the thick of a pattern for as long as the next twelve frames
+    // happen to be survivable and be somewhere with nothing open the moment they are not. That is what its hits
+    // are — `nowhere open to it` with a model holding 123 bullets and nine bodies is a place chosen and not a
+    // hazard missed.
+    //
+    // **Unless what it is going for is worth more than a point item.** Being crushed costs a bomb at best and
+    // the run at worst, which a point or a cherry is worth neither of; a 1up, a bomb, or the eight steps of
+    // power [`ITEM_BIG_POWER`] carries is worth the crossing. So the two rules meet at [`worth`], which is the
+    // one place this game's items are ranked.
+    let worth_the_crossing = going_for.is_some_and(|(it, _)| it > worth(ITEM_POINT));
+    let x = match unsafe { the_thickest_third(field) } {
+        Some(thick) if !worth_the_crossing && thick == a_third(field, x) => {
+            let empty = unsafe { the_emptiest_third(field) };
+            field.0 + field.2 * (empty as f32 + 0.5) / THIRDS as f32
+        }
+        _ => x,
     };
     // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
     // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
@@ -856,6 +894,74 @@ unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
             .then(|| unsafe { mem::read::<f32>(boss + ENEMY_POSITION) })
         })
         .find(|x| *x >= field.0 && *x <= field.0 + field.2)
+}
+
+/// How many pieces the field is cut into across its width for the fire in each to be counted.
+const THIRDS: usize = 3;
+
+/// **What the middle one's count is multiplied by before the three are compared.**
+///
+/// The middle of the field is where a pattern is thickest by nature — 自機狙い converges there and so does most
+/// of what a boss fires — so counting it against the outer two as it stands is a bot that leaves the middle for
+/// an imbalance that was always going to be there. Four fifths is what somebody who plays this game put it at
+/// once the counting was over the [`THE_BAND`] the player can actually be in rather than the whole column.
+const IN_THE_MIDDLE_ANYWAY: f32 = 0.8;
+
+/// Which of the [`THIRDS`] a place across the field is in.
+fn a_third(field: (f32, f32, f32, f32), x: f32) -> usize {
+    let across = ((x - field.0) / field.2 * THIRDS as f32).floor();
+    (across.max(0.0) as usize).min(THIRDS - 1)
+}
+
+/// **How much fire each of the [`THIRDS`] holds**, the middle one's counted at [`IN_THE_MIDDLE_ANYWAY`].
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_fire_in_each_third(field: (f32, f32, f32, f32)) -> [f32; THIRDS] {
+    let mut fire = [0.0; THIRDS];
+    for slot in 0..BULLET_SLOTS {
+        let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
+        if unsafe { mem::read::<u16>(bullet + BULLET_STATE) } == 0 {
+            continue;
+        }
+        // **Only what is inside the band the player can be in.** The bot never rises above [`THE_BAND`], so
+        // fire above it is fire nothing it does can put it among — counting the whole column of each third
+        // mixed that in and buried the difference the three are compared for: a run was hit in the middle of
+        // the field with the middle thick, and the counting could not see it.
+        let (x, y) = unsafe { position(bullet + BULLET_POSITION) };
+        if y < the_band(field) {
+            continue;
+        }
+        fire[a_third(field, x)] += 1.0;
+    }
+    fire[THIRDS / 2] *= IN_THE_MIDDLE_ANYWAY;
+    fire
+}
+
+/// **The third of the field the fire is clearly piled into**, or nothing where none of them is.
+///
+/// Clearly, and said in two numbers rather than a taste: **more than half of everything on the screen**, which
+/// for one of three is well past the third an even spread would give it; and **more than there are moves to
+/// weave between**, so that a handful of bullets is not a pile. An ordinary imbalance is not a reason to leave a
+/// fight.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_thickest_third(field: (f32, f32, f32, f32)) -> Option<usize> {
+    let fire = unsafe { the_fire_in_each_third(field) };
+    let all: f32 = fire.iter().sum();
+    (0..THIRDS).find(|third| fire[*third] > all / 2.0 && fire[*third] > MOVES.len() as f32)
+}
+
+/// And the emptiest of them, which is where the bot waits instead.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_emptiest_third(field: (f32, f32, f32, f32)) -> usize {
+    let fire = unsafe { the_fire_in_each_third(field) };
+    (0..THIRDS)
+        .min_by(|a, b| fire[*a].total_cmp(&fire[*b]))
+        .unwrap_or(THIRDS / 2)
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.
