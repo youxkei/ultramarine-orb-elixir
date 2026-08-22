@@ -747,6 +747,134 @@ fn a_hit_says_what_the_rules_thought_of_the_move_that_took_it() {
     });
 }
 
+/// **What a hit names is everything whose box reaches the player, and not everything standing near it.**
+///
+/// A thing shaped like a beam is one enemy at the pivot it swings about, with a size as long as the field: its
+/// middle is a hundred units up while its box lies across the player. Asked about middles, the dump of a hit
+/// taken by exactly that said nothing was near it at all — which is the one answer that sends the reading
+/// somewhere else, since the three arrays had already been ruled out by it.
+#[test]
+fn an_enemy_whose_box_reaches_the_player_is_named_near_a_hit_from_far_off() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-long-enemy-is-named-near-a-hit");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Far enough up that nothing about where it stands is near the player, and long enough down that the
+        // box it hands the player's own test covers where the player stands.
+        game.image()
+            .an_enemy_of_size_is_at(3, MIDDLE, LOW - 100.0, (12.0, 600.0));
+        // A frame for the rules to have a move of their own to report the hit against: the first one they are
+        // asked for has no frame before it, and a hit on it says so instead.
+        game.frames(1);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        assert!(
+            game.log().said("near it, enemy 3"),
+            "the hit did not name the enemy whose box lay across the player:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **What a hit names is measured off the same frame the things it names come from.**
+///
+/// The hit is noticed a frame or two after the collision — the state the game leaves at 2 is written inside its
+/// own update, and orb reads before that update runs — so the player has moved by the time the arrays are
+/// walked, and so has everything in them. Measuring the frame before's player against this frame's hazards puts
+/// a step or two of error into every distance, which for a bullet crossing at four a frame is eight units of it:
+/// a dump asked that way answered `nothing was near it at all` on a hit whose cause was standing in one of the
+/// three arrays the whole time.
+#[test]
+fn what_a_hit_names_is_near_where_the_player_is_when_the_arrays_are_walked() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-names-what-is-near-it-now");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        // The player carried well away from where the frame before's move was decided, with the enemy at the
+        // place it has got to rather than the place it came from.
+        game.image().the_player_is_at(MIDDLE + 40.0, LOW);
+        game.image()
+            .an_enemy_of_size_is_at(3, MIDDLE + 40.0, LOW, (12.0, 12.0));
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        assert!(
+            game.log().said("near it, enemy 3"),
+            "the hit did not name the enemy standing where the player had got to:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A hit leaves a picture of the frame beside the exe.**
+///
+/// Which is what the dump cannot be asked for: a hit that names nothing within reach of the player has
+/// exhausted the three arrays, and whatever hit it was still drawn. The frame is a 32-bit BMP, so what a test
+/// can hold it to is the header — that it says the screen's own size, and that its rows are the frame's.
+#[test]
+fn a_hit_leaves_a_picture_of_the_frame_beside_the_exe() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-leaves-a-picture");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        let picture = game.dir().join("orb-hit-0.bmp");
+        let held = game
+            .sim()
+            .files()
+            .get(&picture)
+            .unwrap_or_else(|| panic!("nothing was written to {}", picture.display()));
+        assert_eq!(&held[..2], b"BM", "what was written is not a BMP");
+        assert_eq!(
+            i32::from_le_bytes(held[18..22].try_into().unwrap()),
+            SCREEN_ACROSS,
+            "the picture is not as wide as the screen",
+        );
+        assert_eq!(
+            i32::from_le_bytes(held[22..26].try_into().unwrap()),
+            SCREEN_DOWN,
+            "the picture is not as tall as the screen",
+        );
+        assert_eq!(
+            held.len(),
+            54 + (SCREEN_ACROSS * SCREEN_DOWN * 4) as usize,
+            "the picture is not the size its own header says",
+        );
+    });
+}
+
+/// The screen the game shows through, which is the size a picture of one of its frames is.
+const SCREEN_ACROSS: i32 = 640;
+const SCREEN_DOWN: i32 = 480;
+
+/// **A hit says what the model was holding near the player on the frame it chose the move.**
+///
+/// Which is the one reading nothing taken afterwards can stand in for. The arrays walked after a hit are a
+/// frame or two on and the thing that did it has been taken off them — a bullet's own state goes to 5 the
+/// moment the test comes back — so a dump of them says what is there *now*, and a hit whose cause was already
+/// gone reads as a hit with nothing near it. What the model held is remembered instead of re-read, and a hit
+/// with nothing in that list is a hazard the model never had.
+#[test]
+fn a_hit_says_what_the_model_held_near_the_player_when_it_chose() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-what-the-model-held");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Near enough to be held and far enough not to be a hit, so that what the list says is what the model
+        // had rather than what it was steering away from.
+        game.image()
+            .a_bullet_is_at(12, MIDDLE + 10.0, LOW - 12.0, (0.0, 0.0));
+        game.frames(1);
+        // And gone from the arrays by the time the hit is read, the way the one that did it is.
+        game.image().the_bullet_is_gone(12);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        assert!(
+            game.log().said("held a bullet 12"),
+            "the hit did not say the bullet the model was holding when it chose:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A step aside is a way out and not another hit.** Which needs the room a move opens to be wider than what
 /// counts as being hit: where the two are the same, every neighbour of a place a bullet crosses is a hit too,
 /// so no move is open, and the choice falls through to the most room — which is the fleeing the whole of this

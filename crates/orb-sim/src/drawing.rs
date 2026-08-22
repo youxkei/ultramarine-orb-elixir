@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use orb_api::{Device, Locked, Texture, Viewport};
+use orb_api::{Device, Locked, Surface, Texture, Viewport};
 
 use crate::Glyphs;
 
@@ -232,6 +232,61 @@ impl Recording {
             }),
         );
         Texture(handle)
+    }
+
+    /// A surface, out of the same storage the textures come out of — the two differ in which slots reach
+    /// them and in nothing a recording holds.
+    ///
+    /// **Filled rather than left at zero**, because what a copy of the frame reads back has to be
+    /// something an e2e test can tell from an empty one, and the sim rasterises nothing: the quads are
+    /// read back as quads. So the colour the frame was cleared to is what a surface of it holds, and a
+    /// screenshot of a simulated frame is that colour.
+    pub(crate) fn create_surface(&self, width: u32, height: u32, fill: u32) -> Surface {
+        let mut next = self.next.lock().unwrap();
+        let handle = *next;
+        *next += 1;
+        self.textures.lock().unwrap().insert(
+            handle,
+            Box::new(Held {
+                width,
+                pixels: vec![fill; (width * height.max(1)) as usize],
+            }),
+        );
+        Surface(handle)
+    }
+
+    /// The colour the frame was last cleared to, and black where it has not been cleared at all.
+    pub(crate) fn last_clear(&self) -> u32 {
+        self.drawn
+            .lock()
+            .unwrap()
+            .clears
+            .last()
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn surface_size(&self, surface: Surface) -> Option<(u32, u32)> {
+        let textures = self.textures.lock().unwrap();
+        let held = textures.get(&surface.0)?;
+        Some((held.width, held.pixels.len() as u32 / held.width.max(1)))
+    }
+
+    pub(crate) fn copy_surface(&self, from: Surface, to: Surface) -> bool {
+        let mut textures = self.textures.lock().unwrap();
+        let Some(rows) = textures.get(&from.0).map(|held| held.pixels.clone()) else {
+            return false;
+        };
+        let Some(held) = textures.get_mut(&to.0) else {
+            return false;
+        };
+        let take = held.pixels.len().min(rows.len());
+        held.pixels[..take].copy_from_slice(&rows[..take]);
+        true
+    }
+
+    pub(crate) fn lock_surface(&self, surface: Surface) -> Option<Locked> {
+        self.lock_rect(Texture(surface.0))
     }
 
     pub(crate) fn lock_rect(&self, texture: Texture) -> Option<Locked> {

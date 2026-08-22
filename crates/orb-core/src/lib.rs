@@ -41,6 +41,7 @@ pub mod resume_ui;
 pub mod retry_ui;
 pub mod runtime;
 pub mod score;
+pub mod shot;
 pub mod snapshot;
 pub mod sync;
 pub mod tuning;

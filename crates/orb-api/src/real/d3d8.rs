@@ -7,8 +7,8 @@
 
 use std::ffi::c_void;
 
-use crate::d3d8::{DeviceVtable, RawLocked, TextureVtable};
-use crate::{Device, Hresult, Locked, Texture, Viewport};
+use crate::d3d8::{DeviceVtable, RawLocked, SurfaceVtable, TextureVtable};
+use crate::{Device, Hresult, Locked, Surface, SurfaceDesc, Texture, Viewport};
 
 /// The vtable of an object at an address: its first field is the pointer to it, which is what a COM
 /// object is.
@@ -171,4 +171,88 @@ pub fn unlock_rect(texture: Texture, level: u32) {
 
 pub fn release_texture(texture: Texture) {
     unsafe { (texture_vtable(texture).release)(object(texture.0)) };
+}
+
+fn surface_vtable(surface: Surface) -> &'static SurfaceVtable {
+    unsafe { vtable(surface.0) }
+}
+
+pub fn get_back_buffer(device: Device, index: u32, kind: u32) -> (Hresult, Option<Surface>) {
+    let mut surface: *mut c_void = std::ptr::null_mut();
+    let got = unsafe {
+        (device_vtable(device).get_back_buffer)(object(device.0), index, kind, &mut surface)
+    };
+    if got < 0 || surface.is_null() {
+        return (got, None);
+    }
+    (got, Some(Surface(surface as usize)))
+}
+
+pub fn create_image_surface(
+    device: Device,
+    width: u32,
+    height: u32,
+    format: u32,
+) -> (Hresult, Option<Surface>) {
+    let mut surface: *mut c_void = std::ptr::null_mut();
+    let created = unsafe {
+        (device_vtable(device).create_image_surface)(
+            object(device.0),
+            width,
+            height,
+            format,
+            &mut surface,
+        )
+    };
+    if created < 0 || surface.is_null() {
+        return (created, None);
+    }
+    (created, Some(Surface(surface as usize)))
+}
+
+pub fn copy_rects(device: Device, from: Surface, to: Surface) -> Hresult {
+    unsafe {
+        (device_vtable(device).copy_rects)(
+            object(device.0),
+            object(from.0),
+            std::ptr::null(),
+            0,
+            object(to.0),
+            std::ptr::null(),
+        )
+    }
+}
+
+pub fn surface_desc(surface: Surface) -> Option<SurfaceDesc> {
+    let mut desc = SurfaceDesc::default();
+    let got = unsafe { (surface_vtable(surface).get_desc)(object(surface.0), &mut desc) };
+    if got < 0 {
+        return None;
+    }
+    Some(desc)
+}
+
+pub fn lock_surface(surface: Surface, flags: u32) -> Option<Locked> {
+    let mut locked = RawLocked {
+        pitch: 0,
+        bits: std::ptr::null_mut(),
+    };
+    let result = unsafe {
+        (surface_vtable(surface).lock_rect)(object(surface.0), &mut locked, std::ptr::null(), flags)
+    };
+    if result < 0 || locked.bits.is_null() {
+        return None;
+    }
+    Some(Locked {
+        pitch: locked.pitch,
+        bits: locked.bits as usize,
+    })
+}
+
+pub fn unlock_surface(surface: Surface) {
+    unsafe { (surface_vtable(surface).unlock_rect)(object(surface.0)) };
+}
+
+pub fn release_surface(surface: Surface) {
+    unsafe { (surface_vtable(surface).release)(object(surface.0)) };
 }

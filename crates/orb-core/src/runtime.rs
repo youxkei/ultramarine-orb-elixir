@@ -1404,6 +1404,9 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
         // to the chain and nothing yet says which of the two the overlay wants.
         game.end_drawing(device);
         d3d8::end_scene(device);
+        // Whatever asked for a picture of this frame, now that everything of the frame is in the back
+        // buffer and before the swap makes what is in it undefined. Nothing on a frame nobody asked on.
+        crate::shot::taken(device);
         d3d8::set_texture(device, 0, None);
         let drawn = frame::now();
         // Between the drawing and the handover, which is the one place the frame's own work is a

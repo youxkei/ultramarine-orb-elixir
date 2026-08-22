@@ -33,7 +33,7 @@
 use std::ffi::c_void;
 use std::mem::offset_of;
 
-use crate::{Device, Hresult, Locked, Texture, Viewport};
+use crate::{Device, Hresult, Locked, Surface, SurfaceDesc, Texture, Viewport};
 
 pub const D3DRS_ZENABLE: u32 = 7;
 pub const D3DRS_ZWRITEENABLE: u32 = 14;
@@ -76,6 +76,10 @@ pub const D3DZB_FALSE: u32 = 0;
 pub const D3DPT_TRIANGLESTRIP: u32 = 5;
 pub const D3DPOOL_MANAGED: u32 = 1;
 pub const D3DFMT_A8R8G8B8: u32 = 21;
+pub const D3DFMT_X8R8G8B8: u32 = 22;
+pub const D3DFMT_R5G6B5: u32 = 23;
+pub const D3DBACKBUFFER_TYPE_MONO: u32 = 0;
+pub const D3DLOCK_READONLY: u32 = 0x10;
 pub const D3DSBT_ALL: u32 = 1;
 pub const D3DCLEAR_TARGET: u32 = 0x1;
 pub const D3DCLEAR_ZBUFFER: u32 = 0x2;
@@ -277,6 +281,80 @@ pub fn release_texture(texture: Texture) {
     host::release_texture(texture);
 }
 
+// --- the seven that reach a surface ------------------------------------------
+
+/// `GetBackBuffer`, and the surface as well as the result.
+///
+/// A reference of its own comes back with it, so what this hands over is released like a texture orb made.
+pub fn get_back_buffer(device: Device, index: u32, kind: u32) -> (Hresult, Option<Surface>) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.get_back_buffer(device, index, kind);
+    }
+    host::get_back_buffer(device, index, kind)
+}
+
+/// `CreateImageSurface`, which is the one that makes a surface in system memory.
+pub fn create_image_surface(
+    device: Device,
+    width: u32,
+    height: u32,
+    format: u32,
+) -> (Hresult, Option<Surface>) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.create_image_surface(device, width, height, format);
+    }
+    host::create_image_surface(device, width, height, format)
+}
+
+/// `CopyRects` over the whole of the source, which is what that slot's own null rectangle list and zero
+/// count mean — the only decision left to a caller is which surfaces, and nothing orb copies is a part of
+/// one.
+pub fn copy_rects(device: Device, from: Surface, to: Surface) -> Hresult {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.copy_rects(device, from, to);
+    }
+    host::copy_rects(device, from, to)
+}
+
+/// `GetDesc`, and `None` where it failed.
+pub fn surface_desc(surface: Surface) -> Option<SurfaceDesc> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.surface_desc(surface);
+    }
+    host::surface_desc(surface)
+}
+
+/// `LockRect` over the whole surface, and `None` where it failed or handed back nothing to read.
+pub fn lock_surface(surface: Surface, flags: u32) -> Option<Locked> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.lock_surface(surface, flags);
+    }
+    host::lock_surface(surface, flags)
+}
+
+/// `UnlockRect`.
+pub fn unlock_surface(surface: Surface) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.unlock_surface(surface);
+    }
+    host::unlock_surface(surface);
+}
+
+/// `Release`, for both the back buffer's own reference and the surface orb made.
+pub fn release_surface(surface: Surface) {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.release_surface(surface);
+    }
+    host::release_surface(surface);
+}
+
 // --- the layouts -------------------------------------------------------------
 
 /// `IDirect3DDevice8`'s vtable, as far as the slots orb calls are concerned.
@@ -286,7 +364,10 @@ pub fn release_texture(texture: Texture) {
 #[repr(C)]
 pub struct DeviceVtable {
     pub _iunknown: [usize; 3],
-    pub _slot_3_to_19: [usize; 17],
+    pub _slot_3_to_15: [usize; 13],
+    pub get_back_buffer:
+        unsafe extern "system" fn(*mut c_void, u32, u32, *mut *mut c_void) -> Hresult,
+    pub _slot_17_to_19: [usize; 3],
     pub create_texture: unsafe extern "system" fn(
         *mut c_void,
         u32,
@@ -297,7 +378,18 @@ pub struct DeviceVtable {
         u32,
         *mut *mut c_void,
     ) -> Hresult,
-    pub _slot_21_to_33: [usize; 13],
+    pub _slot_21_to_26: [usize; 6],
+    pub create_image_surface:
+        unsafe extern "system" fn(*mut c_void, u32, u32, u32, *mut *mut c_void) -> Hresult,
+    pub copy_rects: unsafe extern "system" fn(
+        *mut c_void,
+        *mut c_void,
+        *const c_void,
+        u32,
+        *mut c_void,
+        *const c_void,
+    ) -> Hresult,
+    pub _slot_29_to_33: [usize; 5],
     pub begin_scene: unsafe extern "system" fn(*mut c_void) -> Hresult,
     pub end_scene: unsafe extern "system" fn(*mut c_void) -> Hresult,
     pub clear:
@@ -335,6 +427,19 @@ pub struct TextureVtable {
     pub unlock_rect: unsafe extern "system" fn(*mut c_void, u32) -> Hresult,
 }
 
+/// And `IDirect3DSurface8`'s.
+#[repr(C)]
+pub struct SurfaceVtable {
+    pub _query_interface: usize,
+    pub _add_ref: usize,
+    pub release: unsafe extern "system" fn(*mut c_void) -> u32,
+    pub _slot_3_to_7: [usize; 5],
+    pub get_desc: unsafe extern "system" fn(*mut c_void, *mut SurfaceDesc) -> Hresult,
+    pub lock_rect:
+        unsafe extern "system" fn(*mut c_void, *mut RawLocked, *const c_void, u32) -> Hresult,
+    pub unlock_rect: unsafe extern "system" fn(*mut c_void) -> Hresult,
+}
+
 /// `D3DLOCKED_RECT`, which is what the slot fills in — [`Locked`] is the same two numbers with the
 /// pointer as an address, so that nothing across the seam traffics in one.
 #[repr(C)]
@@ -369,9 +474,16 @@ const _: () = {
     assert!(offset_of!(DeviceVtable, set_texture_stage_state) == slot(63));
     assert!(offset_of!(DeviceVtable, draw_primitive_up) == slot(72));
     assert!(offset_of!(DeviceVtable, set_vertex_shader) == slot(76));
+    assert!(offset_of!(DeviceVtable, get_back_buffer) == slot(16));
+    assert!(offset_of!(DeviceVtable, create_image_surface) == slot(27));
+    assert!(offset_of!(DeviceVtable, copy_rects) == slot(28));
     assert!(offset_of!(TextureVtable, release) == slot(2));
     assert!(offset_of!(TextureVtable, lock_rect) == slot(16));
     assert!(offset_of!(TextureVtable, unlock_rect) == slot(17));
+    assert!(offset_of!(SurfaceVtable, release) == slot(2));
+    assert!(offset_of!(SurfaceVtable, get_desc) == slot(8));
+    assert!(offset_of!(SurfaceVtable, lock_rect) == slot(9));
+    assert!(offset_of!(SurfaceVtable, unlock_rect) == slot(10));
 };
 
 #[cfg(windows)]
@@ -448,5 +560,35 @@ mod host {
     }
     pub fn release_texture(_texture: Texture) {
         no_windows("d3d8::release_texture")
+    }
+    pub fn get_back_buffer(
+        _device: Device,
+        _index: u32,
+        _kind: u32,
+    ) -> (Hresult, Option<crate::Surface>) {
+        no_windows("d3d8::get_back_buffer")
+    }
+    pub fn create_image_surface(
+        _device: Device,
+        _width: u32,
+        _height: u32,
+        _format: u32,
+    ) -> (Hresult, Option<crate::Surface>) {
+        no_windows("d3d8::create_image_surface")
+    }
+    pub fn copy_rects(_device: Device, _from: crate::Surface, _to: crate::Surface) -> Hresult {
+        no_windows("d3d8::copy_rects")
+    }
+    pub fn surface_desc(_surface: crate::Surface) -> Option<crate::SurfaceDesc> {
+        no_windows("d3d8::surface_desc")
+    }
+    pub fn lock_surface(_surface: crate::Surface, _flags: u32) -> Option<Locked> {
+        no_windows("d3d8::lock_surface")
+    }
+    pub fn unlock_surface(_surface: crate::Surface) {
+        no_windows("d3d8::unlock_surface")
+    }
+    pub fn release_surface(_surface: crate::Surface) {
+        no_windows("d3d8::release_surface")
     }
 }

@@ -161,6 +161,9 @@ struct Steered {
     at: (f32, f32),
     nearest: Option<Nearest>,
     counted: Counted,
+    held: [Option<Held>; HELD],
+    /// How many were within reach, which is not how many of them fit in [`Steered::held`].
+    held_all: u32,
 }
 
 /// **What the frame's model was made of, and what it left out** — bullets, enemies and lasers, each as the
@@ -197,6 +200,30 @@ struct Counted {
 #[derive(Clone, Copy)]
 struct Nearest {
     what: &'static str,
+    at: (f32, f32),
+    step: (f32, f32),
+    half: (f32, f32),
+}
+
+/// **What the model was holding within reach of the player on the frame it chose**, kept so that a hit can be
+/// read against it.
+///
+/// The arrays cannot be asked this afterwards. A hit is noticed a frame or two on — the state it is noticed by
+/// is written inside the game's own update, which runs after orb reads the input — and the thing that did it has
+/// been taken off them by then: a bullet's own state goes to 5 the moment the test comes back. So a walk after
+/// the fact says what is there now, and a hit whose cause has already gone reads as a hit with nothing near it,
+/// which is the one answer that says nothing. Held here, an empty list means the model never had it.
+///
+/// A fixed room and not a list that grows: [`Steered`] is copied out of a lock on every frame, and a frame of
+/// 妖々夢's own bullet hell would put a hundred of these in it.
+const HELD: usize = 12;
+
+/// One of them, with which slot of which array it came out of — the slot being what makes it findable again in
+/// a dump of the same frame.
+#[derive(Clone, Copy)]
+struct Held {
+    what: &'static str,
+    slot: usize,
     at: (f32, f32),
     step: (f32, f32),
     half: (f32, f32),
@@ -449,6 +476,9 @@ pub unsafe fn word_to_press() -> u16 {
         && word & BUTTON_BOMB != 0
     {
         said_what_took_it();
+        // And the frame itself, which is the one thing the arrays cannot be asked for: a hit whose dump
+        // names nothing within reach of the player was still made by something that was drawn.
+        crate::shot::wanted("hit");
     }
     *LAST_FRAME
         .lock()
@@ -548,6 +578,112 @@ fn said_what_took_it() {
         ),
         None => crate::detail!("autoplay: nothing was near it at all"),
     }
+    crate::detail!(
+        "autoplay: the model was holding {} within reach when it chose",
+        was.held_all,
+    );
+    for held in was.held.iter().flatten() {
+        crate::detail!(
+            "autoplay: held {} {} at {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}",
+            held.what,
+            held.slot,
+            held.at.0,
+            held.at.1,
+            held.step.0,
+            held.step.1,
+            held.half.0,
+            held.half.1,
+        );
+    }
+    unsafe { say_what_was_near() };
+}
+
+/// How near a thing has to be to the player for a hit to name it, whatever rule the model judged it by.
+const NEAR_ENOUGH_TO_BE_IT: f32 = 16.0;
+
+/// **Everything within [`NEAR_ENOUGH_TO_BE_IT`] of where the player was hit, out of all three of the game's own
+/// arrays and past every rule that leaves one out.**
+///
+/// Which is the question a hit reading `6.4 of room` with the nearest thing eight units off cannot answer: the
+/// player was hit by something, and if it is in none of the three then none of the three is where it lives. Said
+/// with the fields that would tell one kind from another, so that whatever it is can be singled out.
+///
+/// **Where the player is and not where it was when the move was decided.** The state the hit is noticed by is
+/// written inside the game's own update and orb reads before that update runs, so this walk happens a frame or
+/// two on: the player has moved and so has everything in the arrays. Measured against the older of the two
+/// places, every distance carries those frames as error — eight units of it for a bullet crossing at four a
+/// frame — which is enough for the thing that did it to read as nowhere near. The hit's own line says where the
+/// player was; this walk is the only self-consistent reading of one frame.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn say_what_was_near() {
+    let at = unsafe { player() };
+    crate::detail!(
+        "autoplay: what was near it is measured from {:.1},{:.1}, where the player is now",
+        at.0,
+        at.1,
+    );
+    // **The boxes and not the middles.** A thing shaped like a beam sits at its pivot with a size the length of
+    // the screen, so its middle is nowhere near the player while its box covers it — and a dump that asked about
+    // middles said nothing was near a hit at all, which is how this came to be written.
+    let near = |(x, y): (f32, f32), (wx, wy): (f32, f32)| {
+        (x - at.0).abs() < NEAR_ENOUGH_TO_BE_IT + wx && (y - at.1).abs() < NEAR_ENOUGH_TO_BE_IT + wy
+    };
+    for slot in 0..BULLET_SLOTS {
+        let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
+        let state = unsafe { mem::read::<u16>(bullet + BULLET_STATE) };
+        let place = unsafe { position(bullet + BULLET_POSITION) };
+        let size = unsafe { position(bullet + BULLET_SIZE) };
+        if state != 0 && near(place, (size.0 / 2.0, size.1 / 2.0)) {
+            crate::detail!(
+                "autoplay: near it, bullet {slot} state {state} at {:.1},{:.1} half {:.1},{:.1} \
+                 step {:.1},{:.1}",
+                place.0,
+                place.1,
+                size.0 / 2.0,
+                size.1 / 2.0,
+                unsafe { mem::read::<f32>(bullet + BULLET_STEP) },
+                unsafe { mem::read::<f32>(bullet + BULLET_STEP + size_of::<f32>()) },
+            );
+        }
+    }
+    for slot in 0..ENEMY_SLOTS {
+        let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
+        let place = unsafe { position(enemy + ENEMY_POSITION) };
+        let (sx, sy) = unsafe { position(enemy + ENEMY_SIZE) };
+        let half = (
+            sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+            sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+        );
+        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT != 0
+            && near(place, half)
+        {
+            crate::detail!(
+                "autoplay: near it, enemy {slot} at {:.1},{:.1} half {:.1},{:.1} \
+                 solidity {:#04x}",
+                place.0,
+                place.1,
+                half.0,
+                half.1,
+                unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) },
+            );
+        }
+    }
+    for slot in 0..LASER_SLOTS {
+        let laser = G_LASERS + slot * LASER_BYTES;
+        let alive = unsafe { mem::read::<u32>(laser + LASER_ALIVE) };
+        if alive != 0 {
+            crate::detail!(
+                "autoplay: a laser is alive, {slot} phase {} from {:.1},{:.1} angle {:.2} wide {:.1}",
+                unsafe { mem::read::<u8>(laser + LASER_PHASE) },
+                unsafe { mem::read::<f32>(laser + LASER_ORIGIN) },
+                unsafe { mem::read::<f32>(laser + LASER_ORIGIN + size_of::<f32>()) },
+                unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
+                unsafe { mem::read::<f32>(laser + LASER_WIDTH) },
+            );
+        }
+    }
 }
 
 /// **The 十字キー of the safest of the nine one-frame moves**, or the one towards where the rules want to be
@@ -605,13 +741,32 @@ unsafe fn steer() -> Steered {
     let mut counted = Counted::default();
     let mut judged = [Judged::CLEAR; MOVES.len()];
     let mut nearest = [None; MOVES.len()];
+    let mut held = [None; HELD];
+    let mut held_all = 0;
     // `grows` is how much a hazard's own half is taken to spread each frame, which is nought for everything a
     // step describes and its own speed for the one thing no reading does — see [`a_bullet_moved`].
     let mut against = |what: &'static str,
+                       slot: usize,
                        (hx, hy): (f32, f32),
                        (sx, sy): (f32, f32),
                        (wx, wy): (f32, f32),
                        grows: (f32, f32)| {
+        // Held before it is judged, and by where it is rather than by where it is projected: what a hit is read
+        // against is what the model had, and a projection is the thing being called into question.
+        if (hx - at.0).abs() < NEAR_ENOUGH_TO_BE_IT + wx
+            && (hy - at.1).abs() < NEAR_ENOUGH_TO_BE_IT + wy
+        {
+            held_all += 1;
+            if let Some(room) = held.iter_mut().find(|held| held.is_none()) {
+                *room = Some(Held {
+                    what,
+                    slot,
+                    at: (hx, hy),
+                    step: (sx, sy),
+                    half: (wx, wy),
+                });
+            }
+        }
         {
             for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
                 for (frame, (x, y)) in path.iter().enumerate() {
@@ -679,6 +834,7 @@ unsafe fn steer() -> Steered {
             || turned.1.abs() > A_STEP_OF_ITS_OWN;
         against(
             "a bullet",
+            slot,
             at,
             if scripted { (0.0, 0.0) } else { step },
             (wx / 2.0, wy / 2.0),
@@ -731,6 +887,7 @@ unsafe fn steer() -> Steered {
         let (sx, sy) = unsafe { position(enemy + ENEMY_SIZE) };
         against(
             "an enemy",
+            slot,
             (wx, wy),
             moved(slot, (wx, wy)),
             (
@@ -902,6 +1059,8 @@ unsafe fn steer() -> Steered {
         at,
         nearest: chosen.and_then(|chosen| nearest[chosen]),
         counted,
+        held,
+        held_all,
     }
 }
 

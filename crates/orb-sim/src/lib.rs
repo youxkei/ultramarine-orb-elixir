@@ -18,8 +18,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use orb_api::{
     Composition, Device, Face, Hresult, Hwnd, Locked, LockedBuffer, LogFile, Mask, Rect,
-    SoundBuffer, Texture, Viewport, Win,
+    SoundBuffer, Surface, SurfaceDesc, Texture, Viewport, Win,
 };
+
+/// `D3DERR_INVALIDCALL`, which is what a device answers for a surface that is not its own.
+const INVALID_CALL: Hresult = -2005530516;
 
 mod clock;
 mod display;
@@ -855,6 +858,66 @@ impl Win for Sim {
     /// releases the one before — and what an e2e test asks after a frame is what went into it, so a
     /// release that freed the rows would take the answer with it.
     fn release_texture(&self, _texture: Texture) {}
+
+    /// The frame at the size [`Recording::viewport`] reports the device is, holding the colour it was
+    /// cleared to — see [`Recording::create_surface`] for why that is what a simulated frame holds.
+    fn get_back_buffer(
+        &self,
+        _device: Device,
+        _index: u32,
+        _kind: u32,
+    ) -> (Hresult, Option<Surface>) {
+        let screen = self.drawing.viewport();
+        let fill = self.drawing.last_clear();
+        (
+            0,
+            Some(
+                self.drawing
+                    .create_surface(screen.width, screen.height, fill),
+            ),
+        )
+    }
+
+    fn create_image_surface(
+        &self,
+        _device: Device,
+        width: u32,
+        height: u32,
+        _format: u32,
+    ) -> (Hresult, Option<Surface>) {
+        (0, Some(self.drawing.create_surface(width, height, 0)))
+    }
+
+    /// `D3DERR_INVALIDCALL` for a surface the recording never handed out, which is what a real device
+    /// answers for one of another device's.
+    fn copy_rects(&self, _device: Device, from: Surface, to: Surface) -> Hresult {
+        if self.drawing.copy_surface(from, to) {
+            0
+        } else {
+            INVALID_CALL
+        }
+    }
+
+    /// The size, and the format every surface the sim makes is: a copy of the frame is read back as
+    /// 32-bit pixels because that is what the drawing's own storage holds.
+    fn surface_desc(&self, surface: Surface) -> Option<SurfaceDesc> {
+        let (width, height) = self.drawing.surface_size(surface)?;
+        Some(SurfaceDesc {
+            format: orb_api::d3d8::D3DFMT_X8R8G8B8,
+            width,
+            height,
+            ..SurfaceDesc::default()
+        })
+    }
+
+    fn lock_surface(&self, surface: Surface, _flags: u32) -> Option<Locked> {
+        self.drawing.lock_surface(surface)
+    }
+
+    fn unlock_surface(&self, _surface: Surface) {}
+
+    /// Nothing, and the storage stays, for the reason [`Sim::release_texture`] carries.
+    fn release_surface(&self, _surface: Surface) {}
 
     // --- the buffer the game's music is played out of ----------------------------
     //

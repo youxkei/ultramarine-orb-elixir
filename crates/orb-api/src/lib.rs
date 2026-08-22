@@ -704,6 +704,23 @@ pub trait Win: Send + Sync + 'static {
     fn unlock_rect(&self, texture: Texture, level: u32);
     fn release_texture(&self, texture: Texture);
 
+    // And the four that reach a surface, which is how the frame the game just drew is read back out of
+    // it: the back buffer cannot be locked unless the device was made lockable, so the copy into a
+    // surface of orb's own is what makes its rows readable.
+    fn get_back_buffer(&self, device: Device, index: u32, kind: u32) -> (Hresult, Option<Surface>);
+    fn create_image_surface(
+        &self,
+        device: Device,
+        width: u32,
+        height: u32,
+        format: u32,
+    ) -> (Hresult, Option<Surface>);
+    fn copy_rects(&self, device: Device, from: Surface, to: Surface) -> Hresult;
+    fn surface_desc(&self, surface: Surface) -> Option<SurfaceDesc>;
+    fn lock_surface(&self, surface: Surface, flags: u32) -> Option<Locked>;
+    fn unlock_surface(&self, surface: Surface);
+    fn release_surface(&self, surface: Surface);
+
     // --- the buffer the game's music is played out of ----------------------------
     //
     // Eight slots, which is every one `crates/orb-api/src/dsound.rs` types. Behind the seam for the same
@@ -768,6 +785,28 @@ impl Device {
 /// An `IDirect3DTexture8` the device made, the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Texture(pub usize);
+
+/// An `IDirect3DSurface8`, the same way — the back buffer the device hands over, or the system-memory one
+/// a copy of it is made in so that its rows can be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Surface(pub usize);
+
+/// `D3DSURFACE_DESC`, field for field and in the same order, the way [`Viewport`] is `D3DVIEWPORT8`.
+///
+/// The whole struct and not the three fields a caller reads: the slot fills in eight, and a type holding
+/// fewer would be this seam deciding which of them matter.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct SurfaceDesc {
+    pub format: u32,
+    pub kind: u32,
+    pub usage: u32,
+    pub pool: u32,
+    pub size: u32,
+    pub multi_sample_type: u32,
+    pub width: u32,
+    pub height: u32,
+}
 
 /// What Direct3D calls an `HRESULT`: negative for a failure, and the number itself is what orb writes
 /// into the log.
