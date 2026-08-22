@@ -1580,6 +1580,22 @@ impl Image {
         space.write::<f32>(enemy + super::ENEMY_SIZE + size_of::<f32>(), size.1);
     }
 
+    /// **The trail an enemy leaves, which is the beam that follows it**: as many places as are given, and the
+    /// count the game's own walk ends at.
+    ///
+    /// The box each of them is tested with is the enemy's own size, so this is laid out beside
+    /// [`Image::an_enemy_of_size_is_at`] rather than carrying a size of its own.
+    pub fn the_enemy_has_been_at(&self, slot: usize, places: &[(f32, f32)]) {
+        let enemy = super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES;
+        let space = self.space();
+        space.write::<i16>(enemy + super::ENEMY_TRAIL_NODES, places.len() as i16);
+        for (node, (x, y)) in places.iter().enumerate() {
+            let at = enemy + super::ENEMY_TRAIL + node * super::ENEMY_TRAIL_BYTES;
+            space.write::<f32>(at, *x);
+            space.write::<f32>(at + size_of::<f32>(), *y);
+        }
+    }
+
     /// Where the boss is, written into the slot [`Image::a_boss_is_fighting`] hands out — so the two go
     /// together, this one being the position of the enemy that one made a boss.
     pub fn the_boss_is_at(&self, x: f32, y: f32) {

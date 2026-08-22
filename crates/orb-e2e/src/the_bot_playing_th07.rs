@@ -719,6 +719,124 @@ fn a_hit_names_the_nearest_of_each_kind_and_every_laser_slot_holding_anything() 
     });
 }
 
+/// **A beam that follows an enemy is every place that enemy has been, and each of them is a hit.**
+///
+/// 6面's white spiral is one enemy and the trail behind it: 0x4210c2 hands 0x420490 a box at
+/// `enemy + 0x2f78 + n * 0x1c` with the enemy's own size, from the first of them every sixth, as far as the count
+/// at `+0x4f34`. So an enemy read as one box is a beam read as its head alone — which is what four practices of
+/// hits reading `nothing was near it at all` were, with the spiral plainly across the player.
+#[test]
+fn a_beam_that_follows_an_enemy_is_every_place_it_has_been() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-beam-follows-an-enemy");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The enemy itself right out of the way, so nothing but its trail can be what the bot moves for.
+        game.image()
+            .an_enemy_of_size_is_at(4, FIELD.0 + 8.0, FIELD.1 + 8.0, (8.0, 8.0));
+        // And its trail led down to where the player stands. The seventh is the second the game tests, so the
+        // places up to it are what a trail has to hold to be one.
+        let trail: Vec<(f32, f32)> = (0..8)
+            .map(|n| (MIDDLE, LOW - 40.0 + n as f32 * 5.0))
+            .collect();
+        game.image().the_enemy_has_been_at(4, &trail);
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot held still under a beam of the places an enemy had been:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And each of those places is one of the fire the thirds are counted by.**
+///
+/// Which is the half of it the dodging cannot do: the nine moves ask whether *this* frame's step is hit, so a
+/// third with a beam laid across it is a third the bot will stand in for as long as the next twelve frames
+/// happen to be survivable. A beam is a screen's worth of boxes carried by one enemy, so counting only the
+/// bullets reads the third it crosses as the emptiest place there is — and sends the bot into it.
+#[test]
+fn the_places_a_beam_has_been_are_counted_in_its_own_third() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-beam-counts-in-its-third");
+        // Standing where it would otherwise wait, with the two outer thirds empty.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .an_enemy_of_size_is_at(4, FIELD.0 + 8.0, FIELD.1 + 8.0, (8.0, 8.0));
+        // A beam filling the middle third inside the band, well clear of the player so that nothing about it is
+        // a dodge of the frame — what it has to change is where the bot wants to be.
+        let trail: Vec<(f32, f32)> = (0..240)
+            .map(|n| (MIDDLE + (n % 6) as f32 * 4.0, LOW - 60.0 - (n / 6) as f32))
+            .collect();
+        game.image().the_enemy_has_been_at(4, &trail);
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed & (LEFT | RIGHT) != 0,
+            "the bot waited in the third a beam was laid across, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A big bullet is more of a third's fire than a small one.**
+///
+/// Counting them one apiece asks how many there are where what matters is how much of the band is taken: a 大玉
+/// is six times a 米弾 across, so a handful of them is a third with no way through and a handful of 米弾 is a
+/// third to weave in. Three of the big ones here would not trip a count of heads and do trip a count of widths.
+#[test]
+fn a_third_is_counted_by_the_width_of_its_fire_and_not_the_heads() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-third-is-counted-by-width");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // High in the band, so that nothing about them is a dodge of this frame.
+        for slot in 0..3 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE + slot as f32 * 8.0,
+                LOW - 60.0,
+                (0.0, 0.0),
+                (24.0, 24.0),
+            );
+        }
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed & (LEFT | RIGHT) != 0,
+            "the bot waited in a third three 大玉 had filled, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a beam is more of it than a bullet of its own size.**
+///
+/// A bullet crosses the band and is gone; the places an enemy has been are where they are and stay, so the third
+/// a beam lies in has no run of good frames to wait for. Three of its boxes here are three bullets of the same
+/// size by width alone, which is not enough to leave a third for — and are enough as a beam's.
+#[test]
+fn a_beam_is_more_of_a_thirds_fire_than_bullets_of_its_size() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-beam-is-more-of-the-fire");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .an_enemy_of_size_is_at(4, FIELD.0 + 8.0, FIELD.1 + 8.0, (8.0, 8.0));
+        // Nineteen places, of which the game tests the first, the seventh and the thirteenth.
+        let trail: Vec<(f32, f32)> = (0..19)
+            .map(|n| (MIDDLE + (n % 3) as f32 * 8.0, LOW - 60.0))
+            .collect();
+        game.image().the_enemy_has_been_at(4, &trail);
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed & (LEFT | RIGHT) != 0,
+            "the bot waited in a third three of a beam's boxes lay in, pressing \
+             {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its

@@ -950,6 +950,23 @@ const ENEMY_SIZE: usize = 0x2b3c;
 /// one and a half.
 const ENEMY_BOX_OF_ITS_SIZE: f32 = 1.5;
 
+/// **The places an enemy has been, which is the beam that follows it** — three floats at the head of each
+/// `+0x2f78 + n * ENEMY_TRAIL_BYTES`, and every one of them a box the player is tested against.
+///
+/// 0x4210c2 is where the game builds one: `enemy + 0x2f78 + n * 0x1c`, handed to 0x420490 as the position with
+/// the enemy's own [`ENEMY_SIZE`] as the size — the same call the body itself goes through at 0x420ebc. So a
+/// turning beam is one enemy and a trail of its own past places, and an enemy read as a single box is a beam
+/// read as its head alone. Which is what six hits across four practices were: 6面's white spiral across the
+/// player with the model holding nine enemies and nothing within reach of it.
+const ENEMY_TRAIL: usize = 0x2f78;
+const ENEMY_TRAIL_BYTES: usize = 0x1c;
+/// How many of them there are, as a signed word — 0x420f02 reads it and 0x420f0c ends the walk at it.
+const ENEMY_TRAIL_NODES: usize = 0x4f34;
+/// **And which of them the game tests: from the first, every sixth.** 0x420eed starts the index at 1 and
+/// 0x420ef6 adds 6 to it, so the boxes are 1, 7, 13 and so on — the trail being denser than a box needs.
+const ENEMY_TRAIL_FROM: usize = 1;
+const ENEMY_TRAIL_EVERY: usize = 6;
+
 /// The bosses, as **eight pointers** at `+0x954598` — and whether any is there is the game's own answer:
 /// 0x4232a0 walks those eight and returns 1 at the first that is not null, which is what `boss_present` is.
 const BOSSES: usize = 0x954598;

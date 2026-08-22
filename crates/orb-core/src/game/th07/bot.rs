@@ -45,7 +45,8 @@ use super::{
     BOSS_SLOTS, BOSSES, BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS,
     BULLET_STATE, BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP,
     ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION,
-    ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP,
+    ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, ENEMY_TRAIL, ENEMY_TRAIL_BYTES,
+    ENEMY_TRAIL_EVERY, ENEMY_TRAIL_FROM, ENEMY_TRAIL_NODES, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP,
     FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS,
     G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB,
     ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER,
@@ -195,6 +196,9 @@ struct Counted {
     /// enough to be a beam a script is sweeping — see [`a_sweep`].
     swept: u32,
     sweeping: Option<f32>,
+    /// And how many boxes the enemies' own trails put in, which is the beams that follow them — see
+    /// [`the_trail`].
+    trail: u32,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -591,6 +595,10 @@ fn said_what_took_it() {
         was.word,
     );
     let of = was.counted;
+    crate::detail!(
+        "autoplay: the enemies' own trails put {} box(es) in",
+        of.trail,
+    );
     crate::detail!(
         "autoplay: {} bullet(s) no step of their own explained, {}",
         of.swept,
@@ -1069,6 +1077,27 @@ unsafe fn steer() -> Steered {
                 (0.0, 0.0)
             },
         );
+        // **And every place it has been, each its own box.** A beam that follows an enemy is its trail, tested
+        // box by box against the player at 0x4210cd with the enemy's own size — so each of them is a hazard of
+        // exactly the kind a bullet is, and one enemy can carry a screen's worth of them.
+        //
+        // **Standing still, because a place already gone to does not move.** The trail holds where the enemy
+        // *was*, so the shape of it is fixed in space and only its ends come and go: the projection is the
+        // position itself, and nothing here has to be feared for want of a step.
+        for node in unsafe { the_trail(enemy) } {
+            counted.trail += 1;
+            against(
+                "a beam's node",
+                slot,
+                unsafe { position(node) },
+                (0.0, 0.0),
+                (
+                    sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                    sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                ),
+                (0.0, 0.0),
+            );
+        }
     }
     // **And the lasers, which are the one hazard a distance cannot stand in for**: a beam is a place, not a
     // point, so a move is judged inside the beam's own frame — turn the landing about the origin by the angle
@@ -1410,6 +1439,32 @@ unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
 /// How many pieces the field is cut into across its width for the fire in each to be counted.
 const THIRDS: usize = 3;
 
+/// **The smallest bullet this game fires, which is the unit the fire in a third is counted in.**
+///
+/// The sizes are written at spawn and there are six of them — 4 at 0x423a4e up to 24 at 0x4275ca — so counting
+/// bullets one apiece asks how many heads are in a third where what decides whether there is a way through is
+/// how much of its width they take. A 大玉 is six of these across, and three of them across a third is a wall
+/// where three 米弾 is a gap.
+const A_SMALL_ONE: f32 = 4.0;
+
+/// **And what a beam's own box is worth against a bullet of the same width.**
+///
+/// A bullet crosses the band and is gone, so a third full of them is a third with a run of good frames coming;
+/// the places an enemy has been do not move at all, so a third a beam lies across has none. **A judgement and
+/// not a measurement** — what a launch can say is whether the bot still walks into 6面's spiral at this, and the
+/// practice is where that is read.
+const A_BEAM_OVER_A_BULLET: f32 = 3.0;
+
+/// **How much of a third's fire one box of a given size is**, in [`A_SMALL_ONE`]s.
+///
+/// **And never less than one of them**, which is not a guard against a bad reading: nothing this game fires is
+/// narrower than the smallest it fires, so a size below that is a size that has not been written yet — a slot
+/// filled in the frame it spawns on. Weighted as it stands, such a box would count for nothing at all, and a
+/// pattern read as it arrives is the one worth leaving the third for.
+fn how_wide(size: f32) -> f32 {
+    size.max(A_SMALL_ONE) / A_SMALL_ONE
+}
+
 /// **What the middle one's count is multiplied by before the three are compared.**
 ///
 /// The middle of the field is where a pattern is thickest by nature — 自機狙い converges there and so does most
@@ -1443,10 +1498,46 @@ unsafe fn the_fire_in_each_third(field: (f32, f32, f32, f32)) -> [f32; THIRDS] {
         if y < the_band(field) {
             continue;
         }
-        fire[a_third(field, x)] += 1.0;
+        fire[a_third(field, x)] += how_wide(unsafe { mem::read::<f32>(bullet + BULLET_SIZE) });
+    }
+    // **And every place a beam-carrying enemy has been counts as one of them.** A beam that follows an enemy is
+    // its trail, and the game tests the player against each of those boxes exactly as it does a bullet — so a
+    // third with a beam laid across it is a third full of fire, and one that counted only the bullets read the
+    // spiral 6面 fires as an empty place to stand.
+    for slot in 0..ENEMY_SLOTS {
+        let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
+        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
+            continue;
+        }
+        if unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS != ENEMY_SOLID_BITS {
+            continue;
+        }
+        let wide = how_wide(unsafe { mem::read::<f32>(enemy + ENEMY_SIZE) });
+        for node in unsafe { the_trail(enemy) } {
+            let (x, y) = unsafe { position(node) };
+            if y < the_band(field) {
+                continue;
+            }
+            fire[a_third(field, x)] += wide * A_BEAM_OVER_A_BULLET;
+        }
     }
     fire[THIRDS / 2] *= IN_THE_MIDDLE_ANYWAY;
     fire
+}
+
+/// **The addresses of the boxes an enemy's trail is**, which is the beam that follows it.
+///
+/// From [`super::ENEMY_TRAIL_FROM`], every [`super::ENEMY_TRAIL_EVERY`], as far as the count at
+/// [`super::ENEMY_TRAIL_NODES`] — the walk 0x420eed to 0x420f0c makes, and no more of the trail than the game
+/// itself tests.
+///
+/// # Safety
+/// Must run on the game's main thread, on a live enemy.
+unsafe fn the_trail(enemy: usize) -> impl Iterator<Item = usize> {
+    let nodes = unsafe { mem::read::<i16>(enemy + ENEMY_TRAIL_NODES) }.max(0) as usize;
+    (ENEMY_TRAIL_FROM..nodes)
+        .step_by(ENEMY_TRAIL_EVERY)
+        .map(move |node| enemy + ENEMY_TRAIL + node * ENEMY_TRAIL_BYTES)
 }
 
 /// **The third of the field the fire is clearly piled into**, or nothing where none of them is.
