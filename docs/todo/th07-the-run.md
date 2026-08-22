@@ -1076,6 +1076,35 @@ at its starting position until something shot it — `player=192.00,384.00` for 
 - quit: true
 ```
 
+`from-the-beginning-to-the-third-stage.yaml` is the same scenario one stage further on, and it asks what the
+shorter one cannot: the run walks into two stages, so the point the file is left holding has to be 3面's own
+start rather than 2面's. Its own launch left `stage 1 chapter 1` through `chapter 9` written down, then `stage 2
+chapter 1` and `stage 3 chapter 1` and nothing else — and the pickup landed at 3面's start field for field.
+
+**The deeper stages are measured as a chain rather than one scenario each**, which is what makes them
+affordable: a run left at one stage's fight is picked up at that stage's start, so the launch that answers for
+that stage is also the launch that plays on to the next one's fight and leaves it there. Four launches and a
+last one that only lands, in place of four runs from nothing:
+
+| launch | recipe | what its log answers |
+| --- | --- | --- |
+| A | `to-the-third-stages-boss.yaml` | nothing; it leaves the run at 3面's fight |
+| B | `took-it-back-and-on-to-the-fourth.yaml` | 3面 |
+| C | `took-it-back-and-on-to-the-fifth.yaml` | 4面 |
+| D | `took-it-back-and-on-to-the-sixth.yaml` | 5面 |
+| E | `took-the-run-back.yaml` | 6面 |
+
+**The fight is waited for and not a chapter number**, because which chapter of a stage a fight begins at depends
+on how many waves came before it, and that is not the same in two stages. The grammar refuses `boss` beside a
+`stage`, so the stage is reached first and the fight waited for after it, which is two `play_until` steps.
+
+**And the fight it waits for is the one the stage ends with, not the midboss.** `Reached::boss` is
+`Chapters::the_stages_own_boss_is_up`, which is the fight having a song of its own — a midboss fights under the
+stage's own song, so it is deliberately not this. A recipe written expecting otherwise walked its run straight
+past 3面's midboss and sat on `still waiting` until the stage's boss came up. Leaving the run in the boss fight
+is what these launches do, and it measures the same thing: the point the file holds is the stage's start
+wherever in that stage the run is left, so where inside it the leaving happens does not change the answer.
+
 **The question is what the front end is walked to, and not a screen of it.** Waiting for `{ screen: 8, cursor:
 1 }` and the two after it is waiting for numbers that depend on where this machine's score file left the cursors
 and on whether orb's own question is standing in front of them: a launch tapped through four such steps for
