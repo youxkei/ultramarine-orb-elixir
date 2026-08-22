@@ -781,6 +781,20 @@ impl Image {
     /// **The player hit and not yet dead**, which is the state the hit test leaves at 0x43ee0e: the death
     /// handler is called out of the *update* that finds it, at 0x441fee, so this is what stands for the
     /// updates in between — and a bomb pressed in them is 妖々夢's 決死結界 rather than a bomb spent.
+    /// **The border up**, which is the pointer 0x441bdc reads and 0x441bf8 nulls when a hit is deflected.
+    ///
+    /// Any address: what orb asks about it is whether it is there, and nothing follows it.
+    pub fn the_player_has_a_border(&self) {
+        self.space()
+            .write::<usize>(super::G_PLAYER + super::PLAYER_BORDER, 0x7b0_0000);
+    }
+
+    /// And the border gone, however it went — deflected or run out.
+    pub fn the_players_border_is_gone(&self) {
+        self.space()
+            .write::<usize>(super::G_PLAYER + super::PLAYER_BORDER, 0);
+    }
+
     pub fn the_player_has_been_hit(&self) {
         self.space()
             .write::<i8>(super::G_PLAYER + super::PLAYER_STATE, 2);

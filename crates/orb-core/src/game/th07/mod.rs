@@ -824,6 +824,13 @@ const G_PLAYER: usize = 0x004bdad8;
 /// be taken or begun in any of the four.
 const PLAYER_STATE: usize = 0x2408;
 const PLAYER_NORMAL: i8 = 0;
+/// **The border the player has up, as the pointer to it** — 妖々夢's own, and not [`PLAYER_HIT`]'s window.
+///
+/// 0x441bd0 is the deflection: given the player as its `this`, 0x441bdc reads this pointer, 0x441bee zeroes the
+/// byte at `+0x2cc` of what it points at, and 0x441bf8 nulls it. So the border is up while this is not null, and
+/// a hit taken on one never reaches the state a hit is noticed by — which is why a run kept alive by borders
+/// reads as a run that was never hit.
+const PLAYER_BORDER: usize = 0xb7e6c;
 /// And the one a bomb is still 決死結界 in: 2, which the hit test leaves at 0x43ee0e and the update the death
 /// handler runs on finds at 0x441fee — see [`bot`].
 const PLAYER_HIT: i8 = 2;

@@ -1062,6 +1062,128 @@ fn fire_below_the_player_is_not_counted_towards_a_box() {
     });
 }
 
+/// **A border broken is a hit, and the respawn taking one away is not.**
+///
+/// The state a hit is noticed by is 2, the 決死結界 window — and 妖々夢's border is deflected at 0x441bd0
+/// instead: it reads the border off `[player+0xb7e6c]`, zeroes the byte at `+0x2cc` of what that points at and
+/// nulls the pointer. So a run that survives on borders read as a run that was never hit, and every `0 hit(s)`
+/// reported before this was reported without them.
+///
+/// **And a break is not any border going away.** Two places null that pointer: 0x441bf8, the deflection, and
+/// 0x4417eb, the respawn tidying up after a death that has already been counted. The player's own state is what
+/// tells them apart.
+#[test]
+fn a_border_broken_is_a_hit_and_a_respawns_is_not() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-border-broken-is-a-hit");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().the_player_has_a_border();
+        game.frames(1);
+        game.image().the_players_border_is_gone();
+        game.frames(4);
+        assert!(
+            game.log()
+                .said("autoplay: a border was broken, which is a hit"),
+            "a broken border was not counted as a hit:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the same pointer going away while the player is coming back from a death, which is the respawn's
+        // own tidying and a hit already counted.
+        let game = in_a_stage("th07-a-respawns-border-is-not-a-hit");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().the_player_has_a_border();
+        game.frames(1);
+        game.image().the_player_is_dying();
+        game.image().the_players_border_is_gone();
+        game.frames(4);
+        assert!(
+            !game.log().said("autoplay: a border was broken"),
+            "the respawn taking a border away was counted as a hit:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A hit says the seconds before it and not only the frame of it.**
+///
+/// Which is the one thing every hit this session has needed and none of them had. Each was `nowhere open to it`
+/// with every one of the nine hit *on the frame it was judged on* — a place lost before its frame began — and the
+/// frame's own dump cannot say how the player came to be there. Four of them had the x not moving for thirty
+/// frames at an edge, and that was only found by reading the raw `resume:` lines by hand afterwards. What the
+/// player was doing, what it pressed and what the boxes read over the seconds before is the answer, and it has to
+/// be kept while it happens because a hit takes it all off the screen.
+#[test]
+fn a_hit_says_the_seconds_before_it() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-says-the-seconds-before");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(4);
+        game.image().the_player_is_at(MIDDLE + 40.0, LOW);
+        game.frames(4);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        let log = game.log();
+        assert!(
+            log.said("autoplay: before it,"),
+            "the hit said nothing of the frames before it:\n  {}",
+            log.lines().join("\n  "),
+        );
+        // And the places are the ones the player was actually at, oldest first.
+        assert!(
+            log.said(&format!("at {MIDDLE:.0},")) && log.said(&format!("at {:.0},", MIDDLE + 40.0)),
+            "the frames before the hit are not the places the player was at:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
+/// **And the frames before a hit say where the rules wanted to be on each of them.**
+///
+/// Which is what the boxes beside them cannot settle. A run was hit at the floor with the box it had stood in
+/// for three seconds climbing from `0` to `180` while two others held `10` — and the counting had said so from a
+/// second and a half out. So either the rule never fired or something else was wanted more, and those are
+/// different repairs: one is a threshold, the other is a boss or an item outranking it.
+#[test]
+fn the_frames_before_a_hit_say_where_the_rules_wanted_to_be() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-frames-before-say-the-wanting");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(4);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        assert!(
+            game.log().said("wanting"),
+            "the frames before the hit did not say where the rules wanted to be:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And what settled the place, so that the wanting can be read at all.**
+///
+/// A run was hit at the floor with the box it stood in climbing from `0` to `218` over three seconds, and the
+/// frames before it said `wanting 328,384 for an item` — where `328` is a place an item could be and `384` is the
+/// line the bot waits on, so the same pair reads as *the item's own place* or as *the emptiest box's middle with
+/// nothing to collect*. Those are opposite findings: one is a rule outranked, the other is a rule that fired and
+/// was not followed. So the place says which of the four settled it.
+#[test]
+fn the_frames_before_a_hit_say_what_settled_the_place() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-what-settled-the-place");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Nothing to collect and no boss, which is the middle of the field low.
+        game.frames(4);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        assert!(
+            game.log().said("wanting the middle"),
+            "the frames before the hit did not say what settled the place:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its

@@ -52,9 +52,10 @@ use super::{
     ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER,
     ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_LIVE_AT,
     LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER, LASER_WIDTH, MENU_CANCEL,
-    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
-    PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE,
-    SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BORDER, PLAYER_BOX_MAX,
+    PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_NORMAL, PLAYER_POSITION, PLAYER_SCALE_ACROSS,
+    PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT,
+    SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -160,6 +161,14 @@ struct Steered {
     room: Option<f32>,
     for_an_item: bool,
     at: (f32, f32),
+    /// **And where the rules wanted to be**, which is the one thing the boxes beside a hit cannot settle: a box
+    /// climbing from nought to a hundred and eighty while the bot stands in it is either a rule that never fired
+    /// or something else wanted more, and those are different repairs.
+    wanted: (f32, f32),
+    /// **And which of the four rules settled that place.** The pair alone does not say: an item's own x with the
+    /// wait line for a y reads exactly like the emptiest box's middle with nothing to collect, and those are
+    /// opposite findings — a rule outranked against a rule that fired and was not followed.
+    settled: Settled,
     nearest: Option<Nearest>,
     counted: Counted,
     held: [Option<Held>; HELD],
@@ -170,6 +179,42 @@ struct Steered {
     /// won. A run walked itself into the floor over fifteen frames, each step the best move of its own frame, and
     /// whether *down* won those comparisons or merely tied and came earlier in the order is two repairs.
     judgements: [Judged; MOVES.len()],
+}
+
+/// **Which rule settled where the bot wanted to be**, in the order [`where_to_be`] asks them.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Settled {
+    /// Nothing yet, which is a frame kept before one was asked for.
+    #[default]
+    Nothing,
+    /// An item worth going for, at the place it is — and which kind, since that is what decides whether the box
+    /// rules are exempted at all: a point item or a cherry does not exempt them and a power item does.
+    AnItem(i8),
+    /// The boss's own x, a fight being a thing to stand under.
+    ABoss,
+    /// Neither, which is the middle of the field low.
+    TheMiddle,
+    /// And the emptiest box, where one of the three box rules sent it there instead.
+    TheEmptiestBox,
+}
+
+impl Settled {
+    fn said(self) -> &'static str {
+        match self {
+            // The names this game's own item table has, indexed as 0x433a5a indexes it.
+            Self::AnItem(ITEM_LIFE) => "a 1up",
+            Self::AnItem(ITEM_BOMB) => "a bomb item",
+            Self::AnItem(ITEM_BIG_POWER) => "a big power item",
+            Self::AnItem(ITEM_POWER) => "a power item",
+            Self::AnItem(ITEM_POINT) => "a point item",
+            Self::AnItem(ITEM_CHERRY) => "a cherry",
+            Self::AnItem(_) => "an item of no place of its own",
+            Self::Nothing => "nothing yet",
+            Self::ABoss => "a boss",
+            Self::TheMiddle => "the middle",
+            Self::TheEmptiestBox => "the emptiest box",
+        }
+    }
 }
 
 /// **What the frame's model was made of, and what it left out** — bullets, enemies and lasers, each as the
@@ -340,6 +385,87 @@ static FRAMES: AtomicU32 = AtomicU32::new(0);
 /// Whether the player was hit last frame, so that a hit is said once rather than once a frame of the window it
 /// opened.
 static WAS_HIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// And whether the player had a border up on the frame before, so that its going down is said once.
+static HAD_A_BORDER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// **How many of the frames before a hit are kept to be said with it**, which is a few seconds of them.
+///
+/// Every hit this session has been `nowhere open to it` with all of the moves hit on the frame they were judged
+/// on — a place lost before its frame began — and the frame's own dump cannot say how the player came to be
+/// standing there. Four of them turned out to be the x not moving for thirty frames at an edge, and that was
+/// found by reading the raw `resume:` lines by hand afterwards rather than from anything orb said.
+const THE_FRAMES_BEFORE: usize = 180;
+
+/// And one in this many of them is written out, so that a few seconds is a few dozen lines rather than a page a
+/// hit.
+const ONE_IN: usize = 6;
+
+/// What one of those frames is kept as: where the player was, what it pressed, whether anything was open to it,
+/// and what the boxes across the field read.
+#[derive(Clone, Copy, Default)]
+struct Before {
+    at: (f32, f32),
+    wanted: (f32, f32),
+    settled: Settled,
+    word: u16,
+    open: bool,
+    fire: [f32; BOXES_ACROSS],
+}
+
+/// The frames before, oldest first once it has wrapped — see [`THE_FRAMES_BEFORE`].
+static BEFORE: std::sync::Mutex<(usize, [Option<Before>; THE_FRAMES_BEFORE])> =
+    std::sync::Mutex::new((0, [None; THE_FRAMES_BEFORE]));
+
+/// Keep one frame, and forget the one from three seconds ago.
+fn keep(before: Before) {
+    let mut kept = BEFORE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let at = kept.0;
+    kept.1[at] = Some(before);
+    kept.0 = (at + 1) % THE_FRAMES_BEFORE;
+}
+
+/// Say the frames before a hit, oldest first, one in [`ONE_IN`].
+fn say_the_frames_before() {
+    let kept = BEFORE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (next, frames) = (kept.0, kept.1);
+    // **Stepped over the frames there are and not over the room for them.** A run only a second old has filled a
+    // handful of the slots, and a stride over the whole ring lands on the empty ones.
+    let kept: Vec<_> = (0..THE_FRAMES_BEFORE)
+        .filter_map(|step| frames[(next + step) % THE_FRAMES_BEFORE])
+        .collect();
+    let back = kept.len();
+    for (step, before) in kept.into_iter().enumerate().filter(|(step, _)| {
+        // Every [`ONE_IN`] of them, counted from the newest so that the frame before the hit is always one.
+        (back - 1 - step).is_multiple_of(ONE_IN)
+    }) {
+        crate::detail!(
+            "autoplay: before it, {} frame(s) back, at {:.0},{:.0} wanting {} at {:.0},{:.0}, \
+             pressing {:#05x} with {} and the boxes {}",
+            back - step,
+            before.at.0,
+            before.at.1,
+            before.settled.said(),
+            before.wanted.0,
+            before.wanted.1,
+            before.word,
+            match before.open {
+                true => "something open",
+                false => "nothing open",
+            },
+            before
+                .fire
+                .iter()
+                .map(|fire| format!("{fire:.0}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+}
 
 /// **What the rules made of the last frame**, which is what a hit is reported against: the hit happened between
 /// that frame's word going in and this one being asked for.
@@ -546,6 +672,33 @@ pub unsafe fn word_to_press() -> u16 {
         // names nothing within reach of the player was still made by something that was drawn.
         crate::shot::wanted("hit");
     }
+    // **And a border broken is a hit, which orb was not counting at all.** 妖々夢 deflects a hit taken on a
+    // border at 0x441bd0 rather than putting the player into the state above, so a run kept alive by borders read
+    // as a run that was never hit — every `0 hit(s)` reported before this was reported without them.
+    //
+    // **A break and not any border going away.** Two places null the pointer: 0x441bf8, which is the deflection,
+    // and 0x4417eb, which is the respawn tidying up after a death that has already been counted. So the state
+    // tells them apart — a player in the middle of dying or coming back is not one whose border was broken.
+    let border = unsafe { mem::read::<usize>(G_PLAYER + PLAYER_BORDER) } != 0;
+    if HAD_A_BORDER.swap(border, Ordering::Relaxed)
+        && !border
+        && unsafe { mem::read::<i8>(G_PLAYER + PLAYER_STATE) } == PLAYER_NORMAL
+    {
+        crate::detail!("autoplay: a border was broken, which is a hit");
+        said_what_took_it();
+        crate::shot::wanted("hit");
+    }
+    // **Kept every frame, because a hit takes the screen it happened on away.** What a hit needs is the seconds
+    // before it, and by the frame it is noticed the bullets have moved on and the place is a place nothing is at
+    // any more — see [`THE_FRAMES_BEFORE`].
+    keep(Before {
+        at: steered.at,
+        wanted: steered.wanted,
+        settled: steered.settled,
+        word: word | steered.word,
+        open: steered.room.is_some(),
+        fire: steered.counted.fire,
+    });
     *LAST_FRAME
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(steered);
@@ -698,6 +851,7 @@ fn said_what_took_it() {
             held.half.1,
         );
     }
+    say_the_frames_before();
     unsafe { say_what_was_near() };
 }
 
@@ -1247,7 +1401,7 @@ unsafe fn steer() -> Steered {
     counted.swept = swept;
     counted.sweeping = sweeping;
     counted.fire = unsafe { the_fire_in_each_box(field) };
-    let wanted = unsafe { where_to_be(field, at, sweeping) };
+    let (wanted, settled) = unsafe { where_to_be(field, at, sweeping) };
     // How many of the moves out of each landing are still open, which is what a dead end has none of.
     let mut best: Option<(u16, Judged, f32, f32)> = None;
     for (((word, dx, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
@@ -1358,6 +1512,8 @@ unsafe fn steer() -> Steered {
         room: judged_it.clear().then_some(judged_it.room),
         for_an_item: unsafe { the_item_worth_going_for() }.is_some(),
         at,
+        wanted,
+        settled,
         nearest: chosen.and_then(|chosen| nearest[chosen]),
         counted,
         held,
@@ -1417,17 +1573,17 @@ unsafe fn where_to_be(
     field: (f32, f32, f32, f32),
     at: (f32, f32),
     sweep: Option<f32>,
-) -> (f32, f32) {
+) -> ((f32, f32), Settled) {
     let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
     // which is the shortest way to wherever the next item falls.
     let going_for = unsafe { the_item_worth_going_for() };
-    let (x, y) = match going_for {
-        Some((_, at)) => at,
+    let (settled, (x, y)) = match going_for {
+        Some((kind, at)) => (Settled::AnItem(kind), at),
         None => match unsafe { the_boss_to_stand_under(field) } {
-            Some(x) => (x, low),
-            None => (field.0 + field.2 / 2.0, low),
+            Some(x) => (Settled::ABoss, (x, low)),
+            None => (Settled::TheMiddle, (field.0 + field.2 / 2.0, low)),
         },
     };
     // **And out of a box of the field the fire is clearly piled into**, whichever of them that x is in.
@@ -1442,7 +1598,7 @@ unsafe fn where_to_be(
     // the run at worst, which a point or a cherry is worth neither of; a 1up, a bomb, or the eight steps of
     // power [`ITEM_BIG_POWER`] carries is worth the crossing. So the two rules meet at [`worth`], which is the
     // one place this game's items are ranked.
-    let worth_the_crossing = going_for.is_some_and(|(it, _)| it > worth(ITEM_POINT));
+    let worth_the_crossing = going_for.is_some_and(|(kind, _)| worth(kind) > worth(ITEM_POINT));
     // **And out of the box a script is sweeping a beam across, whatever is in it.** Which the thickness cannot
     // stand in for: a beam is a dozen bullets rather than a hundred, so the box it is crossing is rarely the
     // thickest — and nothing about a swept bullet says where it will be, so the frames looked at are no answer
@@ -1465,11 +1621,15 @@ unsafe fn where_to_be(
         let empty = unsafe { the_emptiest_box(field) };
         field.0 + field.2 * (empty as f32 + 0.5) / BOXES_ACROSS as f32
     };
-    let x = match unsafe { the_thickest_box(field) } {
-        _ if swept.is_some_and(|swept| swept == heading || swept == mine) => elsewhere(field),
-        _ if badly => elsewhere(field),
-        Some(thick) if !worth_the_crossing && thick == heading => elsewhere(field),
-        _ => x,
+    let (settled, x) = match unsafe { the_thickest_box(field) } {
+        _ if swept.is_some_and(|swept| swept == heading || swept == mine) => {
+            (Settled::TheEmptiestBox, elsewhere(field))
+        }
+        _ if badly => (Settled::TheEmptiestBox, elsewhere(field)),
+        Some(thick) if !worth_the_crossing && thick == heading => {
+            (Settled::TheEmptiestBox, elsewhere(field))
+        }
+        _ => (settled, x),
     };
     // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
     // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
@@ -1484,12 +1644,15 @@ unsafe fn where_to_be(
         field.0 + field.2 - IN_FROM_THE_SIDE,
     );
     (
-        if inside <= outside {
-            x.clamp(inside, outside)
-        } else {
-            field.0 + field.2 / 2.0
-        },
-        if y >= the_band(field) { y } else { low },
+        (
+            if inside <= outside {
+                x.clamp(inside, outside)
+            } else {
+                field.0 + field.2 / 2.0
+            },
+            if y >= the_band(field) { y } else { low },
+        ),
+        settled,
     )
 }
 
@@ -1810,20 +1973,24 @@ const fn worth(kind: i8) -> u8 {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn the_item_worth_going_for() -> Option<(u8, (f32, f32))> {
+unsafe fn the_item_worth_going_for() -> Option<(i8, (f32, f32))> {
     let (at_x, at_y) = unsafe { player() };
     (0..ITEM_SLOTS)
         .map(|slot| G_ITEM_MANAGER + slot * ITEM_BYTES)
         .filter(|item| unsafe { mem::read::<i8>(item + ITEM_ALIVE) } != 0)
         .map(|item| {
-            let worth = worth(unsafe { mem::read::<i8>(item + ITEM_KIND) });
+            let kind = unsafe { mem::read::<i8>(item + ITEM_KIND) };
             let at = unsafe { position(item + ITEM_POSITION) };
-            (worth, (at.0 - at_x).powi(2) + (at.1 - at_y).powi(2), at)
+            (kind, (at.0 - at_x).powi(2) + (at.1 - at_y).powi(2), at)
         })
+        // **The kind and not the worth**, so that [`worth`] is the one place this game's items are ranked and a
+        // hit's own line can say which item a run was going for.
         .max_by(|(ours, ourm, _), (theirs, theirm, _)| {
-            ours.cmp(theirs).then(theirm.total_cmp(ourm))
+            worth(*ours)
+                .cmp(&worth(*theirs))
+                .then(theirm.total_cmp(ourm))
         })
-        .map(|(worth, _, at)| (worth, at))
+        .map(|(kind, _, at)| (kind, at))
 }
 
 /// Where the player is.
