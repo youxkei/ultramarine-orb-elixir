@@ -1512,18 +1512,39 @@ pub trait Game {
         None
     }
 
-    /// **The word this game's own rules press this frame**, for a bot that has run out of recipe steps and is
-    /// playing the stage it is in.
+    /// **Everything of one frame of a run that a bot decides from**, written into a buffer the caller keeps, and
+    /// `false` where there is no stage to read one off.
     ///
-    /// Where its player is, what its items are worth going for, and what its own state byte says has just
-    /// happened are questions about this game, so the rules are here — and nothing outside knows how the word
-    /// was arrived at. Nothing pressed, for a game with no rules written for it.
+    /// **What is here is what the game holds, and none of what to do about it.** Which of these things is worth
+    /// keeping away from, how far, and where to be instead are the bot's — so a bullet still coming out and a
+    /// body with nothing solid on it are both handed over with what the game says about them rather than left
+    /// out, a beam is handed over with the frame it starts hitting on rather than judged, and an item is handed
+    /// over as which item it is. Reading them is what needs this game's addresses; deciding is what does not,
+    /// and `orb-bot` is where it is decided.
+    ///
+    /// The buffer is the caller's so that a frame of a run costs no allocation once it has run once: the three
+    /// lists are cleared and filled, and a stage of 妖々夢 fills the first of them six hundred times.
+    ///
+    /// Nothing filled and `false` from a game nobody has read a frame of.
     ///
     /// # Safety
     /// Must run on the game's main thread.
-    unsafe fn word_to_press(&self) -> u16 {
-        0
+    unsafe fn what_a_bot_sees(&self, _into: &mut Frame) -> bool {
+        false
     }
+
+    /// **Says what the game's own arrays hold within reach of the player, past every rule that leaves one out.**
+    ///
+    /// Which is the question [`Game::what_a_bot_sees`] cannot answer for a bot that was hit: what it was given is
+    /// what it decided from, so a hazard missing from that is missing from any reading of it. This is the arrays
+    /// themselves, in the words this game's own fields are kept in, and the one thing that tells a model whose
+    /// boxes are too small from a hazard that is in no array at all.
+    ///
+    /// Nothing said, from a game nobody has read a frame of.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn say_what_was_near(&self) {}
 
     /// **Which item the front end's own cursor is on**, counted the way the game counts it, and `None` off a
     /// screen that keeps one — or from a game whose front end nobody has read.
@@ -1606,8 +1627,115 @@ pub const fn hand(frame: i32) -> Boundary {
     }
 }
 
+/// **One frame of a run as the game holds it**, which is what a bot is given and the whole of what it is given.
+///
+/// Filled by [`Game::what_a_bot_sees`] and kept by whoever asks, so that asking again costs no allocation. The
+/// three lists are what the player is tested against and what there is to pick up; the rest is the field it all
+/// happens in.
+#[derive(Default)]
+pub struct Frame {
+    /// The play field: left, top, width, height, in the game's own units.
+    pub field: (f32, f32, f32, f32),
+    /// Where the player is, and the half of the box the game's own hit test gives it — the two halves being
+    /// separate because nothing says a hitbox is square.
+    pub at: (f32, f32),
+    pub half: (f32, f32),
+    /// What one frame of holding a direction moves the player by, across and down, straight and then diagonally.
+    /// Both pairs, because nothing says the two axes are scaled alike.
+    pub straight: (f32, f32),
+    pub diagonal: (f32, f32),
+    /// Whether the game says the player has just been hit and is inside whatever window it gives to take that
+    /// back — 妖々夢's 決死結界 and whatever the next game calls its own.
+    pub hit: bool,
+    /// Whether the player is in its ordinary state: neither hit nor in the middle of dying or coming back.
+    ///
+    /// Which is not `!hit`, there being more than two states — and the difference is what tells a border
+    /// deflected from a border tidied away by a respawn.
+    pub normal: bool,
+    /// Whether the player is carrying something that takes a hit for it, for a game that has such a thing: its
+    /// going away while the player is otherwise well is a hit that the count of deaths never sees.
+    pub border: bool,
+    /// Whether a line of dialogue is up, which is a thing to press past.
+    pub dialogue: bool,
+    /// Where the boss is, for a fight that has one up.
+    pub boss: Option<(f32, f32)>,
+    pub hazards: Vec<Hazard>,
+    pub beams: Vec<Beam>,
+    pub items: Vec<Pickup>,
+}
+
+/// **One thing the player's own hit test is run against**, and what the game says about it.
+pub struct Hazard {
+    pub kind: Kind,
+    /// Which slot of its own array it is in, which is what makes it the same thing as last frame's: a hazard
+    /// with no step of its own can only be read by the difference from where it was, and that needs an identity.
+    pub slot: usize,
+    pub at: (f32, f32),
+    /// Its step, where the game keeps one on it, and `None` where nothing on it is a step — a body a script
+    /// moves, or a place something has already been. The difference between the two is not a judgement: it is
+    /// whether the field exists.
+    pub step: Option<(f32, f32)>,
+    /// Half the box the player is tested against, on each axis, as the game's own test is given it.
+    pub half: (f32, f32),
+}
+
+/// **Which of the game's arrays a [`Hazard`] came out of**, with what the game says of it there.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A bullet, and whether it is in the state its collision is found in: the others are a bullet still coming
+    /// out, or one already spent.
+    Bullet { hitting: bool },
+    /// A body, and whether the game will run its collision at all — an enemy with nothing solid on it cannot
+    /// touch the player, however wide it is.
+    Body { solid: bool },
+    /// A place a body has already been, which is what a beam that follows one is made of. It does not move and
+    /// nothing will move it: only its ends come and go.
+    Trail,
+}
+
+/// **A beam**, which is a line rather than a box and so is not a [`Hazard`] at all.
+pub struct Beam {
+    pub slot: usize,
+    /// Where it is fired from, and which way it points now. What it will be pointing at in a frame's time is a
+    /// thing to work out from how it has been turning, there being no rate on it to read.
+    pub origin: (f32, f32),
+    pub angle: f32,
+    /// How far along it the beam runs, from the near end to the far one.
+    pub near: f32,
+    pub far: f32,
+    /// Half of how wide it is now.
+    pub half_across: f32,
+    /// How many frames until the game starts testing the player against it, which is nought or less for one
+    /// already firing. Before that it is drawn and hits nothing.
+    pub fires_in: i32,
+    /// Whether it is on its way out. It goes on hitting while it fades, narrowing as it does — so this is worth
+    /// having only to say that the width read for it is the width it had.
+    pub fading: bool,
+}
+
+/// **Something to pick up**, and which of the things a game drops it is.
+pub struct Pickup {
+    pub worth: Worth,
+    pub at: (f32, f32),
+}
+
+/// **The kinds of thing 東方 drops**, which is a vocabulary the games share where their own numbering for it is
+/// not: what one is called here is what every game of them has one of, and how much any of them is worth going
+/// for is the bot's to decide.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Worth {
+    Life,
+    Bomb,
+    BigPower,
+    Power,
+    Point,
+    Cherry,
+    /// A kind this vocabulary has no name for, from a game that drops something of its own.
+    Other,
+}
+
 /// **What orb knows about where a run has got to and a game does not**, for the recipe a launch playing
-/// itself is walking — see [`Game::word_to_press`].
+/// itself is walking — see [`Game::what_a_bot_sees`].
 ///
 /// Three numbers rather than a game's own vocabulary: a stage, a chapter of it, and which of orb's own
 /// questions is up are orb's own — `State` and `chapter::Chapters` are where the first two come from, and the

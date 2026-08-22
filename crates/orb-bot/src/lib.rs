@@ -30,13 +30,20 @@
 //! - quit: true                             # closed in the middle, which is what leaves a run to pick up
 //! ```
 //!
-//! **What each name and each rule is, is the game's** — `Game::button_bit` and `Game::word_to_press`. A shared
-//! bot could only be the union of every game's vocabulary, and 東方 is not one kind of game to take a union
-//! of.
+//! **What each name is, is the game's** — `Game::button_bit`, `decide` being a shot and a return key in 妖々夢
+//! and something else in the next game. A shared vocabulary could only be the union of every game's, and 東方 is
+//! not one kind of game to take a union of.
+//!
+//! **The rules a run is played by are [`steer`]'s**, off what `Game::what_a_bot_sees` hands over: reading a
+//! game's own arrays needs that game's addresses and deciding what to do about them needs none, so the reading
+//! is the game seam's and the deciding is here, where the rest of the harness is.
 
 use std::sync::Mutex;
 
 use orb_config::recipe::{self, Until};
+
+/// The rules a stage is played by, which is what a recipe falls through to.
+mod steer;
 use orb_core::game::{Game, Question, Reached};
 use orb_core::log;
 use orb_core::runtime;
@@ -233,7 +240,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         // **nothing at all where those have nothing to say**, which is not the same as a word of no buttons:
         // this is the read the game makes on every screen, and a rule with no opinion about the screen that is
         // up should leave the read where it found it. A `wait` step's own silence is a word and stays one.
-        let word = unsafe { game.word_to_press() };
+        let word = unsafe { steer::word_to_press(game) };
         return (word != 0).then_some(word);
     };
     playing.frames += 1;
@@ -262,7 +269,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         ),
         Step::Wait { until, .. } => (0, waited(until, reached, playing.frames)),
         Step::Play { until, .. } => (
-            unsafe { game.word_to_press() },
+            unsafe { steer::word_to_press(game) },
             waited(until, reached, playing.frames),
         ),
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which

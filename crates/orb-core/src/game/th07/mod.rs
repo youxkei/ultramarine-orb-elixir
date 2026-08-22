@@ -35,11 +35,11 @@
 //! no regions, no music, no run in progress, no button worth writing down — and no method answers a
 //! guess.
 
-/// What orb plays this game with where it is playing it itself, which is this game's own rules — see
-/// `Game::word_to_press`.
-mod bot;
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
+/// What a bot playing this game is told of it, which is this game's own arrays read — see
+/// `Game::what_a_bot_sees`.
+mod sight;
 
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
 /// crates that drive it — which is where the scenarios live.
@@ -4243,11 +4243,15 @@ impl Game for Th07 {
     }
 
     fn button_bit(&self, name: &str) -> Option<u16> {
-        bot::bit(name)
+        sight::bit(name)
     }
 
-    unsafe fn word_to_press(&self) -> u16 {
-        unsafe { bot::word_to_press() }
+    unsafe fn what_a_bot_sees(&self, into: &mut crate::game::Frame) -> bool {
+        unsafe { sight::what_a_bot_sees(into) }
+    }
+
+    unsafe fn say_what_was_near(&self) {
+        unsafe { sight::say_what_was_near() };
     }
 
     /// The front end's own cursor, out of the screen the chain is running: every screen of it keeps the item it
