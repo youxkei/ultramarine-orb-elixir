@@ -819,31 +819,37 @@ that is this section: a launch says it, and a run that dies says which rule to l
 
 ### What is left between the bot and a run it is never hit on
 
-Four stages with one hit is where it stands, and that hit said `with 6.4 of room` — the box overlap the game's
-own test uses said the move was clear and the game hit it anyway. So what is left is not a hitbox but **where a
-hazard will be**, and there are two leads and no third:
+**The hit log is the instrument, and reading it is the whole method.** `autoplay: hit at …, having pressed …,
+with … of room — nearest was …` is written on the frame a hit comes out of, and the size of the room tells the
+three kinds of wrongness apart: twenty-odd units of room is a hazard the model does not have at all, four or
+five is a model that has it and misses by less than a step, and none at all is every move being shut. Every
+fix below was found that way and no other way.
 
-- **A bullet's motion is not one branch.** 0x425ccd adds `+0xb98` to the position, which is what `bot::steer`
-  projects; 0x425faf adds `+0xb98` scaled by `[0x498a54]/[0x498a70]`, which is slower and so only makes the bot
-  early; and 0x42619f and 0x426287 are two more branches nobody has read. One of those is where a bullet that
-  turns gets its turn, and a projection along a straight line is wrong for it in exactly the way a hit with room
-  to spare looks.
-- **A laser that turns**, and this one has been looked for and is not where it would be convenient. `+0x4a4` is
-  written where a laser is made — 0x424f6e out of the spawn's own argument, and 0x424f96 adds the angle to the
-  player that 0x442370 answers, which is a beam aimed as it appears — and the laser's own update steps it
-  nowhere. So a turning beam is turned by the boss's script, and three frames of it cannot be had without
-  reading that script. What `bot::steer` does instead is use the angle it has now, which for a beam that turns
-  slowly is nearly right and for one that sweeps is not.
+What has been closed, each now standing beside the thing it is about rather than here:
 
-Both are the same shape of reading: which of a thing's states it is in, and what that state does to it per
-frame. And both are worth doing only against the hit log — `autoplay: hit while pressing …, with … of room` is
-what says whether a change helped, and it is what turned 72 hits into 1.
+- **A bullet's four motion branches**, read and ruled out: 0x425ccd adds `+0xb98` whole, 0x425faf and 0x426287
+  add half of it and 0x42619f a third, so none of them moves a bullet further than the projection does. There
+  is no turning branch, and a straight projection is never late.
+- **A bullet's own size**, which is per kind and written at the spawn — 4, 5, 6, 8, 10 and 24, the last at
+  0x4275ca. The widest is what sets `LOOK_AHEAD`, and its reasoning is the constant's own comment.
+- **An enemy's body and its motion**, and **a laser's turn**, both by remembering last frame: neither an enemy
+  nor a laser has a step or a rate anywhere on it, so the difference from last frame is the only reading there
+  is. `bot::moved` and `bot::turned`.
+- **A boss's slot outliving its boss**, which cost 妖々夢's 4面 22505 of its 38820 frames against the left
+  wall. `Th07::boss` carries it.
 
-### The lasers, which the bot does not see
+What is left is what a launch says next. The hit log is what says it.
 
-`bot::steer` reads every bullet and every enemy and **no laser at all**, so a run that is clipped by one is a
-run that never knew. What is read off the exe so far, out of the two walks of the 0x40 slots of 0x4ec bytes at
-0x995f80:
+### The lasers, and what reading them settled
+
+`bot::steer` reads all three now — every bullet, every enemy and every laser — and a beam is judged in its own
+frame rather than as a point: the landing turned about the origin is *along* and *across*, which is the shape
+the player's own test at 0x43e6b0 makes of it. The angle it will have is the angle it has plus as many of last
+frame's turns as there are frames to look, `bot::turned`, since nothing in a laser's update moves its angle and
+so there is no rate to read. The table below is the reading the code stands on, and every row of it is a
+constant in `game/th07/mod.rs` now.
+
+Out of the two walks of the 0x40 slots of 0x4ec bytes at 0x995f80:
 
 | what | where | how it was read |
 | --- | --- | --- |
@@ -859,18 +865,16 @@ run that never knew. What is read off the exe so far, out of the two walks of th
 geometry at 0x4185d0 — 0x4189ed and 0x418cec — hand it a *bullet's* position at `+0xb8c`, so both are a laser
 against a bullet and neither is against 0x4bdad8. Which leaves two possibilities and no way to choose between
 them yet: the player's own test is somewhere these two greps did not reach, or **a laser reaches the player as
-one of the bullet slots' own five states**, in which case the box test at 0x425e89 already covers it and the bot
-already sees it as a bullet of that size.
+one of the bullet slots' own five states**, in which case the box test at 0x425e89 already covers it.
 
-The second would explain the shape of things — 0x40 slots of geometry for drawing a beam, and the collision
-going through the bullet path like everything else. What would settle it is one laser spellcard watched with the
-hit log on: a hit there saying it had room is a laser the bot cannot see, and no hit at all through 1面's last
-card is the other answer.
+It was the first: **0x43e6b0 is the player's own laser test**, and 0x426713 and 0x426727 hand it a laser's
+origin and angle, which it turns the player into the beam's frame with through 0x4319b0. So a beam is its own
+hazard and not a bullet wearing one, and the bot reads it as one.
 
-**And 妖々夢 has two kinds**, which the same reading has to cover: the one that draws a warning line before it
-fires, whose warning is not a hazard, and the one that turns, whose angle is not the angle it will have in the
-frames a move is judged over. So the work is that test, the phases, and whatever moves the angle — and then the
-same box overlap the bullets go through, against a segment rather than a point.
+**妖々夢 has two kinds**, and one reading covers both: the beam about to fire is thin and the beam firing is
+wide, so the width it has *now* makes the warning line a hazard exactly the size it looks — nothing has to know
+which of the two a slot holds. What tells a beam that is done from one that is not is the phase at `+0x4e8`,
+which both of the game's own walks skip at 2.
 
 ### The recipes the resume's own parting is measured with
 

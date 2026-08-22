@@ -93,6 +93,7 @@ enum Step {
 enum Wait {
     Chapter { stage: i32, chapter: u32 },
     Question(Question),
+    Cursor(i32),
     Frames(u32),
 }
 
@@ -188,6 +189,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
 fn waiting(until: Until, at: usize) -> Option<Wait> {
     Some(match until {
         Until::Chapter { stage, chapter } => Wait::Chapter { stage, chapter },
+        Until::Cursor(item) => Wait::Cursor(item),
         Until::Frames(frames) => Wait::Frames(frames),
         Until::Question(name) => Wait::Question(match name.as_str() {
             "mode" => Question::Mode,
@@ -320,6 +322,9 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         // frame fell while the step was being carried out came and went.
         Wait::Chapter { stage, chapter } => (reached.stage, reached.chapter) >= (*stage, *chapter),
         Wait::Question(question) => reached.question == Some(*question),
+        // **At and not past**, a cursor being a thing that goes round: a list walked one item at a time reaches
+        // every item on the way, and a step that ended at "past" would end on the frame the screen came up.
+        Wait::Cursor(item) => reached.cursor == Some(*item),
         Wait::Frames(wanted) => frames >= *wanted,
     }
 }
@@ -339,8 +344,45 @@ mod tests {
             stage: 1,
             chapter: 1,
             question,
+            cursor: None,
             over: false,
         }
+    }
+
+    /// **A tap goes on until the game's own cursor is on the item the step names**, and stops the frame it is.
+    ///
+    /// Which is the whole of how 面別プラクティス is entered: the title menu's third item is Practice Start and
+    /// each screen after it is another list, and a step that tapped a fixed number of times would be walking
+    /// somebody else's unlocks.
+    #[test]
+    fn a_tap_ends_when_the_cursor_reaches_the_item_it_names() {
+        unsafe {
+            install(
+                "- press: [down]\n  frames: 1\n  until: { cursor: 2 }\n",
+                GAME,
+            )
+        };
+        let down = GAME.button_bit("down").expect("妖々夢 moves a cursor down");
+
+        let mut on = Reached {
+            cursor: Some(0),
+            ..reached(None)
+        };
+        assert_eq!(
+            word_to_press(GAME, on),
+            Some(down),
+            "the step did not tap towards the item it names",
+        );
+
+        // **The tap gone and not the word gone.** Past its last step a recipe hands the frame to the rules, and
+        // what those answer is a question about a game that is not running here — so what says the step ended is
+        // that nothing is being pressed towards the item any more.
+        on.cursor = Some(2);
+        assert_eq!(
+            word_to_press(GAME, on).unwrap_or(0) & down,
+            0,
+            "the step went on tapping past the item it names",
+        );
     }
 
     /// **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on.

@@ -104,27 +104,86 @@ const THE_BAND: f32 = 1.0 / 3.0;
 /// that stood still being worse than one that moved by a guess.
 const A_PROBE: f32 = 8.0;
 
+/// **How much a move has to clear a hazard's box by before it counts as clearing it at all.**
+///
+/// Not a hitbox and not a distance standing in for one: the box test is the game's own and both boxes are read.
+/// This is slack on top of it, and the launches are what set it. One stage produced twelve hits reading `0.6`,
+/// `1.1`, `0.6`, `0.5` and more of the same — every one of them a hazard the model had, at a size the model
+/// read, with the player put past it by less than a unit. So something in the projection is out by about a unit
+/// and no reading has yet said what: the step is the game's own number times the player's own scale times
+/// [`G_MOTION_SCALE`], any of which can move between the read and the frame, and a bullet's own script can
+/// re-aim it mid-flight. Until a reading names it, room under a unit is not room.
+///
+/// **The game's own test agrees**: 0x43e2e7 compares the edges inclusively where this one is strict, so nought
+/// of room is already a hit there and never was room at all.
+///
+/// Two, which is more than the largest margin a hit has been taken on and half of one unfocused step — so a
+/// lane the player can actually use is still a lane.
+const ROOM_TO_SPARE: f32 = 2.0;
+
 /// How many frames of holding a move are looked at before it is chosen.
 ///
 /// One is not enough: a bullet a frame away is one there is nowhere left to be for, and what a move has to
-/// answer is where holding it *leads*. Three is far enough to leave in and near enough that a bullet's own step
-/// still describes where it goes — a bullet turns, and nothing here reads what turns it.
-const LOOK_AHEAD: usize = 3;
+/// answer is where holding it *leads*.
+///
+/// **And the number is set by the widest bullet in the game.** To be out from under one the player has to have
+/// travelled that bullet's half and its own on top, which is `(12 + 2) / a step` frames — four at the step
+/// 0x43f0f5 works out and eight at the halved one 低速移動 leaves, 妖々夢's widest bullet being 24 across
+/// (0x4275ca writes it). A move first seen three frames out is therefore one there is no getting away from
+/// whatever is pressed, and 自機狙い is the shot that makes it: a launch spent 6面's boss dying to the same
+/// aimed 大玉 over and over, 30 hits at one chapter. Twelve is those eight and room to pick a direction in
+/// rather than having to move the frame the bullet appears; past that a bullet's own step stops describing
+/// where it goes, and nothing here reads what turns one.
+const LOOK_AHEAD: usize = 12;
 
-/// **What a move came to**: which of the frames looked at it is hit on, and how near it got to anything.
+/// **What the rules made of a frame**: the 十字キー to press, whether the step must not be halved, the room the
+/// move chosen was left with where it was clear, and whether it is a move towards something to collect rather
+/// than towards the fight.
+///
+/// With the player's own place and what came nearest to the move chosen, which are what a hit is read against:
+/// a line saying only how much room there was says the model was wrong and not which part of it.
+#[derive(Clone, Copy)]
+struct Steered {
+    word: u16,
+    dodging: bool,
+    room: Option<f32>,
+    for_an_item: bool,
+    at: (f32, f32),
+    nearest: Option<Nearest>,
+}
+
+/// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
+/// read, where it was going, and the half of its own box the test is given.
+///
+/// The kind by name rather than by number, a line being read by whoever is looking at why a run was hit.
+#[derive(Clone, Copy)]
+struct Nearest {
+    what: &'static str,
+    at: (f32, f32),
+    step: (f32, f32),
+    half: (f32, f32),
+}
+
+/// **What a move came to**: which of the frames looked at it is hit on, and the least room any of them had.
 ///
 /// The frames as a set of bits rather than a count, so that two bullets reaching the same frame is one frame
 /// hit and not two — what a move is ranked by is how many frames of it are lost, and the first one lost.
+///
+/// **The room between the boxes and not between the middles.** A hit is two boxes overlapping, so what says how
+/// near a move came to being one is what was left on the tighter of its two axes; a distance between middles
+/// puts a 米弾 six away ahead of a 大玉 seventeen away, when it is the 大玉 that is one unit from a hit. Which
+/// is not only a number in the log: it is what picks between moves that are all hit, and what the log names as
+/// the hazard to look at.
 #[derive(Clone, Copy)]
 struct Judged {
     on: u32,
-    near: f32,
+    room: f32,
 }
 
 impl Judged {
     const CLEAR: Self = Self {
         on: 0,
-        near: f32::INFINITY,
+        room: f32::INFINITY,
     };
 
     fn hit(&mut self, frame: usize) {
@@ -180,6 +239,13 @@ static FRAMES: AtomicU32 = AtomicU32::new(0);
 /// opened.
 static WAS_HIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// **What the rules made of the last frame**, which is what a hit is reported against: the hit happened between
+/// that frame's word going in and this one being asked for.
+///
+/// Behind a lock and not in atomics, there being more of it than a word now: it is written once and read once
+/// per frame on the game's own thread, and nothing else takes this lock.
+static LAST_FRAME: std::sync::Mutex<Option<Steered>> = std::sync::Mutex::new(None);
+
 /// **The angle each laser slot had last frame**, which is the only way to know how fast one is turning: nothing
 /// in a laser's own update moves its angle — 0x424f6e writes it where one is made and its boss's script moves it
 /// after that — so there is no rate to read, only a difference to keep.
@@ -206,6 +272,33 @@ fn turned(slot: usize, angle: f32) -> f32 {
 /// Says a slot holds no laser, so the next one to use it starts without a turn.
 fn turns_no_more(slot: usize) {
     LAST_ANGLE[slot].store(NO_ANGLE, Ordering::Relaxed);
+}
+
+/// **Where each enemy slot was last frame**, which is the only way to know where one is going: an enemy is
+/// moved by its own script and there is no step of its own to read anywhere on it.
+///
+/// A quiet NaN for a slot that held nothing last frame, so that an enemy just made is not given the motion of
+/// whatever stood in that slot before it.
+static LAST_PLACE: [(AtomicU32, AtomicU32); ENEMY_SLOTS] =
+    [const { (AtomicU32::new(NOWHERE), AtomicU32::new(NOWHERE)) }; ENEMY_SLOTS];
+const NOWHERE: u32 = 0x7fc0_0000;
+
+/// How far an enemy moved since last frame, and nothing for one that was not there then.
+fn moved(slot: usize, (x, y): (f32, f32)) -> (f32, f32) {
+    let was = (
+        f32::from_bits(LAST_PLACE[slot].0.swap(x.to_bits(), Ordering::Relaxed)),
+        f32::from_bits(LAST_PLACE[slot].1.swap(y.to_bits(), Ordering::Relaxed)),
+    );
+    if was.0.is_nan() || was.1.is_nan() {
+        return (0.0, 0.0);
+    }
+    (x - was.0, y - was.1)
+}
+
+/// Says a slot holds no enemy, so the next one to use it starts without a motion.
+fn moves_no_more(slot: usize) {
+    LAST_PLACE[slot].0.store(NOWHERE, Ordering::Relaxed);
+    LAST_PLACE[slot].1.store(NOWHERE, Ordering::Relaxed);
 }
 
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
@@ -246,27 +339,80 @@ pub unsafe fn word_to_press() -> u16 {
     if unsafe { Th07::dialogue_line() }.is_some() {
         word |= BUTTON_SKIP;
     }
-    let (steer, dodging, room) = unsafe { steer() };
-    // **What the rules thought of the move a hit was taken on.** A frame ahead is computed and a move nothing
-    // will be at is chosen, so a run that is hit at all means one of three things and no others: something on
-    // the screen is not in the model, or every one of the nine was shut, or the move chosen was not the move
-    // made. Which of them it was is the one thing a launch can say and nothing here can.
+    let steered = unsafe { steer() };
+    // **What the rules thought of the move a hit was taken on — and it is the frame before's that they thought
+    // it of.** A frame ahead is computed and a move nothing will be at is chosen, so a run that is hit at all
+    // means one of three things and no others: something on the screen is not in the model, or every one of the
+    // nine was shut, or the move chosen was not the move made. Which of them it was is the one thing a launch
+    // can say and nothing here can.
+    //
+    // **This frame's judgement is of a screen the hit has already been taken off.** The bullet that did it is
+    // gone — 0x425eb7 puts its state to 5 the moment the test comes back — so the room this frame has is the
+    // room to some *other* bullet, and the figure means nothing: three launches were read as 20 and 29 and 12.5
+    // of room, and every one of those numbers was measured after the thing being measured had been removed.
+    // What was decided on the frame the hit came out of is [`LAST_MOVE`].
+    //
     // Said once for the hit and not once for every frame of the window it opened: 決死結界 stands for as long as
     // the game counts it down, and a line a frame turns one hit into a page of them.
     if WAS_HIT.swap(word & BUTTON_BOMB != 0, Ordering::Relaxed) != (word & BUTTON_BOMB != 0)
         && word & BUTTON_BOMB != 0
     {
-        match room {
-            Some(room) => log!("autoplay: hit while pressing {steer:#05x}, with {room:.1} of room"),
-            None => log!("autoplay: hit while pressing {steer:#05x}, with nowhere open to it"),
-        }
+        said_what_took_it();
     }
-    // **低速移動 under a boss**, which is where this game's shots do their damage — and off again the moment
-    // anything could reach the player at all, the same key halving the step a dodge is made of.
-    if !dodging && unsafe { Th07::boss() }.is_some() {
+    *LAST_FRAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(steered);
+    // **低速移動 under a boss**, which is where this game's shots do their damage — and off again for either of
+    // the two things that want the whole step: anything that reaches the move chosen inside the frames looked
+    // at, since the halving is paid for by the frame a bullet is a hit, and an item to go for, which is most of
+    // a field of crossing at half the speed.
+    if !steered.dodging && !steered.for_an_item && unsafe { Th07::boss() }.is_some() {
         word |= BUTTON_FOCUS;
     }
-    word | steer
+    word | steered.word
+}
+
+/// **Says of the frame the hit came out of what the rules made of it**: where the player was, what it pressed,
+/// how much room the model left it, and what came nearest to the move it made.
+///
+/// All four, because between them they say which part of the model was wrong and one of them alone does not.
+/// Three launches read `with 20 of room`, `29` and `12.5` and every one of those was a hazard the model did not
+/// have; three more read `4.7`, `5.2` and `4.4`, which is the same model missing by less than a step — and no
+/// line said what the thing it had measured *was*, so neither run could be taken further.
+fn said_what_took_it() {
+    let was = LAST_FRAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(was) = *was else {
+        log!("autoplay: hit on the first frame the rules were asked for");
+        return;
+    };
+    let room = match was.room {
+        Some(room) => format!("{room:.1} of room"),
+        None => "nowhere open to it".to_owned(),
+    };
+    match was.nearest {
+        Some(near) => log!(
+            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — nearest was {} at \
+             {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}",
+            was.at.0,
+            was.at.1,
+            was.word,
+            near.what,
+            near.at.0,
+            near.at.1,
+            near.step.0,
+            near.step.1,
+            near.half.0,
+            near.half.1,
+        ),
+        None => log!(
+            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — and nothing near it at all",
+            was.at.0,
+            was.at.1,
+            was.word,
+        ),
+    }
 }
 
 /// **The 十字キー of the safest of the nine one-frame moves**, or the one towards where the rules want to be
@@ -283,7 +429,7 @@ pub unsafe fn word_to_press() -> u16 {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn steer() -> (u16, bool, Option<f32>) {
+unsafe fn steer() -> Steered {
     let at = unsafe { player() };
     let field = unsafe { field() };
     let wanted = unsafe { where_to_be(field) };
@@ -322,18 +468,33 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
     // that has longer before it has to.
     let (mine_x, mine_y) = unsafe { player_box() };
     let mut judged = [Judged::CLEAR; MOVES.len()];
-    let mut against = |(hx, hy): (f32, f32), (sx, sy): (f32, f32), (wx, wy): (f32, f32)| {
-        for (judged, path) in judged.iter_mut().zip(&lands) {
-            for (frame, (x, y)) in path.iter().enumerate() {
-                let ahead = (frame + 1) as f32;
-                let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
-                judged.near = judged.near.min(dx * dx + dy * dy);
-                if dx < mine_x + wx && dy < mine_y + wy {
-                    judged.hit(frame);
+    let mut nearest = [None; MOVES.len()];
+    let mut against =
+        |what: &'static str, (hx, hy): (f32, f32), (sx, sy): (f32, f32), (wx, wy): (f32, f32)| {
+            for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
+                for (frame, (x, y)) in path.iter().enumerate() {
+                    let ahead = (frame + 1) as f32;
+                    let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
+                    // What was left on the tighter of the two axes, which is negative on both where the boxes
+                    // overlap — so the larger of the two is the room, and a room below zero is the hit.
+                    let room = (dx - (mine_x + wx)).max(dy - (mine_y + wy));
+                    if room < judged.room {
+                        judged.room = room;
+                        *nearest = Some(Nearest {
+                            what,
+                            at: (hx, hy),
+                            step: (sx, sy),
+                            half: (wx, wy),
+                        });
+                    }
+                    // **[`ROOM_TO_SPARE`] and not nought**: a frame the move only just clears is a frame it is
+                    // treated as losing, which is what keeps it out of the choice as well as out of the test.
+                    if room < ROOM_TO_SPARE {
+                        judged.hit(frame);
+                    }
                 }
             }
-        }
-    };
+        };
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
         if unsafe { mem::read::<u16>(bullet + BULLET_ALIVE) } == 0 {
@@ -344,6 +505,7 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
         // size the hit test is given.
         let (wx, wy) = unsafe { position(bullet + BULLET_SIZE) };
         against(
+            "a bullet",
             unsafe { position(bullet + BULLET_POSITION) },
             unsafe { position(bullet + BULLET_STEP) },
             (wx / 2.0, wy / 2.0),
@@ -354,20 +516,27 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
     //
     // **With its own body**, a third of `+0x2b3c` on each side, which is what 0x420490 and the box test it calls
     // make of that size between them: a boss taken for a point is a boss the model says there is room under
-    // while its body reaches. Where it is and not where it is going, an enemy being moved by its own script
-    // rather than by a step of its own that could be read.
+    // while its body reaches.
+    //
+    // **And with where it is going**, which is [`moved`] and not a field: nothing on an enemy is a step, its
+    // script being what moves it, so the motion is the difference from last frame the way a laser's turn is. A
+    // body read as standing still is one the model leaves room beside for as long as it takes to arrive — a
+    // launch was hit beside 2面's midboss with 4.7 of room, which is less than a body covers in a frame.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
         if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
+            moves_no_more(slot);
             continue;
         }
-        let (wx, wy) = unsafe { position(enemy + ENEMY_SIZE) };
+        let (wx, wy) = unsafe { position(enemy + ENEMY_POSITION) };
+        let (sx, sy) = unsafe { position(enemy + ENEMY_SIZE) };
         against(
-            unsafe { position(enemy + ENEMY_POSITION) },
-            (0.0, 0.0),
+            "an enemy",
+            (wx, wy),
+            moved(slot, (wx, wy)),
             (
-                wx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
-                wy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
             ),
         );
     }
@@ -393,7 +562,7 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
             mem::read::<f32>(laser + LASER_FAR)
         });
         let across = unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0;
-        for (judged, path) in judged.iter_mut().zip(&lands) {
+        for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
                 // Where the beam will be pointing by then, which is where it points now plus as many of its own
                 // turns as there are frames to look.
@@ -402,7 +571,23 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
                 let (dx, dy) = (x - ox, y - oy);
                 let along = dx * cos + dy * sin;
                 let off = (-dx * sin + dy * cos).abs();
-                if along > near - mine_x && along < far + mine_x && off < across + mine_y {
+                // **How much room a beam left, kept the way a bullet's is**: measured in the beam's own frame,
+                // where *across* it is what the width stands against and *along* it what its two ends do.
+                // Without it a hit taken on a laser reports the room to whatever bullet happened to be nearest,
+                // and a line that names the wrong hazard is worse than one that names none.
+                let room = (off - (across + mine_y))
+                    .max((near - mine_x - along).max(along - (far + mine_x)));
+                if room < judged.room {
+                    judged.room = room;
+                    let on = along.clamp(near, far);
+                    *nearest = Some(Nearest {
+                        what: "a laser",
+                        at: (ox + on * cos, oy + on * sin),
+                        step: (0.0, 0.0),
+                        half: (across, across),
+                    });
+                }
+                if room < ROOM_TO_SPARE {
                     judged.hit(frame);
                 }
             }
@@ -418,11 +603,17 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
         // frames after it are what the move is judged *hit* by and not where it is going.
         let (x, y) = land[0];
         let towards = (x - wanted.0).powi(2) + (y - wanted.1).powi(2);
-        // Clear first, then nearest to where it wants to be. And where nothing is clear: **fewest frames hit,
-        // then the latest first hit, then the most room** — a move that gets out over a move that has longer
-        // before it has to, and either over a move that merely has space around it, which is the fleeing all
-        // this exists instead of. Strictly better only, so a tie goes to the earlier of [`MOVES`]: standing
-        // still is first, and a bot that took the last of a tie would step between two of them every frame.
+        // Clear first, then nearest to where it wants to be. And where nothing is clear: **the latest first
+        // hit, then fewest frames hit, then the most room** — and either over a move that merely has space
+        // around it, which is the fleeing all this exists instead of. Strictly better only, so a tie goes to the
+        // earlier of [`MOVES`]: standing still is first, and a bot that took the last of a tie would step
+        // between two of them every frame.
+        //
+        // **When before how much**, because the move is made again next frame: what a move has to buy is frames
+        // to decide in, and a move clear for nine of them and hit on two after that is worth more than one hit
+        // on the very next frame. The count came first while [`LOOK_AHEAD`] was three, where "hit at all" and
+        // "hit next frame" are nearly the same thing; at twelve they are not, and a launch that kept the old
+        // order was hit nine times before 3面's boss where the one before it reached 4面 without a scratch.
         let better = match best {
             None => true,
             Some((_, was, was_towards)) => match (was.clear(), judged.clear()) {
@@ -430,10 +621,10 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
                 (true, false) => false,
                 (true, true) => towards < was_towards,
                 (false, false) => {
-                    judged.hits() < was.hits()
-                        || (judged.hits() == was.hits()
-                            && (judged.first() > was.first()
-                                || (judged.first() == was.first() && judged.near > was.near)))
+                    judged.first() > was.first()
+                        || (judged.first() == was.first()
+                            && (judged.hits() < was.hits()
+                                || (judged.hits() == was.hits() && judged.room > was.room)))
                 }
             },
         };
@@ -441,17 +632,28 @@ unsafe fn steer() -> (u16, bool, Option<f32>) {
             best = Some((*word, judged, towards));
         }
     }
-    // **What the 低速移動 under a boss is off for is anything that could reach the player at all**, and not
-    // only what would hit it this frame: slowing down halves the step a dodge is made of, so by the frame a
-    // bullet is a hit the halving has already been paid for. The reach is as far as anything gets in the frames
-    // looked at, so nothing here is a margin of its own.
-    let reach = straight * LOOK_AHEAD as f32;
+    // **What the 低速移動 under a boss is off for is anything that reaches the move chosen** inside the frames
+    // looked at, and not only what would hit it next frame: halving the step doubles the frames it takes to be
+    // out from under something, so by the frame a bullet is a hit the halving has already been paid for.
+    //
+    // **And not a distance beside it**, which is what this was: `near` is between two centres where a hit is
+    // two boxes overlapping, so a bullet 12 away is inside a 大玉's own half and outside a 米弾's — the same
+    // number meaning a hit and a clear frame. [`LOOK_AHEAD`] frames of the game's own test already say whether
+    // anything reaches the player, and one more margin on top of it says nothing the test does not.
+    // **Whether the player has to move at all**, which is [`MOVES`]'s own first entry and not the move chosen:
+    // the move chosen is clear on almost every frame, that being what choosing it means, so a slowing taken off
+    // by it is a slowing never taken off. Where holding still keeps the player out of everything for the frames
+    // looked at, the step is not what the frame is for and the damage is.
     let (word, judged_it, _) = best.unwrap_or((0, Judged::CLEAR, 0.0));
-    (
+    let chosen = MOVES.iter().position(|(it, _, _)| *it == word);
+    Steered {
         word,
-        !judged_it.clear() || judged[0].near <= reach * reach,
-        judged_it.clear().then(|| judged_it.near.sqrt()),
-    )
+        dodging: !judged[0].clear(),
+        room: judged_it.clear().then_some(judged_it.room),
+        for_an_item: unsafe { the_item_worth_going_for() }.is_some(),
+        at,
+        nearest: chosen.and_then(|chosen| nearest[chosen]),
+    }
 }
 
 /// **Half the player's own box**, which is the player's half of what a hit is.
@@ -494,8 +696,8 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
     // which is the shortest way to wherever the next item falls.
     let (x, y) = match unsafe { the_item_worth_going_for() } {
         Some((_, at)) => at,
-        None => match unsafe { Th07::boss() } {
-            Some(boss) => (unsafe { mem::read::<f32>(boss + ENEMY_POSITION) }, low),
+        None => match unsafe { the_boss_to_stand_under(field) } {
+            Some(x) => (x, low),
             None => (field.0 + field.2 / 2.0, low),
         },
     };
@@ -504,6 +706,21 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
     // field, moving only sideways, with the dodge it wanted to make upwards pulled straight back. Waiting low is
     // where the item arrives anyway.
     (x, if y >= the_band(field) { y } else { low })
+}
+
+/// The x of the boss the fight is with, where there is one worth standing under.
+///
+/// **Inside the play field**, since the x of something the player cannot get under is an x it holds itself
+/// against a wall for — and a wall is where a dodge runs out of moves, three of the nine leading back into it.
+/// A boss that has left the field is one to stop following, and the middle of the field is a better place to
+/// wait than the corner it would otherwise be waited out in.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
+    let boss = unsafe { Th07::boss() }?;
+    let x = unsafe { mem::read::<f32>(boss + ENEMY_POSITION) };
+    (x >= field.0 && x <= field.0 + field.2).then_some(x)
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.

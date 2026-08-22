@@ -81,6 +81,13 @@ pub enum Until {
     Chapter { stage: i32, chapter: u32 },
     /// One of orb's own questions being up, by the name the log gives it.
     Question(String),
+    /// **The game's own cursor being on the item at this place in the list**, counted from zero the way the
+    /// game counts it.
+    ///
+    /// Which is how a screen this grammar cannot see the items of is walked: 面別プラクティス is the third of
+    /// the title menu's items and every screen after it is another list, so a recipe that counted taps instead
+    /// would be a recipe written against one machine's unlocks.
+    Cursor(i32),
     /// Or that many frames having gone by.
     Frames(u32),
 }
@@ -116,19 +123,27 @@ struct WrittenUntil {
     stage: Option<i32>,
     chapter: Option<u32>,
     question: Option<String>,
+    cursor: Option<i32>,
     frames: Option<u32>,
 }
 
 impl WrittenUntil {
     fn read(&self, at: usize) -> Result<Until, String> {
-        match (self.stage, self.chapter, &self.question, self.frames) {
-            (Some(stage), Some(chapter), None, None) => Ok(Until::Chapter { stage, chapter }),
-            (None, None, Some(question), None) => Ok(Until::Question(question.clone())),
-            (None, None, None, Some(0)) => Err(format!("step {at} is over before it starts")),
-            (None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
+        match (
+            self.stage,
+            self.chapter,
+            &self.question,
+            self.cursor,
+            self.frames,
+        ) {
+            (Some(stage), Some(chapter), None, None, None) => Ok(Until::Chapter { stage, chapter }),
+            (None, None, Some(question), None, None) => Ok(Until::Question(question.clone())),
+            (None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
+            (None, None, None, None, Some(0)) => Err(format!("step {at} is over before it starts")),
+            (None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
             _ => Err(format!(
-                "step {at} waits for a stage and a chapter, a question, or a count of frames, and \
-                 for one of the three"
+                "step {at} waits for a stage and a chapter, a question, an item the cursor is on, \
+                 or a count of frames, and for one of the four"
             )),
         }
     }
@@ -267,6 +282,28 @@ mod tests {
                 give_up_after: None,
             }]),
         );
+    }
+
+    /// **A press can be tapped until the game's own cursor is on an item**, which is what makes a screen this
+    /// grammar cannot see the items of walkable: the item is named by where it sits, and the game keeps that
+    /// number itself.
+    ///
+    /// Which is how 面別プラクティス is reached at all — Practice Start is the third of the title menu's items
+    /// and each screen after it is another list, so a recipe that could only count taps would be a recipe
+    /// written against somebody's unlocks.
+    #[test]
+    fn a_press_can_be_tapped_until_the_cursor_is_on_an_item() {
+        assert_eq!(
+            read("- press: [down]\n  frames: 10\n  until: { cursor: 2 }\n"),
+            Ok(vec![Step::Press {
+                buttons: vec!["down".to_owned()],
+                frames: 10,
+                until: Some(Until::Cursor(2)),
+                give_up_after: None,
+            }]),
+        );
+        // And not with anything else beside it, an `until` being one of the four and not a set of conditions.
+        assert!(read("- press: [down]\n  until: { cursor: 2, stage: 1 }\n").is_err());
     }
 
     /// **A step can say how long it is worth waiting through**, which is what stops a recipe holding a launch

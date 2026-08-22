@@ -443,6 +443,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             stage: 0,
             chapter: 0,
             question: None,
+            cursor: None,
             over: false,
         },
         pressing: None,
@@ -999,6 +1000,7 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         return;
     };
     playing.reached.chapter = runtime.chapters.number();
+    playing.reached.cursor = unsafe { runtime.game.front_end_cursor() };
     playing.reached.question = if runtime.asking.is_some() {
         Some(Question::Mode)
     } else if runtime.asking_resume.is_some() {

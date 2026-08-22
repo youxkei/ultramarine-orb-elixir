@@ -173,6 +173,9 @@ const MIDDLE: f32 = 192.0;
 const BAND_TOP: f32 = FIELD.1 + FIELD.3 * 2.0 / 3.0;
 /// What one frame of holding a direction moves the player by in these, straight.
 const A_STEP: f32 = 4.0;
+/// **The widest bullet 妖々夢 makes**, which is 大玉: the spawn writes each kind's own size into `+0xb7c` and
+/// `+0xb80`, and of the sizes it writes — 4, 5, 6, 8, 10 — this is the one at 0x4275ca.
+const WIDEST_BULLET: f32 = 24.0;
 
 /// A stage running, with a field to move about in and nobody fighting — what the rules about where to be are
 /// read against.
@@ -340,9 +343,10 @@ fn the_bot_dodges_an_enemy_on_its_way_to_an_item() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-dodges-an-enemy");
         game.image().the_player_is_at(MIDDLE, LOW);
-        // The item to the left, and the enemy that dropped it between the two.
+        // The item to the left, and the enemy that dropped it between the two — far enough out that going round
+        // it is a move with [`ROOM_TO_SPARE`] to spare, which is what makes going round it possible at all.
         game.image().an_item_is_at(700, POWER, 100.0, LOW);
-        game.image().an_enemy_is_at(9, MIDDLE - 8.0, LOW);
+        game.image().an_enemy_is_at(9, MIDDLE - A_STEP * 3.0, LOW);
 
         game.frames(1);
         assert_eq!(
@@ -607,15 +611,24 @@ fn the_bot_takes_the_longest_way_out_where_nothing_is_open() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-lasts-longest");
         game.image().the_player_is_at(MIDDLE, LOW);
-        // Sitting on where it stands and on every place one step of it leads, so that the corners are shut by
-        // those too — and one more out to the right, which the third step of going that way reaches and the
-        // first two do not.
+        // **A step long beside the box and beside [`ROOM_TO_SPARE`]**, so that one of the nine landings can be
+        // shut without shutting the ones either side of it: with the ordinary step every landing is inside its
+        // neighbour's room to spare, and a pattern that shuts one shuts them all.
+        let (step, across) = (A_STEP * 4.0, A_STEP * 4.0 / 2.0_f32.sqrt());
+        game.image().the_player_steps_by(step, across);
+        game.image().the_players_box_is((1.0, 1.0));
+        // Sitting on every place one step leads, the corners included — and one more out to the right, which
+        // the third step of going that way reaches and the first two do not.
         for (slot, (x, y)) in [
             (MIDDLE, LOW),
-            (MIDDLE, LOW - A_STEP),
-            (MIDDLE, LOW + A_STEP),
-            (MIDDLE - A_STEP, LOW),
-            (MIDDLE + A_STEP * 3.0, LOW),
+            (MIDDLE, LOW - step),
+            (MIDDLE, LOW + step),
+            (MIDDLE - step, LOW),
+            (MIDDLE - across, LOW - across),
+            (MIDDLE + across, LOW - across),
+            (MIDDLE - across, LOW + across),
+            (MIDDLE + across, LOW + across),
+            (MIDDLE + step * 3.0, LOW),
         ]
         .into_iter()
         .enumerate()
@@ -633,29 +646,49 @@ fn the_bot_takes_the_longest_way_out_where_nothing_is_open() {
     });
 }
 
-/// **A hit says what the rules thought of the move that took it.**
+/// **A hit says what the rules thought of the move that took it — and that is the frame before's move.**
 ///
 /// Which is the whole of what is left to find out. A frame ahead is computed and a move nothing will be at is
 /// chosen, so a run that is hit at all means one of three things and no others: something on the screen is not
-/// in the model — the lasers are not, and a bullet that turns may not move the way one step of its own says —
-/// or every one of the nine was shut, or the move chosen was not the move made. The line says which: the room
-/// the model left, or that it had none to leave.
+/// in the model, or every one of the nine was shut, or the move chosen was not the move made. The line says
+/// which: the room the model left, or that it had none to leave.
+///
+/// **The frame the state says hit is a frame the hit has already been taken off**: 0x425eb7 puts the bullet's
+/// own state to 5 the moment the test comes back, so this frame's judgement is of a screen without the thing
+/// that did it, and its room is the room to something else. So the move reported is the one played on the frame
+/// the hit came out of, which is what this asks: an item to the right pulls the bot right, and the line said
+/// after the item has gone and the player is hit is still that right.
 #[test]
 fn a_hit_says_what_the_rules_thought_of_the_move_that_took_it() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-a-hit-says-what-was-thought");
         game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().an_item_is_at(700, POWER, MIDDLE + 100.0, LOW);
         game.frames(1);
         assert!(
             !game.log().said("autoplay: hit"),
             "a hit was said on a frame nothing had hit the player on",
         );
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot did not go for the item to its right:\n  {}",
+            game.log().lines().join("\n  "),
+        );
 
+        game.image().the_item_is_gone(700);
         game.image().the_player_has_been_hit();
         game.frames(1);
         assert!(
-            game.log().said("autoplay: hit while"),
-            "the hit did not say what the rules thought of the move:\n  {}",
+            game.log().said("having pressed 0x080"),
+            "the hit did not say the move the frame it came out of was played with:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        // And where the player was on it, which is the other half of reading a hit: a room that is nearly
+        // enough says the model missed by a little, and only the place says whether it missed at a wall.
+        assert!(
+            game.log().said(&format!("hit at {MIDDLE:.1},{LOW:.1}")),
+            "the hit did not say where the player was:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -755,12 +788,24 @@ fn the_bot_shoots_a_boss_slowed_down() {
             game.log().lines().join("\n  "),
         );
 
-        // **And anything that could reach it takes the slowing off again, hit or not**: a dodge at half a step
-        // is half a dodge, and by the frame a bullet is a hit the halving has already been paid for. This one is
-        // three of its own steps away and going nowhere near — a hit next frame it is not, and it is close
-        // enough to want the whole step back.
+        // **A bullet near the player but going nowhere leaves the slowing on.** Being near is not being a
+        // threat, and it is not what a hit is either: the same twelve units are inside 大玉's own half and
+        // outside 米弾's, so a slowing taken off by a distance is one taken off for one bullet and not the
+        // other with nothing to tell them apart.
         game.image()
             .a_bullet_is_at(500, MIDDLE + A_STEP * 3.0, LOW, (0.0, 0.0));
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            FOCUS,
+            "the bot gave up the damage for a bullet that was not going anywhere:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // **And one that reaches the move being made takes it off, hit or not**: a dodge at half a step is half
+        // a dodge, and by the frame a bullet is a hit the halving has already been paid for.
+        game.image()
+            .a_bullet_is_at(500, MIDDLE, LOW - A_STEP * 6.0, (0.0, A_STEP));
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & FOCUS,
@@ -974,6 +1019,292 @@ fn a_power_item_takes_the_bot_off_a_boss() {
             // so the step that closes the most of that is the straight one. The climb comes once the x is met.
             RIGHT,
             "the bot stood under the boss with power on the screen:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A bullet as wide as 妖々夢's widest has to be moved for before it is a step away.**
+///
+/// The frames of warning a move needs are `(the bullet's half + the player's half) / a step`: to be out from
+/// under something [`WIDEST_BULLET`] across the player has to have travelled half of that plus its own half,
+/// and a step is [`A_STEP`] — so a bullet first seen three frames out is one there is no getting away from,
+/// whatever is pressed. It is not the bullet's own speed that sets that number, the frames being counted to the
+/// moment it arrives and each bullet's own step being what the projection is made of; the speed only says how
+/// far off it is when the frames run out.
+///
+/// So this puts one six frames from the player and asks for a move. Standing still is the answer that has to
+/// stop being given.
+#[test]
+fn the_bot_moves_for_a_wide_bullet_before_it_is_three_frames_off() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-sees-a-wide-bullet-coming");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // A little to the side, so that there is a way out to be found and not only a way to be hit.
+        game.image().a_bullet_of_size_is_at(
+            0,
+            MIDDLE + 10.0,
+            LOW - 60.0,
+            (0.0, 8.0),
+            (WIDEST_BULLET, WIDEST_BULLET),
+        );
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot held still under a bullet {WIDEST_BULLET} across and six frames off:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A move that clears by less than [`ROOM_TO_SPARE`] is not a move that clears.**
+///
+/// Which the launches say and the arithmetic does not: three hits in one stage read `0.6`, `1.1` and `0.6` of
+/// room, so on each of them the model had the hazard, had its size, and put the player past it by less than a
+/// unit — and the game hit anyway. Something in the projection is out by about a unit and no reading has said
+/// what; until one does, room under a unit is not room. The game's own test helps it along, comparing edges
+/// inclusively at 0x43e2e7 where this one is strict, so nought of room is already a hit there.
+///
+/// **And the choice needs it as much as the test does**: among moves that clear, the one taken is the nearest to
+/// where the rules want to be, and nothing weighed the room — so a move shaving a bullet by half a unit beat one
+/// with the whole field of it for being four units closer to an item. This is what stops that.
+#[test]
+fn a_move_that_only_just_clears_is_not_taken() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-room");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Something to want, across the field and level, so that straight across is the move to beat.
+        game.image().an_item_is_at(700, POWER, 380.0, LOW);
+        // And a bullet the straight move slips past by one unit: level with the path by its box on the y, and
+        // crossed on the x somewhere along it.
+        game.image()
+            .a_bullet_is_at(0, MIDDLE + 20.0, LOW + A_STEP + 1.0, (0.0, 0.0));
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot shaved a bullet by a unit to get four units nearer an item:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The room a move has is measured between the boxes and not between the middles**, and so is which hazard
+/// had the least of it.
+///
+/// A hit is two boxes overlapping, so what says how near a move came to being one is what was left on the
+/// tighter of the two axes — and a distance between middles is not that: a 米弾 six units away has two units of
+/// room and a 大玉 seventeen away has one, and the middles put them the other way round. Which is not only a
+/// number in a log: `nearest was a bullet …` is what a hit is read against, and a line naming a bullet the
+/// player was drifting away from is a line that sends whoever reads it to the wrong part of the model. One did:
+/// a hit at `159.4,385.3` blamed a bullet at `152.9,387.6` **stepping downwards, below the player, while the
+/// player pressed up**.
+#[test]
+fn the_room_a_move_has_is_measured_between_the_boxes() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-room-is-between-the-boxes");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Near by its middle and roomy by its box: no size of its own, so all that stands between them is the
+        // player's own half. Four of room, which is over [`ROOM_TO_SPARE`] and so still a place to stand.
+        game.image()
+            .a_bullet_is_at(0, MIDDLE + A_STEP * 2.0, LOW, (0.0, 0.0));
+        // And far by its middle and three of room by its box, which is less.
+        let big = MIDDLE + A_STEP + WIDEST_BULLET / 2.0 + 3.0;
+        game.image().a_bullet_of_size_is_at(
+            1,
+            big,
+            LOW,
+            (0.0, 0.0),
+            (WIDEST_BULLET, WIDEST_BULLET),
+        );
+
+        game.frames(1);
+        game.image().the_player_has_been_hit();
+        game.frames(1);
+        assert!(
+            game.log().said(&format!(
+                "with 3.0 of room — nearest was a bullet at \
+                 {big:.1},{LOW:.1} stepping 0.0,0.0, half of it {:.1},{:.1}",
+                WIDEST_BULLET / 2.0,
+                WIDEST_BULLET / 2.0,
+            )),
+            "the hit named the bullet whose middle was nearest rather than the one whose box was:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **With nothing open, the move taken is the one whose trouble is furthest off** — and not the one that runs
+/// into least of it.
+///
+/// Because the move is made again next frame. What a move has to buy is frames to decide in, so a move clear
+/// for nine of them and hit on two after that is worth more than one hit once on the very next frame — and
+/// counting the frames lost puts those the other way round. It is [`WIDEST_BULLET`] that makes this matter:
+/// looking three frames out, "hit at all" and "hit next frame" are nearly the same thing, and looking far
+/// enough ahead to leave a 大玉 they are not. A launch that looked twelve frames out and still ranked by the
+/// count was hit nine times before 3面's boss, where the launch before it had reached 4面 without a scratch.
+///
+/// So this shuts all nine moves and leaves two of them apart only in when: left is hit on the second frame,
+/// right on the tenth and eleventh.
+#[test]
+fn the_move_taken_is_the_one_whose_trouble_is_furthest_off() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-buys-frames");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // A box and a step far apart, so that one landing of the nine can be shut without shutting the ones
+        // either side of it: at the ordinary step every landing is inside its neighbour's [`ROOM_TO_SPARE`].
+        let (step, across) = (A_STEP * 4.0, A_STEP * 4.0 / 2.0_f32.sqrt());
+        game.image().the_player_steps_by(step, across);
+        game.image().the_players_box_is((1.0, 1.0));
+
+        // Seven of the nine shut on the very first frame looked at, each by a bullet sitting where that move
+        // lands after one frame of holding it.
+        for (slot, (dx, dy)) in [
+            (0.0, 0.0),
+            (0.0, -step),
+            (0.0, step),
+            (-across, -across),
+            (across, -across),
+            (-across, across),
+            (across, across),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            game.image()
+                .a_bullet_is_at(slot, MIDDLE + dx, LOW + dy, (0.0, 0.0));
+        }
+        // Left, shut on the second frame looked at and clear on every other.
+        game.image()
+            .a_bullet_is_at(7, MIDDLE - step * 2.0, LOW, (0.0, 0.0));
+        // And right, shut on the tenth and the eleventh.
+        game.image()
+            .a_bullet_is_at(8, MIDDLE + step * 10.0, LOW, (0.0, 0.0));
+        game.image()
+            .a_bullet_is_at(9, MIDDLE + step * 11.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot took the move it ran into least of rather than the one that lasted:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **An enemy is moved for by where it is going and not only by where it stands.**
+///
+/// Nothing in an enemy's own update is a step a read could take — its script moves it — so the only way to
+/// know is to remember where it was last frame, which is the way a laser's turn is known. A body taken for a
+/// still thing is a body the model says there is room beside while it closes: a launch was hit beside 2面's
+/// midboss with `4.7 of room`, which is a miss by less than the body moves in a frame.
+#[test]
+fn an_enemy_is_moved_for_by_where_it_is_going() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-sees-an-enemy-closing");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .an_enemy_of_size_is_at(0, MIDDLE, LOW - 60.0, (24.0, 24.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for a body that was standing still well clear of it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // One frame on and eight units nearer, which is the whole of what says it is coming: from there it
+        // reaches the player in six frames, and a body read as standing still never arrives at all.
+        game.image()
+            .an_enemy_of_size_is_at(0, MIDDLE, LOW - 52.0, (24.0, 24.0));
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot held still under a body closing on it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A boss's slot is not cleared when that boss leaves**, so a slot holding a pointer is not a boss to stand
+/// under — the enemy it leads to has to still be alive.
+///
+/// 0x4232a0 walks the eight slots and answers 1 at the first that is not null, and nothing else in the exe so
+/// much as touches them. 妖々夢's 4面 is where that costs a run: three bosses share the stage, and a launch
+/// spent 22505 of its 38820 frames pinned against the left wall with the x it wanted read off a slot whose
+/// boss had gone.
+#[test]
+fn a_bosss_slot_left_behind_is_not_a_boss_to_stand_under() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-a-stale-boss");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().a_boss_slot_leads_to(0, 0);
+        game.image().an_enemy_is_at(0, -50.0, 100.0);
+        game.image().the_enemy_is_gone(0);
+        game.image().a_boss_slot_leads_to(1, 1);
+        game.image().an_enemy_is_at(1, 300.0, 100.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot went for the boss that had left:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a boss outside the play field is not one either.** The x of something the player cannot get under is
+/// an x it walks into a wall for, and a wall is where a dodge runs out of moves — so the middle is a better
+/// place to be than under a boss that is not there to be stood under.
+#[test]
+fn a_boss_outside_the_play_field_is_not_stood_under() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-a-boss-off-the-field");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().a_boss_slot_leads_to(0, 0);
+        game.image().an_enemy_is_at(0, FIELD.0 - 50.0, 100.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot walked into the wall for a boss beyond it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **低速移動 is for the fight and not for the collecting**: the same key that puts the damage up halves the
+/// step, and an item most of a field away is a second of the fight spent crossing it.
+#[test]
+fn an_item_takes_the_bot_out_of_low_speed() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-hurries-for-an-item");
+        game.image().a_boss_is_fighting(1000, 0);
+        game.image().the_boss_is_at(MIDDLE, 100.0);
+        game.image().the_player_is_at(MIDDLE, LOW);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            FOCUS,
+            "the bot fought a boss at full speed with nothing to collect:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().an_item_is_at(700, POWER, 380.0, 20.0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & FOCUS,
+            0,
+            "the bot went for an item at half speed:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

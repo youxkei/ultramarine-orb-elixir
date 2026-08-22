@@ -694,12 +694,37 @@ impl Image {
 
     /// A boss in the first of the manager's slots, with the life and the attack frames it would have: the
     /// enemy is one of the manager's own slots, so this hands out the address the game would have put there.
+    ///
+    /// **Alive as well as pointed at**, an enemy being what a boss is: the slot says which of them the fight is
+    /// with and the alive bit says it is still there, and [`Image::a_boss_slot_leads_to`] is where those two
+    /// come apart.
     pub fn a_boss_is_fighting(&self, life: i32, attack_frames: i32) {
         let boss = super::G_ENEMY_MANAGER + ENEMIES;
         let space = self.space();
         space.write::<usize>(super::G_ENEMY_MANAGER + super::BOSSES, boss);
+        space.write::<u8>(boss + super::ENEMY_ALIVE, super::ENEMY_ALIVE_BIT);
         space.write::<i32>(boss + super::ENEMY_LIFE, life);
         space.write::<i32>(boss + super::ENEMY_ATTACK_FRAMES, attack_frames);
+    }
+
+    /// One of the manager's eight boss slots pointed at one of its enemy slots, and nothing else — no life, no
+    /// attack frames and not a word about whether that enemy is alive.
+    ///
+    /// Which is the state 妖々夢's 4面 leaves behind: three bosses share the stage, the slots are written as
+    /// each arrives, and nothing in the exe writes one back to zero — so a slot outlives the boss it was for.
+    pub fn a_boss_slot_leads_to(&self, slot: usize, enemy: usize) {
+        self.space().write::<usize>(
+            super::G_ENEMY_MANAGER + super::BOSSES + slot * size_of::<usize>(),
+            super::G_ENEMY_MANAGER + ENEMIES + enemy * super::ENEMY_BYTES,
+        );
+    }
+
+    /// And an enemy that is no longer there, which is what its own walk reads off the same bit.
+    pub fn the_enemy_is_gone(&self, slot: usize) {
+        self.space().write::<u8>(
+            super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES + super::ENEMY_ALIVE,
+            0,
+        );
     }
 
     /// And no boss at all, which is what the manager's own walk of its slots leaves where the fight is over:

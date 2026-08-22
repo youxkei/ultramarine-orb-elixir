@@ -1211,6 +1211,13 @@ const BULLET_SIZE: usize = 0xb7c;
 /// 0x43e2e7 through 0x43e320 is the overlap — each edge of the one against the matching edge of the other, and
 /// any that clears means no hit. Read rather than written down because it is the shot's own box and differs by
 /// character.
+///
+/// **And it is centred on the player's own position.** 0x43f4d8 through 0x43f611 builds both corners every
+/// frame out of two addresses and no others: `[player+0x930]`, which is [`PLAYER_POSITION`], and
+/// `[player+0x990]`, subtracted for the low corner and added for the high one. So the half of the box is that
+/// second vector and the middle of it is where the player is — which is worth having written down because a
+/// model of the box that put its middle anywhere else would be wrong by the difference on every frame, and a
+/// hit missed by four units looks exactly like that.
 const PLAYER_BOX_MIN: usize = 0x948;
 const PLAYER_BOX_MAX: usize = 0x954;
 
@@ -2109,7 +2116,13 @@ impl Th07 {
     }
 
     /// The boss being fought, or nothing where none is: the first of the manager's [`BOSS_SLOTS`] pointers
-    /// that is not null, which is how 0x4232a0 answers the same question.
+    /// that is not null **and leads to an enemy that is still alive**.
+    ///
+    /// 0x4232a0 asks the first half of that and nothing in the exe so much as writes those slots back to zero,
+    /// so a slot outlives the boss it was filled for — and 妖々夢's 4面 is where that shows, three bosses
+    /// sharing the stage and the first slot left pointing at whichever of them went first. Reading a position
+    /// out of one is reading a freed object: a launch spent 22505 of its 38820 frames on that stage pinned
+    /// against the left wall, going for an x that came from a boss no longer there.
     ///
     /// # Safety
     /// Must run on the game's main thread.
@@ -2120,7 +2133,11 @@ impl Th07 {
             .map(|slot| unsafe {
                 mem::read::<usize>(G_ENEMY_MANAGER + BOSSES + slot * size_of::<usize>())
             })
-            .find(|boss| *boss != 0)
+            .find(|boss| {
+                *boss != 0
+                    && mem::read_committed::<u8>(*boss + ENEMY_ALIVE)
+                        .is_some_and(|alive| alive & ENEMY_ALIVE_BIT != 0)
+            })
     }
 
     /// The script the ending being played is running, found by walking the chain for [`ENDING_UPDATE`]: the
@@ -4142,6 +4159,18 @@ impl Game for Th07 {
 
     unsafe fn word_to_press(&self) -> u16 {
         unsafe { bot::word_to_press() }
+    }
+
+    /// The front end's own cursor, out of the screen the chain is running: every screen of it keeps the item it
+    /// is on at [`FRONT_END_CURSOR`], which is what [`Th07::show_ranking`] reads it out of to put back
+    /// afterwards.
+    ///
+    /// Nothing where the chain has no such screen on it, which is every frame of a run: the walk is bounded and
+    /// each step of it is asked of the memory map, so a frame with no front end answers nothing rather than a
+    /// number off whatever the pointer led to.
+    unsafe fn front_end_cursor(&self) -> Option<i32> {
+        let front = unsafe { Self::chain_argument(FRONT_END_UPDATE) }?;
+        mem::read_committed::<i32>(front + FRONT_END_CURSOR)
     }
 
     unsafe fn mid_build(&self) -> bool {
