@@ -838,7 +838,51 @@ What has been closed, each now standing beside the thing it is about rather than
 - **A boss's slot outliving its boss**, which cost 妖々夢's 4面 22505 of its 38820 frames against the left
   wall. `Th07::boss` carries it.
 
-**What is left, and it is one lead.** `ROOM_TO_SPARE` is two units of slack on top of the game's own box test,
+**And what a hit turned out to mean most often is not a hazard missed but a hazard invented.** Three of the
+readings above are the game saying a thing *cannot* touch the player, and each one had been costing hits by
+making the bot dodge it:
+
+- **An enemy with no body**, the low two bits of `+0x2e29` (0x420e86, 0x420e9f). 6面's boss fires 自機狙い off
+  one its script keeps at the player, so dodging it is a corner with no way out — three hits in one chapter
+  reading `nowhere open to it`.
+- **A bullet still coming out**, which is any state but the first of the five at 0x426add. Most of a wall of
+  bullets on the frame it is fired.
+- **A 予告線 before it fires**, `+0x4e0` against `+0x4c4` (0x4266dc). The one lane a laser pattern leaves open
+  is the one the warning is drawn across.
+
+So the shape to look for in a `nowhere open to it` is not a missing hazard: it is one of these.
+
+**Two questions are open.** Which of 妖々夢's 4面 bosses the fight is *with* — three share the stage and all
+three are on the screen for the last cards, so standing under the first slot inside the field is standing under
+whichever it happens to be. Nothing has been read that tells them apart; `ENEMY_LIFE` is the candidate and no
+launch has confirmed the decoys have none. It costs time rather than hits — an attack that is not being shot
+times out — so it is behind the other one. And **the bottom edge corners the bot the way a side did**: a hit at
+`293.8,432.0` with nowhere open to it, ninety units clear of either side and sixteen off the bottom.
+[`IN_FROM_THE_SIDE`] holds the x the bot *waits* on off the sides, and the y is held by
+[`ABOVE_THE_BOTTOM`] — but a dodge goes where the field allows, and a pattern that pushes the bot down for
+several frames leaves it somewhere three of the nine moves are the wall.
+
+**And the shape of that second one is the shape of the whole rule.** Every question the rules ask is *is this
+move hit*, and none of them is *is where it lands a place to live* — so a move clear for every frame looked at
+can step into a pocket the frame after closes, and walking into the dense part of a pattern is never counted
+against a move. Which is what those two hits are: not a hazard missed but a place chosen.
+
+The cheap version of the answer was tried and does not do it. Each of the nine landings can be asked how many
+of the nine moves *from there* are open, one frame on — nine by nine is the work nine by [`LOOK_AHEAD`] already
+is, so it costs nothing. But it cannot be *ranked* above the wanting: five of the bot's own tests failed at
+once, and what they were saying is that a bot which steps whenever a neighbour is a shade freer is a bot that
+fidgets and never arrives. Ranked below it, as a threshold on how cramped is too cramped, the number has to be
+guessed — and the place those two hits came from had four or five of the nine still open two frames before
+there was nothing.
+
+So the real answer is not a term in this ranking. It is to search a few frames wide rather than one move deep:
+the bot decides again every frame, so what a move is worth is what the *best* move after it is worth, and that
+is a different shape from nine one-frame moves each followed in a straight line. That is the next piece of work
+on the rules, and it is worth doing against the same instrument as everything above — a hit reading `nowhere
+open to it` is this, and one reading a unit or two of room is [`ROOM_TO_SPARE`]'s lead below.
+
+**What is left of the projection, and it is one lead.** `ROOM_TO_SPARE` is two units of slack on top of the
+game's own box test,
 and it is there because twenty-five hits in a row read between half a unit and one of room — a projection out by
 about a unit with nothing naming the source. Two of the three places a bullet's step is rebuilt have now been
 read, and one of them is that source:

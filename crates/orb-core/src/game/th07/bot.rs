@@ -162,6 +162,24 @@ struct Steered {
     for_an_item: bool,
     at: (f32, f32),
     nearest: Option<Nearest>,
+    counted: Counted,
+}
+
+/// **What the frame's model was made of, and what it left out** — bullets, enemies and lasers, each as the
+/// number judged against and the number passed over for not being able to hit anything.
+///
+/// Which is the one thing a hit saying `14.5 of room` needs and no other field of [`Steered`] can give: a model
+/// that says a move is clear by fourteen units and is wrong is a model missing a hazard, and the three passing
+/// over rules are where a missing hazard would have gone. A run cleared the game with eight hits on 6面's boss
+/// reading between six and fourteen of room, every one of them after those three rules went in.
+#[derive(Clone, Copy, Default)]
+struct Counted {
+    bullets: u32,
+    bullets_left_out: u32,
+    enemies: u32,
+    enemies_left_out: u32,
+    lasers: u32,
+    lasers_left_out: u32,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -381,8 +399,22 @@ pub unsafe fn word_to_press() -> u16 {
     if !steered.dodging && !steered.for_an_item && unsafe { Th07::boss() }.is_some() {
         word |= BUTTON_FOCUS;
     }
+    // **Whether the step the projection was made of is the step the frame will take.** The scale
+    // [`a_step`] reads is what the player's own update left last frame, and that update is what the focus key
+    // moves — so on any frame this changes its mind about 低速 the projection was made with the step of the
+    // other state, which for 1.0 against 0.4 is two and a half times out. Whether that is what a hit is is a
+    // thing only a launch can say, so the hit line says it.
+    let focused = word & BUTTON_FOCUS != 0;
+    let changed = WAS_FOCUSED.swap(focused, Ordering::Relaxed) != focused;
+    THE_STEP_WAS_STALE.store(changed, Ordering::Relaxed);
     word | steered.word
 }
+
+/// Whether the focus key was held on the frame before, and whether that answer had just changed — which is the
+/// frame the step a move was chosen with is the wrong one. Read by [`said_what_took_it`] and nothing else.
+static WAS_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static THE_STEP_WAS_STALE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// **Says of the frame the hit came out of what the rules made of it**: where the player was, what it pressed,
 /// how much room the model left it, and what came nearest to the move it made.
@@ -403,10 +435,28 @@ fn said_what_took_it() {
         Some(room) => format!("{room:.1} of room"),
         None => "nowhere open to it".to_owned(),
     };
+    // Said only where it is true, a line saying nothing about the step being a line whose step was the right
+    // one — and where it is true it is the first thing to look at, the model having moved the player somewhere
+    // it was never going to be.
+    let room = if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
+        format!("{room}, on the frame 低速 changed and the step was last frame's")
+    } else {
+        room
+    };
+    let of = was.counted;
+    let model = format!(
+        "the model had {} bullet(s), {} enem(ies), {} laser(s), and left out {}, {}, {}",
+        of.bullets,
+        of.enemies,
+        of.lasers,
+        of.bullets_left_out,
+        of.enemies_left_out,
+        of.lasers_left_out,
+    );
     match was.nearest {
         Some(near) => log!(
             "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — nearest was {} at \
-             {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}",
+             {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}; {model}",
             was.at.0,
             was.at.1,
             was.word,
@@ -419,7 +469,8 @@ fn said_what_took_it() {
             near.half.1,
         ),
         None => log!(
-            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — and nothing near it at all",
+            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — and nothing near it \
+             at all; {model}",
             was.at.0,
             was.at.1,
             was.word,
@@ -479,6 +530,7 @@ unsafe fn steer() -> Steered {
     // room is the fleeing all this exists instead of. Fewest hit is a move that gets out; latest first is a move
     // that has longer before it has to.
     let (mine_x, mine_y) = unsafe { player_box() };
+    let mut counted = Counted::default();
     let mut judged = [Judged::CLEAR; MOVES.len()];
     let mut nearest = [None; MOVES.len()];
     let mut against =
@@ -513,8 +565,13 @@ unsafe fn steer() -> Steered {
         // by a fraction of its step and reach neither of the player's tests, so a bullet in one of them is on
         // its way into existence and cannot touch anything yet — which is most of a wall of bullets on the
         // frame a boss fires it.
-        if unsafe { mem::read::<u16>(bullet + BULLET_STATE) } != BULLET_HITS {
-            continue;
+        match unsafe { mem::read::<u16>(bullet + BULLET_STATE) } {
+            0 => continue,
+            state if state != BULLET_HITS => {
+                counted.bullets_left_out += 1;
+                continue;
+            }
+            _ => counted.bullets += 1,
         }
         // Its own update adds its step to its position every frame, so where it will be in a frame's time is
         // where it is plus as many steps as there are frames to look — and its own half, which is half of the
@@ -544,13 +601,16 @@ unsafe fn steer() -> Steered {
     // that made that solid had a hazard nothing could get away from.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
-        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0
-            || unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS
-                != ENEMY_SOLID_BITS
-        {
+        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
             moves_no_more(slot);
             continue;
         }
+        if unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS != ENEMY_SOLID_BITS {
+            counted.enemies_left_out += 1;
+            moves_no_more(slot);
+            continue;
+        }
+        counted.enemies += 1;
         let (wx, wy) = unsafe { position(enemy + ENEMY_POSITION) };
         let (sx, sy) = unsafe { position(enemy + ENEMY_SIZE) };
         against(
@@ -586,6 +646,11 @@ unsafe fn steer() -> Steered {
         }
         let fires_in = unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }
             - unsafe { mem::read::<i32>(laser + LASER_TIMER) };
+        if fires_in > LOOK_AHEAD as i32 {
+            counted.lasers_left_out += 1;
+        } else {
+            counted.lasers += 1;
+        }
         let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
         let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
         let turn = turned(slot, angle);
@@ -688,6 +753,7 @@ unsafe fn steer() -> Steered {
         for_an_item: unsafe { the_item_worth_going_for() }.is_some(),
         at,
         nearest: chosen.and_then(|chosen| nearest[chosen]),
+        counted,
     }
 }
 
