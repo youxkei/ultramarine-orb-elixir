@@ -561,17 +561,19 @@ fn the_bot_leaves_a_laser_that_is_firing() {
     });
 }
 
-/// **A 予告線 is left before it fires and not while it is only drawn.**
+/// **A 予告線 is left whatever frame its beam fires on**, which is why anybody moves off one: the beam is
+/// coming, and where it will be is where the player should not be.
 ///
-/// 0x4266dc gates the player's own laser test on the beam's count reaching the frame it fires on, so a beam
-/// still drawing its warning hits nothing — and a bot that treated the warning as a hazard would be kept out of
-/// the one lane the pattern leaves open. But the warning is also where the beam *will* be, so the frames of a
-/// look-ahead that fall after it fires are frames to be somewhere else for.
+/// 0x4266dc gates the player's own laser test on the beam's count reaching the frame it fires on, so a warning
+/// cannot *hit* — and counting the beam only from that frame is what this used to do. The frames looked at being
+/// twelve, a beam firing in twenty of them was nothing at all to the model: a run stood inside a lattice of
+/// warning lines until twelve frames before they went live, and came back with hits reading `2.3 of room` and
+/// `3.3` with **twenty lasers left out of the model**.
 ///
-/// Both, then, off the one number: a beam firing well past the frames looked at is nothing to move for, and the
-/// same beam firing inside them is.
+/// What the timer buys instead is that the beam is judged by the room it leaves rather than shutting a move
+/// outright — a move hit late beats one hit now — so the one lane a pattern leaves open is still a lane.
 #[test]
-fn a_warning_line_is_left_for_the_frames_it_will_be_firing_on() {
+fn a_warning_line_is_left_whatever_frame_its_beam_fires_on() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-reads-a-warning-line");
         game.image().the_player_is_at(MIDDLE, LOW);
@@ -583,17 +585,18 @@ fn a_warning_line_is_left_for_the_frames_it_will_be_firing_on() {
             A_STEP * 2.0,
         );
 
-        // Firing long after every frame this looks at, so there is nothing yet to move for.
+        // Firing long after every frame this looks at, and still a lane to be out of.
         game.image().the_laser_fires_in(7, 600);
         game.frames(1);
-        assert_eq!(
-            game.image().the_word_the_run_acts_on() & PAD,
-            0,
-            "the bot left a lane a beam was only drawn across:\n  {}",
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed == LEFT || pressed == RIGHT,
+            "the bot stood in a beam's own lane for the beam not firing yet, pressing \
+             {pressed:#05x}:\n  {}",
             game.log().lines().join("\n  "),
         );
 
-        // And firing inside them, which is what a warning line is for.
+        // And the same the moment it is about to fire.
         game.image().the_laser_fires_in(7, 2);
         game.frames(1);
         let pressed = game.image().the_word_the_run_acts_on() & PAD;

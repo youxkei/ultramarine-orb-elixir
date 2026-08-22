@@ -175,11 +175,16 @@ struct Steered {
 #[derive(Clone, Copy, Default)]
 struct Counted {
     bullets: u32,
-    bullets_left_out: u32,
+    /// Of those, how many were in one of the four states the collision was not found in — judged all the same,
+    /// for the reason [`super::BULLET_STATE`] gives.
+    another_state: u32,
     enemies: u32,
-    enemies_left_out: u32,
+    /// And how many were passed over for having no body to run into, which is the one rule here that leaves a
+    /// hazard out.
+    no_body: u32,
     lasers: u32,
-    lasers_left_out: u32,
+    /// Of those, how many had not started hitting yet — a 予告線, judged for where its beam will be.
+    warnings: u32,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -445,13 +450,9 @@ fn said_what_took_it() {
     };
     let of = was.counted;
     let model = format!(
-        "the model had {} bullet(s), {} enem(ies), {} laser(s), and left out {}, {}, {}",
-        of.bullets,
-        of.enemies,
-        of.lasers,
-        of.bullets_left_out,
-        of.enemies_left_out,
-        of.lasers_left_out,
+        "the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} left out for \
+         having no body; {} laser(s), {} of them still only a warning",
+        of.bullets, of.another_state, of.enemies, of.no_body, of.lasers, of.warnings,
     );
     match was.nearest {
         Some(near) => log!(
@@ -574,7 +575,7 @@ unsafe fn steer() -> Steered {
         // of a state the collision was not found in.
         match unsafe { mem::read::<u16>(bullet + BULLET_STATE) } {
             0 => continue,
-            state if state != BULLET_HITS => counted.bullets_left_out += 1,
+            state if state != BULLET_HITS => counted.another_state += 1,
             _ => {}
         }
         counted.bullets += 1;
@@ -611,7 +612,7 @@ unsafe fn steer() -> Steered {
             continue;
         }
         if unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS != ENEMY_SOLID_BITS {
-            counted.enemies_left_out += 1;
+            counted.no_body += 1;
             moves_no_more(slot);
             continue;
         }
@@ -651,10 +652,16 @@ unsafe fn steer() -> Steered {
         }
         let fires_in = unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }
             - unsafe { mem::read::<i32>(laser + LASER_TIMER) };
-        if fires_in > LOOK_AHEAD as i32 {
-            counted.lasers_left_out += 1;
-        } else {
-            counted.lasers += 1;
+        // **Judged whatever frame it fires on, and counted so a hit says how many were only warnings.** The
+        // timer used to skip the frames before firing, and the frames looked at being twelve, a beam firing in
+        // twenty of them was nothing at all to the model: the bot stood inside a lattice of warning lines until
+        // twelve frames before they went live, and two hits came back saying `2.3 of room` and `3.3` with twenty
+        // lasers left out. What the timer says is that a warning cannot *hit* — which is why a beam is judged by
+        // the room it leaves rather than shutting a move outright, the ranking preferring a move hit late over
+        // one hit now. Where a beam will be is where the player should not be.
+        counted.lasers += 1;
+        if fires_in > 0 {
+            counted.warnings += 1;
         }
         let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
         let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
@@ -665,10 +672,6 @@ unsafe fn steer() -> Steered {
         let across = unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0;
         for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
-                // Nothing to be anywhere else for on a frame the beam is still only drawn.
-                if fires_in > frame as i32 + 1 {
-                    continue;
-                }
                 // Where the beam will be pointing by then, which is where it points now plus as many of its own
                 // turns as there are frames to look.
                 let ahead = angle + turn * (frame + 1) as f32;
