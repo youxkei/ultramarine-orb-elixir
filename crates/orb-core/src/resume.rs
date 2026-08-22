@@ -465,10 +465,17 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     record.played.clear();
     record.parted = None;
     record.feeding = None;
+    // **And the generator as the build leaves it**, which is the one point of the three a parting needs that
+    // nothing was saying. A stage picked up is seeded at [`stage_building`] with the word the run recorded and
+    // reaches its first frame drawing the same *count* of numbers as the run did and landing on a different one:
+    // two of the three points are said — the seeding, and the frame — and this is the middle. What it settles is
+    // whether the build itself draws differently on the two ways into a stage, a run's own being a transition
+    // and a resumed one's being a stage built as a run's first.
     detail!(
-        "resume: stage {} begins with {}",
+        "resume: stage {} begins with {} rng={:#06x}",
         state.stage + 1,
         game.say_run_state(&record.start),
+        unsafe { game.generator() },
     );
 }
 

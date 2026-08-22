@@ -19,7 +19,7 @@
 
 use std::ffi::c_void;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 
 use orb_config::{Config, Language};
 
@@ -498,6 +498,37 @@ pub static EMPTIES_CAPTURES: AtomicBool = AtomicBool::new(false);
 /// Whether the game was last given the keys, so the change can be logged once
 /// rather than every frame.
 pub static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
+
+/// **How many updates the stage's current frame has taken**, and which frame that is.
+///
+/// The game answers 3 to one update in five when the screen fills, which takes the chain walk with it and moves
+/// neither of the run's clocks — so a frame of a stage is one update or several, and *which* frames get the
+/// extra ones is the one thing a playback cannot reproduce: it drives its updates in a burst, and the count
+/// that decides the skipping is the manager's own.
+///
+/// **Which a parting asked for.** A pair of launches of 妖々夢 agreed on every field of a frame's line — the
+/// word, the player, the generator, the score, the cherry, and the fold over every item slot — for 852 frames of
+/// 2面, and on 853 the run collected a point item the playback passed through. The same state and the same word
+/// cannot come out differently, so the count of updates is what differed, and nothing was saying it.
+static UPDATES_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static THE_FRAME_THEY_ARE_ON: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// Counts this read against the stage frame it is for, and says how many the frame has taken including it.
+fn updates_of(frame: Option<u32>) -> u32 {
+    let frame = frame.unwrap_or(u32::MAX);
+    if THE_FRAME_THEY_ARE_ON.swap(frame, Ordering::Relaxed) == frame {
+        UPDATES_THIS_FRAME.fetch_add(1, Ordering::Relaxed) + 1
+    } else {
+        UPDATES_THIS_FRAME.store(1, Ordering::Relaxed);
+        1
+    }
+}
+
+/// And how many the frame being logged took, without counting one: the line is written from the frame loop and
+/// the counting is done at the read.
+fn updates_taken() -> u32 {
+    UPDATES_THIS_FRAME.load(Ordering::Relaxed)
+}
 /// Whether the keyboard has been out of reach since it was last read, and so needs
 /// getting back before the next read.
 pub static INPUT_LOST: AtomicBool = AtomicBool::new(false);
@@ -1494,6 +1525,9 @@ pub extern "system" fn get_input() -> u16 {
     // check: a run being played back into place is being played with the window wherever it is,
     // and the frames it runs through are not frames anybody is at the keyboard for.
     let frame = unsafe { game.stage_frame() };
+    // Counted here because this is the one place every update of a run passes through, fed or played or typed:
+    // what it is for is the frames a stage spends more than one update on — see [`UPDATES_THIS_FRAME`].
+    updates_of(frame);
     if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
         // **The music held quiet on every frame that is fed**, wherever those frames come from: `play_in` runs
         // its whole loop inside one of the game's frames and every update in it comes through this read, and a
@@ -2224,9 +2258,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // of the front end having no run to be about.
         if log::wanted(log::VERBOSE) && state.in_run && !state.paused {
             log!(
-                "resume: frame {} played with {}",
+                "resume: frame {} played with {}{} updates={}",
                 state.stage_frames,
                 unsafe { runtime.game.reproduction() },
+                the_worlds_fingerprint(runtime.game),
+                updates_taken(),
             );
         }
         if result == CHAIN_EXIT_SUCCESS || result == CHAIN_EXIT_ERROR {
@@ -3134,9 +3170,11 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         // worth picking up. What this costs is log and nothing else.
         if log::wanted(log::VERBOSE) && reached.stage_frames > was {
             log!(
-                "resume: frame {} played back with {}",
+                "resume: frame {} played back with {}{} updates={}",
                 reached.stage_frames,
                 unsafe { runtime.game.reproduction() },
+                the_worlds_fingerprint(runtime.game),
+                updates_taken(),
             );
         }
         unsafe {
@@ -3278,6 +3316,21 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         }
     }
     (reached, ran)
+}
+
+/// **What a game says of where the things in its world are**, as the tail of a frame's own line — and nothing at
+/// all from a game that has not been read for it.
+///
+/// Beside the reproduction line rather than inside it, for the reason `Game::the_worlds_fingerprint` gives: the
+/// files hold that line and cannot hold this one.
+///
+/// # Safety
+/// Must run on the game's main thread, with a stage running.
+fn the_worlds_fingerprint(game: &dyn Game) -> String {
+    match unsafe { game.the_worlds_fingerprint() } {
+        Some(said) => format!(" {said}"),
+        None => String::new(),
+    }
 }
 
 /// Writes down where the run is at every chapter it reaches, which is what a later launch offers to

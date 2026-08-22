@@ -935,6 +935,64 @@ wide, so the width it has *now* makes the warning line a hazard exactly the size
 which of the two a slot holds. What tells a beam that is done from one that is not is the phase at `+0x4e8`,
 which both of the game's own walks skip at 2.
 
+### What the parting has been narrowed to, and the one measurement left
+
+**A stage picked up plays a different world from the frame it starts on, and the generator is where it shows.**
+Measured over five pairs of launches of 妖々夢, each one a run played from nothing into 2面 and left for the
+title at its midboss, then picked up again:
+
+- **1面 reproduces exactly.** A file written at 1面's chapter 9 replayed 9619 frames and landed *field for
+  field*. So neither the buttons nor the playback's own machinery is at fault.
+- **2面 parts every time**, and always the same way: an item collected on one pass and passed through on the
+  other — `counted` up by one and the score by 200 on the run's side, four more numbers drawn — with the frame
+  it happens on moving between pairs (803, 824, 827, 853, 935, 993).
+- **Everything a frame's line carries agrees up to that frame**: the word, the player's own position, the
+  generator, how many numbers it has drawn, the items in the air, the score, the three cherry counts, and how
+  many updates the frame took. The file is written and read back identically, field for field. The bot's word
+  does not overwrite a playback's — the fed buttons are returned above it.
+- **The parting is an item's own homing mark**, `+0x27f`, which 0x432cd2 writes. Folding an item's whole slot
+  found the two passes differing 223 frames before the generator did; folding the item's own fields alone —
+  a slot's first 0x24c bytes are a sprite, which a playback never advances because it never draws — found them
+  differing at the block that mark is in and nowhere else.
+- **The only input to that mark is 0x432c74's comparison of the player's y against the line items come in
+  above**, and both agree on every frame: the line never differed across 2826 frames, and the player's y is in
+  the line that agrees.
+
+**And the frame a stage starts on agrees.** The first frames of one pair's 2面, run against playback, with the
+word each was seeded from beside them:
+
+| | the run | the playback |
+| --- | --- | --- |
+| the stage's seed | `seed=0xa71a` | `seeded with seed=0xa71a` |
+| frame 2 | `randoms=1496 rng=0x4eaa` | `randoms=1496 rng=0x4eaa` |
+| frame 4 | `randoms=88 rng=0x9cc3` | `randoms=88 rng=0x9cc3` |
+
+So the seeding lands and the stage's opening draws agree to the word. **A reading that said otherwise was one
+pair's run held against another pair's playback**: `orb.log` is one file across a session and a copy of it holds
+every launch, so a stage's own lines have to be cut to the launch as well as to the stage. What that mistake
+looked like was the same count of draws with different values from the first frame — which is impossible for one
+generator, and that is what said the comparison was wrong rather than the game.
+
+**Which leaves the difference where the entry is.** Three launches said so without any code: a run played into
+2面 by a *transition* and left, a launch that picked that up and played on to a later chapter of the same stage
+and left, and a launch that picked *that* up. The first pickup parted and landed on the wrong frame; the second
+landed *field for field* over 6296 replayed frames. What the second was reproducing is a stretch its own run had
+played in a stage **built** the way a pickup builds one — and what the first was reproducing is a stretch played
+in a stage **transitioned into**. 0x42e894 is that branch and `a_stage_transition_of_th07.rs` is what read it.
+
+**And the signature is deterministic.** Both of those pickups reached frame 827 of their 2面 with `0x096e` where
+the file said `0x0f8d` — the same two words in two different launches, the second replaying a file the first
+wrote. So the two worlds differ in a fixed way from the stage's start and the generator is only where it first
+*shows*: everything a frame's line carries agrees for hundreds of frames, and the first thing to come out
+differently is an item's homing mark.
+
+**The measurement left is what the two entries leave differently.** Not the generator, which agrees; not the
+numbers, which are written and read identically; not the items' own fields at the start. A stage's whole memory
+is what a chapter snapshot already covers — `--self-check` fingerprints every region it saves — so a snapshot
+taken at the start of a transitioned-into 2面 held against one taken at the start of a built 2面 names the
+regions, and there is no need to guess a field. A fix that works turns `0x096e` against `0x0f8d` into no parting
+line at all.
+
 ### The recipes the resume's own parting is measured with
 
 The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run

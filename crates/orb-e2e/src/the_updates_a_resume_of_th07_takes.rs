@@ -206,6 +206,40 @@ fn a_playback_of_th07_says_every_frames_own_line_where_the_log_is_verbose() {
             "the playback said its own line on {said} of the {at} frames it played:\n  {}",
             log.lines().join("\n  "),
         );
+
+        // **And where the items are, which the count of them cannot say.** A pair of launches of 妖々夢 held
+        // against each other agreed on every field of this line for 992 frames of 2面 and parted at 993 on a
+        // point item: the run collected one — `counted` 215 to 216, the score 200 up, four more numbers drawn —
+        // and the playback did not, with the same word, the same player, the same seven items in the air and the
+        // same cherry. So the two worlds had already parted somewhere this line does not look, and the items'
+        // own places are where: nothing else can make one pass collect what the other passes through.
+        //
+        // A fold and not the places themselves: what a comparison needs is a frame where two passes differ, and
+        // 0x44c slots of position printed per frame is a log nobody can read and a run nobody can play.
+        assert!(
+            log.lines()
+                .iter()
+                .any(|line| line.contains("played back with") && line.contains("items_at=")),
+            "the playback's lines do not say where the items were:\n  {}",
+            log.lines().join("\n  "),
+        );
+
+        // **And how many updates the frame took**, which is the one asymmetry between the two passes that this
+        // line could not show. A pair of launches of 妖々夢 agreed on every field of it — the word, the player,
+        // the generator, the score, the cherry and the fold over every item slot — for 852 frames of 2面, and on
+        // 853 the run collected a point item where the playback did not: `counted` 221 to 222, the score 200 up,
+        // four more numbers drawn, and both passes losing that item two frames later. The same state and the
+        // same word cannot come out differently, so what differed is how many times the update ran — the game
+        // answers 3 to one update in [`SLOWED_EVERY`] and takes the chain walk with it, and a playback drives
+        // its updates in a burst, so the frames it skips the run on are not the frames somebody playing it
+        // skipped.
+        assert!(
+            log.lines()
+                .iter()
+                .any(|line| line.contains("played back with") && line.contains("updates=")),
+            "the playback's lines do not say how many updates a frame took:\n  {}",
+            log.lines().join("\n  "),
+        );
     });
 }
 

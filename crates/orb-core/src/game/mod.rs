@@ -1501,6 +1501,28 @@ pub trait Game {
     /// Must run on the game's main thread, with a stage running.
     unsafe fn reproduction(&self) -> String;
 
+    /// **Where the things a run's world holds are**, folded to one number, and `None` from a game nobody has
+    /// read them off.
+    ///
+    /// **Beside [`Game::reproduction`] and never in it**, which is what the paragraph above forbids: this is a
+    /// thing to add to and to change as the next parting needs, and a line the files hold is a line that cannot
+    /// be. So it goes in the log next to that one and nowhere else.
+    ///
+    /// **Which a parting asked for.** A pair of launches of 妖々夢 agreed on every field of a reproduction line
+    /// for 992 frames of 2面 and parted at 993 on a point item: the run collected one where the playback passed
+    /// through it, with the same word, the same player, the same count of items in the air and the same cherry.
+    /// Two worlds that differ in nothing a line carries and differ in what they collect differ in where those
+    /// things *are*, and that is the one thing no field of it looks at.
+    ///
+    /// A fold rather than the places: what a comparison wants is the frame two passes stop agreeing on, and a
+    /// game's whole item array printed per frame is a log nobody can read.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage running.
+    unsafe fn the_worlds_fingerprint(&self) -> Option<String> {
+        None
+    }
+
     /// **The bit a recipe's button name is in this game's own word**, or `None` for a name it has nothing for.
     ///
     /// What a bot presses is a name in a file — `decide`, `focus`, `left` — and what one *is* differs from game

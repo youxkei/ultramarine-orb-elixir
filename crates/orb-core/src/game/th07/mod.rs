@@ -1221,6 +1221,26 @@ const ITEM_POSITION: usize = 0x24c;
 const ITEM_KIND: usize = 0x27c;
 const ITEM_ALIVE: usize = 0x27d;
 
+/// **How much of an item's slot is the sprite it begins with**, which is everything before its own fields.
+///
+/// 0x44ea20 is what an item is handed to as it is made, and its first act with a fresh one is `rep stos` of 0x93
+/// dwords — 0x24c bytes, which is exactly where [`ITEM_POSITION`] is. So a slot is a sprite object with the
+/// item's own three fields appended, and the flags at `+0x1c0` that 227 places in this exe read are the
+/// sprite's.
+///
+/// **Which is why nothing about it belongs in a reproduction.** A sprite holds a script and the frames it has
+/// been running, and a playback draws nothing at all — so those clocks part on every pass, and a check that
+/// folded them would report a parting on every one.
+const AN_ITEMS_SPRITE: usize = 0x24c;
+
+/// How much of an item's own slot each of `Th07::the_worlds_fingerprint`'s folds covers.
+///
+/// **A number for a diagnosis and not for the game.** What it decides is how narrowly a parting between two
+/// passes is named: the whole slot in one fold says an item differed and 0x288 bytes is where to look, and this
+/// much says which of a couple of dozen blocks it was. Thirty-two is small enough to name a field or two and
+/// large enough that a frame's line stays a line.
+const AN_ITEMS_BLOCK: usize = 32;
+
 /// **The kinds of item, each read off the entry the table at 0x433a5a sends it to**, which is where what one
 /// is worth is settled:
 ///
@@ -1241,6 +1261,15 @@ const ITEM_BIG_POWER: i8 = 2;
 const ITEM_BOMB: i8 = 3;
 const ITEM_LIFE: i8 = 5;
 const ITEM_CHERRY: i8 = 7;
+
+/// **What holds the line items come in to the player above**, and the offset of that line on it.
+///
+/// 0x432c74 compares the player's own y against `+0x20` of the object at this pointer, and 0x432cd2 marks the
+/// item as homing where the player is the higher of the two — `+0x27f` of the item, which is the mark a pair of
+/// launches parted on. Read for the frame's own line and for nothing else: what it is for is saying whether two
+/// passes were collecting above the same line, the player's y having agreed on every frame up to the parting.
+const G_ITEM_COLLECTION: usize = 0x00575948;
+const COLLECTION_LINE: usize = 0x20;
 
 // **妖々夢's collection at the top of the play field is read and not used.** `[[0x575948]+0x20]` is the y above
 // which an item comes in to the player — 0x432c74 compares the player's own y against it and 0x432cd2 marks the
@@ -4292,6 +4321,81 @@ impl Game for Th07 {
 
     unsafe fn reproduction(&self) -> String {
         unsafe { self.reproduced() }.to_string()
+    }
+
+    /// **The items, folded over every slot of the manager's own array**: whether each is alive and where it is,
+    /// which is the pair that decides whether the player walking past collects it.
+    ///
+    /// Every slot and not the live ones, for the reason [`Th07::the_item_worth_going_for`]'s walk gives: the
+    /// count says how many there are and not which slots they are in, and a collected item's own numbers are
+    /// left where they were with [`ITEM_ALIVE`] cleared. So a fold over the live ones alone would be a fold
+    /// whose slots move as items are taken, and two passes that differ by one collection would differ in every
+    /// slot after it — which says nothing about *where* they parted.
+    ///
+    /// A fold of the bits and not of the floats: what this is for is telling two passes apart, and two
+    /// positions that differ in their last bit are two different positions.
+    ///
+    /// **The whole of a slot that holds something, and the aliveness of one that does not.** It was the
+    /// aliveness and the position, and a pair of launches held against each other agreed on that fold — and on
+    /// every field of a frame's line, and on how many updates the frame took — right up to the frame the run
+    /// collected a point item the playback passed through. Two passes that agree on everything read cannot come
+    /// out differently, so what decides a collection was in the part of a slot nothing was reading: an item
+    /// carries where it is going and what it is doing there as well as where it is.
+    ///
+    /// A slot is 0x288 bytes and a live screenful is a handful of them, so the whole of each costs a kilobyte or
+    /// two a frame. The dead ones are left at their aliveness for that reason and for a better one: what a dead
+    /// slot holds is whatever the item that used it left, which two passes have no reason to agree about and
+    /// nothing reads again.
+    /// **A fold per block of a slot and not one for the whole of it**, which is what localising a parting takes:
+    /// the whole-slot fold said two passes' items differed at a frame every other field of agreed on — the word,
+    /// the player, the generator, the score, the cherry, the count of items and the updates the frame took — and
+    /// which *part* of an item it was is the next question and the last one. Blocks of
+    /// [`AN_ITEMS_BLOCK`] bytes, so a pair of launches names the block in one run of it rather than in a bisect
+    /// of four.
+    /// **And the line items come in above**, said as itself and not folded: the parting the folds above led to
+    /// is an item marked as homing on one pass and not the other — `+0x27f`, which 0x432cd2 writes — and the
+    /// only thing that decides that mark is 0x432c74's comparison of the player's own y against this line. The
+    /// player's y agreed on every frame up to the parting, so the line is what is left to ask about, and a fold
+    /// would say it differed without saying what it was.
+    unsafe fn the_worlds_fingerprint(&self) -> Option<String> {
+        let blocks = (ITEM_BYTES - AN_ITEMS_SPRITE).div_ceil(AN_ITEMS_BLOCK);
+        let mut fold = vec![0u32; blocks];
+        // The fold every other one in this tree is: multiply by a prime and add, which two arrays differing
+        // anywhere differ under.
+        let eat = |fold: &mut u32, bits: u32| *fold = fold.wrapping_mul(31).wrapping_add(bits);
+        for slot in 0..ITEM_SLOTS {
+            let item = G_ITEM_MANAGER + slot * ITEM_BYTES;
+            let alive = unsafe { mem::read::<i8>(item + ITEM_ALIVE) };
+            // The aliveness of every slot into the first block, live or not: a slot going out is a thing two
+            // passes can differ about on its own.
+            eat(&mut fold[0], u32::from(alive as u8));
+            if alive == 0 {
+                continue;
+            }
+            // **The item's own fields and not the sprite its slot begins with.** A slot's first
+            // [`AN_ITEMS_SPRITE`] bytes are a sprite object — 0x44ea20 zeroes 0x93 dwords of one where an item
+            // is made, which is exactly that many — and what a sprite holds is a script, a timer and the flags
+            // at `+0x1c0` that 227 places in this exe read. **A playback never draws**: `play_in` runs its whole
+            // loop inside one frame of the game's, so those clocks stand still where a run's own ran, and a fold
+            // over them reports a parting on every pass. Measured: the whole slot folded parted 223 frames
+            // before the generator did, and the block it parted in was `0x1c0..0x1df`.
+            for at in (AN_ITEMS_SPRITE..ITEM_BYTES).step_by(size_of::<u32>()) {
+                let word = unsafe { mem::read::<u32>(item + at) };
+                eat(&mut fold[(at - AN_ITEMS_SPRITE) / AN_ITEMS_BLOCK], word);
+            }
+        }
+        let said: Vec<String> = fold.iter().map(|fold| format!("{fold:08x}")).collect();
+        let line = mem::read_committed::<usize>(G_ITEM_COLLECTION)
+            .filter(|at| *at != 0)
+            .and_then(|at| mem::read_committed::<f32>(at + COLLECTION_LINE));
+        Some(format!(
+            "items_at={} collect_at={}",
+            said.join(","),
+            match line {
+                Some(y) => format!("{y:.2}"),
+                None => "none".to_owned(),
+            },
+        ))
     }
 
     /// The table [`chapters`] holds, which is a stage per entry and nothing in any of them yet — so a chapter
