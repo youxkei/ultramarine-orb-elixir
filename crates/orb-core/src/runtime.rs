@@ -3294,7 +3294,7 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
         return;
     }
     let Some(name) = runtime.chapters.name() else {
-        return;
+        return unsafe { keep_the_stages_start(runtime, state) };
     };
     let at = runtime.chapters.started_at();
     let chapter = (state.stage, at);
@@ -3324,6 +3324,58 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
             runtime.chapters.retries(),
         )
     };
+}
+
+/// **Writes the stage's own start down, before its first chapter has been announced.**
+///
+/// A stage's first chapter waits for the stage to settle and for the music to be ready — see `Chapters::due` —
+/// and that wait is a second of a run in which nothing is written down at all. A session interrupted inside it
+/// is picked up at the stage *before*, which is a whole stage of a run thrown away; and where the stage before
+/// ended on a chapter of its own, the run **cannot get past the boundary at all**.
+///
+/// Which two launches of 妖々夢 measured. One played into the way into 2面 and left the run for the title with
+/// `resume: stage 2 begins with … power: 81, counted: 231` in its log and a file holding `stage 1 chapter 9`;
+/// the next picked that up, played 1面's boss again, reached the same window and left the same file — not one
+/// write between the landing and the end of it, that chapter being 1面's last. So the numbers are there and
+/// nothing was writing them.
+///
+/// **The stage's first frame, and its first chapter's own name.** A stage's start is chapter 1 at frame 0 with
+/// no frames to play back, whatever the stage holds — so nothing here is a guess about what the chapter model
+/// will say once it settles: it is the same answer, written before the settle rather than after it. See
+/// [`Chapters::what_a_stages_start_is_called`].
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn keep_the_stages_start(runtime: &mut Runtime, state: &State) {
+    if !runtime.chapters.settling() {
+        return;
+    }
+    // **Written once for the stage and not once for every frame of the wait**, which is what the frame this
+    // marks it with says: nought is a frame no chapter of a stage ever begins on, the settle being frames long,
+    // so it is the mark for *this* write and the chapter's own is still to come.
+    let written = (state.stage, 0);
+    if runtime.kept == Some(written) {
+        return;
+    }
+    // **Tried on every frame of the wait until it takes**, and the earliest one it can is what a stage's start
+    // is written from. What a chapter carries is the reproduction line of the frame it began on and the buttons
+    // of the frames before it, and on the frame a stage is *noticed* the record holds neither — it was emptied
+    // when the stage was built, and the recorder notes a frame after it has run. Measured: a launch's first
+    // attempt came back `resume: not written — 0 frame(s) of buttons for a chapter at 1`. So the frames of the
+    // wait are attempted in turn and the first that is self-consistent is the one that lands, which is a stage's
+    // start a frame or two in rather than a file written from numbers that do not go together.
+    if unsafe {
+        resume::write(
+            &runtime.config.base_dir,
+            runtime.game,
+            state.stage_frames,
+            1,
+            &Chapters::what_a_stages_start_is_called().to_string(),
+            runtime.chapters.retries(),
+        )
+    } {
+        runtime.kept = Some(written);
+    }
 }
 
 /// Starts the flash when the game comes to rest on a boundary it was not on before.

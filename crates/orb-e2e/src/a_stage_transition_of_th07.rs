@@ -102,6 +102,47 @@ fn a_run_of_th07_carries_its_lives_bombs_and_power_across_a_stage_boundary() {
     });
 }
 
+/// **A stage is written down as it begins, and not only once its first chapter has been announced.**
+///
+/// A stage's first chapter waits for the stage to settle and for the music — see `Chapters::due` — and that
+/// wait is a second of a run in which nothing is written down at all. A session interrupted there is picked up
+/// at the stage *before*, which is a whole stage of a run thrown away, and where the stage before ends on a
+/// chapter of its own it is worse than that: **the run can never get past the boundary.**
+///
+/// Which two launches of 妖々夢 measured. One played into the way into 2面 and left the run for the title with
+/// `resume: stage 2 begins with … power: 81, counted: 231` in its log and a file holding `stage 1 chapter 9`; the
+/// next picked that up, played 1面's boss again, reached the same window, and left a file holding the same
+/// chapter — not one `written to` line between the landing and the end of it, 1面's chapter 9 being its last.
+/// Interrupt there twice and the second launch is the first.
+///
+/// **Nothing here is a guess about what the chapter model will say.** A stage's start is its first chapter at
+/// frame 0 with no frames to play back, whatever the stage holds — the same answer, written before the settle
+/// rather than after it.
+#[test]
+fn a_stage_of_th07_is_written_down_as_it_begins() {
+    in_its_own_process(|| {
+        let game = a_run("th07-a-stage-begun-is-written-down");
+        let log = game.log();
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        let from = log.written();
+        game.moves_on_to_the_stage(NEXT);
+        game.frames_until_a_thread("the next stage written down", || {
+            log.said_since(from, "stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+        // **Before its first chapter was announced**, which is the whole of it: the window a session is
+        // interrupted in is the one between the stage beginning and that announcement, and a file written after
+        // it is a file that window has nothing in.
+        assert!(
+            !log.said_since(from, "stage 2 chapter 1 (stage start)"),
+            "the stage's own start was written down only once its first chapter had begun:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
 /// And the run is the same run on the far side: the chapters, the retries it has spent and the file it is
 /// written down in all follow it into the next stage.
 #[test]

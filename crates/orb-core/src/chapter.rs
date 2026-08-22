@@ -481,6 +481,28 @@ impl Chapters {
         self.mark.number
     }
 
+    /// **What a stage's own first chapter is called, before it has begun.**
+    ///
+    /// Which is knowable without it having begun: a stage's start is a `Midstage` chapter and the first of
+    /// them, whatever the stage turns out to hold. [`Chapters::name`] answers nothing until the stage has
+    /// settled and the music is ready — and a session interrupted inside that wait is one whose run has to be
+    /// written down under some name, so this is that name and it is the same one.
+    pub fn what_a_stages_start_is_called() -> Name {
+        Name {
+            kind: Kind::Midstage,
+            index: 1,
+        }
+    }
+
+    /// And whether a stage of this run has begun with its first chapter not yet announced, which is that wait.
+    ///
+    /// **The stage rather than the chapter**, because what is being asked is whether there is a stage to write
+    /// down at all: a frame between two stages has neither, and a frame inside the wait has the stage and no
+    /// chapter of it.
+    pub fn settling(&self) -> bool {
+        self.stage.is_some() && self.settling_until.is_some()
+    }
+
     /// The stage frame the chapter now running began at. With the stage, this is what
     /// says which boundary the game is standing on rather than how many have gone by:
     /// numbering starts again at every stage, so a move between stages keeps the number
