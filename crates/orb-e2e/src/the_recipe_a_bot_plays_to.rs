@@ -166,8 +166,9 @@ fn a_step_that_gives_up_ends_when_it_says() {
 ///
 /// Practising the part of a stage before its boss is a thing a recipe could not say: what a step waits for is a
 /// stage, a chapter, a screen, a cursor or a count of frames, so the midsection had to be bounded by a wall
-/// clock — and a bound guessed at ended one run at chapter 3 with the midsection still going. A boss being up is
-/// a thing orb already reads for the log's own `boss=` and the rules' 低速, so it is a thing a step can wait for.
+/// clock — and a bound guessed at ended one run at chapter 3 with the midsection still going. The stage's own
+/// boss being up is a thing orb already reads to decide whether a chapter's music is the stage's, so it is a
+/// thing a step can wait for.
 #[test]
 fn a_step_ends_where_a_boss_is_up() {
     in_its_own_process(|| {
@@ -197,11 +198,73 @@ fn a_step_ends_where_a_boss_is_up() {
             game.log().lines().join("\n  "),
         );
 
-        game.image().a_boss_is_fighting(1000, 600);
+        game.the_stages_own_boss_arrives();
         let pressed = words(&game, 4);
         assert!(
             game.log().said("autoplay: step 1 of 2 done"),
             "the step did not end where a boss came up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
+/// **And a midboss is not the boss it waits for**, the midsection carrying on after one.
+///
+/// A step waiting for a boss ended at 4面's midboss, which is a third of the way into the midsection it was
+/// written to practise. What tells the two apart is the song: 妖々夢 names two per stage and loads the second for
+/// the fight the stage ends with, so a fight with the stage's own song still playing is a midboss — which is the
+/// same test the chapter model already makes to decide whether to put a stage's song back on a resume.
+#[test]
+fn a_step_waiting_for_a_boss_does_not_end_at_a_midboss() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-past-a-midboss",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { boss: true }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+
+        // The midboss: a boss in the slot with the stage's own song still playing.
+        game.the_boss_arrives();
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended at a midboss:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // Beaten, and the midsection carrying on — which is the part the step was written to play.
+        game.the_boss_is_beaten();
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended with the midboss beaten and no boss up at all:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the stage's own boss, which brings its own song with it.
+        game.the_stages_own_boss_arrives();
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end where the stage's own boss came up:\n  {}",
             game.log().lines().join("\n  "),
         );
         assert_eq!(

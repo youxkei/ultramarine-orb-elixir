@@ -1466,6 +1466,15 @@ impl Chapters {
         !self.boss_has_own_music(game, state)
     }
 
+    /// **Whether the fight up is the one the stage ends with**, which is what a recipe's `boss` waits for.
+    ///
+    /// The boss slot being filled is not that question: a midboss fills it too, so a step waiting on that ended
+    /// a 4面 midsection at its midboss. The song is what tells them apart, and it is the same test as the one
+    /// above — a fight with the stage's own song still playing is a midboss.
+    pub fn the_stages_own_boss_is_up(&self, game: &dyn Game, state: &State) -> bool {
+        self.boss_has_own_music(game, state)
+    }
+
     /// **The game's own answer where it has one**, and the track having changed since the stage began where it
     /// has not: what a stage's start was snapshotted under is not always the stage's own song — see
     /// [`Game::the_fights_own_song_is_playing`], which 妖々夢 answers out of the two names its stage data

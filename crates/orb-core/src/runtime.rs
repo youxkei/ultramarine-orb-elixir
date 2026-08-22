@@ -2395,9 +2395,13 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // would sit out its whole bound. Here rather than where the rest of [`Reached`] is filled, because this
         // is where the state is read.
         playing.reached.over = !state.in_run;
-        // And whether a boss is up, which is what a stage's midsection ends at — read here for the same reason,
-        // this being where the state is read.
-        playing.reached.boss = state.boss_present;
+        // And whether the stage's own boss is up, which is what a midsection ends at — read here for the same
+        // reason, this being where the state is read. **Not the boss slot being filled**, which a midboss fills
+        // as well: a step written to play the whole of 4面's midsection ended at its midboss a third of the way
+        // in.
+        playing.reached.boss = runtime
+            .chapters
+            .the_stages_own_boss_is_up(runtime.game, &state);
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb
