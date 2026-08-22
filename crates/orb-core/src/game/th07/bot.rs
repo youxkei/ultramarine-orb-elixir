@@ -561,18 +561,23 @@ unsafe fn steer() -> Steered {
         };
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
-        // **Only the state the collision is in.** The other four the dispatch at 0x425b82 knows move a bullet
-        // by a fraction of its step and reach neither of the player's tests, so a bullet in one of them is on
-        // its way into existence and cannot touch anything yet — which is most of a wall of bullets on the
-        // frame a boss fires it.
+        // **Every state but nothing, and the reading that said otherwise was wrong.** The dispatch at 0x425b82
+        // reaches the player's own tests from the first of its five cases only, so leaving the other four out
+        // looked safe — and a launch answered: it cleared the game with nine hits where the one before it had
+        // four, eight of them on 6面's boss reading between six and fourteen units of room, which is the log's
+        // shape for a hazard the model does not have.
+        //
+        // What the reading missed is that the state is not a phase a bullet passes through. 0x423a5d, 0x423e66,
+        // 0x423f83 and 0x4240e7 write 1, 2, 3 and 4 from four different places in the spawn, so it is a kind of
+        // bullet — and only one of them, at 0x425ff8, ever becomes the first. Whatever the other cases do reach,
+        // this is not the reading to leave a bullet out on. The count is kept so a hit still says how many were
+        // of a state the collision was not found in.
         match unsafe { mem::read::<u16>(bullet + BULLET_STATE) } {
             0 => continue,
-            state if state != BULLET_HITS => {
-                counted.bullets_left_out += 1;
-                continue;
-            }
-            _ => counted.bullets += 1,
+            state if state != BULLET_HITS => counted.bullets_left_out += 1,
+            _ => {}
         }
+        counted.bullets += 1;
         // Its own update adds its step to its position every frame, so where it will be in a frame's time is
         // where it is plus as many steps as there are frames to look — and its own half, which is half of the
         // size the hit test is given.

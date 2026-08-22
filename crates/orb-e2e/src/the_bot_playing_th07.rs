@@ -1242,19 +1242,23 @@ fn the_move_taken_is_the_one_whose_trouble_is_furthest_off() {
     });
 }
 
-/// **A bullet still coming out is not moved for either.**
+/// **A bullet is moved for whatever state it is in but nothing.**
 ///
-/// The dispatch at 0x425b82 sends a bullet through one of five cases on its state, and the two calls that hand
-/// one to the player's own tests are both inside the first. The other four move it by a fraction of its step and
-/// end at the shared 0x4262d8, reaching neither — so a bullet in one of them is a bullet on its way into
-/// existence, and it cannot touch the player yet.
+/// Which is a rule the exe argues against and two launches settle. The dispatch at 0x425b82 sends a bullet
+/// through one of five cases on its state and the two calls that hand one to the player's own tests are both
+/// inside the first, so leaving the other four out reads as safe — and it is not: the run that left them out
+/// cleared the game with nine hits where the run before it had four, eight of them on 6面's boss reading
+/// between six and fourteen units of room, which is what the log says when the thing that hit was never in the
+/// model.
 ///
-/// **Which is most of a wall of bullets on the frame a boss fires one.** A bot that read every not-nothing
-/// state as a hazard had nothing open to it in exactly the patterns that matter.
+/// What the reading missed is that the state is a *kind* of bullet and not a phase one passes through:
+/// 0x423a5d, 0x423e66, 0x423f83 and 0x4240e7 write 1, 2, 3 and 4 from four separate places in the spawn, and
+/// only one case, at 0x425ff8, ever turns into the first. So a bullet in the other three is a bullet that stays
+/// there.
 #[test]
-fn a_bullet_still_coming_out_is_not_moved_for() {
+fn a_bullet_is_moved_for_whatever_state_it_is_in() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-the-bot-ignores-a-bullet-coming-out");
+        let game = in_a_stage("th07-the-bot-moves-for-every-bullet");
         game.image().the_player_is_at(MIDDLE, LOW);
         game.image()
             .a_bullet_is_at(0, MIDDLE + A_STEP, LOW, (0.0, 0.0));
@@ -1263,16 +1267,25 @@ fn a_bullet_still_coming_out_is_not_moved_for() {
         assert_ne!(
             game.image().the_word_the_run_acts_on() & PAD,
             0,
-            "the bot stood on a bullet that was flying:\n  {}",
+            "the bot stood on a bullet in the state the collision was found in:\n  {}",
             game.log().lines().join("\n  "),
         );
 
-        game.image().the_bullet_is_still_coming_out(0);
+        game.image().the_bullet_is_in_another_state(0);
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood on a bullet for being in one of the other four states:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_bullet_is_gone(0);
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
             0,
-            "the bot moved for a bullet the game would not have let touch it:\n  {}",
+            "the bot moved for a slot holding no bullet at all:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

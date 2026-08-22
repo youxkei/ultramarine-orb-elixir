@@ -1454,15 +1454,26 @@ impl Image {
         space.write::<f32>(bullet + super::BULLET_SIZE + size_of::<f32>(), size.1);
     }
 
-    /// And one still on its way into existence: a state other than the one the collision is in, which is where
-    /// the dispatch at 0x425b82 sends a bullet that moves at a fraction of its step and hits nothing.
-    pub fn the_bullet_is_still_coming_out(&self, slot: usize) {
+    /// And one in another of the five states the dispatch at 0x425b82 knows, which is another kind of bullet:
+    /// 0x423a5d, 0x423e66, 0x423f83 and 0x4240e7 write four of them from four places in the spawn.
+    pub fn the_bullet_is_in_another_state(&self, slot: usize) {
         self.space().write::<u16>(
             super::G_BULLET_MANAGER
                 + super::BULLETS
                 + slot * super::BULLET_BYTES
                 + super::BULLET_STATE,
             super::BULLET_HITS + 1,
+        );
+    }
+
+    /// And a slot with no bullet in it, which is the one state that is not one.
+    pub fn the_bullet_is_gone(&self, slot: usize) {
+        self.space().write::<u16>(
+            super::G_BULLET_MANAGER
+                + super::BULLETS
+                + slot * super::BULLET_BYTES
+                + super::BULLET_STATE,
+            0,
         );
     }
 
