@@ -1377,6 +1377,47 @@ fn the_move_taken_is_the_one_whose_trouble_is_furthest_off() {
     });
 }
 
+/// **A bullet that did not go where its own step says is one to be afraid of rather than to project.**
+///
+/// 0x425ccd adds `+0xb98` to a bullet's place and that is the whole of an ordinary one's motion, so where it
+/// will be next frame is known exactly. **Some are not moved that way**: 1面's last card and 6面's turning one
+/// are beams whose pieces a boss's script moves, and no reading of the bullet says where a script will put it.
+/// Those are what kept hitting a bot that had them in its model — `13.1 of room` and `3.2`, the projection
+/// pointing one way while the piece went another.
+///
+/// So the disagreement is the signal: what a bullet actually moved last frame against what its step claims. Past
+/// that there is nothing to project, and what is left is to keep away from everywhere it could reach — its box
+/// grown by its own speed for every frame looked at.
+#[test]
+fn a_bullet_that_ignores_its_own_step_is_feared_rather_than_projected() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-fears-a-scripted-bullet");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Well clear, and claiming to be going nowhere.
+        game.image()
+            .a_bullet_is_at(0, MIDDLE + A_STEP * 10.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for a bullet ten steps away and going nowhere:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And the same bullet somewhere its step could not have taken it, which is a script moving it.
+        game.image()
+            .a_bullet_is_at(0, MIDDLE + A_STEP * 7.0, LOW, (0.0, 0.0));
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot held still beside a bullet no step of its own explains:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet is moved for whatever state it is in but nothing.**
 ///
 /// Which is a rule the exe argues against and two launches settle. The dispatch at 0x425b82 sends a bullet

@@ -178,8 +178,9 @@ struct Counted {
     another_state: u32,
     enemies: u32,
     /// And how many were passed over for having no body to run into, which is the one rule here that leaves a
-    /// hazard out.
+    /// hazard out — with the nearest of them to the player, and how far that was, for a hit to name.
     no_body: u32,
+    no_body_at: Option<((f32, f32), f32)>,
     lasers: u32,
     /// Of those, how many had not started hitting yet — a 予告線, judged for where its beam will be.
     warnings: u32,
@@ -332,6 +333,59 @@ fn moved(slot: usize, (x, y): (f32, f32)) -> (f32, f32) {
     (x - was.0, y - was.1)
 }
 
+/// **Where each bullet slot was last frame**, so that a bullet moved by something other than its own step can
+/// be told from one moved by it: 0x425ccd adds `+0xb98` and that is an ordinary bullet's whole motion, so any
+/// disagreement is a script.
+static LAST_BULLET: [(AtomicU32, AtomicU32); BULLET_SLOTS] =
+    [const { (AtomicU32::new(NOWHERE), AtomicU32::new(NOWHERE)) }; BULLET_SLOTS];
+
+/// And the step each held, so that a piece being turned is caught by its step changing even where the turn in
+/// any one frame is too small to tell from its own motion.
+static LAST_STEP: [(AtomicU32, AtomicU32); BULLET_SLOTS] =
+    [const { (AtomicU32::new(NOWHERE), AtomicU32::new(NOWHERE)) }; BULLET_SLOTS];
+
+/// How far what a bullet actually moved may differ from the step it claims, **or its step from the step it had
+/// last frame**, before it counts as moved by something other than itself. A hair, an ordinary bullet's movement
+/// *being* its step to the bit and its step never changing at all.
+///
+/// **The step's own change is the half that catches a beam.** Comparing only the movement against the step
+/// misses a piece that turns gently: the disagreement in one frame is under any threshold worth having, and the
+/// straight line it is then projected along is wrong by the whole of the turn twelve frames out — which is a hit
+/// reading `12.2 of room` with nothing else near, and 6面's turning card gave three of them.
+const A_STEP_OF_ITS_OWN: f32 = 0.5;
+
+/// What a bullet actually moved since last frame, and its own step for one that was not there then.
+fn a_bullet_moved(slot: usize, (x, y): (f32, f32), step: (f32, f32)) -> (f32, f32) {
+    let was = (
+        f32::from_bits(LAST_BULLET[slot].0.swap(x.to_bits(), Ordering::Relaxed)),
+        f32::from_bits(LAST_BULLET[slot].1.swap(y.to_bits(), Ordering::Relaxed)),
+    );
+    if was.0.is_nan() || was.1.is_nan() {
+        return step;
+    }
+    (x - was.0, y - was.1)
+}
+
+/// Says a slot holds no bullet, so the next one to use it is not given the last one's place or step.
+fn a_bullet_is_gone(slot: usize) {
+    LAST_BULLET[slot].0.store(NOWHERE, Ordering::Relaxed);
+    LAST_BULLET[slot].1.store(NOWHERE, Ordering::Relaxed);
+    LAST_STEP[slot].0.store(NOWHERE, Ordering::Relaxed);
+    LAST_STEP[slot].1.store(NOWHERE, Ordering::Relaxed);
+}
+
+/// How much a bullet's step changed since last frame, and nothing for one that was not there then.
+fn a_step_turned(slot: usize, step: (f32, f32)) -> (f32, f32) {
+    let was = (
+        f32::from_bits(LAST_STEP[slot].0.swap(step.0.to_bits(), Ordering::Relaxed)),
+        f32::from_bits(LAST_STEP[slot].1.swap(step.1.to_bits(), Ordering::Relaxed)),
+    );
+    if was.0.is_nan() || was.1.is_nan() {
+        return (0.0, 0.0);
+    }
+    (step.0 - was.0, step.1 - was.1)
+}
+
 /// Says a slot holds no enemy, so the next one to use it starts without a motion.
 fn moves_no_more(slot: usize) {
     LAST_PLACE[slot].0.store(NOWHERE, Ordering::Relaxed);
@@ -456,7 +510,7 @@ fn said_what_took_it() {
     crate::detail!(
         "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
          left out for having no body; {} laser(s), {} of them still only a warning, with {} passed \
-         over for their phase{}",
+         over for their phase{}{}",
         of.bullets,
         of.another_state,
         of.enemies,
@@ -464,6 +518,17 @@ fn said_what_took_it() {
         of.lasers,
         of.warnings,
         of.phase_over,
+        match of.no_body_at {
+            Some((at, apart)) => {
+                format!(
+                    ", the nearest bodiless one at {:.1},{:.1}, {:.1} off",
+                    at.0,
+                    at.1,
+                    apart.sqrt()
+                )
+            }
+            None => String::new(),
+        },
         if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
             "; 低速 changed on that frame, so the step was the one before's"
         } else {
@@ -540,11 +605,18 @@ unsafe fn steer() -> Steered {
     let mut counted = Counted::default();
     let mut judged = [Judged::CLEAR; MOVES.len()];
     let mut nearest = [None; MOVES.len()];
-    let mut against =
-        |what: &'static str, (hx, hy): (f32, f32), (sx, sy): (f32, f32), (wx, wy): (f32, f32)| {
+    // `grows` is how much a hazard's own half is taken to spread each frame, which is nought for everything a
+    // step describes and its own speed for the one thing no reading does — see [`a_bullet_moved`].
+    let mut against = |what: &'static str,
+                       (hx, hy): (f32, f32),
+                       (sx, sy): (f32, f32),
+                       (wx, wy): (f32, f32),
+                       grows: (f32, f32)| {
+        {
             for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
                 for (frame, (x, y)) in path.iter().enumerate() {
                     let ahead = (frame + 1) as f32;
+                    let (wx, wy) = (wx + grows.0 * ahead, wy + grows.1 * ahead);
                     let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
                     // What was left on the tighter of the two axes, which is negative on both where the boxes
                     // overlap — so the larger of the two is the room, and a room below zero is the hit.
@@ -565,7 +637,8 @@ unsafe fn steer() -> Steered {
                     }
                 }
             }
-        };
+        }
+    };
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
         // **Every state but nothing, and the reading that said otherwise was wrong.** The dispatch at 0x425b82
@@ -580,7 +653,14 @@ unsafe fn steer() -> Steered {
         // this is not the reading to leave a bullet out on. The count is kept so a hit still says how many were
         // of a state the collision was not found in.
         match unsafe { mem::read::<u16>(bullet + BULLET_STATE) } {
-            0 => continue,
+            0 => {
+                // **Forgotten, so the next bullet in this slot is not given the last one's place.** The slots
+                // recycle constantly, and a new bullet inheriting where the old one stood looks like something
+                // that moved the width of the field in a frame — which is a scripted bullet by the test below,
+                // feared over a box that size, and a bot cornered in the bottom left of 1面's opening.
+                a_bullet_is_gone(slot);
+                continue;
+            }
             state if state != BULLET_HITS => counted.another_state += 1,
             _ => {}
         }
@@ -589,11 +669,27 @@ unsafe fn steer() -> Steered {
         // where it is plus as many steps as there are frames to look — and its own half, which is half of the
         // size the hit test is given.
         let (wx, wy) = unsafe { position(bullet + BULLET_SIZE) };
+        let at = unsafe { position(bullet + BULLET_POSITION) };
+        let step = unsafe { position(bullet + BULLET_STEP) };
+        let moved = a_bullet_moved(slot, at, step);
+        let turned = a_step_turned(slot, step);
+        let scripted = (moved.0 - step.0).abs() > A_STEP_OF_ITS_OWN
+            || (moved.1 - step.1).abs() > A_STEP_OF_ITS_OWN
+            || turned.0.abs() > A_STEP_OF_ITS_OWN
+            || turned.1.abs() > A_STEP_OF_ITS_OWN;
         against(
             "a bullet",
-            unsafe { position(bullet + BULLET_POSITION) },
-            unsafe { position(bullet + BULLET_STEP) },
+            at,
+            if scripted { (0.0, 0.0) } else { step },
             (wx / 2.0, wy / 2.0),
+            // **Feared and not projected.** Where a script is moving it there is nothing to project, so what
+            // is kept away from is everywhere it could reach: its box spread by the speed it just showed, for
+            // every frame looked at.
+            if scripted {
+                (moved.0.abs(), moved.1.abs())
+            } else {
+                (0.0, 0.0)
+            },
         );
     }
     // **And the enemies, whose bodies are as solid as a bullet in this game.** Which is what a run on its way
@@ -619,6 +715,14 @@ unsafe fn steer() -> Steered {
         }
         if unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS != ENEMY_SOLID_BITS {
             counted.no_body += 1;
+            // **The nearest of them kept for the hit line**, this being the one rule here that leaves a hazard
+            // out: a hit reading twelve units of room with no bullet, no laser and no enemy near enough to be
+            // it is a hit by something the model does not have, and this is the only thing it throws away.
+            let there = unsafe { position(enemy + ENEMY_POSITION) };
+            let apart = (there.0 - at.0).powi(2) + (there.1 - at.1).powi(2);
+            if counted.no_body_at.is_none_or(|(_, was)| apart < was) {
+                counted.no_body_at = Some((there, apart));
+            }
             moves_no_more(slot);
             continue;
         }
@@ -633,6 +737,7 @@ unsafe fn steer() -> Steered {
                 sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
                 sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
             ),
+            (0.0, 0.0),
         );
     }
     // **And the lasers, which are the one hazard a distance cannot stand in for**: a beam is a place, not a
