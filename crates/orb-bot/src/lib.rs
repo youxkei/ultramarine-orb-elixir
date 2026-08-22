@@ -95,6 +95,7 @@ enum Wait {
     Question(Question),
     Cursor(i32),
     Where { screen: i32, cursor: i32 },
+    Boss,
     Frames(u32),
 }
 
@@ -192,6 +193,7 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::Chapter { stage, chapter } => Wait::Chapter { stage, chapter },
         Until::Cursor(item) => Wait::Cursor(item),
         Until::Where { screen, cursor } => Wait::Where { screen, cursor },
+        Until::Boss => Wait::Boss,
         Until::Frames(frames) => Wait::Frames(frames),
         Until::Question(name) => Wait::Question(match name.as_str() {
             "mode" => Question::Mode,
@@ -332,6 +334,7 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         Wait::Where { screen, cursor } => {
             reached.screen == Some(*screen) && reached.cursor == Some(*cursor)
         }
+        Wait::Boss => reached.boss,
         Wait::Frames(wanted) => frames >= *wanted,
     }
 }
@@ -354,6 +357,7 @@ mod tests {
             cursor: None,
             screen: None,
             over: false,
+            boss: false,
         }
     }
 

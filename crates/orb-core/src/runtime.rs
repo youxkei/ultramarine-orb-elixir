@@ -446,6 +446,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             cursor: None,
             screen: None,
             over: false,
+            boss: false,
         },
         pressing: None,
     });
@@ -2394,6 +2395,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // would sit out its whole bound. Here rather than where the rest of [`Reached`] is filled, because this
         // is where the state is read.
         playing.reached.over = !state.in_run;
+        // And whether a boss is up, which is what a stage's midsection ends at — read here for the same reason,
+        // this being where the state is read.
+        playing.reached.boss = state.boss_present;
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb

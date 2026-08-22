@@ -93,6 +93,12 @@ pub enum Until {
     /// walking into 面別プラクティス put the difficulty on Lunatic that way — the 3 it was waiting for was the
     /// difficulty's fourth item and not the stage's.
     Where { screen: i32, cursor: i32 },
+    /// **A boss being up**, which is what the part of a stage before one ends at.
+    ///
+    /// Practising that part was a thing this grammar could not say: bounded by a count of frames instead, a run
+    /// guessed at a minute and ended with the midsection still going. Whether a boss is up is a thing orb reads
+    /// already — the log's own `boss=` and the 低速 the rules hold under one — so it is a thing to wait for.
+    Boss,
     /// Or that many frames having gone by.
     Frames(u32),
 }
@@ -130,6 +136,7 @@ struct WrittenUntil {
     question: Option<String>,
     screen: Option<i32>,
     cursor: Option<i32>,
+    boss: Option<bool>,
     frames: Option<u32>,
 }
 
@@ -141,24 +148,33 @@ impl WrittenUntil {
             &self.question,
             self.screen,
             self.cursor,
+            self.boss,
             self.frames,
         ) {
-            (Some(stage), Some(chapter), None, None, None, None) => {
+            (Some(stage), Some(chapter), None, None, None, None, None) => {
                 Ok(Until::Chapter { stage, chapter })
             }
-            (None, None, Some(question), None, None, None) => Ok(Until::Question(question.clone())),
-            (None, None, None, Some(screen), Some(cursor), None) => {
+            (None, None, Some(question), None, None, None, None) => {
+                Ok(Until::Question(question.clone()))
+            }
+            (None, None, None, Some(screen), Some(cursor), None, None) => {
                 Ok(Until::Where { screen, cursor })
             }
-            (None, None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
-            (None, None, None, None, None, Some(0)) => {
+            (None, None, None, None, Some(cursor), None, None) => Ok(Until::Cursor(cursor)),
+            // **Only `true`.** What a step could do with `boss: false` is wait for a fight to be over, and a
+            // fight ends by the stage ending — which is a stage and a chapter to wait for and already written.
+            (None, None, None, None, None, Some(true), None) => Ok(Until::Boss),
+            (None, None, None, None, None, Some(false), None) => Err(format!(
+                "step {at} waits for no boss to be up, which is a stage and a chapter to wait for"
+            )),
+            (None, None, None, None, None, None, Some(0)) => {
                 Err(format!("step {at} is over before it starts"))
             }
-            (None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
+            (None, None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
             _ => Err(format!(
                 "step {at} waits for a stage and a chapter, a question, an item the cursor is on \
-                 with or without the screen it is a list of, or a count of frames, and for one of \
-                 those"
+                 with or without the screen it is a list of, a boss being up, or a count of \
+                 frames, and for one of those"
             )),
         }
     }

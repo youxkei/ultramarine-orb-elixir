@@ -162,6 +162,56 @@ fn a_step_that_gives_up_ends_when_it_says() {
 
 /// **A `play` step ends where the run is over**, there being nothing left to play.
 ///
+/// **A step can wait for a boss to be up, which is what the midsection of a stage ends at.**
+///
+/// Practising the part of a stage before its boss is a thing a recipe could not say: what a step waits for is a
+/// stage, a chapter, a screen, a cursor or a count of frames, so the midsection had to be bounded by a wall
+/// clock — and a bound guessed at ended one run at chapter 3 with the midsection still going. A boss being up is
+/// a thing orb already reads for the log's own `boss=` and the rules' 低速, so it is a thing a step can wait for.
+#[test]
+fn a_step_ends_where_a_boss_is_up() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-waiting-for-a-boss",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { boss: true }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended with no boss up at all:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().a_boss_is_fighting(1000, 600);
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end where a boss came up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
 /// Which is what a launch nobody is watching needs of it: a run that lost its last life leaves the game on its
 /// own screen, and the rules press nothing there — so the step waited out its whole bound while the log said
 /// `still waiting` sixty times over. An attempt that failed should end and let the next one start.
