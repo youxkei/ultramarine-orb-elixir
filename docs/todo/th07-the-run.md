@@ -838,7 +838,22 @@ What has been closed, each now standing beside the thing it is about rather than
 - **A boss's slot outliving its boss**, which cost 妖々夢's 4面 22505 of its 38820 frames against the left
   wall. `Th07::boss` carries it.
 
-What is left is what a launch says next. The hit log is what says it.
+**What is left, and it is one lead.** `ROOM_TO_SPARE` is two units of slack on top of the game's own box test,
+and it is there because twenty-five hits in a row read between half a unit and one of room — a projection out by
+about a unit with nothing naming the source. Two of the three places a bullet's step is rebuilt have now been
+read, and one of them is that source:
+
+- **0x4258a0**, on `[bullet+0xbf4] & 0xc00`, rebuilds the step from the angle at `+0xbbc` and a speed of
+  `[+0xbb0] × (1 − t / [+0xd30])` — a bullet that slows to a stop. A straight projection puts such a bullet
+  *further* than it will be, so it is early rather than late, and safe.
+- **0x425700**, on `[bullet+0xbf4] & 0x400`, negates that angle and rebuilds the step from the speed at
+  `+0xd48`. **A bullet that turns round**, and a straight projection of one is wrong about its direction and not
+  just its distance — which is the shape of a hit the model called clear. The frame it turns on is readable:
+  `+0xd5c` counts up and 0x425a23 compares it with `+0xd60`.
+
+So the work is the same shape as the 予告線's: trust the straight line for the frames before the turn and treat
+the frames after it as what they are, which is nothing known. And the same instrument decides whether it was
+worth it — a hit reading about two units of room is this, and one reading twenty is a hazard still missing.
 
 ### The lasers, and what reading them settled
 
