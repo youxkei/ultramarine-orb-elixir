@@ -940,17 +940,22 @@ unsafe fn the_fire_in_each_third(field: (f32, f32, f32, f32)) -> [f32; THIRDS] {
 
 /// **The third of the field the fire is clearly piled into**, or nothing where none of them is.
 ///
-/// Clearly, and said in two numbers rather than a taste: **more than half of everything on the screen**, which
-/// for one of three is well past the third an even spread would give it; and **more than there are moves to
-/// weave between**, so that a handful of bullets is not a pile. An ordinary imbalance is not a reason to leave a
-/// fight.
+/// **Measured against the emptiest of the three and not against the screen.** Asking whether one third holds
+/// more than half of everything is asking the wrong question: a run was hit in the middle with the left
+/// obviously empty, and the middle still held under half because the right held the rest. What matters is that
+/// there is somewhere clearly better to be.
+///
+/// Clearly, and said in two numbers rather than a taste: **twice the emptiest**, which is a factor and so means
+/// the same at thirty bullets as at three hundred; and **more of a difference than there are moves to weave
+/// between**, so that a handful is not a pile. An ordinary imbalance is not a reason to leave a fight.
 ///
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn the_thickest_third(field: (f32, f32, f32, f32)) -> Option<usize> {
     let fire = unsafe { the_fire_in_each_third(field) };
-    let all: f32 = fire.iter().sum();
-    (0..THIRDS).find(|third| fire[*third] > all / 2.0 && fire[*third] > MOVES.len() as f32)
+    let empty = fire.iter().copied().fold(f32::INFINITY, f32::min);
+    (0..THIRDS)
+        .find(|third| fire[*third] > empty * 2.0 && fire[*third] - empty > MOVES.len() as f32)
 }
 
 /// And the emptiest of them, which is where the bot waits instead.
