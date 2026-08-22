@@ -96,3 +96,56 @@ fn keys_are_dropped_while_th07s_window_is_behind_and_read_again_the_frame_it_com
         );
     });
 }
+
+/// **And a launch playing itself says it too**, whose word is not the keyboard's and is handed over whichever
+/// window is in front.
+///
+/// A bot's word goes in ahead of everything above — that is what makes it a bot rather than typing — so none of
+/// what the window is doing applies to it. **Which is not the same as it not being worth saying.** Somebody
+/// watching a launch play itself in a corner of their screen saw its presses come and go with the window's
+/// focus, and the log they went to could not say whether the window had been behind at all: the line is written
+/// after the bot's word is returned, so a launch that plays itself never reaches it. An observation about a
+/// launch is answerable only where the launch says what it did.
+#[test]
+fn a_launch_playing_itself_says_when_its_window_goes_behind() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-window-behind-a-bot",
+            Work::wandering(WORK_US),
+            |config| {
+                // A recipe of one step that holds a word for longer than this test runs, so the bot's own word
+                // is what the read answers on every frame of it.
+                config.autoplay = Some("- press: [shot]\n  frames: 6000\n".to_owned());
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.one_frame();
+        let held = game.word_the_input_read_answered();
+        assert_ne!(held, 0, "the bot's own word is not in the read");
+
+        game.sim().display().set_foreground(ANOTHER);
+        game.frames(BEHIND);
+        assert!(
+            log.said("input: window behind, keys not read"),
+            "a launch playing itself did not say its window had gone behind:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // **And the word still goes in**, which is the other half of what somebody watching has to be told: the
+        // line says where the window is and not that the bot has stopped.
+        assert_eq!(
+            game.word_the_input_read_answered(),
+            held,
+            "the bot's word was dropped with the window behind",
+        );
+
+        game.sim().display().set_foreground(WINDOW);
+        game.frames(2);
+        assert!(
+            log.said("input: window in front"),
+            "the window coming forward was not said:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}

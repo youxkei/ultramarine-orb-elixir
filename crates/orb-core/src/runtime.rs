@@ -1516,10 +1516,30 @@ pub extern "system" fn get_input() -> u16 {
         unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
     }
+    // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
+    // flag, which only says what the game was last told; this is the same question
+    // orb asks for its own keys, so the two cannot disagree.
+    let window = unsafe { game.window() };
+    let active = !window.is_null() && orb_api::window::foreground() == window;
+    // **Said before the bot's word is handed over and not after it.** None of what the window is doing applies
+    // to a bot — its word is not the keyboard's and goes in whichever window is in front, which is the block
+    // below — but a launch that says nothing about the window is a launch nobody can ask. Somebody watching one
+    // play itself in a corner of their screen saw its presses come and go with the focus, and the log had no
+    // line either way: this one was written after that block, so a launch playing itself never reached it.
+    if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
+        log!(
+            "input: window {}",
+            if active {
+                "in front"
+            } else {
+                "behind, keys not read"
+            }
+        );
+    }
     // **And the word orb plays the game with where it is playing it itself**, in the same place and through the
     // same hand-over: a bot's frame is a frame of a run in every way a recorded frame is. After the playback
     // above, so that a run being put back is put back with what it was played with and not with what a bot
-    // would do instead — see `Game::word_to_press` and `Config::autoplay`.
+    // would do instead — see `Game::what_a_bot_sees` and `Config::autoplay`.
     // **Every read and not only a stage's**, because the steps of a recipe are screens: the mode question, the
     // title, the difficulty and the shot are all read through here and none of them is a frame of a stage.
     // Asked for where the frame began rather than here, so that a walker counting the frames it has been on a
@@ -1531,22 +1551,6 @@ pub extern "system" fn get_input() -> u16 {
     // `resume: not written — 0 frame(s) of buttons` behind it, and there was nothing to measure.
     if let Some(word) = pressing() {
         return unsafe { noted(game, frame, word) };
-    }
-
-    // Asked of the system rather than read from the game's own `WM_ACTIVATEAPP`
-    // flag, which only says what the game was last told; this is the same question
-    // orb asks for its own keys, so the two cannot disagree.
-    let window = unsafe { game.window() };
-    let active = !window.is_null() && orb_api::window::foreground() == window;
-    if INPUT_ACTIVE.swap(active, Ordering::Relaxed) != active {
-        log!(
-            "input: window {}",
-            if active {
-                "in front"
-            } else {
-                "behind, keys not read"
-            }
-        );
     }
 
     // Not read at all while behind, rather than read and thrown away. The game's
