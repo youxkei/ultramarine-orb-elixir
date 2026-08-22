@@ -1536,6 +1536,15 @@ impl Image {
         space.write::<i32>(laser + super::LASER_LIVE_AT, 0);
     }
 
+    /// And a slot whose aliveness word is nought while its geometry stands, which is what a slot the game's own
+    /// walk skips looks like — and what a dump asking whether anything is being skipped has to be given.
+    pub fn the_laser_slot_is_not_alive(&self, slot: usize) {
+        self.space().write::<u32>(
+            super::G_LASERS + slot * super::LASER_BYTES + super::LASER_ALIVE,
+            0,
+        );
+    }
+
     /// And one still drawing its 予告線, with this many frames to go before it starts hitting.
     pub fn the_laser_fires_in(&self, slot: usize, frames: i32) {
         let laser = super::G_LASERS + slot * super::LASER_BYTES;

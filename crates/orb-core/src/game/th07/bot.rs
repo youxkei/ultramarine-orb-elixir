@@ -732,19 +732,114 @@ unsafe fn say_what_was_near() {
             );
         }
     }
+    // **Every slot that holds anything, and not every slot the walk would visit.** `+0x4d4` is the word the
+    // game's own walk skips on, so a beam kept some other way is a beam orb has never once seen — and a card
+    // whose beam is plainly across the player while the model says nought of them is either that or nothing at
+    // all. The width is what says a slot holds geometry rather than zeroes.
     for slot in 0..LASER_SLOTS {
         let laser = G_LASERS + slot * LASER_BYTES;
         let alive = unsafe { mem::read::<u32>(laser + LASER_ALIVE) };
-        if alive != 0 {
-            crate::detail!(
-                "autoplay: a laser is alive, {slot} phase {} from {:.1},{:.1} angle {:.2} wide {:.1}",
-                unsafe { mem::read::<u8>(laser + LASER_PHASE) },
-                unsafe { mem::read::<f32>(laser + LASER_ORIGIN) },
-                unsafe { mem::read::<f32>(laser + LASER_ORIGIN + size_of::<f32>()) },
-                unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
-                unsafe { mem::read::<f32>(laser + LASER_WIDTH) },
-            );
+        let width = unsafe { mem::read::<f32>(laser + LASER_WIDTH) };
+        if alive == 0 && width == 0.0 {
+            continue;
         }
+        crate::detail!(
+            "autoplay: laser slot {slot} holds alive {alive} phase {} from {:.1},{:.1} angle {:.2} \
+             wide {width:.1} along {:.1}..{:.1} timer {} of {}",
+            unsafe { mem::read::<u8>(laser + LASER_PHASE) },
+            unsafe { mem::read::<f32>(laser + LASER_ORIGIN) },
+            unsafe { mem::read::<f32>(laser + LASER_ORIGIN + size_of::<f32>()) },
+            unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
+            unsafe { mem::read::<f32>(laser + LASER_NEAR) },
+            unsafe { mem::read::<f32>(laser + LASER_FAR) },
+            unsafe { mem::read::<i32>(laser + LASER_TIMER) },
+            unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) },
+        );
+    }
+    unsafe { say_the_nearest_of_each(at) };
+}
+
+/// **The nearest thing of each of the three kinds, with no reach to fall outside of and no rule applied.**
+///
+/// Which is the last question the arrays can be asked. [`say_what_was_near`] asks what is within a reach, and
+/// six hits in three practices answered nothing at all with three hundred bullets on the screen — an answer that
+/// is the same whether the thing that did it is a little further off than the reach or in no array at all. These
+/// three lines tell those apart: a nearest bullet twenty units off is a model whose boxes are too small, and a
+/// nearest bullet two hundred off is a beam that is in none of them.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn say_the_nearest_of_each(at: (f32, f32)) {
+    /// The nearest of one kind: which slot, where, how far off, what its own state or solidity byte says, and
+    /// the size its box is made of.
+    struct Nearest {
+        slot: usize,
+        at: (f32, f32),
+        apart: f32,
+        says: u32,
+        size: f32,
+    }
+    let mut bullet_at: Option<Nearest> = None;
+    for slot in 0..BULLET_SLOTS {
+        let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
+        let state = unsafe { mem::read::<u16>(bullet + BULLET_STATE) };
+        if state == 0 {
+            continue;
+        }
+        let place = unsafe { position(bullet + BULLET_POSITION) };
+        let apart = (place.0 - at.0).hypot(place.1 - at.1);
+        if bullet_at.as_ref().is_none_or(|was| apart < was.apart) {
+            bullet_at = Some(Nearest {
+                slot,
+                at: place,
+                apart,
+                says: state.into(),
+                size: unsafe { mem::read::<f32>(bullet + BULLET_SIZE) },
+            });
+        }
+    }
+    match bullet_at {
+        Some(near) => crate::detail!(
+            "autoplay: the nearest bullet is {}, {:.1} off at {:.1},{:.1} state {} size {:.1}",
+            near.slot,
+            near.apart,
+            near.at.0,
+            near.at.1,
+            near.says,
+            near.size,
+        ),
+        None => crate::detail!("autoplay: there is no bullet on the screen at all"),
+    }
+    let mut enemy_at: Option<Nearest> = None;
+    for slot in 0..ENEMY_SLOTS {
+        let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
+        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
+            continue;
+        }
+        let place = unsafe { position(enemy + ENEMY_POSITION) };
+        let apart = (place.0 - at.0).hypot(place.1 - at.1);
+        if enemy_at.as_ref().is_none_or(|was| apart < was.apart) {
+            enemy_at = Some(Nearest {
+                slot,
+                at: place,
+                apart,
+                says: unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) }.into(),
+                size: unsafe { mem::read::<f32>(enemy + ENEMY_SIZE) },
+            });
+        }
+    }
+    match enemy_at {
+        Some(near) => crate::detail!(
+            "autoplay: the nearest enemy is {}, {:.1} off at {:.1},{:.1} solidity {:#04x} \
+             size {:.1}",
+            near.slot,
+            near.apart,
+            near.at.0,
+            near.at.1,
+            near.says,
+            near.size,
+        ),
+        None => crate::detail!("autoplay: there is no enemy on the screen at all"),
     }
 }
 

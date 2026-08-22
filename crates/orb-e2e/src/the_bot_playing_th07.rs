@@ -677,6 +677,48 @@ fn a_beam_a_script_sweeps_is_a_third_of_the_field_to_be_out_of() {
     });
 }
 
+/// **A hit names the nearest of every kind with no reach to fall outside of, and every laser slot that holds
+/// anything.**
+///
+/// Which is what is left when a hit has been read every other way and the answer keeps coming back empty. Six
+/// hits in three practices said `nothing was near it at all` with three hundred bullets on the screen and a beam
+/// visibly across the player — so either something is in one of the arrays further off than the dump asks about,
+/// or it is in a slot a gate of orb's own skips. Both of those are questions about numbers nobody has printed,
+/// and neither is a question the arrays can be asked with a rule already applied to them.
+#[test]
+fn a_hit_names_the_nearest_of_each_kind_and_every_laser_slot_holding_anything() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-names-the-nearest-of-each");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Further off than a hit's own reach, so a dump that finds it is one with no reach.
+        game.image()
+            .a_bullet_is_at(41, MIDDLE + 120.0, LOW - 120.0, (0.0, 0.0));
+        // And a slot the aliveness gate skips, holding geometry all the same.
+        game.image().a_laser_is_at(
+            9,
+            (MIDDLE, FIELD.1),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, FIELD.3),
+            A_STEP,
+        );
+        game.image().the_laser_slot_is_not_alive(9);
+        game.frames(1);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        let log = game.log();
+        assert!(
+            log.said("the nearest bullet is 41"),
+            "the hit did not name the nearest bullet with no reach to fall outside of:\n  {}",
+            log.lines().join("\n  "),
+        );
+        assert!(
+            log.said("laser slot 9 holds"),
+            "the hit did not dump a laser slot the aliveness gate skips:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its
