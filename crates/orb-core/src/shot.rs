@@ -25,7 +25,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_api::d3d8::{D3DBACKBUFFER_TYPE_MONO, D3DFMT_R5G6B5, D3DLOCK_READONLY};
-use orb_api::{Device, Surface, d3d8, fs, module};
+use orb_api::{Device, Surface, clock, d3d8, fs, module};
+
+/// The directory beside the exe the frames are written into.
+const HELD_IN: &str = "snapshot";
 
 /// How many one run writes.
 ///
@@ -70,11 +73,23 @@ pub unsafe fn taken(device: Device) {
     let Some(bytes) = taken else {
         return;
     };
-    let at = TAKEN.fetch_add(1, Ordering::Relaxed);
+    TAKEN.fetch_add(1, Ordering::Relaxed);
     let Some(exe) = module::host_exe() else {
         return;
     };
-    let path = exe.with_file_name(format!("orb-{label}-{at}.bmp"));
+    // **A directory of its own, made if it is not there.** Beside the exe is where the replays and the score
+    // file are, and a run hit twenty times puts twenty megabytes of frames wherever it writes them; the one
+    // place that should not be is among the files whoever is playing keeps.
+    let held = exe.with_file_name(HELD_IN);
+    if let Err(error) = fs::create_dir_all(&held) {
+        crate::log!("shot: {} was not made: {error}", held.display());
+        return;
+    }
+    // **The stamp the log puts on its own lines and not a count.** A count starts over at nought every launch,
+    // so three practices put their first hits under one name and which picture went with which run stopped being
+    // answerable; the stamp is the number in front of every line the log wrote, which is what makes a picture and
+    // the dump of the hit it came out of findable from one another.
+    let path = held.join(format!("{label}-{}.bmp", clock::ticks()));
     match fs::write(&path, &bytes) {
         Ok(()) => crate::log!("shot: {} holds the frame", path.display()),
         Err(error) => crate::log!("shot: {} was not written: {error}", path.display()),

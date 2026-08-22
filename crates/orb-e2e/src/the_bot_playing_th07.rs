@@ -1031,24 +1031,55 @@ fn what_a_hit_names_is_near_where_the_player_is_when_the_arrays_are_walked() {
     });
 }
 
-/// **A hit leaves a picture of the frame beside the exe.**
+/// **A hit leaves a picture of the frame in the game's own `snapshot` directory.**
 ///
 /// Which is what the dump cannot be asked for: a hit that names nothing within reach of the player has
 /// exhausted the three arrays, and whatever hit it was still drawn. The frame is a 32-bit BMP, so what a test
 /// can hold it to is the header — that it says the screen's own size, and that its rows are the frame's.
+///
+/// **In a directory of its own and not beside the exe**, which is where the replays and the score file are: a
+/// run that is hit twenty times puts twenty megabytes of frames somewhere, and the one place that is not is
+/// among the files whoever is playing keeps.
 #[test]
-fn a_hit_leaves_a_picture_of_the_frame_beside_the_exe() {
+fn a_hit_leaves_a_picture_of_the_frame_in_the_snapshot_directory() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-a-hit-leaves-a-picture");
         game.image().the_player_is_at(MIDDLE, LOW);
         game.frames(1);
         game.image().the_player_has_been_hit();
         game.frames(4);
-        let picture = game.dir().join("orb-hit-0.bmp");
+        // **Named by the same stamp the log puts on its lines**, which is what makes the picture and the dump of
+        // the hit it came out of findable from one another — and what keeps two runs' pictures apart, a count
+        // starting over at nought every launch having put four hits from three practices under one name.
+        let held_in = game.dir().join("snapshot");
+        let written: Vec<_> = game
+            .sim()
+            .files()
+            .paths()
+            .into_iter()
+            .filter(|path| path.starts_with(&held_in))
+            .collect();
+        let [picture] = written.as_slice() else {
+            panic!("one picture is not what was written to {held_in:?}: {written:?}");
+        };
+        let name = picture.file_name().unwrap().to_string_lossy().to_string();
+        let stamp = name
+            .strip_prefix("hit-")
+            .and_then(|rest| rest.strip_suffix(".bmp"))
+            .unwrap_or_else(|| panic!("the picture is not named for a hit and a stamp: {name}"));
+        assert!(
+            !stamp.is_empty() && stamp.chars().all(|c| c.is_ascii_digit()),
+            "the picture's name carries no stamp: {name}",
+        );
+        assert!(
+            game.log().said(&name),
+            "the log did not name the picture it wrote:\n  {}",
+            game.log().lines().join("\n  "),
+        );
         let held = game
             .sim()
             .files()
-            .get(&picture)
+            .get(picture)
             .unwrap_or_else(|| panic!("nothing was written to {}", picture.display()));
         assert_eq!(&held[..2], b"BM", "what was written is not a BMP");
         assert_eq!(
