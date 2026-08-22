@@ -610,6 +610,73 @@ fn a_warning_line_is_left_whatever_frame_its_beam_fires_on() {
     });
 }
 
+/// **A warning line is crossed where the warning lines leave nowhere to go.**
+///
+/// Which is the other half of [`a_warning_line_is_left_whatever_frame_its_beam_fires_on`]: a beam still drawing
+/// its warning cannot hit anything — 0x4266dc gates the game's own test on the timer reaching
+/// [`LASER_LIVE_AT`] — so a move into one is worse than a move out of one and better than a move into a live
+/// beam. 6面's last card fans twenty-two warnings out of a single point, and a bot that shut a move for each of
+/// them had all nine shut: it stood where it was until the beams fired, and the hit that came out of it read
+/// `nowhere open to it`.
+#[test]
+fn a_warning_line_is_crossed_where_they_leave_nowhere_to_go() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-warning-line-is-crossed");
+        // Off to one side, so that what the bot wants is a place it has to move to reach.
+        game.image().the_player_is_at(MIDDLE - 100.0, LOW);
+        // A warning wide enough that every one of the nine lands inside it, so no move is out of one.
+        game.image().a_laser_is_at(
+            7,
+            (MIDDLE, FIELD.1),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, FIELD.3),
+            FIELD.2 * 2.0,
+        );
+        game.image().the_laser_fires_in(7, 600);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot did not cross a warning that left it nowhere to go:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A beam swept round by a script is a third of the field to be out of, and not only a thing to dodge.**
+///
+/// 6面's turning beam is a line of bullets a script sweeps: nothing on one of them is a step, so where it will
+/// be is not a thing the nine moves can be judged against — [`a_bullet_that_ignores_its_own_step_is_feared_rather_than_projected`]
+/// is as far as one frame's dodging goes. What is left is where to stand, and the answer is the same as for a
+/// third the fire is piled into: somewhere else. Three hits in one practice came out of standing in the arms and
+/// dodging inside them.
+#[test]
+fn a_beam_a_script_sweeps_is_a_third_of_the_field_to_be_out_of() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-leaves-a-swept-third");
+        // In the middle third, which with no boss and nothing to collect is where it would otherwise wait.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // An arm of them across the middle third, high enough up that none is a dodge of its own.
+        let arm: Vec<f32> = (0..16).map(|n| FIELD.1 + 40.0 + n as f32 * 4.0).collect();
+        for (slot, y) in arm.iter().enumerate() {
+            game.image().a_bullet_is_at(slot, MIDDLE, *y, (0.0, 0.0));
+        }
+        game.frames(1);
+        // And every one of them somewhere its own step could not have taken it, which is a script sweeping them.
+        for (slot, y) in arm.iter().enumerate() {
+            game.image()
+                .a_bullet_is_at(slot, MIDDLE + A_STEP * 3.0, *y, (0.0, 0.0));
+        }
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed & (LEFT | RIGHT) != 0,
+            "the bot waited in the third a swept beam was crossing, pressing {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///
 /// The game's test is two boxes overlapping — the player's own and the bullet's place give or take half its

@@ -191,6 +191,10 @@ struct Counted {
     /// from a walk whose purpose was inferred rather than read: a card of beams that shows nought of them is
     /// this number standing where the lasers should be.
     phase_over: u32,
+    /// And how many bullets no step of their own explains, with the x they are spread about where those are
+    /// enough to be a beam a script is sweeping — see [`a_sweep`].
+    swept: u32,
+    sweeping: Option<f32>,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -239,15 +243,23 @@ struct Held {
 /// puts a 米弾 six away ahead of a 大玉 seventeen away, when it is the 大玉 that is one unit from a hit. Which
 /// is not only a number in the log: it is what picks between moves that are all hit, and what the log names as
 /// the hazard to look at.
+/// **And which of them a beam will only be drawing its warning on**, which is a frame to be elsewhere for and
+/// not a frame that is lost. 0x4266dc gates the game's own test on [`super::LASER_TIMER`] reaching
+/// [`super::LASER_LIVE_AT`], so a warning cannot hit anything at all — a move into one is worse than a move out
+/// of one and better than a move into a beam that is live. Counted apart from [`Judged::on`] because a card that
+/// fans twenty-two warnings out of one point shuts every one of the nine where the two are the same, and a bot
+/// with nothing open to it stands where it is until the beams fire.
 #[derive(Clone, Copy)]
 struct Judged {
     on: u32,
+    warned: u32,
     room: f32,
 }
 
 impl Judged {
     const CLEAR: Self = Self {
         on: 0,
+        warned: 0,
         room: f32::INFINITY,
     };
 
@@ -255,8 +267,21 @@ impl Judged {
         self.on |= 1 << frame;
     }
 
+    fn warn(&mut self, frame: usize) {
+        self.warned |= 1 << frame;
+    }
+
     fn clear(self) -> bool {
         self.on == 0
+    }
+
+    /// Whether nothing will be at it and a warning is drawn across it, which is the middle of the three.
+    fn only_warned(self) -> bool {
+        self.on == 0 && self.warned != 0
+    }
+
+    fn warnings(self) -> u32 {
+        self.warned.count_ones()
     }
 
     fn hits(self) -> u32 {
@@ -567,6 +592,14 @@ fn said_what_took_it() {
     );
     let of = was.counted;
     crate::detail!(
+        "autoplay: {} bullet(s) no step of their own explained, {}",
+        of.swept,
+        match of.sweeping {
+            Some(x) => format!("a beam being swept about x {x:.1}"),
+            None => "too few to be a beam being swept".to_owned(),
+        },
+    );
+    crate::detail!(
         "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
          left out for having no body; {} laser(s), {} of them still only a warning, with {} passed \
          over for their phase{}{}",
@@ -732,7 +765,6 @@ unsafe fn say_what_was_near() {
 unsafe fn steer() -> Steered {
     let at = unsafe { player() };
     let field = unsafe { field() };
-    let wanted = unsafe { where_to_be(field) };
     // **Where holding each move leads over the next [`LOOK_AHEAD`] frames**, held inside the field the way the
     // clamp at 0x43f416 would hold it: a move into a wall is a move that does not happen, and scoring it as
     // though it did would pick it. Not held inside [`THE_BAND`] — that is where it *wants* to be, and a probe
@@ -772,6 +804,9 @@ unsafe fn steer() -> Steered {
     let mut nearest = [None; MOVES.len()];
     let mut held = [None; HELD];
     let mut held_all = 0;
+    // The bullets no step of their own explains, and where across the field they are — see [`a_sweep`].
+    let mut swept = 0u32;
+    let mut swept_x = 0.0;
     // `grows` is how much a hazard's own half is taken to spread each frame, which is nought for everything a
     // step describes and its own speed for the one thing no reading does — see [`a_bullet_moved`].
     let mut against = |what: &'static str,
@@ -861,6 +896,10 @@ unsafe fn steer() -> Steered {
             || (moved.1 - step.1).abs() > A_STEP_OF_ITS_OWN
             || turned.0.abs() > A_STEP_OF_ITS_OWN
             || turned.1.abs() > A_STEP_OF_ITS_OWN;
+        if scripted {
+            swept += 1;
+            swept_x += at.0;
+        }
         against(
             "a bullet",
             slot,
@@ -1015,7 +1054,14 @@ unsafe fn steer() -> Steered {
                     });
                 }
                 if room < ROOM_TO_SPARE {
-                    judged.hit(frame);
+                    // **Live by then or still only drawn.** The game's own gate is the timer reaching the frame
+                    // it fires on, so a frame this many ahead is one the beam can hit on only once the countdown
+                    // has run out — before that the lane is a place to be out of rather than a frame lost.
+                    if (frame + 1) as i32 >= fires_in {
+                        judged.hit(frame);
+                    } else {
+                        judged.warn(frame);
+                    }
                 }
             }
         }
@@ -1024,6 +1070,12 @@ unsafe fn steer() -> Steered {
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
     // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
+    // **Where to be, and only now that the bullets have been walked**: which third of the field a script is
+    // sweeping a beam across is one of the things that decides it, and that is a thing the walk finds.
+    let sweeping = a_sweep(swept, swept_x);
+    counted.swept = swept;
+    counted.sweeping = sweeping;
+    let wanted = unsafe { where_to_be(field, sweeping) };
     let mut best: Option<(u16, Judged, f32, f32)> = None;
     for (((word, dx, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
@@ -1041,8 +1093,21 @@ unsafe fn steer() -> Steered {
         // on the very next frame. The count came first while [`LOOK_AHEAD`] was three, where "hit at all" and
         // "hit next frame" are nearly the same thing; at twelve they are not, and a launch that kept the old
         // order was hit nine times before 3面's boss where the one before it reached 4面 without a scratch.
+        // **Three and not two: nothing will be at it, a warning is drawn across it, something will.** Which is
+        // what lets a card that fans its warnings over the whole field be crossed — every move being warned, the
+        // three collapse to one and the wanting decides, where shutting a move per warning left all nine shut.
+        let tier = |judged: Judged| {
+            if !judged.clear() {
+                2
+            } else if judged.only_warned() {
+                1
+            } else {
+                0
+            }
+        };
         let better = match best {
             None => true,
+            Some((_, was, ..)) if tier(judged) != tier(was) => tier(judged) < tier(was),
             Some((_, was, was_dx, was_towards)) => match (was.clear(), judged.clear()) {
                 (false, true) => true,
                 (true, false) => false,
@@ -1052,8 +1117,14 @@ unsafe fn steer() -> Steered {
                 // behind it. The room is already measured, so this costs nothing and overrides nothing: above
                 // the wanting the same number makes a bot that steps whenever a neighbour is a shade freer and
                 // never arrives, and as a threshold on how cramped is too cramped it has to be guessed.
+                // **And the one crossing fewer of the warnings first, where both are crossing some.** Above the
+                // wanting because the frames a warning covers are frames the beam will be firing on: a lane
+                // left is a lane left before it matters, and by the frame it matters the move is the same move.
                 (true, true) => {
-                    towards < was_towards || (towards == was_towards && judged.room > was.room)
+                    judged.warnings() < was.warnings()
+                        || (judged.warnings() == was.warnings()
+                            && (towards < was_towards
+                                || (towards == was_towards && judged.room > was.room)))
                 }
                 // **And with nothing open, sideways before anything else that lasts as long.** The fire's
                 // thickness is a thing of *x*: it comes from above and follows the player down, so a move that
@@ -1136,7 +1207,21 @@ unsafe fn in_a_stage() -> bool {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
+/// **A beam a script is sweeping**, as the x it is spread about — or nothing where the bullets no step explains
+/// are too few to be one.
+///
+/// A turning beam in this game is a line of bullets, and a script rather than any field of theirs is what swings
+/// it: 6面's is a dozen and more of them at once. So what tells one from a bullet whose own curve the reading
+/// happens to miss is how many there are, and the floor is the one the thickest third already uses — more than
+/// the nine moves, which is more than a rounding difference in either.
+///
+/// **The count is what a launch says.** A hit's own line carries it, so a card whose every bullet reads as
+/// scripted is a card this names and not one it hides.
+fn a_sweep(swept: u32, swept_x: f32) -> Option<f32> {
+    (swept as usize > MOVES.len()).then(|| swept_x / swept as f32)
+}
+
+unsafe fn where_to_be(field: (f32, f32, f32, f32), sweep: Option<f32>) -> (f32, f32) {
     let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
@@ -1162,7 +1247,17 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
     // power [`ITEM_BIG_POWER`] carries is worth the crossing. So the two rules meet at [`worth`], which is the
     // one place this game's items are ranked.
     let worth_the_crossing = going_for.is_some_and(|(it, _)| it > worth(ITEM_POINT));
+    // **And out of the third a script is sweeping a beam across, whatever is in it.** Which the thickness cannot
+    // stand in for: a beam is a dozen bullets rather than a hundred, so the third it is crossing is rarely the
+    // thickest — and nothing about a swept bullet says where it will be, so the frames looked at are no answer
+    // either. **Not weighed against an item the way the thickness is**, because the two are not the same bet: a
+    // third full of fire is a place a run of good frames gets through, and a beam arriving is arriving.
+    let swept = sweep.map(|x| a_third(field, x));
     let x = match unsafe { the_thickest_third(field) } {
+        _ if swept.is_some_and(|swept| swept == a_third(field, x)) => {
+            let empty = unsafe { the_emptiest_third(field) };
+            field.0 + field.2 * (empty as f32 + 0.5) / THIRDS as f32
+        }
         Some(thick) if !worth_the_crossing && thick == a_third(field, x) => {
             let empty = unsafe { the_emptiest_third(field) };
             field.0 + field.2 * (empty as f32 + 0.5) / THIRDS as f32
