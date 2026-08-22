@@ -1473,7 +1473,8 @@ impl Image {
         space.write::<usize>(super::G_PLAYER + super::PLAYER_SPEEDS, PLAYER_SPEEDS.start);
         space.write::<f32>(PLAYER_SPEEDS.start + super::SPEED_STRAIGHT, straight);
         space.write::<f32>(PLAYER_SPEEDS.start + super::SPEED_DIAGONAL, diagonal);
-        space.write::<f32>(super::G_PLAYER + super::PLAYER_SPEED_SCALE, 1.0);
+        space.write::<f32>(super::G_PLAYER + super::PLAYER_SCALE_ACROSS, 1.0);
+        space.write::<f32>(super::G_PLAYER + super::PLAYER_SCALE_DOWN, 1.0);
         space.write::<f32>(super::G_MOTION_SCALE, 1.0);
     }
 

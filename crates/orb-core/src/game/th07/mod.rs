@@ -861,7 +861,24 @@ const PLAYER_POSITION: usize = 0x930;
 const PLAYER_SPEEDS: usize = 0xb7e70;
 const SPEED_STRAIGHT: usize = 0x24;
 const SPEED_DIAGONAL: usize = 0x2c;
-const PLAYER_SPEED_SCALE: usize = 0x23f0;
+/// **What the step is multiplied by before it moves the player, one for each axis.** 0x43f37b multiplies the
+/// sideways step by `+0x23f0` and 0x43f39c the downward one by `+0x23f4`, each then by [`G_MOTION_SCALE`]; the
+/// two products go to `[player+0x9cc]` and `[player+0x9d0]`, which 0x43f3d4 and 0x43f402 add to the two halves
+/// of [`PLAYER_POSITION`].
+///
+/// **The two are always written together and always the same number**, so reading one of them for both axes was
+/// never wrong about any frame — 0x40920b and 0x4091fb both write 1.0, 0x40934c and 0x40933c both write 0.6,
+/// and so on for 0.4 and 0.2 at 0x40a533, 0x40b073, 0x40b80e and 0x40bf96. They are read one each all the same,
+/// that being what the game does: a pair that stopped agreeing would be read right rather than half right.
+///
+/// **What puts a fraction there is not established.** The writes sit in per-character code, and the one at
+/// 0x4091b0 reaches the 1.0 off a timer comparison — `[player+0x16a20+0x18]` against `+0x8` — rather than off
+/// any key, so this is not simply 低速移動's own halving; that is not in the eight-way switch at 0x43f0f5
+/// either, which reads [`SPEED_STRAIGHT`] and [`SPEED_DIAGONAL`] and nothing else. Whatever selects it, it is
+/// written by the player's own update at priority 8, which runs *after* the supervisor's input read — so what a
+/// bot reads is the frame before's, and a frame that changes it is a frame projected with the wrong step.
+const PLAYER_SCALE_ACROSS: usize = 0x23f0;
+const PLAYER_SCALE_DOWN: usize = 0x23f4;
 const G_MOTION_SCALE: usize = 0x00575ac8;
 
 /// Whether a bomb is going off, `+0x16a20` of the player — the flag its own update branches on.

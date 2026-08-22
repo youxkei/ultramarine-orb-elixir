@@ -53,8 +53,8 @@ use super::{
     ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
     LASER_FAR, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_WIDTH, MENU_CANCEL,
     MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
-    PLAYER_POSITION, PLAYER_SPEED_SCALE, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL,
-    SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE,
+    SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -443,16 +443,16 @@ unsafe fn steer() -> Steered {
     // gets it there.
     let (straight, diagonal) = unsafe { a_step() };
     let lands = MOVES.map(|(_, dx, dy)| {
-        let step = if dx != 0.0 && dy != 0.0 {
+        let (across, down) = if dx != 0.0 && dy != 0.0 {
             diagonal
         } else {
             straight
         };
         std::array::from_fn::<_, LOOK_AHEAD, _>(|frame| {
-            let far = step * (frame + 1) as f32;
+            let frames = (frame + 1) as f32;
             (
-                (at.0 + dx * far).clamp(field.0, field.0 + field.2),
-                (at.1 + dy * far).clamp(field.1, field.1 + field.3),
+                (at.0 + dx * across * frames).clamp(field.0, field.0 + field.2),
+                (at.1 + dy * down * frames).clamp(field.1, field.1 + field.3),
             )
         })
     });
@@ -728,21 +728,30 @@ fn the_band(field: (f32, f32, f32, f32)) -> f32 {
     field.1 + field.3 * (1.0 - THE_BAND)
 }
 
-/// **What one frame of holding a direction moves the player by**, straight and diagonal, as the game works it
-/// out at 0x43f0f5 and 0x43f378: the speed off the struct the player points at, times the player's own scale,
-/// times [`G_MOTION_SCALE`].
+/// **What one frame of holding a direction moves the player by**, as the game works it out at 0x43f0f5 and
+/// 0x43f378: the speed off the struct the player points at, times the player's own scale, times
+/// [`G_MOTION_SCALE`] — and it comes back as the pair for a straight move and the pair for a diagonal one,
+/// across and down each time.
+///
+/// **A pair each way and not one number**, because the scale is per axis: 0x43f37b multiplies by
+/// [`PLAYER_SCALE_ACROSS`] and 0x43f39c by [`PLAYER_SCALE_DOWN`], and nothing says the two are equal. One of
+/// them standing in for both is a projection whose y is out by their ratio every frame the player moves.
 ///
 /// [`A_PROBE`] where any of it cannot be read or comes out as no step at all — a bot that stood still would be
 /// worse than one that moved by a guess, and outside a run there is nothing there to read.
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn a_step() -> (f32, f32) {
-    let scale = mem::read_committed::<f32>(G_PLAYER + PLAYER_SPEED_SCALE)
-        .zip(mem::read_committed::<f32>(G_MOTION_SCALE))
-        .map(|(own, motion)| own * motion);
+unsafe fn a_step() -> ((f32, f32), (f32, f32)) {
+    let motion = mem::read_committed::<f32>(G_MOTION_SCALE);
+    let scale = |of: usize| {
+        mem::read_committed::<f32>(G_PLAYER + of)
+            .zip(motion)
+            .map(|(own, motion)| own * motion)
+    };
+    let (across, down) = (scale(PLAYER_SCALE_ACROSS), scale(PLAYER_SCALE_DOWN));
     let speeds = mem::read_committed::<usize>(G_PLAYER + PLAYER_SPEEDS).filter(|at| *at != 0);
-    let step = |of: usize| {
+    let step = |of: usize, scale: Option<f32>| {
         speeds
             .zip(scale)
             .and_then(|(speeds, scale)| {
@@ -751,7 +760,10 @@ unsafe fn a_step() -> (f32, f32) {
             .filter(|step| step.is_finite() && *step > 0.0)
             .unwrap_or(A_PROBE)
     };
-    (step(SPEED_STRAIGHT), step(SPEED_DIAGONAL))
+    (
+        (step(SPEED_STRAIGHT, across), step(SPEED_STRAIGHT, down)),
+        (step(SPEED_DIAGONAL, across), step(SPEED_DIAGONAL, down)),
+    )
 }
 
 /// **What each kind of item is worth going for**, largest first — a life, a bomb, the big power item, the small
