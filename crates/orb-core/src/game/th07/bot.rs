@@ -183,6 +183,10 @@ struct Counted {
     lasers: u32,
     /// Of those, how many had not started hitting yet — a 予告線, judged for where its beam will be.
     warnings: u32,
+    /// And how many slots held a laser that was passed over for its phase, which is the one gate here taken
+    /// from a walk whose purpose was inferred rather than read: a card of beams that shows nought of them is
+    /// this number standing where the lasers should be.
+    phase_over: u32,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -451,13 +455,15 @@ fn said_what_took_it() {
     let of = was.counted;
     crate::detail!(
         "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
-         left out for having no body; {} laser(s), {} of them still only a warning{}",
+         left out for having no body; {} laser(s), {} of them still only a warning, with {} passed \
+         over for their phase{}",
         of.bullets,
         of.another_state,
         of.enemies,
         of.no_body,
         of.lasers,
         of.warnings,
+        of.phase_over,
         if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
             "; 低速 changed on that frame, so the step was the one before's"
         } else {
@@ -644,9 +650,21 @@ unsafe fn steer() -> Steered {
     // moves it, so a beam whose sweep speeds up or turns back is a beam this is late about.
     for slot in 0..LASER_SLOTS {
         let laser = G_LASERS + slot * LASER_BYTES;
-        if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0
-            || unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING
-        {
+        // **`+0x4d4` is the aliveness after all**, and the walk that owns the collision says so: 0x4263f9
+        // compares it with nothing and skips the slot where it is, from a base of `[this]+0x366628` — which is
+        // this same array, the constructor at 0x4233aa laying out its 0x40 slots of 0x4ec there.
+        //
+        // **So the beams that keep hitting the bot are not lasers.** 1面's last card and 6面's turning one both
+        // read every one of these slots as empty while they are on the screen, and taking the gate away instead
+        // put 57 of them in — stale geometry in slots holding nothing. Whatever those beams are, they are in the
+        // bullet manager, which the model already has; what it does not have is a way to say where a bullet goes
+        // when a script rather than its own step is moving it.
+        if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0 {
+            turns_no_more(slot);
+            continue;
+        }
+        if unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING {
+            counted.phase_over += 1;
             turns_no_more(slot);
             continue;
         }
