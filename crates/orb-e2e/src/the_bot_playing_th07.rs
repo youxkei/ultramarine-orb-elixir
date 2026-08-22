@@ -169,7 +169,7 @@ const NO_PLACE: i8 = 9;
 const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
 /// The y the rules wait at in that field, off its bottom edge — and the x they wait on with nothing to be
 /// under, which is the middle of it.
-const LOW: f32 = 400.0;
+const LOW: f32 = 384.0;
 const MIDDLE: f32 = 192.0;
 /// And how far off either side edge the x they wait on is held, as `bot::IN_FROM_THE_SIDE` has it.
 const IN_FROM_THE_SIDE: f32 = 48.0;
@@ -1062,6 +1062,55 @@ fn fire_below_the_player_is_not_counted_towards_a_box() {
     });
 }
 
+/// **Fire still on its way into the band is counted where it will be, not left out for not having arrived.**
+///
+/// A box is counted to decide where to *go*, and going there costs the frames of a crossing: two boxes at the
+/// game's own step is most of a second. Counted where everything is at this instant, the answer describes the
+/// field the bot is leaving rather than the one it will arrive in — so a wall that is a third of a second above
+/// the band reads as an empty box to stand under, and by the time it reads as fire the crossing that would have
+/// answered it no longer fits.
+///
+/// So a hazard counts towards the box it will be in when it comes into the window, as far ahead as
+/// `bot::THE_FRAMES_AHEAD`. Below the player it still does not count at all — that is fire which has gone past,
+/// and no amount of looking forward brings it back.
+#[test]
+fn fire_on_its_way_into_the_band_is_counted_where_it_will_be() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-fire-on-its-way-is-counted");
+        // Where the rules want to be with nothing to collect, so a move of any kind means the counting sent it.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // A wall above the band the counting looks at, descending into the box the player is standing in. Far
+        // enough up that the frames each move is followed for do not reach it, so nothing here is a dodge.
+        for slot in 0..40 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE - 16.0 + (slot % 8) as f32 * 4.0,
+                100.0 + (slot / 8) as f32 * 4.0,
+                (0.0, 3.0),
+                (4.0, 4.0),
+            );
+        }
+        // And a little on its way into the three boxes left of the rightmost, so the emptiest is the one box
+        // nothing is heading for rather than either of a pair of empty ones.
+        for slot in 40..49 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * [0.1, 0.3, 0.7][slot % 3],
+                100.0,
+                (0.0, 3.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot stood under a wall that had not arrived yet:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **A border broken is a hit, and the respawn taking one away is not.**
 ///
 /// The state a hit is noticed by is 2, the 決死結界 window — and 妖々夢's border is deflected at 0x441bd0
@@ -1183,6 +1232,49 @@ fn the_frames_before_a_hit_say_what_settled_the_place() {
         );
     });
 }
+
+/// **The line the bot waits on leaves a whole look-ahead of downward steps above the floor.**
+///
+/// Which is what four hits in a session came to, and the arithmetic says why: the line was 48 off the bottom and
+/// the frames looked at are twelve, so twelve downward steps of four put the player *at the clamp*. Every one of
+/// those hits was a dodge on the way down arriving at the floor with the crossing it was in the middle of still to
+/// do — a run went right to `222,432` with the emptiest box at `328` and was carried back to `118,432`, because at
+/// the floor there is no downwards and three of the nine are the wall.
+///
+/// **A height kept as a habit and not a bound reached in trouble**: the room a dodge needs is room it has to have
+/// before the trouble, since the frames looked at are the frames it has.
+#[test]
+fn the_line_the_bot_waits_on_leaves_a_look_ahead_of_room_below() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-wait-line-leaves-room");
+        // Well below the line, so the answer is how far up it goes rather than which way.
+        game.image()
+            .the_player_is_at(MIDDLE, FIELD.1 + FIELD.3 - 8.0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            UP,
+            "the bot did not come up off the floor:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        // And the line it is coming up to is far enough off the bottom that a whole look-ahead of downward steps
+        // still lands above it. Read off the place the rules want rather than asserted about a constant, since
+        // what matters is where the player ends up.
+        // **More than a look-ahead and not exactly one.** At 48 off the bottom with twelve frames of a step of
+        // four, the twelfth step down lands *on* the clamp — the room runs out on the last frame looked at, which
+        // is the frame the trouble arrives on.
+        let room = FIELD.1 + FIELD.3 - LOW;
+        assert!(
+            room > LOOK_AHEAD as f32 * A_STEP,
+            "the wait line is {room} off the bottom, which a look-ahead of downward steps covers \
+             exactly: {} leaves nothing after it",
+            LOOK_AHEAD as f32 * A_STEP,
+        );
+    });
+}
+
+/// The frames each candidate move is followed for, as `bot::LOOK_AHEAD` has it.
+const LOOK_AHEAD: usize = 12;
 
 /// **A bullet's own size is part of what a hit is**, and no two kinds of bullet have the same one.
 ///

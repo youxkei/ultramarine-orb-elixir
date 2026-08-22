@@ -85,7 +85,13 @@ pub fn bit(name: &str) -> Option<u16> {
 /// **A rule's own number and not a measurement of anything.** Against the edge outright is where the clamp at
 /// 0x43f474 holds the player with the whole of one side taken away from it, and this much up leaves the room a
 /// dodge needs on every side of it.
-const ABOVE_THE_BOTTOM: f32 = 48.0;
+///
+/// **More than [`LOOK_AHEAD`] downward steps and not exactly that many.** It was 48, which twelve frames of a
+/// step of four cover to the unit: a dodge that spends its whole look-ahead going down arrives at the clamp on
+/// the last frame it can see, so the room ran out on the very frame the trouble was picked for. Four hits in one
+/// session were that arithmetic — a run reached `222,432` with the emptiest box at `328` and was carried back to
+/// `118,432`, since at the clamp there is no downwards and three of [`MOVES`] are the wall.
+const ABOVE_THE_BOTTOM: f32 = 64.0;
 
 /// And how far in from either side edge the x the rules want is held, in the same units and for the same
 /// reason: a corner is where a dodge runs out of moves, three of the nine leading into the wall where the clamp
@@ -1769,10 +1775,11 @@ unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROS
         // fire above it is fire nothing it does can put it among — counting the whole column of each box
         // mixed that in and buried the difference the three are compared for: a run was hit in the middle of
         // the field with the middle thick, and the counting could not see it.
-        let (x, y) = unsafe { position(bullet + BULLET_POSITION) };
-        if y < the_counted_band(field) || y > above {
+        let at = unsafe { position(bullet + BULLET_POSITION) };
+        let step = unsafe { position(bullet + BULLET_STEP) };
+        let Some((x, _)) = where_it_comes_into(at, step, field, above) else {
             continue;
-        }
+        };
         fire[which_box(field, x)] +=
             how_much_it_fills(unsafe { mem::read::<f32>(bullet + BULLET_SIZE) });
     }
@@ -1790,6 +1797,9 @@ unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROS
         }
         let wide = how_much_it_fills(unsafe { mem::read::<f32>(enemy + ENEMY_SIZE) });
         for node in unsafe { the_trail(enemy) } {
+            // **Read where it is and not where it is going**, unlike a bullet: a node of a trail is a place the
+            // enemy has already been and it stays there. What moves is the enemy writing new ones, and the box
+            // it will write into next is the box it is over, which its own slot is counted in anyway.
             let (x, y) = unsafe { position(node) };
             if y < the_counted_band(field) || y > above {
                 continue;
@@ -1804,6 +1814,41 @@ unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROS
     fire[middle - 1] *= BESIDE_THE_MIDDLE_ANYWAY;
     fire[middle + 1] *= BESIDE_THE_MIDDLE_ANYWAY;
     fire
+}
+
+/// **How far ahead the boxes are counted**, in frames.
+///
+/// **Because going to a box costs frames, and the count is what decides to go.** The crossing the box rule asks
+/// for is up to two boxes — 154 of the game's units across a field of 384 — which at a step of a little over four
+/// is most of a second. Counted at this instant the answer describes the field being left rather than the one
+/// being arrived in: a wall a third of a second above the band reads as an empty box to stand under, and by the
+/// time it reads as fire there is no longer room for the crossing that would have answered it. Four hits in one
+/// session were that lag, each one a rule firing correctly and too late.
+///
+/// **Not the seconds it takes a pattern to develop**, which is what it would be if the number were about the
+/// game: at two seconds every bullet on the screen has left the field and the boxes all read empty.
+const THE_FRAMES_AHEAD: usize = 40;
+
+/// **Where a hazard first comes into the window the boxes are counted over**, within [`THE_FRAMES_AHEAD`], or
+/// nothing where it never does.
+///
+/// The window is [`the_counted_band`] down to `above`, the player's own row. Fire already inside it comes back at
+/// the place it is now, so what this adds is the fire on its way in — counted in the box it will be in when it
+/// gets there rather than the box it is over on the way.
+///
+/// **Below the player is out and stays out.** That is fire which has gone past, and a step carried forward does
+/// not bring it back: a bullet under the player is one whose whole future is further under it.
+fn where_it_comes_into(
+    at: (f32, f32),
+    step: (f32, f32),
+    field: (f32, f32, f32, f32),
+    above: f32,
+) -> Option<(f32, f32)> {
+    let band = the_counted_band(field);
+    (0..=THE_FRAMES_AHEAD).find_map(|frame| {
+        let (x, y) = (at.0 + step.0 * frame as f32, at.1 + step.1 * frame as f32);
+        (y >= band && y <= above).then_some((x, y))
+    })
 }
 
 /// **The addresses of the boxes an enemy's trail is**, which is the beam that follows it.
