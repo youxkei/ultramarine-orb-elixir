@@ -88,6 +88,11 @@ pub enum Until {
     /// the title menu's items and every screen after it is another list, so a recipe that counted taps instead
     /// would be a recipe written against one machine's unlocks.
     Cursor(i32),
+    /// **That item of that screen**, which is what a list has to be named by: the cursor is one field whatever
+    /// screen is up, so waiting for a number alone waits for whichever screen reaches it first. A launch
+    /// walking into 面別プラクティス put the difficulty on Lunatic that way — the 3 it was waiting for was the
+    /// difficulty's fourth item and not the stage's.
+    Where { screen: i32, cursor: i32 },
     /// Or that many frames having gone by.
     Frames(u32),
 }
@@ -123,6 +128,7 @@ struct WrittenUntil {
     stage: Option<i32>,
     chapter: Option<u32>,
     question: Option<String>,
+    screen: Option<i32>,
     cursor: Option<i32>,
     frames: Option<u32>,
 }
@@ -133,17 +139,26 @@ impl WrittenUntil {
             self.stage,
             self.chapter,
             &self.question,
+            self.screen,
             self.cursor,
             self.frames,
         ) {
-            (Some(stage), Some(chapter), None, None, None) => Ok(Until::Chapter { stage, chapter }),
-            (None, None, Some(question), None, None) => Ok(Until::Question(question.clone())),
-            (None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
-            (None, None, None, None, Some(0)) => Err(format!("step {at} is over before it starts")),
-            (None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
+            (Some(stage), Some(chapter), None, None, None, None) => {
+                Ok(Until::Chapter { stage, chapter })
+            }
+            (None, None, Some(question), None, None, None) => Ok(Until::Question(question.clone())),
+            (None, None, None, Some(screen), Some(cursor), None) => {
+                Ok(Until::Where { screen, cursor })
+            }
+            (None, None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
+            (None, None, None, None, None, Some(0)) => {
+                Err(format!("step {at} is over before it starts"))
+            }
+            (None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
             _ => Err(format!(
-                "step {at} waits for a stage and a chapter, a question, an item the cursor is on, \
-                 or a count of frames, and for one of the four"
+                "step {at} waits for a stage and a chapter, a question, an item the cursor is on \
+                 with or without the screen it is a list of, or a count of frames, and for one of \
+                 those"
             )),
         }
     }
@@ -304,6 +319,27 @@ mod tests {
         );
         // And not with anything else beside it, an `until` being one of the four and not a set of conditions.
         assert!(read("- press: [down]\n  until: { cursor: 2, stage: 1 }\n").is_err());
+    }
+
+    /// **And the screen the list belongs to beside the item**, since the cursor is one field whatever screen is
+    /// up: a launch waiting for item 3 of the stage list got item 3 of the difficulty list and put the run on
+    /// Lunatic.
+    #[test]
+    fn a_press_can_be_tapped_until_the_cursor_is_on_an_item_of_a_screen() {
+        assert_eq!(
+            read("- press: [down]\n  frames: 10\n  until: { screen: 11, cursor: 3 }\n"),
+            Ok(vec![Step::Press {
+                buttons: vec!["down".to_owned()],
+                frames: 10,
+                until: Some(Until::Where {
+                    screen: 11,
+                    cursor: 3,
+                }),
+                give_up_after: None,
+            }]),
+        );
+        // The screen alone names no item, so it is not an `until` of its own.
+        assert!(read("- press: [down]\n  until: { screen: 11 }\n").is_err());
     }
 
     /// **A step can say how long it is worth waiting through**, which is what stops a recipe holding a launch

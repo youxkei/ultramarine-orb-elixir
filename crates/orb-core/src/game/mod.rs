@@ -1537,6 +1537,15 @@ pub trait Game {
         None
     }
 
+    /// **Which of the front end's screens is up**, by whatever number the game keeps for it, and `None` off the
+    /// front end — or from a game whose screens nobody has read.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn front_end_screen(&self) -> Option<i32> {
+        None
+    }
+
     /// **Whether the game is on the update that runs while a stage is still being built**, where the
     /// replay's own clock does not exist yet and the player and the play field read as zeroes.
     ///
@@ -1615,6 +1624,10 @@ pub struct Reached {
     /// Which is what makes the front end's screens walkable at all: a recipe cannot see what the items of a
     /// list *are*, so it names the one it wants by where it sits and taps until the cursor is there.
     pub cursor: Option<i32>,
+    /// **Which screen of the front end that cursor is a list of**, and nothing off one. The cursor is one field
+    /// whatever screen is up, so an item named without this is an item of whichever list reaches the number
+    /// first — which put a run on Lunatic once.
+    pub screen: Option<i32>,
     /// **Whether the run is over**, which is what makes a `play` step end: there is nothing left to play, the
     /// game is on its own screen for it, and the rules press nothing there — so a step that waited for a stage
     /// would wait out its whole bound saying `still waiting` while nothing happened.

@@ -4250,6 +4250,14 @@ impl Game for Th07 {
         Some(cursor)
     }
 
+    /// Which screen of the front end is up, out of the same object: `+0xd0f8`, which is [`SCREEN_TITLE`] on the
+    /// title and the numbers a launch's own `front end:` lines name for the rest — 8 the difficulty, 9 the
+    /// character, 10 the shot and 11 the stage.
+    unsafe fn front_end_screen(&self) -> Option<i32> {
+        let front = unsafe { Self::chain_argument(FRONT_END_UPDATE) }?;
+        mem::read_committed::<i32>(front + FRONT_END_SCREEN)
+    }
+
     unsafe fn mid_build(&self) -> bool {
         unsafe { self.reproduced() }.replay_frame < 0
     }

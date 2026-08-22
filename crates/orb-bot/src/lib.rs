@@ -94,6 +94,7 @@ enum Wait {
     Chapter { stage: i32, chapter: u32 },
     Question(Question),
     Cursor(i32),
+    Where { screen: i32, cursor: i32 },
     Frames(u32),
 }
 
@@ -190,6 +191,7 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
     Some(match until {
         Until::Chapter { stage, chapter } => Wait::Chapter { stage, chapter },
         Until::Cursor(item) => Wait::Cursor(item),
+        Until::Where { screen, cursor } => Wait::Where { screen, cursor },
         Until::Frames(frames) => Wait::Frames(frames),
         Until::Question(name) => Wait::Question(match name.as_str() {
             "mode" => Question::Mode,
@@ -325,6 +327,11 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         // **At and not past**, a cursor being a thing that goes round: a list walked one item at a time reaches
         // every item on the way, and a step that ended at "past" would end on the frame the screen came up.
         Wait::Cursor(item) => reached.cursor == Some(*item),
+        // **The screen as well as the item**, the cursor being one field whatever list is up: waiting for a
+        // number alone waits for whichever screen reaches it first, which put a run on Lunatic.
+        Wait::Where { screen, cursor } => {
+            reached.screen == Some(*screen) && reached.cursor == Some(*cursor)
+        }
         Wait::Frames(wanted) => frames >= *wanted,
     }
 }
@@ -345,6 +352,7 @@ mod tests {
             chapter: 1,
             question,
             cursor: None,
+            screen: None,
             over: false,
         }
     }
