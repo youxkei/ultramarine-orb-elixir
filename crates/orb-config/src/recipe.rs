@@ -3,12 +3,12 @@
 //! ```yaml
 //! - press: { buttons: [decide], frames: 2 }
 //! - play: { until: { stage: 2, chapter: 3 } }
-//! - press: { buttons: [cancel], frames: 2 }
+//! - leave
 //! - wait: { until: { question: resume } }
 //! - quit
 //! ```
 //!
-//! **Four steps, and the difference between two of them is the whole reason for a recipe.** A `press` holds a
+//! **Five steps, and the difference between two of them is the whole reason for a recipe.** A `press` holds a
 //! word for a number of frames, which is what a screen takes: a screen answers the same way however long the
 //! run before it took. A `play` hands the frames to the game's own rules until something is *reached*, which
 //! is what a stage takes: how many frames stage 1 costs is not a number anybody can write down, so a recipe
@@ -16,6 +16,11 @@
 //!
 //! `wait` is a `press` of nothing with an `until` — the frames a screen takes to come up are as unwritable as
 //! a stage's. `quit` closes the game, which is the last step of a recipe nobody is watching.
+//!
+//! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
+//! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
+//! from the pause menu, and it is *that* interruption a resume is for. So a recipe that measures one says both:
+//! leave the run, and then close the game.
 //!
 //! **And a `press` with an `until` of its own is a tap**: down for its frames, up for as many, over and over
 //! until what it waits for is reached. Which is how a run is *started* without counting the screens on the way
@@ -67,6 +72,13 @@ pub enum Step {
         until: Until,
         give_up_after: Option<u32>,
     },
+    /// **The run given up for the title**, which is how a session is interrupted rather than killed: the run
+    /// ends, and the file it was written down in is the one the next launch offers to pick up.
+    ///
+    /// Which is what [`Step::Quit`] cannot be. Closing the process leaves a run nobody left — no last frame, no
+    /// line saying the run ended — and the interruption a resume is *for* is the other one, somebody going back
+    /// to the title from the pause menu.
+    Leave,
     /// The game closed, which is a recipe nobody is watching having finished.
     Quit,
 }
@@ -125,6 +137,7 @@ struct Written {
     give_up_after: Option<u32>,
     play_until: Option<WrittenUntil>,
     wait_until: Option<WrittenUntil>,
+    leave: Option<bool>,
     quit: Option<bool>,
 }
 
@@ -207,6 +220,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 give_up_after,
                 play_until: None,
                 wait_until: None,
+                leave: None,
                 quit: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
@@ -225,6 +239,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 give_up_after,
                 play_until: Some(until),
                 wait_until: None,
+                leave: None,
                 quit: None,
             } => Step::Play {
                 until: until.read(at)?,
@@ -237,6 +252,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 give_up_after,
                 play_until: None,
                 wait_until: Some(until),
+                leave: None,
                 quit: None,
             } => Step::Wait {
                 until: until.read(at)?,
@@ -249,11 +265,23 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 give_up_after: None,
                 play_until: None,
                 wait_until: None,
+                leave: Some(true),
+                quit: None,
+            } => Step::Leave,
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
                 quit: Some(true),
             } => Step::Quit,
             _ => {
                 return Err(format!(
-                    "step {at} is a press, a play_until, a wait_until or a quit, and one of the four"
+                    "step {at} is a press, a play_until, a wait_until, a leave or a quit, and one \
+                     of the five"
                 ));
             }
         };
@@ -274,6 +302,7 @@ mod tests {
             read(
                 "- press: [decide]\n  frames: 2\n\
                  - play_until: { stage: 2, chapter: 3 }\n\
+                 - leave: true\n\
                  - wait_until: { question: resume }\n\
                  - quit: true\n"
             ),
@@ -291,6 +320,7 @@ mod tests {
                     },
                     give_up_after: None,
                 },
+                Step::Leave,
                 Step::Wait {
                     until: Until::Question("resume".to_owned()),
                     give_up_after: None,

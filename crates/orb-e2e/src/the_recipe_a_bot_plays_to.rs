@@ -213,6 +213,71 @@ fn a_step_ends_where_a_boss_is_up() {
     });
 }
 
+/// **A step gives the run up for the title**, which is how a session is interrupted rather than killed.
+///
+/// `quit` ends the process where it stands, and what that leaves is a run nobody left: no last frame, no line
+/// saying the run ended, and a resume file holding whatever the last chapter wrote. What somebody playing does
+/// instead is go back to the title from the pause menu — the run ends, and the file it was written down in is
+/// the one the next launch offers. Which is the interruption a resume is *for*, so it is the one a recipe has to
+/// be able to make.
+///
+/// **orb's own way out and not the menu's**, which is what `Th07::leave_run` already does for the retry menu's
+/// third choice: the shown score caught up with the run's, the game's own menu flag cleared, and the front end
+/// asked for. The pause menu asks for the screen a run ends on instead and that screen is drawn — a launch
+/// showed a frame or two of its background — and a run given up is not a run anybody is being shown the score
+/// of.
+#[test]
+fn a_step_gives_the_run_up_for_the_title() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-leaving-the-run",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- leave: true\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        // **The front end laid out before the run**, which is a launch's own order and what leaving needs: the
+        // scene the run is given up to is that one, and a game asked to go back to a screen it was never on is a
+        // game reading an object nothing made.
+        game.image().the_front_end_is_up();
+        game.image().the_player_is_playing();
+        game.image().is_playing(1, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+
+        words(&game, 4);
+        assert_eq!(
+            game.image().the_scene_wanted(),
+            game.image().scene_of_the_front_end(),
+            "the run was not put on its way to the title:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log().said("autoplay: step 1 of 2 leaves the run"),
+            "leaving was not said:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        // And the step is over, the asking being the whole of it: what a recipe does next is its own business,
+        // and the one this is written for closes the game.
+        //
+        // **Said rather than pressed**, because there is no run left to press into: the word a step hands over
+        // after this one goes where the front end's own screens read it, and the word this test can see is the
+        // run's.
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end with the asking:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **And a midboss is not the boss it waits for**, the midsection carrying on after one.
 ///
 /// A step waiting for a boss ended at 4面's midboss, which is a third of the way into the midsection it was

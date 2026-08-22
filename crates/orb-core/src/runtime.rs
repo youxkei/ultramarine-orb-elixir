@@ -430,6 +430,19 @@ pub fn close_the_game() {
     orb_api::process::exit(0);
 }
 
+/// **The run given up for the title**, for whatever is playing the run wanting to leave it rather than end the
+/// process. Says whether there was a run to leave.
+///
+/// The same thing the retry menu's own third choice does, and by the same call — see [`give_up`]. Here so that
+/// a recipe can ask for it: closing the process leaves a run nobody left, and the interruption a resume is for
+/// is somebody going back to the title.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn give_the_run_up(game: &dyn Game) -> bool {
+    unsafe { give_up(game) }
+}
+
 /// Installs one, or takes what is there out.
 ///
 /// # Safety

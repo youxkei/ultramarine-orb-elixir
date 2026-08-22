@@ -27,7 +27,8 @@
 //!   give_up_after: 3600
 //! - play_until: { stage: 2, chapter: 3 }    # play by the rules as far as stage 2's midboss
 //!   give_up_after: 36000                    # or close, a run that died leaving a menu the rules do not press
-//! - quit: true                             # closed in the middle, which is what leaves a run to pick up
+//! - leave: true                            # the run given up for the title, which is how a session is
+//! - quit: true                             # interrupted — and then the game closed
 //! ```
 //!
 //! **What each name is, is the game's** — `Game::button_bit`, `decide` being a shot and a return key in 妖々夢
@@ -41,12 +42,12 @@
 use std::sync::Mutex;
 
 use orb_config::recipe::{self, Until};
-
-/// The rules a stage is played by, which is what a recipe falls through to.
-mod steer;
 use orb_core::game::{Game, Question, Reached};
 use orb_core::log;
 use orb_core::runtime;
+
+/// The rules a stage is played by, which is what a recipe falls through to.
+mod steer;
 
 /// The recipe this launch is playing to and where it has got to, or `None` for a recipe that could not be
 /// read.
@@ -94,6 +95,7 @@ enum Step {
         until: Wait,
         give_up_after: Option<u32>,
     },
+    Leave,
     Quit,
 }
 
@@ -178,6 +180,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                 },
                 None => return,
             },
+            recipe::Step::Leave => Step::Leave,
             recipe::Step::Quit => Step::Quit,
         };
         steps.push(step);
@@ -272,6 +275,24 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             unsafe { steer::word_to_press(game) },
             waited(until, reached, playing.frames),
         ),
+        // **The run left for the title, and the step over with the asking.** What a recipe does after it is its
+        // own business — the one this was written for closes the game — and there is nothing to wait for here:
+        // the game's own half of leaving is a scene it changes on its own time, and a step that waited for it
+        // would be a step waiting on a screen this cannot see.
+        Step::Leave => {
+            let left = unsafe { orb_core::runtime::give_the_run_up(game) };
+            log!(
+                "autoplay: step {} of {} leaves the run{}",
+                playing.at + 1,
+                playing.steps.len(),
+                if left {
+                    ""
+                } else {
+                    ", and there was none to leave"
+                },
+            );
+            (0, true)
+        }
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which
         // one the launch stopped on, and the game is asked to close.
         Step::Quit => {
@@ -302,7 +323,9 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             Step::Play { give_up_after, .. } => {
                 reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
-            Step::Quit => false,
+            // Neither has anything to wait for, so neither has a bound to reach: one asks the run to end and
+            // the other asks the process to, and both are over on the frame they are asked on.
+            Step::Leave | Step::Quit => false,
         };
     if over || gave_up {
         playing.at += 1;
