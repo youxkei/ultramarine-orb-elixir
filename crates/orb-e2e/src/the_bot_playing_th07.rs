@@ -528,8 +528,15 @@ fn an_enemys_own_body_is_part_of_what_a_hit_is() {
 /// move it was taken on had twenty units of room — which is not a hitbox got wrong but a hazard that is not in
 /// the model at all.
 ///
-/// One straight down the player's own column and wide enough to cover it, so the way out is sideways; and then
-/// the same one past the phase the game's own walks stop looking at, which is nothing to leave for.
+/// One straight down the player's own column and wide enough to cover it, so the way out is sideways — and it
+/// stays a thing to leave once it is fading, which is what a hit measured.
+///
+/// **A fading beam still hits.** This asserted the opposite, off a reading of the wrong walk: the phase at
+/// `+0x4e8` is what the two *bullet* walks stop at — 0x4188eb and 0x424864, which decide whether a beam deletes
+/// a bullet — and the player's own test is called from all three of the phase branches at 0x42657a. 0x426727 is
+/// the phase 0 call, gated on the 予告線's timer; 0x4267ec is phase 1's and 0x4269a5 is phase 2's, and neither
+/// has a gate before it at all. A run was hit at `201.1,356.0` with every one of the nine moves reporting
+/// between 70 and 99 units of room and the model holding `0 laser(s) … with 20 passed over for their phase`.
 #[test]
 fn the_bot_leaves_a_laser_that_is_firing() {
     in_its_own_process(|| {
@@ -554,10 +561,10 @@ fn the_bot_leaves_a_laser_that_is_firing() {
 
         game.image().the_laser_is_fading(7);
         game.frames(1);
-        assert_eq!(
-            game.image().the_word_the_run_acts_on() & PAD,
-            0,
-            "the bot left for a laser the game had stopped looking at:\n  {}",
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed == LEFT || pressed == RIGHT,
+            "the bot stood in a fading laser, pressing {pressed:#05x}:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -749,31 +756,47 @@ fn a_beam_that_follows_an_enemy_is_every_place_it_has_been() {
     });
 }
 
-/// **And each of those places is one of the fire the thirds are counted by.**
+/// **And the bot keeps a distance from every one of those places, whatever the box each one is says.**
 ///
-/// Which is the half of it the dodging cannot do: the nine moves ask whether *this* frame's step is hit, so a
-/// third with a beam laid across it is a third the bot will stand in for as long as the next twelve frames
-/// happen to be survivable. A beam is a screen's worth of boxes carried by one enemy, so counting only the
-/// bullets reads the third it crosses as the emptiest place there is — and sends the bot into it.
+/// The box a node is tested as is the enemy's own size over one and a half and halved again — a couple of units
+/// for 6面's spiral — so a beam a few units off the player is one every move reads as clear right up to the
+/// frame it is not. What was tried for that was weighting those boxes heavily in the fire each box of the field
+/// holds, and it answers a different question: the counting says which of five boxes to *wait* in and nothing
+/// about how near the beam the bot may stand inside one. Six hits across four practices were inside a spiral the
+/// counting had already sent it away from.
+///
+/// So the trail is out of the counting and the clearance is a bound on the dodge: `bot::CLEAR_OF_A_BEAM` on
+/// every side of each place the enemy has been.
 #[test]
-fn the_places_a_beam_has_been_are_counted_in_its_own_box() {
+fn the_bot_keeps_its_distance_from_every_place_a_beam_has_been() {
     in_its_own_process(|| {
-        let game = in_a_stage("th07-a-beam-counts-in-its-third");
-        // Standing where it would otherwise wait, with the two outer thirds empty.
+        let game = in_a_stage("th07-a-beams-own-room");
         game.image().the_player_is_at(MIDDLE, LOW);
+        // The enemy itself right out of the way, so nothing but its trail can be what the bot moves for.
         game.image()
             .an_enemy_of_size_is_at(4, FIELD.0 + 8.0, FIELD.1 + 8.0, (8.0, 8.0));
-        // A beam filling the middle third inside the band, well clear of the player so that nothing about it is
-        // a dodge of the frame — what it has to change is where the bot wants to be.
-        let trail: Vec<(f32, f32)> = (0..240)
-            .map(|n| (MIDDLE + (n % 6) as f32 * 4.0, LOW - 60.0 - (n / 6) as f32))
+        // A beam standing twenty-eight to the player's left, which is past everything the box of one node
+        // reaches — the enemy's own size over one and a half and halved, the player's own box, and
+        // `bot::ROOM_TO_SPARE` on top of both — and inside the room the bot is to keep. **Beside it rather than
+        // above it**, so that the way clear is one direction and the answer cannot be a step the rules would have
+        // taken anyway: the y the rules want is the y the player is already at, and with nothing near they press
+        // nothing at all.
+        //
+        // **And a run of nodes the game tests exactly one of**, which is the second: it walks them from the first
+        // every sixth, so seven places leave one box of fire in the box the player is standing in — under what
+        // the counting leaves a box for, and a beam of two would be over it. So what moves the bot here is the
+        // distance and nothing else.
+        let trail: Vec<(f32, f32)> = (0..7)
+            .map(|n| (MIDDLE - 28.0, LOW + 4.0 - n as f32 * 4.0))
             .collect();
         game.image().the_enemy_has_been_at(4, &trail);
         game.frames(1);
         let pressed = game.image().the_word_the_run_acts_on() & PAD;
-        assert!(
-            pressed & (LEFT | RIGHT) != 0,
-            "the bot waited in the third a beam was laid across, pressing {pressed:#05x}:\n  {}",
+        assert_eq!(
+            pressed & (LEFT | RIGHT),
+            RIGHT,
+            "the bot stood twenty-eight units off a beam it is to keep clear of, pressing \
+             {pressed:#05x}:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

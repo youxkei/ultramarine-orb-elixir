@@ -244,10 +244,14 @@ struct Counted {
     lasers: u32,
     /// Of those, how many had not started hitting yet — a 予告線, judged for where its beam will be.
     warnings: u32,
-    /// And how many slots held a laser that was passed over for its phase, which is the one gate here taken
-    /// from a walk whose purpose was inferred rather than read: a card of beams that shows nought of them is
-    /// this number standing where the lasers should be.
-    phase_over: u32,
+    /// And how many of them are fading, which is [`LASER_FADING`] of their phases through. Judged like any
+    /// other, and worth saying because the width read for one is [`LASER_WIDTH`] while what the game is testing
+    /// against by then is narrower — 0x42691c takes the timer over `+0x4cc` off it. So a beam left too eagerly
+    /// is this number standing where the room should be.
+    ///
+    /// It was the count of lasers *skipped* for their phase, and the skip was the wrong walk's gate — see where
+    /// the lasers are read.
+    fading: u32,
     /// And how many bullets no step of their own explains, with the x they are spread about where those are
     /// enough to be a beam a script is sweeping — see [`a_sweep`].
     swept: u32,
@@ -788,15 +792,15 @@ fn said_what_took_it() {
     );
     crate::detail!(
         "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
-         left out for having no body; {} laser(s), {} of them still only a warning, with {} passed \
-         over for their phase{}{}",
+         left out for having no body; {} laser(s), {} of them still only a warning and {} of them \
+         fading{}{}",
         of.bullets,
         of.another_state,
         of.enemies,
         of.no_body,
         of.lasers,
         of.warnings,
-        of.phase_over,
+        of.fading,
         match of.no_body_at {
             Some((at, apart)) => {
                 format!(
@@ -1284,9 +1288,10 @@ unsafe fn steer() -> Steered {
                 (0.0, 0.0)
             },
         );
-        // **And every place it has been, each its own box.** A beam that follows an enemy is its trail, tested
-        // box by box against the player at 0x4210cd with the enemy's own size — so each of them is a hazard of
-        // exactly the kind a bullet is, and one enemy can carry a screen's worth of them.
+        // **And every place it has been, each its own box, with [`CLEAR_OF_A_BEAM`] kept round it.** A beam that
+        // follows an enemy is its trail, tested box by box against the player at 0x4210cd with the enemy's own
+        // size — so each of them is a hazard of exactly the kind a bullet is, and one enemy can carry a screen's
+        // worth of them.
         //
         // **Standing still, because a place already gone to does not move.** The trail holds where the enemy
         // *was*, so the shape of it is fixed in space and only its ends come and go: the projection is the
@@ -1299,8 +1304,8 @@ unsafe fn steer() -> Steered {
                 unsafe { position(node) },
                 (0.0, 0.0),
                 (
-                    sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
-                    sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
+                    sx / ENEMY_BOX_OF_ITS_SIZE / 2.0 + CLEAR_OF_A_BEAM,
+                    sy / ENEMY_BOX_OF_ITS_SIZE / 2.0 + CLEAR_OF_A_BEAM,
                 ),
                 (0.0, 0.0),
             );
@@ -1334,11 +1339,12 @@ unsafe fn steer() -> Steered {
             turns_no_more(slot);
             continue;
         }
-        if unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING {
-            counted.phase_over += 1;
-            turns_no_more(slot);
-            continue;
-        }
+        // **And no gate on the phase**, which is the wrong walk's gate: the two that stop at [`LASER_FADING`]
+        // are the *bullet* ones, 0x4188eb and 0x424864, deciding whether a beam deletes a bullet. The player's
+        // own test is called from every branch of the phase switch at 0x42657a — 0x426727 for phase 0, behind
+        // the 予告線 timer, and 0x4267ec and 0x4269a5 for phases 1 and 2 with no gate before them at all. A
+        // fading beam narrows and goes on hitting while it does, and a run was hit at `201.1,356.0` with the
+        // model holding no lasers and twenty of them thrown away here.
         let fires_in = unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }
             - unsafe { mem::read::<i32>(laser + LASER_TIMER) };
         // **Judged whatever frame it fires on, and counted so a hit says how many were only warnings.** The
@@ -1351,6 +1357,9 @@ unsafe fn steer() -> Steered {
         counted.lasers += 1;
         if fires_in > 0 {
             counted.warnings += 1;
+        }
+        if unsafe { mem::read::<u8>(laser + LASER_PHASE) } >= LASER_FADING {
+            counted.fading += 1;
         }
         let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
         let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
@@ -1698,6 +1707,26 @@ unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
 /// standing 64 from fire either side.
 const BOXES_ACROSS: usize = 5;
 
+/// **The room the bot keeps on every side of each place a beam-carrying enemy has been**, on top of the box that
+/// place is tested as.
+///
+/// The box itself is the enemy's own size over [`ENEMY_BOX_OF_ITS_SIZE`] and halved again, which for 6面's spiral
+/// is a couple of units — so a beam a few units off the player is one every move reads as clear on the frame
+/// before it is not, and the trail's own boxes are the only hazard in this game a *line* is made of. Grazing a
+/// line is not the same trade as grazing a bullet: a bullet is gone next frame and the line is where the enemy
+/// will lay the next node.
+///
+/// **A judgement, and what it replaced.** The trail used to be weighted heavily in [`the_fire_in_each_box`]
+/// instead, at twelve bullets a node — which answers which of the five boxes to *wait* in and says nothing about
+/// how near the beam the bot may stand inside one. Six hits across four practices were inside a spiral that the
+/// counting had already sent it away from.
+///
+/// **Doubled from twelve**, which was about the spacing the tested nodes have — every
+/// [`super::ENEMY_TRAIL_EVERY`] of them — and so the distance that makes the line solid rather than a row of dots
+/// with gaps to squeeze through. That much is what the line *is*; this much is room to be wrong about where it
+/// will be next, which a line laid down by something moving needs and a bullet does not.
+const CLEAR_OF_A_BEAM: f32 = 24.0;
+
 /// **The smallest bullet this game fires, which is the unit the fire in a box is counted in.**
 ///
 /// The sizes are written at spawn and there are six of them — 4 at 0x423a4e up to 24 at 0x4275ca — so counting
@@ -1705,17 +1734,6 @@ const BOXES_ACROSS: usize = 5;
 /// how much of its width they take. A 大玉 is six of these across, and three of them across a box is a wall
 /// where three 米弾 is a gap.
 const A_SMALL_ONE: f32 = 4.0;
-
-/// **And what a beam's own box is worth against a bullet of the same width.**
-///
-/// A bullet crosses the band and is gone, so a box full of them is a box with a run of good frames coming;
-/// the places an enemy has been do not move at all, so a box a beam lies across has none.
-///
-/// **A judgement and not a measurement**, and it has been raised twice: at three, a run was hit inside 6面's
-/// spiral holding twenty-four of the beam's own boxes; at six, another was hit at `236.6,389.9` with the boxes
-/// holding `15.0, 13.5, 106.0, 162.4, 17.5` — the box left in time by a rule that fired too late to cross out of
-/// it. Twelve is what makes a beam's arrival read while it is still arriving.
-const A_BEAM_OVER_A_BULLET: f32 = 12.0;
 
 /// **How much of a box one hazard of a given size fills**, in [`A_SMALL_ONE`]s squared.
 ///
@@ -1783,10 +1801,17 @@ unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROS
         fire[which_box(field, x)] +=
             how_much_it_fills(unsafe { mem::read::<f32>(bullet + BULLET_SIZE) });
     }
-    // **And every place a beam-carrying enemy has been counts as one of them.** A beam that follows an enemy is
-    // its trail, and the game tests the player against each of those boxes exactly as it does a bullet — so a
-    // box with a beam laid across it is a box full of fire, and one that counted only the bullets read the
-    // spiral 6面 fires as an empty place to stand.
+    // **And every place a beam-carrying enemy has been counts as one of them, at its own size and no more.** A
+    // beam that follows an enemy is its trail, and the game tests the player against each of those boxes exactly
+    // as it does a bullet — so a box with a beam laid across it is a box holding that much fire, and one that
+    // counted only the bullets read the spiral 6面 fires as an empty place to stand.
+    //
+    // **Its own size and not a multiple of it.** Each node was worth twelve bullets of its width here, which was
+    // raised twice to make a beam's arrival read in time — and what that was reaching for is a distance rather
+    // than a count: six hits across four practices were inside a spiral this counting had already sent the bot
+    // away from, in the emptier box the beam reached into. That is [`CLEAR_OF_A_BEAM`]'s to answer, kept round
+    // every node by the dodge, and with it there a node weighted twelvefold only buries the difference the five
+    // boxes are compared for.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
         if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
@@ -1804,7 +1829,7 @@ unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROS
             if y < the_counted_band(field) || y > above {
                 continue;
             }
-            fire[which_box(field, x)] += wide * A_BEAM_OVER_A_BULLET;
+            fire[which_box(field, x)] += wide;
         }
     }
     // **The middle discounted, and the two beside it discounted less.** The converging a pattern does is a thing
