@@ -993,6 +993,16 @@ taken at the start of a transitioned-into 2面 held against one taken at the sta
 regions, and there is no need to guess a field. A fix that works turns `0x096e` against `0x0f8d` into no parting
 line at all.
 
+**The numbers a build fills in are where the next reading goes.** 0x42e89b jumps to 0x42eee6 where the scene
+asked for is the rebuild one, so a stage the run walks into is a stage the game never filled a run's numbers
+into — and a resume enters every stage on the other side of that jump, where it does. Which means any field
+that block writes and the resume does not put back is a field the original run *carried* and the replay gets a
+build's default for. Read off the block, the run object's `+0x08`, `+0x0c` (set to 100000) and `+0x20` are
+written there and are in none of `Numbers`, and so are `[gamemanager+0x9628]`, `+0x93d4` and the pair
+`+0x9618`/`+0x961c`/`+0x9620` the character walk writes. The game's own replay record is the list to hold that
+against: 0x443288 onwards fills a stage's entry from the run object, which is the game enumerating what a stage
+of a run in progress has to be restarted from.
+
 ### The recipes the resume's own parting is measured with
 
 The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run
@@ -1008,21 +1018,38 @@ What the copy needs is `th07.exe`, `th07.dat`, `thbgm.dat`, `th07.cfg` and `scor
 The copy has to be somewhere a Windows process can open, which a path under this repository is not — the
 recipe is read by the game's own process, at the attach.
 
-**Two launches and no pause menu.** A run wants closing in the middle for a resume to have anything to pick up,
-and `quit` closes the game where it stands; leaving through the pause menu instead would be a cursor to walk
-down a screen a recipe cannot see the items of.
+**Two launches, and the run left the way somebody leaves one.** `leave: true` is the step for it — the pause
+menu walked to タイトルへ, which is what a player does and so what the file has to be written by. `quit` on its
+own closes the game where it stands, which is the harder half of the same scenario and not the one somebody
+meets first.
 
-`played-into-stage-2.yaml`, beside that copy's exe since the game's own process is what reads it:
+`from-the-beginning-to-the-second-midboss.yaml`, beside that copy's exe since the game's own process is what
+reads it:
 
 ```yaml
-- press: [decide]                        # the title, the difficulty, the character, the shot and orb's own
-  frames: 10                             # question, and stopping once the run is actually running
+- press: [decide]                         # the run chosen, which is what brings orb's own question up
+  frames: 30
+  until: { question: resume }
+  give_up_after: 1800
+- wait_until: { frames: 20 }              # `mode::INPUT_GRACE_FRAMES`, which swallows a press inside them
+- press: [down]                           # はじめから, the second of the question's two items
+  frames: 2
+- press: [decide]
+  frames: 10
   until: { stage: 1, chapter: 1 }
-  give_up_after: 3600
-- play_until: { stage: 2, chapter: 3 }    # the rules, as far as 2面's midboss
+  give_up_after: 1800
+- play_until: { stage: 2, chapter: 3 }     # the rules, as far as 2面's own midboss
   give_up_after: 36000
+- leave: true                              # the pause menu to タイトルへ, which ends the run and writes the file
+- wait_until: { frames: 300 }              # the game's own half of leaving: the run torn down, the title built
 - quit: true
 ```
+
+**はじめから is chosen and not fallen into.** つづきから is the item orb's question comes up on, so a launch
+that taps its way through the front end picks the *old* file up instead of starting anything — which three
+launches of this did without saying so. And the press is held for thirty frames rather than tapped: the
+question is answered on an edge, so a tap lets go and presses again inside the grace frames, and that second
+press is つづきから.
 
 **Every step that could wait for something that will not happen says how long it is worth waiting through.** A
 run that dies before stage 2 leaves orb's own retry menu up, which the rules do not press — and a launch left
@@ -1038,16 +1065,29 @@ at its starting position until something shot it — `player=192.00,384.00` for 
 `took-the-run-back.yaml`:
 
 ```yaml
-- wait_until: { question: resume }
+- press: [decide]                         # the run chosen, which is what brings the question up
+  frames: 30
+  until: { question: resume }
   give_up_after: 1800
-- press: [decide]
+- wait_until: { frames: 20 }
+- press: [decide]                         # つづきから, the item the question comes up on
   frames: 2
-- play_until: { frames: 600 }             # long enough for the reproduction lines to part
+- wait_until: { frames: 60 }              # closed the moment it has landed
 - quit: true
 ```
 
+**The question is what the front end is walked to, and not a screen of it.** Waiting for `{ screen: 8, cursor:
+1 }` and the two after it is waiting for numbers that depend on where this machine's score file left the cursors
+and on whether orb's own question is standing in front of them: a launch tapped through four such steps for
+forty seconds, every one of them giving up, and started a run anyway.
+
+**And the launch is closed the moment the pickup has landed.** What it is for is already written by then — the
+playback says what it compared and where the two parted, and the landing line says whether the frame it arrived
+at is the frame that was written down. Playing on is another stage of wall clock, and while it plays the file is
+written over by the chapters it passes.
+
 ```sh
-scripts/run.sh <copy> --autoplay='<copy in windows>\played-into-stage-2.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\from-the-beginning-to-the-second-midboss.yaml' --log=verbose
 scripts/run.sh <copy> --autoplay='<copy in windows>\took-the-run-back.yaml' --log=verbose
 ```
 

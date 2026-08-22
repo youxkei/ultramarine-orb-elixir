@@ -143,6 +143,92 @@ fn a_stage_of_th07_is_written_down_as_it_begins() {
     });
 }
 
+/// **A chapter inside a stage the run walked into is written down like any other.**
+///
+/// Which is what a session interrupted at 4面's boss is picked up from, and the whole of what the file is for:
+/// the furthest chapter reached, not the stage it is in. A rule that wrote a stage's start in place of its
+/// chapters was built here once and taken out again — it made every interrupted stage cost the run that whole
+/// stage, which is the thing orb exists to stop.
+#[test]
+fn a_chapter_of_th07_inside_a_stage_the_run_walked_into_is_written_down() {
+    in_its_own_process(|| {
+        let game = a_run("th07-a-chapter-of-a-walked-into-stage");
+        let log = game.log();
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        let from = log.written();
+        game.moves_on_to_the_stage(NEXT);
+        game.frames_until_a_thread("the stage's own start written down", || {
+            log.said_since(from, "stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // And a chapter inside it, which is the point the run would come back to.
+        game.frames(APART);
+        game.a_card_starts(CARD, CARD_NAME);
+        game.frames_until("the card's chapter", APART, || {
+            log.said_since(from, "stage 2 chapter 2")
+        });
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said_since(from, "stage 2 chapter 2 (MIDBOSS SPELL 1) at frame")
+        });
+    });
+}
+
+/// **A run that walked through two stages is written down at the one it is in.**
+///
+/// Which is the half of the rule above that one transition cannot tell from another: a run left at 4面's
+/// midboss is picked up at 4面's start and not at 3面's, and what says so is the point being written again at
+/// every boundary rather than once. A stage's start is the *newest* point the file holds, so the run comes back
+/// where it was standing to within a stage.
+///
+/// The one thing that could go wrong and pass the test above is a start written once and never again — a rule
+/// that refused every chapter *and* every start after the first would leave a session interrupted in 6面
+/// picked up in 2面, which is five stages of a run thrown away and worse than what the rule was written to
+/// stop.
+#[test]
+fn a_run_of_th07_that_walked_through_two_stages_is_written_down_at_the_one_it_is_in() {
+    in_its_own_process(|| {
+        let game = a_run("th07-walked-through-two-stages");
+        let log = game.log();
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        game.moves_on_to_the_stage(NEXT);
+        game.frames_until_a_thread("the second stage's start written down", || {
+            log.said("stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // The stage after it, walked into from a stage that was itself walked into — which is the run reaching
+        // its third stage, and the case a single transition says nothing about.
+        let from = log.written();
+        game.moves_on_to_the_stage(NEXT + 1);
+        game.frames_until_a_thread("the third stage's start written down", || {
+            log.said_since(from, "stage 3 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // **And it is the newest point in the file**, which is what a resume would offer: the last write the log
+        // carries is that stage's, not the stage before it's.
+        let last = log
+            .lines()
+            .iter()
+            .rev()
+            .find(|line| line.contains("written to"))
+            .expect("nothing was written down at all")
+            .clone();
+        assert!(
+            last.contains("stage 3 chapter 1 (MIDSTAGE 1)"),
+            "the newest point in the file is not the stage the run is in:\n  {last}"
+        );
+    });
+}
+
+/// The card the midboss puts up in that test, by its own record, named the way 妖々夢 names cards.
+const CARD: usize = 96;
+const CARD_NAME: &str = "幽夢「猫の見た夢」";
+
 /// And the run is the same run on the far side: the chapters, the retries it has spent and the file it is
 /// written down in all follow it into the next stage.
 #[test]

@@ -19,12 +19,12 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
-const CARD: usize = 96;
-const CARD_NAME: &str = "幽夢「猫の見た夢」";
+/// The line a stage's own start is written down with, which is the first point of it a run reaches: see
+/// `a_stage_of_th07_is_written_down_as_it_begins`.
+const THE_STAGES_START: &str = "stage 2 chapter 1 (MIDSTAGE 1) at frame";
 
-/// The frames between the stage's own start and the card: past the shortest a chapter may be.
-const APART: u32 = 120;
+/// The frames a stage's settle and its music are given to leave the stage with a chapter running.
+const SETTLES: u32 = 600;
 
 /// A count a stage into a run, and not a round number: what a first stage has is nothing, so a resume that
 /// wrote nothing back would pass against nothing at all. And the cards captured by then, which is the other
@@ -52,12 +52,13 @@ fn a_run_of_th07_is_put_back_with_the_count_its_awards_are_charged_against() {
         game.image().the_run_has_captured(CAPTURED);
         game.moves_on_to_the_stage(1);
 
-        game.frames(APART);
-        game.a_card_starts(CARD, CARD_NAME);
-        game.frames_until("the card's chapter", APART, || log.said("chapter 2"));
-        let at = game.state().stage_frames;
-        game.frames_until_a_thread("the chapter written down", || {
-            log.said(&format!("at frame {at}, {at} frame(s) of buttons"))
+        game.frames_until_a_thread("the stage's start written down", || {
+            log.said(THE_STAGES_START)
+        });
+        // And its first chapter begun, because the run below is given up by dying and a death is announced in a
+        // chapter: the write above lands in the settle before the stage has one.
+        game.frames_until("the stage's own first chapter", SETTLES, || {
+            log.said("stage 2 chapter 1 (stage start)")
         });
 
         // And the run picked up again, whose own build zeroes the count: what stands there afterwards is the

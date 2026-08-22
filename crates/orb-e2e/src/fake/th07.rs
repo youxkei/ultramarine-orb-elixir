@@ -1314,8 +1314,8 @@ impl Fake {
             self.image.scene_of_the_front_end(),
             self.image.scene_of_a_run(),
         );
-        self.settles_a_seed_for_the_stage();
-        self.builds_the_stage_out_of_that_seed();
+        self.settles_a_seed_for_the_stage(true);
+        self.builds_the_stage_out_of_that_seed(stage);
         self.the_stages_numbers_are_in_place();
         self.image
             .is_in_scene(self.image.scene_of_a_run(), self.image.scene_of_a_run());
@@ -1330,15 +1330,23 @@ impl Fake {
     /// second time is a different stage unless somebody puts the first one's seed back. What the step itself is
     /// does not matter — orb only ever holds this number against another of them — so it is a step of this file's
     /// own, said here rather than pretending to be the game's arithmetic.
-    fn settles_a_seed_for_the_stage(&self) {
+    fn settles_a_seed_for_the_stage(&self, the_runs_first: bool) {
         let next = self.seed.get().rotate_left(3).wrapping_add(0x2b1d) | 1;
         self.seed.set(next);
         self.image.generator_is_at(next);
-        // **The run's own eight numbers drawn out of it first**, which is the order the game's own callback has
-        // them in: 0x42e951 draws them near its head, 0x42f0a4 writes the stage's seed down after that, and the
-        // call to `STAGE_BUILD` — the one moment a resume writes a seed — is at 0x42f0b4, after both. So these
-        // eight come off a word no resume can put back, and a stage built a second time draws eight others.
-        self.image.the_stage_draws_the_runs_numbers();
+        // **The run's own eight numbers drawn out of it first, and only where the run's numbers are filled in at
+        // all**, which is the order the game's own callback has them in: 0x42e951 draws them near its head,
+        // 0x42f0a4 writes the stage's seed down after that, and the call to `STAGE_BUILD` — the one moment a
+        // resume writes a seed — is at 0x42f0b4, after both. So these eight come off a word no resume can put
+        // back, and a stage built a second time draws eight others.
+        //
+        // **The stage a run walks into draws none of them**: 0x42e89b jumps to 0x42eee6, which is past this call
+        // as much as it is past the lives and the power, so the eight and the two counts the same block puts back
+        // to nothing are the first stage's alone. The seed below is the other side of that — 0x42f0a4 and
+        // 0x42f0b4 stand after the landing, so both ways in reach them.
+        if the_runs_first {
+            self.image.the_stage_draws_the_runs_numbers();
+        }
         // And the seed the stage is written down as having begun with, which is the generator as it stands once
         // those draws have moved it — the number 0x42f0a4 copies, and so the number a resume puts back.
         self.image
@@ -1354,9 +1362,9 @@ impl Fake {
     /// what a 妖々夢 launch did: a run picked up out of its file parted from the run at the stage's first frame,
     /// its generator still holding the seed orb wrote at the end of the build where the run had it already drawn
     /// from.
-    fn builds_the_stage_out_of_that_seed(&self) {
+    fn builds_the_stage_out_of_that_seed(&self, stage: i32) {
         if the_game_this_is().hooks().stage_building.is_some() {
-            orb_core::runtime::stage_building(FIRST_STAGE);
+            orb_core::runtime::stage_building(stage);
         }
         // The draws themselves, as one step: what a test asks of them is that the number the stage runs from is a
         // function of the seed the build had, and not the seed itself.
@@ -1387,6 +1395,13 @@ impl Fake {
         self.image.the_next_stage_is_being_asked_for();
         self.image.the_stage_being_rebuilt_is(stage);
         self.the_stages_own_fields();
+        // **The build itself, which a transition runs as much as a run's first stage does.** What 0x42e894 jumps
+        // over is the block filling a run's numbers in and nothing after it: the jump lands at 0x42eee6, and the
+        // seed the stage is settled on at 0x42f07e, written down at 0x42f0a4 and built out of at 0x42f0b4 are all
+        // past that. So the stage a run walks into is a stage `stage_building` is reached for, with the scene
+        // *asked for* still the rebuild one — which is how orb tells the two ways in apart.
+        self.settles_a_seed_for_the_stage(false);
+        self.builds_the_stage_out_of_that_seed(stage);
         self.the_stages_numbers_are_in_place();
         self.image.the_read_left_the_word(0);
         self.image.the_run_acts_on_the_word(0);
