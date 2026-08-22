@@ -165,6 +165,11 @@ struct Steered {
     held: [Option<Held>; HELD],
     /// How many were within reach, which is not how many of them fit in [`Steered::held`].
     held_all: u32,
+    /// **What every one of [`MOVES`] came to**, in that order, so that the move taken can be read against the
+    /// ones left: the ranking is a comparison, and a hit that names only the winner says nothing about why it
+    /// won. A run walked itself into the floor over fifteen frames, each step the best move of its own frame, and
+    /// whether *down* won those comparisons or merely tied and came earlier in the order is two repairs.
+    judgements: [Judged; MOVES.len()],
 }
 
 /// **What the frame's model was made of, and what it left out** — bullets, enemies and lasers, each as the
@@ -199,6 +204,9 @@ struct Counted {
     /// And how many boxes the enemies' own trails put in, which is the beams that follow them — see
     /// [`the_trail`].
     trail: u32,
+    /// And the fire each box across the field was counted as holding, which is what the place to wait was chosen
+    /// by — see [`the_fire_in_each_box`].
+    fire: [f32; BOXES_ACROSS],
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -599,6 +607,18 @@ fn said_what_took_it() {
         "autoplay: the enemies' own trails put {} box(es) in",
         of.trail,
     );
+    // **The five numbers the place to wait was chosen by.** Whether a box is left is two comparisons against
+    // the emptiest of them, and a hit boxed in at the bottom right with the bottom left plainly empty is either
+    // a count that did not see it or a threshold that did not clear — which are different repairs, and nothing
+    // printed tells them apart.
+    crate::detail!(
+        "autoplay: the fire in each box was {}",
+        of.fire
+            .iter()
+            .map(|fire| format!("{fire:.1}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
     crate::detail!(
         "autoplay: {} bullet(s) no step of their own explained, {}",
         of.swept,
@@ -647,6 +667,19 @@ fn said_what_took_it() {
             near.half.1,
         ),
         None => crate::detail!("autoplay: nothing was near it at all"),
+    }
+    for ((word, _, _), judged) in MOVES.iter().zip(was.judgements) {
+        crate::detail!(
+            "autoplay: the move {word:#05x} was hit first on {}, on {} frame(s), warned on {}, \
+             with {:.1} of room",
+            match judged.clear() {
+                true => "none".to_owned(),
+                false => judged.first().to_string(),
+            },
+            judged.hits(),
+            judged.warnings(),
+            judged.room,
+        );
     }
     crate::detail!(
         "autoplay: the model was holding {} within reach when it chose",
@@ -883,6 +916,13 @@ unsafe fn steer() -> Steered {
         } else {
             straight
         };
+        // **Clamped to the field's own edges and not to the line the bot waits on.** Holding the projection off
+        // the bottom by [`ABOVE_THE_BOTTOM`] was tried, so that a dodge could not spend the floor — two hits in
+        // one run were the player walking from `420` down to the clamp at `432` and sitting pinned there until
+        // every one of the nine was hit on the frame it was judged on. It cost four of these tests at once:
+        // keeping the player low needs the moves that reach the low line to be moves, and the longest way out of
+        // a pattern coming from above is sometimes downwards. The strip below the line is a bad place to be and
+        // that is not the same as a place no move may land in.
         std::array::from_fn::<_, LOOK_AHEAD, _>(|frame| {
             let frames = (frame + 1) as f32;
             (
@@ -901,6 +941,13 @@ unsafe fn steer() -> Steered {
     // clear all the way is a bot with nothing open to it — which falls through to the most room, and the most
     // room is the fleeing all this exists instead of. Fewest hit is a move that gets out; latest first is a move
     // that has longer before it has to.
+    // **How many ways out of where a move lands there are was tried here and taken out again.** A place is
+    // survivable because the frame after it has somewhere to go, so counting the moves open from each landing
+    // looked like the answer to being pinned — three hits in one session were that, at the floor twice and at the
+    // left wall once. As a tie-break above the room it changed which of two equally-judged moves wins, and
+    // `the_bot_steps_out_of_the_way_of_a_bullet_a_step_wide_of_it` said so at once: the bot took a diagonal where
+    // a step aside was what the frame was for. Whatever reaches the pinning has to leave the ordinary frame's
+    // choice alone, and this did not.
     let (mine_x, mine_y) = unsafe { player_box() };
     let mut counted = Counted::default();
     let mut judged = [Judged::CLEAR; MOVES.len()];
@@ -1194,12 +1241,14 @@ unsafe fn steer() -> Steered {
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
     // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
-    // **Where to be, and only now that the bullets have been walked**: which third of the field a script is
+    // **Where to be, and only now that the bullets have been walked**: which box of the field a script is
     // sweeping a beam across is one of the things that decides it, and that is a thing the walk finds.
     let sweeping = a_sweep(swept, swept_x);
     counted.swept = swept;
     counted.sweeping = sweeping;
-    let wanted = unsafe { where_to_be(field, sweeping) };
+    counted.fire = unsafe { the_fire_in_each_box(field) };
+    let wanted = unsafe { where_to_be(field, at, sweeping) };
+    // How many of the moves out of each landing are still open, which is what a dead end has none of.
     let mut best: Option<(u16, Judged, f32, f32)> = None;
     for (((word, dx, _), judged), land) in MOVES.iter().zip(judged).zip(lands) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
@@ -1255,6 +1304,24 @@ unsafe fn steer() -> Steered {
                 // does not change the x cannot get out of it — down buys frames and arrives at the wall, which
                 // is where three runs were hit at `y = 432` with nowhere open to them. Only after the sideways
                 // ones does the room decide.
+                //
+                // **A place lost before its frame began is not reachable from here.** Two hits in one run were
+                // the player walking from `420` to the clamp at `432` and sitting there until all nine were hit
+                // *on the frame they were judged on*, the room negative on every one; a third was thirty frames
+                // pinned at `x = 8`. No order between the nine reaches back to the frames that chose the place,
+                // and the two things tried from here — the floor outranking the frames, and the ways out of each
+                // landing — each cost an existing test. What is left is where the bot *waits*, which is
+                // [`where_to_be`]'s business and not this comparison's.
+                //
+                // **Where the rules want to be does not reach in here, and three placements said so.** The box
+                // counting moves that place to the emptiest box and this branch never reads it, which is why
+                // four hits in one session have the x not moving for thirty frames at an edge. But the move that
+                // does the pinning is the one that wins on *when it is first hit* — going down at the floor is
+                // clamped, so it stays where the fire has not arrived — and nothing ranked below that reaches
+                // it. Tried under `hits()`, over `hits()`, and as the ways out of each landing: the first two
+                // changed nothing and the third cost
+                // `the_bot_steps_out_of_the_way_of_a_bullet_a_step_wide_of_it`. What is left is to stop the
+                // place being wanted at all, which is [`where_to_be`]'s business.
                 (false, false) => {
                     let sideways = *dx != 0.0;
                     let was_sideways = was_dx != 0.0;
@@ -1283,7 +1350,7 @@ unsafe fn steer() -> Steered {
     // the move chosen is clear on almost every frame, that being what choosing it means, so a slowing taken off
     // by it is a slowing never taken off. Where holding still keeps the player out of everything for the frames
     // looked at, the step is not what the frame is for and the damage is.
-    let (word, judged_it, _, _) = best.unwrap_or((0, Judged::CLEAR, 0.0, 0.0));
+    let (word, judged_it, ..) = best.unwrap_or((0, Judged::CLEAR, 0.0, 0.0));
     let chosen = MOVES.iter().position(|(it, _, _)| *it == word);
     Steered {
         word,
@@ -1295,6 +1362,7 @@ unsafe fn steer() -> Steered {
         counted,
         held,
         held_all,
+        judgements: judged,
     }
 }
 
@@ -1336,7 +1404,7 @@ unsafe fn in_a_stage() -> bool {
 ///
 /// A turning beam in this game is a line of bullets, and a script rather than any field of theirs is what swings
 /// it: 6面's is a dozen and more of them at once. So what tells one from a bullet whose own curve the reading
-/// happens to miss is how many there are, and the floor is the one the thickest third already uses — more than
+/// happens to miss is how many there are, and the floor is the one the thickest box already uses — more than
 /// the nine moves, which is more than a rounding difference in either.
 ///
 /// **The count is what a launch says.** A hit's own line carries it, so a card whose every bullet reads as
@@ -1345,7 +1413,11 @@ fn a_sweep(swept: u32, swept_x: f32) -> Option<f32> {
     (swept as usize > MOVES.len()).then(|| swept_x / swept as f32)
 }
 
-unsafe fn where_to_be(field: (f32, f32, f32, f32), sweep: Option<f32>) -> (f32, f32) {
+unsafe fn where_to_be(
+    field: (f32, f32, f32, f32),
+    at: (f32, f32),
+    sweep: Option<f32>,
+) -> (f32, f32) {
     let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
@@ -1358,7 +1430,7 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32), sweep: Option<f32>) -> (f32, 
             None => (field.0 + field.2 / 2.0, low),
         },
     };
-    // **And out of a third of the field the fire is clearly piled into**, whichever of the three that x is in.
+    // **And out of a box of the field the fire is clearly piled into**, whichever of them that x is in.
     //
     // Which is the one thing the nine moves cannot say between them: each asks whether *it* is hit over the
     // frames looked at, so the bot will stand in the thick of a pattern for as long as the next twelve frames
@@ -1371,21 +1443,32 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32), sweep: Option<f32>) -> (f32, 
     // power [`ITEM_BIG_POWER`] carries is worth the crossing. So the two rules meet at [`worth`], which is the
     // one place this game's items are ranked.
     let worth_the_crossing = going_for.is_some_and(|(it, _)| it > worth(ITEM_POINT));
-    // **And out of the third a script is sweeping a beam across, whatever is in it.** Which the thickness cannot
-    // stand in for: a beam is a dozen bullets rather than a hundred, so the third it is crossing is rarely the
+    // **And out of the box a script is sweeping a beam across, whatever is in it.** Which the thickness cannot
+    // stand in for: a beam is a dozen bullets rather than a hundred, so the box it is crossing is rarely the
     // thickest — and nothing about a swept bullet says where it will be, so the frames looked at are no answer
     // either. **Not weighed against an item the way the thickness is**, because the two are not the same bet: a
-    // third full of fire is a place a run of good frames gets through, and a beam arriving is arriving.
-    let swept = sweep.map(|x| a_third(field, x));
-    let x = match unsafe { the_thickest_third(field) } {
-        _ if swept.is_some_and(|swept| swept == a_third(field, x)) => {
-            let empty = unsafe { the_emptiest_third(field) };
-            field.0 + field.2 * (empty as f32 + 0.5) / THIRDS as f32
-        }
-        Some(thick) if !worth_the_crossing && thick == a_third(field, x) => {
-            let empty = unsafe { the_emptiest_third(field) };
-            field.0 + field.2 * (empty as f32 + 0.5) / THIRDS as f32
-        }
+    // box full of fire is a place a run of good frames gets through, and a beam arriving is arriving.
+    // **And the box the player is standing in, not only the one it is heading for.** Following a boss across a
+    // box is how it gets into one: the question was put about the wanted x alone, so a boss drifting over the
+    // pile was a boss the bot followed in with the ground under its own feet never asked about. A practice was
+    // hit at `138.0,409.5` with the boxes holding `15.0, 218.7, 58.0, 13.5, 17.5` — forty frames walking from
+    // `164` to `132`, out of the box the boss was in and into the fullest on the screen, the emptiest the other
+    // way.
+    let swept = sweep.map(|it| which_box(field, it));
+    let mine = which_box(field, at.0);
+    let heading = which_box(field, x);
+    let fire = unsafe { the_fire_in_each_box(field) };
+    // **And out of the one it is standing in where that one is badly worse**, which takes more than not walking
+    // into a pile does: see [`MUCH_MORE_THAN_A_HANDFUL`].
+    let badly = clearly_fuller(&fire, mine, MUCH_MORE_THAN_A_HANDFUL);
+    let elsewhere = |field: (f32, f32, f32, f32)| {
+        let empty = unsafe { the_emptiest_box(field) };
+        field.0 + field.2 * (empty as f32 + 0.5) / BOXES_ACROSS as f32
+    };
+    let x = match unsafe { the_thickest_box(field) } {
+        _ if swept.is_some_and(|swept| swept == heading || swept == mine) => elsewhere(field),
+        _ if badly => elsewhere(field),
+        Some(thick) if !worth_the_crossing && thick == heading => elsewhere(field),
         _ => x,
     };
     // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
@@ -1437,72 +1520,102 @@ unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
 }
 
 /// How many pieces the field is cut into across its width for the fire in each to be counted.
-const THIRDS: usize = 3;
+///
+/// **An odd cut, so that the middle has a box of its own.** The place a pattern converges on is the middle —
+/// 自機狙い goes there and so does most of what a boss fires — and it is discounted for that by
+/// [`IN_THE_MIDDLE_ANYWAY`]; an even cut puts that place on a boundary, where the discount lands on neither
+/// side of it. Five rather than three is somebody who plays this game asking for a finer answer to *where to
+/// wait*: at a third of a 384-wide field, the emptiest box is 128 across and standing in the middle of it is
+/// standing 64 from fire either side.
+const BOXES_ACROSS: usize = 5;
 
-/// **The smallest bullet this game fires, which is the unit the fire in a third is counted in.**
+/// **The smallest bullet this game fires, which is the unit the fire in a box is counted in.**
 ///
 /// The sizes are written at spawn and there are six of them — 4 at 0x423a4e up to 24 at 0x4275ca — so counting
-/// bullets one apiece asks how many heads are in a third where what decides whether there is a way through is
-/// how much of its width they take. A 大玉 is six of these across, and three of them across a third is a wall
+/// bullets one apiece asks how many heads are in a box where what decides whether there is a way through is
+/// how much of its width they take. A 大玉 is six of these across, and three of them across a box is a wall
 /// where three 米弾 is a gap.
 const A_SMALL_ONE: f32 = 4.0;
 
 /// **And what a beam's own box is worth against a bullet of the same width.**
 ///
-/// A bullet crosses the band and is gone, so a third full of them is a third with a run of good frames coming;
-/// the places an enemy has been do not move at all, so a third a beam lies across has none. **A judgement and
-/// not a measurement** — what a launch can say is whether the bot still walks into 6面's spiral at this, and the
-/// practice is where that is read.
-const A_BEAM_OVER_A_BULLET: f32 = 3.0;
+/// A bullet crosses the band and is gone, so a box full of them is a box with a run of good frames coming;
+/// the places an enemy has been do not move at all, so a box a beam lies across has none.
+///
+/// **A judgement and not a measurement**, and it has been raised twice: at three, a run was hit inside 6面's
+/// spiral holding twenty-four of the beam's own boxes; at six, another was hit at `236.6,389.9` with the boxes
+/// holding `15.0, 13.5, 106.0, 162.4, 17.5` — the box left in time by a rule that fired too late to cross out of
+/// it. Twelve is what makes a beam's arrival read while it is still arriving.
+const A_BEAM_OVER_A_BULLET: f32 = 12.0;
 
-/// **How much of a third's fire one box of a given size is**, in [`A_SMALL_ONE`]s.
+/// **How much of a box one hazard of a given size fills**, in [`A_SMALL_ONE`]s squared.
+///
+/// **Squared, because what a box holds is an area.** A bullet twice as wide takes four times the room to weave
+/// past, not twice: it blocks that much of the box in both directions at once, and a 大玉 is six of the smallest
+/// across. Counted by the width alone, a handful of the big ones read as a handful and the box they filled read
+/// as passable.
 ///
 /// **And never less than one of them**, which is not a guard against a bad reading: nothing this game fires is
 /// narrower than the smallest it fires, so a size below that is a size that has not been written yet — a slot
-/// filled in the frame it spawns on. Weighted as it stands, such a box would count for nothing at all, and a
-/// pattern read as it arrives is the one worth leaving the third for.
-fn how_wide(size: f32) -> f32 {
-    size.max(A_SMALL_ONE) / A_SMALL_ONE
+/// filled in the frame it spawns on. Weighted as it stands, such a hazard would count for nothing at all, and a
+/// pattern read as it arrives is the one worth leaving the box for.
+fn how_much_it_fills(size: f32) -> f32 {
+    let across = size.max(A_SMALL_ONE) / A_SMALL_ONE;
+    across * across
 }
 
-/// **What the middle one's count is multiplied by before the three are compared.**
+/// **What the middle box's count is multiplied by before the boxes are compared.**
 ///
 /// The middle of the field is where a pattern is thickest by nature — 自機狙い converges there and so does most
-/// of what a boss fires — so counting it against the outer two as it stands is a bot that leaves the middle for
-/// an imbalance that was always going to be there. Four fifths is what somebody who plays this game put it at
-/// once the counting was over the [`THE_BAND`] the player can actually be in rather than the whole column.
-const IN_THE_MIDDLE_ANYWAY: f32 = 0.8;
+/// of what a boss fires — so counting it against the outer boxes as it stands is a bot that leaves the middle for
+/// an imbalance that was always going to be there.
+///
+/// **Raised once, from four fifths.** At that, the discount was doing more than answering the converging: the
+/// middle read as emptier than boxes holding less, and the bot went back to it over places that were genuinely
+/// clearer. Nine tenths is what somebody who plays this game asked for instead.
+const IN_THE_MIDDLE_ANYWAY: f32 = 0.9;
 
-/// Which of the [`THIRDS`] a place across the field is in.
-fn a_third(field: (f32, f32, f32, f32), x: f32) -> usize {
-    let across = ((x - field.0) / field.2 * THIRDS as f32).floor();
-    (across.max(0.0) as usize).min(THIRDS - 1)
+/// And the two boxes either side of it, by the same reasoning and less of it: the converging falls off with the
+/// distance from the middle rather than stopping where a box does. Raised with the one above, from nine tenths.
+const BESIDE_THE_MIDDLE_ANYWAY: f32 = 0.95;
+
+/// Which of the [`BOXES_ACROSS`] a place across the field is in.
+fn which_box(field: (f32, f32, f32, f32), x: f32) -> usize {
+    let across = ((x - field.0) / field.2 * BOXES_ACROSS as f32).floor();
+    (across.max(0.0) as usize).min(BOXES_ACROSS - 1)
 }
 
-/// **How much fire each of the [`THIRDS`] holds**, the middle one's counted at [`IN_THE_MIDDLE_ANYWAY`].
+/// **How much fire each of the [`BOXES_ACROSS`] holds**, the middle one's counted at [`IN_THE_MIDDLE_ANYWAY`].
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn the_fire_in_each_third(field: (f32, f32, f32, f32)) -> [f32; THIRDS] {
-    let mut fire = [0.0; THIRDS];
+unsafe fn the_fire_in_each_box(field: (f32, f32, f32, f32)) -> [f32; BOXES_ACROSS] {
+    // **And nothing below the player**, whatever box it is in: what a box is counted for is where to wait, and
+    // what makes a box a bad place to wait is the fire that can still arrive. Fire below has gone past, so
+    // counting it fills the box the bot is standing in with what has already missed — the box reads worst just as
+    // it becomes safe, and the box that is filling up stands out only once the fire is level with the player.
+    // Three hits in one run were pinned at an edge with every other box reading `0.0`.
+    let above = unsafe { player() }.1;
+    let mut fire = [0.0; BOXES_ACROSS];
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
         if unsafe { mem::read::<u16>(bullet + BULLET_STATE) } == 0 {
             continue;
         }
         // **Only what is inside the band the player can be in.** The bot never rises above [`THE_BAND`], so
-        // fire above it is fire nothing it does can put it among — counting the whole column of each third
+        // fire above it is fire nothing it does can put it among — counting the whole column of each box
         // mixed that in and buried the difference the three are compared for: a run was hit in the middle of
         // the field with the middle thick, and the counting could not see it.
         let (x, y) = unsafe { position(bullet + BULLET_POSITION) };
-        if y < the_band(field) {
+        if y < the_counted_band(field) || y > above {
             continue;
         }
-        fire[a_third(field, x)] += how_wide(unsafe { mem::read::<f32>(bullet + BULLET_SIZE) });
+        fire[which_box(field, x)] +=
+            how_much_it_fills(unsafe { mem::read::<f32>(bullet + BULLET_SIZE) });
     }
     // **And every place a beam-carrying enemy has been counts as one of them.** A beam that follows an enemy is
     // its trail, and the game tests the player against each of those boxes exactly as it does a bullet — so a
-    // third with a beam laid across it is a third full of fire, and one that counted only the bullets read the
+    // box with a beam laid across it is a box full of fire, and one that counted only the bullets read the
     // spiral 6面 fires as an empty place to stand.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
@@ -1512,16 +1625,21 @@ unsafe fn the_fire_in_each_third(field: (f32, f32, f32, f32)) -> [f32; THIRDS] {
         if unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS != ENEMY_SOLID_BITS {
             continue;
         }
-        let wide = how_wide(unsafe { mem::read::<f32>(enemy + ENEMY_SIZE) });
+        let wide = how_much_it_fills(unsafe { mem::read::<f32>(enemy + ENEMY_SIZE) });
         for node in unsafe { the_trail(enemy) } {
             let (x, y) = unsafe { position(node) };
-            if y < the_band(field) {
+            if y < the_counted_band(field) || y > above {
                 continue;
             }
-            fire[a_third(field, x)] += wide * A_BEAM_OVER_A_BULLET;
+            fire[which_box(field, x)] += wide * A_BEAM_OVER_A_BULLET;
         }
     }
-    fire[THIRDS / 2] *= IN_THE_MIDDLE_ANYWAY;
+    // **The middle discounted, and the two beside it discounted less.** The converging a pattern does is a thing
+    // of the middle of the field, and it falls off either side of it rather than stopping at a box's edge.
+    let middle = BOXES_ACROSS / 2;
+    fire[middle] *= IN_THE_MIDDLE_ANYWAY;
+    fire[middle - 1] *= BESIDE_THE_MIDDLE_ANYWAY;
+    fire[middle + 1] *= BESIDE_THE_MIDDLE_ANYWAY;
     fire
 }
 
@@ -1540,9 +1658,9 @@ unsafe fn the_trail(enemy: usize) -> impl Iterator<Item = usize> {
         .map(move |node| enemy + ENEMY_TRAIL + node * ENEMY_TRAIL_BYTES)
 }
 
-/// **The third of the field the fire is clearly piled into**, or nothing where none of them is.
+/// **The box of the field the fire is clearly piled into**, or nothing where none of them is.
 ///
-/// **Measured against the emptiest of the three and not against the screen.** Asking whether one third holds
+/// **Measured against the emptiest of them and not against the screen.** Asking whether one box holds
 /// more than half of everything is asking the wrong question: a run was hit in the middle with the left
 /// obviously empty, and the middle still held under half because the right held the rest. What matters is that
 /// there is somewhere clearly better to be.
@@ -1553,27 +1671,76 @@ unsafe fn the_trail(enemy: usize) -> impl Iterator<Item = usize> {
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn the_thickest_third(field: (f32, f32, f32, f32)) -> Option<usize> {
-    let fire = unsafe { the_fire_in_each_third(field) };
+unsafe fn the_thickest_box(field: (f32, f32, f32, f32)) -> Option<usize> {
+    let fire = unsafe { the_fire_in_each_box(field) };
+    (0..BOXES_ACROSS).find(|box_| clearly_fuller(&fire, *box_, MORE_THAN_A_HANDFUL))
+}
+
+/// **How much more than the emptiest box a box has to hold to be one worth leaving**, in [`A_SMALL_ONE`]s.
+///
+/// Enough of a difference that a handful is not a pile: an ordinary imbalance is not a reason to leave a fight,
+/// and every box but one is fuller than the emptiest by something.
+///
+/// **Lowered once, from the whole of [`MOVES`].** Half of them is what somebody who plays this game asked for
+/// after a run left too late twice over.
+const MORE_THAN_A_HANDFUL: f32 = MOVES.len() as f32 / 2.0;
+
+/// And how much more it takes to leave the box the player is already standing in.
+///
+/// **Because leaving that one costs the damage it is there for.** Not walking into a pile is free; walking out of
+/// one is walking out from under the boss, and a fight nobody shoots is a fight that does not end — 6面's own
+/// practice runs for twenty-seven thousand frames as it is. So the bar is the one above raised, and dodging comes
+/// before shooting only where the box is worse than somewhere else by more than an imbalance.
+///
+/// **A judgement, and it has been lowered once**: at four times a handful the bot was read as leaving too late,
+/// and twice is what somebody who plays this game asked for instead.
+const MUCH_MORE_THAN_A_HANDFUL: f32 = 2.0 * MORE_THAN_A_HANDFUL;
+
+/// **And the factor beside the difference: how many times the emptiest a box has to hold.**
+///
+/// A factor means the same at thirty bullets as at three hundred, where the difference alone would leave a
+/// crowded screen with no box worth leaving. **Lowered twice**, from two and then from one and a half: a run sat
+/// in a box holding well over what the emptiest did and left only when it was much too late to matter.
+const TIMES_THE_EMPTIEST: f32 = 1.25;
+
+/// Whether one box holds clearly more than the emptiest of them: [`TIMES_THE_EMPTIEST`] of it, and more than
+/// `enough` beyond it.
+///
+/// Both, because either alone is wrong at one end of the range: the factor says nothing where the emptiest is
+/// empty, and the difference says nothing where every box is full.
+fn clearly_fuller(fire: &[f32; BOXES_ACROSS], box_: usize, enough: f32) -> bool {
     let empty = fire.iter().copied().fold(f32::INFINITY, f32::min);
-    (0..THIRDS)
-        .find(|third| fire[*third] > empty * 2.0 && fire[*third] - empty > MOVES.len() as f32)
+    fire[box_] > empty * TIMES_THE_EMPTIEST && fire[box_] - empty > enough
 }
 
 /// And the emptiest of them, which is where the bot waits instead.
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn the_emptiest_third(field: (f32, f32, f32, f32)) -> usize {
-    let fire = unsafe { the_fire_in_each_third(field) };
-    (0..THIRDS)
+unsafe fn the_emptiest_box(field: (f32, f32, f32, f32)) -> usize {
+    let fire = unsafe { the_fire_in_each_box(field) };
+    (0..BOXES_ACROSS)
         .min_by(|a, b| fire[*a].total_cmp(&fire[*b]))
-        .unwrap_or(THIRDS / 2)
+        .unwrap_or(BOXES_ACROSS / 2)
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.
 fn the_band(field: (f32, f32, f32, f32)) -> f32 {
     field.1 + field.3 * (1.0 - THE_BAND)
+}
+
+/// **How much of the field, up from its bottom edge, the fire in a box is counted over** — three fifths.
+///
+/// Deeper than [`THE_BAND`] the bot moves in, and for a reason of its own: what decides where to *wait* is what
+/// is coming, and it comes from above the band. **Raised twice**, from a third and then from a half: a run was
+/// hit boxed in at the bottom right with the bottom left plainly empty, and what closed on it was a band of fire
+/// that had not reached the bottom third yet — counted only there, the box it stood in read as clear enough to
+/// wait in until the fire arrived.
+const COUNTED_BAND: f32 = 3.0 / 5.0;
+
+/// The y above which fire is not counted towards a box.
+fn the_counted_band(field: (f32, f32, f32, f32)) -> f32 {
+    field.1 + field.3 * (1.0 - COUNTED_BAND)
 }
 
 /// **What one frame of holding a direction moves the player by**, as the game works it out at 0x43f0f5 and

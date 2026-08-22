@@ -651,7 +651,7 @@ fn a_warning_line_is_crossed_where_they_leave_nowhere_to_go() {
 /// third the fire is piled into: somewhere else. Three hits in one practice came out of standing in the arms and
 /// dodging inside them.
 #[test]
-fn a_beam_a_script_sweeps_is_a_third_of_the_field_to_be_out_of() {
+fn a_beam_a_script_sweeps_is_a_box_of_the_field_to_be_out_of() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-leaves-a-swept-third");
         // In the middle third, which with no boss and nothing to collect is where it would otherwise wait.
@@ -756,7 +756,7 @@ fn a_beam_that_follows_an_enemy_is_every_place_it_has_been() {
 /// happen to be survivable. A beam is a screen's worth of boxes carried by one enemy, so counting only the
 /// bullets reads the third it crosses as the emptiest place there is — and sends the bot into it.
 #[test]
-fn the_places_a_beam_has_been_are_counted_in_its_own_third() {
+fn the_places_a_beam_has_been_are_counted_in_its_own_box() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-a-beam-counts-in-its-third");
         // Standing where it would otherwise wait, with the two outer thirds empty.
@@ -785,7 +785,7 @@ fn the_places_a_beam_has_been_are_counted_in_its_own_third() {
 /// is six times a 米弾 across, so a handful of them is a third with no way through and a handful of 米弾 is a
 /// third to weave in. Three of the big ones here would not trip a count of heads and do trip a count of widths.
 #[test]
-fn a_third_is_counted_by_the_width_of_its_fire_and_not_the_heads() {
+fn a_box_is_counted_by_the_width_of_its_fire_and_not_the_heads() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-a-third-is-counted-by-width");
         game.image().the_player_is_at(MIDDLE, LOW);
@@ -815,7 +815,7 @@ fn a_third_is_counted_by_the_width_of_its_fire_and_not_the_heads() {
 /// a beam lies in has no run of good frames to wait for. Three of its boxes here are three bullets of the same
 /// size by width alone, which is not enough to leave a third for — and are enough as a beam's.
 #[test]
-fn a_beam_is_more_of_a_thirds_fire_than_bullets_of_its_size() {
+fn a_beam_is_more_of_a_boxs_fire_than_bullets_of_its_size() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-a-beam-is-more-of-the-fire");
         game.image().the_player_is_at(MIDDLE, LOW);
@@ -832,6 +832,231 @@ fn a_beam_is_more_of_a_thirds_fire_than_bullets_of_its_size() {
             pressed & (LEFT | RIGHT) != 0,
             "the bot waited in a third three of a beam's boxes lay in, pressing \
              {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A hit says what every move came to, so that the one taken can be read against the ones left.**
+///
+/// Which is what the ranking cannot be argued about without. A practice was hit at `99.6,432.0` with nowhere open
+/// to it, and the frames before it say the player walked from `410` to the floor at `432` over fifteen of them and
+/// sat pinned there for fourteen more — so every one of those steps was chosen over a step across, and *why* is a
+/// comparison between verdicts that nothing prints. Whether down won on when it was first hit or merely tied and
+/// came earlier in the order is the difference between two different repairs.
+#[test]
+fn a_hit_says_what_every_move_came_to() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-hit-says-all-nine");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(0, MIDDLE, LOW - 8.0, (0.0, 3.0));
+        game.frames(1);
+        game.image().the_player_has_been_hit();
+        game.frames(4);
+        let log = game.log();
+        assert!(
+            log.said("the move 0x000 was hit first on"),
+            "the hit did not say what standing still came to:\n  {}",
+            log.lines().join("\n  "),
+        );
+        assert!(
+            log.said(&format!("the move {DOWN:#05x} was hit first on")),
+            "the hit did not say what going down came to:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
+/// **The field is cut into five across, so the box the bot moves to is a fifth of it and not a third.**
+///
+/// Which is a difference the pressed direction can be asked about: with the fire piled into the middle, the box
+/// to wait in is the leftmost, and its centre is at a tenth of the width where five are cut and a sixth where
+/// three are. A player standing between those two is sent one way by five boxes and the other by three.
+///
+/// Five rather than four so that there is a middle at all — the place 自機狙い converges on wants a box of its
+/// own to be discounted in, and an even cut has none.
+#[test]
+fn the_field_is_cut_into_five_boxes_across() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-five-boxes-across");
+        // Between the leftmost fifth's own middle, once held off the edge, and the leftmost third's.
+        game.image().the_player_is_at(FIELD.0 + 56.0, LOW);
+        // Piled into the middle, high in the band and far across the field, so that none of it is a dodge of
+        // this frame and all of it is the counting.
+        for slot in 0..15 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE + (slot % 5) as f32 * 4.0,
+                LOW - 40.0 - (slot / 5) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT,
+            "the bot did not head for the leftmost of five boxes:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The box waited in is left for the emptiest whenever it is clearly fuller, and not only when it is the
+/// fullest of them all.**
+///
+/// A run was hit at `248.3,432.0` boxed in at the bottom right with the whole of the bottom left plainly empty,
+/// and the counting had seen it: the box the player was in held clearly more than the emptiest, and it was not
+/// the *fullest* box on the screen — that was the pile up and to the left — so a rule asking whether it was left
+/// it where it stood. What decides whether to move is what there is to move to.
+#[test]
+fn a_box_clearly_fuller_than_the_emptiest_is_left_even_where_another_is_fuller_still() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-fuller-box-is-left");
+        // Standing in the middle, which is the box the rules would otherwise wait in.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The fullest box is the rightmost, the middle holds clearly more than the leftmost, and the leftmost is
+        // empty. High in the band so that none of it is a dodge of this frame.
+        for slot in 0..40 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * 0.9,
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        for slot in 40..60 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE,
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT,
+            "the bot waited in a box clearly fuller than the emptiest:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The fire a box is counted by is everything in the bottom half of the field, not only the band the bot moves
+/// in.**
+///
+/// A run was hit boxed in at the bottom right with the bottom left plainly empty, and what was descending on it
+/// was a band of fire that had not reached the bottom third yet: counted only there, the box read as clear
+/// enough to wait in until the band arrived, by which time there was nowhere to go. What decides where to wait
+/// is what is coming, and the half of the field above the band is where it comes from.
+#[test]
+fn a_box_is_counted_by_the_fire_in_the_bottom_half_of_the_field() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-box-counts-the-bottom-half");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Above the bottom third and inside the bottom half, so only a count that reaches there sees it.
+        let above = FIELD.1 + FIELD.3 * 0.6;
+        for slot in 0..20 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE,
+                above + (slot % 5) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed & (LEFT | RIGHT) != 0,
+            "the bot waited under a band of fire the count could not see, pressing \
+             {pressed:#05x}:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The box the player is standing in is left, and not only the box it was heading for.**
+///
+/// Which is where following a boss takes it: the rule asked whether the *wanted* x was in the thickest box, and
+/// a boss drifting across one is a boss the bot follows into it — the question never being put about the ground
+/// under its own feet. A practice was hit at `138.0,409.5` with the boxes holding `15.0, 218.7, 58.0, 13.5,
+/// 17.5`: the player had walked from `164` to `132` over forty frames, out of the box the boss was in and into
+/// the fullest one on the screen, while the emptiest lay the other way.
+#[test]
+fn the_box_the_player_stands_in_is_left_and_not_only_the_one_it_was_heading_for() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-box-underfoot-is-left");
+        // Standing in the box the fire is piled into, with the boss further the same way — so following the boss
+        // and leaving the box are opposite moves, and only the ground underfoot sends it right.
+        let thick = FIELD.0 + FIELD.2 * 0.3;
+        game.image().the_player_is_at(thick, LOW);
+        game.image().a_boss_is_fighting(1000, 600);
+        game.image()
+            .the_boss_is_at(FIELD.0 + FIELD.2 * 0.1, FIELD.1 + 40.0);
+        // Badly worse than anywhere else, which is what it takes to walk out from under a boss.
+        for slot in 0..80 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                thick,
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        // And a little in the two boxes to its left and middle, so that the emptiest lies the other way from the
+        // boss rather than beside it.
+        for slot in 80..86 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * if slot % 2 == 0 { 0.1 } else { 0.5 },
+                LOW - 40.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot stood in the box the fire was piled into:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **Fire below the player is not counted towards a box, whatever else is in it.**
+///
+/// What a box is counted for is deciding where to wait, and what makes a box a bad place to wait is the fire
+/// that can still arrive. Below the player it has gone past: counting it fills the box the bot is standing in
+/// with what has already missed, so the box reads worst just as it becomes safe and the box that is filling up
+/// stands out only once the fire is level. Three hits in one run were pinned at an edge with every other box
+/// reading `0.0` — `1.0, 24.7, 54.9, 0.0, 0.0` at the floor and `0.0, 0.0, 0.0, 0.0, 49.5` at the right wall.
+#[test]
+fn fire_below_the_player_is_not_counted_towards_a_box() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-fire-below-is-not-counted");
+        // Where the rules want to be with nothing to collect, so a move of any kind means the counting sent it.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // A pile in its own box and below it, far enough down that none of it is a dodge of this frame.
+        for slot in 0..60 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE + (slot % 4) as f32 * 4.0,
+                LOW + 20.0 + (slot / 4) as f32 * 2.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left its box for fire that had already gone past it:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -1592,7 +1817,7 @@ fn the_room_a_move_has_is_measured_between_the_boxes() {
 /// imbalance is not a reason to leave a fight, and a factor means the same thing at thirty bullets as at three
 /// hundred where a difference would not.
 #[test]
-fn a_third_of_the_field_with_the_fire_piled_into_it_is_not_waited_in() {
+fn a_box_of_the_field_with_the_fire_piled_into_it_is_not_waited_in() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-keeps-out-of-the-thick");
         game.image().the_player_is_at(MIDDLE, LOW);
@@ -1633,18 +1858,28 @@ fn the_thick_of_it_is_crossed_for_a_big_power_item_and_not_for_a_point() {
     in_its_own_process(|| {
         let game = in_a_stage("th07-the-bot-weighs-the-item-against-the-fire");
         game.image().the_player_is_at(MIDDLE, LOW);
-        // The fire piled into the left third, high up and going nowhere, and the item in among it.
+        // The fire piled into the leftmost box, high up and going nowhere, and the item in among it.
         for slot in 0..30 {
             game.image()
-                .a_bullet_is_at(slot, FIELD.0 + 60.0, LOW - 40.0, (0.0, 0.0));
+                .a_bullet_is_at(slot, FIELD.0 + 30.0, LOW - 40.0, (0.0, 0.0));
         }
-        game.image().an_item_is_at(700, POINT, FIELD.0 + 60.0, LOW);
+        // And a little of it everywhere but the rightmost, so that the box to wait in is the far side from the
+        // item — which is what makes the two halves of this tell apart by the way the bot goes.
+        for slot in 30..36 {
+            game.image().a_bullet_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * (slot - 29) as f32 / 5.0,
+                LOW - 40.0,
+                (0.0, 0.0),
+            );
+        }
+        game.image().an_item_is_at(700, POINT, FIELD.0 + 30.0, LOW);
 
         game.frames(1);
         assert_eq!(
-            game.image().the_word_the_run_acts_on() & LEFT,
-            0,
-            "the bot went into the thick of it for a point item:\n  {}",
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot did not leave the point item in the thick of it:\n  {}",
             game.log().lines().join("\n  "),
         );
 
