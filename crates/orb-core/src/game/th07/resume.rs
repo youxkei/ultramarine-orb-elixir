@@ -65,6 +65,21 @@ pub struct Numbers {
     /// The step this run's awards have climbed to, which is what a collection is worth: a stage resumed at the
     /// bottom of it takes 30 where the run took 2030. See `Th07::run_state`.
     pub award_step: u8,
+    /// **Whether the run was carrying a border as the stage began**, which the cherry+ beside it cannot say: a
+    /// border is *earned* at a figure and then lasts its own 540 frames, so a run crosses into the next stage
+    /// with whatever is left of one and a plus nowhere near that figure.
+    ///
+    /// **And a border is the one thing in a stage that takes items off the screen.** It absorbs every one of
+    /// them, deflects a bullet, and its absorbing is counted in the run's own count — so a stage put back
+    /// without the border it had is a stage that collects what the run did not. Five pairs of launches parted
+    /// exactly there: an item taken on one pass and passed through on the other, the count up by one, with
+    /// every field of a frame's line agreeing and the plus between 5790 and 8780.
+    ///
+    /// `default` because this game's file is read from version 1 and a file written before this field is a file
+    /// whose runs had a border or not with nothing said: false is what such a file has always been read as, and
+    /// it is what the numbers already meant.
+    #[serde(default)]
+    pub border: bool,
 }
 
 /// Those numbers as the bytes the machinery carries about — see `Game::run_state`, which is where the shape
@@ -114,6 +129,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         counted: 0,
         captured: 0,
         award_step: 0,
+        border: false,
     });
     let written = Written {
         version: VERSION,
@@ -147,6 +163,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             counted: numbers.counted,
             captured: numbers.captured,
             award_step: numbers.award_step,
+            border: numbers.border,
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
@@ -206,6 +223,7 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
             counted: written.start.counted,
             captured: written.start.captured,
             award_step: written.start.award_step,
+            border: written.start.border,
         }),
         at,
         chapter: written.chapter.number,
@@ -310,6 +328,11 @@ struct WrittenStart {
     captured: i32,
     /// And the step this run's awards have climbed to, which is what a collection is worth.
     award_step: u8,
+    /// And whether the run was carrying a border, which the cherry+ beside it cannot say — see
+    /// [`Numbers::border`]. `default` so that a file written before this field is read as a run that had none,
+    /// which is what those files have always been put back as.
+    #[serde(default)]
+    border: bool,
 }
 
 /// A number written the way every line of the log that mentions this one writes it. The seed is the
@@ -395,6 +418,7 @@ mod tests {
                 counted: 9_614,
                 captured: 11,
                 award_step: 19,
+                border: true,
             }),
             at: 12,
             chapter: 14,

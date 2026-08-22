@@ -4128,6 +4128,11 @@ impl Game for Th07 {
             counted: run.map_or(0, |run| unsafe { mem::read(run + COUNTED_ALL_RUN) }),
             captured: run.map_or(0, |run| unsafe { mem::read(run + CARDS_CAPTURED) }),
             award_step: unsafe { mem::read(AWARD_STEP) },
+            // **And whether a border is up**, which is the pointer at [`PLAYER_BORDER`] and nothing about the
+            // cherry+ beside it: a border is earned at a figure and then lasts, so a stage entered with one is a
+            // stage whose plus says nothing about it. What a border does to a stage is take every item off the
+            // screen, which is why a resume that left it out put a run back collecting what the run did not.
+            border: unsafe { mem::read::<usize>(G_PLAYER + PLAYER_BORDER) } != 0,
         })
     }
 
@@ -4208,7 +4213,13 @@ impl Game for Th07 {
             mem::write::<i32>(G_CHERRY_TARGET, baseline.wrapping_add(state.cherry_target));
             mem::write::<i32>(G_CHERRY_PLUS, baseline.wrapping_add(plus));
         }
-        if earned {
+        // **A border where the run had one, and where its plus has earned one.** The two are not the same
+        // question: the plus is held to the figure above because the game's own restore holds it there, and a
+        // border *lasts* once earned — so a run crosses into the next stage carrying one with a plus nowhere
+        // near that figure, and every measurement of the parting had exactly that. What a border does that
+        // nothing else in these numbers does is take every item off the screen, which is the shape five pairs
+        // of launches parted in.
+        if earned || state.border {
             let border: unsafe extern "thiscall" fn(usize) =
                 unsafe { std::mem::transmute(border_up()) };
             unsafe { border(G_PLAYER) };
@@ -4478,6 +4489,12 @@ mod tests {
 
     /// A run of this game with nothing in it, for a test that says which of the numbers it is about: the rest
     /// are written as nothing so that what a test wrote is what it can hold the game to.
+    /// The numbers this game says a stage of it starts with, read back out of the bytes it hands over.
+    fn read_back() -> resume::Numbers {
+        resume::decode_state(&unsafe { Th07.run_state() })
+            .expect("the bytes this game writes are bytes it reads")
+    }
+
     fn nothing() -> resume::Numbers {
         resume::Numbers {
             score: 0,
@@ -4496,6 +4513,7 @@ mod tests {
             counted: 0,
             captured: 0,
             award_step: 0,
+            border: false,
         }
     }
 
@@ -4612,10 +4630,21 @@ mod tests {
         assert_eq!(image.card_attempts_in_all(96), CARD_COUNT_CAP);
     }
 
-    /// A cherry+ at or past the figure that earns a border, which the game's own restore does two things
-    /// about: holds the count to that figure, and puts the border up.
+    /// **The two things a border is put back from**, in one test because they are one hook: a counter and an
+    /// installed function, both of them the process's, so two tests over them are two tests racing.
+    ///
+    /// A cherry+ at or past the figure that earns a border, which the game's own restore does two things about —
+    /// holds the count to that figure, and puts the border up. **And a border the run was simply carrying**,
+    /// whatever its plus stands at: a border is earned at that figure and then *lasts* its own 540 frames, so a
+    /// run crosses into the next stage with what is left of one and a plus nowhere near it.
+    ///
+    /// **Which is what a border does that nothing else in these numbers does**: it absorbs every item on the
+    /// screen, deflects a bullet, and its absorbing is counted in [`COUNTED_ALL_RUN`] — so a stage put back
+    /// without the one it had collects what the run did not. Five pairs of launches of 妖々夢 parted exactly
+    /// there: an item taken on one pass and passed through on the other, the count up by one and the score by
+    /// 200, with every field of a frame's own line agreeing and the plus between 5790 and 8780.
     #[test]
-    fn a_cherry_plus_that_has_earned_a_border_is_put_back_as_one() {
+    fn a_border_is_put_back_from_the_plus_that_earned_one_and_from_the_run_carrying_one() {
         let image = Image::laid_out_seeded(0);
         let _installed = image.enter();
 
@@ -4639,6 +4668,52 @@ mod tests {
             "the cherry+ was left past the figure a border is earned at"
         );
         assert_eq!(bordered(), 1, "the border the recording had was not put up");
+
+        // And a plus nowhere near that figure with a border up all the same, which is a run that crossed into
+        // this stage still carrying one.
+        let bordered = image.hands_over_the_border();
+        let start = resume::Numbers {
+            cherry_plus: 0x1000,
+            border: true,
+            ..nothing()
+        };
+        unsafe { Th07.set_run_state(&resume::encode_state(&start)) };
+        assert_eq!(
+            bordered(),
+            1,
+            "the border the run was carrying was not put up"
+        );
+
+        // And none where the run had none, the plus being no reason for one either.
+        let bordered = image.hands_over_the_border();
+        let start = resume::Numbers {
+            cherry_plus: 0x1000,
+            border: false,
+            ..nothing()
+        };
+        unsafe { Th07.set_run_state(&resume::encode_state(&start)) };
+        assert_eq!(bordered(), 0, "a border went up where the run had none");
+    }
+
+    /// And what a stage's start is read as carrying, which is the pointer the deflection nulls.
+    #[test]
+    fn a_border_up_at_a_stages_start_is_read_as_one() {
+        let image = Image::laid_out_seeded(0);
+        let _installed = image.enter();
+
+        image.is_playing(0, 0);
+        image.has_a_runs_numbers();
+        image.the_players_border_is_gone();
+        assert!(
+            !read_back().border,
+            "a player with no border read as carrying one",
+        );
+
+        image.the_player_has_a_border();
+        assert!(
+            read_back().border,
+            "the border the player is carrying was not read",
+        );
     }
 
     /// And the dialogue, whose numbering is the game's own: no object at all before a stage is loaded, then
