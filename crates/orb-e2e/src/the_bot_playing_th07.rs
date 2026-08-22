@@ -1421,9 +1421,36 @@ fn a_boss_against_the_wall_is_followed_only_as_far_as_a_dodge_has_room() {
     });
 }
 
-/// **And a boss outside the play field is not one either.** The x of something the player cannot get under is
-/// an x it walks into a wall for, and a wall is where a dodge runs out of moves — so the middle is a better
-/// place to be than under a boss that is not there to be stood under.
+/// **A boss slot leading off the field is passed over for the next one, not given up on.**
+///
+/// 妖々夢's 4面 is three bosses in eight slots, and the ones the fight is not with wait off the side of the
+/// field — alive, so no aliveness test skips them, and outside it, so their x is nothing to stand under. A rule
+/// that took the first alive slot and then found it unusable stood in the middle of the field for the whole
+/// fight: **a launch did exactly that**, and the middle is the answer for having no boss at all.
+#[test]
+fn a_boss_slot_leading_off_the_field_is_passed_over_for_the_next() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-passes-over-a-boss-off-the-field");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // The first slot alive and waiting off the left of the field, the second where the fight is.
+        game.image().a_boss_slot_leads_to(0, 0);
+        game.image().an_enemy_is_at(0, FIELD.0 - 50.0, 100.0);
+        game.image().a_boss_slot_leads_to(1, 1);
+        game.image().an_enemy_is_at(1, 300.0, 100.0);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            RIGHT,
+            "the bot stood in the middle rather than under the boss it could reach:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And with every slot leading off the field there is no boss to stand under.** The x of something the player
+/// cannot get under is an x it walks into a wall for, and a wall is where a dodge runs out of moves — so the
+/// middle is a better place to be than under a boss that is not there to be stood under.
 #[test]
 fn a_boss_outside_the_play_field_is_not_stood_under() {
     in_its_own_process(|| {

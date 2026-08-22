@@ -1246,6 +1246,17 @@ const BULLET_SLOTS: usize = 0x400;
 /// So the four are a bullet on its way into existence — slow and harmless — and a model that read every
 /// not-nothing state as a hazard was keeping the player away from a wall of bullets that could not touch it,
 /// which is how a dense pattern comes to have nothing open in it.
+///
+/// **What is not read is how many frames one of the four has left.** Which frame it becomes the first on is
+/// not a count on the bullet: 0x425fea asks 0x450d60 about the animation at `bullet+0x24c` and takes the jump
+/// to 0x425b89 — the write of 1 — where that comes back set, so a bullet starts hitting when its own coming-out
+/// animation ends, and the frames left are inside that object rather than here.
+///
+/// So a bullet left out of the frames a move is judged over is left out of all of them, where the 予告線 is
+/// left out of only the frames before it fires — see [`LASER_LIVE_AT`]. What makes that the better way round
+/// for now is that a bullet coming out is next to whatever fired it rather than next to the player, so it is in
+/// the model again with the whole look-ahead to spare; and what would say otherwise is a hit reading twenty
+/// units of room, which is the log's shape for a hazard the model did not have.
 const BULLET_STATE: usize = 0xbfc;
 const BULLET_HITS: u16 = 1;
 const BULLET_POSITION: usize = 0xb8c;

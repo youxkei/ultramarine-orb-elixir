@@ -44,16 +44,16 @@ use orb_api::mem;
 use crate::log;
 
 use super::{
-    BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STATE,
-    BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES,
-    ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION, ENEMY_SIZE,
-    ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
-    G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE,
-    G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES,
-    ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS,
-    LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_LIVE_AT, LASER_NEAR,
-    LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER, LASER_WIDTH, MENU_CANCEL, MENU_DECIDE,
-    PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
+    BOSS_SLOTS, BOSSES, BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS,
+    BULLET_STATE, BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP,
+    ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION,
+    ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP,
+    FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS,
+    G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB,
+    ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER,
+    ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_LIVE_AT,
+    LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER, LASER_WIDTH, MENU_CANCEL,
+    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
     PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE,
     SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
@@ -768,9 +768,20 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn the_boss_to_stand_under(field: (f32, f32, f32, f32)) -> Option<f32> {
-    let boss = unsafe { Th07::boss() }?;
-    let x = unsafe { mem::read::<f32>(boss + ENEMY_POSITION) };
-    (x >= field.0 && x <= field.0 + field.2).then_some(x)
+    // **Every slot and not the first that is alive.** 妖々夢's 4面 is three bosses in the eight, and the ones
+    // the fight is not with wait off the side of the field — alive, so no aliveness test passes them over, and
+    // outside it, so their x is nothing to stand under. Taking the first alive one and then finding it unusable
+    // is answering "no boss": a launch stood in the middle of the field for the whole of that fight.
+    (0..BOSS_SLOTS)
+        .filter_map(|slot| {
+            let boss =
+                unsafe { mem::read::<usize>(G_ENEMY_MANAGER + BOSSES + slot * size_of::<usize>()) };
+            (boss != 0
+                && mem::read_committed::<u8>(boss + ENEMY_ALIVE)
+                    .is_some_and(|alive| alive & ENEMY_ALIVE_BIT != 0))
+            .then(|| unsafe { mem::read::<f32>(boss + ENEMY_POSITION) })
+        })
+        .find(|x| *x >= field.0 && *x <= field.0 + field.2)
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.
