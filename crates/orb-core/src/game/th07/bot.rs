@@ -348,6 +348,33 @@ static LAST_PLACE: [(AtomicU32, AtomicU32); ENEMY_SLOTS] =
     [const { (AtomicU32::new(NOWHERE), AtomicU32::new(NOWHERE)) }; ENEMY_SLOTS];
 const NOWHERE: u32 = 0x7fc0_0000;
 
+/// **How each enemy was moving last frame**, so that one being swept by a script can be told from one drifting:
+/// 6面's turning beam is a line of small solid enemies, size 8 and solidity `0x27`, and the boss's script whirls
+/// them. A straight line drawn from where such a thing went last frame is wrong by the whole of the turn, which
+/// is a hit reading `6.4 of room` with one of them four units from the player.
+static LAST_ENEMY_MOVE: [(AtomicU32, AtomicU32); ENEMY_SLOTS] =
+    [const { (AtomicU32::new(NOWHERE), AtomicU32::new(NOWHERE)) }; ENEMY_SLOTS];
+
+/// How much an enemy's own motion changed since last frame, and nothing for one that was not there then.
+fn an_enemy_turned(slot: usize, moved: (f32, f32)) -> (f32, f32) {
+    let was = (
+        f32::from_bits(
+            LAST_ENEMY_MOVE[slot]
+                .0
+                .swap(moved.0.to_bits(), Ordering::Relaxed),
+        ),
+        f32::from_bits(
+            LAST_ENEMY_MOVE[slot]
+                .1
+                .swap(moved.1.to_bits(), Ordering::Relaxed),
+        ),
+    );
+    if was.0.is_nan() || was.1.is_nan() {
+        return (0.0, 0.0);
+    }
+    (moved.0 - was.0, moved.1 - was.1)
+}
+
 /// How far an enemy moved since last frame, and nothing for one that was not there then.
 fn moved(slot: usize, (x, y): (f32, f32)) -> (f32, f32) {
     let was = (
@@ -417,6 +444,8 @@ fn a_step_turned(slot: usize, step: (f32, f32)) -> (f32, f32) {
 fn moves_no_more(slot: usize) {
     LAST_PLACE[slot].0.store(NOWHERE, Ordering::Relaxed);
     LAST_PLACE[slot].1.store(NOWHERE, Ordering::Relaxed);
+    LAST_ENEMY_MOVE[slot].0.store(NOWHERE, Ordering::Relaxed);
+    LAST_ENEMY_MOVE[slot].1.store(NOWHERE, Ordering::Relaxed);
 }
 
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
@@ -885,16 +914,26 @@ unsafe fn steer() -> Steered {
         counted.enemies += 1;
         let (wx, wy) = unsafe { position(enemy + ENEMY_POSITION) };
         let (sx, sy) = unsafe { position(enemy + ENEMY_SIZE) };
+        // **And feared rather than projected where a script is swinging it.** 6面's turning beam is a line of
+        // these, and a straight line from last frame's motion is wrong by the whole of the sweep — so the test
+        // is whether that motion is itself changing, and what is kept away from is everywhere it could reach.
+        let went = moved(slot, (wx, wy));
+        let swung = an_enemy_turned(slot, went);
+        let scripted = swung.0.abs() > A_STEP_OF_ITS_OWN || swung.1.abs() > A_STEP_OF_ITS_OWN;
         against(
             "an enemy",
             slot,
             (wx, wy),
-            moved(slot, (wx, wy)),
+            if scripted { (0.0, 0.0) } else { went },
             (
                 sx / ENEMY_BOX_OF_ITS_SIZE / 2.0,
                 sy / ENEMY_BOX_OF_ITS_SIZE / 2.0,
             ),
-            (0.0, 0.0),
+            if scripted {
+                (went.0.abs(), went.1.abs())
+            } else {
+                (0.0, 0.0)
+            },
         );
     }
     // **And the lasers, which are the one hazard a distance cannot stand in for**: a beam is a place, not a
