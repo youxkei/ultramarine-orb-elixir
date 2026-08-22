@@ -51,10 +51,10 @@ use super::{
     G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
     ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT,
     ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
-    LASER_FAR, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_WIDTH, MENU_CANCEL,
-    MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
-    PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE,
-    SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    LASER_FAR, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER,
+    LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX,
+    PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN,
+    PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -85,6 +85,17 @@ pub fn bit(name: &str) -> Option<u16> {
 /// 0x43f474 holds the player with the whole of one side taken away from it, and this much up leaves the room a
 /// dodge needs on every side of it.
 const ABOVE_THE_BOTTOM: f32 = 48.0;
+
+/// And how far in from either side edge the x the rules want is held, in the same units and for the same
+/// reason: a corner is where a dodge runs out of moves, three of the nine leading into the wall where the clamp
+/// makes them the move the player is already making.
+///
+/// **Which a run paid for.** 妖々夢's 4面 has three bosses and one of them stands at the left edge; a run that
+/// followed its x was hit at `27.8,432.0` with nowhere open to it — every one of the nine shut, in the corner it
+/// had been led into.
+///
+/// Only where the bot *waits*, the same as [`THE_BAND`]: a dodge goes wherever the field allows.
+const IN_FROM_THE_SIDE: f32 = 48.0;
 
 /// **How much of the field, measured up from its bottom edge, the bot moves in at all** — a third of it.
 ///
@@ -544,9 +555,15 @@ unsafe fn steer() -> Steered {
     // point, so a move is judged inside the beam's own frame — turn the landing about the origin by the angle
     // and it is *along* and *across*, which is the shape the game's own test at 0x43e6b0 makes of it.
     //
-    // The width it has *now*, which is what makes the warning line a hazard the size it looks: a beam about to
-    // fire is thin and the one firing is not. And the angle it has now, which a turning beam will not have in
-    // the frames looked at — nothing here reads what turns one, so a card of those is a card this understates.
+    // **A 予告線 is left for the frames it will be firing on and not for being drawn**: 0x4266dc gates the
+    // game's own test on [`LASER_TIMER`] reaching [`LASER_LIVE_AT`], so a beam still drawing its warning hits
+    // nothing at all — and a bot that made the warning a hazard would keep the player out of the one lane a
+    // pattern leaves open. The warning is still where the beam *will* be, though, which is the whole reason
+    // anybody moves off one: the frames looked at that fall after it fires are frames to be elsewhere for. So
+    // the count decides, frame by frame, and neither answer has to be guessed.
+    //
+    // The angle is the one it has now carried on by the turn it made last frame — nothing in a laser's update
+    // moves it, so a beam whose sweep speeds up or turns back is a beam this is late about.
     for slot in 0..LASER_SLOTS {
         let laser = G_LASERS + slot * LASER_BYTES;
         if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0
@@ -555,6 +572,8 @@ unsafe fn steer() -> Steered {
             turns_no_more(slot);
             continue;
         }
+        let fires_in = unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }
+            - unsafe { mem::read::<i32>(laser + LASER_TIMER) };
         let (ox, oy) = unsafe { position(laser + LASER_ORIGIN) };
         let angle = unsafe { mem::read::<f32>(laser + LASER_ANGLE) };
         let turn = turned(slot, angle);
@@ -564,6 +583,10 @@ unsafe fn steer() -> Steered {
         let across = unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0;
         for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
             for (frame, (x, y)) in path.iter().enumerate() {
+                // Nothing to be anywhere else for on a frame the beam is still only drawn.
+                if fires_in > frame as i32 + 1 {
+                    continue;
+                }
                 // Where the beam will be pointing by then, which is where it points now plus as many of its own
                 // turns as there are frames to look.
                 let ahead = angle + turn * (frame + 1) as f32;
@@ -705,7 +728,22 @@ unsafe fn where_to_be(field: (f32, f32, f32, f32)) -> (f32, f32) {
     // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
     // field, moving only sideways, with the dodge it wanted to make upwards pulled straight back. Waiting low is
     // where the item arrives anyway.
-    (x, if y >= the_band(field) { y } else { low })
+    //
+    // **And the x held [`IN_FROM_THE_SIDE`] off either edge**, which the y has needed all along and the x turned
+    // out to need too: a corner is a place with nothing open in it. A field too narrow to keep that off both
+    // sides has only its middle to offer, which is where a run with no field read at all ends up.
+    let (inside, outside) = (
+        field.0 + IN_FROM_THE_SIDE,
+        field.0 + field.2 - IN_FROM_THE_SIDE,
+    );
+    (
+        if inside <= outside {
+            x.clamp(inside, outside)
+        } else {
+            field.0 + field.2 / 2.0
+        },
+        if y >= the_band(field) { y } else { low },
+    )
 }
 
 /// The x of the boss the fight is with, where there is one worth standing under.

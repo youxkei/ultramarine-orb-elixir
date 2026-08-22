@@ -169,6 +169,8 @@ const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
 /// under, which is the middle of it.
 const LOW: f32 = 400.0;
 const MIDDLE: f32 = 192.0;
+/// And how far off either side edge the x they wait on is held, as `bot::IN_FROM_THE_SIDE` has it.
+const IN_FROM_THE_SIDE: f32 = 48.0;
 /// And the top of the band it moves in, which is the bottom third of that field.
 const BAND_TOP: f32 = FIELD.1 + FIELD.3 * 2.0 / 3.0;
 /// What one frame of holding a direction moves the player by in these, straight.
@@ -554,6 +556,50 @@ fn the_bot_leaves_a_laser_that_is_firing() {
             game.image().the_word_the_run_acts_on() & PAD,
             0,
             "the bot left for a laser the game had stopped looking at:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A 予告線 is left before it fires and not while it is only drawn.**
+///
+/// 0x4266dc gates the player's own laser test on the beam's count reaching the frame it fires on, so a beam
+/// still drawing its warning hits nothing — and a bot that treated the warning as a hazard would be kept out of
+/// the one lane the pattern leaves open. But the warning is also where the beam *will* be, so the frames of a
+/// look-ahead that fall after it fires are frames to be somewhere else for.
+///
+/// Both, then, off the one number: a beam firing well past the frames looked at is nothing to move for, and the
+/// same beam firing inside them is.
+#[test]
+fn a_warning_line_is_left_for_the_frames_it_will_be_firing_on() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-reads-a-warning-line");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().a_laser_is_at(
+            7,
+            (MIDDLE, FIELD.1),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, FIELD.3),
+            A_STEP * 2.0,
+        );
+
+        // Firing long after every frame this looks at, so there is nothing yet to move for.
+        game.image().the_laser_fires_in(7, 600);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot left a lane a beam was only drawn across:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And firing inside them, which is what a warning line is for.
+        game.image().the_laser_fires_in(7, 2);
+        game.frames(1);
+        let pressed = game.image().the_word_the_run_acts_on() & PAD;
+        assert!(
+            pressed == LEFT || pressed == RIGHT,
+            "the bot stood in a beam about to fire, pressing {pressed:#05x}:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
@@ -1255,6 +1301,46 @@ fn a_bosss_slot_left_behind_is_not_a_boss_to_stand_under() {
             game.image().the_word_the_run_acts_on() & PAD,
             RIGHT,
             "the bot went for the boss that had left:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a boss against the wall is followed only as far as a dodge has room.**
+///
+/// A corner is where a dodge runs out of moves: three of the nine lead into the wall, where the clamp makes them
+/// the move the player is already making. 妖々夢's 4面 is where that gets paid — three bosses share the stage
+/// and one of them sits at the left edge — and a run that followed it was hit at `27.8,432.0` with **nowhere
+/// open to it**, which is the log's way of saying all nine were shut.
+///
+/// Only the x *wanted* is held off the edge: a dodge still goes wherever the field allows, the same way
+/// [`the_bot_stays_in_the_bottom_third_of_the_field`] bounds where the bot waits and not where it may step.
+#[test]
+fn a_boss_against_the_wall_is_followed_only_as_far_as_a_dodge_has_room() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-keeps-off-the-wall");
+        game.image().a_boss_is_fighting(1000, 0);
+        game.image().the_boss_is_at(FIELD.0 + 8.0, 100.0);
+
+        // Standing where it will wait, it has nowhere further to go.
+        game.image()
+            .the_player_is_at(FIELD.0 + IN_FROM_THE_SIDE, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot went on towards the wall for a boss standing against it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And out in the field it still closes on the fight.
+        game.image()
+            .the_player_is_at(FIELD.0 + IN_FROM_THE_SIDE + 100.0, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT,
+            "the bot gave up closing on a boss it had room to reach:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

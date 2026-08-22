@@ -1499,6 +1499,17 @@ impl Image {
         space.write::<f32>(laser + super::LASER_WIDTH, width);
         // Nought of its phases through, which is a beam that is still there to be hit by.
         space.write::<u8>(laser + super::LASER_PHASE, 0);
+        // And firing already: the count has reached the frame it starts hitting on.
+        space.write::<i32>(laser + super::LASER_TIMER, 0);
+        space.write::<i32>(laser + super::LASER_LIVE_AT, 0);
+    }
+
+    /// And one still drawing its 予告線, with this many frames to go before it starts hitting.
+    pub fn the_laser_fires_in(&self, slot: usize, frames: i32) {
+        let laser = super::G_LASERS + slot * super::LASER_BYTES;
+        let space = self.space();
+        space.write::<i32>(laser + super::LASER_TIMER, 0);
+        space.write::<i32>(laser + super::LASER_LIVE_AT, frames);
     }
 
     /// And one that has gone past the phase both of the game's own walks stop looking at.

@@ -1023,6 +1023,16 @@ const LASER_ANGLE: usize = 0x4a4;
 const LASER_NEAR: usize = 0x4a8;
 const LASER_FAR: usize = 0x4ac;
 const LASER_WIDTH: usize = 0x4b4;
+/// **How many frames a laser has been going, and the frame it starts hitting on** — `+0x4e0` counted up
+/// against `+0x4c4`.
+///
+/// 0x4266dc is the gate: the player's own laser test at 0x43e6b0 is called only where the count has reached
+/// that number, so **a beam still drawing its 予告線 hits nothing at all**. A model that made the warning a
+/// hazard would keep the player out of the one place the pattern leaves open; a model that ignored it would walk
+/// into the beam the frame it fires. Both are wrong and neither has to be: the count says which frames of a
+/// look-ahead the beam is live for.
+const LASER_TIMER: usize = 0x4e0;
+const LASER_LIVE_AT: usize = 0x4c4;
 const LASER_PHASE: usize = 0x4e8;
 const LASER_FADING: u8 = 2;
 const LASER_BYTES: usize = 0x4ec;
