@@ -272,6 +272,12 @@ impl Config {
                 Ok(text) => self.autoplay = Some(text),
                 Err(why) => eprintln!("orb: {} cannot be read: {why}", recipe.display()),
             }
+            // **A launch that plays itself is a launch nobody is watching**, so the log is the only place
+            // anything about it can be seen — and everything a bot says about how it played is detail by nature:
+            // where it was hit, what its model was made of, which item of a menu the cursor is on. Asking for
+            // the harness is asking for what the harness sees, so the level comes with it rather than having to
+            // be remembered beside it.
+            self.log_level = LogLevel::Verbose;
         }
         if options.no_frame_loop {
             self.own_frame_loop = false;

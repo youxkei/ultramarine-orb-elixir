@@ -41,8 +41,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use orb_api::mem;
 
-use crate::log;
-
 use super::{
     BOSS_SLOTS, BOSSES, BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS,
     BULLET_STATE, BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP,
@@ -433,34 +431,42 @@ fn said_what_took_it() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(was) = *was else {
-        log!("autoplay: hit on the first frame the rules were asked for");
+        crate::detail!("autoplay: hit on the first frame the rules were asked for");
         return;
     };
     let room = match was.room {
         Some(room) => format!("{room:.1} of room"),
         None => "nowhere open to it".to_owned(),
     };
-    // Said only where it is true, a line saying nothing about the step being a line whose step was the right
-    // one — and where it is true it is the first thing to look at, the model having moved the player somewhere
-    // it was never going to be.
-    let room = if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
-        format!("{room}, on the frame 低速 changed and the step was last frame's")
-    } else {
-        room
-    };
+    // **The hit itself at every level, and what it is diagnosed with only where somebody asked for detail.**
+    // Where, what was pressed and how much room there was is the hit; which hazard was nearest and at what
+    // size, what the model was made of, and whether the step was the frame before's are what a *calibration*
+    // reads, and a run nobody is calibrating should not carry three lines' worth of them per hit.
+    crate::detail!(
+        "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room}",
+        was.at.0,
+        was.at.1,
+        was.word,
+    );
     let of = was.counted;
-    let model = format!(
-        "the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} left out for \
-         having no body; {} laser(s), {} of them still only a warning",
-        of.bullets, of.another_state, of.enemies, of.no_body, of.lasers, of.warnings,
+    crate::detail!(
+        "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
+         left out for having no body; {} laser(s), {} of them still only a warning{}",
+        of.bullets,
+        of.another_state,
+        of.enemies,
+        of.no_body,
+        of.lasers,
+        of.warnings,
+        if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
+            "; 低速 changed on that frame, so the step was the one before's"
+        } else {
+            ""
+        },
     );
     match was.nearest {
-        Some(near) => log!(
-            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — nearest was {} at \
-             {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}; {model}",
-            was.at.0,
-            was.at.1,
-            was.word,
+        Some(near) => crate::detail!(
+            "autoplay: nearest was {} at {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}",
             near.what,
             near.at.0,
             near.at.1,
@@ -469,13 +475,7 @@ fn said_what_took_it() {
             near.half.0,
             near.half.1,
         ),
-        None => log!(
-            "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room} — and nothing near it \
-             at all; {model}",
-            was.at.0,
-            was.at.1,
-            was.word,
-        ),
+        None => crate::detail!("autoplay: nothing was near it at all"),
     }
 }
 

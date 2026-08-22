@@ -4235,7 +4235,19 @@ impl Game for Th07 {
     /// number off whatever the pointer led to.
     unsafe fn front_end_cursor(&self) -> Option<i32> {
         let front = unsafe { Self::chain_argument(FRONT_END_UPDATE) }?;
-        mem::read_committed::<i32>(front + FRONT_END_CURSOR)
+        let cursor = mem::read_committed::<i32>(front + FRONT_END_CURSOR)?;
+        // **Said whenever either changes**, which is what a recipe naming an item by where it sits has to be
+        // written against: the cursor is one field whatever screen is up, so a step waiting for a number cannot
+        // tell 練習スタート's own list from the title's. Which id each screen is and where each item sits in it
+        // is not read off the exe — [`SCREEN_TITLE`] and [`SCREEN_SHOT_SELECT`] are the two that are — so it is
+        // read off a launch instead, and this is the line it is read from.
+        let screen = mem::read_committed::<i32>(front + FRONT_END_SCREEN).unwrap_or(-1);
+        static LAST: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
+        let both = i64::from(screen) << 32 | i64::from(cursor) & 0xffff_ffff;
+        if LAST.swap(both, Ordering::Relaxed) != both {
+            crate::detail!("front end: screen {screen}, cursor on item {cursor}");
+        }
+        Some(cursor)
     }
 
     unsafe fn mid_build(&self) -> bool {

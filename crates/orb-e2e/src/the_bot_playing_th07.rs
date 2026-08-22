@@ -134,7 +134,9 @@ fn the_bot_bombs_the_frame_the_player_is_hit() {
         );
 
         game.image().the_player_has_been_hit();
-        game.frames(1);
+        // **More than the frame of the hit**, the line being one the frame loop writes in its own slack rather
+        // than where it is worked out — see `detail!`.
+        game.frames(4);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & BOMB,
             BOMB,
@@ -727,7 +729,9 @@ fn a_hit_says_what_the_rules_thought_of_the_move_that_took_it() {
 
         game.image().the_item_is_gone(700);
         game.image().the_player_has_been_hit();
-        game.frames(1);
+        // **More than the frame of the hit**, the line being one the frame loop writes in its own slack rather
+        // than where it is worked out — see `detail!`.
+        game.frames(4);
         assert!(
             game.log().said("having pressed 0x080"),
             "the hit did not say the move the frame it came out of was played with:\n  {}",
@@ -1172,14 +1176,17 @@ fn the_room_a_move_has_is_measured_between_the_boxes() {
 
         game.frames(1);
         game.image().the_player_has_been_hit();
-        game.frames(1);
+        // **More than the frame of the hit**, the line being one the frame loop writes in its own slack rather
+        // than where it is worked out — see `detail!`.
+        game.frames(4);
         assert!(
-            game.log().said(&format!(
-                "with 3.0 of room — nearest was a bullet at \
-                 {big:.1},{LOW:.1} stepping 0.0,0.0, half of it {:.1},{:.1}",
-                WIDEST_BULLET / 2.0,
-                WIDEST_BULLET / 2.0,
-            )),
+            game.log().said("with 3.0 of room")
+                && game.log().said(&format!(
+                    "nearest was a bullet at {big:.1},{LOW:.1} stepping 0.0,0.0, half of it \
+                     {:.1},{:.1}",
+                    WIDEST_BULLET / 2.0,
+                    WIDEST_BULLET / 2.0,
+                )),
             "the hit named the bullet whose middle was nearest rather than the one whose box was:\n  {}",
             game.log().lines().join("\n  "),
         );
