@@ -925,6 +925,20 @@ const ENEMY_SLOTS: usize = 0x1e0;
 const ENEMY_ALIVE: usize = 0x2e28;
 const ENEMY_ALIVE_BIT: u8 = 0x80;
 
+/// **Whether an enemy has a body the player can run into at all** — the low two bits of `+0x2e29`, and both of
+/// them.
+///
+/// 0x420e86 and 0x420e9f are the gate: each tests one of those bits and jumps past 0x420ebc where it is clear,
+/// and 0x420ebc is the only place an enemy's position and size are handed to the player's own box test. So an
+/// enemy with either bit down is not a thing to keep away from, whatever else it is doing.
+///
+/// **A run is what says why this matters.** 妖々夢's 6面 boss fires 自機狙い off an enemy the script keeps at the
+/// player, invisible and with a body of 8 units; a bot that read every living enemy as solid was cornered by a
+/// hazard that followed it, and three hits in one chapter said `nowhere open to it` — every one of the nine
+/// moves shut by a thing that could not have touched it.
+const ENEMY_SOLID: usize = 0x2e29;
+const ENEMY_SOLID_BITS: u8 = 0x03;
+
 /// **An enemy's own size**, two floats at `+0x2b3c` — and a body is a wide thing, so a bot that took one for a
 /// point is a bot clipped by every boss it stands under.
 ///
@@ -1220,7 +1234,20 @@ const ITEM_CHERRY: i8 = 7;
 const BULLETS: usize = 0xb8c0;
 const BULLET_BYTES: usize = 0xd68;
 const BULLET_SLOTS: usize = 0x400;
-const BULLET_ALIVE: usize = 0xbfc;
+/// **The state of a bullet, and the one of the five that can hit the player.**
+///
+/// The dispatch at 0x425b82 jumps through the table at 0x426add on `state - 1`, and the two calls that hand a
+/// bullet to the player's own tests — 0x425e19 to 0x43e3b0 and 0x425e8f to 0x43e260, which are the only two in
+/// the exe outside the enemy's own 0x420490 — are both inside the first of its five. The other four end at the
+/// shared 0x4262d8 and reach neither, and each moves the bullet by a fraction of its step rather than the whole
+/// of it: 0x425faf and 0x426287 by a half, 0x42619f by a third. One of them, 0x425ff8, jumps to the code at
+/// 0x425b89 that writes this state to 1.
+///
+/// So the four are a bullet on its way into existence — slow and harmless — and a model that read every
+/// not-nothing state as a hazard was keeping the player away from a wall of bullets that could not touch it,
+/// which is how a dense pattern comes to have nothing open in it.
+const BULLET_STATE: usize = 0xbfc;
+const BULLET_HITS: u16 = 1;
 const BULLET_POSITION: usize = 0xb8c;
 const BULLET_STEP: usize = 0xb98;
 

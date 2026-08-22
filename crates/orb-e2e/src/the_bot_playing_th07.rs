@@ -1242,6 +1242,81 @@ fn the_move_taken_is_the_one_whose_trouble_is_furthest_off() {
     });
 }
 
+/// **A bullet still coming out is not moved for either.**
+///
+/// The dispatch at 0x425b82 sends a bullet through one of five cases on its state, and the two calls that hand
+/// one to the player's own tests are both inside the first. The other four move it by a fraction of its step and
+/// end at the shared 0x4262d8, reaching neither — so a bullet in one of them is a bullet on its way into
+/// existence, and it cannot touch the player yet.
+///
+/// **Which is most of a wall of bullets on the frame a boss fires one.** A bot that read every not-nothing
+/// state as a hazard had nothing open to it in exactly the patterns that matter.
+#[test]
+fn a_bullet_still_coming_out_is_not_moved_for() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-ignores-a-bullet-coming-out");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(0, MIDDLE + A_STEP, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood on a bullet that was flying:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_bullet_is_still_coming_out(0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for a bullet the game would not have let touch it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **An enemy with no body to run into is not moved for at all.**
+///
+/// 0x420e86 and 0x420e9f gate the enemy's own collision on the low two bits of `+0x2e29`, and 0x420ebc — the
+/// only place an enemy's position and size reach the player's box test — is past both. So an enemy with either
+/// bit down cannot touch the player however near it stands.
+///
+/// **Which 妖々夢's 6面 boss makes the difference between a clear and a cornering.** It fires 自機狙い off an
+/// enemy its script keeps at the player: invisible, eight units across, and drifting a fraction of a unit a
+/// frame. A bot that read every living enemy as solid had a hazard it could not get away from, and three hits
+/// in the one chapter said `nowhere open to it` — all nine moves shut by a thing that was never going to touch
+/// it.
+#[test]
+fn an_enemy_with_no_body_is_not_moved_for() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-ignores-a-firing-point");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Right beside the player and wide enough to be a hit if it were one.
+        game.image()
+            .an_enemy_of_size_is_at(0, MIDDLE + A_STEP, LOW, (24.0, 24.0));
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood inside an enemy's body:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_enemy_has_no_body(0);
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot moved for an enemy the game would not have let touch it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **An enemy is moved for by where it is going and not only by where it stands.**
 ///
 /// Nothing in an enemy's own update is a step a read could take — its script moves it — so the only way to

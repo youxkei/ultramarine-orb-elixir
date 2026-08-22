@@ -44,17 +44,18 @@ use orb_api::mem;
 use crate::log;
 
 use super::{
-    BULLET_ALIVE, BULLET_BYTES, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STEP, BULLETS,
-    BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT,
-    ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION, ENEMY_SIZE, ENEMY_SLOTS, FIELD_HEIGHT,
-    FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER,
-    G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
-    ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT,
-    ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
-    LASER_FAR, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER,
-    LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX,
-    PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN,
-    PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
+    BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS, BULLET_STATE,
+    BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_SHOT, BUTTON_SKIP, ENEMIES,
+    ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES, ENEMY_POSITION, ENEMY_SIZE,
+    ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH,
+    G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE,
+    G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES,
+    ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS,
+    LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING, LASER_FAR, LASER_LIVE_AT, LASER_NEAR,
+    LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER, LASER_WIDTH, MENU_CANCEL, MENU_DECIDE,
+    PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT,
+    PLAYER_POSITION, PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE,
+    SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -508,7 +509,11 @@ unsafe fn steer() -> Steered {
         };
     for slot in 0..BULLET_SLOTS {
         let bullet = G_BULLET_MANAGER + BULLETS + slot * BULLET_BYTES;
-        if unsafe { mem::read::<u16>(bullet + BULLET_ALIVE) } == 0 {
+        // **Only the state the collision is in.** The other four the dispatch at 0x425b82 knows move a bullet
+        // by a fraction of its step and reach neither of the player's tests, so a bullet in one of them is on
+        // its way into existence and cannot touch anything yet — which is most of a wall of bullets on the
+        // frame a boss fires it.
+        if unsafe { mem::read::<u16>(bullet + BULLET_STATE) } != BULLET_HITS {
             continue;
         }
         // Its own update adds its step to its position every frame, so where it will be in a frame's time is
@@ -533,9 +538,16 @@ unsafe fn steer() -> Steered {
     // script being what moves it, so the motion is the difference from last frame the way a laser's turn is. A
     // body read as standing still is one the model leaves room beside for as long as it takes to arrive — a
     // launch was hit beside 2面's midboss with 4.7 of room, which is less than a body covers in a frame.
+    // **And only the ones with a body to run into.** 0x420e86 and 0x420e9f gate the enemy's own collision on
+    // the two bits of [`ENEMY_SOLID`], so an enemy with either down cannot touch the player at all — which
+    // 妖々夢's 6面 boss relies on: it fires 自機狙い off an enemy its script keeps *at* the player, and a model
+    // that made that solid had a hazard nothing could get away from.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
-        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0 {
+        if unsafe { mem::read::<u8>(enemy + ENEMY_ALIVE) } & ENEMY_ALIVE_BIT == 0
+            || unsafe { mem::read::<u8>(enemy + ENEMY_SOLID) } & ENEMY_SOLID_BITS
+                != ENEMY_SOLID_BITS
+        {
             moves_no_more(slot);
             continue;
         }

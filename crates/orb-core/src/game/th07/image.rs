@@ -719,6 +719,15 @@ impl Image {
         );
     }
 
+    /// And one with no body to run into — the two bits 0x420e86 and 0x420e9f gate the collision on, down. Which
+    /// is what a script's own firing point is: alive, at the player, and nothing to be hit by.
+    pub fn the_enemy_has_no_body(&self, slot: usize) {
+        self.space().write::<u8>(
+            super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES + super::ENEMY_SOLID,
+            0,
+        );
+    }
+
     /// And an enemy that is no longer there, which is what its own walk reads off the same bit.
     pub fn the_enemy_is_gone(&self, slot: usize) {
         self.space().write::<u8>(
@@ -1436,13 +1445,25 @@ impl Image {
         let bullet = super::G_BULLET_MANAGER + super::BULLETS + slot * super::BULLET_BYTES;
         let space = self.space();
         // The state the walk tests, whose 1 is the first of the five its dispatch knows.
-        space.write::<u16>(bullet + super::BULLET_ALIVE, 1);
+        space.write::<u16>(bullet + super::BULLET_STATE, super::BULLET_HITS);
         space.write::<f32>(bullet + super::BULLET_POSITION, x);
         space.write::<f32>(bullet + super::BULLET_POSITION + size_of::<f32>(), y);
         space.write::<f32>(bullet + super::BULLET_STEP, step.0);
         space.write::<f32>(bullet + super::BULLET_STEP + size_of::<f32>(), step.1);
         space.write::<f32>(bullet + super::BULLET_SIZE, size.0);
         space.write::<f32>(bullet + super::BULLET_SIZE + size_of::<f32>(), size.1);
+    }
+
+    /// And one still on its way into existence: a state other than the one the collision is in, which is where
+    /// the dispatch at 0x425b82 sends a bullet that moves at a fraction of its step and hits nothing.
+    pub fn the_bullet_is_still_coming_out(&self, slot: usize) {
+        self.space().write::<u16>(
+            super::G_BULLET_MANAGER
+                + super::BULLETS
+                + slot * super::BULLET_BYTES
+                + super::BULLET_STATE,
+            super::BULLET_HITS + 1,
+        );
     }
 
     /// The player's own box, as the game's own hit test reads it: the smaller corner and the larger.
@@ -1531,6 +1552,8 @@ impl Image {
         let enemy = super::G_ENEMY_MANAGER + ENEMIES + slot * super::ENEMY_BYTES;
         let space = self.space();
         space.write::<u8>(enemy + super::ENEMY_ALIVE, super::ENEMY_ALIVE_BIT);
+        // With a body the player can run into, which is the two bits the game's own gate reads.
+        space.write::<u8>(enemy + super::ENEMY_SOLID, super::ENEMY_SOLID_BITS);
         space.write::<f32>(enemy + super::ENEMY_POSITION, x);
         space.write::<f32>(enemy + super::ENEMY_POSITION + size_of::<f32>(), y);
         space.write::<f32>(enemy + super::ENEMY_SIZE, size.0);
