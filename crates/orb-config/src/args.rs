@@ -50,7 +50,13 @@ pub struct Options {
     collect: bool,
 
     /// step between them at speed 1 and decide about each: the pass somebody watches
-    #[arg(long, help_heading = TABLE)]
+    // **And not one a recipe drives.** A bot's word is folded into the pad orb reads its own keys off — see
+    // `runtime::pad` — and the key that puts a boundary down is that pad's shot, which a bot holds and lets go
+    // of for one frame in sixty. Every release is then an edge: a judging pass with a recipe wrote a boundary a
+    // second, twelve into the Extra's first nine seconds before anybody had touched a thing. The window is the
+    // other half — a launch that plays itself is put in a corner at a size of its own, and a judging pass is
+    // watched — and neither half is worth an option, the front end being four presses by hand.
+    #[arg(long, conflicts_with = "autoplay", help_heading = TABLE)]
     judge: bool,
 
     /// propose and decide without either of those, for a run being played
@@ -332,6 +338,21 @@ mod tests {
     #[test]
     fn the_two_passes_are_not_asked_for_together() {
         assert!(Options::from_command_line("--collect --judge").is_err());
+    }
+
+    /// **And a judging pass is not driven by a recipe.** A bot's word is folded into the pad orb reads its own
+    /// keys off, and the key that puts a boundary down is that pad's shot: a bot holds the shot and lets it go
+    /// for one frame in sixty, so every release is an edge and a judging pass with a recipe wrote a boundary a
+    /// second — twelve of them into the first nine seconds of the Extra before anybody touched anything. The
+    /// window is the other half of it, a launch that plays itself being put in a corner at a size of its own,
+    /// where what a judging pass is for is being watched.
+    #[test]
+    fn a_judging_pass_is_not_driven_by_a_recipe() {
+        assert!(Options::from_command_line("--judge --autoplay=recipe.yaml").is_err());
+        assert!(Options::from_command_line("--autoplay=recipe.yaml --judge").is_err());
+        // The collecting pass is nobody's to watch and nothing of it reads a pad, so a recipe is what starts
+        // the replay there.
+        assert!(Options::from_command_line("--collect --autoplay=recipe.yaml").is_ok());
     }
 
     /// A speed given by hand wins over the one the pass chose, whichever order they come in:
