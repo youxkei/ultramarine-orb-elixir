@@ -199,7 +199,16 @@ Nothing machine-specific in anything committed. Scripts take what varies as an a
 from the environment, and fail with a usage line when given neither.
 
 Claims about the game's behaviour are established by measurement. A plausible explanation is not a
-finding. **Every measurement is kept beside the thing it is about, and what it did says which thing
+finding.
+
+**And a grep over the disassembly is not a measurement of what does not happen.** An address reached
+through a pointer is an address no search for it as an operand finds: `[0x62f8a4]` was written down as a
+constant nothing writes while a run is played, on a grep that could not see the dispatcher at 0x40ecf1
+handing its address out to a script — and orb left it out of a resume for that reason, which cost 妖々夢's
+own resume every stage past the first. A negative read off the exe says where the thing is *not* written
+plainly; what says a field never changes is watching it.
+
+**Every measurement is kept beside the thing it is about, and what it did says which thing
 that is:**
 
 - **It decided how the code is shaped** — the file in `docs/adr/` holding that decision, beside the

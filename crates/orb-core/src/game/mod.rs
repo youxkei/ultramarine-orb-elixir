@@ -1408,6 +1408,15 @@ pub trait Game {
     /// These bytes go into the game's own file and come back out of it — see [`Game::encode_resume`] — so
     /// nothing but the game that wrote them ever looks inside.
     ///
+    /// **What goes in is what the game's own replay restore puts back**, field for field, and that is a
+    /// reading of the game rather than a judgement: a replay watched from a stage past the first is the game
+    /// enumerating what a stage of a run in progress has to be restarted from. A resume builds the stage and
+    /// plays the buttons in, so the world is reproducible exactly as far as it is a function of the seed, the
+    /// buttons and these bytes — and a field left out is one the replay gets a *build's* value for where the
+    /// run had its own. See
+    /// [docs/adr/0022](../../../docs/adr/0022-what-a-resume-puts-back-is-what-the-games-own-replay-restore-puts-back.md),
+    /// which is also where the alternative that was built and taken back is written down.
+    ///
     /// # Safety
     /// Must run on the game's main thread, with a run in progress.
     unsafe fn run_state(&self) -> Vec<u8>;
