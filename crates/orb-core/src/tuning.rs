@@ -323,12 +323,12 @@ impl Tuning {
                     .map(|built| entry(built.frame, built.by_hand, false))
                     .collect(),
             };
-            let label = if stage + 1 == table.len() {
-                "extra  ".to_owned()
-            } else {
-                format!("stage {}", stage + 1)
-            };
-            source += &format!("    /* {label} */ &[{}],\n", frames.join(", "));
+            let label = row_label(game, stage);
+            source += &format!(
+                "    /* {label:width$} */ &[{}],\n",
+                frames.join(", "),
+                width = row_label_width(game),
+            );
         }
         source + "];\n"
     }
@@ -346,12 +346,7 @@ impl Tuning {
             let Some(pass) = self.pass(stage as i32) else {
                 continue;
             };
-            let label = if stage + 1 == stages {
-                "extra".to_owned()
-            } else {
-                format!("stage {}", stage + 1)
-            };
-            text += &format!("\n# {label}\n");
+            text += &format!("\n# {}\n", row_label(game, stage));
             for boundary in &pass.boundaries {
                 text += &format!(
                     "{} {} {} {}\n",
@@ -405,6 +400,29 @@ impl Tuning {
         }
         log!("tuning: read {read} boundary(s) from {}", path.display());
     }
+}
+
+/// What a row of the table is called: its stage number, or the game's own name for a row it does not number —
+/// see [`Game::stages_past_the_numbered`].
+///
+/// **Asked of the game and not read off the table's length.** Taking the last row for the Extra is right for
+/// 紅魔郷 and wrong for 妖々夢, whose Phantasm sits after it: a pass over 妖々夢's Extra wrote the row out as
+/// `stage 7` and the Phantasm as `extra`, so the file said Extra of the row above the Extra's.
+fn row_label(game: &dyn Game, stage: usize) -> String {
+    let named = game.stages_past_the_numbered();
+    let numbered = game.midstage_table().len().saturating_sub(named.len());
+    match stage.checked_sub(numbered).and_then(|past| named.get(past)) {
+        Some(name) => (*name).to_owned(),
+        None => format!("stage {}", stage + 1),
+    }
+}
+
+/// How wide those labels are, so the rows of the generated table line up: whichever is longest.
+fn row_label_width(game: &dyn Game) -> usize {
+    (0..game.midstage_table().len())
+        .map(|stage| row_label(game, stage).len())
+        .max()
+        .unwrap_or_default()
 }
 
 /// One entry of the generated table.
@@ -585,6 +603,29 @@ mod tests {
         // And a stage this knows nothing about keeps what is compiled in, hands and all.
         assert!(source.contains("hand(4597)"), "{source}");
         assert!(source.contains("proposed(880)"), "{source}");
+    }
+
+    /// **And it names the rows the game does not number.** 妖々夢's table is its six stages, its Extra and
+    /// the Phantasm after it, so the row to paste an Extra boundary into is not the last one — and a writer
+    /// that took the last for the Extra called the Extra `stage 7` and the Phantasm `extra`, which is the row
+    /// above the one a reader would put it in.
+    #[test]
+    fn the_written_table_names_the_stages_the_game_does_not_number() {
+        let dir = std::env::temp_dir().join("orb-tuning-named-rows");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::remove_file(dir.join(super::STATE_FILE)).ok();
+
+        let tuning = Tuning::new(&crate::game::th07::Th07, dir.clone());
+        let source = tuning.table(&crate::game::th07::Th07);
+        assert!(source.contains("/* extra"), "{source}");
+        assert!(source.contains("/* phantasm"), "{source}");
+        assert!(!source.contains("/* stage 7"), "{source}");
+        assert!(!source.contains("/* stage 8"), "{source}");
+
+        // And 紅魔郷's Extra is its last row, which is the case the shape used to be read off.
+        let of_th06 = Tuning::new(&Th06, dir).table(&Th06);
+        assert!(of_th06.contains("/* extra"), "{of_th06}");
+        assert!(!of_th06.contains("/* stage 7"), "{of_th06}");
     }
 
     /// A line whose stage is not a stage number is one that cannot be read, however far out it

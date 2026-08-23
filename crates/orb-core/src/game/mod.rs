@@ -1658,6 +1658,15 @@ pub trait Game {
     /// Midstage chapter boundaries per stage.
     fn midstage_table(&self) -> &'static [&'static [Boundary]];
 
+    /// **What the rows of that table are called where `stage N` is not what they are**, in the order the table
+    /// holds them: the last rows, and as many of them as the game has.
+    ///
+    /// The game's because the games differ — 紅魔郷's table ends at its Extra and 妖々夢's carries the Phantasm
+    /// after it — and a tuning pass that read the shape off the table instead wrote 妖々夢's Extra down as
+    /// `stage 7` and its Phantasm as `extra`, which is the row above the one a reader would paste an Extra
+    /// boundary into.
+    fn stages_past_the_numbered(&self) -> &'static [&'static str];
+
     fn midstage(&self, stage: i32) -> &'static [Boundary] {
         usize::try_from(stage)
             .ok()

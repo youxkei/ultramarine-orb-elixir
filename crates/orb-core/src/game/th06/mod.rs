@@ -2289,6 +2289,11 @@ impl Game for Th06 {
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
         &chapters::MIDSTAGE
     }
+
+    /// The Extra, and nothing after it: 紅魔郷's own stage switch ends there.
+    fn stages_past_the_numbered(&self) -> &'static [&'static str] {
+        &["extra"]
+    }
 }
 
 /// The size the game renders at, which its viewports are expressed in.

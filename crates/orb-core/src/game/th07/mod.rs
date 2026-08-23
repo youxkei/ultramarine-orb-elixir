@@ -4507,6 +4507,12 @@ impl Game for Th07 {
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
         &chapters::MIDSTAGE
     }
+
+    /// The Extra and the Phantasm after it, which is what the game's own switch at 0x407081 covers past its
+    /// numbered stages — see [`chapters::MIDSTAGE`](super::th07::chapters::MIDSTAGE).
+    fn stages_past_the_numbered(&self) -> &'static [&'static str] {
+        &["extra", "phantasm"]
+    }
 }
 
 /// The four directions as bits of the word this game's own read builds — see [`PAD_UP`] and the three
