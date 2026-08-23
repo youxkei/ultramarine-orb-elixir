@@ -202,10 +202,16 @@ const SAID_EVERY: u32 = 600;
 /// A stop on a chapter step, for a target the run never reaches — a replay that
 /// has ended, or a stage that has no further boundary.
 ///
-/// Ten minutes of game time, which is longer than any stage: a step back replays a
-/// stage from its start, so the limit has to be above a whole one, and an update is
-/// tens of microseconds.
-const STEP_LIMIT_FRAMES: u32 = 60 * 60 * 10;
+/// **Half an hour of game time, because a step back replays a stage from its start and the stop has to be above
+/// a whole one.** Ten minutes was written down as longer than any stage and the Extra is not one: a replay of it
+/// fought its boss to frame 42127, and a Phantasm fight with deaths in it runs longer again. What ten minutes
+/// cost was silent — a step back to any chapter past it ran the stop out and held the game wherever that fell,
+/// which is inside whichever attack was running: a pass stepping around 式神「橙」 came back into the middle of
+/// it every time.
+///
+/// The cost of a stop this high is paid only where a target really is unreachable, and an update is tens of
+/// microseconds: the pass this was measured on ran 36000 of them in 3.5 seconds.
+const STEP_LIMIT_FRAMES: u32 = 60 * 60 * 30;
 
 pub struct Runtime {
     game: &'static dyn Game,
@@ -3114,11 +3120,20 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
     }
     runtime.held = true;
     log!(
-        "step: held in stage {} chapter {} at frame {} (script {}), {frames} update(s) run",
+        "step: held in stage {} chapter {} at frame {} (script {}), {frames} update(s) run{}",
         reached.stage + 1,
         runtime.chapters.number(),
         reached.stage_frames,
         reached.script_frames,
+        // **Said where the stop is what ended the run and not the target.** Without this the line reads as a
+        // landing: a pass whose stop was below the Extra's length held the game in the middle of an attack and
+        // said the same words it says on a boundary, so what looked like a step that worked was a step that ran
+        // out of room.
+        if frames >= STEP_LIMIT_FRAMES {
+            " — the stop, not the chapter asked for"
+        } else {
+            ""
+        },
     );
     Step::Held { reached, ran }
 }

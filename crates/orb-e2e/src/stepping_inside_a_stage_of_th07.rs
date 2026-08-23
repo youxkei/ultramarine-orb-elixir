@@ -144,6 +144,50 @@ fn a_step_inside_a_stage_of_th07_lands_on_the_chapter_start_either_side_of_where
     });
 }
 
+/// **A step back over a stage longer than ten minutes lands on the boundary and not on the stop that bounds
+/// the run forward.**
+///
+/// A step back restores the stage's start and runs forward to the frame asked for, and that run has a stop on
+/// it for a target it can never reach. The stop was ten minutes of game time, written down as longer than any
+/// stage — and the Extra is not: a replay of it fought its boss to frame 42127, so every step back to a chapter
+/// past the ten minutes ran out the stop and held the game wherever that fell. Which reads as a step that
+/// worked: a pass stepping around 式神「橙」 came back into the middle of it, at the same frame every time, and
+/// the log said `held … 36000 update(s) run` the way it says a landing.
+#[test]
+fn a_step_back_over_a_stage_longer_than_the_stop_lands_on_the_chapter_it_asks_for() {
+    in_its_own_process(|| {
+        let game = judging("th07-stepping-a-long-stage");
+        let log = game.log();
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        // Past the stop the run forward used to have, without playing the frames: what the stop bounds is the
+        // *replay* from the stage's start, and the stage's own clock is what it counts.
+        const PAST_THE_OLD_STOP: u32 = 60 * 60 * 10 + 100;
+        game.image().has_been_in_the_stage_for(PAST_THE_OLD_STOP);
+
+        game.the_boss_arrives();
+        game.frames_until("the fight's own chapter", APART, || log.said("chapter 2"));
+        let the_boss = game.state().stage_frames;
+        assert!(
+            the_boss > 60 * 60 * 10,
+            "the fight's chapter is inside the old stop, so this proves nothing: {the_boss}",
+        );
+
+        game.frames(APART);
+        game.the_attack_changes();
+        game.frames_until("the attack's own chapter", APART, || log.said("chapter 3"));
+
+        assert_eq!(
+            steps(&game, BACK),
+            the_boss,
+            "the step back stopped short of the chapter it asked for",
+        );
+    });
+}
+
 /// **A chapter taken while the game's own sound is mid-ask calls nothing on the buffer.**
 ///
 /// A step back whose chapter was taken under another track takes the music down and asks the game for the
