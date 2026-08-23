@@ -9,10 +9,14 @@
 //! **Both sides are reached through what each publishes about itself**, and nothing here reproduces a
 //! step of the other's:
 //!
-//! - Where thcrap is comes out of the launcher its own configuration tool writes into the game's
-//!   directory: `th06 (en).exe` and its like, whose string resources 0, 1 and 2 hold the directory its
-//!   `bin` is in, the command line it runs, and the exe it runs. Resource 2 naming `thcrap_loader.exe` is
-//!   what says a file is one of those launchers.
+//! - Where thcrap is comes out of the launcher its own configuration tool writes: `th06 (en).exe` and its
+//!   like, whose string resources 0, 1 and 2 hold the directory its `bin` is in, the command line it
+//!   runs, and the exe it runs; and `th06 (en).lnk`, which is the same three read back through the shell.
+//!   Naming `thcrap_loader.exe` is what says a file is one of those launchers. Where that file is put is
+//!   the wizard's answer — beside the game, on the desktop, in the start menu, or in thcrap's own
+//!   directory — and the first three are looked in. The last cannot be: it is a launcher inside the
+//!   directory this is trying to find. The two that hold every game's launcher rather than this one's are
+//!   read against thcrap's own `games.js`, which is what says which game each launcher is for.
 //! - Getting thcrap into the process is `thcrap_inject_into_running`, which thcrap exports for this: it
 //!   takes the process and the run configuration, and does the loading and the handover itself. Its own
 //!   README says a program may use thcrap "with as little effort as possible by calling `LoadLibrary`,
@@ -27,16 +31,28 @@ use std::ffi::{CString, c_void};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use windows_sys::Win32::Foundation::{FreeLibrary, HANDLE, HMODULE};
+use windows_sys::Win32::Foundation::{FreeLibrary, HANDLE, HMODULE, MAX_PATH};
+use windows_sys::Win32::System::Com::{
+    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+    CoUninitialize, STGM_READ,
+};
 use windows_sys::Win32::System::LibraryLoader::{
     GetProcAddress, LOAD_LIBRARY_AS_DATAFILE, LOAD_WITH_ALTERED_SEARCH_PATH, LoadLibraryExW,
 };
+use windows_sys::Win32::UI::Shell::{
+    CSIDL_DESKTOPDIRECTORY, CSIDL_PROGRAMS, SHGetFolderPathW, ShellLink,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::LoadStringW;
+use windows_sys::core::GUID;
 
 /// What the configuration tool's own launcher is called, in resource 2 of every one it writes. A file
 /// whose resource 2 is this is a thcrap launcher; a file with no resources at all is every other exe in
 /// the directory, the game's own included.
 const LOADER: &str = "thcrap_loader.exe";
+
+/// The folder thcrap's configuration tool makes for itself under the start menu, and writes every
+/// shortcut it puts there into.
+const THCRAP_IN_THE_START_MENU: &str = "thcrap";
 
 /// The two functions thcrap exports for a program that has a process of its own to patch, in the order
 /// its own loader calls them.
@@ -88,7 +104,7 @@ pub struct Found {
 ///
 /// Every exe in the directory is asked, since what the configuration tool calls its launcher is the game
 /// and the patch stack — `th06 (en).exe` — and orb has no more idea than the player which stack that is.
-pub fn beside(game_dir: &Path) -> Option<Found> {
+fn beside(game_dir: &Path) -> Option<Found> {
     let mut launchers: Vec<PathBuf> = std::fs::read_dir(game_dir)
         .ok()?
         .flatten()
@@ -124,17 +140,22 @@ fn read(exe: &Path) -> Option<Found> {
     } else {
         exe.parent()?.join(bin)
     };
-    let root = bin.parent()?;
+    found_from(exe, bin, &command_line)
+}
 
+/// A thcrap out of the two things either shape of launcher says: the `bin` it runs from and the command
+/// line it runs with.
+fn found_from(wrapper: &Path, bin: PathBuf, command_line: &str) -> Option<Found> {
+    let root = bin.parent()?;
     Some(Found {
-        wrapper: exe.to_owned(),
+        wrapper: wrapper.to_owned(),
         dll: bin.join("thcrap.dll"),
         root: root.to_owned(),
-        game_id: game_id(&command_line)?,
+        game_id: game_id(command_line)?,
         // thcrap resolves a relative run configuration against its own `config` directory, and this is
         // the same name out of the same command line — made absolute here because what it is relative to
         // on the far side is the working directory, which is the game's.
-        run_config: root.join("config").join(run_config(&command_line)?),
+        run_config: root.join("config").join(run_config(command_line)?),
     })
 }
 
@@ -155,6 +176,170 @@ fn run_config(command_line: &str) -> Option<String> {
             .find(|word| word.ends_with(".js"))
             .map(str::to_owned)
     })
+}
+
+/// The thcrap this game is played through, wherever its configuration tool was told to write the
+/// launcher: beside the game first, and then the folders it offers instead.
+///
+/// **Beside the game is the one place nothing is checked against `games.js`.** A launcher there is what
+/// somebody installed to play *this* game with, which is the question a launch is asking; the folders
+/// below hold a launcher per game, so which game each is for is a question that has to be answered.
+pub fn installed(game_dir: &Path, game_exe: &Path) -> Option<Found> {
+    beside(game_dir).or_else(|| elsewhere(&shell_folders(), game_exe))
+}
+
+/// A launcher in one of the folders that hold every game's rather than this one's, and `None` where none
+/// of them holds one for this game.
+///
+/// **Both shapes are asked for, because both are written to these folders.** The wizard writes a `.lnk`
+/// here where it writes a wrapper exe beside the game — and a wrapper exe here as well, on Wine, where
+/// its own comment says shortcuts do not work well.
+///
+/// **And what makes one of them this game's is thcrap's own `games.js`.** A desktop is where every game's
+/// launcher is, so the game id in the command line is read back through the file thcrap resolves it with:
+/// the exe that file names for that id is either the one orb is starting or it is another game's, and
+/// another game's patch stack applied to this one is a translation of the wrong game.
+fn elsewhere(folders: &[PathBuf], game_exe: &Path) -> Option<Found> {
+    folders
+        .iter()
+        .filter_map(|folder| {
+            let mut launchers: Vec<PathBuf> = std::fs::read_dir(folder)
+                .ok()?
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.extension().is_some_and(|extension| {
+                        extension.eq_ignore_ascii_case("exe")
+                            || extension.eq_ignore_ascii_case("lnk")
+                    })
+                })
+                .collect();
+            // The same order for the same reason `beside` sorts: a folder with two stacks in it has no
+            // reason to prefer one, and a launch that picked a different one each time would be a
+            // translation that changed by itself.
+            launchers.sort();
+            Some(launchers)
+        })
+        .flatten()
+        .filter_map(|path| read_any(&path))
+        .find(|found| names_this_game(found, game_exe))
+}
+
+/// One file of either shape, read for the thcrap it points at.
+fn read_any(path: &Path) -> Option<Found> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+    {
+        read_link(path)
+    } else {
+        read(path)
+    }
+}
+
+/// Whether the exe thcrap's own `games.js` names for this launcher's game id is the exe orb is starting.
+///
+/// The path there is resolved against the directory thcrap is installed in, which is where its loader
+/// sets the working directory before reading anything — and it is written relative to it or absolute
+/// depending on how far apart the two were installed, so both forms arrive here.
+fn names_this_game(found: &Found, game_exe: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(found.root.join("config").join("games.js")) else {
+        return false;
+    };
+    let Some(named) = games_js_names(&text, &found.game_id) else {
+        return false;
+    };
+    let named = Path::new(&named);
+    let named = if named.is_absolute() {
+        named.to_owned()
+    } else {
+        found.root.join(named)
+    };
+    // Through the file system rather than by comparing what the two strings say: one of them has been
+    // through `..` and a wizard's idea of a drive letter, and the exe they are both about is on the disk
+    // to be asked.
+    match (
+        std::fs::canonicalize(&named),
+        std::fs::canonicalize(game_exe),
+    ) {
+        (Ok(named), Ok(starting)) => named == starting,
+        _ => false,
+    }
+}
+
+/// The exe `games.js` names for one game id, out of the JSON thcrap writes it as.
+///
+/// Read for the one id asked about rather than parsed into a map: what is wanted is one string out of a
+/// file of `"th07": "../th07.exe"` lines, and a dependency to hold every other id of them as well is a
+/// dependency for nothing. The escape taken off is the backslash, which is the one a Windows path puts in
+/// and the writer doubles.
+fn games_js_names(text: &str, game_id: &str) -> Option<String> {
+    let mut rest = text;
+    loop {
+        let (key, after) = a_json_string(rest)?;
+        // A key is the string a colon follows. Anything else is a value, or the file's own punctuation.
+        match after.trim_start().strip_prefix(':') {
+            Some(after_colon) => {
+                let (value, after_value) = a_json_string(after_colon)?;
+                if key == game_id {
+                    return Some(value);
+                }
+                rest = after_value;
+            }
+            None => rest = after,
+        }
+    }
+}
+
+/// The next string of a JSON file and what follows it, with the escapes taken off.
+///
+/// **`\u` is here because the writer puts it there**: the configuration tool serialises with .NET's own
+/// encoder, which escapes everything outside ASCII — so 紅魔郷's exe, whose name is in kanji, is five of
+/// these in the file. A pair of them is one character where the first is a high surrogate, which is what
+/// a name outside the basic plane arrives as.
+fn a_json_string(text: &str) -> Option<(String, &str)> {
+    let (_, opened) = text.split_once('"')?;
+    let mut value = String::new();
+    let mut units: Vec<u16> = Vec::new();
+    let mut characters = opened.char_indices();
+    while let Some((at, character)) = characters.next() {
+        // Whatever `\u` has collected is flushed the moment something that is not one arrives, since a
+        // surrogate pair is only a pair while the two are next to each other.
+        if character != '\\' && !units.is_empty() {
+            value.push_str(&String::from_utf16_lossy(&units));
+            units.clear();
+        }
+        match character {
+            '"' => {
+                value.push_str(&String::from_utf16_lossy(&units));
+                return Some((value, &opened[at + 1..]));
+            }
+            '\\' => match characters.next()?.1 {
+                'u' => {
+                    let mut digits = String::new();
+                    for _ in 0..4 {
+                        digits.push(characters.next()?.1);
+                    }
+                    units.push(u16::from_str_radix(&digits, 16).ok()?);
+                }
+                escaped => {
+                    value.push_str(&String::from_utf16_lossy(&units));
+                    units.clear();
+                    value.push(match escaped {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        'b' => '\u{8}',
+                        'f' => '\u{c}',
+                        // `\\`, `\"` and `\/`, each of which is the character itself.
+                        plain => plain,
+                    });
+                }
+            },
+            plain => value.push(plain),
+        }
+    }
+    None
 }
 
 /// What thcrap calls the game, out of the same command line: the word that is neither its own loader nor
@@ -210,6 +395,220 @@ impl Drop for Resources {
     fn drop(&mut self) {
         unsafe { FreeLibrary(self.0 as _) };
     }
+}
+
+/// The folders thcrap's configuration tool offers instead of the game's directory: the desktop, and its
+/// own folder in the start menu.
+///
+/// `CSIDL` and not a known folder id, which is the same two folders under an interface that hands back
+/// memory to free — and these are the two ids thcrap itself asks `SHGetFolderPathW` for, so what orb
+/// looks in is the folder thcrap wrote to rather than a second opinion about where that is.
+fn shell_folders() -> Vec<PathBuf> {
+    [
+        (CSIDL_DESKTOPDIRECTORY, None),
+        (CSIDL_PROGRAMS, Some(THCRAP_IN_THE_START_MENU)),
+    ]
+    .into_iter()
+    .filter_map(|(csidl, under)| {
+        let mut buffer = [0u16; MAX_PATH as usize];
+        let ok = unsafe {
+            SHGetFolderPathW(
+                std::ptr::null_mut(),
+                csidl as i32,
+                std::ptr::null_mut(),
+                0,
+                buffer.as_mut_ptr(),
+            )
+        };
+        if ok != 0 {
+            return None;
+        }
+        let end = buffer.iter().position(|unit| *unit == 0)?;
+        let folder = PathBuf::from(String::from_utf16_lossy(&buffer[..end]));
+        Some(match under {
+            Some(name) => folder.join(name),
+            None => folder,
+        })
+    })
+    .collect()
+}
+
+/// `IShellLinkW`'s vtable and `IPersistFile`'s, as far as the slots a shortcut is read through.
+///
+/// **Declared here because `windows-sys` carries Windows' functions and constants and not its COM
+/// interfaces.** The shape is the one `orb-api` declares Direct3D's in: a vtable is the interface's own
+/// declaration order, so every slot holds its place whether it is called or not — the untyped ones as
+/// `usize`, since a missing slot moves every later one and the wrong function gets called.
+#[repr(C)]
+struct ShellLinkVtable {
+    query_interface: unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32,
+    _add_ref: usize,
+    release: unsafe extern "system" fn(*mut c_void) -> u32,
+    get_path: unsafe extern "system" fn(*mut c_void, *mut u16, i32, *mut c_void, u32) -> i32,
+    _slot_4_to_9: [usize; 6],
+    get_arguments: unsafe extern "system" fn(*mut c_void, *mut u16, i32) -> i32,
+    #[cfg(test)]
+    set_arguments: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+    #[cfg(test)]
+    _slot_12_to_19: [usize; 8],
+    #[cfg(test)]
+    set_path: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+}
+
+#[repr(C)]
+struct PersistFileVtable {
+    _query_interface_and_add_ref: [usize; 2],
+    release: unsafe extern "system" fn(*mut c_void) -> u32,
+    _get_class_id_and_is_dirty: [usize; 2],
+    load: unsafe extern "system" fn(*mut c_void, *const u16, u32) -> i32,
+    #[cfg(test)]
+    save: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+}
+
+const IID_SHELL_LINK_W: GUID = GUID::from_u128(0x000214f9_0000_0000_c000_000000000046);
+const IID_PERSIST_FILE: GUID = GUID::from_u128(0x0000010b_0000_0000_c000_000000000046);
+
+/// COM, held for as long as a shortcut is being read and put back afterwards.
+///
+/// **`CoUninitialize` only where this call is the one that initialised it.** A process that already had
+/// COM up answers `S_FALSE`, and one that had it up in the other threading model answers
+/// `RPC_E_CHANGED_MODE` — and taking COM down under whoever did that is not this function's to do.
+struct Com(bool);
+
+impl Com {
+    fn up() -> Self {
+        let answered = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        Self(answered == 0)
+    }
+}
+
+impl Drop for Com {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
+
+/// One shell link object, released when it goes out of scope.
+struct Link(*mut c_void);
+
+impl Link {
+    fn new() -> Option<Self> {
+        let mut link: *mut c_void = std::ptr::null_mut();
+        let made = unsafe {
+            CoCreateInstance(
+                &ShellLink,
+                std::ptr::null_mut(),
+                CLSCTX_INPROC_SERVER,
+                &IID_SHELL_LINK_W,
+                &mut link,
+            )
+        };
+        (made == 0 && !link.is_null()).then_some(Self(link))
+    }
+
+    fn vtable(&self) -> &ShellLinkVtable {
+        unsafe { &**(self.0 as *const *const ShellLinkVtable) }
+    }
+
+    /// The shortcut on disk read into this object, through the interface that owns the file format.
+    fn load(&self, path: &Path) -> Option<()> {
+        let mut persist: *mut c_void = std::ptr::null_mut();
+        let asked =
+            unsafe { (self.vtable().query_interface)(self.0, &IID_PERSIST_FILE, &mut persist) };
+        if asked != 0 || persist.is_null() {
+            return None;
+        }
+        let vtable = unsafe { &**(persist as *const *const PersistFileVtable) };
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let loaded = unsafe { (vtable.load)(persist, wide.as_ptr(), STGM_READ) };
+        unsafe { (vtable.release)(persist) };
+        (loaded == 0).then_some(())
+    }
+
+    /// This object written out as a shortcut, which is how a test gets a real one to read.
+    #[cfg(test)]
+    fn save(&self, at: &Path) -> Option<()> {
+        let mut persist: *mut c_void = std::ptr::null_mut();
+        let asked =
+            unsafe { (self.vtable().query_interface)(self.0, &IID_PERSIST_FILE, &mut persist) };
+        if asked != 0 || persist.is_null() {
+            return None;
+        }
+        let vtable = unsafe { &**(persist as *const *const PersistFileVtable) };
+        let wide: Vec<u16> = at
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let saved = unsafe { (vtable.save)(persist, wide.as_ptr(), 1) };
+        unsafe { (vtable.release)(persist) };
+        (saved == 0).then_some(())
+    }
+
+    /// What the shortcut runs, and `None` where it names nothing.
+    fn path(&self) -> Option<PathBuf> {
+        let mut buffer = [0u16; MAX_PATH as usize];
+        let asked = unsafe {
+            (self.vtable().get_path)(
+                self.0,
+                buffer.as_mut_ptr(),
+                buffer.len() as i32,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        // `S_FALSE` is a shortcut with no path in it, which is a shortcut to something that is not a file.
+        if asked != 0 {
+            return None;
+        }
+        let end = buffer.iter().position(|unit| *unit == 0)?;
+        (end > 0).then(|| PathBuf::from(String::from_utf16_lossy(&buffer[..end])))
+    }
+
+    /// What it runs it with, which is the command line minus the loader's own name.
+    fn arguments(&self) -> String {
+        let mut buffer = [0u16; MAX_PATH as usize];
+        let asked = unsafe {
+            (self.vtable().get_arguments)(self.0, buffer.as_mut_ptr(), buffer.len() as i32)
+        };
+        if asked != 0 {
+            return String::new();
+        }
+        let end = buffer.iter().position(|unit| *unit == 0).unwrap_or(0);
+        String::from_utf16_lossy(&buffer[..end])
+    }
+}
+
+impl Drop for Link {
+    fn drop(&mut self) {
+        unsafe { (self.vtable().release)(self.0) };
+    }
+}
+
+/// What one shortcut says about itself, and `None` for one that does not run thcrap's loader.
+///
+/// **The shell resolves its own format**, rather than orb reading the bytes of a `.lnk`: what a shortcut
+/// holds is a target list, a link info block and the string data, and the one program that is never wrong
+/// about which of those wins is the one that wrote the file.
+///
+/// The target is thcrap's loader, so its own directory is the `bin` the wrapper exes name in resource 0;
+/// the arguments are what those name in resource 1, minus the loader's own name, which neither
+/// [`run_config`] nor [`game_id`] reads anyway.
+fn read_link(path: &Path) -> Option<Found> {
+    let _com = Com::up();
+    let link = Link::new()?;
+    link.load(path)?;
+    let target = link.path()?;
+    if !target.file_name()?.to_str()?.eq_ignore_ascii_case(LOADER) {
+        return None;
+    }
+    found_from(path, target.parent()?.to_owned(), &link.arguments())
 }
 
 /// thcrap.dll, loaded into orb's own process for the calls above and below.
@@ -433,7 +832,138 @@ unsafe fn update_inside(thcrap: HMODULE, found: &Found, now: bool) -> Result<Upd
 
 #[cfg(test)]
 mod tests {
-    use super::run_config;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+
+    use super::{Com, Link, elsewhere, games_js_names, run_config};
+
+    /// A thcrap installed at `root`, with the loader a launcher points at and a `games.js` naming one
+    /// game — as much of one as discovery reads.
+    fn a_thcrap(root: &Path, game_id: &str, names: &str) {
+        std::fs::create_dir_all(root.join("bin")).expect("a bin directory");
+        std::fs::create_dir_all(root.join("config")).expect("a config directory");
+        std::fs::write(root.join("bin").join("thcrap_loader.exe"), []).expect("a loader");
+        std::fs::write(
+            root.join("config").join("games.js"),
+            format!("{{\n  \"{game_id}\": \"{names}\"\n}}"),
+        )
+        .expect("a games.js");
+    }
+
+    /// A shortcut written the way thcrap's configuration tool writes one: the loader as its target, and
+    /// the run configuration and the game id as its arguments.
+    ///
+    /// Through the shell's own interface rather than by writing the bytes of a `.lnk`, so that what the
+    /// reader is tried against is a real one.
+    fn a_shortcut(at: &Path, loader: &Path, arguments: &str) {
+        let _com = Com::up();
+        let link = Link::new().expect("a shell link object");
+        let target: Vec<u16> = loader
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let arguments: Vec<u16> = arguments.encode_utf16().chain(std::iter::once(0)).collect();
+        let vtable = link.vtable();
+        assert_eq!(unsafe { (vtable.set_path)(link.0, target.as_ptr()) }, 0);
+        assert_eq!(
+            unsafe { (vtable.set_arguments)(link.0, arguments.as_ptr()) },
+            0
+        );
+        link.save(at).expect("the shortcut written");
+    }
+
+    fn a_scratch_directory(named: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("orb-thcrap-{named}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        dir
+    }
+
+    /// The arrangement the configuration tool offers first: a shortcut in a folder of every game's
+    /// launchers, and the thcrap it points at somewhere else entirely.
+    #[test]
+    fn a_shortcut_is_read_for_the_thcrap_it_points_at() {
+        let dir = a_scratch_directory("shortcut");
+        let root = dir.join("thcrap");
+        a_thcrap(&root, "th07", "../game/th07.exe");
+        let game_dir = dir.join("game");
+        std::fs::create_dir_all(&game_dir).expect("a game directory");
+        let game_exe = game_dir.join("th07.exe");
+        std::fs::write(&game_exe, []).expect("a game");
+        let desktop = dir.join("desktop");
+        std::fs::create_dir_all(&desktop).expect("a desktop");
+        a_shortcut(
+            &desktop.join("th07 (en).lnk"),
+            &root.join("bin").join("thcrap_loader.exe"),
+            "\"en.js\" th07",
+        );
+
+        let found = elsewhere(&[desktop], &game_exe).expect("the thcrap the shortcut points at");
+        assert_eq!(found.game_id, "th07");
+        assert_eq!(found.run_config, root.join("config").join("en.js"));
+        assert_eq!(found.dll, root.join("bin").join("thcrap.dll"));
+        assert_eq!(found.root, root.join("bin").parent().expect("a root"));
+    }
+
+    /// And why that folder is not enough on its own: it holds a launcher per game, and the one for
+    /// another game names another game's exe in the same `games.js`. A patch stack applied to the game it
+    /// is not for is a translation of the wrong game.
+    #[test]
+    fn a_shortcut_for_another_game_is_not_this_games_patch() {
+        let dir = a_scratch_directory("another");
+        let root = dir.join("thcrap");
+        a_thcrap(&root, "th06", "../game/東方紅魔郷.exe");
+        let game_dir = dir.join("game");
+        std::fs::create_dir_all(&game_dir).expect("a game directory");
+        std::fs::write(game_dir.join("東方紅魔郷.exe"), []).expect("the other game");
+        let game_exe = game_dir.join("th07.exe");
+        std::fs::write(&game_exe, []).expect("a game");
+        let desktop = dir.join("desktop");
+        std::fs::create_dir_all(&desktop).expect("a desktop");
+        a_shortcut(
+            &desktop.join("th06 (en).lnk"),
+            &root.join("bin").join("thcrap_loader.exe"),
+            "\"en.js\" th06",
+        );
+
+        assert!(elsewhere(&[desktop], &game_exe).is_none());
+    }
+
+    /// The exe `games.js` names for one game, in both forms the file is written in: relative to the
+    /// directory thcrap is installed in where the two are near each other, and absolute where they are
+    /// not — with the backslashes of an absolute Windows path doubled, which is what the writer does.
+    #[test]
+    fn the_exe_a_games_js_names_is_read_in_either_form() {
+        assert_eq!(
+            games_js_names("{\n  \"th07\": \"../th07.exe\"\n}", "th07").as_deref(),
+            Some("../th07.exe")
+        );
+        assert_eq!(
+            games_js_names(
+                "{\n  \"th07\": \"L:\\\\game\\\\ShanghaiAlice\\\\th07\\\\th07.exe\"\n}",
+                "th07"
+            )
+            .as_deref(),
+            Some("L:\\game\\ShanghaiAlice\\th07\\th07.exe")
+        );
+        // One entry among several, since a thcrap patches every game somebody configured it for.
+        let several =
+            "{\n  \"th06\": \"../th06/東方紅魔郷.exe\",\n  \"th07\": \"../th07/th07.exe\"\n}";
+        assert_eq!(
+            games_js_names(several, "th07").as_deref(),
+            Some("../th07/th07.exe")
+        );
+        // A game this thcrap was never configured for, which is what a shortcut for another game leaves
+        // behind when its own entry is the only one in the file.
+        assert_eq!(games_js_names(several, "th08"), None);
+        // And an id another id starts with, which a search for the text of one would answer with the
+        // other's exe.
+        assert_eq!(
+            games_js_names("{\n  \"th075\": \"../th075.exe\"\n}", "th07"),
+            None
+        );
+    }
 
     /// The run configuration out of the command line thcrap's own configuration tool writes, which is the
     /// one shape this has to read: `thcrap_loader.exe "en.js" th06`.

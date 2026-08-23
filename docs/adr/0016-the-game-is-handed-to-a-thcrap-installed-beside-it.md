@@ -1,6 +1,8 @@
 # 16. The game is handed to a thcrap installed beside it, and orb's DLL goes in after it
 
-**Status:** accepted and built. `launcher::thcrap` reads a thcrap out of the launcher its own
+**Status:** accepted and built, and its last section overturned by
+[0023](0023-a-launcher-the-wizard-put-somewhere-else-is-read-through-the-shell.md), which reads the
+desktop and the start menu as well. `launcher::thcrap` reads a thcrap out of the launcher its own
 configuration tool left in the game's directory, brings its patch stack up to date through
 `stack_update_wrapper`, and hands the suspended game to `WaitUntilEntryPoint` and
 `thcrap_inject_into_running` before `inject::load_library` puts orb's own DLL in. `thcrap` in `orb.yaml`

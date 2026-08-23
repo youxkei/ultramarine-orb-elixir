@@ -2234,13 +2234,25 @@ who says which language they read has said it about the patch as well. Neither a
 stands: the settings dialog shows it as the box it starts from, and whatever comes back from it is
 written down by name, so one launch through that dialog settles it for good.
 
-**Where thcrap is comes out of the launcher its own configuration tool wrote.** That tool leaves
-`th06 (en).exe` in the game's directory, whose string resources 0, 1 and 2 are the `bin` it runs from,
-the command line it runs, and the exe it runs — and resource 2 naming `thcrap_loader.exe` is what says a
-file is one of those rather than the game's own exe or orb's. So the patch stack, the run configuration
-and the game id are read out of what thcrap wrote about itself, and orb reproduces no step of thcrap's
-own installation. Every exe in the directory is asked, in the order the names sort, since which patch
-stack it is is in the name and orb has no more idea than the player which of two is meant.
+**Where thcrap is comes out of the launcher its own configuration tool wrote.** That tool writes
+`th06 (en).exe`, whose string resources 0, 1 and 2 are the `bin` it runs from, the command line it runs,
+and the exe it runs — and resource 2 naming `thcrap_loader.exe` is what says a file is one of those rather
+than the game's own exe or orb's. It writes `th06 (en).lnk` as well, whose target and arguments are the
+same two things read back through `IShellLinkW`, the shell being the one program never wrong about its own
+format. So the patch stack, the run configuration and the game id are read out of what thcrap wrote about
+itself, and orb reproduces no step of thcrap's own installation.
+
+**Three folders are asked, in this order: the game's directory, the desktop, and thcrap's own folder under
+the start menu.** Those are three of the four the configuration tool offers, and the fourth — a launcher
+inside the directory thcrap is installed in — cannot be asked for, being inside the directory this is
+looking for. Every launcher in a folder is asked, in the order the names sort, since which patch stack it
+is is in the name and orb has no more idea than the player which of two is meant.
+
+**A launcher on the desktop or under the start menu is matched to the game through thcrap's
+`config/games.js`.** Those two folders hold a launcher per game, so the game id in the command line is
+read back through the file thcrap resolves it with, and what makes a launcher this game's is that the exe
+that file names for its id is the exe orb is about to start. A launcher beside the game is asked no such
+question: what somebody installed there is what they installed to play this game with.
 
 **Two of thcrap's own exports do the injection, in the order its own loader calls them.** A process
 created suspended has not had the loader initialisation Windows does before an entry point, and thcrap

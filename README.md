@@ -11,8 +11,8 @@ Download `orb.exe` from the
 [latest release](https://github.com/youxkei/ultramarine-orb-elixir/releases/latest), put it in the
 folder the game's exe is in, and start the game with it instead.
 
-If thcrap is installed in that same folder, the game is translated too. `orb.exe` does not look for
-it anywhere else.
+If thcrap is installed, the game is translated too — wherever its own installer put the launcher for
+this game: beside the game, on the desktop, or in the start menu.
 
 ## Which games
 

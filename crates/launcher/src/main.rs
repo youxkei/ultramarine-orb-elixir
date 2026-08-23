@@ -386,9 +386,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Nothing about it stops a launch: a patch that cannot be found, brought up to date or handed over is
     // a game played in Japanese, which is the game somebody had before installing either of the two.
     let wanted = config.thcrap_wanted(language);
-    let patch = wanted.then(|| thcrap::beside(&config.game_dir)).flatten();
+    let patch = wanted
+        .then(|| thcrap::installed(&config.game_dir, &game_exe))
+        .flatten();
     if wanted && patch.is_none() {
-        println!("orb: thcrap — none installed where the game is");
+        println!("orb: thcrap — none installed for this game");
     }
     // Before the game starts, which is where thcrap puts it unless its own setting says otherwise: a patch
     // updated after the launch is one this launch is not playing with.
