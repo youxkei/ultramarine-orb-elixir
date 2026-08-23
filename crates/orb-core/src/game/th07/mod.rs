@@ -532,6 +532,10 @@ const SHOT_TYPE: usize = 0x93d6;
 /// run has been built: the object does not exist until the added callback at 0x42e83e allocated it.
 const G_RUN_NUMBERS: usize = 0x00626278;
 
+/// What that allocation is, off the `push 0xc8` at 0x42e93a: the whole of a run's numbers, dumped as itself
+/// where two entries into a stage have to be held against each other — see [`Th07::the_runs_own_bytes`].
+const RUN_NUMBER_BYTES: usize = 0xc8;
+
 /// The power the shot is at, which this game keeps as a **float** where 紅魔郷 keeps an integer:
 /// `[run+0x7c]`.
 ///
@@ -1270,6 +1274,22 @@ const ITEM_CHERRY: i8 = 7;
 /// passes were collecting above the same line, the player's y having agreed on every frame up to the parting.
 const G_ITEM_COLLECTION: usize = 0x00575948;
 const COLLECTION_LINE: usize = 0x20;
+
+/// What of the item manager is dumped beside a run's numbers: past the line at [`COLLECTION_LINE`] and the
+/// point items home toward at `+0x14`, which are the fields the homing mark's own gate reads.
+const AN_ITEM_MANAGERS_HEAD: usize = 0x40;
+
+/// **The manager's own share of a run, dumped with the run object.** The block 0x42e89b jumps over writes here
+/// as well as into the run — `+0x93d4` at 0x42e97a, `+0x961c` and `+0x9620` at 0x42e990 and 0x42e9a5, `+0x9628`
+/// at 0x42ea5f, and the character walk from 0x42eb8e filling `+0x9618` and `+0x961c` — so a stage the run walked
+/// into carries whatever these held and a stage built as a run's first has them filled. None of them is in
+/// [`Th07::run_state`], which makes them the set a comparison has left to look at.
+///
+/// From the shot's own type at [`SHOT_TYPE`] to past the stage's seed at `+0x95e4` and those five, in one
+/// range rather than six: what a dump is for is being held against another of itself, and a range with holes in
+/// it is a range whose holes have to be got right first.
+const THE_MANAGERS_OWN_RUN: usize = 0x93d0;
+const A_MANAGERS_RUN: usize = 0x280;
 
 // **妖々夢's collection at the top of the play field is read and not used.** `[[0x575948]+0x20]` is the y above
 // which an item comes in to the player — 0x432c74 compares the player's own y against it and 0x432cd2 marks the
@@ -4368,6 +4388,38 @@ impl Game for Th07 {
     /// only thing that decides that mark is 0x432c74's comparison of the player's own y against this line. The
     /// player's y agreed on every frame up to the parting, so the line is what is left to ask about, and a fold
     /// would say it differed without saying what it was.
+    /// **The whole object and not the fields orb names**, which is the point: the field that is missing is one
+    /// nobody named, so a dump of everything is the only reading that can hold two entries against each other
+    /// and name it. [`RUN_NUMBER_BYTES`] is what the game's own allocation is.
+    ///
+    /// And the item manager's own head with it, that being what the parting's own gate reads: the mark at
+    /// `+0x27f` is written under 0x432c74's comparison of the collection line at `+0x20` and homes toward
+    /// `+0x14`, so the two entries have to be held against each other there as well as in the run.
+    unsafe fn the_runs_own_bytes(&self) -> Option<String> {
+        let said = |at: Option<usize>, len: usize| match at.filter(|at| *at != 0) {
+            Some(at) => match mem::read_committed_bytes(at, len) {
+                Some(bytes) => bytes.iter().fold(String::new(), |mut said, byte| {
+                    said.push_str(&format!("{byte:02x}"));
+                    said
+                }),
+                None => "unreadable".to_owned(),
+            },
+            None => "none".to_owned(),
+        };
+        Some(format!(
+            "run={} items={} manager={}",
+            said(
+                mem::read_committed::<usize>(G_RUN_NUMBERS),
+                RUN_NUMBER_BYTES
+            ),
+            said(
+                mem::read_committed::<usize>(G_ITEM_COLLECTION),
+                AN_ITEM_MANAGERS_HEAD
+            ),
+            said(Some(G_GAME_MANAGER + THE_MANAGERS_OWN_RUN), A_MANAGERS_RUN),
+        ))
+    }
+
     unsafe fn the_worlds_fingerprint(&self) -> Option<String> {
         let blocks = (ITEM_BYTES - AN_ITEMS_SPRITE).div_ceil(AN_ITEMS_BLOCK);
         let mut fold = vec![0u32; blocks];

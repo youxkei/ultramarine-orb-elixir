@@ -1523,6 +1523,25 @@ pub trait Game {
         None
     }
 
+    /// **The bytes a run's own numbers are held in, said as themselves**, and `None` from a game nobody has read
+    /// them off. Said once at a stage's start, where the numbers have just been put in place.
+    ///
+    /// **Which is what tells a missing field from a wrong one.** A chapter recorded in a stage the run walked
+    /// into does not replay: two passes agree on every field a reproduction line carries for hundreds of frames
+    /// and then collect different items. The fields a line carries are the ones somebody thought to name, so a
+    /// difference in a field nobody named reads as no difference at all — and the game's own per-stage replay
+    /// record turned out to name exactly the fields [`Game::run_state`] already puts back, which says the
+    /// missing one is not in that record either.
+    ///
+    /// So the bytes rather than a fold or a list: held against the same stage entered the other way, a dump
+    /// names the offset, and an offset is a thing the disassembly can be asked about.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage's numbers in place.
+    unsafe fn the_runs_own_bytes(&self) -> Option<String> {
+        None
+    }
+
     /// **The bit a recipe's button name is in this game's own word**, or `None` for a name it has nothing for.
     ///
     /// What a bot presses is a name in a file — `decide`, `focus`, `left` — and what one *is* differs from game

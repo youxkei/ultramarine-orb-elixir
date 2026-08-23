@@ -176,6 +176,79 @@ fn a_chapter_of_th07_inside_a_stage_the_run_walked_into_is_written_down() {
     });
 }
 
+/// **What a stage begins with says the run's own bytes, both ways into it.**
+///
+/// Which is the instrument the parting is being read with: a chapter recorded in a stage the run walked into
+/// does not replay, the two passes agreeing on every field a reproduction line carries and then collecting
+/// different items — so the field that differs is one nobody named, and a dump of the whole object is what can
+/// name it. Held against the same stage entered the other way, an offset falls out, and an offset is a thing
+/// the disassembly can be asked about.
+///
+/// Said at a stage's start and nowhere else, that being where a run's numbers have just been put in place and
+/// the one line per stage a log can afford to carry 0xc8 bytes on.
+#[test]
+fn what_a_stage_of_th07_begins_with_says_the_runs_own_bytes() {
+    in_its_own_process(|| {
+        let game = a_run("th07-what-a-stage-begins-with");
+        let log = game.log();
+        game.frames_until_a_thread("the first stage's own numbers", || {
+            log.said("resume: stage 1 begins with")
+        });
+
+        let from = log.written();
+        game.moves_on_to_the_stage(NEXT);
+        game.frames_until_a_thread("the next stage's own numbers", || {
+            log.said_since(from, "resume: stage 2 begins with")
+        });
+        let said = log
+            .lines()
+            .iter()
+            .rev()
+            .find(|line| line.contains("resume: stage 2 begins with"))
+            .expect("the stage's start was never said")
+            .clone();
+        // The run's own object and the item manager's head beside it, each as its own bytes: what a comparison
+        // needs is the whole of them, so a line carrying a fold or a field list would not do.
+        let run = said
+            .split("run=")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .unwrap_or_default();
+        assert_eq!(
+            run.len(),
+            RUN_NUMBER_BYTES * 2,
+            "the run's own bytes are not the whole of its object:\n  {said}"
+        );
+        assert!(
+            said.contains("items="),
+            "the item manager's head was not said with them:\n  {said}"
+        );
+
+        // **And on the way in a resume takes**, which is the half that makes it a comparison: the run given up
+        // and picked up again says the same line for the same stage, so the two entries can be held against
+        // each other.
+        // Its first chapter begun before the run is given up, that being done by dying and a death being
+        // announced in a chapter.
+        game.frames_until("the stage's own first chapter", SETTLES, || {
+            log.said("stage 2 chapter 1 (stage start)")
+        });
+        let from = log.written();
+        game.gives_the_run_up();
+        game.picks_the_run_up_at(NEXT);
+        assert!(
+            log.said_since(from, "resume: stage 2 begins with") && log.said_since(from, "run="),
+            "the way a resume enters a stage said nothing of the run's own bytes:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
+/// What the game's own allocation for a run's numbers is, which is what the dump has to be the whole of.
+const RUN_NUMBER_BYTES: usize = 0xc8;
+
+/// The frames a stage's settle and its music are given to leave the stage with a chapter running.
+const SETTLES: u32 = 600;
+
 /// **A run that walked through two stages is written down at the one it is in.**
 ///
 /// Which is the half of the rule above that one transition cannot tell from another: a run left at 4面's

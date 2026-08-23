@@ -427,6 +427,20 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             game.say_run_state(&saved.state),
         );
         record.start = saved.state;
+        // **Said on this way in as well as the other**, and after the numbers have gone in, so that the two
+        // entries into a stage can be held against each other at all: the line below is what a launch that
+        // *walked* into the stage says, and a comparison needs both halves in the same shape. See
+        // [`Game::the_runs_own_bytes`].
+        detail!(
+            "resume: stage {} begins with {} rng={:#06x}{}",
+            state.stage + 1,
+            game.say_run_state(&record.start),
+            unsafe { game.generator() },
+            match unsafe { game.the_runs_own_bytes() } {
+                Some(said) => format!(" {said}"),
+                None => String::new(),
+            },
+        );
         unsafe { hold_captures(game) };
         record.feeding = Some(Landing {
             at: saved.at,
@@ -472,10 +486,14 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     // whether the build itself draws differently on the two ways into a stage, a run's own being a transition
     // and a resumed one's being a stage built as a run's first.
     detail!(
-        "resume: stage {} begins with {} rng={:#06x}",
+        "resume: stage {} begins with {} rng={:#06x}{}",
         state.stage + 1,
         game.say_run_state(&record.start),
         unsafe { game.generator() },
+        match unsafe { game.the_runs_own_bytes() } {
+            Some(said) => format!(" {said}"),
+            None => String::new(),
+        },
     );
 }
 
