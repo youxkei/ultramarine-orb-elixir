@@ -156,6 +156,8 @@ mod the_music_across_a_restore;
 #[cfg(test)]
 mod the_music_across_a_restore_of_th07;
 #[cfg(test)]
+mod the_number_th07s_shot_is_scaled_by;
+#[cfg(test)]
 mod the_numbers_a_run_of_th07_was_made_with;
 #[cfg(test)]
 mod the_pacing_of_th07;

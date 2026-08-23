@@ -80,6 +80,22 @@ pub struct Numbers {
     /// it is what the numbers already meant.
     #[serde(default)]
     pub border: bool,
+    /// **The number the shot is scaled by**, `[0x62f8a4]` — see `Th07::SHOTS_OWN_NUMBER`.
+    ///
+    /// A run's build fills it out of the per-shot table at 0x42e3a4, inside the block 0x42e89b jumps over, so a
+    /// stage the run walked into carries whatever the stage before it left and a stage a resume builds gets the
+    /// table's figure. What writes it while a run is played is the stage's own script, through the address the
+    /// dispatcher at 0x40ecf1 hands out — which is why no absolute store in the exe mentions it.
+    ///
+    /// And it is read every frame the player is updated, four of the nine sites with `fimul`: 0x412bab works out
+    /// `current + (target - current) * this / 0x498a84` and writes it back where it came from. So twice the
+    /// number is a world whose player walks at twice the speed, and the same 2面 held 0x20 entered by a
+    /// transition against 0x10 built by a resume.
+    ///
+    /// `default` for the reason the border above is: a file written before this field is one whose runs had
+    /// whatever a build left, and nothing is what such a file has always been read as.
+    #[serde(default)]
+    pub shots_own_number: u32,
 }
 
 /// Those numbers as the bytes the machinery carries about — see `Game::run_state`, which is where the shape
@@ -130,6 +146,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
         captured: 0,
         award_step: 0,
         border: false,
+        shots_own_number: 0,
     });
     let written = Written {
         version: VERSION,
@@ -164,6 +181,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             captured: numbers.captured,
             award_step: numbers.award_step,
             border: numbers.border,
+            shots_own_number: numbers.shots_own_number,
         },
         landing: saved.landing.clone(),
         buttons: changes(&saved.buttons),
@@ -224,6 +242,7 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
             captured: written.start.captured,
             award_step: written.start.award_step,
             border: written.start.border,
+            shots_own_number: written.start.shots_own_number,
         }),
         at,
         chapter: written.chapter.number,
@@ -333,6 +352,10 @@ struct WrittenStart {
     /// which is what those files have always been put back as.
     #[serde(default)]
     border: bool,
+    /// And the number the shot is scaled by — see [`Numbers::shots_own_number`]. `default` for the same reason
+    /// the border above has one.
+    #[serde(default)]
+    shots_own_number: u32,
 }
 
 /// A number written the way every line of the log that mentions this one writes it. The seed is the
@@ -419,6 +442,7 @@ mod tests {
                 captured: 11,
                 award_step: 19,
                 border: true,
+                shots_own_number: 0x20,
             }),
             at: 12,
             chapter: 14,

@@ -935,79 +935,11 @@ wide, so the width it has *now* makes the warning line a hazard exactly the size
 which of the two a slot holds. What tells a beam that is done from one that is not is the phase at `+0x4e8`,
 which both of the game's own walks skip at 2.
 
-### What the parting has been narrowed to, and the one measurement left
+### The recipes a resume out of a boss fight is measured with
 
-**A stage picked up plays a different world from the frame it starts on, and the generator is where it shows.**
-Measured over five pairs of launches of 妖々夢, each one a run played from nothing into 2面 and left for the
-title at its midboss, then picked up again:
-
-- **1面 reproduces exactly.** A file written at 1面's chapter 9 replayed 9619 frames and landed *field for
-  field*. So neither the buttons nor the playback's own machinery is at fault.
-- **2面 parts every time**, and always the same way: an item collected on one pass and passed through on the
-  other — `counted` up by one and the score by 200 on the run's side, four more numbers drawn — with the frame
-  it happens on moving between pairs (803, 824, 827, 853, 935, 993).
-- **Everything a frame's line carries agrees up to that frame**: the word, the player's own position, the
-  generator, how many numbers it has drawn, the items in the air, the score, the three cherry counts, and how
-  many updates the frame took. The file is written and read back identically, field for field. The bot's word
-  does not overwrite a playback's — the fed buttons are returned above it.
-- **The parting is an item's own homing mark**, `+0x27f`, which 0x432cd2 writes. Folding an item's whole slot
-  found the two passes differing 223 frames before the generator did; folding the item's own fields alone —
-  a slot's first 0x24c bytes are a sprite, which a playback never advances because it never draws — found them
-  differing at the block that mark is in and nowhere else.
-- **The only input to that mark is 0x432c74's comparison of the player's y against the line items come in
-  above**, and both agree on every frame: the line never differed across 2826 frames, and the player's y is in
-  the line that agrees.
-
-**And the frame a stage starts on agrees.** The first frames of one pair's 2面, run against playback, with the
-word each was seeded from beside them:
-
-| | the run | the playback |
-| --- | --- | --- |
-| the stage's seed | `seed=0xa71a` | `seeded with seed=0xa71a` |
-| frame 2 | `randoms=1496 rng=0x4eaa` | `randoms=1496 rng=0x4eaa` |
-| frame 4 | `randoms=88 rng=0x9cc3` | `randoms=88 rng=0x9cc3` |
-
-So the seeding lands and the stage's opening draws agree to the word. **A reading that said otherwise was one
-pair's run held against another pair's playback**: `orb.log` is one file across a session and a copy of it holds
-every launch, so a stage's own lines have to be cut to the launch as well as to the stage. What that mistake
-looked like was the same count of draws with different values from the first frame — which is impossible for one
-generator, and that is what said the comparison was wrong rather than the game.
-
-**Which leaves the difference where the entry is.** Three launches said so without any code: a run played into
-2面 by a *transition* and left, a launch that picked that up and played on to a later chapter of the same stage
-and left, and a launch that picked *that* up. The first pickup parted and landed on the wrong frame; the second
-landed *field for field* over 6296 replayed frames. What the second was reproducing is a stretch its own run had
-played in a stage **built** the way a pickup builds one — and what the first was reproducing is a stretch played
-in a stage **transitioned into**. 0x42e894 is that branch and `a_stage_transition_of_th07.rs` is what read it.
-
-**And the signature is deterministic.** Both of those pickups reached frame 827 of their 2面 with `0x096e` where
-the file said `0x0f8d` — the same two words in two different launches, the second replaying a file the first
-wrote. So the two worlds differ in a fixed way from the stage's start and the generator is only where it first
-*shows*: everything a frame's line carries agrees for hundreds of frames, and the first thing to come out
-differently is an item's homing mark.
-
-**The measurement left is what the two entries leave differently.** Not the generator, which agrees; not the
-numbers, which are written and read identically; not the items' own fields at the start. A stage's whole memory
-is what a chapter snapshot already covers — `--self-check` fingerprints every region it saves — so a snapshot
-taken at the start of a transitioned-into 2面 held against one taken at the start of a built 2面 names the
-regions, and there is no need to guess a field. A fix that works turns `0x096e` against `0x0f8d` into no parting
-line at all.
-
-**The numbers a build fills in are where the next reading goes.** 0x42e89b jumps to 0x42eee6 where the scene
-asked for is the rebuild one, so a stage the run walks into is a stage the game never filled a run's numbers
-into — and a resume enters every stage on the other side of that jump, where it does. Which means any field
-that block writes and the resume does not put back is a field the original run *carried* and the replay gets a
-build's default for. Read off the block, the run object's `+0x08`, `+0x0c` (set to 100000) and `+0x20` are
-written there and are in none of `Numbers`, and so are `[gamemanager+0x9628]`, `+0x93d4` and the pair
-`+0x9618`/`+0x961c`/`+0x9620` the character walk writes. The game's own replay record is the list to hold that
-against: 0x443288 onwards fills a stage's entry from the run object, which is the game enumerating what a stage
-of a run in progress has to be restarted from.
-
-### The recipes the resume's own parting is measured with
-
-The parting is the one thing in this file still open — `counted` climbing on the playback and not on the run
-that was recorded, at the frame the two of them part. It is measured by playing the same stretch twice, which
-is two launches: one that plays into stage 2 and is closed there, and one that takes the run back.
+A run left in a stage's boss fight and picked up again, which is the whole of what the file is for: it is
+measured by playing the same stretch twice, which is two launches — one that plays to the fight and leaves it
+for the title, and one that takes the run back.
 
 **It is run against a copy of the install and never against the one somebody plays in.** A played game writes
 its records beside itself — `score.dat`, the replays, `pointdevice_resume/`, `orb.log` — so a bot let loose in
@@ -1023,8 +955,7 @@ menu walked to タイトルへ, which is what a player does and so what the file
 own closes the game where it stands, which is the harder half of the same scenario and not the one somebody
 meets first.
 
-`from-the-beginning-to-the-second-midboss.yaml`, beside that copy's exe since the game's own process is what
-reads it:
+`to-the-second-stages-boss.yaml`, beside that copy's exe since the game's own process is what reads it:
 
 ```yaml
 - press: [decide]                         # the run chosen, which is what brings orb's own question up
@@ -1038,12 +969,20 @@ reads it:
   frames: 10
   until: { stage: 1, chapter: 1 }
   give_up_after: 1800
-- play_until: { stage: 2, chapter: 3 }     # the rules, as far as 2面's own midboss
+- play_until: { stage: 2, chapter: 1 }     # the rules, as far as the stage
+  give_up_after: 72000
+- play_until: { boss: true }               # and then as far as the fight that stage ends with
   give_up_after: 36000
+- play_until: { frames: 600 }              # fought for a moment, so the fight has a chapter of its own
 - leave: true                              # the pause menu to タイトルへ, which ends the run and writes the file
 - wait_until: { frames: 300 }              # the game's own half of leaving: the run torn down, the title built
 - quit: true
 ```
+
+**The fight is fought for a moment before the run is left in it.** `boss: true` is satisfied the frame the boss
+is up, which is before that fight has a chapter — `Chapters::due` waits for the music — so a launch that left
+the instant the flag rose wrote down `stage 2 chapter 5 (MIDSTAGE 3) at frame 5864`, the midstage chapter in
+front of the fight rather than the fight itself.
 
 **はじめから is chosen and not fallen into.** つづきから is the item orb's question comes up on, so a launch
 that taps its way through the front end picks the *old* file up instead of starting anything — which three
@@ -1076,23 +1015,19 @@ at its starting position until something shot it — `player=192.00,384.00` for 
 - quit: true
 ```
 
-`from-the-beginning-to-the-third-stage.yaml` is the same scenario one stage further on, and it asks what the
-shorter one cannot: the run walks into two stages, so the point the file is left holding has to be 3面's own
-start rather than 2面's. Its own launch left `stage 1 chapter 1` through `chapter 9` written down, then `stage 2
-chapter 1` and `stage 3 chapter 1` and nothing else — and the pickup landed at 3面's start field for field.
-
-**The deeper stages are measured as a chain rather than one scenario each**, which is what makes them
-affordable: a run left at one stage's fight is picked up at that stage's start, so the launch that answers for
-that stage is also the launch that plays on to the next one's fight and leaves it there. Four launches and a
-last one that only lands, in place of four runs from nothing:
+**Every stage is measured as one chain rather than a scenario each**, which is what makes the deep ones
+affordable: a run left in one stage's fight is picked up in that fight, so the launch that answers for that
+stage is also the launch that plays on to the next one's fight and leaves it there. Five launches and a last one
+that only lands, in place of five runs from nothing:
 
 | launch | recipe | what its log answers |
 | --- | --- | --- |
-| A | `to-the-third-stages-boss.yaml` | nothing; it leaves the run at 3面's fight |
-| B | `took-it-back-and-on-to-the-fourth.yaml` | 3面 |
-| C | `took-it-back-and-on-to-the-fifth.yaml` | 4面 |
-| D | `took-it-back-and-on-to-the-sixth.yaml` | 5面 |
-| E | `took-the-run-back.yaml` | 6面 |
+| A | `to-the-second-stages-boss.yaml` | nothing; it leaves the run in 2面's fight |
+| B | `took-it-back-and-on-to-the-third.yaml` | 2面 |
+| C | `took-it-back-and-on-to-the-fourth.yaml` | 3面 |
+| D | `took-it-back-and-on-to-the-fifth.yaml` | 4面 |
+| E | `took-it-back-and-on-to-the-sixth.yaml` | 5面 |
+| F | `took-the-run-back.yaml` | 6面 |
 
 **The fight is waited for and not a chapter number**, because which chapter of a stage a fight begins at depends
 on how many waves came before it, and that is not the same in two stages. The grammar refuses `boss` beside a
@@ -1102,8 +1037,9 @@ on how many waves came before it, and that is not the same in two stages. The gr
 `Chapters::the_stages_own_boss_is_up`, which is the fight having a song of its own — a midboss fights under the
 stage's own song, so it is deliberately not this. A recipe written expecting otherwise walked its run straight
 past 3面's midboss and sat on `still waiting` until the stage's boss came up. Leaving the run in the boss fight
-is what these launches do, and it measures the same thing: the point the file holds is the stage's start
-wherever in that stage the run is left, so where inside it the leaving happens does not change the answer.
+is what these launches do, and a fight is the hardest point of a stage to come back to: the file holds the
+chapter the run was standing in, so a pickup has thousands of that stage's frames to play back before it
+arrives, and every one of them has to land.
 
 **The question is what the front end is walked to, and not a screen of it.** Waiting for `{ screen: 8, cursor:
 1 }` and the two after it is waiting for numbers that depend on where this machine's score file left the cursors
@@ -1116,18 +1052,18 @@ at is the frame that was written down. Playing on is another stage of wall clock
 written over by the chapters it passes.
 
 ```sh
-scripts/run.sh <copy> --autoplay='<copy in windows>\from-the-beginning-to-the-second-midboss.yaml' --log=verbose
-scripts/run.sh <copy> --autoplay='<copy in windows>\took-the-run-back.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\to-the-second-stages-boss.yaml' --log=verbose
+scripts/run.sh <copy> --autoplay='<copy in windows>\took-it-back-and-on-to-the-third.yaml' --log=verbose
 ```
 
-The first launch's log wants keeping before the second overwrites it: `orb.log` is one file beside the exe, and
-what the parting is read out of is the two runs' `reproduction` lines side by side.
+The first launch's log wants keeping before the second overwrites it: `orb.log` is one file beside the exe, and a
+comparison of the two entries into one stage is the two launches' lines held side by side.
 
-**What a launch has to say** is two things, and the first is not about the parting at all: whether the presses
+**What a launch has to say** is two things, and the first is not about the landing at all: whether the presses
 got through the front end. `autoplay: step N of M done` is one line per step, so a recipe that stopped on its
 first is a screen that wanted a press this recipe has not got. Only once every step is done does the second
-question — which frame the two `reproduction` lines part on, and which field of them differs — have a run
-behind it.
+question — whether the pickup's own line says `the landing is the frame that was written down, field for field`
+— have a run behind it.
 
 ## The font, which was a question and is now a decision
 

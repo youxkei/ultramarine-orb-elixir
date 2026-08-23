@@ -4153,6 +4153,10 @@ impl Game for Th07 {
             // stage whose plus says nothing about it. What a border does to a stage is take every item off the
             // screen, which is why a resume that left it out put a run back collecting what the run did not.
             border: unsafe { mem::read::<usize>(G_PLAYER + PLAYER_BORDER) } != 0,
+            // **And the number the shot is scaled by**, which a build fills out of the per-shot table and a
+            // transition carries — see [`SHOTS_OWN_NUMBER`], and `resume::Numbers::shots_own_number` for the
+            // `fimul` that makes it a rate rather than a label.
+            shots_own_number: unsafe { mem::read(SHOTS_OWN_NUMBER) },
         })
     }
 
@@ -4204,6 +4208,11 @@ impl Game for Th07 {
             // numbers and so outside the seal: left at the bottom, the first thing this stage collects is worth
             // what a first stage's is, and the run parts from itself there.
             mem::write::<u8>(AWARD_STEP, state.award_step);
+            // **And the number the shot is scaled by**, a static like the step above and so outside the seal.
+            // Left at what the build filled it with, a stage put back is a stage whose player walks at another
+            // speed — which is what the parting was: the same 2面 held 0x20 entered by a transition against
+            // 0x10 built by a resume, and every pair of launches parted on an item collected once.
+            mem::write::<u32>(SHOTS_OWN_NUMBER, state.shots_own_number);
         }
         // **The seal draws twice, and the generator is put back over those draws** — which is what the game
         // itself does around this very call: 0x42f07e saves [`G_RANDOM`], 0x42f08b seals, 0x42f094 writes the
@@ -4566,6 +4575,7 @@ mod tests {
             captured: 0,
             award_step: 0,
             border: false,
+            shots_own_number: 0,
         }
     }
 

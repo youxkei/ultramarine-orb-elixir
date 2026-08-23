@@ -1316,6 +1316,17 @@ impl Image {
         self.space().read::<u8>(super::AWARD_STEP)
     }
 
+    /// **The number the shot's own scaling is done by**, `[0x62f8a4]` — see [`super::SHOTS_OWN_NUMBER`]. A
+    /// static rather than one of the run's numbers, so it is outside the seal, and a run's build fills it out
+    /// of the per-shot table while a transition carries whatever the stage before left.
+    pub fn the_shots_own_number_is(&self, number: u32) {
+        self.space().write::<u32>(super::SHOTS_OWN_NUMBER, number);
+    }
+
+    pub fn the_shots_own_number(&self) -> u32 {
+        self.space().read::<u32>(super::SHOTS_OWN_NUMBER)
+    }
+
     /// And the cards the run has captured, `[run+0x1c]` — see [`super::CARDS_CAPTURED`].
     pub fn the_run_has_captured(&self, captured: i32) {
         self.space()

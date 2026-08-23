@@ -116,6 +116,11 @@ pub const BOMBS: f32 = 3.0;
 pub const POWER: f32 = 96.0;
 pub const SCORE: u32 = 1_234_560;
 
+/// **What a build leaves the shot's own number at**, which is the figure the per-shot table holds for the shot
+/// above: what a launch of 妖々夢 read out of a 2面 its resume had built. A stage the run walked into carries
+/// its own instead — see `Fake::builds_the_stage`.
+pub const A_BUILDS_OWN_NUMBER: u32 = 0x10;
+
 /// How long the title menu has been up when an e2e test presses at it: past the ten frames the game's own
 /// update refuses a press over, which is what `Th07::menu_takes_a_press` reads.
 const SETTLED: i32 = 60;
@@ -1296,6 +1301,12 @@ impl Fake {
     pub fn builds_the_stage(&self, stage: i32) {
         self.lays_the_stage_out(stage);
         self.image.has_a_runs_numbers();
+        // **And the number the shot is scaled by, out of the per-shot table**, which 0x42e3a4 does inside the
+        // block 0x42e89b jumps over: a run's first stage gets the table's figure and a stage the run walks into
+        // carries whatever the stage before it left. A laid-out game that left this alone would be a game where
+        // a resume gets the recorded number for free, which is the difference two launches measured — 0x20
+        // carried against 0x10 built.
+        self.image.the_shots_own_number_is(A_BUILDS_OWN_NUMBER);
         self.image.has_lives_and_bombs(LIVES, BOMBS);
         self.image.shot_is_at_power(POWER);
         self.image.the_run_has_scored(SCORE, 0);
