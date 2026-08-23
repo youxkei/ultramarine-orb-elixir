@@ -25,7 +25,9 @@ not orb's — `game::KNOWN` in `orb-core` is the list of them — and the filter
 
     tasklist.exe /FI "IMAGENAME eq <the game's exe>" 2>/dev/null | grep -c "<the game's exe>"
 
-Empty output means none.
+Empty output means none — **once**. It is a Windows process reached through the interop, and it answered
+nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts on one empty
+answer acts on a game that is still running. Ask again before believing it.
 
 **A script that refuses is worth more than remembering to ask.** `orb.exe` returns as soon as it has
 injected, so what makes one invocation one run is waiting for the game to appear and then waiting for it to
@@ -42,8 +44,17 @@ recipe="${3:?usage: drive-a-run.sh <game-dir> <game-exe> <recipe.yaml>}"
 
 running() { tasklist.exe /FI "IMAGENAME eq $exe" 2>/dev/null | grep -c "$exe"; }
 
-if [ "$(running)" -gt 0 ]; then
-  echo "refusing: $exe is already running ($(running))"
+# **Asked twice, because one empty task list is not a game that has gone.** `tasklist.exe` is a Windows
+# process reached through the interop and it answered nothing once while the game was up and playing, which
+# ended a watch on the launch it was watching a minute into a twenty-five minute run.
+gone() {
+  [ "$(running)" -eq 0 ] || return 1
+  sleep 2
+  [ "$(running)" -eq 0 ]
+}
+
+if ! gone; then
+  echo "refusing: $exe is already running"
   exit 1
 fi
 
@@ -61,7 +72,7 @@ if [ "$(running)" -eq 0 ]; then
 fi
 echo "up, waiting for it to go"
 
-while [ "$(running)" -gt 0 ]; do
+while ! gone; do
   sleep 5
 done
 echo "the run is over"
@@ -176,6 +187,36 @@ own song. The grammar also refuses `boss` beside a `stage`, so a particular stag
 **A fight has no chapter for a moment after that flag rises**, `Chapters::due` waiting for the music, so a run
 left the instant it rises is written down at the chapter in front of the fight. Fight it for a moment first:
 `- play_until: { frames: 600 }`.
+
+**A conversation, a card and a card's name are waited for and never counted** — `dialogue: true`, `card: true`
+and `card_name: true`. The rules press past a line of dialogue as fast as the game takes presses, so a
+conversation is up for a handful of frames; and which chapter of a stage is a card is the game's own numbering,
+differing stage by stage. Six pictures at hundred-frame intervals through a midsection caught the stage every
+time and the conversation never, and twelve taken at chapters read off one afternoon's logs caught no card plate
+at all.
+
+**And the card and its name are two conditions because they are two frames.** A card starts and the plate its
+name is on is put up after that, so a picture asked for on `card: true` has the boss's name and the timer in it
+and nothing between them. `card_name: true` is the plate itself — for 妖々夢, the bit the engine's own draw reads
+before it draws that vm.
+
+**A picture asked for on the frame a screen is reached is a picture of the screen before it.** The front end
+draws a change over several frames, so a `screenshot` straight after `until: { screen: N, cursor: M }` comes out
+mid-fade with the outgoing screen still legible over the new one — three shots of three menus each showed the
+menu before. **The same holds for anything a run draws with an animation of its own**: a picture on the frame
+`card: true` became true came out with the boss's name and the timer in place and the card's own plate not yet
+drawn.
+
+**So a state to wait for and the frames a drawing takes are both needed, and neither replaces the other.** The
+condition is what gets a step to the right moment of the run without counting a stage's frames; the frames are
+what let the thing that moment is about be drawn. Measured on 1面's first card: the plate is put up two or three
+frames after `card: true`, `card_name: true` catches it as a shape with nothing readable on it, and thirty frames
+on it reads `Cold Sign "Lingering Cold"`.
+
+    - play_until: { card_name: true }
+      give_up_after: 3600
+    - screenshot: the card's own name
+      frames: 30
 
 **`leave: true` is the pause menu walked to the title**, which is how a player leaves and so how a resume file
 has to be written. Give the game its own half of leaving before the process goes —

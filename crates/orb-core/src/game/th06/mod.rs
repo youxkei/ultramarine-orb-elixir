@@ -1716,6 +1716,12 @@ impl Game for Th06 {
         timer >= grace - MENU_GRACE_LOOKAHEAD
     }
 
+    /// The same index `State::in_dialogue` is read from: 紅魔郷 has no line of its own for handing the screen
+    /// over, so a line being up and a dialogue running are one thing here.
+    unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
+        unsafe { dialogue_msg_idx() >= 0 }
+    }
+
     unsafe fn run_start(&self) -> RunStart {
         unsafe {
             RunStart {

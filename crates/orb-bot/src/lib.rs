@@ -97,7 +97,10 @@ enum Step {
     },
     Leave,
     Quit,
-    Screenshot(String),
+    Screenshot {
+        named: String,
+        frames: u32,
+    },
     StartOver,
 }
 
@@ -107,6 +110,9 @@ enum Wait {
     Cursor(i32),
     Where { screen: i32, cursor: i32 },
     Boss,
+    Dialogue,
+    Card,
+    CardName,
     Frames(u32),
 }
 
@@ -184,7 +190,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
             },
             recipe::Step::Leave => Step::Leave,
             recipe::Step::Quit => Step::Quit,
-            recipe::Step::Screenshot(named) => Step::Screenshot(named.clone()),
+            recipe::Step::Screenshot { named, frames } => Step::Screenshot { named, frames },
             recipe::Step::StartOver => Step::StartOver,
         };
         steps.push(step);
@@ -208,6 +214,9 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::Cursor(item) => Wait::Cursor(item),
         Until::Where { screen, cursor } => Wait::Where { screen, cursor },
         Until::Boss => Wait::Boss,
+        Until::Dialogue => Wait::Dialogue,
+        Until::Card => Wait::Card,
+        Until::CardName => Wait::CardName,
         Until::Frames(frames) => Wait::Frames(frames),
         Until::Question(name) => Wait::Question(match name.as_str() {
             "mode" => Question::Mode,
@@ -299,14 +308,21 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         }
         // **A picture of the frame being drawn**, which is one frame's work and over on the frame it is asked
         // on: what writes it is the draw chain's own end, so nothing here waits for the file.
-        Step::Screenshot(named) => {
-            orb_core::shot::wanted(named);
-            log!(
-                "autoplay: step {} of {} asks for a picture of {named}",
-                playing.at + 1,
-                playing.steps.len(),
-            );
-            (0, true)
+        //
+        // **The frames in front of it are the rules' to play**, and not a word of nothing: what a picture waits
+        // out is a thing being drawn, which happens while a run carries on — and a player standing still for
+        // half a second inside a card is a player that gets shot. Off a run the rules say nothing anyway.
+        Step::Screenshot { named, frames } => {
+            let now = playing.frames > *frames;
+            if now {
+                orb_core::shot::wanted(named);
+                log!(
+                    "autoplay: step {} of {} asks for a picture of {named}",
+                    playing.at + 1,
+                    playing.steps.len(),
+                );
+            }
+            (unsafe { steer::word_to_press(game) }, now)
         }
         // **The run asked to start over, and the step over with the asking.** What raises the question is the
         // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
@@ -350,10 +366,10 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             Step::Play { give_up_after, .. } => {
                 reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
-            // None of these has anything to wait for, so none has a bound to reach: each is an ask — the run
-            // ended, the process closed, a frame written out, the run started over — and every one of them is
-            // over on the frame it is asked on.
-            Step::Leave | Step::Quit | Step::Screenshot(_) | Step::StartOver => false,
+            // None of these can wait for something that will not happen, so none has a bound to reach: each is
+            // an ask — the run ended, the process closed, a frame written out, the run started over — and a
+            // picture's own frames are a count it reaches by counting.
+            Step::Leave | Step::Quit | Step::Screenshot { .. } | Step::StartOver => false,
         };
     if over || gave_up {
         playing.at += 1;
@@ -393,6 +409,9 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
             reached.screen == Some(*screen) && reached.cursor == Some(*cursor)
         }
         Wait::Boss => reached.boss,
+        Wait::Dialogue => reached.dialogue,
+        Wait::Card => reached.card,
+        Wait::CardName => reached.card_name,
         Wait::Frames(wanted) => frames >= *wanted,
     }
 }
@@ -416,6 +435,9 @@ mod tests {
             screen: None,
             over: false,
             boss: false,
+            dialogue: false,
+            card: false,
+            card_name: false,
         }
     }
 

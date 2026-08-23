@@ -5,6 +5,7 @@
 //!   frames: 2
 //! - play_until: { stage: 2, chapter: 3 }
 //! - screenshot: the midboss
+//!   frames: 30
 //! - start_over: true
 //! - leave: true
 //! - wait_until: { question: resume }
@@ -22,10 +23,12 @@
 //!
 //! **And two of them ask for something rather than pressing at it.** A `screenshot` asks for a picture of the
 //! frame being drawn, which is how a screen full of words is checked: whether the words on it are the ones
-//! somebody reads is not a thing any line of the log can say. A `start_over` asks the run to start over the
-//! way the game's own pause menu item does, which orb turns into its question of where to start again — the
-//! one way to reach a chapter again without dying for it, so the one way a recipe can ask for a retry. What
-//! answers that question is a `press` at `until: { question: retry }`, the same as a player pressing at it.
+//! somebody reads is not a thing any line of the log can say. Its `frames` are how long to let the thing it is
+//! of be drawn first, a screen and a card's plate each having an animation of their own. A `start_over` asks
+//! the run to start over the way the game's own pause menu item does, which orb turns into its question of
+//! where to start again — the one way to reach a chapter again without dying for it, so the one way a recipe
+//! can ask for a retry. What answers that question is a `press` at `until: { question: retry }`, the same as a
+//! player pressing at it.
 //!
 //! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
 //! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
@@ -95,7 +98,14 @@ pub enum Step {
     /// line of the log can say, so the frame itself is the answer and a person or another tool reads it.
     ///
     /// Named rather than numbered, because a directory of pictures is read by what each one was taken of.
-    Screenshot(String),
+    ///
+    /// **And `frames` of the game's own rules first, which is what a thing being drawn takes.** A screen and a
+    /// card's plate each have an animation of their own, so the frame a condition became true is the frame
+    /// before the thing it is about is on the screen — three pictures of three menus each came out mid-fade
+    /// showing the menu before, and one asked for as a card started came out with no plate at all. The frames
+    /// are the rules' to play rather than nobody's: a run whose player stands still for half a second is a run
+    /// that gets shot.
+    Screenshot { named: String, frames: u32 },
     /// **The run asked to start over, which is what the game's own pause menu item does** — and what orb
     /// turns into its question of where to start again. The one way to reach a chapter again without dying
     /// first, so it is the one way a recipe can ask for a retry.
@@ -133,6 +143,20 @@ pub enum Until {
     /// guessed at a minute and ended with the midsection still going. Whether a boss is up is a thing orb reads
     /// already — the log's own `boss=` and the 低速 the rules hold under one — so it is a thing to wait for.
     Boss,
+    /// **A dialogue being up**, which is what a boss's fight begins after.
+    ///
+    /// The one thing in a stage a count of frames cannot reach: the rules press past a line as fast as the game
+    /// takes presses, so a conversation is up for a handful of frames and shots at hundred-frame intervals
+    /// through a midsection walked either side of it.
+    Dialogue,
+    /// **A spell card running**, which is the frames the plate its name is on is drawn over.
+    ///
+    /// Named this way rather than by the chapter it falls in: which chapter of a stage is a card is the game's
+    /// own numbering, so a step naming one is written against a reading of one afternoon's logs.
+    Card,
+    /// **The plate a card's name is shown on being drawn**, which is what a picture of that name waits for and
+    /// is not the same frame as the card starting: the card starts and the plate is put up after it.
+    CardName,
     /// Or that many frames having gone by.
     Frames(u32),
 }
@@ -176,46 +200,103 @@ struct WrittenUntil {
     screen: Option<i32>,
     cursor: Option<i32>,
     boss: Option<bool>,
+    dialogue: Option<bool>,
+    card: Option<bool>,
+    card_name: Option<bool>,
     frames: Option<u32>,
 }
 
 impl WrittenUntil {
+    /// **The conditions written as a bare `true`**: the word each is written under, whether this step wrote it,
+    /// what it means, and what a step that wrote `false` should have waited for instead.
+    ///
+    /// A list rather than four more places in the tuple below. Each of these is one field that is either `true`
+    /// or absent, so an arm per combination of them grows by a factor for every condition added — and the
+    /// `None`s a new one puts into every arm already there are that many chances to put one in the wrong place.
+    fn flags(&self) -> [(&'static str, Option<bool>, Until, &'static str); 4] {
+        [
+            // **Only `true` throughout.** What a step could do with `boss: false` is wait for a fight to be
+            // over, and a fight ends by the stage ending — which is a stage and a chapter to wait for and
+            // already written. The others are refused for the same reason: what follows a conversation is the
+            // fight, and what follows a card is the rest of the fight.
+            (
+                "boss",
+                self.boss,
+                Until::Boss,
+                "a stage and a chapter to wait for",
+            ),
+            (
+                "dialogue",
+                self.dialogue,
+                Until::Dialogue,
+                "a boss being up to wait for",
+            ),
+            (
+                "card",
+                self.card,
+                Until::Card,
+                "most of a fight, and a fight is a boss being up to wait for",
+            ),
+            (
+                "card_name",
+                self.card_name,
+                Until::CardName,
+                "most of a card, and a card is a card running to wait for",
+            ),
+        ]
+    }
+
     fn read(&self, at: usize) -> Result<Until, String> {
-        match (
+        let mut asked = None;
+        for (word, written, until, instead) in self.flags() {
+            match written {
+                Some(false) => {
+                    return Err(format!("step {at} waits for no {word}, which is {instead}"));
+                }
+                Some(true) if asked.is_some() => return Err(Self::one_of_them(at)),
+                Some(true) => asked = Some(until),
+                None => {}
+            }
+        }
+        let shaped = (
             self.stage,
             self.chapter,
             &self.question,
             self.screen,
             self.cursor,
-            self.boss,
             self.frames,
-        ) {
-            (Some(stage), Some(chapter), None, None, None, None, None) => {
+        );
+        // **And nothing beside it**, a flag being a whole condition: anything written with one is a step
+        // waiting for two things.
+        if let Some(until) = asked {
+            return match shaped {
+                (None, None, None, None, None, None) => Ok(until),
+                _ => Err(Self::one_of_them(at)),
+            };
+        }
+        match shaped {
+            (Some(stage), Some(chapter), None, None, None, None) => {
                 Ok(Until::Chapter { stage, chapter })
             }
-            (None, None, Some(question), None, None, None, None) => {
-                Ok(Until::Question(question.clone()))
-            }
-            (None, None, None, Some(screen), Some(cursor), None, None) => {
+            (None, None, Some(question), None, None, None) => Ok(Until::Question(question.clone())),
+            (None, None, None, Some(screen), Some(cursor), None) => {
                 Ok(Until::Where { screen, cursor })
             }
-            (None, None, None, None, Some(cursor), None, None) => Ok(Until::Cursor(cursor)),
-            // **Only `true`.** What a step could do with `boss: false` is wait for a fight to be over, and a
-            // fight ends by the stage ending — which is a stage and a chapter to wait for and already written.
-            (None, None, None, None, None, Some(true), None) => Ok(Until::Boss),
-            (None, None, None, None, None, Some(false), None) => Err(format!(
-                "step {at} waits for no boss to be up, which is a stage and a chapter to wait for"
-            )),
-            (None, None, None, None, None, None, Some(0)) => {
+            (None, None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
+            (None, None, None, None, None, Some(0)) => {
                 Err(format!("step {at} is over before it starts"))
             }
-            (None, None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
-            _ => Err(format!(
-                "step {at} waits for a stage and a chapter, a question, an item the cursor is on \
-                 with or without the screen it is a list of, a boss being up, or a count of \
-                 frames, and for one of those"
-            )),
+            (None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
+            _ => Err(Self::one_of_them(at)),
         }
+    }
+
+    fn one_of_them(at: usize) -> String {
+        format!(
+            "step {at} waits for a stage and a chapter, a question, an item the cursor is on with \
+             or without the screen it is a list of, a boss being up, a dialogue being up, a card \
+             running, a card's name being shown, or a count of frames, and for one of those"
+        )
     }
 }
 
@@ -316,7 +397,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             } => Step::Quit,
             Written {
                 press: None,
-                frames: None,
+                frames,
                 until: None,
                 give_up_after: None,
                 play_until: None,
@@ -327,7 +408,12 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
             } => match named.trim() {
                 "" => return Err(format!("step {at} asks for a picture of nothing")),
-                named => Step::Screenshot(named.to_owned()),
+                named => Step::Screenshot {
+                    named: named.to_owned(),
+                    // **Nothing said is the frame the step begins on**, which is what every picture asked for
+                    // before this was and what a screen already up wants.
+                    frames: frames.unwrap_or(0),
+                },
             },
             Written {
                 press: None,
@@ -411,9 +497,29 @@ mod tests {
         assert_eq!(
             read("- screenshot: the title menu\n- screenshot: orbs-question\n"),
             Ok(vec![
-                Step::Screenshot("the title menu".to_owned()),
-                Step::Screenshot("orbs-question".to_owned()),
+                Step::Screenshot {
+                    named: "the title menu".to_owned(),
+                    frames: 0,
+                },
+                Step::Screenshot {
+                    named: "orbs-question".to_owned(),
+                    frames: 0,
+                },
             ]),
+        );
+    }
+
+    /// **And it can say how long to let the thing it is of be drawn**, which is what a screen and a card's
+    /// plate each take: the frame a condition became true is the frame before what it is about is on the
+    /// screen.
+    #[test]
+    fn a_picture_can_say_how_long_to_let_what_it_is_of_be_drawn() {
+        assert_eq!(
+            read("- screenshot: the card's own plate\n  frames: 30\n"),
+            Ok(vec![Step::Screenshot {
+                named: "the card's own plate".to_owned(),
+                frames: 30,
+            }]),
         );
     }
 
@@ -629,6 +735,54 @@ mod tests {
     fn a_step_that_is_two_things_or_nothing_is_refused() {
         assert!(read("- press: [shot]\n  frames: 2\n  quit: true\n").is_err());
         assert!(read("- {}\n").is_err());
+    }
+
+    /// A dialogue is a thing to wait for, and no dialogue is not: what follows a conversation is the fight, and
+    /// that is a boss being up.
+    #[test]
+    fn a_step_can_wait_for_a_dialogue_and_not_for_none() {
+        assert_eq!(
+            read("- play_until: { dialogue: true }\n"),
+            Ok(vec![Step::Play {
+                until: Until::Dialogue,
+                give_up_after: None,
+            }]),
+        );
+        assert!(read("- play_until: { dialogue: false }\n").is_err());
+    }
+
+    /// And a card is one too, which is what a picture of the plate its name is on has to be asked on.
+    #[test]
+    fn a_step_can_wait_for_a_card_and_not_for_none() {
+        assert_eq!(
+            read("- play_until: { card: true }\n"),
+            Ok(vec![Step::Play {
+                until: Until::Card,
+                give_up_after: None,
+            }]),
+        );
+        assert!(read("- play_until: { card: false }\n").is_err());
+    }
+
+    /// And the plate that card's name is on is a condition of its own, the card starting and its name being on
+    /// the screen being two frames.
+    #[test]
+    fn a_step_can_wait_for_a_cards_name_and_not_for_none() {
+        assert_eq!(
+            read("- play_until: { card_name: true }\n"),
+            Ok(vec![Step::Play {
+                until: Until::CardName,
+                give_up_after: None,
+            }]),
+        );
+        assert!(read("- play_until: { card_name: false }\n").is_err());
+    }
+
+    /// And two of them at once is a step waiting for two things, which no step does.
+    #[test]
+    fn a_wait_for_two_of_the_flags_is_refused() {
+        assert!(read("- play_until: { card: true, boss: true }\n").is_err());
+        assert!(read("- play_until: { card: true, frames: 30 }\n").is_err());
     }
 
     /// And a wait for two things at once, or for nothing.

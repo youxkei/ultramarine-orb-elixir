@@ -213,6 +213,236 @@ fn a_step_ends_where_a_boss_is_up() {
     });
 }
 
+/// **A picture can be asked for a moment after its step begins, which is what a thing being drawn takes.**
+///
+/// A screen and a card's plate both have an animation of their own, so the frame a condition becomes true is
+/// the frame before the thing that condition is about is on the screen: three pictures of three menus each came
+/// out mid-fade showing the menu before, and a picture on the frame a card started came out with the boss's name
+/// and the timer in place and no plate. Which was walked round by putting a `play_until: { frames: 30 }` in
+/// front of every `screenshot` — a settle written out once per picture in every recipe, and left out is a
+/// picture of the wrong frame. So the step that asks for the picture is the step that waits for it, and the
+/// frames it waits are the game's own rules' to play: a run whose player stands still for half a second is a
+/// run that gets shot.
+#[test]
+fn a_picture_can_be_asked_for_a_moment_after_its_step_begins() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-letting-a-plate-be-drawn",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- screenshot: the card's own plate\n  frames: 3\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+
+        words(&game, 2);
+        assert!(
+            !game.log().said("asks for a picture"),
+            "the picture was asked for before the frames it waits out had gone by:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // The three frames it waits out, then the frame the picture is asked on, then the step after it.
+        let pressed = words(&game, 3);
+        assert!(
+            game.log()
+                .said("autoplay: step 1 of 2 asks for a picture of the card's own plate"),
+            "the picture was never asked for:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end with the asking:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
+/// **A step can wait for a dialogue to be up, which is the one thing a recipe cannot reach by counting
+/// frames.**
+///
+/// A boss's conversation is what a stage's midsection ends at and the fight begins after, and the rules press
+/// past it as fast as the game takes presses — so it is up for a handful of frames, and a step bounded by a
+/// count of them walks either side of it. Six shots at hundred-frame intervals through 1面's midsection caught
+/// the stage every time and the conversation never. Whether one is up is a thing orb already reads to decide
+/// whether the rules have a line to press past, so it is a thing a step can wait for.
+#[test]
+fn a_step_ends_where_a_dialogue_is_up() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-waiting-for-a-dialogue",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { dialogue: true }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+        game.image().has_a_dialogue();
+
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended with no dialogue up at all:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // **And not on the line the screen is handed over on**, which is a frame with no words drawn on it: the
+        // game's own predicate counts it, and a picture asked for there caught 5面's and 6面's boxes still being
+        // drawn and nothing being said in them.
+        game.image().the_dialogue_is_at_line(-2);
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended on the line the screen is handed over on:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_dialogue_is_at_line(0);
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end where a dialogue came up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
+/// **A step can wait for a spell card, which is the frame the plate its name is on is being drawn on.**
+///
+/// Which chapter of a stage is a card is the game's own numbering and differs stage by stage — 1面's boss opens
+/// its card at chapter 7 and 4面's at chapter 12 — so a step that named one was a step written against a
+/// reading of one afternoon's logs, and twelve pictures taken at chapters named that way caught no plate at
+/// all. Whether a card is running is a thing orb already reads to name the chapter, so it is a thing a step can
+/// wait for and no chapter has to be counted.
+#[test]
+fn a_step_ends_where_a_spell_card_is_running() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-waiting-for-a-card",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { card: true }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+        game.image().no_spellcard_is_running();
+
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended with no card running at all:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_spellcard_is(0);
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end where a card started:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
+/// **And a step can wait for the plate a card's name is on, which is not the frame the card started on.**
+///
+/// A card starting and its name being on the screen are two frames: pictures asked for as 1面's and 2面's cards
+/// started each came out with the boss's name and the timer in place and nothing between them. So the plate is
+/// its own condition — the bit the engine's own draw reads before it draws the thing — rather than a count of
+/// frames after the card, which is a guess about an animation.
+#[test]
+fn a_step_ends_where_a_cards_name_is_shown() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-waiting-for-a-plate",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- play_until: { card_name: true }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_player_is_playing();
+        game.image().is_playing(4, 1);
+        game.image().has_a_runs_numbers();
+        game.image().is_not_paused();
+        // The card running, which is the frame the plate is *not* yet on the screen for.
+        game.image().has_what_it_puts_over_a_run();
+        game.image().the_spellcard_is(0);
+        game.image().the_cards_name_is_drawn(false);
+
+        words(&game, 4);
+        assert!(
+            !game.log().said("autoplay: step 1 of 2 done"),
+            "the step ended on a card whose name was not being drawn:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().the_cards_name_is_drawn(true);
+        let pressed = words(&game, 4);
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end where the card's name came up:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
 /// **A step gives the run up for the title**, which is how a session is interrupted rather than killed.
 ///
 /// `quit` ends the process where it stands, and what that leaves is a run nobody left: no last frame, no line

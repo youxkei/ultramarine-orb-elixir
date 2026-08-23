@@ -1107,6 +1107,17 @@ const DIALOGUE_HANDING_OVER: i32 = -2;
 /// carries decrypted a byte at a time by 0xaa. It puts four vms in place, this one last, and bakes the name
 /// into this one at 0x428a78.
 const CARD_NAME_VM: usize = 0x6760;
+/// And whether that vm is being drawn, `+0x1c0` of it and the bottom bit.
+///
+/// **The engine's own answer**, at 0x44f9a0 — the draw the plate is passed to where the vms beside it go to
+/// 0x44f770 (0x42c7e2 against 0x42c7c8): it reads `+0x1c0`, ands the bit off, and returns -1 having drawn
+/// nothing where it is clear.
+///
+/// Which is what a picture of a card's name has to wait for. `SPELLCARD_RUNNING` is set as the card starts and
+/// the plate is put up after that, so pictures asked for as 1面's and 2面's cards started each came out with the
+/// boss's name and the timer in place and no plate between them.
+const CARD_NAME_DRAWN: usize = 0x1c0;
+const CARD_NAME_IS_DRAWN: u32 = 1;
 /// The colour that baking is asked for, `0xfff0f0` at 0x428a61, and the zero pushed in front of it at
 /// 0x428a5f.
 const CARD_NAME_COLOUR: u32 = 0x00ff_f0f0;
@@ -2386,6 +2397,17 @@ impl Th07 {
             .and_then(|gui| mem::read_committed::<i32>(gui + DIALOGUE_LINE))
     }
 
+    /// Whether the plate a card's name is on is being drawn — see [`CARD_NAME_DRAWN`]. Nothing put over the
+    /// run at all is no plate, the same as a bit that is clear.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn cards_name_drawn() -> bool {
+        unsafe { Self::over_the_run() }
+            .and_then(|gui| mem::read_committed::<u32>(gui + CARD_NAME_VM + CARD_NAME_DRAWN))
+            .is_some_and(|flags| flags & CARD_NAME_IS_DRAWN != 0)
+    }
+
     /// What the game puts over a run, or nothing where it has built none — see [`G_GUI`].
     ///
     /// # Safety
@@ -3583,6 +3605,14 @@ impl Game for Th07 {
     unsafe fn asked_to_start_the_run_over(&self) -> bool {
         let wanted = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED) };
         wanted == SCENE_START_OVER
+    }
+
+    unsafe fn a_cards_name_is_shown(&self) -> bool {
+        unsafe { Self::cards_name_drawn() }
+    }
+
+    unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
+        unsafe { Self::dialogue_line() }.is_some_and(|line| line >= 0)
     }
 
     unsafe fn keep_the_run_where_it_is(&self) {

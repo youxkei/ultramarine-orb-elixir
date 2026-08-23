@@ -482,6 +482,9 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             screen: None,
             over: false,
             boss: false,
+            dialogue: false,
+            card: false,
+            card_name: false,
         },
         pressing: None,
     });
@@ -2477,6 +2480,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         playing.reached.boss = runtime
             .chapters
             .the_stages_own_boss_is_up(runtime.game, &state);
+        // And whether a line of dialogue is up, which is the frame a picture of a boss's conversation has to be
+        // asked on: the rules press past a line as fast as the game takes presses, so a step bounded by frames
+        // instead walks either side of one.
+        // **A line and not the game's own predicate.** `in_dialogue` counts 妖々夢's hand-over line, which is a
+        // frame with no words drawn on it: a recipe photographing a conversation waited on that in 5面 and 6面
+        // and got the frame the box was still being drawn on.
+        playing.reached.dialogue = unsafe { runtime.game.a_line_of_dialogue_is_shown() };
+        // And whether a card is running, and whether the plate its name is on is being drawn — which is a frame
+        // or more later, and the frame a picture of that name has to be asked on.
+        playing.reached.card = state.spellcard.is_some();
+        playing.reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
     }
 
     // The miss is only certain once `deaths` moves, which is after the death bomb

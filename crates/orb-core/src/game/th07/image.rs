@@ -879,6 +879,15 @@ impl Image {
         GUI.start + super::CARD_NAME_VM
     }
 
+    /// Whether the engine draws that vm, which is what says a card's name is on the screen: the bit the draw at
+    /// 0x44f9a0 reads before it draws anything.
+    pub fn the_cards_name_is_drawn(&self, drawn: bool) {
+        self.space().write::<u32>(
+            self.card_name_vm() + super::CARD_NAME_DRAWN,
+            u32::from(drawn),
+        );
+    }
+
     /// The panel as the game's own build leaves it: the object it is inside, the vm the background grid is
     /// drawn with, and the sprite that vm's script put on it — a texture slot and the piece of the sheet that
     /// tile is, which is what orb reads the tile out of rather than writing down.

@@ -597,6 +597,31 @@ pub trait Game {
         false
     }
 
+    /// Whether the plate a spell card's name is shown on is being drawn, which is not the same as a card
+    /// running: the card starts and the plate is put up after it, so a picture asked for as the card started
+    /// came out with the boss's name and the timer in place and nothing between them.
+    ///
+    /// **A question of its own and not a field of [`State`]**, which every game fills: this is what a recipe
+    /// waits for to photograph a card's name, so a game whose plate has not been read answers no and a recipe
+    /// that asks for it says so by giving up.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn a_cards_name_is_shown(&self) -> bool {
+        false
+    }
+
+    /// Whether a line of a conversation is on the screen, which is narrower than [`State::in_dialogue`]: that
+    /// one is the *game's* predicate, and 妖々夢's counts the line it hands the screen over on — the one no words
+    /// are drawn for. A recipe waiting for a conversation to photograph waited on that in 5面 and 6面 and got the
+    /// frame the box was still being drawn on.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
+        false
+    }
+
     /// And the run left where it is instead, the ask taken back off: what a mode whose runs are rewound has to
     /// offer in its place is where to rewind *to*, which is the retry menu.
     ///
@@ -1814,6 +1839,18 @@ pub struct Reached {
     /// part had no condition for it and was bounded by a count of frames instead, which is a guess about how
     /// long a stage's midsection runs.
     pub boss: bool,
+    /// **Whether a line of dialogue is up**, which is what the fight a stage ends with begins after — and the
+    /// one thing in a stage no count of frames reaches, the rules pressing past a line as fast as the game
+    /// takes presses.
+    pub dialogue: bool,
+    /// **Whether a spell card is running**, which is the frames the plate its name is on is drawn over. Which
+    /// chapter of a stage that is differs stage by stage, so a step naming one is written against a reading of
+    /// one afternoon's logs.
+    pub card: bool,
+    /// **Whether the plate a card's name is shown on is being drawn**, which is the frame a picture of that name
+    /// has to be asked on — and a frame or more after the card itself started. See
+    /// [`Game::a_cards_name_is_shown`].
+    pub card_name: bool,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.
