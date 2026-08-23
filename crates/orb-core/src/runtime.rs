@@ -443,6 +443,28 @@ pub unsafe fn give_the_run_up(game: &dyn Game) -> bool {
     unsafe { give_up(game) }
 }
 
+/// **The run asked to start over, the way the game's own pause menu asks it** — for whatever is playing the
+/// run wanting a chapter again without dying for it.
+///
+/// A flag rather than the question raised here, because raising it is the frame hook's: what answers the ask
+/// is one block, and a recipe going another way round to the same question would be a second answer to keep
+/// in step with the first. So this says somebody asked, and the block that already reads the pause menu's own
+/// ask reads this beside it.
+///
+/// **It waits where there is no run to ask about.** A recipe that asks before a stage can retry is a recipe
+/// whose ask stands until one can, which is what the pause menu's own ask does to a player who opens it too
+/// early: nothing, until there is something.
+pub fn start_the_run_over() {
+    ASKED_TO_START_OVER.store(true, Ordering::Relaxed);
+}
+
+/// And the ask taken, which is what makes it one ask rather than one a frame.
+fn asked_by_a_recipe() -> bool {
+    ASKED_TO_START_OVER.swap(false, Ordering::Relaxed)
+}
+
+static ASKED_TO_START_OVER: AtomicBool = AtomicBool::new(false);
+
 /// Installs one, or takes what is there out.
 ///
 /// # Safety
@@ -2476,10 +2498,13 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     //
     // So the ask is taken back off and what it opens is the question of where to start over from, which already
     // holds every answer the item could have meant: this chapter, one further back, the stage, or the title.
+    // **And a recipe's own ask read beside the menu's**, first so that it is taken whether or not the menu
+    // asked too: a flag left standing would raise the question again on a later frame, where what was asked
+    // for was one.
     if runtime.chaptering()
         && runtime.retry.is_none()
         && runtime.chapters.can_retry()
-        && unsafe { runtime.game.asked_to_start_the_run_over() }
+        && (asked_by_a_recipe() || unsafe { runtime.game.asked_to_start_the_run_over() })
     {
         unsafe { runtime.game.keep_the_run_where_it_is() };
         log!(

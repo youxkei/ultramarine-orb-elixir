@@ -97,6 +97,8 @@ enum Step {
     },
     Leave,
     Quit,
+    Screenshot(String),
+    StartOver,
 }
 
 enum Wait {
@@ -182,6 +184,8 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
             },
             recipe::Step::Leave => Step::Leave,
             recipe::Step::Quit => Step::Quit,
+            recipe::Step::Screenshot(named) => Step::Screenshot(named.clone()),
+            recipe::Step::StartOver => Step::StartOver,
         };
         steps.push(step);
     }
@@ -293,6 +297,29 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             );
             (0, true)
         }
+        // **A picture of the frame being drawn**, which is one frame's work and over on the frame it is asked
+        // on: what writes it is the draw chain's own end, so nothing here waits for the file.
+        Step::Screenshot(named) => {
+            orb_core::shot::wanted(named);
+            log!(
+                "autoplay: step {} of {} asks for a picture of {named}",
+                playing.at + 1,
+                playing.steps.len(),
+            );
+            (0, true)
+        }
+        // **The run asked to start over, and the step over with the asking.** What raises the question is the
+        // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
+        // wait for — the step after it presses at the question.
+        Step::StartOver => {
+            orb_core::runtime::start_the_run_over();
+            log!(
+                "autoplay: step {} of {} asks the run to start over",
+                playing.at + 1,
+                playing.steps.len(),
+            );
+            (0, true)
+        }
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which
         // one the launch stopped on, and the game is asked to close.
         Step::Quit => {
@@ -323,9 +350,10 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             Step::Play { give_up_after, .. } => {
                 reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
-            // Neither has anything to wait for, so neither has a bound to reach: one asks the run to end and
-            // the other asks the process to, and both are over on the frame they are asked on.
-            Step::Leave | Step::Quit => false,
+            // None of these has anything to wait for, so none has a bound to reach: each is an ask — the run
+            // ended, the process closed, a frame written out, the run started over — and every one of them is
+            // over on the frame it is asked on.
+            Step::Leave | Step::Quit | Step::Screenshot(_) | Step::StartOver => false,
         };
     if over || gave_up {
         playing.at += 1;

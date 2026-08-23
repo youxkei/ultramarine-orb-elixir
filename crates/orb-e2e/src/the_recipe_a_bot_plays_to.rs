@@ -278,6 +278,90 @@ fn a_step_gives_the_run_up_for_the_title() {
     });
 }
 
+/// **A step asks for a picture of the frame being drawn**, which is what a screen full of words is checked
+/// from: whether the words on a screen are the ones somebody reads is not a thing any line of the log can say,
+/// so the frame itself is the answer.
+///
+/// Named by what it was taken of, since a directory of pictures is read by that and not by a number. The
+/// asking is the whole of the step — what writes the file is the draw chain's own end, and a step that waited
+/// for the file would be waiting on a disk.
+#[test]
+fn a_step_asks_for_a_picture_of_the_frame() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-taking-a-picture",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- screenshot: the title menu\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.image().the_front_end_is_up();
+
+        words(&game, 4);
+        assert!(
+            game.log()
+                .said("autoplay: step 1 of 2 asks for a picture of the title menu"),
+            "the picture was not asked for by name:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end with the asking:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A step asks the run to start over, which is what the game's own pause menu item does** — and what orb
+/// turns into its question of where to start again. The one way to reach a chapter again without dying for it,
+/// so it is the one way a recipe can ask for a retry.
+///
+/// **The ask waits where there is nothing to ask about.** A recipe reaches its steps in order and a run
+/// reaches its first chapter in its own time, so the ask stands until a stage can be retried from — which is
+/// what the pause menu's own ask does to somebody who opens it before there is a chapter behind them.
+///
+/// What answers it is a press at `question: retry`, the same as a player pressing at it, so this asserts the
+/// question was raised and not what was chosen.
+#[test]
+fn a_step_asks_the_run_to_start_over() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-starting-over",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- start_over: true\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        // The ask goes in on the recipe's first frame, before the stage has a chapter to go back to — and the
+        // question comes up on the frame it has one.
+        game.frames_until_a_thread("the question of where to start again", || {
+            game.log().said("retry: the run was asked to start over")
+        });
+        assert!(
+            game.log()
+                .said("autoplay: step 1 of 2 asks the run to start over"),
+            "the ask was not said:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **And a midboss is not the boss it waits for**, the midsection carrying on after one.
 ///
 /// A step waiting for a boss ended at 4面's midboss, which is a third of the way into the midsection it was

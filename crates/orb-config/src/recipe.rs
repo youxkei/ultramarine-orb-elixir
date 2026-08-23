@@ -1,21 +1,31 @@
 //! **The grammar of a recipe orb plays a run to**: a list of steps carried out in order.
 //!
 //! ```yaml
-//! - press: { buttons: [decide], frames: 2 }
-//! - play: { until: { stage: 2, chapter: 3 } }
-//! - leave
-//! - wait: { until: { question: resume } }
-//! - quit
+//! - press: [decide]
+//!   frames: 2
+//! - play_until: { stage: 2, chapter: 3 }
+//! - screenshot: the midboss
+//! - start_over: true
+//! - leave: true
+//! - wait_until: { question: resume }
+//! - quit: true
 //! ```
 //!
-//! **Five steps, and the difference between two of them is the whole reason for a recipe.** A `press` holds a
-//! word for a number of frames, which is what a screen takes: a screen answers the same way however long the
-//! run before it took. A `play` hands the frames to the game's own rules until something is *reached*, which
-//! is what a stage takes: how many frames stage 1 costs is not a number anybody can write down, so a recipe
-//! that counted them would be a recipe for one run of one afternoon.
+//! **The difference between the first two is the whole reason for a recipe.** A `press` holds a word for a
+//! number of frames, which is what a screen takes: a screen answers the same way however long the run before
+//! it took. A `play_until` hands the frames to the game's own rules until something is *reached*, which is
+//! what a stage takes: how many frames stage 1 costs is not a number anybody can write down, so a recipe that
+//! counted them would be a recipe for one run of one afternoon.
 //!
-//! `wait` is a `press` of nothing with an `until` — the frames a screen takes to come up are as unwritable as
-//! a stage's. `quit` closes the game, which is the last step of a recipe nobody is watching.
+//! `wait_until` is a `press` of nothing with an `until` — the frames a screen takes to come up are as
+//! unwritable as a stage's. `quit` closes the game, which is the last step of a recipe nobody is watching.
+//!
+//! **And two of them ask for something rather than pressing at it.** A `screenshot` asks for a picture of the
+//! frame being drawn, which is how a screen full of words is checked: whether the words on it are the ones
+//! somebody reads is not a thing any line of the log can say. A `start_over` asks the run to start over the
+//! way the game's own pause menu item does, which orb turns into its question of where to start again — the
+//! one way to reach a chapter again without dying for it, so the one way a recipe can ask for a retry. What
+//! answers that question is a `press` at `until: { question: retry }`, the same as a player pressing at it.
 //!
 //! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
 //! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
@@ -44,8 +54,7 @@
 
 use serde::Deserialize;
 
-/// One step of a recipe.
-/// One step of a recipe, as [`read`] hands it over: one of four things and never two.
+/// One step of a recipe, as [`read`] hands it over: one of these and never two of them.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
     /// A word held for a number of frames, which is what a screen takes — or **tapped** for as long as it
@@ -81,6 +90,19 @@ pub enum Step {
     Leave,
     /// The game closed, which is a recipe nobody is watching having finished.
     Quit,
+    /// **A picture of the frame being drawn, named by what asked for it.** What a recipe is for here is a
+    /// screen rather than a number: whether the words on it are the ones somebody reads is not a thing any
+    /// line of the log can say, so the frame itself is the answer and a person or another tool reads it.
+    ///
+    /// Named rather than numbered, because a directory of pictures is read by what each one was taken of.
+    Screenshot(String),
+    /// **The run asked to start over, which is what the game's own pause menu item does** — and what orb
+    /// turns into its question of where to start again. The one way to reach a chapter again without dying
+    /// first, so it is the one way a recipe can ask for a retry.
+    ///
+    /// It raises the question and answers nothing: what to answer is a `press` at
+    /// `until: { question: retry }`, the same as a player pressing at it.
+    StartOver,
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -139,6 +161,10 @@ struct Written {
     wait_until: Option<WrittenUntil>,
     leave: Option<bool>,
     quit: Option<bool>,
+    /// What the picture is to be called — see [`Step::Screenshot`].
+    screenshot: Option<String>,
+    /// And the pause menu's own ask, which orb answers with a question — see [`Step::StartOver`].
+    start_over: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -222,6 +248,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 wait_until: None,
                 leave: None,
                 quit: None,
+                screenshot: None,
+                start_over: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
                 Some(0) => return Err(format!("step {at} is over before it starts")),
@@ -241,6 +269,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 wait_until: None,
                 leave: None,
                 quit: None,
+                screenshot: None,
+                start_over: None,
             } => Step::Play {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -254,6 +284,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 wait_until: Some(until),
                 leave: None,
                 quit: None,
+                screenshot: None,
+                start_over: None,
             } => Step::Wait {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -267,6 +299,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 wait_until: None,
                 leave: Some(true),
                 quit: None,
+                screenshot: None,
+                start_over: None,
             } => Step::Leave,
             Written {
                 press: None,
@@ -277,11 +311,50 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 wait_until: None,
                 leave: None,
                 quit: Some(true),
+                screenshot: None,
+                start_over: None,
             } => Step::Quit,
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: Some(named),
+                start_over: None,
+            } => match named.trim() {
+                "" => return Err(format!("step {at} asks for a picture of nothing")),
+                named => Step::Screenshot(named.to_owned()),
+            },
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: Some(true),
+            } => Step::StartOver,
+            // **Only `true`.** What a step could do with `start_over: false` is nothing: the question is
+            // raised or it is not, and a step that raises nothing is a step to leave out.
+            Written {
+                start_over: Some(false),
+                ..
+            } => {
+                return Err(format!(
+                    "step {at} starts the run over as far as `false`, which is not a step"
+                ));
+            }
             _ => {
                 return Err(format!(
-                    "step {at} is a press, a play_until, a wait_until, a leave or a quit, and one \
-                     of the five"
+                    "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
+                     a leave or a quit, and one of those and not two"
                 ));
             }
         };
@@ -328,6 +401,53 @@ mod tests {
                 Step::Quit,
             ]),
         );
+    }
+
+    /// **A picture is asked for by the name it is to be filed under**, and a run of them is what a screen
+    /// full of words is checked from: nothing in the log can say whether the words on a screen are the ones
+    /// somebody reads.
+    #[test]
+    fn a_step_can_ask_for_a_picture_of_the_frame() {
+        assert_eq!(
+            read("- screenshot: the title menu\n- screenshot: orbs-question\n"),
+            Ok(vec![
+                Step::Screenshot("the title menu".to_owned()),
+                Step::Screenshot("orbs-question".to_owned()),
+            ]),
+        );
+    }
+
+    /// And a picture of nothing is refused, a file with no name being a file nobody can read back.
+    #[test]
+    fn a_picture_wants_a_name() {
+        assert!(read("- screenshot: \"  \"\n").is_err());
+    }
+
+    /// **The run asked to start over is a step of its own**, and what it answers with is a press at orb's
+    /// question: raising it and answering it are two things, the way a player meets them.
+    #[test]
+    fn a_step_can_ask_the_run_to_start_over() {
+        assert_eq!(
+            read(
+                "- start_over: true\n\
+                 - press: [decide]\n  frames: 2\n  until: { question: retry }\n"
+            ),
+            Ok(vec![
+                Step::StartOver,
+                Step::Press {
+                    buttons: vec!["decide".to_owned()],
+                    frames: 2,
+                    until: Some(Until::Question("retry".to_owned())),
+                    give_up_after: None,
+                },
+            ]),
+        );
+    }
+
+    /// Only `true`: what a step that starts the run over as far as `false` would do is nothing.
+    #[test]
+    fn starting_over_as_far_as_false_is_refused() {
+        assert!(read("- start_over: false\n").is_err());
     }
 
     /// A press with an `until` is one step and not two, and it keeps its frames: those are how long each tap
