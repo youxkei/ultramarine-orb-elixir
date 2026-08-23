@@ -42,6 +42,8 @@ pub const MIDSTAGE: [&[Boundary]; 8] = [
     ],
     /* stage 5  */ &[hand(2577)],
     /* stage 6  */ &[],
-    /* extra    */ &[],
-    /* phantasm */ &[],
+    /* extra    */
+    &[hand(1707), hand(2636), hand(3893), hand(5452), hand(7057)],
+    /* phantasm */
+    &[hand(1605), hand(2542), hand(3748), hand(5339), hand(6939)],
 ];

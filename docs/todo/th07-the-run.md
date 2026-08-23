@@ -6,22 +6,27 @@ the device setup and the pad reads: **everything a run is made of.**
 **What is left of *that* is one measurement and the confirmations a launch makes**, and the measurement is the
 midstage table at the end of this file: a boundary inside a stage is read off a run with `--chapter-tuning` and
 off nothing else, so it cannot be walked out of the exe the way every other line here was. Everything else is
-in — `Th07::rewinds` answers `true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up, with a
-chapter at every stage's start and none inside one until that run happens.
+in — `Th07::rewinds` answers `true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up.
 
 **And every one of those has now been played on the real game**, which is the other half of "in": a run
 chaptered and retried with its music and its cards, given up, picked up out of its file in a later launch and
-landing on the frame that was written down, field for field. What each launch caught is the table below, and the
-one thing none of them could produce is the table this file is still open for: `--collect` and `--judge` work
-over this game — `a_chapter_table_collected_for_th07.rs` — and what they are waiting for is somebody playing a
-Lunatic stage under them.
+landing on the frame that was written down, field for field. What each launch caught is the table below.
+
+**The table itself is what this file is still open for, and it is open for two stages of the eight.** Stages 1,
+2, 4 and 5 and both of the stages past them carry boundaries a hand put there; the third stage and the sixth
+carry none, so each of those is still one chapter from its start to its midboss and another from the midboss
+being beaten to its own boss. `--collect` cannot help with either: it proposes a boundary a second into a gap
+with nothing alive to shoot at, and this game has no such gap — a pass over its second stage measured a floor of
+*one* enemy alive, with stretches of hundreds of frames at that floor and never zero. So every number in the
+table is somebody's under `--judge`, which is a session played with the stepping keys in hand.
 
 **So what is left is a launch and nothing that can be written first**, which is these four and each is a
 session somebody plays:
 
-- **The midstage table**, above — `scripts/run.sh <dir> --collect` over a Lunatic replay, which is the whole
-  word for a tuning pass a replay drives, then `--judge` to step between what it proposed, and the
-  `chapters.rs` a pass writes pasted over `crates/orb-core/src/game/th07/chapters.rs`.
+- **The midstage table's third stage and sixth**, above — `orb.exe --judge` with a replay of that stage started
+  by hand, `A` on each frame a wave breaks at, and the `chapters.rs` the pass writes pasted over
+  `crates/orb-core/src/game/th07/chapters.rs`. Not `--autoplay` beside it: a bot's word reaches the pad orb
+  reads its own keys off, and the key that puts a boundary down is that pad's shot.
 - **`frames=` and `script=` on a run that pauses.** Both clocks stop under either menu — the reading is beside
   [`STAGE_FRAMES`] — and a run paused on a stage is what confirms it: neither number moves while the menu is up.
 - **`--counted-a-card=96`, twice against a copy of the install**, which is the recipe below: the file's own
