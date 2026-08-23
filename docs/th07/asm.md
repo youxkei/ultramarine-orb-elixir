@@ -202,6 +202,49 @@ after spawning four things and playing sound 13.
 `[0x4bfeb4]` and `[0x4d44f8]`, which gate branches at `0x433691`, `0x433702` and `0x43eba1`, are **read and
 never written** anywhere in the exe.
 
+## A replay file, and what its header says
+
+`"./replay/th7_%.2d.rpy"` (`0x4967bc`) is the name of a slot, and the replay list reads all fifteen of them
+in the loop at `0x45aa11`: `0x431330` for the bytes and `0x4433b0` for the rest, which answers a pointer or
+zero and is what a slot the list does not show has failed. What the list then copies out of that pointer is
+`0xe8` bytes apiece.
+
+`0x4433b0` is the whole of the reading, in four steps:
+
+```
+[+0x00] == [0x496aa8]                       the magic, "T7RP"
+[+0x04] == 0x1100                           the version, as a word
+key = [+0x0d]                               and from +0x10 to the end of the file:
+    *p -= key; key += 7                      one byte at a time
+sum = 0x3f000318 + every byte from +0x0d     against [+0x08], which is that sum written down
+malloc([+0x18] + 0x54)                       the buffer the list reads
+    the file's own first 0x54 bytes copied over it
+    0x45ef00(src=file+0x54, dst=+0x54, [+0x14] in, [+0x18] out)
+```
+
+So `[+0x14]` is how many bytes the body is and `[+0x18]` how many it comes to, and **the header the list
+shows is inside that body**: the first `0x54` bytes are the file's, and everything the list draws is past
+them.
+
+`0x45ef00` is LZSS, bit by bit and the most significant first, mask from `0x80`:
+
+A `1` bit is followed by eight more, which are a byte. A `0` bit is followed by thirteen, which are an offset
+into a window of `0x2000` — **and zero there ends the stream** — and then by four, which are three short of the
+run to copy from that offset.
+
+The window is `0x4b7e40`, written as the output is and from index 1, wrapping at `0x1fff`. A source read past
+`[+0x14]` answers zero rather than stopping, which is what lets a truncated file come out as something.
+
+The fields read out of the unpacked header, each by holding replays against each other that the game's own
+list names:
+
+| | |
+| --- | --- |
+| `+0x57` | the difficulty, in the order `Th07`'s own table has — `4` is the Extra and `5` the Phantasm |
+| `+0x58` | the date as `MM/DD`, a NUL after it |
+| `+0x5e` | the name, eight bytes, spaces to the end |
+| `+0xe0` | `0100b`, which is the build |
+
 ## What is not established
 
 - What event the twelve `[player+0x2408] = 3` sites are. They are in the item code's own address range and
@@ -211,3 +254,7 @@ never written** anywhere in the exe.
   during a run is established — a pair of launches read `0x20` against `0x10` — and so is the route, the
   dispatcher at `0x40ecf1`; which `.ecl` opcode takes that route is not.
 - What the 54 bytes of `[0x626274]` nothing reads are for.
+- What the rest of a replay's header is. The shot, the score and the per-stage scores the slot's own stage list
+  draws are all in there and none of them is placed; **and whether anything in it says the run was cleared is
+  not read either**, which is the question it was opened for — the two Phantasm replays on the machine it was
+  read on both end with the player out of lives, so there was nothing to hold a cleared one against.
