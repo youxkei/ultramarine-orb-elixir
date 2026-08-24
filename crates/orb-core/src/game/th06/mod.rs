@@ -14,6 +14,8 @@ pub mod image;
 /// The file a run of this game left unfinished is written in, which is this game's own and frozen at what
 /// shipped — see `Game::encode_resume`.
 pub mod resume;
+/// What a bot is given of one frame of a run, and this game's own names for the buttons it presses.
+mod sight;
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -643,6 +645,10 @@ const G_HELD_SHOT_FRAMES: usize = 0x0069d8f4;
 /// fresh per stage and this is not part of it.
 const G_ITEM_MANAGER: usize = 0x0069e268;
 const ITEM_COUNT: usize = 0x28948;
+/// **What every step of a frame is multiplied by**, which is 1.0 at the rate the game is meant to run
+/// at: 0x415986 scales a bullet's own velocity by it and 0x427da5 the player's own step, so a
+/// projection that left it out would be a projection of a game running at another speed.
+const G_MOTION_SCALE: usize = 0x006c6ec0;
 /// `Rng g_Rng`: `u16 seed`, then `u32 generationCount` at +0x4.
 const G_RNG: usize = 0x0069d8f8;
 const RNG_GENERATION_COUNT: usize = 0x4;
@@ -701,6 +707,12 @@ mod game_manager {
     pub const ARCADE_REGION_SIZE: usize = 0x1a44;
     /// `playerMovementAreaTopLeftPos` and `playerMovementAreaSize`, the two
     /// `D3DXVECTOR2` after the arcade region's pair.
+    ///
+    /// **And the field a bot's moves are judged in**, which is these and not the one the bullets fly
+    /// through: `Player::OnUpdate` clamps the position against all four floats at 0x427e03 onwards, so
+    /// this is where a move of the player's can land. The bullets' own bounce at 0x4156e3 and 0x415748
+    /// says their field is 384 by 448; what the player may reach is inset from that, and by how much is
+    /// not a thing to guess at.
     pub const PLAYER_AREA_TOP_LEFT: usize = 0x1a4c;
     pub const PLAYER_AREA_SIZE: usize = 0x1a54;
     /// The last four fields of the 0x1a80-byte struct — `counat`, then rank, its two
@@ -824,6 +836,16 @@ mod enemy_manager {
     pub const SPELLCARD_IS_ACTIVE: usize = 0xee5c8;
     pub const SPELLCARD_IDX: usize = 0xee5d0;
     pub const TIMELINE_TIME_CURRENT: usize = 0xee5e8;
+    /// **The enemies themselves**, as `EnemyManager::OnTick` walks them: `this + ENEMIES`, one every
+    /// [`ENEMY_BYTES`], [`ENEMY_SLOTS`] of them — 0x4123f8 for the base, 0x412422 for the stride and
+    /// 0x41242a for the count.
+    ///
+    /// **The three numbers check each other and [`BOSSES`].** The array ends at
+    /// `0xed0 + 256 * 0xec8 = 0xed6d0`, which is where the boss pointer beside it can be and where
+    /// [`ENEMY_COUNT`] is.
+    pub const ENEMIES: usize = 0xed0;
+    pub const ENEMY_BYTES: usize = 0xec8;
+    pub const ENEMY_SLOTS: usize = 0x100;
 }
 
 mod enemy {
@@ -831,6 +853,23 @@ mod enemy {
     /// `bossTimer.current`, reset to zero whenever the script moves the boss on
     /// to its next attack.
     pub const BOSS_TIMER_CURRENT: usize = 0xcf8;
+    /// Where it is, and the size the player's own hit test is given — the two things 0x412742 and
+    /// 0x4126dc hand to that test, in that order.
+    pub const POSITION: usize = 0xc6c;
+    pub const SIZE: usize = 0xc78;
+    /// **The byte whose top bit says the slot holds an enemy at all**, which is what the walk at
+    /// 0x41243a skips a slot on.
+    pub const ALIVE: usize = 0xe50;
+    pub const ALIVE_BIT: u8 = 0x80;
+    /// **And the byte whose two lowest bits gate the player's own collision**, read at 0x4126a6 and
+    /// 0x4126c2: with either down the test is not made at all, so the body cannot touch the player
+    /// however wide it is.
+    pub const SOLID: usize = 0xe51;
+    pub const SOLID_BITS: u8 = 0x3;
+    /// **What [`SIZE`] is divided by to make the box that test is given.** 0x4126e5 scales it by
+    /// `1.0 / 1.5` and the test halves what it is handed, so a third of the size on each side is what
+    /// the game compares — the same figure th07's own enemies are tested at.
+    pub const BOX_OF_ITS_SIZE: f32 = 3.0;
 }
 
 mod bullet_manager {
@@ -839,6 +878,73 @@ mod bullet_manager {
     pub const LASER_COUNT: usize = 64;
     pub const LASER_IN_USE: usize = 0x258;
     pub const BULLET_COUNT: usize = 0xf5c04;
+    /// **The bullets**, as `BulletManager::OnTick` walks them: `this + BULLETS`, one every
+    /// [`BULLET_BYTES`], [`BULLET_SLOTS`] of them — 0x4149dd for the base, 0x414a26 for the stride and
+    /// 0x414a2f for the count. The stride is also what 0x415b10 zeroes a slot for, 0x171 dwords.
+    ///
+    /// **And the three of them check each other against [`LASERS`]**: the bullets end at
+    /// `0x5600 + 640 * 0x5c4`, which is 0xec000 to the byte.
+    pub const BULLETS: usize = 0x5600;
+    pub const BULLET_BYTES: usize = 0x5c4;
+    pub const BULLET_SLOTS: usize = 0x280;
+    /// Where it is, and the size the player's own hit test is given — 0x415bfa and 0x415bf0 hand the
+    /// two to that test, and the test halves the size itself.
+    pub const BULLET_POSITION: usize = 0x560;
+    pub const BULLET_SIZE: usize = 0x550;
+    /// **What one frame moves it by**, before [`super::G_MOTION_SCALE`]: 0x415986 multiplies this by
+    /// that scale and adds it to the position, which is an ordinary bullet's whole motion.
+    pub const BULLET_VELOCITY: usize = 0x56c;
+    /// **The word that says what the slot holds**, which the walk at 0x414a41 skips a slot on and
+    /// 0x414a97 dispatches the rest on, as `state - 1` over five cases.
+    pub const BULLET_STATE: usize = 0x5be;
+    /// And the state a bullet that has just hit the player is put into, at 0x415c11: its case is the
+    /// fifth, 0x415c4b, which is past the block that makes the test — so this is the one live state
+    /// that cannot hit anything.
+    pub const BULLET_SPENT: u16 = 5;
+    /// **A laser's own geometry**, in the order the walk at 0x415e35 onwards reads it: where it is
+    /// fired from, which way it points, how far along it runs, and how wide it is.
+    pub const LASER_ORIGIN: usize = 0x220;
+    pub const LASER_ANGLE: usize = 0x22c;
+    pub const LASER_NEAR: usize = 0x230;
+    pub const LASER_FAR: usize = 0x234;
+    pub const LASER_WIDTH: usize = 0x23c;
+    /// **Which of the three things a laser is doing**, and the two that matter: 0x415f75 switches on
+    /// it, and the player's own test is called from [`LASER_FIRING`]'s case at 0x416203 and from no
+    /// other — so a laser still drawing its warning line hits nothing at all.
+    pub const LASER_PHASE: usize = 0x26c;
+    pub const LASER_FIRING: u8 = 1;
+    /// And the phase after it, which is the beam on its way out.
+    pub const LASER_FADING: u8 = 2;
+    /// **How long the phase it is in lasts, and how long it has been in it** — 0x41615b compares the
+    /// two and moves the phase on where the frames have run out, so in [`LASER_PHASE`] nought the
+    /// difference is the frames until the beam starts hitting.
+    ///
+    /// The frames are `Timer::currentInt` of the timer at 0x25c, which each phase change puts back.
+    pub const LASER_PHASE_LASTS: usize = 0x244;
+    pub const LASER_PHASE_FRAMES: usize = 0x264;
+}
+
+/// **The items**, as `ItemManager::OnTick` walks them: the manager itself is the array — 0x41f4af for
+/// the base, 0x41f51e for the stride and 0x41f527 for the count, and the count checks itself against
+/// [`ITEM_COUNT`], which sits at `0x200 * 0x144 + 0x148`.
+mod item {
+    pub const BYTES: usize = 0x144;
+    pub const SLOTS: usize = 0x200;
+    /// Where it is, which is what 0x41f906 hands to the player's own collection test.
+    pub const POSITION: usize = 0x110;
+    /// **Which of the seven things it is**, as the table at 0x4200f8 indexes them, and what each does
+    /// to the run: 0 steps the power up by one at 0x41f95f and 2 by eight at 0x41fd8e, 3 is the bomb
+    /// (0x41ff0e) and 5 the life (0x41ff49), 4 fills the power outright, 1 is the point item and 6 is
+    /// what a bullet a bomb cleared turns into, worth a score off the chain.
+    pub const KIND: usize = 0x140;
+    pub const ALIVE: usize = 0x141;
+    pub const POWER: i8 = 0;
+    pub const POINT: i8 = 1;
+    pub const BIG_POWER: i8 = 2;
+    pub const BOMB: i8 = 3;
+    pub const FULL_POWER: i8 = 4;
+    pub const LIFE: i8 = 5;
+    pub const CANCELLED: i8 = 6;
 }
 
 mod player {
@@ -859,6 +965,27 @@ mod player {
     /// instruction — which is what a bomb suppresses, so the arithmetic is not the
     /// only thing saying it is the right address.
     pub const BOMB_IN_USE: usize = 0x75c8;
+    /// **The player's own box, as the two corners the game's own test is given**: 0x426d77 onwards
+    /// compares these four floats against whatever is being tested.
+    ///
+    /// `Player::OnUpdate` works them out each frame — the min at 0x427f1e, the max at 0x427f95 — from
+    /// [`POSITION_CENTER`] and the half at `+0x488`, which is the shot's own and differs by character.
+    /// The corners rather than that half, because these are the numbers the comparison is made on.
+    pub const BOX_MIN: usize = 0x458;
+    pub const BOX_MAX: usize = 0x464;
+    /// **What one frame of holding a direction moves the player by**, which is four numbers rather
+    /// than one: the switch at 0x427a09 picks by direction and reads the pair for a straight move or
+    /// the pair for a diagonal one, and inside each pair the focus key — [`super::BUTTON_FOCUS`],
+    /// tested at 0x427a19 — picks the slower.
+    pub const SPEED_STRAIGHT: usize = 0x9f4;
+    pub const SPEED_STRAIGHT_FOCUSED: usize = 0x9f8;
+    pub const SPEED_DIAGONAL: usize = 0x9fc;
+    pub const SPEED_DIAGONAL_FOCUSED: usize = 0xa00;
+    /// **And what that is scaled by on each axis before it reaches the position**, which 0x427da5 and
+    /// 0x427ddb multiply in beside [`super::G_MOTION_SCALE`]. A pair, because nothing says the two axes
+    /// are scaled alike.
+    pub const SCALE_ACROSS: usize = 0x9d0;
+    pub const SCALE_DOWN: usize = 0x9d4;
 }
 
 mod gui {
@@ -1720,6 +1847,18 @@ impl Game for Th06 {
     /// over, so a line being up and a dialogue running are one thing here.
     unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
         unsafe { dialogue_msg_idx() >= 0 }
+    }
+
+    fn button_bit(&self, name: &str) -> Option<u16> {
+        sight::bit(name)
+    }
+
+    unsafe fn what_a_bot_sees(&self, into: &mut crate::game::Frame) -> bool {
+        unsafe { sight::what_a_bot_sees(into) }
+    }
+
+    unsafe fn say_what_was_near(&self) {
+        unsafe { sight::say_what_was_near() };
     }
 
     unsafe fn run_start(&self) -> RunStart {

@@ -1640,6 +1640,227 @@ impl Image {
             .write::<i32>(super::G_PLAYER + super::player::INVULNERABLE_FRAMES, frames);
     }
 
+    /// Where the player is, which is what every rule of a bot's is read against.
+    pub fn the_player_is_at(&self, x: f32, y: f32) {
+        self.writes_a_position(super::G_PLAYER + super::player::POSITION_CENTER, x, y);
+    }
+
+    /// The player's own box, as the game's own hit test reads it: the smaller corner and the larger.
+    ///
+    /// Round nothing in particular, because what is read off it is how wide it is and not where: the real
+    /// one is worked out from the position every update and what a bot carries to a move is the half.
+    pub fn the_players_box_is(&self, half: (f32, f32)) {
+        self.writes_a_position(super::G_PLAYER + super::player::BOX_MIN, -half.0, -half.1);
+        self.writes_a_position(super::G_PLAYER + super::player::BOX_MAX, half.0, half.1);
+    }
+
+    /// **What one frame of holding a direction moves the player by**, as a build leaves it: the four speeds
+    /// its switch picks between, the two scales at one, and the motion scale at one — so that the step is
+    /// the speed and nothing else.
+    ///
+    /// Both of each pair, focused and not, because which of them the game reads is a key the bot presses: a
+    /// test that wrote one of them would be a test whose answer changed with the frame's own word.
+    pub fn the_player_steps_by(&self, straight: f32, diagonal: f32) {
+        let space = self.space();
+        for (of, speed) in [
+            (super::player::SPEED_STRAIGHT, straight),
+            (super::player::SPEED_STRAIGHT_FOCUSED, straight),
+            (super::player::SPEED_DIAGONAL, diagonal),
+            (super::player::SPEED_DIAGONAL_FOCUSED, diagonal),
+        ] {
+            space.write::<f32>(super::G_PLAYER + of, speed);
+        }
+        space.write::<f32>(super::G_PLAYER + super::player::SCALE_ACROSS, 1.0);
+        space.write::<f32>(super::G_PLAYER + super::player::SCALE_DOWN, 1.0);
+        space.write::<f32>(super::G_MOTION_SCALE, 1.0);
+    }
+
+    /// A bullet in one of its manager's own slots, live and where its update would leave it: where it is,
+    /// what it moves by every frame, and **the size the hit test is given** — no two kinds of bullet having
+    /// the same one.
+    ///
+    /// The slot is the caller's to name, because which slot a bullet is in is the whole question a walk
+    /// answers: a rule that only ever looked at the first would pass a laid-out game and miss every real one.
+    pub fn a_bullet_is_at(&self, slot: usize, x: f32, y: f32, velocity: (f32, f32)) {
+        self.a_bullet_of_size_is_at(slot, x, y, velocity, (0.0, 0.0));
+    }
+
+    /// And one with a size of its own, for what only a size can say: the bullet whose own box is what reaches
+    /// the player rather than the player's reaching it.
+    pub fn a_bullet_of_size_is_at(
+        &self,
+        slot: usize,
+        x: f32,
+        y: f32,
+        velocity: (f32, f32),
+        size: (f32, f32),
+    ) {
+        use super::bullet_manager as manager;
+        let bullet = super::G_BULLET_MANAGER + manager::BULLETS + slot * manager::BULLET_BYTES;
+        // The first of the five states the walk's own dispatch knows, which is a bullet that can hit.
+        self.space().write::<u16>(bullet + manager::BULLET_STATE, 1);
+        self.writes_a_position(bullet + manager::BULLET_POSITION, x, y);
+        self.writes_a_position(bullet + manager::BULLET_VELOCITY, velocity.0, velocity.1);
+        self.writes_a_position(bullet + manager::BULLET_SIZE, size.0, size.1);
+    }
+
+    /// And a bullet the player has already been hit by, which is the one live state the game's own test is
+    /// never reached from.
+    pub fn the_bullet_is_spent(&self, slot: usize) {
+        use super::bullet_manager as manager;
+        self.space().write::<u16>(
+            super::G_BULLET_MANAGER
+                + manager::BULLETS
+                + slot * manager::BULLET_BYTES
+                + manager::BULLET_STATE,
+            manager::BULLET_SPENT,
+        );
+    }
+
+    /// And a slot with no bullet in it at all, which is the state that is not one.
+    pub fn the_bullet_is_gone(&self, slot: usize) {
+        use super::bullet_manager as manager;
+        self.space().write::<u16>(
+            super::G_BULLET_MANAGER
+                + manager::BULLETS
+                + slot * manager::BULLET_BYTES
+                + manager::BULLET_STATE,
+            0,
+        );
+    }
+
+    /// An enemy in one of its manager's own slots, alive and with a body the game would test the player
+    /// against.
+    pub fn an_enemy_is_at(&self, slot: usize, x: f32, y: f32) {
+        self.an_enemy_of_size_is_at(slot, x, y, (0.0, 0.0));
+    }
+
+    /// And one whose body is the size of something: a boss is a wide thing to stand under, and the size is
+    /// what says how wide.
+    pub fn an_enemy_of_size_is_at(&self, slot: usize, x: f32, y: f32, size: (f32, f32)) {
+        use super::{enemy, enemy_manager};
+        let at =
+            super::G_ENEMY_MANAGER + enemy_manager::ENEMIES + slot * enemy_manager::ENEMY_BYTES;
+        let space = self.space();
+        space.write::<u8>(at + enemy::ALIVE, enemy::ALIVE_BIT);
+        space.write::<u8>(at + enemy::SOLID, enemy::SOLID_BITS);
+        self.writes_a_position(at + enemy::POSITION, x, y);
+        self.writes_a_position(at + enemy::SIZE, size.0, size.1);
+    }
+
+    /// And one with nothing solid on it, which the game's own collision is not run for at all: an enemy a
+    /// script keeps at the player is one nothing could get away from.
+    pub fn the_enemy_has_no_body(&self, slot: usize) {
+        use super::{enemy, enemy_manager};
+        self.space().write::<u8>(
+            super::G_ENEMY_MANAGER
+                + enemy_manager::ENEMIES
+                + slot * enemy_manager::ENEMY_BYTES
+                + enemy::SOLID,
+            0,
+        );
+    }
+
+    /// And the boss of a fight where it stands, which is the one enemy the manager keeps a pointer to.
+    ///
+    /// Beside [`boss`](Self::boss), which is that fight's life and clock: this is where it is, and a bot
+    /// stands under it.
+    pub fn the_boss_is_at(&self, x: f32, y: f32) {
+        use super::{enemy, enemy_manager};
+        let space = self.space();
+        let at = space.read::<usize>(super::G_ENEMY_MANAGER + enemy_manager::BOSSES);
+        if at != 0 {
+            space.write::<u8>(at + enemy::ALIVE, enemy::ALIVE_BIT);
+            self.writes_a_position(at + enemy::POSITION, x, y);
+        }
+    }
+
+    /// An item of `kind` in one of the manager's own slots, alive and where it is.
+    pub fn an_item_is_at(&self, slot: usize, kind: i8, x: f32, y: f32) {
+        let at = super::G_ITEM_MANAGER + slot * super::item::BYTES;
+        let space = self.space();
+        space.write::<i8>(at + super::item::ALIVE, 1);
+        space.write::<i8>(at + super::item::KIND, kind);
+        self.writes_a_position(at + super::item::POSITION, x, y);
+    }
+
+    /// And a slot the item has been collected out of, which is the alive byte cleared and the rest of it left
+    /// where it was — exactly what the manager does.
+    pub fn the_item_is_gone(&self, slot: usize) {
+        self.space().write::<i8>(
+            super::G_ITEM_MANAGER + slot * super::item::BYTES + super::item::ALIVE,
+            0,
+        );
+    }
+
+    /// A laser in one of its manager's own slots, with the geometry the player's own test is given and the
+    /// phase that test is called from — see [`the_laser_is_only_warning`](Self::the_laser_is_only_warning).
+    pub fn a_laser_is_at(
+        &self,
+        slot: usize,
+        origin: (f32, f32),
+        angle: f32,
+        along: (f32, f32),
+        width: f32,
+    ) {
+        use super::bullet_manager as manager;
+        let laser = super::G_BULLET_MANAGER + manager::LASERS + slot * manager::LASER_STRIDE;
+        let space = self.space();
+        space.write::<u32>(laser + manager::LASER_IN_USE, 1);
+        space.write::<u8>(laser + manager::LASER_PHASE, manager::LASER_FIRING);
+        self.writes_a_position(laser + manager::LASER_ORIGIN, origin.0, origin.1);
+        space.write::<f32>(laser + manager::LASER_ANGLE, angle);
+        space.write::<f32>(laser + manager::LASER_NEAR, along.0);
+        space.write::<f32>(laser + manager::LASER_FAR, along.1);
+        space.write::<f32>(laser + manager::LASER_WIDTH, width);
+    }
+
+    /// And the same beam still drawing its warning line, which the game's own test is not called for at all: the
+    /// phase before the firing one, with the frames its phase has left to run.
+    pub fn the_laser_is_only_warning(&self, slot: usize, for_frames: i32) {
+        use super::bullet_manager as manager;
+        let laser = super::G_BULLET_MANAGER + manager::LASERS + slot * manager::LASER_STRIDE;
+        let space = self.space();
+        space.write::<u8>(laser + manager::LASER_PHASE, manager::LASER_FIRING - 1);
+        space.write::<i32>(laser + manager::LASER_PHASE_LASTS, for_frames);
+        space.write::<i32>(laser + manager::LASER_PHASE_FRAMES, 0);
+    }
+
+    /// And a slot with no laser in it.
+    pub fn the_laser_is_gone(&self, slot: usize) {
+        use super::bullet_manager as manager;
+        self.space().write::<u32>(
+            super::G_BULLET_MANAGER
+                + manager::LASERS
+                + slot * manager::LASER_STRIDE
+                + manager::LASER_IN_USE,
+            0,
+        );
+    }
+
+    /// The whole of the field the player may move in, which is what [`play_field`](Self::play_field) writes
+    /// the two halves of that a chapter is about.
+    pub fn the_play_field_is(&self, left: f32, top: f32, width: f32, height: f32) {
+        use super::game_manager;
+        self.writes_a_position(
+            super::G_GAME_MANAGER + game_manager::PLAYER_AREA_TOP_LEFT,
+            left,
+            top,
+        );
+        self.writes_a_position(
+            super::G_GAME_MANAGER + game_manager::PLAYER_AREA_SIZE,
+            width,
+            height,
+        );
+    }
+
+    /// The two floats a position is, wherever the game keeps one.
+    fn writes_a_position(&self, at: usize, x: f32, y: f32) {
+        let space = self.space();
+        space.write::<f32>(at, x);
+        space.write::<f32>(at + size_of::<f32>(), y);
+    }
+
     /// `Gui::RegisterChain`: the static element `g_Gui`'s draw job is, linked into the chain's draw
     /// list — which is what `Th06::draws_lives_row` walks for.
     ///

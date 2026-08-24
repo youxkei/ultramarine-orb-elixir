@@ -919,6 +919,9 @@ impl Fake {
         // `an_imports_slot_is_swapped_and_what_was_there_comes_back`, over headers written out by hand.
         config.track_memory = false;
         settings(&mut config);
+        // The recipe kept before the config goes to the attach, which takes it: what plays the run is
+        // installed after that attach, and this is the one thing it needs of the settings.
+        let recipe = config.autoplay.clone();
 
         // The font beside the game's exe, which is what orb builds its overlay from — 紅魔郷 ships one
         // and this says so. In front of the launch and not after it, because the launch's own device
@@ -1117,6 +1120,15 @@ impl Fake {
                 },
             )
         };
+        // **Whoever is playing this run, installed where a real launch installs it**: `orb`'s attach reaches
+        // `orb_bot::install` and nothing of orb-core does, so an e2e test over a bot has to reach it too — the
+        // slot is what both fill, and a test that left it empty would be testing orb without one.
+        //
+        // After the attach, as a real launch's is: what a refused recipe has to say goes in the log, and the
+        // log is not there to be written to until the attach has settled it.
+        if let Some(recipe) = &recipe {
+            unsafe { orb_bot::install(recipe, the_game_this_is()) };
+        }
         // And the game's startup check, which is the one read of a joystick it does for itself — after the
         // attach, orb's replacement of that import entry being what answers it.
         fake.checks_for_a_joystick();
