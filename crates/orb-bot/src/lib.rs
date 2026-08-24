@@ -25,6 +25,8 @@
 //!   frames: 10                             # question — tapped, a menu answering the frame a button goes down
 //!   until: { stage: 1, chapter: 1 }         # and stopping at something no press of its own can take away
 //!   give_up_after: 3600
+//! - take_hits: { chance: 0.2,               # and a chapter in five played without dodging, so that the run
+//!     times_each_retry: 0.5 }               # dies and retries the way one somebody plays does
 //! - play_until: { stage: 2, chapter: 3 }    # play by the rules as far as stage 2's midboss
 //!   give_up_after: 36000                    # or close, a run that died leaving a menu the rules do not press
 //! - leave: true                            # the run given up for the title, which is how a session is
@@ -46,6 +48,8 @@ use orb_core::game::{Game, Question, Reached};
 use orb_core::log;
 use orb_core::runtime;
 
+/// **Being hit on purpose**, which is what a `take_hits` step asks for.
+mod hits;
 /// The rules a stage is played by, which is what a recipe falls through to.
 mod steer;
 
@@ -76,6 +80,9 @@ struct Playing {
     /// this on rather than by taking it out of the list, so that a log line can say which of how many.
     at: usize,
     frames: u32,
+    /// **What the rules are to do about being hit**, which a [`Step::TakeHits`] sets and which every frame
+    /// after it asks — the chapter it is in being what the answer is about rather than the step.
+    hits: hits::TakingHits,
 }
 
 /// One step, with its buttons already turned into the word they are and its question already resolved.
@@ -102,6 +109,7 @@ enum Step {
         frames: u32,
     },
     StartOver,
+    TakeHits(hits::Told),
 }
 
 enum Wait {
@@ -192,6 +200,13 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
             recipe::Step::Quit => Step::Quit,
             recipe::Step::Screenshot { named, frames } => Step::Screenshot { named, frames },
             recipe::Step::StartOver => Step::StartOver,
+            recipe::Step::TakeHits {
+                chance,
+                times_each_retry,
+            } => Step::TakeHits(hits::Told {
+                chance,
+                times_each_retry,
+            }),
         };
         steps.push(step);
     }
@@ -203,6 +218,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
         steps,
         at: 0,
         frames: 0,
+        hits: hits::TakingHits::default(),
     });
     unsafe { runtime::plays_the_run(Some(word_to_press)) };
 }
@@ -239,6 +255,11 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let playing = held.as_mut()?;
+    // **What the rules are to do about being hit, asked before anything else this frame.** It is the chapter
+    // the run is in that decides, and every frame of one has to be counted for that: the blocks below hand a
+    // frame back without reaching the rules — orb's own offer to retry is one, and that offer going down is
+    // the very thing that says a chapter is being played again.
+    let hazards = playing.hits.this_frame(reached);
     // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: 完全無欠モード
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
@@ -256,7 +277,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         // **nothing at all where those have nothing to say**, which is not the same as a word of no buttons:
         // this is the read the game makes on every screen, and a rule with no opinion about the screen that is
         // up should leave the read where it found it. A `wait` step's own silence is a word and stays one.
-        let word = unsafe { steer::word_to_press(game) };
+        let word = unsafe { steer::word_to_press(game, hazards) };
         return (word != 0).then_some(word);
     };
     playing.frames += 1;
@@ -285,7 +306,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         ),
         Step::Wait { until, .. } => (0, waited(until, reached, playing.frames)),
         Step::Play { until, .. } => (
-            unsafe { steer::word_to_press(game) },
+            unsafe { steer::word_to_press(game, hazards) },
             waited(until, reached, playing.frames),
         ),
         // **The run left for the title, and the step over with the asking.** What a recipe does after it is its
@@ -322,7 +343,22 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
                     playing.steps.len(),
                 );
             }
-            (unsafe { steer::word_to_press(game) }, now)
+            (unsafe { steer::word_to_press(game, hazards) }, now)
+        }
+        // **The rules told what to do about being hit, and the step over with the telling.** What it changes is
+        // every frame after it rather than this one, so there is nothing to wait for — and the frame it costs
+        // goes to the rules, a step that handed the game a word of nothing being a player standing still.
+        Step::TakeHits(told) => {
+            playing.hits.told(*told);
+            log!(
+                "autoplay: step {} of {} takes hits, a chance of {:.3} per chapter and {:.3} of \
+                 that each retry",
+                playing.at + 1,
+                playing.steps.len(),
+                told.chance,
+                told.times_each_retry,
+            );
+            (unsafe { steer::word_to_press(game, hazards) }, true)
         }
         // **The run asked to start over, and the step over with the asking.** What raises the question is the
         // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
@@ -367,9 +403,13 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
                 reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             // None of these can wait for something that will not happen, so none has a bound to reach: each is
-            // an ask — the run ended, the process closed, a frame written out, the run started over — and a
-            // picture's own frames are a count it reaches by counting.
-            Step::Leave | Step::Quit | Step::Screenshot { .. } | Step::StartOver => false,
+            // an ask — the run ended, the process closed, a frame written out, the run started over, the rules
+            // told what to do about being hit — and a picture's own frames are a count it reaches by counting.
+            Step::Leave
+            | Step::Quit
+            | Step::Screenshot { .. }
+            | Step::StartOver
+            | Step::TakeHits(..) => false,
         };
     if over || gave_up {
         playing.at += 1;

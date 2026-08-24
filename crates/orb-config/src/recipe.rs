@@ -7,6 +7,7 @@
 //! - screenshot: the midboss
 //!   frames: 30
 //! - start_over: true
+//! - take_hits: { chance: 0.2, times_each_retry: 0.5 }
 //! - leave: true
 //! - wait_until: { question: resume }
 //! - quit: true
@@ -29,6 +30,12 @@
 //! where to start again — the one way to reach a chapter again without dying for it, so the one way a recipe
 //! can ask for a retry. What answers that question is a `press` at `until: { question: retry }`, the same as a
 //! player pressing at it.
+//!
+//! **And one of them says how the run is played rather than doing anything itself.** A `take_hits` hands the
+//! rules a chance of being hit on purpose in each chapter, which is the one thing a run played by rules that
+//! dodge everything cannot show: a death, the chapter retried, and the run carrying on from it. It stands from
+//! the step it is written at until another one changes it, so a recipe can play the stages it wants clean and
+//! take hits through the rest.
 //!
 //! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
 //! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
@@ -58,7 +65,10 @@
 use serde::Deserialize;
 
 /// One step of a recipe, as [`read`] hands it over: one of these and never two of them.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// **Compared and not ordered or hashed**, [`Step::TakeHits`] carrying a chance: a chance is a float, and what
+/// a test asks of one is whether it read back as the number the file said.
+#[derive(Debug, PartialEq)]
 pub enum Step {
     /// A word held for a number of frames, which is what a screen takes — or **tapped** for as long as it
     /// takes, where an `until` says what it is waiting for: held for `frames`, released for as many, over and
@@ -113,6 +123,24 @@ pub enum Step {
     /// It raises the question and answers nothing: what to answer is a `press` at
     /// `until: { question: retry }`, the same as a player pressing at it.
     StartOver,
+    /// **The rules handed a chance of being hit on purpose in each chapter**, and what that chance is
+    /// multiplied by each time the same chapter is retried.
+    ///
+    /// **Which is the one thing rules that dodge everything cannot show.** Pointdevice mode's whole content is
+    /// what happens after a death — the chapter put back, the run carried on — and a run that is never hit
+    /// reaches none of it: every measurement of a retry so far has been a chapter asked to start over, which
+    /// is the pause menu's ask and not a death at all.
+    ///
+    /// **A chance per chapter and not per frame**, because the chapter is what a retry puts back: the draw is
+    /// made once as the chapter starts and says whether this attempt at it ends in a hit.
+    ///
+    /// **And lowered each retry, so that a run gets past the chapter it died in.** At the same chance every
+    /// attempt a chapter is retried until the fire happens to miss, which is a run that spends its afternoon
+    /// on one chapter; multiplied down, the attempts after the first are played more carefully than the one
+    /// before — which is what somebody who died there does.
+    ///
+    /// A chance of nought is the rules dodging everything, which is what a recipe that says nothing gets.
+    TakeHits { chance: f32, times_each_retry: f32 },
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -189,6 +217,31 @@ struct Written {
     screenshot: Option<String>,
     /// And the pause menu's own ask, which orb answers with a question — see [`Step::StartOver`].
     start_over: Option<bool>,
+    /// And the chance of being hit on purpose in a chapter — see [`Step::TakeHits`].
+    take_hits: Option<WrittenHits>,
+}
+
+/// The two numbers a `take_hits` is written with.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenHits {
+    chance: f32,
+    /// **Nothing said is a chance that does not change**, which is what a reader of one number expects of it.
+    /// A chance of one that never changes is a chapter hit in for as long as the fire keeps arriving, and that
+    /// is a recipe saying so rather than a mistake this can tell from one.
+    times_each_retry: Option<f32>,
+}
+
+/// One of those two numbers, or what is wrong with it: a chance is a chance, and a factor a chance is
+/// multiplied by every retry is one as well — above one it climbs, which is a chapter that gets likelier to be
+/// died in the more often it has been.
+fn a_chance(named: &str, chance: f32, at: usize) -> Result<f32, String> {
+    match (0.0..=1.0).contains(&chance) {
+        true => Ok(chance),
+        false => Err(format!(
+            "step {at} says {named} of {chance}, which is not a chance"
+        )),
+    }
 }
 
 #[derive(Deserialize)]
@@ -331,6 +384,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: None,
                 start_over: None,
+                take_hits: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
                 Some(0) => return Err(format!("step {at} is over before it starts")),
@@ -352,6 +406,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: None,
                 start_over: None,
+                take_hits: None,
             } => Step::Play {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -367,6 +422,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: None,
                 start_over: None,
+                take_hits: None,
             } => Step::Wait {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -382,6 +438,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: None,
                 start_over: None,
+                take_hits: None,
             } => Step::Leave,
             Written {
                 press: None,
@@ -394,6 +451,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: Some(true),
                 screenshot: None,
                 start_over: None,
+                take_hits: None,
             } => Step::Quit,
             Written {
                 press: None,
@@ -406,6 +464,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: Some(named),
                 start_over: None,
+                take_hits: None,
             } => match named.trim() {
                 "" => return Err(format!("step {at} asks for a picture of nothing")),
                 named => Step::Screenshot {
@@ -426,7 +485,29 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 quit: None,
                 screenshot: None,
                 start_over: Some(true),
+                take_hits: None,
             } => Step::StartOver,
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: Some(hits),
+            } => Step::TakeHits {
+                chance: a_chance("a chance", hits.chance, at)?,
+                // **Nothing said is a chance that does not change** — see [`WrittenHits`].
+                times_each_retry: a_chance(
+                    "a chance each retry",
+                    hits.times_each_retry.unwrap_or(1.0),
+                    at,
+                )?,
+            },
             // **Only `true`.** What a step could do with `start_over: false` is nothing: the question is
             // raised or it is not, and a step that raises nothing is a step to leave out.
             Written {
@@ -440,7 +521,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             _ => {
                 return Err(format!(
                     "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a leave or a quit, and one of those and not two"
+                     a take_hits, a leave or a quit, and one of those and not two"
                 ));
             }
         };
@@ -554,6 +635,51 @@ mod tests {
     #[test]
     fn starting_over_as_far_as_false_is_refused() {
         assert!(read("- start_over: false\n").is_err());
+    }
+
+    /// **A step hands the rules a chance of being hit on purpose in a chapter**, and what that chance is
+    /// multiplied by each time the chapter is retried — which is what a run has to do to reach what happens
+    /// after a death at all.
+    #[test]
+    fn a_step_can_hand_the_rules_a_chance_of_being_hit() {
+        assert_eq!(
+            read("- take_hits: { chance: 0.25, times_each_retry: 0.5 }\n"),
+            Ok(vec![Step::TakeHits {
+                chance: 0.25,
+                times_each_retry: 0.5,
+            }]),
+        );
+    }
+
+    /// And nothing said about the retries is a chance that does not change, which is what one number on its
+    /// own reads as.
+    #[test]
+    fn a_chance_with_nothing_said_about_the_retries_does_not_change() {
+        assert_eq!(
+            read("- take_hits: { chance: 0.1 }\n"),
+            Ok(vec![Step::TakeHits {
+                chance: 0.1,
+                times_each_retry: 1.0,
+            }]),
+        );
+    }
+
+    /// **And a chance outside nought to one is refused, both of them.** Above one a chance is not one, and a
+    /// factor above one is a chapter that gets likelier to be died in the more often it has been.
+    #[test]
+    fn a_chance_that_is_not_a_chance_is_refused() {
+        assert_eq!(
+            read("- take_hits: { chance: 1.5 }\n"),
+            Err("step 1 says a chance of 1.5, which is not a chance".to_owned()),
+        );
+        assert_eq!(
+            read("- take_hits: { chance: -0.5 }\n"),
+            Err("step 1 says a chance of -0.5, which is not a chance".to_owned()),
+        );
+        assert_eq!(
+            read("- take_hits: { chance: 0.5, times_each_retry: 2 }\n"),
+            Err("step 1 says a chance each retry of 2, which is not a chance".to_owned()),
+        );
     }
 
     /// A press with an `until` is one step and not two, and it keeps its frames: those are how long each tap

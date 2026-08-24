@@ -592,6 +592,84 @@ fn a_step_asks_the_run_to_start_over() {
     });
 }
 
+/// **A step tells the rules what to do about being hit, and the telling is the whole of it.**
+///
+/// What it changes is every frame after it rather than the frame it is on — the chapter the run is in is what
+/// the chance is drawn for — so there is nothing here to wait for, and the frame it costs goes to the rules
+/// rather than being a word of nothing: a step that handed the game one would be a player standing still.
+///
+/// What the chance *does* is `the_bot_playing_th07`'s, this being about the step being read and carried out.
+#[test]
+fn a_step_tells_the_rules_to_take_hits() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-taking-hits",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- take_hits: { chance: 0.2, times_each_retry: 0.5 }\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        let pressed = words(&game, 3);
+        assert!(
+            game.log().said(
+                "autoplay: step 1 of 2 takes hits, a chance of 0.200 per chapter and 0.500 of that \
+                 each retry"
+            ),
+            "the numbers the step was given were not said:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert!(
+            game.log().said("autoplay: step 1 of 2 done"),
+            "the step did not end with the telling:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after it never got a frame",
+        );
+    });
+}
+
+/// **And a chance that is not a chance is a recipe refused**, which is the same rule every other number in one
+/// goes by: a step nothing can be read out of is a launch that says so and plays nothing.
+#[test]
+fn a_chance_that_is_not_a_chance_is_refused() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-with-no-chance",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some("- take_hits: { chance: 40 }\n".to_owned());
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        let pressed = words(&game, 5);
+        assert!(
+            game.log()
+                .said("autoplay: the recipe cannot be read: step 1 says a chance of 40"),
+            "a chance of forty was not refused:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            pressed,
+            vec![(0, 5)],
+            "a recipe that could not be read was played anyway",
+        );
+    });
+}
+
 /// **And a midboss is not the boss it waits for**, the midsection carrying on after one.
 ///
 /// A step waiting for a boss ended at 4面's midboss, which is a third of the way into the midsection it was

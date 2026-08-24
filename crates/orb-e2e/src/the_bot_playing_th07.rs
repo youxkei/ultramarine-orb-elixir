@@ -45,14 +45,20 @@ const FOCUS: u16 = 0x004;
 const SHOT_LET_GO_EVERY: u32 = 60;
 
 fn playing(name: &str) -> Box<Fake> {
+    // A recipe of no steps, which is a run played from its first frame: what these two are about is the rules
+    // and not the screens on the way in.
+    playing_to(name, "[]")
+}
+
+/// And to a recipe of its own, which is what the rules a step *changes* are read against — see
+/// [`a_chapter_drawn_to_be_hit_in_is_not_dodged_in`].
+fn playing_to(name: &str, recipe: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
         Display::agreed(120),
         name,
         Work::wandering(WORK_US),
         |config| {
-            // A recipe of no steps, which is a run played from its first frame: what these two are about is
-            // the rules and not the screens on the way in.
-            config.autoplay = Some("[]".to_owned());
+            config.autoplay = Some(recipe.to_owned());
             config.log_level = LogLevel::Verbose;
         },
     );
@@ -2541,6 +2547,177 @@ fn an_item_takes_the_bot_out_of_low_speed() {
             0,
             "the bot went for an item at half speed:\n  {}",
             game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **A chapter of a run being played**, which is what a chapter drawn to be hit in needs: the draw is made for
+/// the chapter the run is in, and a stage that has taken none is a run with no chapter to be drawn for.
+///
+/// The whole walk in — the mode question answered at the title, the stage built, its first chapter taken — and
+/// then the field and the player put where [`in_a_stage`] puts them, so that a move is read the same way in
+/// both.
+fn in_a_chapter(name: &str, recipe: &str) -> Box<Fake> {
+    let game = playing_to(name, recipe);
+    game.in_a_pointdevice_run();
+    game.image().the_player_is_playing();
+    game.image()
+        .the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
+    game.image().the_players_box_is((A_STEP, A_STEP));
+    game.image()
+        .the_play_field_is(FIELD.0, FIELD.1, FIELD.2, FIELD.3);
+    game.image().no_boss_is_fighting();
+    game.image().is_not_paused();
+    game
+}
+
+/// A chance of one, which is every chapter drawn to be hit in — what a test about the hits asks for, the draw
+/// itself being read where the numbers are.
+const EVERY_CHAPTER: &str = "- take_hits: { chance: 1.0 }\n";
+
+/// **A chapter drawn to be hit in is not dodged in**: the move is the one towards where the rules want to be
+/// and the hazards decide none of it, which is what somebody who has stopped paying attention plays like.
+///
+/// Read against [`the_bot_steps_around_a_bullet_rather_than_fleeing_it`], which is the same bullet coming down
+/// onto the same player: there the bot steps out from under it, and here it stands where it is and takes it.
+#[test]
+fn a_chapter_drawn_to_be_hit_in_is_not_dodged_in() {
+    in_its_own_process(|| {
+        let game = in_a_chapter("th07-the-bot-takes-a-hit", EVERY_CHAPTER);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Coming down onto where the player stands, and where the player stands is where the rules want to be:
+        // so a move of any kind is a move made about the bullet.
+        game.image()
+            .a_bullet_is_at(500, MIDDLE, LOW - 24.0, (0.0, 8.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot dodged a bullet in a chapter drawn to be hit in:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        // The frame that says it is the frame after the one that decided — see
+        // `Launched::one_frame_to_drain_the_log`.
+        game.one_frame_to_drain_the_log();
+        assert!(
+            game.log()
+                .said("autoplay: stage 1 chapter 1 is one to be hit in"),
+            "the chapter was not said to be one to be hit in:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And not bombed out of either**, which is the whole of what the drawing is for: a deathbomb is the death
+/// taken back, so a chapter played to be died in and bombed is a chapter nothing came of.
+#[test]
+fn a_chapter_drawn_to_be_hit_in_is_not_bombed_out_of() {
+    in_its_own_process(|| {
+        let game = in_a_chapter("th07-the-bot-does-not-death-bomb", EVERY_CHAPTER);
+        game.image().the_player_is_at(MIDDLE, LOW);
+
+        game.image().the_player_has_been_hit();
+        // The same frames [`the_bot_bombs_the_frame_the_player_is_hit`] gives the bomb to arrive in.
+        game.frames(4);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & BOMB,
+            0,
+            "the bot took back a death its chapter was drawn for:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And nothing having hit it, it goes to the nearest thing that can.**
+///
+/// Which is what makes the chance a chance of being *hit* rather than of playing carelessly: a chapter whose
+/// fire never reaches the place the rules want to be would go by unhit, and a chapter is short — the 114 two
+/// launches played through had a median of 237 frames.
+#[test]
+fn nothing_having_hit_it_the_bot_goes_to_the_nearest_thing_that_can() {
+    in_its_own_process(|| {
+        let game = in_a_chapter("th07-the-bot-goes-to-a-bullet", EVERY_CHAPTER);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Standing still, well off to the left: nothing about it reaches the player, so nothing about it is a
+        // thing to dodge or to be hit by where it is.
+        game.image().a_bullet_is_at(500, 100.0, LOW, (0.0, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot went for the bullet on the chapter's first frames:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // A second of them, which is how long a chapter drawn to be hit in is played before it goes looking.
+        game.frames(60);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT,
+            "the bot never went to the one thing that could hit it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a chance of nought is the rules dodging everything**, which is what a recipe that says nothing gets:
+/// the step is what turns this on, and turning it on with no chance is turning it off.
+#[test]
+fn a_chance_of_nothing_is_a_chapter_played_as_any_other() {
+    in_its_own_process(|| {
+        let game = in_a_chapter(
+            "th07-the-bot-takes-no-hits",
+            "- take_hits: { chance: 0.0 }\n",
+        );
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image()
+            .a_bullet_is_at(500, MIDDLE, LOW - 24.0, (0.0, 8.0));
+
+        game.frames(1);
+        assert_ne!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            0,
+            "the bot stood under a bullet in a chapter drawn for nothing:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **The chance is lowered each time the chapter is retried**, so that a run gets past the chapter it died in.
+///
+/// At the same chance every attempt a chapter is retried until the fire happens to miss, which is an afternoon
+/// spent on one chapter. What counts a retry is orb's own offer having been up and being gone: a retry puts the
+/// chapter it was asked from back, so its number is the same on either side of the death.
+#[test]
+fn the_chance_is_lowered_each_time_the_chapter_is_retried() {
+    in_its_own_process(|| {
+        let game = in_a_chapter(
+            "th07-the-bots-chance-falls-each-retry",
+            "- take_hits: { chance: 1.0, times_each_retry: 0.5 }\n",
+        );
+        let log = game.log();
+        game.frames_until("the chapter's first attempt drawn for", 8, || {
+            log.said("autoplay: stage 1 chapter 1 is one to be hit in, its chance being 1.000 after 0 retr(ies)")
+        });
+
+        // The death, and the offer answered by the bot itself: its word goes to orb's own menus as a pad's
+        // buttons do, which is what lets a launch nobody is watching carry on past a death.
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
+        game.frames_until("the chapter taken again", 240, || {
+            log.said("retry: the chapter again")
+        });
+
+        // **The chance and not which way the draw went**, which is what this test is about: the attempt after
+        // a retry is drawn at half of what the one before it was, and a chance of a half is a chance either
+        // way.
+        game.frames(60);
+        assert!(
+            log.said("its chance being 0.500 after 1 retr(ies)"),
+            "the attempt after the retry was not drawn at half the chance:\n  {}",
+            log.lines().join("\n  "),
         );
     });
 }

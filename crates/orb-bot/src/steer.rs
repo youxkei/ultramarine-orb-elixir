@@ -39,6 +39,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use orb_core::detail;
 use orb_core::game::{Beam, Frame, Game, Hazard, Kind, Worth};
 
+use crate::hits::Hazards;
+
 /// How far off the field's bottom edge the player waits with nothing to go to, in the game's own units.
 ///
 /// **A rule's own number and not a measurement of anything.** Against the edge outright is where the game's own
@@ -152,6 +154,9 @@ enum Settled {
     TheMiddle,
     /// And the emptiest box, where one of the three box rules sent it there instead.
     TheEmptiestBox,
+    /// **And the nearest thing that can hit the player**, which is a chapter drawn to be hit in and not hit
+    /// yet — see [`crate::hits::Hazards::GoneTo`].
+    SomethingThatCanHitIt,
 }
 
 impl Settled {
@@ -168,6 +173,7 @@ impl Settled {
             Self::ABoss => "a boss",
             Self::TheMiddle => "the middle",
             Self::TheEmptiestBox => "the emptiest box",
+            Self::SomethingThatCanHitIt => "something that can hit it",
         }
     }
 }
@@ -555,6 +561,9 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 
 /// The word the rules press this frame, and nothing at all off a stage.
 ///
+/// **What it does about the hazards is told to it and not decided here**, which is a chapter's business rather
+/// than a frame's: an attempt drawn to be hit in ignores them for the whole of itself — see [`crate::hits`].
+///
 /// **Nothing off a stage, the shot included.** The rules are asked for a word by the game's own keyboard read,
 /// which every screen makes — and a menu of 妖々夢's is taken by the shot as much as by the return key, so a
 /// word held on the title screen walks that menu once and then holds it, while 十字キー there moves a cursor
@@ -563,7 +572,7 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 ///
 /// # Safety
 /// Must run on the game's main thread.
-pub unsafe fn word_to_press(game: &dyn Game) -> u16 {
+pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     // **The one buffer, kept between frames**, so that a frame of a run costs no allocation once it has run
     // once: the three lists it holds are cleared and filled, and a stage of 妖々夢 fills the first of them six
     // hundred times.
@@ -588,14 +597,18 @@ pub unsafe fn word_to_press(game: &dyn Game) -> u16 {
     };
     // The frame the player is hit and not the frames after it — the window the game counts down is one this
     // presses into rather than a single frame, and its end takes the life.
-    if frame.hit {
+    //
+    // **And not at all in a chapter drawn to be hit in**, which is what the whole of that drawing is for: a
+    // A deathbomb is the death taken back, so a bomb here is a chapter that was played to be died in and was
+    // not.
+    if frame.hit && hazards == Hazards::Dodged {
         word |= keys.bomb;
     }
     // A dialogue read at the game's own pace is the afternoon this was written to save.
     if frame.dialogue {
         word |= keys.skip;
     }
-    let steered = steer(frame, &keys);
+    let steered = steer(frame, &keys, hazards);
     // **What the rules thought of the move a hit was taken on — and it is the frame before's that they thought
     // it of.** A frame ahead is computed and a move nothing will be at is chosen, so a run that is hit at all
     // means one of three things and no others: something on the screen is not in the model, or every one of the
@@ -645,7 +658,15 @@ pub unsafe fn word_to_press(game: &dyn Game) -> u16 {
     // the two things that want the whole step: anything that reaches the move chosen inside the frames looked
     // at, since the halving is paid for by the frame a bullet is a hit, and an item to go for, which is most of
     // a field of crossing at half the speed.
-    if !steered.dodging && !steered.for_an_item && frame.boss.is_some() {
+    //
+    // **And off in a chapter drawn to be hit in**, whatever is up: the halved step is what a player fighting a
+    // boss holds, and this is a run on its way to a death — twice as many frames to cross the field in is twice
+    // as long before the thing that is going to hit it does.
+    if hazards == Hazards::Dodged
+        && !steered.dodging
+        && !steered.for_an_item
+        && frame.boss.is_some()
+    {
         word |= keys.focus;
     }
     // **Whether the step the projection was made of is the step the frame will take.** The step handed over is
@@ -803,7 +824,11 @@ const NEAR_ENOUGH_TO_BE_IT: f32 = 16.0;
 
 /// **The 十字キー of the safest of the nine one-frame moves**, or the one towards where the rules want to be
 /// where nothing is near enough to dodge.
-fn steer(frame: &Frame, keys: &Keys) -> Steered {
+///
+/// **Or the nearest to where it wants to be and nothing else, in a chapter drawn to be hit in.** Everything
+/// below is still worked out there — the projection, the boxes, what came nearest — because that is what the
+/// line beside a hit is made of, and a hit taken on purpose is read the same way as any other.
+fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     let at = frame.at;
     let field = frame.field;
     // **Where holding each move leads over the next [`LOOK_AHEAD`] frames**, held inside the field the way the
@@ -1121,7 +1146,18 @@ fn steer(frame: &Frame, keys: &Keys) -> Steered {
     counted.swept = swept;
     counted.sweeping = sweeping;
     counted.fire = the_fire_in_each_box(frame);
-    let (wanted, settled) = where_to_be(frame, sweeping);
+    // **Or the nearest thing that can hit the player, where the chapter is one to be hit in and has not been.**
+    // The nearest to the move of standing still is that thing: it is the one whose box came closest to where the
+    // player is over the frames looked at, past every rule that leaves a hazard out — so a body with nothing
+    // solid on it is not something to walk at, and neither is a beam still drawing its warning.
+    //
+    // **And the place it was read at, which no clamp of [`where_to_be`]'s is applied to.** The fire a chapter
+    // is to be hit by is wherever it is, and the band and the side edges are where the rules *wait* — a walk
+    // held inside them is a walk that stops short of what it is for.
+    let (wanted, settled) = match (hazards, nearest[0]) {
+        (Hazards::GoneTo, Some(near)) => (near.at, Settled::SomethingThatCanHitIt),
+        _ => where_to_be(frame, sweeping),
+    };
     let mut best: Option<(usize, Judged, f32, f32)> = None;
     for (((way, judged), land), which) in WAYS.iter().zip(judged).zip(lands).zip(0..) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
@@ -1153,6 +1189,11 @@ fn steer(frame: &Frame, keys: &Keys) -> Steered {
         };
         let better = match best {
             None => true,
+            // **With the hazards ignored, the nearest to where it wants to be and nothing else.** Which is the
+            // whole of what being hit on purpose is: not a bullet picked out to be run into, but the frames
+            // played as though none of them were there — and where that ends up is where a player who stopped
+            // looking ends up.
+            Some((.., was_towards)) if hazards != Hazards::Dodged => towards < was_towards,
             Some((_, was, ..)) if tier(judged) != tier(was) => tier(judged) < tier(was),
             Some((_, was, was_dx, was_towards)) => match (was.clear(), judged.clear()) {
                 (false, true) => true,
