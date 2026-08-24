@@ -23,11 +23,15 @@ so settings put there survive a redeploy.
 before a launch, ask whether one is running and close it if it is. The exe to ask about is the game's own and
 not orb's — `game::KNOWN` in `orb-core` is the list of them — and the filter is what to ask with:
 
-    tasklist.exe /FI "IMAGENAME eq <the game's exe>" 2>/dev/null | grep -c "<the game's exe>"
+    tasklist.exe /FI "IMAGENAME eq <the game's exe>" /FO CSV /NH 2>/dev/null | grep '^"' | wc -l
 
-Empty output means none — **once**. It is a Windows process reached through the interop, and it answered
-nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts on one empty
-answer acts on a game that is still running. Ask again before believing it.
+**A row per process, counted, and never a grep for the name**: an image name comes back in the console code
+page, so a grep for 東方紅魔郷.exe finds a running game never — the filter the command is given is Windows'
+own and matches.
+
+Nought means none — **once**. It is a Windows process reached through the interop, and it answered
+nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts on one
+answer of nought acts on a game that is still running. Ask again before believing it.
 
 **A script that refuses is worth more than remembering to ask.** `orb.exe` returns as soon as it has
 injected, so what makes one invocation one run is waiting for the game to appear and then waiting for it to
@@ -42,7 +46,11 @@ dir="${1:?usage: drive-a-run.sh <game-dir> <game-exe> <recipe.yaml>}"
 exe="${2:?usage: drive-a-run.sh <game-dir> <game-exe> <recipe.yaml>}"
 recipe="${3:?usage: drive-a-run.sh <game-dir> <game-exe> <recipe.yaml>}"
 
-running() { tasklist.exe /FI "IMAGENAME eq $exe" 2>/dev/null | grep -c "$exe"; }
+# **Counted by the CSV row and not by the name, and with `wc -l` and not with `grep -c`.** th06's image name
+# comes back in the console code page, so a grep for 東方紅魔郷.exe finds a running game never — the filter
+# itself is Windows' own and matches. And `grep -c` answered nothing at all where nothing matched, which
+# reaches `[ -eq ]` as an empty string and reads as a game still running.
+running() { tasklist.exe /FI "IMAGENAME eq $exe" /FO CSV /NH 2>/dev/null | grep '^"' | wc -l; }
 
 # **Asked twice, because one empty task list is not a game that has gone.** `tasklist.exe` is a Windows
 # process reached through the interop and it answered nothing once while the game was up and playing, which
