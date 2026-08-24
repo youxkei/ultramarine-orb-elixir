@@ -25,8 +25,8 @@
 //! thing is declined on purpose and says why where it is, [`Th07::run_slot`]'s names.
 //!
 //! See `docs/adr/0004` for the shape, `docs/adr/0017` for the frame, `docs/adr/0018` for which clock a stage's
-//! script runs on, `docs/adr/0019` for the face orb's own screens are drawn in here, and
-//! `docs/todo/th07-the-run.md` for what a run still wants. A snapshot is the piece this game answers a changed
+//! script runs on, `docs/adr/0019` for the face orb's own screens are drawn in here, and `docs/th07/asm.md` for
+//! the paths through the exe no one constant here is about. A snapshot is the piece this game answers a changed
 //! number by sabotaging itself over: see [`DEATHS`] and [`CARD_CHECK`].
 //!
 //! **Nothing here panics.** An `unimplemented!()` in a method a frame reaches would take somebody's
@@ -754,8 +754,8 @@ const SEED_AT_STAGE_START: usize = 0x95e4;
 /// five calls it after its add; 0x404fe0 is the check, and where it fails the caller fills 0xb4 dwords from
 /// 0x575950 with 0xffffffff — the device pointer, the viewport, [`PAD_MAPPING`] and the scene at
 /// [`SUPERVISOR_SCENE`] all inside that range. So this game answers a changed number by destroying itself,
-/// and a snapshot of orb's that put lives back one field at a time would trip it. See
-/// `docs/todo/th07-the-run.md`.
+/// and a snapshot of orb's that put lives back one field at a time would trip it. The whole of the seal, the
+/// check and the five guarded writes is `docs/th07/asm.md`.
 const DEATHS: usize = 0x50;
 const LIVES: usize = 0x5c;
 const BOMBS: usize = 0x68;
@@ -1481,8 +1481,8 @@ const STAGES: i32 = 8;
 /// **The word is the game manager's `+0x93d8`** as well, which is how those three read it: 0x626270 +
 /// 0x93d8 is 0x62f648, and both spellings are the same word.
 ///
-/// Bits 2 and 4 are not written down here because they are not read yet — see
-/// `docs/todo/th07-the-run.md` for where each is set.
+/// Bits 2 and 4 are not written down here because nothing of orb's reads them — `docs/th07/asm.md` has where
+/// each is set, and why bit 4 cannot be the answer to a run having finished.
 const G_RUN_KIND: usize = 0x0062f648;
 const RUN_IS_A_PRACTICE: u32 = 1 << 0;
 const RUN_IS_A_DEMO: u32 = 1 << 1;
@@ -2721,9 +2721,9 @@ impl Game for Th07 {
     /// **Measured and not inferred, field by field.** The trait has no way to decline a `State`, so what
     /// this once answered was the emptiest one that was true — nothing playing at all — while the addresses
     /// were still being read; a field filled from a th06 offset would have been a number out of another
-    /// game's memory, which is worse than nothing by exactly the amount somebody would trust it. What is
-    /// left of that reading is `docs/todo/th07-the-run.md`'s standing item: every field being the field it
-    /// is named for.
+    /// game's memory, which is worse than nothing by exactly the amount somebody would trust it. What an
+    /// e2e test can say is that orb reads the address it was given; that the address is the field is what a
+    /// launch says, and a laid-out th07 is written from these same constants.
     unsafe fn read_state(&self) -> State {
         let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
         let wanted: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_WANTED) };

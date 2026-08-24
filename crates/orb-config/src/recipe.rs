@@ -779,9 +779,11 @@ mod tests {
         );
     }
 
-    /// And the two recipes the resume's own parting is measured with, word for word as
-    /// `docs/todo/th07-the-run.md` carries them — a grammar this stopped reading is a measurement nobody can
-    /// take again, and the file that holds them says nothing when it goes stale.
+    /// And a pair of recipes of the shape the resume's own parting is measured with: one that plays to a point
+    /// and closes the game there, one that picks the run back up. A recipe itself lives beside the copy of the
+    /// install it is played against, the game's own process being what reads one, so nothing in the tree holds
+    /// the ones a measurement was actually taken with — which is why this pair is here at all. A grammar this
+    /// stopped reading is a measurement nobody can take again, and this test is what would notice.
     ///
     /// **Two launches and no pause menu.** A run wants closing in the middle for a resume to have anything to
     /// pick up, and `quit` closes the game where it stands — where leaving through the pause menu would be a

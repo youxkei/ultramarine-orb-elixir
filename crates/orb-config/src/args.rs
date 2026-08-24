@@ -113,6 +113,20 @@ pub struct Options {
     /// count one attempt and one capture against that card and have the game write its score file, the
     /// way a run ending does — for reading the write back off a real launch without playing a run to a
     /// spell card. The counts go in as a run's own, so a second launch with it shows what the first wrote
+    ///
+    /// **Two launches against a copy of the install, killed between**, which is the whole of the check:
+    ///
+    /// ```sh
+    /// cp th07.exe th07.dat th07.cfg score.dat <a copy, never the install somebody plays>
+    /// ./orb.exe --log=verbose --no-chapters --counted-a-card=96
+    /// ```
+    ///
+    /// What to read is one line a launch — `score: card N now A attempt(s) and C capture(s) for shot S,
+    /// where the file had a and c`. The second launch's `where the file had` is the first's `now`, `A`
+    /// climbs by one each time rather than doubling, and the line beside it names the one record that
+    /// moved with the rest standing. **`--no-chapters` is not optional here**: without it the fork sends a
+    /// pointdevice launch's opens to `pointdevice_score.dat` while the front end's own unlocks read still
+    /// comes out of the game's file, and that line then holds two files' numbers at once.
     #[arg(long, require_equals = true, value_name = "CARD", help_heading = FAULT)]
     counted_a_card: Option<usize>,
 
@@ -121,6 +135,14 @@ pub struct Options {
     no_chapters: bool,
 
     /// do not hook the heap, so a snapshot covers only .data
+    ///
+    /// **Which makes it the bisect for a fault a restore is suspected of**, and the three flags are run as
+    /// one: `--self-check --stress=600` restores every snapshot as it is taken and names every region that
+    /// does not come back byte for byte; `--no-memory` beside it narrows the snapshot to `.data`, so a
+    /// fault that goes away with it is a heap block the restore writes back; and `--no-chapters` takes the
+    /// restore out of the launch altogether, so a fault that survives *that* is not orb's restore at all.
+    /// One fault of th07's was ruled out that way — it came back with `--no-chapters`, on a different heap
+    /// block every run.
     #[arg(long, help_heading = FAULT)]
     no_memory: bool,
 

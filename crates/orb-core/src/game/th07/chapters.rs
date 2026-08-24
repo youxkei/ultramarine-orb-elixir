@@ -18,9 +18,11 @@
 //! stage. Which hand it was is read and not merely written down — the shortest a chapter may be lets one of these
 //! through where it would refuse a proposal.
 //!
-//! **The stages with nothing in them are stages nobody has judged yet**, not stages without boundaries: a run
-//! carries on dividing them at a stage's start and at the fight's own boundaries — every attack, every card, the
-//! midboss beaten — which are found at runtime and are most of what a run is retried at.
+//! **Stage 3 and stage 6 carry none, and that is the answer for them rather than a row left blank.** Their
+//! midsections want no boundary of their own, so each is one chapter from the stage's start to its midboss and
+//! another from the midboss beaten to the stage's own boss. What divides the rest of either is the fight's own
+//! boundaries — every attack, every card, the midboss beaten — which are found as the fight is fought and are
+//! most of what a run is retried at.
 
 use crate::game::{Boundary, hand};
 

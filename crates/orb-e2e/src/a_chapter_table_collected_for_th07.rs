@@ -7,11 +7,10 @@
 //! source, and `tuning.txt`, which is read back at startup so that a stage can be judged over more than one
 //! sitting.
 //!
-//! **This is the pass th07 is waiting for.** `Th07::midstage_table` is eight empty rows, so a chapter of this
-//! game falls at a stage's start and nowhere inside one until a run with `--chapter-tuning` fills them — which is
-//! the one piece of work in `docs/todo/th07-the-run.md` that cannot be read out of the exe. What this e2e test
-//! says is that the pass works over this game: the gap is proposed out of *its* enemy count and *its* script
-//! clock, the chapter begins there, and both files come out with the row in them.
+//! **This is the pass th07's own table was built by**, and the one piece of that game nothing could be read out
+//! of the exe for: a boundary inside a stage comes off a run with `--chapter-tuning` and off nothing else. What
+//! this e2e test says is that the pass works over this game: the gap is proposed out of *its* enemy count and
+//! *its* script clock, the chapter begins there, and both files come out with the row in them.
 //!
 //! The waves are driven from here rather than laid out as a script, which is what a laid-out th07 has: what the
 //! detector reads is the count of enemies alive and the boss's slot, so a wave is that count going up and a gap is

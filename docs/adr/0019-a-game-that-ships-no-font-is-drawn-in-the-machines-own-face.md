@@ -24,9 +24,8 @@ all. So `Overlay::new` answered `None`, the log said `overlay: unavailable`, and
 drawn* — which is not a degraded Pointdevice mode but no Pointdevice mode at all: the retry menu a death
 offers is the mode, and a menu nobody can see is not a menu.
 
-That was written down as a question rather than a gap — `docs/todo/th07-the-run.md` had it as "the font,
-which is a question rather than a measurement" — because no walk of the exe settles it. It is a choice
-about what somebody sees.
+That was written down as a question rather than a gap — as "the font, which is a question rather than a
+measurement" — because no walk of the exe settles it. It is a choice about what somebody sees.
 
 ## Decision
 

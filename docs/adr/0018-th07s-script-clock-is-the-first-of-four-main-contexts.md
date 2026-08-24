@@ -46,8 +46,8 @@ th06. Nothing about the table changes for this game.
 `SPEC.md` is a run with `--chapter-tuning` reading the boundaries out of what orb writes, and that run is
 what says whether this clock behaves as the table needs — in particular whether it advances through a
 dialogue, which reading cannot settle: the manager's update runs the contexts on every frame it reaches, and
-which frames those are is the same question the stage's own clock has beside it in
-`docs/todo/th07-the-run.md`.
+which frames those are is the same question the stage's own clock has beside it at `STAGE_FRAMES` in
+`th07/mod.rs`.
 
 If it turns out that the boundaries want the other three contexts as well — a stage whose spawns come out of
 more than the first — what changes is this decision and not the table: the trait's method answers one number
