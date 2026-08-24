@@ -19,4 +19,4 @@ this game: beside the game, on the desktop, or in the start menu.
 | | |
 | --- | --- |
 | The Embodiment of Scarlet Devil 1.02h | supported |
-| Perfect Cherry Blossom | not supported |
+| Perfect Cherry Blossom | supported |

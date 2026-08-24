@@ -2715,13 +2715,15 @@ impl Game for Th07 {
         true
     }
 
-    /// No run, which is what orb knows of 妖々夢 rather than a claim about the game.
+    /// **One frame of a run of th07, out of the fields that have been measured** — which is every field
+    /// `Chapters::observe` reads to take a chapter, judge a boundary and mark the lives.
     ///
-    /// The trait has no way to decline a `State`, and this is the emptiest one that is true of what has
-    /// been measured: nothing is playing, so `Chapters::observe` sees no run, no snapshot is taken, no
-    /// boundary is judged and no mark is drawn. A field filled from a th06 offset would be a number out
-    /// of another game's memory, which is worse than nothing by exactly the amount somebody would trust
-    /// it.
+    /// **Measured and not inferred, field by field.** The trait has no way to decline a `State`, so what
+    /// this once answered was the emptiest one that was true — nothing playing at all — while the addresses
+    /// were still being read; a field filled from a th06 offset would have been a number out of another
+    /// game's memory, which is worse than nothing by exactly the amount somebody would trust it. What is
+    /// left of that reading is `docs/todo/th07-the-run.md`'s standing item: every field being the field it
+    /// is named for.
     unsafe fn read_state(&self) -> State {
         let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
         let wanted: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_WANTED) };

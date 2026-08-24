@@ -14,7 +14,7 @@
 //! nothing else, and there is no `rlib` — which is what says so. See
 //! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 //!
-//! Chapter-based retry for 東方紅魔郷 1.02h, injected before the game starts.
+//! Chapter-based retry for th06 1.02h and th07, injected before the game starts.
 
 // The one thing the linker has to say about this crate, and it is not a fault: `DllMain` is
 // `extern "system"`, so mingw's linker looks for the decorated `_DllMain@12`, finds the

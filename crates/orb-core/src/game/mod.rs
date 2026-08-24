@@ -112,11 +112,11 @@ pub const KNOWN: &[Known] = &[
         }],
         game: &th06::Th06,
     },
-    // A game orb paces and does not play: [`th07::Th07`] answers what has been read of one frame and
-    // declines everything about a run, so a launch here gets its window sized and orb's own frame in place
-    // of the game's, and no overlay, no chapters and its own score file. What version this build is the
-    // file name does not say and nothing in it has been read that does, so the md5 is the whole of what
-    // pins it — which is what the md5 is for in the other entry too.
+    // The second game a run of is chaptered: [`th07::Th07`] answers `rewinds` with `true`, so a launch
+    // here gets orb's own frame, its overlay, its chapters and the score file a rewound run's numbers
+    // belong in. What version this build is the file name does not say and nothing in it has been read
+    // that does, so the md5 is the whole of what pins it — which is what the md5 is for in the other
+    // entry too.
     Known {
         exe: "th07.exe",
         cfg: "th07.cfg",
