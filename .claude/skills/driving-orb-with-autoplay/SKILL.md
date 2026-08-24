@@ -226,6 +226,47 @@ on it reads `Cold Sign "Lingering Cold"`.
     - screenshot: the card's own name
       frames: 30
 
+**A run that is never hit reaches nothing that happens after a death**, and `take_hits` is what a run that has
+to takes:
+
+    - take_hits: { chance: 0.4, times_each_retry: 0.4, gives_up: 0.1 }
+
+`chance` is per **chapter attempt**: the draw is made as the chapter starts and an attempt drawn is one the
+rules ignore the hazards in — no dodging and no deathbomb — so the death lands in the middle of a pattern the way
+a player's does. A drawn attempt that nothing has hit for a second goes to the nearest thing that can, so that
+the chance is a chance of being *hit* rather than of playing carelessly.
+
+`times_each_retry` is what that chance is multiplied by each time the same chapter is retried, which is what
+gets the run past the chapter it died in: at the same chance every attempt a chapter is retried until the fire
+happens to miss. And `gives_up` is the chance that a death is answered by going back to the title instead of by
+taking the chapter again — asked for outright rather than pressed for, orb's own offer keeping a cursor a bot
+cannot read.
+
+**The step is where the chance starts**, not the whole recipe: put it after the front end and a launch plays its
+menus clean, and a second one later changes the chance for the rest of the run.
+
+**The draws are a hash of the attempt and not a sequence**, so the same recipe dies in the same chapters every
+launch. What the log says: `stage S chapter C is one to be hit in, its chance being X after N retr(ies)` at
+`normal`, the ones it passed over at `verbose`, and `retry: the run given up on the recipe's own ask` where a
+death was answered by leaving.
+
+**A run given up needs a launch of its own to carry on in.** The recipe's `play_until` ends where the run does,
+so the launch closes with the run left in a file — which is the interruption a resume is for, and picking it up
+is the next launch's first steps:
+
+    - press: [decide]
+      frames: 10
+      until: { question: resume }
+      give_up_after: 1800
+    - wait_until: { frames: 20 }
+    - press: [decide]                  # 続きから, the item that question comes up on
+      frames: 2
+    - play_until: { frames: 120 }      # the frames the pick-up plays its buttons back in
+
+So a run to a clear with hits in it is launch after launch: one recipe that starts a run, one that picks it up,
+and a loop that chooses between them by whether `pointdevice_resume/*.msgpack` is there. What says the game was
+cleared rather than given up is `ending run out in N update(s)` — a run given up has `run ended` and no ending.
+
 **`leave: true` is the pause menu walked to the title**, which is how a player leaves and so how a resume file
 has to be written. Give the game its own half of leaving before the process goes —
 `- wait_until: { frames: 300 }` — or the next launch reads a run this one had not finished leaving.
