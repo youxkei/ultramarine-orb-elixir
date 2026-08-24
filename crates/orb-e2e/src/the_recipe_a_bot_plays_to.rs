@@ -608,7 +608,7 @@ fn a_step_tells_the_rules_to_take_hits() {
             Work::wandering(WORK_US),
             |config| {
                 config.autoplay = Some(
-                    "- take_hits: { chance: 0.2, times_each_retry: 0.5 }\n\
+                    "- take_hits: { chance: 0.2, times_each_retry: 0.5, gives_up: 0.1 }\n\
                      - press: [bomb]\n  frames: 2\n"
                         .to_owned(),
                 );
@@ -620,8 +620,8 @@ fn a_step_tells_the_rules_to_take_hits() {
         let pressed = words(&game, 3);
         assert!(
             game.log().said(
-                "autoplay: step 1 of 2 takes hits, a chance of 0.200 per chapter and 0.500 of that \
-                 each retry"
+                "autoplay: step 1 of 2 takes hits, a chance of 0.200 per chapter, 0.500 of that \
+                 each retry, and 0.100 of giving the run up at one"
             ),
             "the numbers the step was given were not said:\n  {}",
             game.log().lines().join("\n  "),

@@ -140,7 +140,15 @@ pub enum Step {
     /// before — which is what somebody who died there does.
     ///
     /// A chance of nought is the rules dodging everything, which is what a recipe that says nothing gets.
-    TakeHits { chance: f32, times_each_retry: f32 },
+    ///
+    /// **And `gives_up` is the chance that a death is answered by going back to the title** rather than by
+    /// taking the chapter again, which is the other thing somebody who has just died does — and the one that
+    /// leaves a run in a file for the next launch to pick up.
+    TakeHits {
+        chance: f32,
+        times_each_retry: f32,
+        gives_up: f32,
+    },
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -230,6 +238,9 @@ struct WrittenHits {
     /// A chance of one that never changes is a chapter hit in for as long as the fire keeps arriving, and that
     /// is a recipe saying so rather than a mistake this can tell from one.
     times_each_retry: Option<f32>,
+    /// And nothing said is a run that always takes the chapter again, which is what every recipe written
+    /// before this got and what a bot that never gave up did.
+    gives_up: Option<f32>,
 }
 
 /// One of those two numbers, or what is wrong with it: a chance is a chance, and a factor a chance is
@@ -507,6 +518,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     hits.times_each_retry.unwrap_or(1.0),
                     at,
                 )?,
+                gives_up: a_chance("a chance of giving up", hits.gives_up.unwrap_or(0.0), at)?,
             },
             // **Only `true`.** What a step could do with `start_over: false` is nothing: the question is
             // raised or it is not, and a step that raises nothing is a step to leave out.
@@ -643,16 +655,17 @@ mod tests {
     #[test]
     fn a_step_can_hand_the_rules_a_chance_of_being_hit() {
         assert_eq!(
-            read("- take_hits: { chance: 0.25, times_each_retry: 0.5 }\n"),
+            read("- take_hits: { chance: 0.25, times_each_retry: 0.5, gives_up: 0.1 }\n"),
             Ok(vec![Step::TakeHits {
                 chance: 0.25,
                 times_each_retry: 0.5,
+                gives_up: 0.1,
             }]),
         );
     }
 
     /// And nothing said about the retries is a chance that does not change, which is what one number on its
-    /// own reads as.
+    /// own reads as — with a run that always takes the chapter again rather than the title.
     #[test]
     fn a_chance_with_nothing_said_about_the_retries_does_not_change() {
         assert_eq!(
@@ -660,6 +673,7 @@ mod tests {
             Ok(vec![Step::TakeHits {
                 chance: 0.1,
                 times_each_retry: 1.0,
+                gives_up: 0.0,
             }]),
         );
     }
@@ -679,6 +693,10 @@ mod tests {
         assert_eq!(
             read("- take_hits: { chance: 0.5, times_each_retry: 2 }\n"),
             Err("step 1 says a chance each retry of 2, which is not a chance".to_owned()),
+        );
+        assert_eq!(
+            read("- take_hits: { chance: 0.5, gives_up: 3 }\n"),
+            Err("step 1 says a chance of giving up of 3, which is not a chance".to_owned()),
         );
     }
 

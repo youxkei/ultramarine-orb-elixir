@@ -471,6 +471,33 @@ fn asked_by_a_recipe() -> bool {
 
 static ASKED_TO_START_OVER: AtomicBool = AtomicBool::new(false);
 
+/// **The offer to retry a death answered by going back to the title**, which is that menu's own last item —
+/// for whatever is playing the run wanting to give a run up the way somebody who has just died does.
+///
+/// **A flag and not a press, because that item is the one thing a bot cannot press its way to.** The menu is
+/// orb's own and keeps its own cursor; nothing of it reaches a bot, and how many items it has is how many
+/// chapters the stage has kept behind the one that was lost — so a bot walking down it would be walking a list
+/// it cannot see the length of, and the item it stopped on would depend on the stage.
+///
+/// It waits where no offer is up, the same as [`start_the_run_over`]: what takes it is the block that answers
+/// that menu, on the next frame one is up.
+pub fn give_the_run_up_at_the_retry() {
+    ASKED_TO_GIVE_THE_RUN_UP.store(true, Ordering::Relaxed);
+}
+
+/// And whether a bot is waiting for that answer to be taken, which is what stops it pressing at a menu it has
+/// already answered: a press that lands after the menu has gone reaches the front end, and the front end
+/// starts a run with it.
+pub fn giving_the_run_up_at_the_retry() -> bool {
+    ASKED_TO_GIVE_THE_RUN_UP.load(Ordering::Relaxed)
+}
+
+fn asked_to_give_the_run_up() -> bool {
+    ASKED_TO_GIVE_THE_RUN_UP.swap(false, Ordering::Relaxed)
+}
+
+static ASKED_TO_GIVE_THE_RUN_UP: AtomicBool = AtomicBool::new(false);
+
 /// Installs one, or takes what is there out.
 ///
 /// # Safety
@@ -2131,7 +2158,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     if let Some(menu) = &mut runtime.retry {
         unsafe { hold_frame(runtime.game) };
         let pad = unsafe { pad(runtime.game) };
-        if let Some((choice, by)) = menu.update(&runtime.keyboard, pad) {
+        // **Or the answer a recipe asked for**, which is the last item of this menu and the one nothing can
+        // press its way to — see [`give_the_run_up_at_the_retry`]. Asked before the keys are read, because a
+        // bot that has asked presses nothing while it waits.
+        let answered = match asked_to_give_the_run_up() {
+            true => Some((Choice::Quit, By::Recipe)),
+            false => menu.update(&runtime.keyboard, pad),
+        };
+        if let Some((choice, by)) = answered {
             log!("retry: {} on the {by}", choice.label());
             let acted = match choice {
                 Choice::Chapter => unsafe { runtime.chapters.retry_chapter(runtime.game) },

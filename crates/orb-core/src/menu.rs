@@ -34,6 +34,11 @@ const VK_Z: u8 = 0x5a;
 pub enum By {
     Keyboard,
     Pad,
+    /// **And a recipe's own ask**, which is neither: what a launch playing itself presses arrives as a pad, but
+    /// the one answer it cannot press for is asked for outright — see
+    /// `runtime::give_the_run_up_at_the_retry`. Named apart from the two hands for the reason they are named at
+    /// all: a log that said `pad` here would be a log saying a press answered where none did.
+    Recipe,
 }
 
 impl fmt::Display for By {
@@ -41,6 +46,7 @@ impl fmt::Display for By {
         f.write_str(match self {
             Self::Keyboard => "keyboard",
             Self::Pad => "pad",
+            Self::Recipe => "recipe's own ask",
         })
     }
 }

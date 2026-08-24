@@ -17,6 +17,12 @@
 //! **The draws are a hash and not a sequence**, so that the same recipe dies in the same chapters every launch:
 //! two launches are comparable because they are the same run, and a sequence would move every draw along as
 //! soon as anything before it differed.
+//!
+//! **The one draw that carries a number of the launch's own is the giving up** — see [`A_LAUNCHS_OWN`], and the
+//! eight launches that handed one run to each other.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use orb_core::game::{Question, Reached};
 use orb_core::{detail, summary};
@@ -54,6 +60,7 @@ const GOES_TO_IT_AFTER: u32 = 60;
 pub struct Told {
     pub chance: f32,
     pub times_each_retry: f32,
+    pub gives_up: f32,
 }
 
 /// **The chapter attempt being played and whether it is one to be hit in**, which is what a frame is answered
@@ -92,10 +99,31 @@ impl TakingHits {
         if self.was_offered && !offered {
             self.again = true;
         }
-        self.was_offered = offered;
         let Some(told) = self.told else {
+            self.was_offered = offered;
             return Hazards::Dodged;
         };
+        // **And the offer coming up is where a run is given up rather than carried on**, which is the other
+        // thing somebody who has just died does — and the one that leaves the run in a file for the next
+        // launch to pick up. Drawn on the frame it comes up, so that one offer is one draw.
+        if offered && !self.was_offered {
+            let chance = told.gives_up;
+            let at = self.at.unwrap_or_default();
+            if drawn(at, self.retried, GIVING_UP ^ a_launchs_own()) < chance {
+                orb_core::runtime::give_the_run_up_at_the_retry();
+                let (stage, chapter) = at;
+                summary!(
+                    "autoplay: the offer to retry stage {stage} chapter {chapter} is one to give the \
+                     run up at, its chance being {chance:.3}",
+                );
+            } else {
+                detail!(
+                    "autoplay: the offer to retry is one to take the chapter again at, the chance of \
+                     giving up being {chance:.3}",
+                );
+            }
+        }
+        self.was_offered = offered;
         // **And nothing off a chapter of a run.** A question of orb's own is up over a stage the game has
         // stopped updating; a run that is over is a screen with no player on it; and chapter nought is orb's
         // own answer for a run that has not reached one — which is every frame of the front end a recipe walks
@@ -114,7 +142,7 @@ impl TakingHits {
             self.at = Some(at);
             self.frames = 0;
             let chance = told.chance * told.times_each_retry.powi(self.retried as i32);
-            self.drawn = drawn(at, self.retried) < chance;
+            self.drawn = drawn(at, self.retried, BEING_HIT_IN) < chance;
             let (stage, chapter) = at;
             // **Said where it was drawn and only asked for where it was not.** A run being watched is watched
             // for the deaths in it, and a line per chapter that is to be played out is a line per chapter.
@@ -149,6 +177,39 @@ impl TakingHits {
     }
 }
 
+/// The two things an attempt is drawn for, which are two draws and not one — see [`drawn`].
+const BEING_HIT_IN: u64 = 0;
+const GIVING_UP: u64 = 1;
+
+/// **A number of this launch's own, which the giving up is drawn with and the being hit in is not.**
+///
+/// **Because a run given up is picked up at the chapter it was given up in.** The draws are a hash of the
+/// attempt, so the launch that picks that run up meets the same chapter with the same retry count and draws the
+/// same number — and gives the run up again. Measured: eight launches of th06 in a row gave the run up at
+/// stage 2 chapter 3, each one handing it to the next, and the run never reached stage 3.
+///
+/// **What it costs is that two launches of one recipe give up at different deaths**, and what it keeps is the
+/// half that makes a run comparable: which chapters are *hit in* is the attempt's own hash still, so the deaths
+/// a launch takes are the deaths the launch before it took.
+///
+/// The clock, because a launch has nothing else of its own: the recipe, the game and the run are all the same
+/// as the last launch's, which is the whole problem.
+static A_LAUNCHS_OWN: AtomicU64 = AtomicU64::new(0);
+
+/// Settled once per launch, on the first draw that wants it.
+fn a_launchs_own() -> u64 {
+    match A_LAUNCHS_OWN.load(Ordering::Relaxed) {
+        0 => {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(1, |since| since.as_nanos() as u64 | 1);
+            A_LAUNCHS_OWN.store(now, Ordering::Relaxed);
+            now
+        }
+        settled => settled,
+    }
+}
+
 /// **The number one chapter attempt is drawn**, in nought to one.
 ///
 /// A hash of which attempt it is and not a step of a sequence, which is what makes two launches of one recipe
@@ -158,8 +219,12 @@ impl TakingHits {
 /// splitmix64's own finaliser, which is the cheapest mix that leaves neighbouring chapters unrelated — the
 /// three numbers packed into one word are all small and differ in their low bits, which is exactly what a
 /// weaker one carries through into the answer.
-fn drawn((stage, chapter): (i32, u32), retried: u32) -> f32 {
-    let mut mixed = ((stage as u32 as u64) << 48) | ((chapter as u64) << 32) | (retried as u64);
+///
+/// `about` is which question is being asked of that attempt, so that the two draws an attempt takes are
+/// unrelated: at one salt a chapter drawn to be hit in would be a chapter drawn to be given up at.
+fn drawn((stage, chapter): (i32, u32), retried: u32, about: u64) -> f32 {
+    let mut mixed =
+        ((stage as u32 as u64) << 48) | ((chapter as u64) << 32) | ((retried as u64) << 8) | about;
     mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     mixed ^= mixed >> 31;
@@ -169,17 +234,32 @@ fn drawn((stage, chapter): (i32, u32), retried: u32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::drawn;
+    use super::{BEING_HIT_IN, GIVING_UP, drawn};
 
     /// **Every attempt draws its own number, and the same one every time it is asked.** Which is what the run
     /// being repeatable rests on: the chapters a launch dies in are the chapters the next launch of the same
     /// recipe dies in.
     #[test]
     fn an_attempt_draws_the_same_number_every_time_it_is_asked() {
-        assert_eq!(drawn((3, 5), 0), drawn((3, 5), 0));
-        assert_ne!(drawn((3, 5), 0), drawn((3, 5), 1));
-        assert_ne!(drawn((3, 5), 0), drawn((3, 6), 0));
-        assert_ne!(drawn((3, 5), 0), drawn((4, 5), 0));
+        assert_eq!(
+            drawn((3, 5), 0, BEING_HIT_IN),
+            drawn((3, 5), 0, BEING_HIT_IN)
+        );
+        assert_ne!(
+            drawn((3, 5), 0, BEING_HIT_IN),
+            drawn((3, 5), 1, BEING_HIT_IN)
+        );
+        assert_ne!(
+            drawn((3, 5), 0, BEING_HIT_IN),
+            drawn((3, 6), 0, BEING_HIT_IN)
+        );
+        assert_ne!(
+            drawn((3, 5), 0, BEING_HIT_IN),
+            drawn((4, 5), 0, BEING_HIT_IN)
+        );
+        // And the two questions an attempt is asked are drawn for apart, which is what stops every chapter
+        // that is hit in being one that is also given up at.
+        assert_ne!(drawn((3, 5), 0, BEING_HIT_IN), drawn((3, 5), 0, GIVING_UP));
     }
 
     /// **And the numbers are spread over nought to one**, which is what makes comparing one with a chance a
@@ -188,7 +268,7 @@ mod tests {
     #[test]
     fn the_numbers_drawn_are_spread_over_nought_to_one() {
         let all: Vec<f32> = (1..=6)
-            .flat_map(|stage| (1..=30).map(move |chapter| drawn((stage, chapter), 0)))
+            .flat_map(|stage| (1..=30).map(move |chapter| drawn((stage, chapter), 0, BEING_HIT_IN)))
             .collect();
         assert!(
             all.iter().all(|drawn| (0.0..1.0).contains(drawn)),

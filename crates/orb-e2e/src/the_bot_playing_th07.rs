@@ -2685,6 +2685,37 @@ fn a_chance_of_nothing_is_a_chapter_played_as_any_other() {
     });
 }
 
+/// **And a death can be answered by going back to the title instead of by taking the chapter again**, which is
+/// the other thing somebody who has just died does — and the one thing that leaves a run in a file for the next
+/// launch to pick up.
+///
+/// **Asked for rather than pressed for.** orb's own offer keeps its own cursor and hands a bot nothing to read
+/// it by, and how many items are on it is how many chapters the stage has kept behind the one that was lost —
+/// so what answers this is `runtime::give_the_run_up_at_the_retry`, and the log names the ask rather than a
+/// hand.
+#[test]
+fn a_death_drawn_to_be_given_up_at_goes_back_to_the_title() {
+    in_its_own_process(|| {
+        let game = in_a_chapter(
+            "th07-the-bot-gives-the-run-up",
+            "- take_hits: { chance: 1.0, gives_up: 1.0 }\n",
+        );
+        let log = game.log();
+
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
+        game.frames_until("the run given up", 240, || {
+            log.said("retry: the run given up on the recipe's own ask")
+        });
+        assert_eq!(
+            game.image().the_scene_wanted(),
+            game.image().scene_of_the_front_end(),
+            "the run was not put on its way to the title:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **The chance is lowered each time the chapter is retried**, so that a run gets past the chapter it died in.
 ///
 /// At the same chance every attempt a chapter is retried until the fire happens to miss, which is an afternoon

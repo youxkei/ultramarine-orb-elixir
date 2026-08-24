@@ -203,9 +203,11 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
             recipe::Step::TakeHits {
                 chance,
                 times_each_retry,
+                gives_up,
             } => Step::TakeHits(hits::Told {
                 chance,
                 times_each_retry,
+                gives_up,
             }),
         };
         steps.push(step);
@@ -266,6 +268,12 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // rather than held, a menu answering the frame a button goes down.
     if reached.question == Some(Question::Retry) {
         playing.frames += 1;
+        // **And nothing pressed at an offer already answered.** Where the chapter was drawn to be given up
+        // at, the answer is asked for outright rather than pressed for — and a press that lands after the
+        // menu has gone reaches the front end, which starts a run with it.
+        if runtime::giving_the_run_up_at_the_retry() {
+            return Some(0);
+        }
         return Some(if ((playing.frames - 1) / A_TAP).is_multiple_of(2) {
             game.button_bit("decide").unwrap_or(0)
         } else {
@@ -351,12 +359,13 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
         Step::TakeHits(told) => {
             playing.hits.told(*told);
             log!(
-                "autoplay: step {} of {} takes hits, a chance of {:.3} per chapter and {:.3} of \
-                 that each retry",
+                "autoplay: step {} of {} takes hits, a chance of {:.3} per chapter, {:.3} of that \
+                 each retry, and {:.3} of giving the run up at one",
                 playing.at + 1,
                 playing.steps.len(),
                 told.chance,
                 told.times_each_retry,
+                told.gives_up,
             );
             (unsafe { steer::word_to_press(game, hazards) }, true)
         }
