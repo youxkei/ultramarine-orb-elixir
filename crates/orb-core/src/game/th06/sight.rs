@@ -149,6 +149,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             angle: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_ANGLE) },
             near: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_NEAR) },
             far: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_FAR) },
+            // What 0x415e35 adds to the far end every frame, which is the only thing about a beam here that
+            // moves: the near end follows it once the length the laser keeps at `+0x238` is reached.
+            grows: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_GROWS) }
+                * mem::read_committed::<f32>(G_MOTION_SCALE).unwrap_or(1.0),
             half_across: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_WIDTH) } / 2.0,
             // Before the firing phase, the frames its own phase has left; from it on, none.
             fires_in: if phase < bullet_manager::LASER_FIRING {

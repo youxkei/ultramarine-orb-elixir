@@ -1089,6 +1089,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             angle,
             near,
             far,
+            grows,
             half_across: across,
             fires_in,
             fading,
@@ -1111,6 +1112,11 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                 let (dx, dy) = (x - ox, y - oy);
                 let along = dx * cos + dy * sin;
                 let off = (-dx * sin + dy * cos).abs();
+                // **And how far it will reach by then**, which is the other thing a beam does with a frame:
+                // th06's own extend as they fire, and a length taken as settled is a beam whose end the
+                // player is standing just past for every frame looked at. A run stood five units under one and
+                // died there nineteen times.
+                let far = far + grows * (step + 1) as f32;
                 // **How much room a beam left, kept the way a bullet's is**: measured in the beam's own frame,
                 // where *across* it is what the width stands against and *along* it what its two ends do.
                 // Without it a hit taken on a laser reports the room to whatever bullet happened to be nearest,

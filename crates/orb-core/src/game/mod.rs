@@ -1787,6 +1787,13 @@ pub struct Beam {
     /// How far along it the beam runs, from the near end to the far one.
     pub near: f32,
     pub far: f32,
+    /// **And how much further the far end reaches each frame**, which is nought for a beam whose length is
+    /// settled.
+    ///
+    /// **Because a beam that grows is a beam a fixed length cannot be dodged by.** th06's stage 2 boss fires
+    /// icicles straight down at the player and lets them extend: a launch stood five units under a far end,
+    /// where every one of the frames looked at read as clear, and died there nineteen times.
+    pub grows: f32,
     /// Half of how wide it is now.
     pub half_across: f32,
     /// How many frames until the game starts testing the player against it, which is nought or less for one

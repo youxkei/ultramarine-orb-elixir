@@ -255,6 +255,49 @@ fn the_bot_leaves_a_laser_of_th06_that_is_firing() {
     });
 }
 
+/// **A beam that is still growing is left before its end arrives**, which is the one thing a beam of this game
+/// does with a frame: the far end reaches further every frame it fires and the near end follows.
+///
+/// **Which a run paid for.** Stage 2's boss fires icicles straight down at the player and lets them extend; a
+/// launch stood five units under a far end, where every frame looked at read as clear, and died there nineteen
+/// times over. So the growth goes across with the ends, and here it is read back: a beam that stops short and
+/// stays there is nothing to move for, and the same beam growing is.
+#[test]
+fn the_bot_leaves_a_beam_of_th06_before_its_growing_end_arrives() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th06-the-bot-leaves-a-growing-beam");
+        // Straight down the middle from the top, ending a few units above where the player waits — which is
+        // where the icicles that killed that run ended.
+        game.image().a_laser_is_at(
+            12,
+            (MIDDLE, 0.0),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, LOW - 8.0),
+            32.0,
+        );
+
+        game.frames(1);
+        assert_eq!(
+            game.image().input_now() & PAD,
+            0,
+            "the bot moved for a beam that stops short of it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // The same beam reaching four further every frame, which is under the player inside the frames the
+        // rules look at.
+        game.image().the_laser_grows_by(12, 4.0);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert_ne!(
+            game.image().input_now() & PAD,
+            0,
+            "the bot stood under a beam that was growing onto it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **And the bomb on the frame the player is hit**, which is a deathbomb: `Player::Kill` leaves the state at 2
 /// and a bomb pressed while it stands takes the death back.
 #[test]

@@ -1813,6 +1813,25 @@ impl Image {
         space.write::<f32>(laser + manager::LASER_NEAR, along.0);
         space.write::<f32>(laser + manager::LASER_FAR, along.1);
         space.write::<f32>(laser + manager::LASER_WIDTH, width);
+        space.write::<f32>(laser + manager::LASER_GROWS, 0.0);
+        space.write::<f32>(super::G_MOTION_SCALE, 1.0);
+    }
+
+    /// **And how much further that beam reaches every frame**, which is what a beam of this game's does while
+    /// it fires: its far end grows and its near end follows.
+    ///
+    /// Apart from [`a_laser_is_at`](Self::a_laser_is_at) because the two say different things — where a beam is
+    /// now, and where it will be — and a rule about the second is one a beam standing still cannot be read
+    /// against.
+    pub fn the_laser_grows_by(&self, slot: usize, grows: f32) {
+        use super::bullet_manager as manager;
+        self.space().write::<f32>(
+            super::G_BULLET_MANAGER
+                + manager::LASERS
+                + slot * manager::LASER_STRIDE
+                + manager::LASER_GROWS,
+            grows,
+        );
     }
 
     /// And the same beam still drawing its warning line, which the game's own test is not called for at all: the

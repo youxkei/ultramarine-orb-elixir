@@ -204,6 +204,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             angle: unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
             near: unsafe { mem::read::<f32>(laser + LASER_NEAR) },
             far: unsafe { mem::read::<f32>(laser + LASER_FAR) },
+            // **Nothing, this game's own growth not having been read.** th06 keeps a beam's own rate beside
+            // its ends and th07 may as well; what is established here is the two ends, and a rate written
+            // down on the strength of the other game's layout would be a number nothing measured.
+            grows: 0.0,
             half_across: unsafe { mem::read::<f32>(laser + LASER_WIDTH) } / 2.0,
             fires_in: unsafe { mem::read::<i32>(laser + LASER_LIVE_AT) }
                 - unsafe { mem::read::<i32>(laser + LASER_TIMER) },

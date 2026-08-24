@@ -908,6 +908,11 @@ mod bullet_manager {
     pub const LASER_NEAR: usize = 0x230;
     pub const LASER_FAR: usize = 0x234;
     pub const LASER_WIDTH: usize = 0x23c;
+    /// **What the far end grows by every frame**, which 0x415e35 multiplies by
+    /// [`super::G_MOTION_SCALE`] and adds — and `+0x238` is the length the near end is then held that far
+    /// behind it by (0x415e5c onwards). A beam of this game reaches further every frame it is firing, which is
+    /// the one thing about one that moves.
+    pub const LASER_GROWS: usize = 0x240;
     /// **Which of the three things a laser is doing**, and the two that matter: 0x415f75 switches on
     /// it, and the player's own test is called from [`LASER_FIRING`]'s case at 0x416203 and from no
     /// other — so a laser still drawing its warning line hits nothing at all.

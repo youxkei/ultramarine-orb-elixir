@@ -85,7 +85,7 @@ is the spawn looking for a free one). `[+0x258]` is what says a slot holds one.
 | | |
 | --- | --- |
 | `+0x220` | where it is fired from, and `+0x22c` the angle it points at |
-| `+0x230`, `+0x234` | how far along it runs, near and far: `0x415e35` grows the far end by `+0x240` times the motion scale, and `+0x238` is the length it is held to |
+| `+0x230`, `+0x234` | how far along it runs, near and far: `0x415e35` grows the far end by `+0x240` times the motion scale, and `+0x238` is the length it is held to. **A firing beam of this game reaches further every frame**, which is the one thing about one that moves — stage 2's boss fires icicles straight down and lets them extend, and a bot that took the length as settled stood five units under a far end and died there nineteen times |
 | `+0x23c` | how wide it is |
 | `+0x26c` | the phase, switched on at `0x415f75`: 0 draws the warning line, 1 fires, 2 fades |
 | `+0x244`, `+0x264` | how long the phase lasts and how long it has run — `0x41615b` moves the phase on where the frames run out, so in phase 0 the difference is the frames until it starts hitting |
