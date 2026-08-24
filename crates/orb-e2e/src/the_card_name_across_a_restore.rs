@@ -70,7 +70,7 @@ fn a_chapter_put_back_inside_a_card_has_that_cards_name_on_the_plate() {
 
         // ── 被弾, and the chapters behind the one that was lost: the midboss's card is one of them, and
         // going back to it is a card whose name is not the one on the plate.
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter"),

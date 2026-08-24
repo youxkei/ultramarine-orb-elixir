@@ -516,6 +516,15 @@ const SPAWNS_WITH: i32 = 120;
 const SPAWNING_ENDS_AT: i32 = 30;
 pub const INVULNERABLE_AFTER_SPAWNING: i32 = 240;
 
+/// **The frames a bomb is still taken in after a hit**, which is `respawnTimer` and this game's own deathbomb
+/// window: `Player::AddedCallback` leaves a run's first life 8 of them and the respawn leaves 6, and
+/// `Player::OnUpdate` takes one off for each frame the player spends dead.
+///
+/// Both here because a hit taken on the life a run starts with is the one an e2e test drives, and a window
+/// that was 6 there would be a window a frame count could not be checked against.
+pub const A_BOMB_IS_TAKEN_FOR: i32 = 8;
+const A_BOMB_IS_TAKEN_FOR_AFTER_A_RESPAWN: i32 = 6;
+
 /// How far above the arcade region's foot a stage puts the player, which is 紅魔郷's own:
 /// `Player::AddedCallback` measures `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down.
 ///
@@ -1236,8 +1245,31 @@ impl Fake {
     }
 
     /// Says the player was hit, for the next frame of the stage.
+    ///
+    /// **The hit and not the death.** What follows it is the frames a bomb is still taken in — see
+    /// [`update_the_player`](Fake::update_the_player) — so a test that is about what a *death* leads to
+    /// wants [`dies`](Fake::dies) and one that is about the window itself wants this.
     pub fn hit(&self) {
         self.hit.set(true);
+    }
+
+    /// Says the player died: the hit counted, and the frames a bomb could have taken it in all but gone.
+    ///
+    /// **With one frame of the window left, which is the game's own last dying frame**: the update after
+    /// this is the one that runs it out, and that is the update orb reads the death off — the same one it
+    /// would read after a hit and its whole window. Written to nought instead, the update this test's own
+    /// `frame` runs would settle the death and put the player back before orb had looked at all.
+    ///
+    /// And the life is not taken here for the same reason the window's end does not take it: the game takes
+    /// it with the animation it plays afterwards, and orb freezes the frame before that.
+    pub fn dies(&self) {
+        let run = self.image.playing_now();
+        self.image.playing(Playing {
+            deaths: run.deaths + 1,
+            ..run
+        });
+        self.image.player(Player::Dying);
+        self.image.set_respawn_timer(1);
     }
 
     /// The game writing its replay out, which is what `ResultScreen`'s save screen does once somebody has
@@ -1376,6 +1408,10 @@ impl Fake {
     /// chain's, the [`SHAKE_FRAMES`] it writes the arcade region from the generator over, and the bomb the
     /// run has one fewer of: `Player::OnUpdate` spends one where it starts one, and only where there is one
     /// to spend.
+    ///
+    /// **And what the dying branch calls for a deathbomb**, which is the one bomb of the player's own code that
+    /// is modelled here — see [`update_the_player`](Fake::update_the_player). A bomb is a bomb whether an e2e
+    /// test asked for it or a word the rules handed in did.
     ///
     /// And `Player::bombInUse`, which is the flag orb reads a bomb by. **A bomb here is its shake and
     /// nothing else**, so the flag stands for exactly the shake's own frames and the frame the shake takes
@@ -2396,13 +2432,16 @@ impl Fake {
         }
 
         // `Player::OnUpdate`, at chain priority 7.
-        self.update_the_player();
+        self.update_the_player(&mut run);
         // And the bullets, at 11: the hit test, which is the one thing an invulnerability written for
         // this update has to still be true at.
+        //
+        // **The count and not the life**, which is what `Player::Die` does: it puts the count up as the hit
+        // lands and leaves the frames a bomb is still taken in behind it, and the life goes with the death
+        // the branch above settles.
         let killable = self.image.player_now() == Player::Normal;
         if (self.hit.take() || self.bullet.get()) && killable {
             run.deaths += 1;
-            run.lives -= 1;
             self.image.player(Player::Dying);
         }
 
@@ -2604,13 +2643,40 @@ impl Fake {
     /// **Two `if`s and not two arms of one match**, because that is what the game has and the difference is
     /// a whole frame of the count: the spawning branch flips the state and the countdown below it runs in
     /// the same update, so a stage's own first update ends on `INVULNERABLE_AFTER_SPAWNING - 1`.
-    fn update_the_player(&self) {
-        // The frames after a death, which the real game spends on the animation — 30 of them dying, 30
-        // spawning, then the same count as below. Here it is one frame: orb freezes the game on the frame
-        // the death is noticed, so nothing but a retry or a run given up ever follows one — and a retry
-        // puts the player back with the rest of `.data`.
+    fn update_the_player(&self, run: &mut Playing) {
+        // **The dying branch, which is the deathbomb window and then the death.** `respawnTimer` is what the
+        // game gates its own bomb on and takes one off a frame while the player is dead, and the frame it
+        // reaches nought is the frame the death is made final — the power items spawned, the power dropped.
+        // A bomb pressed while it stands writes the invulnerable state over the dead one and the life is
+        // never taken, which is the whole of what a deathbomb is.
+        //
+        // What is not here is the animation the real game spends afterwards — 30 frames dying and 30
+        // spawning — because orb freezes the game on the frame the death is settled, so nothing but a retry
+        // or a run given up ever follows one, and a retry puts the player back with the rest of `.data`.
         if self.image.player_now() == Player::Dying {
-            self.image.player(Player::Normal);
+            let window = self.image.respawn_timer();
+            // **And a bomb to spend it on**, which the game asks for in the same condition: nothing is taken
+            // in a window a run has no bomb left for.
+            let bombed =
+                window > 0 && run.bombs > 0 && self.pressed(Th06.button_bit("bomb").unwrap_or(0));
+            match (window, bombed) {
+                (_, true) => {
+                    self.bombs();
+                    // Read back rather than taken off here, [`bombs`](Fake::bombs) having spent it: `run`
+                    // was read at the top of this frame, so the count it holds is the one before that.
+                    run.bombs = self.image.playing_now().bombs;
+                    self.image.player(Player::Invulnerable);
+                    self.image
+                        .set_invulnerable_frames(INVULNERABLE_AFTER_SPAWNING);
+                }
+                (0, _) => {
+                    run.lives -= 1;
+                    self.image.player(Player::Normal);
+                    self.image
+                        .set_respawn_timer(A_BOMB_IS_TAKEN_FOR_AFTER_A_RESPAWN);
+                }
+                (left, _) => self.image.set_respawn_timer(left - 1),
+            }
         }
         // The spawning branch, whose own test is `30 <= invulnerabilityTimer.AsFrames()`: a stage's start
         // satisfies it at once, so the state lasts this one update and what it leaves under the next one is
@@ -3148,6 +3214,9 @@ impl Fake {
         // [`update_the_player`](Fake::update_the_player).
         self.image.player(Player::Spawning);
         self.image.set_invulnerable_frames(SPAWNS_WITH);
+        // And the frames a bomb is taken in, which the same callback writes: a hit is not a death while
+        // this stands, so a stage laid out without it is one where every hit is settled the frame it lands.
+        self.image.set_respawn_timer(A_BOMB_IS_TAKEN_FOR);
         // And where the player starts, measured from the *arcade region* and not from the box they are held
         // inside — see [`PLAYER_STARTS_ABOVE`]. Read back rather than carried in `moving`, because the
         // stage's own build has drawn from the generator since: writing the fields that call moved would put

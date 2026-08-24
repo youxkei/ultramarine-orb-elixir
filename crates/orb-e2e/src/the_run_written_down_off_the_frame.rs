@@ -27,7 +27,7 @@ fn written_down_in(game: &Fake) -> std::path::PathBuf {
 /// to offer: up once from the item the cursor starts on, and its question answered はい.
 fn gives_the_run_up(game: &Fake) {
     let log = game.log();
-    game.hit();
+    game.dies();
     game.frame();
     game.frames(READS_KEYS_AFTER);
     game.press(keys::UP);

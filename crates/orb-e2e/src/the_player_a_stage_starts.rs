@@ -29,7 +29,7 @@
 //! the state and the frames under it before every update, which is
 //! `a_clear_on_demand.rs`'s subject and would answer this one's question for it.
 
-use crate::fake::th06::{FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, the_run};
+use crate::fake::th06::{A_BOMB_IS_TAKEN_FOR, FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::Player;
@@ -90,9 +90,22 @@ fn nothing_kills_the_player_until_a_stages_invulnerability_runs_out() {
         game.frame();
         let after = game.state();
         assert_eq!(
-            (after.stage_frames, after.deaths, after.lives),
-            (last + 1, 1, FRESH.0 - 1),
+            (after.stage_frames, after.deaths),
+            (last + 1, 1),
             "the update the invulnerability ran out on is not the one the bullet killed on",
+        );
+
+        // **And the life goes with the death rather than with the hit**, which is the window a bomb is
+        // still taken in: the count above moved as the hit landed, and the game takes the life once the
+        // frames after it have run out with nothing bombed.
+        assert_eq!(
+            after.lives, FRESH.0,
+            "the life went with the hit, inside the frames a bomb is still taken in",
+        );
+        game.frames_until(
+            "the life the death takes once its window has run out",
+            A_BOMB_IS_TAKEN_FOR as u32 + 2,
+            || game.state().lives == FRESH.0 - 1,
         );
     });
 }

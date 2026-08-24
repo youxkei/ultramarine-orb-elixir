@@ -80,8 +80,10 @@ fn loses_a_life(game: &Fake) {
     game.frames_until("the stage killable again", killable + 60, || {
         game.state().stage_frames >= killable
     });
-    game.hit();
-    game.frame();
+    game.dies();
+    // **Two frames, the life going after the death rather than with it**: the frames a bomb is taken in run
+    // out on the first and the game takes the life on the second — see `Fake::update_the_player`.
+    game.frames(2);
 }
 
 /// Every open of the score file that was for reading.

@@ -57,7 +57,7 @@ fn a_texture_handle_is_not_put_back_from_a_snapshot_and_the_rest_of_the_manager_
         game.image().set_anm_manager_word(WORD_WRITTEN_SINCE);
 
         // 被弾 and チャプターをやり直す.
-        game.hit();
+        game.dies();
         game.frame();
         game.press_until(keys::Z, "the retry menu answered", || {
             log.said("retry: the chapter again on the keyboard")
@@ -127,7 +127,7 @@ fn a_chapters_restore_puts_the_chains_own_list_back() {
         );
 
         // チャプターをやり直す.
-        game.hit();
+        game.dies();
         game.frame();
         game.press_until(keys::Z, "the retry menu answered", || {
             log.said("retry: the chapter again on the keyboard")

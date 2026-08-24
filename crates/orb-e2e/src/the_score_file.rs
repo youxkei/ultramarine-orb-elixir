@@ -794,7 +794,7 @@ fn at_the_cards_chapter(game: &Fake) {
 fn retries_the_chapter(game: &Fake) {
     let log = game.log();
     let from = log.written();
-    game.hit();
+    game.dies();
     game.frame();
     assert!(
         log.said_since(from, "died in chapter"),
@@ -816,7 +816,7 @@ fn gives_the_run_up_at_orbs_menu(game: &Fake) {
     // Where this walk begins, so that a session giving a second run up waits for its own lines: a log asked
     // whether it has *ever* said something is answered yes by the run before, and nothing is waited out.
     let from = log.written();
-    game.hit();
+    game.dies();
     game.frame();
     game.frames(READS_KEYS_AFTER);
     game.press(keys::UP);

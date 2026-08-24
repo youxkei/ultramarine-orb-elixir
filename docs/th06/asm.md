@@ -29,16 +29,41 @@ this stopped.
   skipped where its `w` is nought (`0x426cc9`). What the callers do with a 2 is turn the bullet into an item —
   `ItemManager` at `0x69e268`, kind 6 — so these are a bomb's own clearing boxes and not the player.
 - **1** where it overlaps the player's own box, which is the two corners at `player+0x458` and `+0x464`
-  (`0x426d74` onwards, four `fcomp`). Where the state at `+0x9e0` is 0 it calls `Player::Kill` (`0x427770`)
+  (`0x426d74` onwards, four `fcomp`). Where the state at `+0x9e0` is 0 it calls `Player::Die` (`0x427770`)
   and answers 1 whether it did or not.
 - **0** where neither.
 
 `0x426df0` is the same test with `[0x46a548]` — 0.2667 — added to each side, and it is the graze: the
 bullet's `+0x5c3` is set from its answer and the hit test is asked on the frame after.
 
-`Player::Kill` writes state 2 at `0x4277bc` and puts the timer at `+0x75b4` back to `-999`; the four bombs
-(`0x405577`, `0x4065a2`, `0x406ac7`, `0x407174`) write state 3 over it, which is what makes a bomb inside that
-window a deathbomb.
+### The count moves on the hit and the life goes later
+
+`Player::Die` writes state 2 at `0x4277bc`, puts the timer at `+0x75b4` back to `-999`, plays the death sound,
+and
+**puts the death count up there and then**: `0x4277f9` reads `[0x69bcc0]`, which is `GameManager+0x20`, and
+`0x427802` writes it back one higher. Nothing in the exe ever takes it down again — the only other sites are
+the two reads the result screen makes (`0x42d58c`, `0x42d5a8`) — so what that field counts is **hits and not
+lives lost**, and a hit a bomb saves is counted with the rest.
+
+**Which leaves a window between the count and the death**, and it is `respawnTimer` at `+0x9d8`:
+
+| | |
+| --- | --- |
+| `0x42896d` | `Player::OnUpdate` takes a bomb only where that field is not nought — with a bomb in hand and no dialogue up |
+| `0x428a71`, `0x428a84` | the dying branch: state 2, and the field asked about again |
+| `0x428a9a` | one off it for this frame, where it was not nought already |
+| `0x428ab6` onwards | the frame it reaches nought, which is where the death is made final: the power items spawned and the power dropped, `[0x69d4ba]` read for whether there is a life to lose |
+| `0x428f9e`, `0x42a09c` | what is left in it — 6 after a respawn, 8 by `Player::AddedCallback` at a run's start |
+
+So a bomb pressed inside those frames — the four at `0x405577`, `0x4065a2`, `0x406ac7`, `0x407174`, each
+writing state 3 over the 2 — is a deathbomb, and the run goes on with the life it had. The **life**
+itself is not taken until the fade after all that: `0x428f19` onwards walks state 1, and `0x428ded` is where
+`[0x69d4ba]` comes down.
+
+**Which is what makes the count a poor thing for anything above the game to act on.** th07 moves its own in
+the death handler, after its window — see `Th07`'s `DEATHS` — so a count that moved there is a death. Here it
+moves as the hit lands, and the code that reads it has to ask `respawnTimer` what it means:
+`Th06::where_a_counted_death_stands`.
 
 **The player's own corners are worked out per frame** inside `Player::OnUpdate`: `0x427f1e` writes the min as
 `+0x440` minus the half at `+0x488`, and `0x427f95` writes the max as the sum. The half is the shot's own and

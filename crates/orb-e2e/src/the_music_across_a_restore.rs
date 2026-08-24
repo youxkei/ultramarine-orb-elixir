@@ -240,7 +240,7 @@ fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
         );
 
         // 被弾 and チャプターをやり直す.
-        game.hit();
+        game.dies();
         game.frame();
         let log = game.log();
         game.press_until(keys::Z, "the retry menu answered", || {
@@ -372,7 +372,7 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
         // this stage has chapters behind the one that was lost, so the item that lists those is between
         // them.
         let log = game.log();
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter"),
@@ -448,7 +448,7 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             game.state().stage_frames > INVULNERABLE_AFTER_SPAWNING as u32
         });
         let from = log.written();
-        game.hit();
+        game.dies();
         game.frame();
         game.press_until(keys::Z, "the chapter again", || {
             log.said_since(from, "retry: the chapter again on the keyboard")
@@ -507,7 +507,7 @@ fn a_chapter_whose_track_was_never_the_stages_gets_the_stages_song_and_no_seek()
 
         // And then the stage's own song, starting after that chapter was taken.
         game.plays_the_stages_own_song();
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter"),
@@ -579,7 +579,7 @@ fn a_chapter_taken_with_nothing_audible_comes_back_to_that_silence() {
 
         // And then the stage's own song, starting after that chapter was taken.
         game.plays_the_stages_own_song();
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter"),
@@ -670,7 +670,7 @@ fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file
 
         // 被弾 and チャプターをやり直す.
         let log = game.log();
-        game.hit();
+        game.dies();
         game.frame();
         game.press_until(keys::Z, "the retry menu answered", || {
             log.said("retry: the chapter again on the keyboard")
@@ -705,7 +705,7 @@ const BEHIND: u32 = 3_000;
 /// 被弾 and then タイトルに戻る, which leaves the chapter behind for the next launch to offer.
 fn gives_the_run_up(game: &Fake) {
     let log = game.log();
-    game.hit();
+    game.dies();
     game.frame();
     game.frames(READS_KEYS_AFTER);
     game.press(keys::UP);
@@ -840,7 +840,7 @@ fn a_stream_whose_buffer_has_been_freed_leaves_the_chapters_without_sound() {
             ))
         });
         let at_the_card = game.state();
-        game.hit();
+        game.dies();
         game.frame();
         assert!(game.log().said("died in chapter 3"));
         game.press_until(keys::Z, "the retry menu answered", || {

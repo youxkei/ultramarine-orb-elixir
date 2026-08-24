@@ -13,7 +13,7 @@
 //! not written down. The invariants are no death anywhere, the six stages in order, the ending after them,
 //! and the screen that saves a replay never coming up.
 
-use crate::fake::th06::{Fake, STAGES, the_run};
+use crate::fake::th06::{A_BOMB_IS_TAKEN_FOR, Fake, STAGES, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, result_state};
@@ -191,9 +191,13 @@ fn the_invulnerability_outlasts_the_hit_test_in_the_update_it_was_written_for() 
             });
             game.in_a_pointdevice_run();
             game.puts_a_bullet_on_the_player();
-            game.frames_until("the death that bullet is", 8, || {
-                game.log().said("died in chapter")
-            });
+            // The frames a bomb is still taken in stand between the hit and the death it is noticed as,
+            // and this bullet is not bombed at: nothing presses here.
+            game.frames_until(
+                "the death that bullet is",
+                A_BOMB_IS_TAKEN_FOR as u32 + 8,
+                || game.log().said("died in chapter"),
+            );
         }
 
         // And with `--clear`, the same bullet against a player orb makes invulnerable before every update:

@@ -148,8 +148,11 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
 
         // ── 4. 被弾. A life, and no menu: the game takes the death, respawns, and carries on.
         let before = game.state();
-        game.hit();
-        game.frame();
+        game.dies();
+        // **Two frames, because the life goes after the death and not with it**: the first runs the last of
+        // the frames a bomb is taken in out, and the second is the one the game takes the life on — see
+        // `Fake::update_the_player`.
+        game.frames(2);
         assert_eq!(
             game.state().lives,
             before.lives - 1,
@@ -203,8 +206,8 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // and `score.rs`'s own tests are what hold it to that. The screen itself, and what it wrote, is
         // `the_screen_a_finished_run_ends_at.rs`'s.
         for _ in 0..2 {
-            game.hit();
-            game.frame();
+            game.dies();
+            game.frames(2);
         }
         assert_eq!(game.state().lives, -1, "the run is out of lives");
         game.frames_until("the run over", 60, || !game.state().in_run);

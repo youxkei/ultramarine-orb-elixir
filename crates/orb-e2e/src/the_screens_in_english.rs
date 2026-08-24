@@ -142,7 +142,7 @@ fn the_menu_where_a_chapter_was_lost_is_in_english() {
                 "chapter 3 at frame {CARD_STARTS} (script {CARD_STARTS}): a midboss spellcard"
             ))
         });
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter 3"),

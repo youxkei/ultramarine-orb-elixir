@@ -193,7 +193,7 @@ fn a_replay_is_a_run_but_not_one_orb_acts_on() {
         );
 
         // And the player being hit is the recording being watched, not a chapter to go back to.
-        game.hit();
+        game.dies();
         game.frame();
         assert_eq!(game.state().deaths, 1, "the death is the replay's own");
         assert!(

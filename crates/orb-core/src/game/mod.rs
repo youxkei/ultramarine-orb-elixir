@@ -546,6 +546,24 @@ impl Rect {
     }
 }
 
+/// **What became of a death the game's own count has taken**, which the frame that count moves on does not
+/// settle in every game.
+///
+/// **Because a game may count the hit rather than the death.** th06's `Player::Die` at 0x427770 puts the
+/// count up as the hit lands and leaves its own deathbomb window open behind it, so the frames in which a bomb
+/// still saves the run are frames whose count has already moved; nothing ever brings that count back down,
+/// the bomb included. th07 counts in the death handler instead, once the window has closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CountedDeath {
+    /// The window is still open: a bomb inside it takes the death back, so what the count moved for is not
+    /// decided yet.
+    Open,
+    /// It stands, and the run has lost the life whatever the panel has drawn of it so far.
+    Taken,
+    /// A bomb took it back and the run goes on, the count keeping the hit it will not count again.
+    Bombed,
+}
+
 pub trait Game {
     fn hooks(&self) -> Hooks;
 
@@ -571,6 +589,19 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, with the game past initialisation.
     unsafe fn read_state(&self) -> State;
+
+    /// **Where a death [`State::deaths`] has just counted stands**, asked every frame from the one the count
+    /// moved on until it is answered with anything but [`CountedDeath::Open`].
+    ///
+    /// [`CountedDeath::Taken`] by default, which is a game whose count moves once its own deathbomb window has
+    /// closed: th07's death handler moves it at 0x4410a0, after the frames a bomb could have been pressed in,
+    /// so a death it has counted is a death.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn where_a_counted_death_stands(&self) -> CountedDeath {
+        CountedDeath::Taken
+    }
 
     /// Counts one more retry where the game's own records have somewhere to keep it, so that その他の記録 says
     /// what a mode whose runs are rewound cost.

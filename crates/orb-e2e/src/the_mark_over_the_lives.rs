@@ -114,7 +114,7 @@ fn the_mark_survives_a_stage_transition_and_the_frame_a_chapter_is_put_back_on()
         // The frame a chapter is put back on, which orb reaches by way of its own retry menu: the update
         // that puts it back has dropped what it knew of the frame it froze on, so this is the other frame
         // the mark would go off on if it were drawn on the frame rather than on the run.
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             game.log().said("died in chapter"),
@@ -235,7 +235,7 @@ fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
 
         // タイトルに戻る, which is the third of the retry menu's items and reached by pressing up once from
         // the first: the same walk `pointdevice_run.rs` makes.
-        game.hit();
+        game.dies();
         game.frame();
         game.frames(READS_KEYS_AFTER);
         game.press(keys::UP);

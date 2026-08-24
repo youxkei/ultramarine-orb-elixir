@@ -1640,6 +1640,21 @@ impl Image {
             .write::<i32>(super::G_PLAYER + super::player::INVULNERABLE_FRAMES, frames);
     }
 
+    /// The frames a bomb is still taken in, which is `respawnTimer` — see
+    /// [`player::RESPAWN_TIMER`](super::player::RESPAWN_TIMER).
+    ///
+    /// Written by a fake at the same points the game writes it: what a run starts a life with, and one off
+    /// it for each frame the player spends dead.
+    pub fn respawn_timer(&self) -> i32 {
+        self.space()
+            .read(super::G_PLAYER + super::player::RESPAWN_TIMER)
+    }
+
+    pub fn set_respawn_timer(&self, frames: i32) {
+        self.space()
+            .write::<i32>(super::G_PLAYER + super::player::RESPAWN_TIMER, frames);
+    }
+
     /// Where the player is, which is what every rule of a bot's is read against.
     pub fn the_player_is_at(&self, x: f32, y: f32) {
         self.writes_a_position(super::G_PLAYER + super::player::POSITION_CENTER, x, y);

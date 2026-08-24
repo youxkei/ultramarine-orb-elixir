@@ -26,8 +26,8 @@ use crate::audio::{Music, Track};
 // The rule for an axis' dead zone and a hat's angle, which both games are read for and neither owns — see
 // `crate::joystick::axis`.
 use crate::game::{
-    Axis, Boundary, Call, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, RunStart, State,
+    Axis, Boundary, Call, CountedDeath, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile,
+    Patch, Reading, Rect, RunStart, State,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
@@ -957,6 +957,15 @@ mod player {
     /// offset — puts at 0x440.
     pub const POSITION_CENTER: usize = 0x440;
     pub const PLAYER_STATE: usize = 0x9e0;
+    /// `respawnTimer`, which is **the frames a bomb is still taken in** — this game's deathbomb window, and
+    /// the whole of what makes a hit here not yet a death.
+    ///
+    /// `Player::OnUpdate` gates the bomb on it being anything but nought (0x42896d) and, while the state is
+    /// [`super::PLAYER_DEAD`], takes one off it a frame (0x428a9a) — and the frame it reaches nought is the
+    /// frame the death is made final: the power items are spawned and the power dropped from there
+    /// (0x428ab6 onwards). `Player::AddedCallback` starts a run's first life at 8 (0x42a09c) and the respawn
+    /// leaves 6 behind it (0x428f9e), so the window is that many frames long and not a number of orb's own.
+    pub const RESPAWN_TIMER: usize = 0x9d8;
     /// `invulnerabilityTimer.current`, the frames of invulnerability left. `Player::OnUpdate`
     /// ticks it down while the state is invulnerable and puts the state back to normal the
     /// moment it reaches nothing, so the state alone does not last: the timer under it is what
@@ -1238,7 +1247,7 @@ const PLAYER_DEAD: i8 = 2;
 /// (0x405577, 0x4065a2, 0x406ac7, 0x407174) and at 0x428f38 once the respawn has faded in.
 ///
 /// Written rather than the hit test being patched out, because the game already has a state
-/// for this and everything around it agrees on what it means: `Player::Kill` at 0x427770 is
+/// for this and everything around it agrees on what it means: `Player::Die` at 0x427770 is
 /// reached from both collision tests only where the state is 0, while firing (0x4299e4) and
 /// collecting (0x426fe5) take 0 and this alike. Patching the test would leave a state nothing
 /// else in the game expects.
@@ -1402,6 +1411,23 @@ impl Game for Th06 {
                 spellcard: spellcard_active
                     .then(|| mem::read(G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IDX)),
             }
+        }
+    }
+
+    /// **This game counts the hit**, so what the count moved for is read off the two fields the game decides
+    /// it with: the state, and the [`player::RESPAWN_TIMER`] frames a bomb is still taken in.
+    ///
+    /// **Leaving the dead state early is the bomb and nothing else.** While the state is dead the only way out
+    /// before that timer runs down is the four bombs writing [`PLAYER_INVULNERABLE`] over it: the respawn is
+    /// reached from the *other* branch, the one the timer reaching nought opens (0x428c48), so a state that is
+    /// no longer dead with the window still open is a death a bomb took back.
+    unsafe fn where_a_counted_death_stands(&self) -> CountedDeath {
+        let state = unsafe { mem::read::<i8>(G_PLAYER + player::PLAYER_STATE) };
+        let window = unsafe { mem::read::<i32>(G_PLAYER + player::RESPAWN_TIMER) };
+        match state == PLAYER_DEAD {
+            true if window > 0 => CountedDeath::Open,
+            true => CountedDeath::Taken,
+            false => CountedDeath::Bombed,
         }
     }
 

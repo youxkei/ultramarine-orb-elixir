@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, AtomicUsize
 
 use orb_config::{Config, Language};
 
-use crate::game::{Game, Pad, Question, Reached, RunStart, State};
+use crate::game::{CountedDeath, Game, Pad, Question, Reached, RunStart, State};
 use crate::input::{Keyboard, Pads};
 use crate::lives_ui::LivesMark;
 use crate::menu_ui::By;
@@ -256,6 +256,9 @@ pub struct Runtime {
     stressing: (i32, u32),
     /// `Some` while the game is frozen on the retry menu.
     retry: Option<RetryMenu>,
+    /// Whether a death the count has taken is still being decided, which is a game's own deathbomb window
+    /// standing between the count moving and the life being gone — see [`Game::where_a_counted_death_stands`].
+    deciding_a_death: bool,
     /// The mark over the game's own count of lives, in a run where dying costs a chapter
     /// rather than one of them.
     lives: LivesMark,
@@ -1016,6 +1019,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             stressed: 0,
             stressing: (-1, 0),
             retry: None,
+            deciding_a_death: false,
             lives: LivesMark::new(),
             marked: false,
             marked_after: 0,
@@ -2533,12 +2537,33 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         playing.reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
     }
 
-    // The miss is only certain once `deaths` moves, which is after the death bomb
-    // window has closed; a successful death bomb never gets here.
-    let died = state.in_game
-        && runtime
+    // **The count moving is where a death is noticed and not where it is settled.** th06 counts the *hit*:
+    // `Player::Die` puts the count up as the hit lands and leaves the frames a deathbomb is still taken in
+    // behind it, where th07 counts in its death handler once its own window has closed. So the count is
+    // held here while the game says the window is open, and a bomb inside it leaves the run playing with no
+    // offer ever made — which is the whole of the window: an offer raised inside it freezes the game on the
+    // frame the player would have bombed on, and takes the death th06 was going to give back.
+    match state.in_game {
+        // A death being decided is this run's: a stage left while the window was open — a run given up, a
+        // game closed — leaves nothing to decide, and a decision kept across that would be answered against
+        // whatever the next run's player is doing.
+        false => runtime.deciding_a_death = false,
+        true if runtime
             .previous
-            .is_some_and(|previous| state.deaths > previous.deaths);
+            .is_some_and(|previous| state.deaths > previous.deaths) =>
+        {
+            runtime.deciding_a_death = true
+        }
+        true => {}
+    }
+    let died = runtime.deciding_a_death
+        && match unsafe { runtime.game.where_a_counted_death_stands() } {
+            CountedDeath::Open => false,
+            settled => {
+                runtime.deciding_a_death = false;
+                settled == CountedDeath::Taken
+            }
+        };
     if died && runtime.chaptering() && runtime.chapters.can_retry() {
         log!("died in chapter {}", runtime.chapters.number());
         let chapters = offered(runtime);

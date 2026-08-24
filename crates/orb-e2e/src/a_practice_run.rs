@@ -104,7 +104,7 @@ fn a_practice_run_is_rewound_and_nothing_is_written_down_for_it() {
 
         // ── 4. 被弾, and the chapter put back: what the mode promises is the memory as it was, which for a
         // practice run is the same mechanism and the same snapshot as for a full one.
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter 3"),

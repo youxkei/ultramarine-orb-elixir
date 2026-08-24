@@ -126,7 +126,7 @@ fn the_chapters_behind_it_are_not_offered_where_the_run_has_reached_no_other() {
             log.lines().join("\n  ")
         );
 
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter 1"),
@@ -172,7 +172,7 @@ fn the_chapters_behind_the_one_that_was_lost_are_listed_and_are_where_choosing_o
 
         // ── 被弾, and the four ways on over the frozen game, with the chapter that was lost named above
         // them and the cursor on the item that puts it back.
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said("died in chapter 4"),
@@ -257,7 +257,7 @@ fn the_chapters_behind_the_one_that_was_lost_are_listed_and_are_where_choosing_o
         game.frames_until("the card's chapter again", CARD_STARTS + 400, || {
             log.said_since(from, &format!("chapter 3 at frame {CARD_STARTS}"))
         });
-        game.hit();
+        game.dies();
         game.frame();
         assert!(
             log.said_since(from, "died in chapter 3"),

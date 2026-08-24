@@ -63,9 +63,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.at = unsafe { player() };
     into.half = unsafe { player_box() };
     (into.straight, into.diagonal) = unsafe { a_step() };
-    // **The frame the player is hit and not the frames after it.** `Player::Kill` at 0x427770 leaves the state
-    // at 2 and puts the timer under it back, and the four bombs write 3 over it — so a bomb pressed while it
-    // stands is a deathbomb and takes the death back.
+    // **The frames a bomb still takes the hit back in.** `Player::Die` at 0x427770 leaves the state at 2 and
+    // puts the timer under it back, and the four bombs write 3 over it — so a bomb pressed while it stands is
+    // a deathbomb and takes the death back. It stands for `respawnTimer` frames and not for one, which is what
+    // makes a word of the rules' able to reach one at all.
     let state = unsafe { mem::read::<i8>(G_PLAYER + player::PLAYER_STATE) };
     into.hit = state == PLAYER_DEAD;
     into.normal = state == PLAYER_NORMAL;

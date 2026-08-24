@@ -145,8 +145,11 @@ fn a_finished_legacy_run_walks_its_own_screen_out_and_that_screen_writes() {
         // and nothing is rewound.
         game.forget_score_file_opens();
         while game.state().lives >= 0 {
-            game.hit();
-            game.frame();
+            game.dies();
+            // **Two frames a death**: the one the game runs the last of its deathbomb window out on, which is
+            // the one orb reads the death off, and the one after it that takes the life — see
+            // `Fake::update_the_player`.
+            game.frames(2);
         }
         game.frames_until("the run over", 60, || !game.state().in_run);
 

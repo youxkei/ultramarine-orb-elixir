@@ -21,7 +21,7 @@
 //! One `#[test]` in the file because there is one game in a process: orb's runtime, the record of what
 //! a run has pressed and which file its score goes to are one apiece, the way they are in the game.
 
-use crate::fake::th06::{ATTACK_CHANGES, CARD, CARD_STARTS, Fake, lives_row};
+use crate::fake::th06::{A_BOMB_IS_TAKEN_FOR, ATTACK_CHANGES, CARD, CARD_STARTS, Fake, lives_row};
 use crate::fake::{LANGUAGE, Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th06::image::{Scene, Screen, item};
@@ -187,16 +187,31 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             log.lines(),
         );
 
-        // ── 5. 被弾. The game takes a life and counts the death, and orb freezes it on the frame it
-        // notices — the retry menu up over a game whose own clock has stopped.
+        // ── 5. The hit. The game counts it, and orb freezes the game on the frame the death it stands for
+        // is settled — the retry menu up over a game whose own clock has stopped.
+        //
+        // **And not on the frame the hit lands**, which is this game's own deathbomb window: a bomb is taken for
+        // [`A_BOMB_IS_TAKEN_FOR`] frames after it, and an offer raised inside them freezes the game on a
+        // frame the player could have bombed on and takes a death the game was going to give back.
         game.hit();
         game.frame();
         assert!(
-            log.said("died in chapter 3"),
-            "the death was not noticed: {:?}",
+            !log.said("died in chapter 3"),
+            "the death was noticed inside the frames a bomb is still taken in: {:?}",
             log.lines(),
         );
-        assert_eq!(game.state().lives, 1, "the life the death took");
+        game.frames_until(
+            "the frames a bomb is taken in to run out",
+            A_BOMB_IS_TAKEN_FOR as u32 + 1,
+            || log.said("died in chapter 3"),
+        );
+        // **The life is still there**, the game taking it with the animation it plays after the window and
+        // not with the count: what a retry puts back is the snapshot's numbers whichever of them had moved.
+        assert_eq!(
+            game.state().lives,
+            2,
+            "the life the count had not taken yet"
+        );
         assert_ne!(
             game.state(),
             at_the_card,
@@ -292,7 +307,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
 
         // ── 8. やめる. Dying again and giving the run up, which is the one way out of one that leaves the
         // chapter behind — the run did not finish, so nothing takes the file away.
-        game.hit();
+        game.dies();
         game.frame();
         assert!(log.said("died in chapter 4"));
         // Up once, which from the item the cursor starts on is the last of them: タイトルに戻る. After the

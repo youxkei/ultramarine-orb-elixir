@@ -41,7 +41,7 @@ fn lost_the_card(name: &str) -> Box<Fake> {
             "chapter 3 at frame {CARD_STARTS} (script {CARD_STARTS}): a midboss spellcard"
         ))
     });
-    game.hit();
+    game.dies();
     game.frame();
     assert!(
         log.said("died in chapter 3"),

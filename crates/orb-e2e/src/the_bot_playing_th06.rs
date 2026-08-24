@@ -9,7 +9,7 @@
 //! out. So every one of these puts something where the game would keep it and reads back the word the run was
 //! handed.
 
-use crate::fake::th06::{Fake, the_run};
+use crate::fake::th06::{A_BOMB_IS_TAKEN_FOR, Fake, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
 
@@ -351,8 +351,12 @@ fn the_bot_leaves_a_beam_of_th06_before_its_growing_end_arrives() {
     });
 }
 
-/// **And the bomb on the frame the player is hit**, which is a deathbomb: `Player::Kill` leaves the state at 2
-/// and a bomb pressed while it stands takes the death back.
+/// **And the bomb on the frame the player is hit**, which is a deathbomb: `Player::Die` leaves the state at 2
+/// for the frames a bomb is still taken in, and one pressed inside them takes the death back.
+///
+/// **The hit is a bullet's and not a state written by hand**, which is what makes the rest of this an
+/// assertion about anything: the count moving is what orb reads a death off, so a state written straight into
+/// the image would leave `runtime` with nothing to decide and the last assertion here true either way.
 #[test]
 fn the_bot_bombs_the_frame_th06s_player_is_hit() {
     in_its_own_process(|| {
@@ -366,16 +370,46 @@ fn the_bot_bombs_the_frame_th06s_player_is_hit() {
             game.log().lines().join("\n  "),
         );
 
-        // **And one frame, which is what this state lasts here**: the game's own update puts it back to normal
-        // on the very frame it is read on, so the word that carries the bomb is this frame's and no later
-        // one's.
-        game.image()
-            .player(orb_core::game::th06::image::Player::Dying);
+        // The hit itself, and the frame the game's own test takes it on.
+        let lives = game.state().lives;
+        game.puts_a_bullet_on_the_player();
+        game.frames(1);
+        assert_eq!(
+            game.state().deaths,
+            1,
+            "the bullet did not reach the player at all:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // **And the frame after it, which is the word the rules answer a hit with**: they are asked for one
+        // before the game's own update, so the bomb goes in inside the same frame it is pressed for.
         game.frames(1);
         assert_eq!(
             game.image().input_now() & BOMB,
             BOMB,
             "the bot did not bomb the frame the player was hit:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // **And the game takes it**, which is what the frames a bomb is taken in are for: the bomb goes in
+        // while `respawnTimer` still stands, the state it leaves is the invulnerable one, and the run plays
+        // on with the life it had and no offer to put a chapter back.
+        assert_eq!(
+            game.image().player_now(),
+            orb_core::game::th06::image::Player::Invulnerable,
+            "the bomb did not take the death back:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        assert_eq!(
+            game.state().lives,
+            lives,
+            "the death the bomb took back cost a life anyway:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        game.frames(A_BOMB_IS_TAKEN_FOR as u32 + 1);
+        assert!(
+            !game.log().said("died in chapter"),
+            "a chapter was offered back for a death the bomb had taken:\n  {}",
             game.log().lines().join("\n  "),
         );
     });
