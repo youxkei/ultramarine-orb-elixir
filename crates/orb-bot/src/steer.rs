@@ -386,6 +386,12 @@ impl Keys {
 }
 
 /// How often the shot is let go for a frame, so that a screen waiting for one gets a press: a second of them.
+///
+/// **Eight was tried, for a game whose held shot is its focus key, and it buys nothing.** th06's own input read
+/// counts the frames the shot has been held and sets the focus bit itself from the eighth — but that read is one
+/// orb replaces, and a bot's word reaches the game's own movement without passing through it. Which a launch
+/// says: at a cadence of eight the words still carried the bit on the frames a boss was up and not on the
+/// others, so what was setting it was [`Keys::focus`] under a fight and never the holding.
 const SHOT_LET_GO_EVERY: u32 = 60;
 
 /// The frames these rules have been asked for, which is what [`SHOT_LET_GO_EVERY`] is counted in.

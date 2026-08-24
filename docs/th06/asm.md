@@ -114,6 +114,21 @@ the y at `+0x120` capped at 3.0 and pulled by `[0x46b144]` a frame.
 `0x69d4ba` and `0x69d4bb` are `GameManager+0x181a` and `+0x181b`, the lives and the bombs, which is what says
 which of 3 and 5 is which.
 
+## The shot is also the focus key, and a word orb hands in does not go through that
+
+`0x41cfc0`, the controller read, counts the frames the shot has been held in `[0x69d8f4]` — up to 16 at
+`0x41d06e` — and **once that count is 8 it sets bit `0x4` in the word it hands back** (`0x41d09b`). Bit `0x4`
+is the focus bit the movement switch reads, so holding the shot *is* holding focus in this game.
+
+**And one frame of letting go does not undo it**: `0x41d0a3` takes 8 off the count where it is above 8 and
+zeroes it only where it is not, so a release from 16 lands on 8 — which is still the count that sets the bit.
+
+**And none of it reaches a word orb hands in**, which is the half that matters here: that read is one orb
+replaces, so a bot's word goes to the game's own movement without passing through the counting. Measured — a
+launch driven with the shot let go every eight frames carried the focus bit on exactly the frames a boss was up
+and on no others, which is the rules' own `Keys::focus` and not the holding. What the counting still decides is
+the word a *pad* hands in, which is `Th06::focusing`.
+
 ## What the player's step is
 
 `Player::OnUpdate`'s movement, `0x427a09` onwards: `[player+0xa0c]` is the direction, 1 through 8, and its
