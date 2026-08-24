@@ -170,7 +170,7 @@ fn the_chapters_behind_the_one_that_was_lost_are_listed_and_are_where_choosing_o
             log.said(&format!("chapter 4 at frame {ATTACK_CHANGES}"))
         });
 
-        // ── 被弾, and the four ways on over the frozen game, with the chapter that was lost named above
+        // ── The hit, and the four ways on over the frozen game, with the chapter that was lost named above
         // them and the cursor on the item that puts it back.
         game.dies();
         game.frame();

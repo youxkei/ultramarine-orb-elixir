@@ -1,8 +1,8 @@
-//! **The frame orb paces 妖々夢 with, and what it reads of one.**
+//! **The frame orb paces th07 with, and what it reads of one.**
 //!
-//! A 妖々夢 laid out from what has been read of `th07.exe`, orb attached to `Th07`, and orb's own frame
+//! A th07 laid out from what has been read of `th07.exe`, orb attached to `Th07`, and orb's own frame
 //! loop in place of the game's own frame — which is what a launch there is. What the e2e tests below ask
-//! is that the loop composes 妖々夢's frame rather than 紅魔郷's: the update before the draw, the queue of
+//! is that the loop composes th07's frame rather than th06's: the update before the draw, the queue of
 //! quads emptied before the drawing fills it and drawn before the scene ends, the fog a stage left on put
 //! out. Beside that, one field at a time: the scene, the stage, the run's own numbers, the pad, the
 //! letterbox, the score file the mode forks.
@@ -18,7 +18,7 @@
 //! So the laid-out game's draw chain queues a quad the way a real one does, through the field the game's
 //! own frame resets, and a loop that leaves that reset out faults here as it faulted there.
 //!
-//! What these cannot say is that the addresses *are* right: a laid-out 妖々夢 is written from the same
+//! What these cannot say is that the addresses *are* right: a laid-out th07 is written from the same
 //! constants `Th07` reads, so a wrong one is wrong on both sides at once. Only the real image says.
 
 use crate::fake::th07::Fake;
@@ -38,12 +38,12 @@ const WORK_US: i64 = 700;
 /// overlay and well into the frames where nothing is happening.
 const FRAMES: u32 = 5 * frame::LOGIC_HZ;
 
-/// The family 妖々夢 draws its own text in, which is the one orb's screens are to be drawn in: the name it
+/// The family th07 draws its own text in, which is the one orb's screens are to be drawn in: the name it
 /// hands `CreateFontA` at 0x4322e7, at 0x497cbc in Shift-JIS.
 const FACE: &str = "ＭＳ ゴシック";
 
 /// A card of the game's own and the name its record carries, for the run that has to have counted something
-/// before its ranking is worth building: 妖々夢 counts an attempt where a card starts.
+/// before its ranking is worth building: th07 counts an attempt where a card starts.
 const A_CARD: usize = 96;
 const A_CARDS_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -52,7 +52,7 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
     in_its_own_process(|| {
         let game = Fake::attach(Display::agreed(120), "th07-paced", Work::wandering(WORK_US));
 
-        // The frame is orb's own, in orb's order and not 妖々夢's: the update first — which is the frame
+        // The frame is orb's own, in orb's order and not th07's: the update first — which is the frame
         // of input lag removed — the sounds where the game's own frame hands them over, then the drawing,
         // then the frame handed to the display.
         game.forget_asked();
@@ -70,7 +70,7 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
             "orb did not attach:\n  {log}"
         );
 
-        // And an overlay all the same, in a directory with no `font.ttf` in it: 妖々夢 ships none — its
+        // And an overlay all the same, in a directory with no `font.ttf` in it: th07 ships none — its
         // fonts are inside `th07.dat` — and orb's own screens are drawn with the face the machine has
         // rather than not drawn at all. See `docs/adr/0019`.
         assert!(
@@ -83,14 +83,14 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
         );
 
         // **And the face it asked the machine for is the one this game asks for itself, asked for the way the
-        // game asks**: 妖々夢 ships no font and makes its own text out of a family it names to GDI —
+        // game asks**: th07 ships no font and makes its own text out of a family it names to GDI —
         // `CreateFontA` at 0x4322e7 with `ＭＳ ゴシック` and the weight 0x2bc, which is bold — so asking for
         // anything else is orb's screens in a face the game's own text is not in.
         //
         // **And the height is the game's own number**: that call asks for `size * 2 - 2` as a *positive* height,
         // which is the whole cell rather than the em, and the call bakes into a bitmap twice as wide and
         // `size * 2 + 6` tall before the result is drawn back down to size. Glyphs baked at twice the size and
-        // scaled down are not the same glyphs as ones baked at the size — a 妖々夢 session said the text did not
+        // scaled down are not the same glyphs as ones baked at the size — a th07 session said the text did not
         // look like the game's — so what orb asks for is the same number and its own drawing does the same
         // halving. Both of the overlay's sizes, the status lines' and the mark's.
         let asked = game.sim().text().machine_faces_asked_for();
@@ -108,7 +108,7 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
                     height: MARK_FONT_HEIGHT * 2 - 2,
                 },
             ],
-            "orb did not ask the machine for the face 妖々夢 asks for, the way it asks for it",
+            "orb did not ask the machine for the face th07 asks for, the way it asks for it",
         );
         // And the log says which one came back, a family a machine does not have being a substituted face
         // and the glyphs then not the game's.
@@ -226,13 +226,13 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
             assert_eq!(
                 game.opens_its_score_file(write),
                 "pointdevice_score.dat",
-                "an open of 妖々夢's score file landed in the game's own",
+                "an open of th07's score file landed in the game's own",
             );
         }
 
         // **With one exception, and it is a read.** What the front end's own menus offer — which practice
         // stages are open, whether the Extra is — is not a record of a run, so that one read is answered out
-        // of the game's own file whichever mode orb is in: a first 完全無欠 session answering it out of a
+        // of the game's own file whichever mode orb is in: a first Pointdevice session answering it out of a
         // new file of its own would lock every stage a `score.dat` had already earned. orb brackets exactly
         // that callback, which in this game is 0x45c4c8 — see `Th07::hooks`.
         // その他の記録 in each of the two files, and not the same in both: what a play time is is time spent in
@@ -259,7 +259,7 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
         // record of runs — the practice scores a stage is offered with, and this game's card records. Left as
         // the game's own file has them, a session that never answered the mode question again shows the other
         // mode's: a run given up back to the practice stage select showed a legacy score for the stage it had
-        // just been played in, and the ランキング counted nothing of the session.
+        // just been played in, and the ranking screen counted nothing of the session.
         assert!(
             game.log()
                 .said("score: what the mode's own file records read out of it again"),
@@ -277,7 +277,7 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
             "その他の記録 came back as the game's own file has them, not the mode's",
         );
 
-        // And the game's file is never written in this mode: the one write 妖々夢 makes of it is the screen a
+        // And the game's file is never written in this mode: the one write th07 makes of it is the screen a
         // run ends on going down, which is outside that bracket and so follows the mode like every other open.
         let log = game.log().lines().join("\n");
         assert!(
@@ -287,7 +287,7 @@ fn the_score_file_of_a_run_that_can_be_rewound_is_orbs_own() {
     });
 }
 
-/// **No ranking is built for a run of 妖々夢 that ended, and no update of the game's own is asked for.**
+/// **No ranking is built for a run of th07 that ended, and no update of the game's own is asked for.**
 ///
 /// Which is a finding about this game rather than a preference: the screen orb used to build and take down here
 /// writes nothing at either phase it is built with — 0xa and 0x12 both skip the one write in the exe, which is
@@ -358,7 +358,7 @@ fn the_queue_of_quads_is_emptied_before_the_drawing_and_drawn_before_the_scene_e
         // run: emptied at the top of every frame's drawing, filled by the draw chain, and drawn before
         // the scene ended. A loop that emptied it and never drew it would leave the pointer FRAMES quads
         // along and eventually walk off the end of a two-thousand-quad buffer; one that never emptied it
-        // writes to address zero on its first frame, which is what the real 妖々夢 did.
+        // writes to address zero on its first frame, which is what the real th07 did.
         let image = game.image();
         assert_eq!(
             image.queue_writes_at(),
@@ -377,7 +377,7 @@ fn the_queue_of_quads_is_emptied_before_the_drawing_and_drawn_before_the_scene_e
 }
 
 /// A client wider than the game's own ratio, so that the rectangle a frame reaches the device in is plainly
-/// not the client: 妖々夢 renders 640x480, and what 4:3 gets in 16:9 is bars down the sides.
+/// not the client: th07 renders 640x480, and what 4:3 gets in 16:9 is bars down the sides.
 const WIDER_THAN_THE_GAME: Screen = Screen::Window {
     width: 1280,
     height: 720,
@@ -409,7 +409,7 @@ fn the_frames_reach_the_device_inside_a_letterbox_of_the_games_own_shape() {
             Some(letterbox),
             "the frame was presented over the whole client rather than into the game's own shape",
         );
-        // And the whole back buffer into it. 妖々夢's own present asks for none of its surface in
+        // And the whole back buffer into it. th07's own present asks for none of its surface in
         // particular — four nulls at 0x4345df — so what orb has to keep is that: a part of the surface
         // scaled into a rectangle worked out for the whole of it would be the wrong part, wrongly.
         assert_eq!(presents[0].source, None);
@@ -421,7 +421,7 @@ fn the_frames_reach_the_device_inside_a_letterbox_of_the_games_own_shape() {
 const PAD_BUTTONS: u32 = 16;
 const PAD_TRAVEL: (u32, u32) = (0, 65535);
 
-/// The bits of 妖々夢's own input word this asks about: what the game's default mapping calls shoot, and
+/// The bits of th07's own input word this asks about: what the game's default mapping calls shoot, and
 /// the two the stick and the hat decide. Read off the pad read at 0x430457 and 0x4305ac — see
 /// `Th07::pad_word`.
 const SHOOT: u16 = 0x1;
@@ -445,7 +445,7 @@ fn a_pad_the_game_has_no_device_for_is_in_the_word_the_game_reads() {
             "th07-the-pad",
             Work::wandering(WORK_US),
         );
-        // A pad the game itself finds nothing of: 妖々夢 looks for a DirectInput device of its own and
+        // A pad the game itself finds nothing of: th07 looks for a DirectInput device of its own and
         // falls back to one winmm joystick, and orb reads every pad the machine has instead — which is
         // the whole of why a pad works here at all.
         game.sim()
@@ -502,7 +502,7 @@ fn a_pad_the_game_has_no_device_for_is_in_the_buttons_its_key_config_reads() {
         });
 
         // What the key config screen reads, which is the pad's buttons *by number* and not the word: a
-        // mapping cannot be made from a mapped word. The game's own read fills nothing here — 妖々夢 finds
+        // mapping cannot be made from a mapped word. The game's own read fills nothing here — th07 finds
         // no device of its own on the machine this was found on — so every byte set in it is orb's.
         let array = game.reads_the_pad_buttons();
         assert_eq!(
@@ -637,7 +637,7 @@ fn the_fog_is_taken_off_to_the_device_every_frame_and_not_only_where_a_stage_lef
             Work::wandering(WORK_US),
         );
 
-        // A stage's background drawing having turned it on, which is where 妖々夢's own fog comes from.
+        // A stage's background drawing having turned it on, which is where th07's own fog comes from.
         game.image().turns_the_fog_on();
         game.frames(FRAMES);
 

@@ -1,8 +1,8 @@
-//! **The window orb makes for 妖々夢: the size asked for, the monitor's real pixels, and the black beside the
+//! **The window orb makes for th07: the size asked for, the monitor's real pixels, and the black beside the
 //! game.**
 //!
-//! The arithmetic is orb's and `the_window.rs` holds it over 紅魔郷; what this game brings is the two ends of it.
-//! **The ask** is 妖々夢's own `CreateWindowExA`, rewritten inside the call — `Fake::creates_its_window` passes
+//! The arithmetic is orb's and `the_window.rs` holds it over th06; what this game brings is the two ends of it.
+//! **The ask** is th07's own `CreateWindowExA`, rewritten inside the call — `Fake::creates_its_window` passes
 //! the game's own class and the size `Th07::content_size` names, and every argument of it is orb's by the time
 //! the host sees one. **And the setting underneath**, which this game keeps in its own configuration: a launch
 //! that left the display taken exclusively would have a window orb cannot resize, so the flag is written before
@@ -220,7 +220,7 @@ fn the_monitor_th07_is_laid_out_on_is_its_real_pixels_once_the_process_says_it_i
     });
 }
 
-/// Borderless fullscreen keeps 妖々夢's own ratio and blacks the rest, with no frame to remove.
+/// Borderless fullscreen keeps th07's own ratio and blacks the rest, with no frame to remove.
 ///
 /// The window is the monitor, at its origin and its whole size, with the game letterboxed inside it — 4:3 in
 /// 16:9, which is what `Th07::content_size` being 640x480 comes to.

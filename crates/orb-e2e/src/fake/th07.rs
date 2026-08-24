@@ -1,9 +1,9 @@
-//! A 東方妖々夢 that is not the real one, and far less of one than [`th06`](super::th06) is.
+//! A th07 that is not the real one, and far less of one than [`th06`](super::th06) is.
 //!
 //! **It plays as much of the game's part as `Th07` reads.** Which is a frame and nothing else: its
 //! memory holds the device orb draws through, the window orb asks about, the chain the two frame calls are
-//! made at and the queue of quads its drawing fills, and its own frame does what 妖々夢's does in
-//! 妖々夢's own draw-then-update order. Everything a run is made of is missing because `Th07` answers all
+//! made at and the queue of quads its drawing fills, and its own frame does what th07's does in
+//! th07's own draw-then-update order. Everything a run is made of is missing because `Th07` answers all
 //! of it without looking — no scene to be in, no stage, no pad, and a score file that is one name and no
 //! contents — so there is nothing for this game to be doing.
 //!
@@ -17,7 +17,7 @@
 //! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
 //! [docs/adr/0017](../../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
 //!
-//! Where a number here is 妖々夢's it says so. There are two: the answers its chain walk gives, and what
+//! Where a number here is th07's it says so. There are two: the answers its chain walk gives, and what
 //! its own frame answers to the loop above it.
 
 use std::cell::{Cell, RefCell};
@@ -43,7 +43,7 @@ const CHAIN_CARRIED_ON: i32 = 1;
 pub const CHAIN_LEFT: i32 = 0;
 pub const CHAIN_FAILED: i32 = -1;
 
-/// The score file 妖々夢 asks for, which is the one name this game passes `CreateFileA`: `score.dat`,
+/// The score file th07 asks for, which is the one name this game passes `CreateFileA`: `score.dat`,
 /// beside its exe, opened twice for reading and once for writing in the launch `docs/adr/0004` reports.
 ///
 /// The name the game asks for and not the name an open lands in — which of the two files that is is
@@ -59,7 +59,7 @@ const GENERIC_WRITE: u32 = 0x4000_0000;
 /// pad's bits are added to starts as — see [`input`].
 const NO_KEY_HELD: u16 = 0;
 
-/// Which key is which bit of the word 妖々夢's own read builds, as its defaults have it: the six an e2e test
+/// Which key is which bit of the word th07's own read builds, as its defaults have it: the six an e2e test
 /// here presses.
 ///
 /// The order the game's own read fills them in is shoot, bomb, focus, menu, up, down, left, right and skip,
@@ -98,7 +98,7 @@ const LEFT: u8 = 0x25;
 const RIGHT: u8 = 0x27;
 
 /// The run every e2e test over a chapter of this game plays, and what a stage of it starts with: Normal from
-/// the first stage, with the lives and bombs 妖々夢's own front end puts in place and a shot part way up.
+/// the first stage, with the lives and bombs th07's own front end puts in place and a shot part way up.
 ///
 /// A score with digits in it rather than a round number, so that a chapter putting one number back where
 /// another goes shows up as the wrong digits rather than as nothing.
@@ -117,7 +117,7 @@ pub const POWER: f32 = 96.0;
 pub const SCORE: u32 = 1_234_560;
 
 /// **What a build leaves the shot's own number at**, which is the figure the per-shot table holds for the shot
-/// above: what a launch of 妖々夢 read out of a 2面 its resume had built. A stage the run walked into carries
+/// above: what a launch of th07 read out of a stage 2 its resume had built. A stage the run walked into carries
 /// its own instead — see `Fake::builds_the_stage`.
 pub const A_BUILDS_OWN_NUMBER: u32 = 0x10;
 
@@ -179,7 +179,7 @@ pub const STAGE_SLOT: u32 = 0;
 pub const FIGHT_SLOT: u32 = 1;
 
 /// And the slot the front end leaves its own song in, which is one of the two 0x439ec1's other call sites ask
-/// for — and what a 妖々夢 session found in a chapter of a stage: `th07_01.wav`, still in slot 8, frames into a
+/// for — and what a th07 session found in a chapter of a stage: `th07_01.wav`, still in slot 8, frames into a
 /// stage whose own song had not started yet.
 pub const FRONT_END_SLOT: u32 = 8;
 
@@ -225,7 +225,7 @@ pub struct Stream {
     pub looping: bool,
 }
 
-/// The class 妖々夢 registers its window with, which is 紅魔郷's too: `BASE`, at 0x497bd0 in this exe. What
+/// The class th07 registers its window with, which is th06's too: `BASE`, at 0x497bd0 in this exe. What
 /// orb recognises the window it plays in by — see `orb_core::window::is_game_class`, and the size the game
 /// asks for is [`Th07::content_size`]'s, orb deciding what it gets instead.
 const WINDOW_CLASS: &CStr = c"BASE";
@@ -239,26 +239,26 @@ const OTHER_WINDOW_CLASS: &CStr = c"th07-notify";
 ///
 /// The three are this file's own stand-in for the game's own arguments — what they have to be is *nothing like*
 /// what orb lays out, so that a window read back at these numbers is one orb decided nothing about. Which of
-/// them the real 妖々夢 passes is not read here: orb keys on the class, and the size a window comes out is
+/// them the real th07 passes is not read here: orb keys on the class, and the size a window comes out is
 /// [`Th07::content_size`]'s ratio and `orb.yaml`'s.
 pub const ASKED_STYLE: u32 = 0x00c0_0000 | 0x0008_0000 | 0x1000_0000;
 pub const ASKED_AT: (i32, i32) = (17, 23);
 pub const ASKED_SIZE: (i32, i32) = (646, 505);
 
 /// And what a whole frame answers, which the message pump reads: zero to be called again, and the two
-/// above zero to leave. 妖々夢's own, at 0x4346f2, 0x4347f7 and 0x434807.
+/// above zero to leave. th07's own, at 0x4346f2, 0x4347f7 and 0x434807.
 pub const FRAME_KEPT_RUNNING: i32 = 0;
 pub const FRAME_LEFT: i32 = 1;
 pub const FRAME_FAILED: i32 = 2;
 
-/// A 妖々夢 laid out, with orb attached to it.
+/// A th07 laid out, with orb attached to it.
 pub struct Fake {
     image: Image,
     launch: Launch,
     /// What this game's chain walk answers. [`CHAIN_CARRIED_ON`] for the whole of a launch here: no
-    /// e2e test over this game asks it to leave, 妖々夢's half being a frame and nothing else. A `Cell`
+    /// e2e test over this game asks it to leave, th07's half being a frame and nothing else. A `Cell`
     /// all the same, because what reads it is a bare `extern` function with the ABI's arguments and
-    /// nothing else — the same shape 紅魔郷's is, where an e2e test does move it.
+    /// nothing else — the same shape th06's is, where an e2e test does move it.
     answers: Cell<i32>,
     /// How many times the game has been made to tell its device the fog is off — see
     /// [`puts_the_fog_out`].
@@ -307,7 +307,7 @@ pub struct Fake {
     stage_frames: Cell<Option<u32>>,
     /// The frame the fight this stage ends with is won on, where an e2e test says: the slot emptied, which
     /// is what a defeat is. Apart from the stage's own length because the two are apart in the game —
-    /// 妖々夢 runs on for 281 to 496 frames after its boss goes down.
+    /// th07 runs on for 281 to 496 frames after its boss goes down.
     fight_won_at: Cell<Option<u32>>,
     /// How many updates the ending's own script has left, and whether what it does then is leave its scene
     /// rather than hand over to the roll — see [`Fake::an_ending_is_running`].
@@ -419,7 +419,7 @@ impl Fake {
     ) -> Box<Self> {
         let dir = scratch(name);
         // The simulated Windows first, `orb.yaml` being a file of orb's own and so read through the file
-        // seam — the same order 紅魔郷's has, and for the same reason.
+        // seam — the same order th06's has, and for the same reason.
         let image = Image::laid_out_seeded(display.seed);
         let installed = image.enter();
         // Before the attach, that being where orb settles which language its screens are in: a machine declared
@@ -436,8 +436,8 @@ impl Fake {
         // Kept before the attach takes the rest of it: what plays the run is installed after the attach — the
         // log being what a refused recipe has to speak through — and by then the config has moved.
         let recipe = config.autoplay.clone();
-        // The font is there for the harness's own device and gone before orb reaches for one: **a 妖々夢
-        // install has no `font.ttf` beside its exe.** 紅魔郷 ships one and 妖々夢 keeps its fonts inside
+        // The font is there for the harness's own device and gone before orb reaches for one: **a th07
+        // install has no `font.ttf` beside its exe.** th06 ships one and th07 keeps its fonts inside
         // `th07.dat`, so what orb draws here it draws in a face of the machine's own — see
         // `docs/adr/0019`. A launch with a font here would be a launch of the other game's directory.
         let font = dir.join("font.ttf");
@@ -493,7 +493,7 @@ impl Fake {
         }
         // And the monitor the window goes on, before orb is attached and for the reason the rate is: the
         // attach is where orb says this process reads sizes as real pixels. Declared for every launch here
-        // rather than by the e2e tests that want one — 妖々夢 makes a window on any machine — except where one
+        // rather than by the e2e tests that want one — th07 makes a window on any machine — except where one
         // asks for a host that will not say where its panel is, which is a window orb has nothing to lay out
         // against: see `the_windows_orb_leaves_alone_of_th07.rs`.
         if monitor {
@@ -674,7 +674,7 @@ impl Fake {
     }
 
     /// The game opening its own score file, which is one `CreateFileA` on the name it asks for — and
-    /// which 妖々夢 does at its front end and again on the way out, measured as three opens of `score.dat`
+    /// which th07 does at its front end and again on the way out, measured as three opens of `score.dat`
     /// in the launch `docs/adr/0004` reports.
     ///
     /// Answers the name the open landed in, which is orb's decision and not this game's.
@@ -766,7 +766,7 @@ impl Fake {
     /// `heard_at` bytes into `thbgm.dat`.
     ///
     /// A real buffer and a real pair of kernel32 functions, because orb reaches those by *calling* them rather
-    /// than by reading them: 妖々夢 opens that one file itself and reads every track out of it, so what a
+    /// than by reading them: th07 opens that one file itself and reads every track out of it, so what a
     /// position in it means is an offset in the archive — see `orb_core::audio::Track`.
     ///
     /// The countdown goes in with the position, they being the pair a loop is taken on: the track loops where
@@ -806,7 +806,7 @@ impl Fake {
     /// transition, and the stage's own not asked for yet. So the stream, its source and its buffer are all
     /// still there, on that song's record, with nothing coming out of them.
     ///
-    /// **Stopped rather than playing**, which is the whole of why this is its own call: a launch of 妖々夢 was
+    /// **Stopped rather than playing**, which is the whole of why this is its own call: a launch of th07 was
     /// watched taking a chapter here, and what is audible then is nothing. A laid-out game left playing lets an
     /// answer through that that launch heard fail — the stage's own song started early, and again from its
     /// beginning where the stage's script asked for it.
@@ -832,7 +832,7 @@ impl Fake {
         self.image.streams_it_again(sound, TRACK, TRACK.bytes);
     }
 
-    /// The screen a run ends at brought up from the title, which is the front end's own ランキング: the screen on
+    /// The screen a run ends at brought up from the title, which is the front end's own ranking screen: the screen on
     /// the chain with the phase that way up leaves, and its added callback — the same read of the score file a
     /// save makes — run where the chain would run it.
     ///
@@ -857,7 +857,7 @@ impl Fake {
         self.the_player_read.get()
     }
 
-    /// The read that screen's own build makes, which is the same read a save makes and the one the ランキング
+    /// The read that screen's own build makes, which is the same read a save makes and the one the ranking screen
     /// shows what it shows out of.
     fn the_screen_a_run_ends_at_reads_the_file(&self) {
         let screen = self.image.the_screen_a_run_ends_at();
@@ -925,7 +925,7 @@ impl Fake {
         })
     }
 
-    /// The buffer playing without going round, which is the state a chapter of a resumed run of 妖々夢 was
+    /// The buffer playing without going round, which is the state a chapter of a resumed run of th07 was
     /// measured being taken in — see `orb_sim::Sound::plays_without_looping`.
     pub fn plays_without_looping(&self) {
         self.with_the_sound(orb_sim::Sound::plays_without_looping);
@@ -949,7 +949,7 @@ impl Fake {
     }
 
     /// And the fight the stage ends with, which is the boss arriving *and* the game loading the boss's own
-    /// track: 妖々夢 names two songs per stage and plays the second for that fight.
+    /// track: th07 names two songs per stage and plays the second for that fight.
     pub fn the_stages_own_boss_arrives(&self) {
         self.plays_another_song();
         self.the_boss_arrives();
@@ -1028,7 +1028,7 @@ impl Fake {
     }
 
     /// The player dying, which is the game counting one and taking the life: the count is what orb reads a
-    /// death off, a death bomb being a hit that never reaches one.
+    /// death off, a deathbomb being a hit that never reaches one.
     pub fn dies(&self) {
         let state = self.state();
         self.image.has_died(f32::from(state.deaths as i16) + 1.0);
@@ -1037,7 +1037,7 @@ impl Fake {
         self.image.the_player_is_dying();
     }
 
-    /// A 完全無欠モード run of this game, in progress and going on: the mode answered at its own title menu, a
+    /// A Pointdevice mode run of this game, in progress and going on: the mode answered at its own title menu, a
     /// stage built with the numbers a run of it starts with, and the stage's first chapter taken.
     ///
     /// What every e2e test about a chapter of this game needs before it can be about anything else, and it is
@@ -1065,8 +1065,8 @@ impl Fake {
         self.takes_the_stages_first_chapter();
     }
 
-    /// And in a レガシーモード run of it, which is the same walk with the question answered the other way and no
-    /// chapter at the end of it: the item the question's cursor starts on is 完全無欠モード, so the other mode is
+    /// And in a legacy-mode run of it, which is the same walk with the question answered the other way and no
+    /// chapter at the end of it: the item the question's cursor starts on is Pointdevice mode, so the other mode is
     /// one press down.
     ///
     /// # Panics
@@ -1211,7 +1211,7 @@ impl Fake {
         }
         // **And what was audible on the way**, which is the whole of what somebody waiting for a run to come
         // back hears: the stage's own song was started by the build a moment ago, so a playback that leaves it
-        // alone plays the stage's opening over and over the seconds the buttons take — a 妖々夢 session heard
+        // alone plays the stage's opening over and over the seconds the buttons take — a th07 session heard
         // exactly that, and then the song jump to the chapter's place when the run landed.
         self.heard_playing_back.set(0);
         self.frames_until("the run played back into place", 600, || {
@@ -1318,7 +1318,7 @@ impl Fake {
         // the branch for the scene being *left* — the front end's — and the write of `scene = wanted` is the
         // update's own tail at 0x4382c0, after that call returns. So everything the build reaches, orb's hook over
         // the added callback included, reads the old scene with the run's asked for; a laid-out game that had
-        // arrived already is one no launch can disagree with, and a 妖々夢 session found that out: a run picked up
+        // arrived already is one no launch can disagree with, and a th07 session found that out: a run picked up
         // out of its file came up with the game's own numbers — `resume: not put back` — because `in_run` was read
         // off a scene the supervisor had not written yet.
         self.image.is_in_scene(
@@ -1370,7 +1370,7 @@ impl Fake {
     ///
     /// `stage_building` is where a resumed run's seed goes in, and it goes in *here* — before these draws and
     /// after the seed above is settled. A game that declines that hook gets the draws with its own seed, which is
-    /// what a 妖々夢 launch did: a run picked up out of its file parted from the run at the stage's first frame,
+    /// what a th07 launch did: a run picked up out of its file parted from the run at the stage's first frame,
     /// its generator still holding the seed orb wrote at the end of the build where the run had it already drawn
     /// from.
     fn builds_the_stage_out_of_that_seed(&self, stage: i32) {
@@ -1534,7 +1534,7 @@ impl Fake {
     /// How long each of this game's stages lasts before the next one is built.
     ///
     /// Nothing by default, which is a stage that never ends. **What ends one here is what ends one in
-    /// 妖々夢: a single update**, the transition being the supervisor's own whole job — see
+    /// th07: a single update**, the transition being the supervisor's own whole job — see
     /// [`Fake::moves_on_to_the_stage`] — so no frame of it is a frame outside the scene a run is played in
     /// and nothing watching the scene sees a stage end at all.
     pub fn stages_last(&self, frames: u32) {
@@ -1544,7 +1544,7 @@ impl Fake {
     /// And the frame the fight the stage ends with is won on, which is the slot emptied.
     ///
     /// Beside [`stages_last`](Fake::stages_last) rather than inside it, because the two are apart in the
-    /// game: 妖々夢 runs on for 281 to 496 frames after its boss goes down — its death, the items it
+    /// game: th07 runs on for 281 to 496 frames after its boss goes down — its death, the items it
     /// leaves and whatever is said over them — and what a step forward has to stop at is the first of the
     /// two.
     pub fn the_fight_is_won_at(&self, frames: u32) {
@@ -1608,7 +1608,7 @@ impl Fake {
     fn update(&self) {
         // The read the game's own update makes for a frame's buttons, which orb stands in front of: the whole
         // read, whose own tail call is the pad half — so what a frame asks for once is the keys and the pads
-        // together, the way 妖々夢's 0x430b50 asks.
+        // together, the way th07's 0x430b50 asks.
         //
         // Each half only where a launch installs that hook, for the reason `orbs_own_loop` is: a read orb
         // does not stand in front of is one the game's own answers, which for the keys is [`input`] and for
@@ -1632,7 +1632,7 @@ impl Fake {
         // the supervisor's own job at chain priority 0; what copies it into the run's word is the recorder, at
         // priority 0x10 (0x443b9a) — and the player's own job is priority 8 (0x442ab6), which reads that word
         // at 0x43ee8c. So a frame of this game has the player acting on the word the recorder left *last*
-        // frame, which is the frame of input lag 妖々夢 is known for. A laid-out game that wrote both words in
+        // frame, which is the frame of input lag th07 is known for. A laid-out game that wrote both words in
         // one breath is one no e2e test could ask about it.
         //
         // So a frame here walks those three in that order: the read above, then what the player's own job
@@ -1715,7 +1715,7 @@ impl Fake {
     /// puts the menu up is the button's own edge — and what the flag then does is stop the run's update, which
     /// is why the clocks below stand still while it is up.
     ///
-    /// **Here because it is what makes a run's own buttons dangerous to feed back.** 妖々夢's replay never
+    /// **Here because it is what makes a run's own buttons dangerous to feed back.** th07's replay never
     /// reaches this: the recorder writes a watched replay's entry into the word the *run* acts on, and the word
     /// the read left keeps whatever the keyboard did. A resume of orb's goes in through the read instead, so
     /// every bit it feeds is a bit this reads — and a laid-out game that left the pause to a test's own
@@ -1776,7 +1776,7 @@ impl Fake {
             // The run torn down and **the screen a run ends on registered**, which is what this game's own
             // transition does for that scene: 0x43803c calls the teardown at 0x42f45d and then `0x44a302(1)`,
             // which puts that screen on the chain with the phase a run ending leaves. So it is drawn — the
-            // background of it for a frame or two, which is what a launch of 妖々夢 showed — and then it asks
+            // background of it for a frame or two, which is what a launch of th07 showed — and then it asks
             // for the title itself.
             self.image.the_screen_a_run_ends_at_is_up();
             self.result_screens.set(self.result_screens.get() + 1);
@@ -1801,10 +1801,10 @@ impl Drop for Fake {
     }
 }
 
-/// The exe this game is running as, which is the file name 妖々夢 ships under, and the `Game` orb is
+/// The exe this game is running as, which is the file name th07 ships under, and the `Game` orb is
 /// attached to found out of the table by it.
 ///
-/// Asked rather than named for the same reason 紅魔郷's is — see `fake::th06::the_game_this_is`: what says
+/// Asked rather than named for the same reason th06's is — see `fake::th06::the_game_this_is`: what says
 /// which game a process is, in a launch and here, is the exe's own name.
 ///
 /// # Panics
@@ -1824,19 +1824,19 @@ extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
     fake.answers.get()
 }
 
-/// `GameWindow::Render` at 0x4346e0: the game's own whole frame, in 妖々夢's own draw-then-update order.
+/// `GameWindow::Render` at 0x4346e0: the game's own whole frame, in th07's own draw-then-update order.
 ///
 /// What orb's frame loop replaces — doing the update first is the frame of input lag removed — and what
 /// that loop hands a frame back to on each of the three ways out of it that return: no runtime, no
 /// device, and a chain target that is null.
 ///
-/// **Its own drawing is here in full**, because what a frame of 妖々夢 does around its draw chain is the
+/// **Its own drawing is here in full**, because what a frame of th07 does around its draw chain is the
 /// whole subject of `../th07.rs`: the queue of quads emptied at 0x434734, the word at 0x434739, the fog
 /// put out at 0x434748, and the queue drawn at 0x43475d. A laid-out frame with those left out would fault
 /// on its own first quad, which is what orb's loop did to the real game.
 ///
 /// The chain's two exits become the frame's own two here as they do in the real one, that mapping being
-/// 妖々夢's and not orb's. Without the frame-skip loop the real one has around them: what orb's loop
+/// th07's and not orb's. Without the frame-skip loop the real one has around them: what orb's loop
 /// replacing that frame does is take the skipping out, so a frame here is one draw and one update.
 ///
 /// No wait in it, for the reason th06's has none: the real one paces itself and this one is called a
@@ -1866,7 +1866,7 @@ extern "fastcall" fn own_render(_window: *mut c_void) -> i32 {
 ///
 /// Here rather than left out because the frame loop calls it where the game's own loop did, and a frame
 /// that skipped it would be one span of the pacing's breakdown short. What it costs is spent here and
-/// not with the rest of the frame's work, as in 紅魔郷's — see [`Work::sound_us`]. The commands are the half a
+/// not with the rest of the frame's work, as in th06's — see [`Work::sound_us`]. The commands are the half a
 /// laid-out game can answer for: this is the one place a queued play of the music becomes a track playing,
 /// whether the frame reached it or orb ran it itself — see `Image::runs_the_sound_commands`.
 unsafe extern "fastcall" fn play_sounds(_player: usize) {
@@ -1943,7 +1943,7 @@ unsafe extern "system" fn device_present(
     0
 }
 
-/// `Chain::RunDrawChain` at 0x42fe20: one quad queued, which is what drawing anything in 妖々夢 is.
+/// `Chain::RunDrawChain` at 0x42fe20: one quad queued, which is what drawing anything in th07 is.
 ///
 /// **The whole of why this game has a queue laid out.** A real draw chain reaches 0x44f690 for every
 /// sprite on the screen, and that function writes where `[queue + 0x17e534]` points — so a frame that
@@ -1990,7 +1990,7 @@ unsafe extern "thiscall" fn puts_the_fog_out(_supervisor: usize) {
 }
 
 /// The game's own read of a frame's buttons, which orb calls through: no key held, and the pad half orb
-/// answers on top of it — which is what 妖々夢's own read does with its tail call at 0x430f20.
+/// answers on top of it — which is what th07's own read does with its tail call at 0x430f20.
 ///
 /// The pad's own half only where orb stands in front of it, for the reason [`Fake::update`] gives: a launch
 /// that declines it is one whose pads nothing reads, and the word is then the keys' alone.
@@ -2070,7 +2070,7 @@ extern "C" fn create_game_window(_instance: *mut c_void) {}
 /// emptied and answered, and nothing put in it.
 ///
 /// Nothing, because this game has no device of its own to fill it from — which is the launch the machine
-/// really is, 妖々夢 finding no pad there. What goes in is what orb adds, and that is the whole subject of
+/// really is, th07 finding no pad there. What goes in is what orb adds, and that is the whole subject of
 /// the e2e test over it.
 extern "C" fn pad_buttons() -> *mut c_void {
     let fake = running();

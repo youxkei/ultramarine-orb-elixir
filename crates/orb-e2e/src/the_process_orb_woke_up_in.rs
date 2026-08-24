@@ -7,7 +7,7 @@
 //!
 //! **The launch that does not happen is the e2e test here.** Every other file in this crate is a game
 //! playing the game's part; this one is the moment before there is a game at all, which is the one thing a
-//! laid-out game cannot be: a `Fake` is 紅魔郷, and there is no such thing as laying out a program orb knows
+//! laid-out game cannot be: a `Fake` is th06, and there is no such thing as laying out a program orb knows
 //! nothing about. So what it drives is the table, with a simulated Windows under it for the log to go to —
 //! the same shape `orb-sim`'s own `log_writes` has, and for the same reason.
 //!

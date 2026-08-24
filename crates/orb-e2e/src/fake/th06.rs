@@ -1,4 +1,4 @@
-//! A 東方紅魔郷 that is not the real one: it owns its own memory, advances its own state, and calls
+//! A th06 that is not the real one: it owns its own memory, advances its own state, and calls
 //! orb's hooks where the real game's code calls them.
 //!
 //! **It plays the game's part, not the address space's.** Nothing here hands orb an opinion about
@@ -18,7 +18,7 @@
 //! through, what a frame's own work costs, and the frames themselves. This file is the half a second
 //! game would bring one of its own of.
 //!
-//! Where a number here is 紅魔郷's it says so. Where it is this game's own — how far the player moves,
+//! Where a number here is th06's it says so. Where it is this game's own — how far the player moves,
 //! when its boss arrives — it says that too: what an e2e test is about is that the same buttons from
 //! the same seed arrive at the same place, not how fast Reimu is.
 
@@ -50,28 +50,28 @@ use super::{
 const CHAIN_CARRIED_ON: i32 = 1;
 
 /// And what it answers when the game is leaving: zero, which orb reads as the game having asked to stop,
-/// and `-1`, which is the walk having failed. Both of 紅魔郷's own.
+/// and `-1`, which is the walk having failed. Both of th06's own.
 pub const CHAIN_LEFT: i32 = 0;
 pub const CHAIN_FAILED: i32 = -1;
-/// And what a walk a job broke out of answers, which is 紅魔郷's own **1**: `Chain::RunCalcChain` returns
+/// And what a walk a job broke out of answers, which is th06's own **1**: `Chain::RunCalcChain` returns
 /// that for `CHAIN_CALLBACK_RESULT_BREAK` and the count of jobs it ran otherwise — so a walk that ran one job
 /// and a walk a job broke are the same number to whatever is above, and both are a game carrying on.
 const CHAIN_BROKE: i32 = 1;
 
-/// More jobs than the chain has, which is what a walk that has run this many says: 紅魔郷 registers one per
+/// More jobs than the chain has, which is what a walk that has run this many says: th06 registers one per
 /// priority from 0 to 0x10, and this game registers six of those. A list whose links do not end is a walk
 /// that does not either, and saying so names the registration that made it — orb's own walks bound
 /// themselves the same way, at `CHAIN_LINKS`.
 const CHAIN_JOBS: i32 = 64;
 
-/// What a whole frame answers while the game is running, which is 紅魔郷's own `Render` answering that
+/// What a whole frame answers while the game is running, which is th06's own `Render` answering that
 /// the loop above it should call it again. Zero, and the two above zero are the game leaving — which is
 /// what orb's frame loop turns the chain's two exits into.
 pub const FRAME_KEPT_RUNNING: i32 = 0;
 pub const FRAME_LEFT: i32 = 1;
 pub const FRAME_FAILED: i32 = 2;
 
-/// The bits of the word the game's own input read hands back, which are 紅魔郷's own: the three masks
+/// The bits of the word the game's own input read hands back, which are th06's own: the three masks
 /// orb reads them through are made of these — `menu_decide` is `SHOOT | ENTER`, `menu_cancel` is
 /// `BOMB | MENU`, and `run_input` is every one of these but those two. [`Fake::attach`] holds them to
 /// exactly that.
@@ -89,7 +89,7 @@ pub(crate) mod button {
     pub const ENTER: u16 = 0x1000;
 }
 
-/// The class 紅魔郷 registers and creates its window with, which is what orb's rewrite matches on: a
+/// The class th06 registers and creates its window with, which is what orb's rewrite matches on: a
 /// window of any other class is one orb leaves the size the game asked for.
 const WINDOW_CLASS: &CStr = c"BASE";
 
@@ -98,7 +98,7 @@ const WINDOW_CLASS: &CStr = c"BASE";
 /// asks of it is that orb left the ask alone.
 const OTHER_WINDOW_CLASS: &CStr = c"th06-notify";
 
-/// The score file 紅魔郷 asks for, which is the only name this game ever passes `CreateFileA`.
+/// The score file th06 asks for, which is the only name this game ever passes `CreateFileA`.
 ///
 /// Which file the open *lands* in is orb's answer and not this one's — the whole subject of
 /// `the_score_file.rs` — so a game that named the forked file itself would be answering the
@@ -153,7 +153,7 @@ struct ScoreFile {
 
 /// What the game asks `CreateWindowExA` for, and every one of these is replaced.
 ///
-/// This game's own numbers rather than 紅魔郷's, and deliberately nothing like the answer: what an
+/// This game's own numbers rather than th06's, and deliberately nothing like the answer: what an
 /// e2e test asserts is the window that came out, so an ask that already resembled it would be an ask
 /// that could not tell a rewrite from a pass-through. The style is a caption and a system menu, which
 /// is a window with a frame — the one thing about the ask that is real, since it is what the game
@@ -170,7 +170,7 @@ pub const ASKED_SIZE: (i32, i32) = (646, 505);
 const LEFT: u8 = 0x25;
 const RIGHT: u8 = 0x27;
 
-/// Which key is which button, which in 紅魔郷 is **not configurable at all**.
+/// Which key is which button, which in th06 is **not configurable at all**.
 ///
 /// `Controller::GetInput` names every key in its own code — `VK_UP`, `'Z'`, `'X'`, `VK_SHIFT`, `VK_ESCAPE`
 /// and the numpad beside them on the `GetKeyboardState` branch, and the `DIK_` equivalents on the
@@ -190,7 +190,7 @@ const MAP: [(u8, u16); 6] = [
     (RIGHT, button::RIGHT),
 ];
 
-/// The lives, bombs and power a **run** starts with, which is 紅魔郷's own: the two and the three are
+/// The lives, bombs and power a **run** starts with, which is th06's own: the two and the three are
 /// `g_Supervisor.defaultConfig`'s, and the power a run begins with nothing of.
 ///
 /// A run and not a stage. `GameManager::AddedCallback` writes `currentPower = 0` inside the branch it takes
@@ -199,7 +199,7 @@ const MAP: [(u8, u16); 6] = [
 /// [`stage_numbers_in_place`](Fake::stage_numbers_in_place) is split on.
 pub const FRESH: (i8, i8, u16) = (2, 3, 0);
 
-/// And where the power a run collects stops, which is 紅魔郷's own **128**: `ItemManager`'s own collection
+/// And where the power a run collects stops, which is th06's own **128**: `ItemManager`'s own collection
 /// raises it one at a time and clamps there.
 const FULL_POWER: u16 = 128;
 
@@ -208,7 +208,7 @@ const FULL_POWER: u16 = 128;
 ///
 /// This game's own numbers, and far enough apart that each is a chapter of its own: `chapter.rs`'s
 /// floor on how short a chapter may be would otherwise fold the card into the attack before it, which
-/// is what happens to a card 紅魔郷 declares a frame or two after the attack begins.
+/// is what happens to a card th06 declares a frame or two after the attack begins.
 pub const BOSS_ARRIVES: u32 = 400;
 pub const CARD_STARTS: u32 = 500;
 /// And where it moves on to its next attack, which is the card being over: a fight's own boundaries
@@ -235,7 +235,7 @@ pub const STAGE_BOSS_ATTACK_CHANGES: u32 = 1300;
 
 /// And the frame that attack is *named* on, which is not the frame it began on.
 ///
-/// **Two frames behind, which 紅魔郷 really does**: the boss's own timer resets first and the spellcard is
+/// **Two frames behind, which th06 really does**: the boss's own timer resets first and the spellcard is
 /// declared after, and where those fall on different updates the chapter is already there and called a
 /// nonspell. Patchouli's first card and Flandre's last, in stage 7, are the two it was measured on — see
 /// `chapter::Chapters::due`, whose comment carries that measurement and whose answer is that the chapter
@@ -251,7 +251,7 @@ pub const STAGE_BOSS_CARD_NAME: &str = "BOSS CARD";
 pub const STAGE_BOSS_LATE_CARD: i32 = 5;
 pub const STAGE_BOSS_LATE_CARD_NAME: &str = "BOSS CARD NAMED LATE";
 
-/// What rank a run is started at, which is 紅魔郷's own **16**.
+/// What rank a run is started at, which is th06's own **16**.
 ///
 /// `g_DifficultyInfo` at `src/GameManager.cpp` holds `{rank, minRank, maxRank}` per difficulty and every one
 /// of the five has 16 as its rank — Easy's bounds are `{12, 20}` and Extra's `{14, 18}` where the other three
@@ -277,7 +277,7 @@ pub const CARD_NAME: &str = "MIDBOSS CARD";
 /// screen draws it — see `Image::fills_the_card_records`.
 pub const UNNAMED_CARD: i32 = 0;
 
-/// How many stages a run goes through, which is 紅魔郷's own six.
+/// How many stages a run goes through, which is th06's own six.
 pub const STAGES: i32 = 6;
 
 /// How long the title menu sits with nothing pressed at it before it falls into its attract demo, in
@@ -285,10 +285,10 @@ pub const STAGES: i32 = 6;
 ///
 /// This game's own number, and far past the frames the title's own opening animation ignores a press for —
 /// `MENU_TITLE_GRACE_FRAMES` — so the two moments a press can be spent on nothing are two moments and not
-/// one. What an e2e test is about is that each of them costs a press, not how patient 紅魔郷 is.
+/// one. What an e2e test is about is that each of them costs a press, not how patient th06 is.
 pub const DEMO_AFTER: i32 = 90;
 
-/// How long the game lays its panel over the start of a stage, which is 紅魔郷's own: the vm's script
+/// How long the game lays its panel over the start of a stage, which is th06's own: the vm's script
 /// sets all five of `GuiFlags`' two-bit fields to 2 itself over these frames — 0x41a2b6 — and stops
 /// where the script reaches `ExitHide`. Over them, what orb writes into the lowest pair decides
 /// nothing.
@@ -469,7 +469,7 @@ const NAME_ENTRY_FRAMES: i32 = 300;
 /// writes past — which is what the half of that measurement taken on a launch orb asks nothing of needs.
 const REPLAY_QUESTION_FRAMES: i32 = 90;
 
-/// And how many frames into that state the question begins to be drawn, which is 紅魔郷's own **60**: orb
+/// And how many frames into that state the question begins to be drawn, which is th06's own **60**: orb
 /// writes the state past the question before the frame timer reaches that, so no part of that screen is
 /// ever drawn. See `Th06::skip_replay_prompt`.
 const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
@@ -477,7 +477,7 @@ const REPLAY_QUESTION_DRAWN_AT: i32 = 60;
 /// How far the player moves in a frame, which is this game's own.
 pub const SPEED: f32 = 4.0;
 
-/// And the box they are held inside, which is 紅魔郷's own `(8, 16)` and `(368, 416)` —
+/// And the box they are held inside, which is th06's own `(8, 16)` and `(368, 416)` —
 /// `playerMovementAreaTopLeftPos` and `playerMovementAreaSize`, written in the branch
 /// `GameManager::AddedCallback` takes only when it is not reinitialising.
 ///
@@ -488,7 +488,7 @@ pub const SPEED: f32 = 4.0;
 pub const PLAYER_AREA_TOP_LEFT: (f32, f32) = (8.0, 16.0);
 pub const PLAYER_AREA_SIZE: (f32, f32) = (368.0, 416.0);
 
-/// How long a bomb's screen shake runs here, which is **one of the six 紅魔郷 has**.
+/// How long a bomb's screen shake runs here, which is **one of the six th06 has**.
 ///
 /// `ScreenEffect::RegisterChain(SCREEN_EFFECT_SHAKE, …)` is called from six places in `src/BombData.cpp`
 /// with 16, 60, 80, 120, 60 and 200 frames — one bomb registers two of them at different moments of itself —
@@ -502,7 +502,7 @@ pub const SHAKE_FRAMES: i32 = 80;
 const SHAKE_PIXELS: u16 = 8;
 
 /// What `Player::AddedCallback` leaves on the invulnerability count, what the spawning state ends at, and
-/// what the update that ends it puts there instead. All three 紅魔郷's own, `src/Player.cpp`.
+/// what the update that ends it puts there instead. All three th06's own, `src/Player.cpp`.
 ///
 /// **The 120 is not how long anything lasts.** `Player::OnUpdate`'s spawning branch tests
 /// `30 <= invulnerabilityTimer.AsFrames()`, so a stage's own 120 satisfies it on the very first update and
@@ -525,7 +525,7 @@ pub const INVULNERABLE_AFTER_SPAWNING: i32 = 240;
 pub const A_BOMB_IS_TAKEN_FOR: i32 = 8;
 const A_BOMB_IS_TAKEN_FOR_AFTER_A_RESPAWN: i32 = 6;
 
-/// How far above the arcade region's foot a stage puts the player, which is 紅魔郷's own:
+/// How far above the arcade region's foot a stage puts the player, which is th06's own:
 /// `Player::AddedCallback` measures `arcadeRegionSize.x / 2` across and `arcadeRegionSize.y - 64` down.
 ///
 /// Measured from the *arcade region* and not from the box the player is held inside, which is the whole
@@ -547,7 +547,7 @@ pub fn the_run() -> RunStart {
     }
 }
 
-/// A 紅魔郷 laid out, with orb attached to it.
+/// A th06 laid out, with orb attached to it.
 ///
 /// Its own memory is the `Image`; the half of a launch that is any game's is [`Launch`], and what is
 /// left here is what a process has and an address space does not — which run its front end is
@@ -932,7 +932,7 @@ impl Fake {
         // installed after that attach, and this is the one thing it needs of the settings.
         let recipe = config.autoplay.clone();
 
-        // The font beside the game's exe, which is what orb builds its overlay from — 紅魔郷 ships one
+        // The font beside the game's exe, which is what orb builds its overlay from — th06 ships one
         // and this says so. In front of the launch and not after it, because the launch's own device
         // bakes through the same seam and a face made before this is one nothing declared.
         image.sim().text().install_font(dir.join("font.ttf"));
@@ -1805,7 +1805,7 @@ impl Fake {
         self.replay_question_drawn.get()
     }
 
-    /// The game in a 完全無欠モード run with its first chapter taken, which is where every e2e test about
+    /// The game in a Pointdevice mode run with its first chapter taken, which is where every e2e test about
     /// a run being played from further on starts.
     ///
     /// The walk somebody makes to get there: the mode question answered over the title menu, the shot
@@ -1858,8 +1858,8 @@ impl Fake {
         });
     }
 
-    /// And in a レガシーモード run, which is the same walk with the question answered the other way: the
-    /// item the cursor starts on is 完全無欠モード, so the other mode is one press down — after the frames
+    /// And in a legacy-mode run, which is the same walk with the question answered the other way: the
+    /// item the cursor starts on is Pointdevice mode, so the other mode is one press down — after the frames
     /// the question reads nothing over, a direction being a key that cannot be pressed again for nothing.
     ///
     /// No chapter to wait for at the end of it, which is the whole of what answering this way costs.
@@ -2003,7 +2003,7 @@ impl Fake {
     /// `the_frame_a_scene_is_built_on.rs`.
     ///
     /// Answers the count of jobs it ran, as the game's own does, and the three ends of a walk answer what
-    /// 紅魔郷 answers: zero for a job asking the game to stop, one for a break, `-1` for a failure. Which is
+    /// th06 answers: zero for a job asking the game to stop, one for a break, `-1` for a failure. Which is
     /// the mapping orb reads — see [`CHAIN_LEFT`] and [`CHAIN_FAILED`], and [`CHAIN_CARRIED_ON`] for why a
     /// count above zero is a walk that carried on.
     fn runs_the_calc_chain(&self) -> i32 {
@@ -2020,7 +2020,7 @@ impl Fake {
                     at = self.image.chain_next(at);
                     continue;
                 }
-                // `EXECUTE_AGAIN` is answered by no job here and by none in 紅魔郷 either — only the walk's
+                // `EXECUTE_AGAIN` is answered by no job here and by none in th06 either — only the walk's
                 // own switch names it — so this loop is here because the walk has it and not because
                 // anything needs it.
                 let answered = loop {
@@ -2042,7 +2042,7 @@ impl Fake {
                     chain_result::EXITS => return CHAIN_LEFT,
                     chain_result::BREAKS => return CHAIN_BROKE,
                     chain_result::FAILED => return CHAIN_FAILED,
-                    // `ReplayManager::OnUpdateDemo` is the one job in 紅魔郷 that answers this, and the
+                    // `ReplayManager::OnUpdateDemo` is the one job in th06 that answers this, and the
                     // demo's own job is not laid out here.
                     chain_result::RESTARTS => continue 'restart,
                     _ => {}
@@ -2056,7 +2056,7 @@ impl Fake {
 
     /// Which job an element's callback names, and that job run.
     ///
-    /// The callbacks are 紅魔郷's own addresses, because that is what orb matches on: `cut_screen_shake`
+    /// The callbacks are th06's own addresses, because that is what orb matches on: `cut_screen_shake`
     /// finds a shake by `ScreenEffect::ShakeScreen`'s address and `chain_argument` finds the ending and the
     /// result screen by theirs. So the element holds the game's address and this is where it becomes one of
     /// this game's own functions.
@@ -2068,7 +2068,7 @@ impl Fake {
             chain_job::FRONT_END => self.front_end(),
             chain_job::GAMEPLAY => self.stage(),
             chain_job::ENDING => self.ending(),
-            // One job for the two, because in 紅魔郷 they are one screen: the *Score* item and a run's own
+            // One job for the two, because in th06 they are one screen: the *Score* item and a run's own
             // end both reach `SUPERVISOR_STATE_RESULTSCREEN`, and what tells them apart here is the scene.
             chain_job::RESULT_SCREEN => match self.image.scene() {
                 Scene::Ranking => self.ranking(),
@@ -2095,7 +2095,7 @@ impl Fake {
         // a frame whose word orb drops is a frame the joystick is not asked on, in a real launch too.
         let word = orb_core::runtime::get_input();
         // And the replay manager's record over the top of it, where one is playing back. **Here rather than
-        // as a job of its own**, which is where 紅魔郷 has it: `ReplayManager::OnUpdate` is priority 15 and
+        // as a job of its own**, which is where th06 has it: `ReplayManager::OnUpdate` is priority 15 and
         // `OnUpdateDemo` 5 or 16. A declared divergence, and the reason is that nothing can tell: the word
         // the stage acts on is the record's either way, and the stage's job is the only reader of it.
         let word = match self.replayed_input() {
@@ -2245,7 +2245,7 @@ impl Fake {
             Scene::Ranking => {
                 // The front end's job out and the screen's own in, which is the same element and the same
                 // callback a finished run's result screen registers: `ResultScreen::RegisterChain(NULL)`,
-                // one screen in 紅魔郷 reached two ways.
+                // one screen in th06 reached two ways.
                 self.image.cuts_the_front_end();
                 self.image.registers_the_ranking();
                 unsafe {
@@ -2894,7 +2894,7 @@ impl Fake {
             ..front
         });
         // And the screen's own job out of the chain with it, which is the same element a finished run's
-        // screen registers: one screen in 紅魔郷 and so one element here.
+        // screen registers: one screen in th06 and so one element here.
         self.image.cuts_the_result_screen();
         self.image.supervising(Supervising {
             running: Scene::FrontEnd,
@@ -2985,7 +2985,7 @@ impl Fake {
     }
 
     /// The ranking's own rows: one per spell card the game holds a record of, with the name it holds and
-    /// the attempts against it, which is the number 完全無欠 counts.
+    /// the attempts against it, which is the number Pointdevice mode counts.
     ///
     /// **The name is drawn only while the attempts are not zero**, which is the branch at 0x42e26e: the
     /// count is read at 0x42e265 and a row whose count is nothing gets [`NOT_TRIED`] at 0x46bcdc instead of
@@ -3416,7 +3416,7 @@ pub enum ComesUpAs {
     TheDemo,
 }
 
-/// The exe this game is running as, which is 紅魔郷's own file name.
+/// The exe this game is running as, which is th06's own file name.
 ///
 /// Which is what the process orb wakes up inside is recognised by, and how this game's `Game` is found:
 /// nothing else of a game is readable before the game it is has been settled, so the name is the whole of
@@ -3445,14 +3445,14 @@ extern "fastcall" fn update(_chain: *mut c_void) -> i32 {
     fake.update()
 }
 
-/// `GameWindow::Render`: the game's own whole frame, in 紅魔郷's own draw-then-update order.
+/// `GameWindow::Render`: the game's own whole frame, in th06's own draw-then-update order.
 ///
 /// What orb's frame loop replaced — doing the update first is the frame of input lag removed — and what
 /// that loop hands a frame back to on each of the three ways out of it that return: no runtime, no
 /// device, and a chain target that is null.
 ///
 /// The chain's two exits become the frame's own two here as they do in orb's loop, since that mapping is
-/// 紅魔郷's and not orb's: a walk that answered nothing is the game asking to stop, and the frame above it
+/// th06's and not orb's: a walk that answered nothing is the game asking to stop, and the frame above it
 /// says so to the loop above that.
 ///
 /// No wait in it. The real one paces itself and this one is called a frame at a time by whatever is
@@ -3613,7 +3613,7 @@ type DevicePresent = unsafe extern "system" fn(
 /// What this game asks its device to present: the whole of its back buffer, and no destination — which is
 /// the stretch over the whole client that orb's replacement is there to narrow.
 ///
-/// **A source rectangle where the real game may pass none.** What 紅魔郷 hands its device has not been read,
+/// **A source rectangle where the real game may pass none.** What th06 hands its device has not been read,
 /// and this is a rectangle rather than a null because it is the thing orb *drops*: a game that passed
 /// nothing there would leave nothing to see dropped, and the claim is that the letterbox is presented from
 /// the whole back buffer whatever the caller asked for. Its size is the game's own content size.
@@ -3712,7 +3712,7 @@ const REPLAY_NAME: &CStr = c"ORB";
 /// in `Originals`: a game whose device was already there when orb attached would never reach it. See
 /// [`Fake::finds_its_device`].
 /// And its read of the pad's buttons by number, which is never called: `Th06::hooks` declines
-/// `pad_buttons`, 紅魔郷 having no screen that reads a pad that way — its buttons are `custom.exe`'s to
+/// `pad_buttons`, th06 having no screen that reads a pad that way — its buttons are `custom.exe`'s to
 /// write. Here to fill an `Originals` and for nothing more, and it answers a null the way a game with no
 /// such array would.
 extern "C" fn pad_buttons() -> *mut c_void {
@@ -3738,7 +3738,7 @@ unsafe extern "thiscall" fn chain_cut(_chain: usize, elem: usize) {
 /// playing.
 /// The parse this game has no hook for and makes no call to — see `Originals::card_records_read`.
 unsafe extern "fastcall" fn no_card_record_parse(_image: usize, _records: usize) -> i32 {
-    unreachable!("紅魔郷 lays no file's records over the ones in memory")
+    unreachable!("th06 lays no file's records over the ones in memory")
 }
 
 unsafe extern "fastcall" fn stop_bgm(_player: usize) {
@@ -3988,7 +3988,7 @@ pub fn waves(script: i32) -> i32 {
 
 /// The next number out of the generator.
 ///
-/// A generator of this game's own, not 紅魔郷's: what an e2e test is about is that a stage seeded the
+/// A generator of this game's own, not th06's: what an e2e test is about is that a stage seeded the
 /// same way draws the same numbers, which any generator answers and which is what a resume rests on.
 fn drawn_from(seed: u16) -> u16 {
     seed.wrapping_mul(0x9d5d).wrapping_add(0x6f7f)

@@ -1,9 +1,9 @@
-//! **An ending of 妖々夢 run out inside one frame, and its staff roll left to play.**
+//! **An ending of th07 run out inside one frame, and its staff roll left to play.**
 //!
-//! What `the_ending.rs` asks of 紅魔郷, asked through this game's own two fields. An ending here is a scene and
+//! What `the_ending.rs` asks of th06, asked through this game's own two fields. An ending here is a scene and
 //! an object hung off the chain — the register keeps its address nowhere else, so a walk of the chain for the
 //! ending's own update is the whole of how orb finds one — and the script that object is reading is the one
-//! thing that says where a part of an ending ends: 妖々夢 moves on by reading the next file over the one it was
+//! thing that says where a part of an ending ends: th07 moves on by reading the next file over the one it was
 //! running, and neither the flag nor the scene moves with it. So the roll is the ending's last script and
 //! nothing else marks where it begins.
 //!

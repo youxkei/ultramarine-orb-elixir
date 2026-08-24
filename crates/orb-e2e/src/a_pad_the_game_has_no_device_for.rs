@@ -1,6 +1,6 @@
 //! **The pads the game cannot see**, which on this machine is the pad somebody is holding.
 //!
-//! 紅魔郷 holds exactly one game controller and settles which at startup: `g_Supervisor.controller`
+//! th06 holds exactly one game controller and settles which at startup: `g_Supervisor.controller`
 //! (0x6c6d2c) is written in one place in the whole exe — the enumeration's own callback at 0x423da0,
 //! which calls `CreateDevice` only while the pointer is still null and returns `DIENUM_STOP` the moment
 //! it succeeds. So the first creatable attached controller wins, nothing else is ever made, and the one
@@ -24,7 +24,7 @@
 //! straight back, `docs/adr/0008` refusing to have where-an-axis-becomes-a-direction written twice — so
 //! a pad that moved the player moved it through orb.
 //!
-//! レガシーモード throughout: what a direction does to the player is the same in either mode, and a
+//! Legacy mode throughout: what a direction does to the player is the same in either mode, and a
 //! pointdevice run would put a chapter's frames between the push and the player.
 
 use crate::fake::th06::{Fake, MAPPING, SPEED, button, the_run};
@@ -433,7 +433,7 @@ fn a_question_of_orbs_is_answered_on_the_pad_the_game_cannot_reach() {
         );
         game.frames(READS_KEYS_AFTER);
 
-        // Down to レガシーモード on the pad's own d-pad, and answered on the button the game's mapping
+        // Down to legacy mode on the pad's own d-pad, and answered on the button the game's mapping
         // calls shoot.
         game.sim().xinput().pushes(SECOND_SLOT, xinput::DPAD_DOWN);
         waits_until(&game, "the pad moving the cursor", || {

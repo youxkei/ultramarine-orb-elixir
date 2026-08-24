@@ -1,4 +1,4 @@
-//! **The mouse pointer over 妖々夢: gone once the mouse has been still, back the moment it moves.**
+//! **The mouse pointer over th07: gone once the mouse has been still, back the moment it moves.**
 //!
 //! The game is not played with the mouse and orb puts it in a window — a borderless one over the whole monitor
 //! included — which is the launch Windows draws a pointer in. So the pointer sits over the playfield for as long
@@ -9,8 +9,8 @@
 //! than a flag: a launch that drove it to −7 is one whose next `ShowCursor(TRUE)` leaves the screen as it was.
 //! `orb_sim::Mouse` keeps it the way Windows keeps it.
 //!
-//! And it is asked of this game because the *ask* is this game's own: 妖々夢 answers `WM_SETCURSOR` with
-//! `ShowCursor(TRUE)` the way 紅魔郷 does, so a call let through would raise the counter without changing the
+//! And it is asked of this game because the *ask* is this game's own: th07 answers `WM_SETCURSOR` with
+//! `ShowCursor(TRUE)` the way th06 does, so a call let through would raise the counter without changing the
 //! screen and the one step that hides the pointer would then take it nowhere.
 
 use crate::fake::th07::Fake;

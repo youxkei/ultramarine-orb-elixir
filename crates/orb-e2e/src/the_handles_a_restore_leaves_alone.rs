@@ -56,7 +56,7 @@ fn a_texture_handle_is_not_put_back_from_a_snapshot_and_the_rest_of_the_manager_
         game.image().loads_the_front_sheet(LOADED_SINCE);
         game.image().set_anm_manager_word(WORD_WRITTEN_SINCE);
 
-        // 被弾 and チャプターをやり直す.
+        // The hit and チャプターをやり直す.
         game.dies();
         game.frame();
         game.press_until(keys::Z, "the retry menu answered", || {
@@ -116,7 +116,7 @@ fn a_chapters_restore_puts_the_chains_own_list_back() {
             "a shake was already running when the chapter was taken",
         );
 
-        // ボム, which links a job of its own into the calc chain, and then 被弾 straight after it: soon
+        // The bomb, which links a job of its own into the calc chain, and then the hit straight after it: soon
         // enough that no boundary of the stage's own has gone by, so the chapter put back is the one taken
         // before the bomb.
         game.bombs();

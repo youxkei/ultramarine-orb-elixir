@@ -1,4 +1,4 @@
-//! **The frame a scene of 妖々夢 is built on is a frame that scene is updated on, with the input words zeroed.**
+//! **The frame a scene of th07 is built on is a frame that scene is updated on, with the input words zeroed.**
 //!
 //! Its supervisor's own job is the first of the calc chain and everything it registers goes in behind the walk's
 //! current position, so the walk reaches the new jobs before it returns: a scene gets its own first update on the

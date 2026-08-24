@@ -1,7 +1,7 @@
 //! The glyphs, which a simulated Windows has none of.
 //!
 //! **A declared metric rather than a rasteriser, and the reason is that the real one was already not
-//! the game's.** An e2e test's directory used to hold Windows' own Arial under the name 紅魔郷 installs
+//! the game's.** An e2e test's directory used to hold Windows' own Arial under the name th06 installs
 //! its font as, because `AddFontResourceExW` takes a path and a path that is not a font is not
 //! something `Font::load` survives — so the pixels an e2e test matched against were Arial's. Keeping
 //! them real bought a fidelity that was never there, at the price of an answer that varied with which
@@ -56,7 +56,7 @@ impl Metric {
 /// out as is something only a launch says, in `overlay: font.ttf loaded, GDI is using …`.
 pub struct Glyphs {
     /// The font files an e2e test says are beside the game. A path that is not one of these is one
-    /// [`Glyphs::load_face`] refuses — which is 妖々夢, whose fonts are inside `th07.dat` and whose
+    /// [`Glyphs::load_face`] refuses — which is th07, whose fonts are inside `th07.dat` and whose
     /// directory holds no `font.ttf` at all, and is the launch orb says `overlay: unavailable` for.
     installed: Mutex<Vec<PathBuf>>,
     /// The em height each face was made at, the index being its [`Face`] — which is the whole of what
@@ -124,7 +124,7 @@ impl Glyphs {
 
     /// And says it is not there any more, leaving the faces already made of it readable.
     ///
-    /// Which is a launch of 妖々夢: the harness's own device bakes what a game draws through the font,
+    /// Which is a launch of th07: the harness's own device bakes what a game draws through the font,
     /// and orb then reaches for one and finds none — the game keeping its fonts inside `th07.dat`. A
     /// face outliving the file is the real thing too, `AddFontResourceExW` having already been made.
     pub fn remove_font(&self, path: &Path) {
@@ -200,7 +200,7 @@ impl Glyphs {
     /// Every face of the machine's orb asked for, in order — see [`Asked`].
     ///
     /// What an e2e test reads to say orb asked for the face the *game* draws its own text in, and asked for it
-    /// the way the game does: 妖々夢 ships no font and asks GDI for one by name at twice the size it draws at,
+    /// the way the game does: th07 ships no font and asks GDI for one by name at twice the size it draws at,
     /// so a launch that names another family, or the same family at a size of orb's own, is a launch whose
     /// screens do not look like the game's text.
     pub fn machine_faces_asked_for(&self) -> Vec<Asked> {

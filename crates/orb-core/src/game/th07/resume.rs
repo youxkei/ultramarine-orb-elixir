@@ -1,13 +1,13 @@
-//! **The file a run of 妖々夢 left unfinished is written in, which is this game's own.**
+//! **The file a run of th07 left unfinished is written in, which is this game's own.**
 //!
-//! It was 紅魔郷's file with 妖々夢's numbers added to it, and one version number stood in front of both. What
-//! that cost is the whole reason this file exists: the cherry went in as three more fields of a shape 紅魔郷
+//! It was th06's file with th07's numbers added to it, and one version number stood in front of both. What
+//! that cost is the whole reason this file exists: the cherry went in as three more fields of a shape th06
 //! shares, the generator of every frame went in without the version being raised at all — because raising it
-//! would have refused every 紅魔郷 run on a disk — and a 妖々夢 run picked up out of a file from before that
+//! would have refused every th06 run on a disk — and a th07 run picked up out of a file from before that
 //! parted from itself inside its first thousand frames with nothing in the log able to say where.
 //!
-//! **So this is 妖々夢's, from version 1.** 紅魔郷 is released and its file is frozen at what shipped; this one
-//! is not released and can say what a run of *this* game is. What it does not carry is 紅魔郷's vocabulary:
+//! **So this is th07's, from version 1.** th06 is released and its file is frozen at what shipped; this one
+//! is not released and can say what a run of *this* game is. What it does not carry is th06's vocabulary:
 //! there is no rank in it, no count of power items and no count of extra lives paid for, because this game
 //! reads none of the three — its own extra lives are paid for out of the cherry.
 //!
@@ -24,10 +24,10 @@ use std::collections::BTreeMap;
 use crate::game::RunStart;
 use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
-/// **The numbers a stage of 妖々夢 starts with, which is what a stage of it needs to be played again.**
+/// **The numbers a stage of th07 starts with, which is what a stage of it needs to be played again.**
 ///
 /// This game's own, and nothing of another game's: there is no rank here, no count of power items and no
-/// count of extra lives the score has paid for, because 妖々夢 reads none of the three — its own extra lives
+/// count of extra lives the score has paid for, because th07 reads none of the three — its own extra lives
 /// are paid for out of the cherry below.
 ///
 /// **The cherry is three numbers and a baseline they are counted from**, and the baseline is the run's rather
@@ -41,7 +41,7 @@ pub struct Numbers {
     /// up with the one above: a stage resumed without it draws the number the front end left and counts up to
     /// the run's from there.
     pub score_shown: u32,
-    /// How far the point value has climbed and how many items its next step wants — 妖々夢's own 点 system.
+    /// How far the point value has climbed and how many items its next step wants — th07's own point system.
     /// A stage resumed at a first stage's step is a stage whose items are worth a first stage's.
     pub point_value_step: u32,
     pub point_value_next: u32,
@@ -89,7 +89,7 @@ pub struct Numbers {
     ///
     /// And it is read every frame the player is updated, four of the nine sites with `fimul`: 0x412bab works out
     /// `current + (target - current) * this / 0x498a84` and writes it back where it came from. So twice the
-    /// number is a world whose player walks at twice the speed, and the same 2面 held 0x20 entered by a
+    /// number is a world whose player walks at twice the speed, and the same stage 2 held 0x20 entered by a
     /// transition against 0x10 built by a resume.
     ///
     /// `default` for the reason the border above is: a file written before this field is one whose runs had
@@ -111,12 +111,12 @@ pub fn decode_state(bytes: &[u8]) -> Option<Numbers> {
 
 /// What this file's fields mean, and what a file carrying another number is refused for.
 ///
-/// **One, and 妖々夢's own.** The number 紅魔郷's file carries is that file's; a run of this game written down
+/// **One, and th07's own.** The number th06's file carries is that file's; a run of this game written down
 /// before this file was its own says 2 and is refused, which is what it deserves: those are the files whose
 /// runs cannot be reproduced.
 ///
 /// **And it stays one while this game is unreleased, however the fields change.** What a version is for is the
-/// files already on somebody's disk, and there are none of those to keep readable: 妖々夢 has not shipped, so
+/// files already on somebody's disk, and there are none of those to keep readable: th07 has not shipped, so
 /// every file is one this tree wrote and can be thrown away. A field added or dropped is refused by
 /// `deny_unknown_fields` on the way in anyway — which is what refuses the files version 1 wrote with the eight
 /// numbers of [`super::Th07::set_run_state`]'s own story in them — so raising the number would buy nothing but
@@ -289,7 +289,7 @@ struct Written {
     /// that is not a string: its debug view — `msgpack2json -d` — is what prints the file.
     buttons: BTreeMap<u32, u16>,
     /// The generator's own state on every one of those frames, which is what says whether a playback is still
-    /// reproducing the run — and **not optional**, unlike 紅魔郷's, whose file had to keep reading without them.
+    /// reproducing the run — and **not optional**, unlike th06's, whose file had to keep reading without them.
     ///
     /// **A list and not a map of the changes**, which is the opposite of the buttons above and for the opposite
     /// reason: a generator moves on nearly every frame, so a map of changes would be every frame with a key in
@@ -413,7 +413,7 @@ mod tests {
     use crate::game::RunStart;
     use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
-    /// A chapter of a run of this game, with a number in every field it has — and nothing in 紅魔郷's three,
+    /// A chapter of a run of this game, with a number in every field it has — and nothing in th06's three,
     /// which this game answers nothing for and this file does not carry.
     fn saved() -> Kept {
         Kept {
@@ -484,7 +484,7 @@ mod tests {
     /// in stage 6 and parted somewhere in the sixty frames after 853 — the player was hit at 1249 and the run
     /// died out at 5900 of the 24119 frames it was aiming at — with nothing in the log able to name the frame.
     ///
-    /// 紅魔郷's own file reads them, because that game is released and its files are on disks — see
+    /// th06's own file reads them, because that game is released and its files are on disks — see
     /// `th06::resume`. This one is not, so nothing has to be traded.
     #[test]
     fn a_file_with_no_generators_is_refused() {
@@ -528,7 +528,7 @@ mod tests {
     /// should.
     ///
     /// **Which is what a run left before this file was this game's own runs into**: those say version 2 and
-    /// carry 紅魔郷's rank, power items and extra lives, so they are refused twice over.
+    /// carry th06's rank, power items and extra lives, so they are refused twice over.
     #[test]
     fn a_file_this_version_did_not_write_is_refused() {
         use rmpv::Value;

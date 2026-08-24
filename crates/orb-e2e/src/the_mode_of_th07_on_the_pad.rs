@@ -1,11 +1,11 @@
-//! The pad answering the questions orb puts over 妖々夢 — the mode at its title menu, and the retry menu a death
+//! The pad answering the questions orb puts over th07 — the mode at its title menu, and the retry menu a death
 //! offers.
 //!
 //! Its own file rather than a case in `the_mode_question_over_th07.rs`, because what it reaches is a different half
 //! of orb: those press keys, which orb reads for itself, and this pushes a *controller*, which orb's menus do not
 //! read at all. `Game::pad` is what they read, and it is the game's to answer.
 //!
-//! **Which for this game is the pad orb sampled.** 妖々夢 looks for a DirectInput device of its own and falls back
+//! **Which for this game is the pad orb sampled.** th07 looks for a DirectInput device of its own and falls back
 //! to one winmm joystick, and the machine this was measured on has neither of those find the pad — see
 //! `Th07`'s own `GET_CONTROLLER_INPUT`. So the pad that plays the game is the one orb samples and adds to the
 //! game's own word, and a menu of orb's that read anything else would be a menu ignoring a pad that plainly works.
@@ -28,7 +28,7 @@ const WORK_US: i64 = 700;
 const PAD_BUTTONS: u32 = 16;
 const PAD_TRAVEL: (u32, u32) = (0, 65535);
 
-/// The buttons 妖々夢's own default mapping calls shoot and bomb, which are the two orb's menus read as decide and
+/// The buttons th07's own default mapping calls shoot and bomb, which are the two orb's menus read as decide and
 /// as back: the first and the second of `0, 1, 2, 4, -1, -1, -1, -1, 3` — see `Th07`'s `PAD_MAPPING`.
 const SHOOT_BUTTON: u32 = 0;
 const BOMB_BUTTON: u32 = 1;
@@ -54,7 +54,7 @@ fn asking(name: &str) -> Box<Fake> {
         .attach(PAD_BUTTONS, PAD_TRAVEL.0, PAD_TRAVEL.1);
     game.frames_until("an overlay", 8, || log.said("overlay: ready"));
     // And the device orb found named, which is what says which of the two branches this pad is on: winmm's
-    // joystick 0, sampled on a thread of orb's own, is the one 妖々夢 falls back to and the only one it has on the
+    // joystick 0, sampled on a thread of orb's own, is the one th07 falls back to and the only one it has on the
     // machine `GET_CONTROLLER_INPUT` was measured on. See `a_pad_the_game_has_no_device_for.rs` for the sockets.
     game.frames_until_a_thread("the pad named", || log.said("joystick: winmm 0 is"));
     game.image().the_front_end_is_up();

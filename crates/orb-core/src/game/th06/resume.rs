@@ -1,15 +1,15 @@
-//! **The file a run of 紅魔郷 left unfinished is written in, which is this game's own.**
+//! **The file a run of th06 left unfinished is written in, which is this game's own.**
 //!
 //! It was one shape for both games, with one version number between them, and that is what this file exists
-//! to end. What it cost is written where it was measured: a field 妖々夢 needed could not be added without
-//! refusing every 紅魔郷 file already on a disk, so it went in without the version being raised and the reader
+//! to end. What it cost is written where it was measured: a field th07 needed could not be added without
+//! refusing every th06 file already on a disk, so it went in without the version being raised and the reader
 //! learnt to read a file both with the field and without it — see [`Written::generators`]. The two games are
 //! two games, and the only fact about them that was ever measured is that.
 //!
-//! **So this is frozen at what shipped.** 紅魔郷 is the game people already have, and the bytes below are the
+//! **So this is frozen at what shipped.** th06 is the game people already have, and the bytes below are the
 //! bytes a released orb wrote: version 2, the run, the chapter, the thirteen numbers a stage starts with —
 //! three of which this game never reads and writes as nothing — the reproduction line, the buttons of every
-//! frame they changed on, and the generator of each. What 妖々夢 does with its own file is its business now,
+//! frame they changed on, and the generator of each. What th07 does with its own file is its business now,
 //! and nothing here moves when it moves.
 //!
 //! What the machinery in [`crate::resume`] asks of this is two things: the bytes to write, and a
@@ -20,15 +20,15 @@ use std::collections::BTreeMap;
 use crate::game::RunStart;
 use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
-/// **The numbers a stage of 紅魔郷 starts with, which is what a stage of it needs to be played again.**
+/// **The numbers a stage of th06 starts with, which is what a stage of it needs to be played again.**
 ///
 /// These are the fields the game's own replay keeps per stage — see `SPEC.md` for the record they are read out
 /// of — plus the count of deaths, which the replay leaves behind because the result screen is the only thing
 /// that reads it. Everything else a stage starts with is either loaded with the stage or set the same way
 /// every time, so it is the same on both sides of a resume.
 ///
-/// **This game's own, and no other game's.** It was one struct shared with 妖々夢, which meant a cherry
-/// 紅魔郷 has no notion of sitting in the middle of it and this game writing three zeros where that game
+/// **This game's own, and no other game's.** It was one struct shared with th07, which meant a cherry
+/// th06 has no notion of sitting in the middle of it and this game writing three zeros where that game
 /// writes its own numbers. What the sharing actually cost is written where the file's version is — see
 /// [`VERSION`] — and it is why these are here now.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -63,7 +63,7 @@ pub fn decode_state(bytes: &[u8]) -> Option<Numbers> {
 
 /// What this file's fields mean, and what a file carrying another number is refused for.
 ///
-/// **Two, and it stays two**: the runs of 紅魔郷 on people's disks are version 2, and a number raised here
+/// **Two, and it stays two**: the runs of th06 on people's disks are version 2, and a number raised here
 /// stops them being offered. There is nothing left to add to this file — a game whose exe cannot change is a
 /// game whose run cannot need a field it has not needed for years — so nothing has to be traded against that
 /// again.
@@ -113,7 +113,7 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             extra_lives: numbers.extra_lives,
             deaths: numbers.deaths,
             // The three this game never reads, written as nothing: they are in the file because they were in
-            // it when 紅魔郷 shipped — see [`WrittenStart`].
+            // it when th06 shipped — see [`WrittenStart`].
             cherry: 0,
             cherry_target: 0,
             cherry_plus: 0,
@@ -227,9 +227,9 @@ struct Written {
     /// of them, and the index is the frame either way.
     ///
     /// **Absent in a file written before orb wrote them down**, which is what the default is for. It is also
-    /// the whole reason this file is 紅魔郷's own now: the field went in for 妖々夢 and the version could not
+    /// the whole reason this file is th06's own now: the field went in for th07 and the version could not
     /// be raised for it, because the number was one number for both games and raising it would have refused
-    /// every 紅魔郷 run on a disk.
+    /// every th06 run on a disk.
     #[serde(default)]
     generators: Vec<Option<u16>>,
 }
@@ -269,8 +269,8 @@ struct WrittenStart {
     power_items: i8,
     extra_lives: i8,
     deaths: i32,
-    /// **妖々夢's three, which this game never reads and writes as nothing.** They are here because they were
-    /// here when 紅魔郷 shipped: the file was one shape for both games, and a released file has a `cherry` in
+    /// **th07's three, which this game never reads and writes as nothing.** They are here because they were
+    /// here when th06 shipped: the file was one shape for both games, and a released file has a `cherry` in
     /// it whether or not the game that wrote it has a cherry. Taking them out now would refuse every one of
     /// those files, which is the same trade that put them here.
     cherry: i32,
@@ -417,11 +417,11 @@ mod tests {
     }
 
     /// **A file with no generators in it is still a run to offer**, which is every file written before orb
-    /// began writing them down. 紅魔郷 is the game people already have and this is its own file: a run of it
+    /// began writing them down. th06 is the game people already have and this is its own file: a run of it
     /// left unfinished is not one to drop because a launch has learnt to write something more about a stage.
     ///
-    /// What that costs is what 妖々夢's own file refuses to pay — see `th07::resume`, where the generators are
-    /// not optional: a playback of a run with none of them cannot be held to it, and one such 妖々夢 run
+    /// What that costs is what th07's own file refuses to pay — see `th07::resume`, where the generators are
+    /// not optional: a playback of a run with none of them cannot be held to it, and one such th07 run
     /// parted somewhere in the sixty frames after 853, was hit at 1249 and died out at 5900 of the 24119
     /// frames it was aiming at, with nothing in the log able to say which frame it went wrong on.
     #[test]

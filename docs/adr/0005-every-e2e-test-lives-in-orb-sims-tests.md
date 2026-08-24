@@ -20,7 +20,7 @@ boundary that is one: *a game drives it* against *no game does*.
 in it throughout — the file names below are the ones that were there, `scenario_*.rs`, and they are left
 as they were.
 
-**It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md)**: that the 紅魔郷 which
+**It overturns one claim of [0001](0001-a-fake-th06-drives-orb-end-to-end.md)**: that the th06 which
 plays the game's part cannot live in `orb-sim` because a game calling orb's hooks has to name `orb`, and
 `orb-sim` is what `orb` is built on. Cargo takes that cycle. The statuses of
 [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md),
@@ -77,12 +77,12 @@ is named for its subject, and not beginning `scenario_` is what says which it is
 | | |
 | --- | --- |
 | `scenario_pacing.rs` | 46, orb's own frame loop |
-| `scenario_pointdevice_run.rs` | 2, one 完全無欠モード run end to end |
+| `scenario_pointdevice_run.rs` | 2, one Pointdevice mode run end to end |
 | `scenario_legacy_run.rs` | 1, the same game answered the other way |
 | `scenario_mode_question.rs` | 6, the question over the game's title menu |
 | `scenario_mode_on_the_pad.rs` | 3, that question answered on a controller the game owns |
 | `scenario_the_run_read_back.rs` | 4, `Th06::read_state` over a game that was played there |
-| `scenario_th07.rs` | 1, a 妖々夢 that declines everything |
+| `scenario_th07.rs` | 1, a th07 that declines everything |
 | `fake/` | the game's part: `mod.rs` is any launch's half, `th06.rs` and `th07.rs` each game's own |
 | `log_writes.rs`, `log_off_thread.rs`, `log_overflow.rs`, `pacing_no_timer.rs` | 4, no game in any of them |
 

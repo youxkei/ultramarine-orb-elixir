@@ -10,7 +10,7 @@ does the same for its dialog and for the two refusals somebody playing can meet.
 
 ## Context
 
-**orb's screens were Japanese, and the game is not the reason they had to stay so.** 紅魔郷 is a Japanese
+**orb's screens were Japanese, and the game is not the reason they had to stay so.** th06 is a Japanese
 game whose text comes out of its own data files, and orb draws none of that: what orb draws is its own
 three questions and its own settings dialog. Somebody playing the game with a translation patch over it
 reads English, and every word orb put on the screen was a word they could not read.
@@ -81,5 +81,5 @@ constants, held against Windows' own by a `const` assert below the seam; reading
 - **Reading the user locale rather than the display language**, which is the more obvious call and the
   wrong one: it says which decimal separator to use, not which language a person reads.
 - **Making the game itself run on a machine whose code page is not Japanese** — the -A file opens and the
-  GDI text 紅魔郷 does in Shift-JIS. That is a locale emulator's job or thcrap's, it is not what
+  GDI text th06 does in Shift-JIS. That is a locale emulator's job or thcrap's, it is not what
   *localising orb* means, and orb hooks `CreateFileA` for one thing only. See `SPEC.md`'s *Not supported*.

@@ -1,9 +1,9 @@
-//! **The music of 妖々夢 put back where a chapter had it, out of the file the game opens itself.**
+//! **The music of th07 put back where a chapter had it, out of the file the game opens itself.**
 //!
-//! What is being asked is the same thing `the_music_across_a_restore.rs` asks of 紅魔郷 — the buffer's bytes,
+//! What is being asked is the same thing `the_music_across_a_restore.rs` asks of th06 — the buffer's bytes,
 //! the mixer's cursor and how far the file has been read, none of which is memory and so none of which a
-//! snapshot holds — through the half of it that is *not* the same: 紅魔郷 opens a wav per track through
-//! winmm's `mmio`, and 妖々夢 opens `thbgm.dat` once itself and reads every track out of that handle. So a
+//! snapshot holds — through the half of it that is *not* the same: th06 opens a wav per track through
+//! winmm's `mmio`, and th07 opens `thbgm.dat` once itself and reads every track out of that handle. So a
 //! position here is an absolute offset in the archive, moved with `SetFilePointer` and read with `ReadFile`,
 //! which is `orb_core::audio::Track`'s second shape.
 //!
@@ -70,7 +70,7 @@ fn a_chapter_of_th07_is_put_back_with_the_stream_the_music_was_at() {
             "the game's own streaming fields did not move with it",
         );
 
-        // 被弾 and チャプターをやり直す.
+        // The hit and チャプターをやり直す.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
         game.press_until(keys::Z, "the retry menu answered", || {
@@ -108,7 +108,7 @@ fn a_chapter_of_th07_is_put_back_with_the_stream_the_music_was_at() {
 /// **What comes back is read as a track and not as a slot**, which is the whole of what this asks that the
 /// count of the calls did not. The game is asked for a slot, a slot means the name loaded into it, and a name
 /// means one of `thbgm.dat`'s records — so a slot nothing was ever loaded into is not silence but the file's
-/// first record, the title screen's song. That is what a 妖々夢 session heard where the chapter's own track was
+/// first record, the title screen's song. That is what a th07 session heard where the chapter's own track was
 /// asked for by a fixed number: the music never came back and the title's began instead.
 #[test]
 fn a_chapter_of_th07_taken_under_another_track_gets_its_own_track_back() {
@@ -158,7 +158,7 @@ fn a_chapter_of_th07_taken_under_another_track_gets_its_own_track_back() {
 /// And a chapter taken where **nothing is audible** comes back to that silence: the track is asked for, because
 /// the player's own stream field is what that ask fills, and the sound it started is taken back off.
 ///
-/// This is the shape a launch of 妖々夢 was found in and the one the two cases above do not reach: a stage's
+/// This is the shape a launch of th07 was found in and the one the two cases above do not reach: a stage's
 /// first chapter falls frames into the stage — `stage 6 chapter 1 (stage start) at frame 9` — and by then the
 /// song of the scene before it has been taken down while the stage's own has not been asked for. So there is a
 /// stream to capture and nothing coming out of it, which `music: true` does not tell apart: that line is
@@ -210,7 +210,7 @@ fn a_chapter_of_th07_taken_with_nothing_audible_comes_back_to_that_silence() {
 
         // **And the silence waits for the game's own sound to have carried that ask out**, which is more than the
         // one run the restore's own frame gives it: what orb has asked for is a command in the player's own
-        // queue, and stopping a buffer the play has not reached yet stops nothing. A launch of 妖々夢 heard
+        // queue, and stopping a buffer the play has not reached yet stops nothing. A launch of th07 heard
         // exactly that — `the track asked for is stopped again` in the log and the song audible after it.
         assert!(
             !log.said("this chapter had nothing audible"),
@@ -257,7 +257,7 @@ fn a_chapter_of_th07_taken_with_nothing_audible_comes_back_to_that_silence() {
 /// command in the player's own queue, that queue is walked a phase at a time, and a command still standing is a
 /// track that is not playing yet.
 ///
-/// Its own case because it fails as its own thing, and a launch of 妖々夢 is what it fails as: a seek made in the
+/// Its own case because it fails as its own thing, and a launch of th07 is what it fails as: a seek made in the
 /// restore's own frame read `restore: the song could not be put`, the record the source was on still being the
 /// boss's. So the seek waits for the queue to go empty — see `Game::a_sound_command_is_in_flight` — and what is
 /// asserted here is both halves of that: nothing in the restore's own frame, and the chapter's own position once
@@ -346,7 +346,7 @@ fn the_song_of_th07_is_put_back_where_the_ask_for_its_track_was_carried_out() {
 /// in but what a played stream *is*, and a restore that puts back what the status happened to say stops the
 /// music wherever the buffer's end falls.
 ///
-/// A launch of 妖々夢 is the measurement, on a resumed run whose fourth stage was retried from its first
+/// A launch of th07 is the measurement, on a resumed run whose fourth stage was retried from its first
 /// chapter: `sound: put back at 133329344 in the file (asked 133329344), cursor 0 (asked 0), 42468336 byte(s)
 /// left, next write at Some(0), buffer locked, status 0x1 (asked 0), playing`. Every number the restore asked
 /// for came back — and `0x1` is playing with the ring bit clear, which is the music stopping partway with the

@@ -1,14 +1,14 @@
 //! The write over the exe's import of `CreateFileA`.
 //!
 //! Done at the import rather than at the game's own score code, which is the seam `memtrack` uses and for
-//! the same reason: the game's statically linked CRT reaches the OS through it. Both of 紅魔郷's own paths
+//! the same reason: the game's statically linked CRT reaches the OS through it. Both of th06's own paths
 //! to the file end there — see `SPEC.md` for the four places it names it and the call graph down to the
 //! import. So nothing about this patch is per-game: no address, no offset, and nothing about the file's
 //! format or the encryption over it. d3d8's and dsound's own opens go through their own imports and are
 //! not in the path.
 //!
 //! Only the open is redirected. A game that truncated a file by deleting it first — which is
-//! what one of 紅魔郷's two file paths does, and not the one the score file takes — would have
+//! what one of th06's two file paths does, and not the one the score file takes — would have
 //! its own file deleted while orb's was written, and would need `DeleteFileA` redirected
 //! alongside this.
 //!

@@ -68,7 +68,7 @@ fn a_chapter_put_back_inside_a_card_has_that_cards_name_on_the_plate() {
         let game = fought_to_the_boss_card("the-card-name");
         let log = game.log();
 
-        // ── 被弾, and the chapters behind the one that was lost: the midboss's card is one of them, and
+        // ── The hit, and the chapters behind the one that was lost: the midboss's card is one of them, and
         // going back to it is a card whose name is not the one on the plate.
         game.dies();
         game.frame();

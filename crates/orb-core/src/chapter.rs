@@ -53,12 +53,12 @@ const STAGE_SETTLE_FRAMES: u32 = 8;
 
 /// How many chapters of a stage there are snapshots of at once, the stage's own start among them.
 ///
-/// **Eight because it reaches back across a fight**: 紅魔郷's bosses have eight or nine attacks, so the
+/// **Eight because it reaches back across a fight**: th06's bosses have eight or nine attacks, so the
 /// chapter a fight began at is usually still there to be gone back to from the one it is being lost in.
 ///
 /// What that costs is measured rather than guessed, and the log is the instrument: every chapter is
 /// written down with the size of its own snapshot — `{} region(s) of {} bytes` in
-/// [`begin_chapter`](Chapters::begin_chapter) — and a session over stages 1 to 5 of 紅魔郷 1.02h came
+/// [`begin_chapter`](Chapters::begin_chapter) — and a session over stages 1 to 5 of th06 1.02h came
 /// out at **five to nine regions and 4.2 to 7.2 megabytes** a chapter. So eight of them is forty to
 /// fifty-five megabytes, which is nothing beside a two-gigabyte address space. The same numbers on any
 /// machine: what a snapshot covers is the game's own memory, and the game is the same game.
@@ -542,7 +542,7 @@ impl Chapters {
         // nothing is read on — `resync` — so an attack seen at 251 the first time through is seen at 252
         // the second, and both are recorded. Both have to be: the stepping keys read this list for where
         // the stage's boundaries are, and the ones ahead of a restore are still the stage's. Counted
-        // straight, 妖々夢's own `MIDBOSS SPELL 1` came back from a retry as `MIDBOSS SPELL 2`.
+        // straight, th07's own `MIDBOSS SPELL 1` came back from a retry as `MIDBOSS SPELL 2`.
         let mut index = 0;
         let mut last: Option<u32> = None;
         for (at, _) in self
@@ -929,7 +929,7 @@ impl Chapters {
             // **Nothing of the stage before this one is this one's**, from the frame the game is in it: no
             // chapter has begun here, so there is no boundary to have been reached, nothing to step to and
             // nothing to go back into. What is kept until the stage's own start settles is otherwise the
-            // stage that has gone — and 紅魔郷 washed the play field green over the opening of every stage
+            // stage that has gone — and th06 washed the play field green over the opening of every stage
             // for it, the wash a boundary gets going by the *cause* of the chapter the game has come to
             // rest on and that cause being the last fight's of the stage before.
             self.the_stage_was_left();
@@ -1015,7 +1015,7 @@ impl Chapters {
             // game for the track the chapter it put back was taken under. So the music over a replayed
             // fight is the stage's own whatever fight it is, and read off it the stage's own boss is a
             // midboss: whose going down hands the stage back and takes a chapter, the one boundary a stage
-            // does not have. A launch of 妖々夢 stepping about in its second stage had the whole of that
+            // does not have. A launch of th07 stepping about in its second stage had the whole of that
             // stage's fight as `a midboss nonspell` and a chapter for the boss going down.
             //
             // It can only raise the answer, the same way the music can: a boss recorded as a midboss is
@@ -1047,7 +1047,7 @@ impl Chapters {
                 );
             }
             // **And the chapter the fight arrived in called what the fight turned out to be.** The song the
-            // stage ends with does not always start on the frame its boss arrives — a launch of 妖々夢 read
+            // stage ends with does not always start on the frame its boss arrives — a launch of th07 read
             // `its own song Some(false)` on the frame stage 2's boss took a chapter and `Some(true)` on the
             // next one — so the chapter for that arrival is there before the answer is. Left as it arrived it
             // is a midboss chapter for the fight the stage ends with, and it is what `recorded_fight` answers
@@ -1086,7 +1086,7 @@ impl Chapters {
         }
         // **And a chapter the defeat closes goes with the fight**, which is the same rule read from the
         // other end: an attack declared with the boss all but dead is a chapter whose whole content is the
-        // defeat, and a hit taken in the frames it is going down offers it. A launch of 妖々夢 was left
+        // defeat, and a hit taken in the frames it is going down offers it. A launch of th07 was left
         // there — `boss_life=46`, a card declared at frame 13761, the boss gone 42 frames later — and going
         // back to that chapter is going back to the defeat with nothing to fight.
         //
@@ -1156,7 +1156,7 @@ impl Chapters {
         // underneath it. Read as an attack, that is a chapter whose whole content is the defeat — a fight
         // with nothing left to fight, which is what stepping back into it goes to.
         //
-        // Measured on 妖々夢: stage 2's card 25 began at frame 13346 and its timer started again at 14983
+        // Measured on th07: stage 2's card 25 began at frame 13346 and its timer started again at 14983
         // with `boss_life=1`, the boss gone 60 frames later. The chapter the defeat closes is dropped for
         // being shorter than [`MIN_CHAPTER_FRAMES`], and 60 is exactly that — so the drop cannot be what
         // covers this, and the reset is refused here instead.
@@ -1457,7 +1457,7 @@ impl Chapters {
             // skips, so through a whole replay that field names a released COM object whose leftover vtable
             // pointer still satisfies `mem::vtable_in_image`.
             //
-            // **And what such an object does is not defined.** A launch of 妖々夢 stepping back in stage 2
+            // **And what such an object does is not defined.** A launch of th07 stepping back in stage 2
             // wrote `taking the music down` and `music: restarting slot 0`, and the replay after it faulted
             // taking a chapter: `Snapshot::update+0x143c`, reading `0x60` with `edi` zero, which is
             // `self.untracked = Vec::new()` with `self` read as null. The report's `esp` was four bytes below
@@ -1491,7 +1491,7 @@ impl Chapters {
     /// **Whether the fight up is the one the stage ends with**, which is what a recipe's `boss` waits for.
     ///
     /// The boss slot being filled is not that question: a midboss fills it too, so a step waiting on that ended
-    /// a 4面 midsection at its midboss. The song is what tells them apart, and it is the same test as the one
+    /// a stage 4 midsection at its midboss. The song is what tells them apart, and it is the same test as the one
     /// above — a fight with the stage's own song still playing is a midboss.
     pub fn the_stages_own_boss_is_up(&self, game: &dyn Game, state: &State) -> bool {
         self.boss_has_own_music(game, state)
@@ -1499,7 +1499,7 @@ impl Chapters {
 
     /// **The game's own answer where it has one**, and the track having changed since the stage began where it
     /// has not: what a stage's start was snapshotted under is not always the stage's own song — see
-    /// [`Game::the_fights_own_song_is_playing`], which 妖々夢 answers out of the two names its stage data
+    /// [`Game::the_fights_own_song_is_playing`], which th07 answers out of the two names its stage data
     /// carries.
     fn boss_has_own_music(&self, game: &dyn Game, state: &State) -> bool {
         state.boss_present
@@ -1529,7 +1529,7 @@ impl Chapters {
     /// **What a snapshot of a stage names is released as the next one loads** — which is why
     /// [`begin_stage`](Chapters::begin_stage) drops them — and a stage *begins* a few frames after it is
     /// built, once its own start has settled. Between the ask and that beginning, everything kept is the
-    /// stage that has gone: a launch of 妖々夢 stepped back in those frames and put the first stage's own
+    /// stage that has gone: a launch of th07 stepped back in those frames and put the first stage's own
     /// start into a process that had loaded the second, which drew over green and faulted inside the game
     /// an update later. The same frames had the fight of the stage left behind still won, so the pass was
     /// walled in the stage it had just arrived in, and its chapter's cause was that fight's — a wash over
@@ -1578,7 +1578,7 @@ impl Chapters {
 ///
 /// **Nothing playing is not another track.** The identity is read through the stream, so a player holding none
 /// answers `None` — and compared straight, that is unequal to the stage's own song and every fight comes out the
-/// stage's. A launch of 妖々夢 was left there by a restore that could not put the music back: its second stage's
+/// stage's. A launch of th07 was left there by a restore that could not put the music back: its second stage's
 /// midboss was read as the fight the stage ends with, so beating it set the stage won and a judging pass could
 /// not step past that defeat.
 fn a_track_other_than_the_stages(playing: Option<u32>, the_stages: Option<u32>) -> bool {
@@ -1693,7 +1693,7 @@ mod tests {
     const STAGE: i32 = 0;
     const DIFFICULTY: i32 = 1;
 
-    /// What the run carries, which is 紅魔郷's own for one that has just started.
+    /// What the run carries, which is th06's own for one that has just started.
     ///
     /// Nothing here is decided by any of them: they go into the line a chapter is written down with,
     /// which is what says a chapter began with the run in the state it was in.
@@ -2261,7 +2261,7 @@ mod tests {
     /// stage's own, and read off it the stage's boss is a midboss: whose going down hands the stage back and
     /// takes a chapter, which is the one boundary a stage does not have.
     ///
-    /// A launch of 妖々夢 found it. Stepping about in its second stage left the whole of that stage's fight
+    /// A launch of th07 found it. Stepping about in its second stage left the whole of that stage's fight
     /// logged as `a midboss nonspell` and `a midboss spellcard`, and the boss going down took a chapter of its
     /// own. What answers instead is what the stage already knows: the chapter it divided this frame into the
     /// first time through, which is the same list the stepping keys move between.
@@ -2322,7 +2322,7 @@ mod tests {
     /// nothing while the game plays the death out. Read as an attack that is a chapter offered for the
     /// defeat — a fight with nothing left to fight, one bomb from over.
     ///
-    /// A launch of 妖々夢 is the measurement: stage 2's chapter 11 began card 25 at frame 13346, and chapter
+    /// A launch of th07 is the measurement: stage 2's chapter 11 began card 25 at frame 13346, and chapter
     /// 12 began at 14983 on the *same* card 25 with `attack_frames=1` and `boss_life=1`, with the boss gone 60
     /// frames later. **Sixty**, which is why the chapter the defeat closes was not dropped either — that rule
     /// asks for shorter than [`MIN_CHAPTER_FRAMES`], and this was exactly it.
@@ -2378,7 +2378,7 @@ mod tests {
     /// is read through, and a stage playing nothing reads as `None` — which compares unequal to the stage's own
     /// song and so answers every fight the stage's own.
     ///
-    /// A launch of 妖々夢 is the measurement, by way of a restore that left the player holding no stream: from
+    /// A launch of th07 is the measurement, by way of a restore that left the player holding no stream: from
     /// there its second stage's *midboss* was read as the fight the stage ends with, so beating it set the stage
     /// won and the judging pass could not step past that defeat.
     #[test]
@@ -2415,7 +2415,7 @@ mod tests {
 
     /// **The chapter a fight arrived in takes the name its song gives it.**
     ///
-    /// The song the stage ends with does not always start on the frame its boss arrives. A launch of 妖々夢
+    /// The song the stage ends with does not always start on the frame its boss arrives. A launch of th07
     /// read `its own song Some(false)` on the frame stage 2's boss took a chapter — frame 8099 — and
     /// `Some(true)` on the frame after it. Left as it arrived, that chapter is a midboss nonspell for the
     /// fight the stage ends with, and it is what [`Chapters::recorded_fight`] answers with for those frames

@@ -3,7 +3,7 @@
 //! Dying in a pointdevice run costs the chapter and not a life: the menu goes up, and the snapshot
 //! that puts the chapter back puts the count back with it. So the number in the panel decides
 //! nothing, while being the one thing left on the screen still describing the game as it was.
-//! 紺珠伝 writes DISABLE across its own 残機 row, which is where the mode comes from and so what
+//! th15 writes DISABLE across its own row of lives, which is where the mode comes from and so what
 //! somebody who wants it will look for.
 //!
 //! **The stroke is a picture of a brush stroke, not a generated one.** Generating one was tried
@@ -32,7 +32,7 @@ use orb_api::Mask;
 use crate::{brush, log};
 
 /// The panel's own average colour, for painting out the stars where the game's sheet is not there
-/// to paint with. 紅魔郷's panel is a noise of four shades within seven of each other, so the
+/// to paint with. th06's panel is a noise of four shades within seven of each other, so the
 /// average is the nearest one flat colour there is to it.
 const PANEL: u32 = 0xff2a_2a39;
 /// The stroke's own ink, which in the picture it was baked from is very nearly black.
@@ -138,8 +138,8 @@ impl LivesMark {
 /// Taller because the picture is a stroke and a stroke is not the shape of a row — 4:1 in the
 /// picture against the row's 9:1. **What it may not do is reach the rows either side**, which the
 /// game repaints no oftener than it repaints this one, so how far past the row it may go is
-/// `room` — see `Game::room_around_the_lives_row`. 紅魔郷 has 8 pixels there and the stroke's own
-/// box wants 7; 妖々夢 has none, and the box is the row.
+/// `room` — see `Game::room_around_the_lives_row`. th06 has 8 pixels there and the stroke's own
+/// box wants 7; th07 has none, and the box is the row.
 fn brush_area(row: Rect, room: f32) -> Rect {
     let width = brush::WIDTH as f32;
     let height = brush::HEIGHT as f32;
@@ -189,7 +189,7 @@ fn stroke_mask() -> Mask {
 /// the one thing this mark is not for.
 ///
 /// Each tile is clipped to what is being painted, texture coordinates and all, since the grid does
-/// not line up with the row: 紅魔郷's runs from 416 in 32s and the count starts at 496.
+/// not line up with the row: th06's runs from 416 in 32s and the count starts at 496.
 ///
 /// # Safety
 /// Must run inside `frame`, with `panel` naming a live texture of the game's device.
@@ -272,7 +272,7 @@ mod tests {
     use crate::overlay::Drawing;
     use orb_sim::{Drawn, Quad};
 
-    /// 紅魔郷's own row: the bar the game erases the count with, which is where the mark goes.
+    /// th06's own row: the bar the game erases the count with, which is where the mark goes.
     const ROW: Rect = Rect {
         left: 496.0,
         top: 122.0,
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!((above.height, below.height), (0.0, 0.0));
     }
 
-    /// And a panel with no room either side of the row — 妖々夢's, whose bombs are 16 pixels under a row
+    /// And a panel with no room either side of the row — th07's, whose bombs are 16 pixels under a row
     /// 16 tall — gives the stroke that row and nothing else, so there is nothing beside it to paint and
     /// the word has the row to fit in.
     #[test]
@@ -372,7 +372,7 @@ mod tests {
 
     /// The mark, drawn through the real overlay onto a device that keeps what it was asked for.
     ///
-    /// The row is 紅魔郷's own. No panel tile, which is the case the log warns about — the strips
+    /// The row is th06's own. No panel tile, which is the case the log warns about — the strips
     /// either side of the stroke are painted flat — and it is the one a test can set up without a
     /// game's sprite sheet.
     fn drawn_mark(row: Rect) -> Drawn {

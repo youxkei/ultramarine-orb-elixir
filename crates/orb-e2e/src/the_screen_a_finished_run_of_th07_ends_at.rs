@@ -1,11 +1,11 @@
-//! **The screen a run of 妖々夢 ends at is the game's to walk, and orb writes one state into it.**
+//! **The screen a run of th07 ends at is the game's to walk, and orb writes one state into it.**
 //!
 //! That screen is several screens one after another — the high-score name entry its register starts it in, the
 //! stats, and then the question about saving a replay — and only the last of those is orb's business: a run with
 //! chapters has nothing to put in a replay, so the state is written past that question and no part of it is
 //! drawn. Every screen before it belongs to whoever just finished the run.
 //!
-//! What 妖々夢 brings of its own is that the screen is *one* object reached two ways, and which of its screens is
+//! What th07 brings of its own is that the screen is *one* object reached two ways, and which of its screens is
 //! up is a phase inside it — `Th07`'s `RESULT_FROM_A_RUN` and `RESULT_OFFERING_A_REPLAY`, both read off the exe.
 //! So the same field says both "a run somebody played has just finished" and "the offer is up", and a launch
 //! that wrote into the wrong one of those would take the name entry away from whoever was standing at it.

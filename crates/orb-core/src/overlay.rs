@@ -24,9 +24,9 @@ pub const WHITE: u32 = 0xffff_ffff;
 /// The size a line of orb's own is drawn at, in the game's 640x480 output.
 ///
 /// **A size and not an em height any more**, which is what `Game::own_face` changed: a game that names the face
-/// it draws its own text in also says what height it asks the host for, and 妖々夢 asks for a *cell* of twice
+/// it draws its own text in also says what height it asks the host for, and th07 asks for a *cell* of twice
 /// this less two and shows the result at half. So the glyphs come out around four fifths of this number, and
-/// this is the number to turn when they read too small — which a 妖々夢 session asked for at 15, where the lines
+/// this is the number to turn when they read too small — which a th07 session asked for at 15, where the lines
 /// were legible and not comfortable.
 ///
 /// **And what stops it going higher is the longest line orb draws over a game's own screen**: the mark on the
@@ -248,7 +248,7 @@ impl Frame<'_> {
     }
 
     /// The same picture drawn into a box of its own rather than at its own size, for a mark whose box
-    /// the game's panel bounds: 妖々夢's rows are as far apart as they are tall, so the stroke over its
+    /// the game's panel bounds: th07's rows are as far apart as they are tall, so the stroke over its
     /// count of lives has that row and nothing either side of it — see `Game::room_around_the_lives_row`.
     pub fn picture_in(
         &self,
@@ -559,7 +559,7 @@ impl Drop for Picture {
 fn loaded(path: &Path, own_face: Option<Face>, height: i32) -> Option<Font> {
     let Some(font) = Font::load(path, height) else {
         // The machine's own face rather than nothing, which is the whole difference between orb having
-        // screens in 妖々夢 and having none — see
+        // screens in th07 and having none — see
         // [docs/adr/0019](../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md).
         // The line says which of the two this launch is, because what the glyphs on screen *are* is the one
         // thing a substituted face changes.

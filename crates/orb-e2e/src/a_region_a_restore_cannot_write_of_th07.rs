@@ -1,8 +1,8 @@
-//! **A region of a chapter of 妖々夢 that cannot be made writable: named, and the rest of the restore still
+//! **A region of a chapter of th07 that cannot be made writable: named, and the rest of the restore still
 //! happens.**
 //!
-//! The same claim `a_region_a_restore_cannot_write.rs` makes of 紅魔郷, over the regions *this* game is in — a
-//! snapshot of 妖々夢 is its `.data` and the blocks off the allocator beside it, and a chapter put back except
+//! The same claim `a_region_a_restore_cannot_write.rs` makes of th06, over the regions *this* game is in — a
+//! snapshot of th07 is its `.data` and the blocks off the allocator beside it, and a chapter put back except
 //! for one of them is a run to carry on from, where a restore that gave up at the first refusal would leave the
 //! game with half of one chapter and half of another.
 //!
@@ -17,7 +17,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -58,7 +58,7 @@ fn a_region_of_th07_that_cannot_be_committed_is_named_and_the_chapter_still_come
         );
         game.sim().space().refuses_to_commit(base);
 
-        // 被弾 and チャプターをやり直す, which is the restore.
+        // The hit and チャプターをやり直す, which is the restore.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 2"));
         game.press_until(keys::Z, "the retry menu answered", || {

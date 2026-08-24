@@ -1,20 +1,20 @@
-//! **Moving between the stages of a replay of 妖々夢, which is what a `--collect` pass spends its time doing.**
+//! **Moving between the stages of a replay of th07, which is what a `--collect` pass spends its time doing.**
 //!
 //! The across key held with next or back is the other half of the hand `stepping_inside_a_stage_of_th07.rs` is
 //! about: it leaves the stage altogether and asks the game to start the replay at the one either side. What
-//! 妖々夢 answers that with is its own — `Th07::jump_to_stage` reads the replay's header for a record of that
+//! th07 answers that with is its own — `Th07::jump_to_stage` reads the replay's header for a record of that
 //! stage and asks the supervisor for the scene a stage is rebuilt in — so a stage the replay does not cover is a
 //! move that must not happen: the load would fail inside the game and drop it to its menu rather than saying so.
 //!
-//! **What a laid-out 妖々夢 cannot say is that the replay plays out the same way afterwards.** 紅魔郷's own e2e
+//! **What a laid-out th07 cannot say is that the replay plays out the same way afterwards.** th06's own e2e
 //! test compares two passes over one stage update for update, and what makes that possible is a record of inputs
-//! its laid-out game feeds; nothing of 妖々夢's replay records is laid out here, and inventing one would be this
+//! its laid-out game feeds; nothing of th07's replay records is laid out here, and inventing one would be this
 //! game claiming to know a format the exe has not been read for. What is left, and what this is, is the move
 //! itself: asked for where the replay has that stage, refused where it has not, and the pass carrying on in the
 //! stage it arrives in.
 //!
 //! And the recording's own terminator is not one of these either, for a reason that is written where it is
-//! declined: `Th07::hooks` says 妖々夢's teardown writes no entry and its recorder refuses a frame during
+//! declined: `Th07::hooks` says th07's teardown writes no entry and its recorder refuses a frame during
 //! playback, so there is nothing here to hold back.
 
 use crate::fake::th07::Fake;
@@ -137,7 +137,7 @@ fn a_move_between_the_stages_of_a_replay_of_th07_is_asked_of_the_game_and_the_pa
 /// on the frame after: the wall said `stage 2 has ended`, the fight of the stage *before* it still being
 /// won as far as anything knew; and a step back put the first stage's own start back into a process that
 /// had loaded the second — `step: held at the stage's start (script 9)`, the game in a stage it had torn
-/// down, everything drawn over green, and 妖々夢 faulting inside itself an update later.
+/// down, everything drawn over green, and th07 faulting inside itself an update later.
 #[test]
 fn a_stage_left_behind_of_th07_is_neither_gone_back_into_nor_a_wall_in_the_stage_arrived_at() {
     in_its_own_process(|| {
@@ -193,7 +193,7 @@ fn a_stage_left_behind_of_th07_is_neither_gone_back_into_nor_a_wall_in_the_stage
 /// And a stage the replay does not cover: the move is refused, said out loud, and nothing of the pass moves.
 ///
 /// Which is the half that cannot be left to the game: the load of a stage a replay has no record of fails inside
-/// 妖々夢 and drops it to its menu, so what orb must not do is ask.
+/// th07 and drops it to its menu, so what orb must not do is ask.
 #[test]
 fn a_move_to_a_stage_a_replay_of_th07_does_not_cover_is_refused() {
     in_its_own_process(|| {

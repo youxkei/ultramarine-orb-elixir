@@ -1,4 +1,4 @@
-//! **The number 妖々夢 scales its shot by, and the run picked up that got a build's own.**
+//! **The number th07 scales its shot by, and the run picked up that got a build's own.**
 //!
 //! `[0x62f8a4]` is `[gm+0x9634]`. A run's build fills it at 0x42e3a4 out of the per-shot table at
 //! `[0x49f5d0 + shot*0xc]`, and the block that does so is the one 0x42e89b jumps over — so a stage the run
@@ -8,8 +8,8 @@
 //! **It is not a number that stays put while a run is played.** 0x40ecf1 hands its *address* out of the
 //! dispatcher that gives a script a variable to write — the entry beside `[0x626280]`, the difficulty — so what
 //! writes it is the stage's own script and no absolute store in the exe mentions it. A launch measured the
-//! difference that leaves: the same 2面 entered by a transition held 0x20 where the same 2面 built by a resume
-//! held 0x10.
+//! difference that leaves: the same stage 2 entered by a transition held 0x20 where the same stage 2 built by
+//! a resume held 0x10.
 //!
 //! **And it is read every frame the player is updated.** Nine sites in 0x40e and 0x412 read it, four with
 //! `fimul` — 0x412bab is `current + (target - current) * this / 0x498a84` written back into the field it came

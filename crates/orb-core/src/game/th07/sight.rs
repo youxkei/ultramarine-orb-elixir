@@ -1,9 +1,9 @@
-//! **What 妖々夢 answers a bot with**: its own names for its buttons, and one frame of a stage read off its own
+//! **What th07 answers a bot with**: its own names for its buttons, and one frame of a stage read off its own
 //! arrays.
 //!
 //! Its own file and this game's own, for the reason each game's resume file is its own: which bit of a word is
 //! this game's shot, where its player is, and what its own state byte says has just happened are questions
-//! about *this* game. A shared answer could only be the union of every game's vocabulary, and 東方 is not one
+//! about *this* game. A shared answer could only be the union of every game's vocabulary, and Touhou is not one
 //! kind of game to take a union of.
 //!
 //! **And none of what to do about any of it is here.** What is read is handed over as [`Frame`] and the rules
@@ -37,10 +37,10 @@ use super::{
     SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
-/// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
+/// **The bit a recipe's button name is**, or `None` for a name th07 has nothing for.
 ///
 /// The names are this game's, which is the line every other per-game thing in this tree is drawn on:
-/// `Numbers` and `Reproduction` are 妖々夢's because their fields are, and these are because `decide` is a
+/// `Numbers` and `Reproduction` are th07's because their fields are, and these are because `decide` is a
 /// shot and a return key here and something else elsewhere.
 pub fn bit(name: &str) -> Option<u16> {
     Some(match name {
@@ -101,7 +101,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         // **Every state but nothing, and the reading that said otherwise was wrong.** The dispatch at 0x425b82
         // reaches the player's own tests from the first of its five cases only, so leaving the other four out
         // looked safe — and a launch answered: it cleared the game with nine hits where the one before it had
-        // four, eight of them on 6面's boss reading between six and fourteen units of room, which is the log's
+        // four, eight of them on stage 6's boss reading between six and fourteen units of room, which is the log's
         // shape for a hazard the model does not have.
         //
         // What the reading missed is that the state is not a phase a bullet passes through. 0x423a5d, 0x423e66,
@@ -137,8 +137,8 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // it is a rate, so where one is going can only be the difference from where it was.
     //
     // **And whether it has a body to run into at all.** 0x420e86 and 0x420e9f gate the enemy's own collision on
-    // the two bits of [`ENEMY_SOLID`], so an enemy with either down cannot touch the player — which 妖々夢's
-    // 6面 boss relies on: it fires 自機狙い off an enemy its script keeps *at* the player. Handed over all the
+    // the two bits of [`ENEMY_SOLID`], so an enemy with either down cannot touch the player — which th07's
+    // stage 6 boss relies on: it fires aimed shots off an enemy its script keeps *at* the player. Handed over all the
     // same, with what the byte says, since a hit naming nothing near it needs to know what was passed over.
     for slot in 0..ENEMY_SLOTS {
         let enemy = G_ENEMY_MANAGER + ENEMIES + slot * ENEMY_BYTES;
@@ -186,24 +186,24 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         // compares it with nothing and skips the slot where it is, from a base of `[this]+0x366628` — which is
         // this same array, the constructor at 0x4233aa laying out its 0x40 slots of 0x4ec there.
         //
-        // **So the beams that keep hitting the bot are not lasers.** 1面's last card and 6面's turning one both
-        // read every one of these slots as empty while they are on the screen, and taking the gate away instead
-        // put 57 of them in — stale geometry in slots holding nothing. Whatever those beams are, they are in the
-        // bullet manager, which the model already has.
+        // **So the beams that keep hitting the bot are not lasers.** Stage 1's last card and stage 6's turning
+        // one both read every one of these slots as empty while they are on the screen, and taking the gate
+        // away instead put 57 of them in — stale geometry in slots holding nothing. Whatever those beams are,
+        // they are in the bullet manager, which the model already has.
         if unsafe { mem::read::<u32>(laser + LASER_ALIVE) } == 0 {
             continue;
         }
         // **And no gate on the phase**, which is the wrong walk's gate: the two that stop at [`LASER_FADING`]
         // are the *bullet* ones, 0x4188eb and 0x424864, deciding whether a beam deletes a bullet. The player's
         // own test is called from every branch of the phase switch at 0x42657a — 0x426727 for phase 0, behind
-        // the 予告線 timer, and 0x4267ec and 0x4269a5 for phases 1 and 2 with no gate before them at all. A
+        // the warning line timer, and 0x4267ec and 0x4269a5 for phases 1 and 2 with no gate before them at all. A
         // fading beam narrows and goes on hitting while it does, and a run was hit at `201.1,356.0` with the
         // model holding no lasers and twenty of them thrown away here.
         //
         // **And the frame it starts hitting on rather than whether it is drawn.** 0x4266dc gates the game's own
-        // test on [`LASER_TIMER`] reaching [`LASER_LIVE_AT`], so a beam still drawing its 予告線 hits nothing at
-        // all — which is a thing to be out of the way of and not a frame lost, and telling those apart is the
-        // bot's.
+        // test on [`LASER_TIMER`] reaching [`LASER_LIVE_AT`], so a beam still drawing its warning line hits
+        // nothing at all — which is a thing to be out of the way of and not a frame lost, and telling those
+        // apart is the bot's.
         into.beams.push(Beam {
             slot,
             origin: unsafe { position(laser + LASER_ORIGIN) },
@@ -237,11 +237,11 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
 }
 
 /// **Which of the shared kinds one of this game's items is**, as the table at 0x433a5a indexes them: 0 steps the
-/// power up by one and 2 by eight — 大パワーアイテム — 5 is the life and 3 the bomb, 1 is worth a score off the
+/// power up by one and 2 by eight — the big power item — 5 is the life and 3 the bomb, 1 is worth a score off the
 /// chain and 7 fills the cherry.
 ///
 /// The numbering is this game's and the names are not, which is the whole of why this mapping is here: what any
-/// of them is *worth going for* is a rule, and a rule written against 妖々夢's own indices would be a rule this
+/// of them is *worth going for* is a rule, and a rule written against th07's own indices would be a rule this
 /// file had to hold.
 const fn worth(kind: i8) -> Worth {
     match kind {
@@ -257,7 +257,7 @@ const fn worth(kind: i8) -> Worth {
 
 /// The boss the fight is with, where there is one on the screen and inside the play field.
 ///
-/// **Every slot and not the first that is alive.** 妖々夢's 4面 is three bosses in the eight, and the ones the
+/// **Every slot and not the first that is alive.** th07's stage 4 is three bosses in the eight, and the ones the
 /// fight is not with wait off the side of the field — alive, so no aliveness test passes them over, and outside
 /// it, so nothing about their place is a place. Taking the first alive one and then finding it unusable is
 /// answering "no boss": a launch stood in the middle of the field for the whole of that fight.
@@ -310,7 +310,7 @@ unsafe fn player_box() -> (f32, f32) {
 /// **The supervisor's own scene and not the run's numbers being there**, which is what this was and what it
 /// cost: a launch reached the title screen with that pointer still set, so the rules ran with the play field
 /// never filled in — a field of zeroes puts the y they want above its own top, and the [`PAD_UP`] that went in
-/// wrapped 妖々夢's title menu from its first item round to 終了, which the shot beside it then took. The scene
+/// wrapped th07's title menu from its first item round to Quit, which the shot beside it then took. The scene
 /// is the same thing `Th07::read_state` answers `playing` out of, and it is a run's on no other screen.
 ///
 /// # Safety

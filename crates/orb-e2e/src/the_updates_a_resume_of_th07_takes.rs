@@ -1,4 +1,4 @@
-//! **An update of 妖々夢 is not a frame of its run, and a playback was bounded as though it were.**
+//! **An update of th07 is not a frame of its run, and a playback was bounded as though it were.**
 //!
 //! orb drives the updates itself to put a run back: it calls the game's own calc chain again and again inside
 //! one frame of its own, feeding a frame's buttons to each, until the stage's clock reaches the frame the
@@ -29,7 +29,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The bomb's own bit of the word 妖々夢's read builds, which is the button a run reads as an edge rather than
+/// The bomb's own bit of the word th07's read builds, which is the button a run reads as an edge rather than
 /// as a hold — see the fake's own `MAP`.
 const BOMB: u16 = 0x2;
 
@@ -37,7 +37,7 @@ const BOMB: u16 = 0x2;
 /// the shortest a chapter may be.
 const APART: u32 = 120;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -207,8 +207,8 @@ fn a_playback_of_th07_says_every_frames_own_line_where_the_log_is_verbose() {
             log.lines().join("\n  "),
         );
 
-        // **And where the items are, which the count of them cannot say.** A pair of launches of 妖々夢 held
-        // against each other agreed on every field of this line for 992 frames of 2面 and parted at 993 on a
+        // **And where the items are, which the count of them cannot say.** A pair of launches of th07 held
+        // against each other agreed on every field of this line for 992 frames of stage 2 and parted at 993 on a
         // point item: the run collected one — `counted` 215 to 216, the score 200 up, four more numbers drawn —
         // and the playback did not, with the same word, the same player, the same seven items in the air and the
         // same cherry. So the two worlds had already parted somewhere this line does not look, and the items'
@@ -225,8 +225,8 @@ fn a_playback_of_th07_says_every_frames_own_line_where_the_log_is_verbose() {
         );
 
         // **And how many updates the frame took**, which is the one asymmetry between the two passes that this
-        // line could not show. A pair of launches of 妖々夢 agreed on every field of it — the word, the player,
-        // the generator, the score, the cherry and the fold over every item slot — for 852 frames of 2面, and on
+        // line could not show. A pair of launches of th07 agreed on every field of it — the word, the player,
+        // the generator, the score, the cherry and the fold over every item slot — for 852 frames of stage 2, and on
         // 853 the run collected a point item where the playback did not: `counted` 221 to 222, the score 200 up,
         // four more numbers drawn, and both passes losing that item two frames later. The same state and the
         // same word cannot come out differently, so what differed is how many times the update ran — the game

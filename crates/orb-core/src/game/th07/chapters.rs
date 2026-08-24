@@ -12,7 +12,7 @@
 //! pasting over this file, and `tuning.txt` beside it holds the same numbers for the next sitting.
 //!
 //! **Every one of them is a hand's**, which is this game's own answer and not a preference: the detector proposes
-//! a boundary a second into a gap with nothing to shoot at, and 妖々夢 has no such gaps — a pass over its second
+//! a boundary a second into a gap with nothing to shoot at, and th07 has no such gaps — a pass over its second
 //! stage measured a floor of *one* enemy alive, with stretches of 450 and 929 frames at that floor and never
 //! zero. So `--collect` proposes nothing here and every number below was put there by somebody watching the
 //! stage. Which hand it was is read and not merely written down — the shortest a chapter may be lets one of these

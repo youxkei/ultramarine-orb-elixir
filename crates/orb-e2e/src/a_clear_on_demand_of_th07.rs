@@ -1,17 +1,17 @@
-//! **`--clear` over 妖々夢: a run to the ending with nothing able to kill the player.**
+//! **`--clear` over th07: a run to the ending with nothing able to kill the player.**
 //!
 //! What `--clear` is for is reaching a result screen without half an hour of playing well, so it is also how the
 //! ending, the screen a run ends at and the score file's write on the way out are reached. It fixes the mode
 //! rather than asking — `mode: pointdevice to start with; nobody is asked`.
 //!
-//! **What keeps the player alive is this game's own two fields**, and that is what makes this 妖々夢's e2e test
-//! rather than a second copy of 紅魔郷's: `Th07::make_invulnerable` writes the state the respawn walks in and the
+//! **What keeps the player alive is this game's own two fields**, and that is what makes this th07's e2e test
+//! rather than a second copy of th06's: `Th07::make_invulnerable` writes the state the respawn walks in and the
 //! frames left under it — 3 and 0xf0, out of the five-value machine at `+0x2408` and the timer at `+0x16a08` —
 //! and it writes them *every update*, because frames left where the last respawn left them is a state put back to
 //! normal in the same update it was written for. Both are read back here, on frame after frame of a run.
 //!
 //! And what it must not touch is the three states that are the game in the middle of something: dying, being hit,
-//! and the border 妖々夢 has where 紅魔郷 has nothing. A launch that wrote over the border would be playing the
+//! and the border th07 has where th06 has nothing. A launch that wrote over the border would be playing the
 //! game rather than keeping the player alive for an update.
 //!
 //! What these are about is how the run *went*, not how long it took: the wall clock is one machine's and is not
@@ -147,7 +147,7 @@ fn a_cleared_run_of_th07_writes_the_players_own_two_fields_every_update() {
 
 /// And the border is left where the game put it, which is the state orb has no business finishing.
 ///
-/// 妖々夢's own, and the one state of the five that 紅魔郷 has not got: a hit there is deflected by the game
+/// th07's own, and the one state of the five that th06 has not got: a hit there is deflected by the game
 /// itself, which takes the border down, plays its effect and is part of what a run scores. So a `--clear` that
 /// wrote over it would be playing the game.
 #[test]

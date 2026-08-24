@@ -36,7 +36,7 @@
 //! is a whole mechanism bought for a number nobody has asked for.
 //!
 //! **A window closed mid-run writes nothing**, and there is nowhere to put the fix: there is no front end
-//! left to take the run through and the loop is on its way out. 紅魔郷 loses that record too.
+//! left to take the run through and the loop is on its way out. th06 loses that record too.
 //!
 //! **What is left in `orb::score` is the write over the exe's import of `CreateFileA`.** The replacement
 //! that entry is pointed at is [`create_file_a`] and it is here, being a hook body like the eleven in

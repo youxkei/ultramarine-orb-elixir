@@ -9,7 +9,7 @@
 //! **Windows draws the pointer by a display counter, and that counter is the whole process's.**
 //! `ShowCursor` moves it one step per call and the pointer is drawn while it is not negative, so hiding
 //! it means stepping over that edge and nothing else in the process may be stepping the other way. The
-//! game is: **紅魔郷 1.02h answers `WM_SETCURSOR` itself** — its window procedure at 0x420d40 dispatches
+//! game is: **th06 1.02h answers `WM_SETCURSOR` itself** — its window procedure at 0x420d40 dispatches
 //! `0x20` to the case at 0x420dc0 — and in a windowed launch, which is every launch of orb's, that case
 //! is `LoadCursorA(IDC_ARROW)`, `SetCursor` and `ShowCursor(TRUE)`, answering 1 so `DefWindowProcA` never
 //! sees the message. `WM_SETCURSOR` arrives whenever the pointer moves over the window, so a launch that
@@ -82,7 +82,7 @@ pub fn install(hiding: bool) {
 /// What goes in that import entry: the game's ask, answered and not passed on.
 ///
 /// The counter orb last read comes back, which is what the real call would have answered had orb's own
-/// step been the last one. 紅魔郷 reads it at none of its six call sites.
+/// step been the last one. th06 reads it at none of its six call sites.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
 /// `ShowCursor` call lands, there being no import table to reach it through.

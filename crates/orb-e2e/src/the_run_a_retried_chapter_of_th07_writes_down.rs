@@ -11,7 +11,7 @@
 //! standing from the attempt that was lost is state the surviving attempt was played with and a playback of it
 //! has never seen — and from there the same buttons are a different run.
 //!
-//! Which is the one thing telling the runs that resume from what a session found: a 妖々夢 run of stage 1 with
+//! Which is the one thing telling the runs that resume from what a session found: a th07 run of stage 1 with
 //! `0 retries` was picked up and reproduced every one of its 2667 frames, generator for generator, while a run
 //! of stage 6 with 13 of them parted inside its first chapter and the player was hit at frame 1249.
 
@@ -23,7 +23,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The cards the midboss puts up, by its own record, named the way 妖々夢 names cards: one for the chapter that
+/// The cards the midboss puts up, by its own record, named the way th07 names cards: one for the chapter that
 /// is retried and one for the chapter after it, so the file the run leaves is written past the retry.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";

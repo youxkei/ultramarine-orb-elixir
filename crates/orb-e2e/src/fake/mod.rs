@@ -13,9 +13,9 @@
 //! could not while this was an integration test's module and compiled into one binary per file. See
 //! `../lib.rs`.
 //!
-//! **Playing a game's part is that game's own half.** [`th06`] is 紅魔郷's — the address space, the
+//! **Playing a game's part is that game's own half.** [`th06`] is th06's — the address space, the
 //! scenes it walks, the buttons it is played with and the file it keeps its scores in — and [`th07`] is
-//! 妖々夢's, which is a frame and nothing else, that being all of the exe orb has read. Each brings its
+//! th07's, which is a frame and nothing else, that being all of the exe orb has read. Each brings its
 //! own half and nothing of the other's; what they share is here. See
 //! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
 
@@ -44,7 +44,7 @@ pub const WINDOW: Hwnd = Hwnd(0x1234);
 /// to unless a scenario says otherwise.
 ///
 /// Japanese because the game is: a scenario looking for a menu item looks for the words somebody
-/// playing 紅魔郷 sees. That orb writes those words in English on an English machine is one scenario's
+/// playing th06 sees. That orb writes those words in English on an English machine is one scenario's
 /// subject — `the_screens_in_english` — and it declares the machine itself.
 pub const LANGUAGE: Language = Language::Japanese;
 
@@ -248,7 +248,7 @@ pub struct Launch {
     /// The face this game bakes the screens it draws itself through — see [`Launch::writes`].
     ///
     /// The game's own font, at a size of its own: which size is nothing to anything, a baked string
-    /// being recognised by *which* string it is rather than by how it came out, and 紅魔郷's own screens
+    /// being recognised by *which* string it is rather than by how it came out, and th06's own screens
     /// have not been read for one.
     font: Option<Font>,
     /// Where the vtable the game's device is reached through is laid out — see [`vtable_for`].
@@ -293,7 +293,7 @@ pub struct Presented {
 /// for the loop at all.
 ///
 /// Here rather than at the two call sites, so that a game which declines the loop is a game these e2e
-/// tests do not drive one for: 妖々夢 declined it until its own frame had been read, and a laid-out game
+/// tests do not drive one for: th07 declined it until its own frame had been read, and a laid-out game
 /// that called `render` anyway would have been asserting about a configuration no launch installs.
 pub fn orbs_own_loop(config: &orb_config::Config, game: &dyn orb_core::game::Game) -> bool {
     config.own_frame_loop && config.frame_hooks && game.hooks().render.is_some()
@@ -503,7 +503,7 @@ unsafe extern "system" fn never_called() {
 /// **Chosen rather than allocated, which the address that page was asked for was too.** A laid-out game
 /// claims the addresses the real one's `.data` and heap blocks are at, and this is a 32-bit process whose
 /// own heap reaches both: an allocation of this process's own can land inside one, watched at 0x6ce8f0,
-/// 0x301df98 and 0x651398 back when it was a `Box`. 紅魔郷's ranges reach 0x0300f000 and `orb-sim`'s
+/// 0x301df98 and 0x651398 back when it was a `Box`. th06's ranges reach 0x0300f000 and `orb-sim`'s
 /// device and sound buffer are at 0x0d3d0000 and 0x0d500000.
 const DEVICE_VTABLE: usize = 0x2000_0000;
 

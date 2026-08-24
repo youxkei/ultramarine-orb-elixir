@@ -14,7 +14,7 @@
 //! expensive where no device answers, which is also the only case DirectInput leaves the game in this
 //! branch for.
 //!
-//! **Every pad is read and not the one device the game asks about.** 紅魔郷 holds exactly one
+//! **Every pad is read and not the one device the game asks about.** th06 holds exactly one
 //! DirectInput device, settled at startup and never again, and asks winmm about joystick 0 alone — so a
 //! second pad, a pad plugged in after the game started, and a pad in XInput's second slot are all pads
 //! the game cannot read. This is a one-player game, so each of them is that one player's, and each is
@@ -49,7 +49,7 @@ use orb_api::{JoyCaps, JoyInfo, XinputPad, joyerr};
 use crate::game::{Axis, Reading};
 use crate::{detail, log, profile};
 
-/// `JOY_RETURNALL`, which is what a sample is taken with and what 紅魔郷 asks a read for.
+/// `JOY_RETURNALL`, which is what a sample is taken with and what th06 asks a read for.
 pub const RETURN_ALL: u32 = 0xff;
 
 /// The joystick the game asks about. It only ever asks about this one.
@@ -265,7 +265,7 @@ fn poll() -> ! {
         // **A pad XInput answers for is read there and nowhere else.** An XInput pad is a winmm device
         // too, so a sweep finds one pad twice, and one press pushes both of them: which of the two
         // `last_pushed` then picked was whichever interface reported that press later. A session of
-        // 妖々夢 on a pad that showed up as `winmm 1` and `xinput 0` wrote the line below eighteen
+        // th07 on a pad that showed up as `winmm 1` and `xinput 0` wrote the line below eighteen
         // times — nine pairs, forty milliseconds apart — and a press whose socket stops being sampled
         // partway through it is a press the game is never told about: the player pushed the d-pad and
         // did not move, let go and moved further.
@@ -735,8 +735,8 @@ fn pov_of(mask: u16) -> u32 {
 /// diagonal counts as its two, so a hat held up-and-left moves up and left both.
 ///
 /// Here beside [`pov_of`], which is its inverse, rather than in either game: what it decodes is winmm's
-/// convention and not a game's, and neither game reads the field at all — 紅魔郷's own pad read has no
-/// look at it and neither has 妖々夢's, so everything a hat does is orb's. What each game turns the four
+/// convention and not a game's, and neither game reads the field at all — th06's own pad read has no
+/// look at it and neither has th07's, so everything a hat does is orb's. What each game turns the four
 /// into is its own, those being bits of its own input word.
 ///
 /// All four although a menu of orb's is a list and reads two: the player moves in four, and a `hat` that
@@ -762,7 +762,7 @@ pub fn hat(pov: u32) -> (bool, bool, bool, bool) {
 ///
 /// The centre is halfway between the axis' own bounds and the dead zone is a quarter of the travel either
 /// side of it, which is what **both** games do with the same two numbers: `(wXmax - wXmin) / 4` at
-/// 0x41d18b in 紅魔郷's `Controller::GetControllerInput`, and at 0x4305ac in 妖々夢's pad read. Nothing
+/// 0x41d18b in th06's `Controller::GetControllerInput`, and at 0x4305ac in th07's pad read. Nothing
 /// where the bounds say nothing, since a device whose travel is zero has no middle to be off.
 ///
 /// The bounds are the reading's own rather than the `JOYCAPSA` either game filled, because that one is
@@ -943,7 +943,7 @@ mod tests {
     }
 
     /// A sample is taken with `JOY_RETURNALL` into the current `JOYINFOEX`, which is what
-    /// 紅魔郷 asks for. Anything asking for more than that has to go to winmm.
+    /// th06 asks for. Anything asking for more than that has to go to winmm.
     #[test]
     fn a_sample_answers_what_the_game_asks_and_no_more() {
         let mut asked = JoyInfo {

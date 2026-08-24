@@ -3,7 +3,7 @@
 //!
 //! Asked on the shot type select, on the press that would have started the run — held back in the
 //! input read, so the screen never sees it. Which run this is includes the character and the shot:
-//! 紺珠伝 keeps a pointdevice save per difficulty and character, and a run of another shot would take
+//! th15 keeps a pointdevice save per difficulty and character, and a run of another shot would take
 //! the buttons written down and play somebody else's with them. That screen knows all three, the
 //! first two being settled and the third under its cursor.
 //!
@@ -281,7 +281,7 @@ mod tests {
     const LANGUAGE: Language = Language::Japanese;
 
     /// A corner for the tests that are not about which one it is, which is every one but the first: the
-    /// game answers it — see `Game::mark_corner` — and this is what 紅魔郷 answers.
+    /// game answers it — see `Game::mark_corner` — and this is what th06 answers.
     const CORNER: (f32, f32) = (24.0, SCREEN_HEIGHT - LINE_HEIGHT - 4.0);
 
     /// The mark is asked what a slot holds when the cursor arrives on it, and not again while it sits
@@ -430,13 +430,13 @@ mod tests {
     /// the front end while that screen is still being read, so a line of orb's that wandered would sit
     /// on top of something the game put there.
     ///
-    /// **Both corners, because the free one is the game's own layout**: 紅魔郷 leaves the bottom-left
-    /// empty and 妖々夢 writes its difficulty's name there — see `Game::mark_corner`. What this asks of
+    /// **Both corners, because the free one is the game's own layout**: th06 leaves the bottom-left
+    /// empty and th07 writes its difficulty's name there — see `Game::mark_corner`. What this asks of
     /// either is that the lower line lands on the corner given, the title sits one line above it, and
     /// neither leaves the screen.
     #[test]
     fn the_mark_sits_in_the_corner_the_game_leaves_free() {
-        // 紅魔郷's answer, and 妖々夢's — two lines above the difficulty's own name, which is what that game
+        // th06's answer, and th07's — two lines above the difficulty's own name, which is what that game
         // writes in the corner the first one leaves empty.
         for corner in [
             (24.0, SCREEN_HEIGHT - LINE_HEIGHT - 4.0),

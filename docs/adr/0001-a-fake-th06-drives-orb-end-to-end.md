@@ -1,4 +1,4 @@
-# 1. A fake 紅魔郷 drives orb, and a test only sends input
+# 1. A fake th06 drives orb, and a test only sends input
 
 **Status:** accepted and built. Five e2e test files stood on it to begin with — a whole run in each mode,
 the question that chooses between them on the keyboard and on a pad, and a `State` read at frames a game
@@ -84,7 +84,7 @@ for the test cannot fail for a real reason. It was taken out again.
 
 ## Decision
 
-**The fake 紅魔郷 is a game, not an address space.** It plays the role the real exe plays: it owns its
+**The fake th06 is a game, not an address space.** It plays the role the real exe plays: it owns its
 own memory, advances its own state, and calls orb's hooks in the order and at the points the real one
 does — the same way the injected DLL is reached in production.
 
@@ -98,7 +98,7 @@ So an e2e test looks like this, and nothing in it hands orb an opinion:
 ```
 sim: a 120Hz display, the compositor agreeing, the game's window in front
 game: stage 1, Normal, Reimu A
-press Z at the title menu          → 完全無欠モード is chosen
+press Z at the title menu          → Pointdevice mode is chosen
 run 300 frames                     → the stage settles, chapter 1 is taken
 run until a boss and a spell card   → a chapter begins on the card
 die                                → the retry menu is up
@@ -108,7 +108,7 @@ push the pad's decide              → チャプターをやり直す
 ```
 
 **What is read back is what the game holds, not what orb thinks.** The attempt count against a spell
-card is the number the 完全無欠 ranking screen shows, and it lives in the game's own `CARD_HISTORY`
+card is the number the Pointdevice ranking screen shows, and it lives in the game's own `CARD_HISTORY`
 record — so an e2e test reads it out of the fake game, through the fixture that laid it out. Nothing is
 added to production so that a test has something to look at.
 
@@ -129,7 +129,7 @@ added to production so that a test has something to look at.
   card starting, the player being hit. Those are its behaviour, written once, rather than a `State`
   each e2e test assembles.
 
-**What it costs.** The fake game is a second implementation of a small part of 紅魔郷, and it can be
+**What it costs.** The fake game is a second implementation of a small part of th06, and it can be
 wrong in the same direction as the reads it feeds — a wrong offset makes the writer and the reader
 wrong together. That is already true of the laid-out image and is answered the same way: the offsets
 are the real game's to confirm, and each is written down beside the offset it was read at, in

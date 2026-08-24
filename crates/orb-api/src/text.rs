@@ -6,7 +6,7 @@
 //!
 //! **The mask and not the glyphs is what an e2e test is about.** A real rasteriser's answer depends on
 //! which fonts the machine has, and the one an e2e test used to run against was Windows' own Arial
-//! standing in for the game's `font.ttf` — so what was being matched was never 紅魔郷's glyphs anyway.
+//! standing in for the game's `font.ttf` — so what was being matched was never th06's glyphs anyway.
 //! What an e2e test does ask is which string went into a texture and how big the quad round it came
 //! out, and both of those a declared metric answers exactly.
 

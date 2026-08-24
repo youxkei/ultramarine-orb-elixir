@@ -93,7 +93,7 @@ fn every_chapters_snapshot_gives_back_the_state_it_was_taken_from() {
             wrong.join("\n  ")
         );
 
-        // And the restore a run really asks for, which is the one the check above is evidence about: 被弾,
+        // And the restore a run really asks for, which is the one the check above is evidence about: The hit,
         // チャプターをやり直す, and the run back where the chapter began field for field.
         game.dies();
         game.frame();

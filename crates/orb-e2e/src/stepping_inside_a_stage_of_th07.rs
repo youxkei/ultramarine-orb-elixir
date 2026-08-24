@@ -1,11 +1,11 @@
-//! **The stepping keys over a replay of 妖々夢: one chapter at a time, inside the stage.**
+//! **The stepping keys over a replay of th07: one chapter at a time, inside the stage.**
 //!
-//! What `stepping_inside_a_stage.rs` asks of 紅魔郷, over this game's own chapters. Both keys go through
+//! What `stepping_inside_a_stage.rs` asks of th06, over this game's own chapters. Both keys go through
 //! `Chapters::previous_start` and `next_start`, whose whole job is that a step lands **strictly** either side of
 //! where the game is — so a press moves rather than staying put, and a frame or two past a boundary steps back
 //! onto it.
 //!
-//! **Which chapters they land on is this game's own fight**, 妖々夢's midstage table being empty until a tuning
+//! **Which chapters they land on is this game's own fight**, th07's midstage table being empty until a tuning
 //! run fills it: the stage's own start and the three a fight has, read off the manager's boss slot and the timer
 //! of an attack. So a step here is a restore of a snapshot of *this* game, and the frames it lands on are the
 //! frames this file's own driving of that fight put the chapters at.
@@ -21,7 +21,7 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -197,7 +197,7 @@ fn a_step_back_over_a_stage_longer_than_the_stop_lands_on_the_chapter_it_asks_fo
 /// object the take-down deleted. Reading the sound there is reading a released COM object: what its methods
 /// do is not defined, and orb must not call them.
 ///
-/// A launch of 妖々夢 is why. Stepping back to stage 2's own start wrote
+/// A launch of th07 is why. Stepping back to stage 2's own start wrote
 /// `restore: the track has changed since this snapshot; taking the music down` and
 /// `music: restarting slot 0, the chapter's own track being th07_04.wav`, and the replay after it faulted
 /// taking a chapter — `0x7ae3ec1c`, `Snapshot::update+0x143c`, reading `0x60` with `edi` zero. That
@@ -358,13 +358,13 @@ const BEFORE_THE_BUILD: u32 = 2;
 /// **The frame a replay was asked for and nothing of it built is not a stage that has ended.**
 ///
 /// The end of a stage holds the pass and keeps it held, that being the one place carrying on loses the stage
-/// — and what says a stage ended is the run being in no gameplay scene. 妖々夢 reads as exactly that before
+/// — and what says a stage ended is the run being in no gameplay scene. th07 reads as exactly that before
 /// its first stage: `Th07::read_state` counts a run's *build* as being in the run, the supervisor's scene
 /// lagging that build by the rest of an update, so the frame its front end answered a stage select on is a
 /// run with nothing playing in it yet and no stage anywhere.
 ///
 /// **And a hold there is one nothing lifts**: the update the hold stops is the update that would build the
-/// stage, so the pass waits for a stage the game cannot reach. Measured on 妖々夢 — `--judge` over a replay,
+/// stage, so the pass waits for a stage the game cannot reach. Measured on th07 — `--judge` over a replay,
 /// stage 1 chosen, `step: stage 0 has ended` in the log with stage 0 being no stage at all, the game frozen
 /// on the stage select and closed by hand.
 #[test]
@@ -404,7 +404,7 @@ fn the_frame_a_replay_of_th07_was_asked_for_is_not_a_stage_that_has_ended() {
 }
 
 /// When the fight this stage ends with is won, and how long the stage runs on after that: the second is
-/// what 妖々夢's own stages do, which is 281 to 496 frames of a boss going down, its items and what is
+/// what th07's own stages do, which is 281 to 496 frames of a boss going down, its items and what is
 /// said over them.
 const FIGHT_WON: u32 = 600;
 const STAGE_ENDS: u32 = FIGHT_WON + 300;
@@ -416,7 +416,7 @@ const STAGE_ENDS: u32 = FIGHT_WON + 300;
 /// on to the next chapter of *this* stage, so what has to stop it where the stage has no next chapter is
 /// the stage's own end.
 ///
-/// **紅魔郷 stops it by leaving the gameplay scene and 妖々夢 never does**: its supervisor does a whole
+/// **th06 stops it by leaving the gameplay scene and th07 never does**: its supervisor does a whole
 /// transition inside one update, so the run is in the scene a run is played in on every frame of one, and
 /// a loop watching that scene runs straight through into the stage after. A launch found it: `next` at the
 /// end of a fight ran on and the pass came to rest in stage 2, with the stage it was judging torn down
@@ -466,10 +466,10 @@ const TO_THE_WALL: u32 = 2;
 
 /// **The fight a stage ends with being won is the end of that stage, and the pass is held inside it.**
 ///
-/// 妖々夢 spends no frame outside the gameplay scene at a stage's end — its supervisor does the whole
+/// th07 spends no frame outside the gameplay scene at a stage's end — its supervisor does the whole
 /// transition inside one update, which is what
 /// [`Image::the_next_stage_is_being_asked_for`](orb_core::game::th07::Image::the_next_stage_is_being_asked_for)
-/// was read out of the exe for — so the run being in no gameplay scene, which is the end of a stage on 紅魔郷,
+/// was read out of the exe for — so the run being in no gameplay scene, which is the end of a stage on th06,
 /// never comes round here at all: a `--judge` pass over a Lunatic replay played all six stages through without
 /// stopping once.
 ///
@@ -480,7 +480,7 @@ const TO_THE_WALL: u32 = 2;
 ///
 /// **Which frame that is, the game decides.** A defeat under a dialogue is acted on when the dialogue lifts,
 /// `Chapters::observe` holding what the guard turned away, so a boss beaten mid-conversation walls after it. Each
-/// of 妖々夢's stages runs on for 281 to 496 frames after its boss goes down, and what is in them was not
+/// of th07's stages runs on for 281 to 496 frames after its boss goes down, and what is in them was not
 /// measured: nothing here has to know, and nothing here says.
 #[test]
 fn the_fight_a_stage_of_th07_ends_with_being_won_holds_the_pass_inside_the_stage() {

@@ -1,4 +1,4 @@
-//! **What a run of 妖々夢 counted against its spell cards, in the game's own score file once that run is over.**
+//! **What a run of th07 counted against its spell cards, in the game's own score file once that run is over.**
 //!
 //! Every count a run makes is in memory and nowhere else until a save writes it: the game empties all 141 of its
 //! `CATK` records as it builds a run (0x42e657, inside `GAME_MANAGER_ADDED`), the run's attempts and captures go
@@ -113,7 +113,7 @@ fn a_run_of_th07_given_up_has_its_cards_counted_into_the_score_file() {
         game.gives_the_run_up();
 
         // **And the screen a run ends on is not built on the way**, which is a frame or two of its background
-        // somebody sees: the scene 妖々夢's own pause menu asks for tears the run down and then registers that
+        // somebody sees: the scene th07's own pause menu asks for tears the run down and then registers that
         // screen (0x43803c), and the scene the front end is asks for tears it down and registers nothing
         // (0x43801f). A run given up through orb's own menu is not a run anybody is being shown the score of.
         assert_eq!(
@@ -123,7 +123,7 @@ fn a_run_of_th07_given_up_has_its_cards_counted_into_the_score_file() {
             log.lines().join("\n  ")
         );
 
-        // **And no save asked for there**, which is the half of this a launch of 妖々夢 taught: that call is the
+        // **And no save asked for there**, which is the half of this a launch of th07 taught: that call is the
         // score screen's own added callback and its deleted one behind it, and the deleted one frees the anm files
         // in slots 0x2a to 0x2d (0x44a25a). The game makes it where nothing else is up — the way out, and a run's
         // own build — and orb making it with the front end up left that screen's vms on a file that had gone:
@@ -143,7 +143,7 @@ fn a_run_of_th07_given_up_has_its_cards_counted_into_the_score_file() {
             log.lines().join("\n  ")
         );
 
-        // And a look at the ランキング before the next run, which is where somebody goes to see what they have
+        // And a look at the ranking screen before the next run, which is where somebody goes to see what they have
         // just done: **the screen shows what this run counted**, the records in memory being what it walks into
         // itself (0x44a145) after the parse has laid the file's own down.
         game.its_ranking_screen_is_brought_up();
@@ -153,7 +153,7 @@ fn a_run_of_th07_given_up_has_its_cards_counted_into_the_score_file() {
                 game.image().card_captures(A_CARD, THE_RUNS_SHOT),
             ),
             (ATTEMPTS_BEFORE + 1, CAPTURES_BEFORE + 1),
-            "the ランキング shows the file's own counts, not what the session has just counted:\n  {}",
+            "the ranking screen shows the file's own counts, not what the session has just counted:\n  {}",
             log.lines().join("\n  ")
         );
         // And what is waiting survives that read, no write following it: the file is still the file, and the save

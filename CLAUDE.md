@@ -201,7 +201,7 @@ command. So the list is named and not numbered, and where the number is worth ha
 is the command that answers it.
 
 Three kinds of number are not this. One the game or Windows fixes — `RECT`'s four fields,
-`IUnknown`'s three slots, 紅魔郷's six endings — does not move when this tree grows, and saying which
+`IUnknown`'s three slots, th06's six endings — does not move when this tree grows, and saying which
 of them is which is the whole content of the sentence it is in. One in a test *is* the expected
 behaviour, which is what a test is for. And `docs/adr/` and the commit log are records of what was
 decided or done at a time, which nothing goes back to update, so a count in them never becomes a
@@ -216,7 +216,7 @@ finding.
 **And a grep over the disassembly is not a measurement of what does not happen.** An address reached
 through a pointer is an address no search for it as an operand finds: `[0x62f8a4]` was written down as a
 constant nothing writes while a run is played, on a grep that could not see the dispatcher at 0x40ecf1
-handing its address out to a script — and orb left it out of a resume for that reason, which cost 妖々夢's
+handing its address out to a script — and orb left it out of a resume for that reason, which cost th07's
 own resume every stage past the first. A negative read off the exe says where the thing is *not* written
 plainly; what says a field never changes is watching it.
 

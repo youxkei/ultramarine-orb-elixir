@@ -1,6 +1,6 @@
 //! **Which bits of a frame's read are the run's, and what one that is not does when it is fed back.**
 //!
-//! 妖々夢's read builds one word and the game puts it in two places: the word the read left, which its front
+//! th07's read builds one word and the game puts it in two places: the word the read left, which its front
 //! end and its manager read, and the word the run acts on, which the recorder copies out of the first. The
 //! game's own replay only ever writes the second — so every bit of a watched replay's word is the run's, and
 //! the keyboard's menu button still opens the pause menu over it.
@@ -13,11 +13,11 @@
 //! **It is not one, and the reason is worth keeping.** The record is one entry per stage frame with the last
 //! write winning, and a frame the menu went up on is a frame whose clock stops — so the reads that follow are
 //! reads of *that* frame, and what they leave in its entry is whatever was pressed to get the menu down again.
-//! The button never survives in the record: a run of 妖々夢 played to a boss chapter deep in stage 6 holds
+//! The button never survives in the record: a run of th07 played to a boss chapter deep in stage 6 holds
 //! 1837 changes of the word and not one of them has that bit, where every one of the shot, the bomb, the focus,
 //! the four directions and the skip is in there.
 //!
-//! So what the e2e test below holds is a run that was paused where somebody playing pauses — 完全無欠モード's
+//! So what the e2e test below holds is a run that was paused where somebody playing pauses — Pointdevice mode's
 //! own retry is an item of that menu, so every chapter retried is a run whose frames had it open — and it went
 //! green the first time it ran. The laid-out game learnt the pause for it and keeps it: what makes a hazard
 //! answerable is a game that can be wrong in the same way the real one can.
@@ -30,7 +30,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 

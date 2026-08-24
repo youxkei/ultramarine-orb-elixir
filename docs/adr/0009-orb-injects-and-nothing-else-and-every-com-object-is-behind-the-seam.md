@@ -301,7 +301,7 @@ game's font is installed as, and says why:
 > Windows' own, under the name the game's is installed as — GDI substituting a face is something
 > `Font::load` already survives, and a path that is not a font is not.
 
-So the pixels an e2e test matches against today are Arial's, not 紅魔郷's, and *keeping them real* buys a
+So the pixels an e2e test matches against today are Arial's, not th06's, and *keeping them real* buys a
 fidelity that was never there. A metric an e2e test declares is the shape everything else `orb-sim` answers
 with already has — `Panel::measured()`'s two sizes, `Work::flat`'s microseconds, `Display::agreed`'s hertz —
 and it takes away the one thing those exist to take away: an answer that depends on which fonts the machine

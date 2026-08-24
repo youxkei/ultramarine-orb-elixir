@@ -2920,7 +2920,7 @@ mod frame_loop {
         });
     }
 
-    /// And a launch that turned it off gets 紅魔郷's own order back, which is what `--no-frame-loop` is for.
+    /// And a launch that turned it off gets th06's own order back, which is what `--no-frame-loop` is for.
     #[test]
     fn the_games_own_loop_asks_for_the_draw_first() {
         in_its_own_process(|| {
@@ -3127,7 +3127,7 @@ mod log_deferral {
 // milliseconds over, and they change every `HUD_NUMBER_INTERVAL` frames — so a paint where it is worked
 // out is a frame in thirty that cannot reach its blank.
 //
-// Measured on 紅魔郷 on a handheld, with the paint inside the frame's work: 109 of 176 late frames had
+// Measured on th06 on a handheld, with the paint inside the frame's work: 109 of 176 late frames had
 // spans of 4275µs at the median and 15237µs at the worst in the update the paint sits in, arriving on the
 // 500ms grid that thirty frames at sixty is. Two per cent of the run's frames took three refreshes
 // instead of two, and the budget those frames taught — which is input lag on every frame, not only

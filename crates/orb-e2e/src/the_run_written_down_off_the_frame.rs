@@ -23,7 +23,7 @@ fn written_down_in(game: &Fake) -> std::path::PathBuf {
         .join("normal-reimu-a.msgpack")
 }
 
-/// 被弾 and then タイトルに戻る, which is the way out that leaves the chapter behind for the next launch
+/// The hit and then タイトルに戻る, which is the way out that leaves the chapter behind for the next launch
 /// to offer: up once from the item the cursor starts on, and its question answered はい.
 fn gives_the_run_up(game: &Fake) {
     let log = game.log();

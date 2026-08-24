@@ -1,4 +1,4 @@
-//! 完全無欠モード, chosen at the question orb puts over 妖々夢's own title menu.
+//! Pointdevice mode, chosen at the question orb puts over th07's own title menu.
 //!
 //! What the question *decides* — which of the two a run is, and which of the two rankings a score file is — driven
 //! the way somebody meets it: the game at its title menu, keys pressed at it, and what came of that read off the
@@ -9,7 +9,7 @@
 //! the machine lent, this game shipping no `font.ttf`.
 //!
 //! And what says the press was handed over is this game's own read: orb holds the decide back for the question and
-//! feeds it on the read after an answer, so the word 妖々夢's own input read answers is where a press that was
+//! feeds it on the read after an answer, so the word th07's own input read answers is where a press that was
 //! kept and then given back shows up.
 
 use crate::fake::th07::Fake;
@@ -23,7 +23,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The bit of 妖々夢's own input word the shot button is, which is the press orb holds back and hands over — see
+/// The bit of th07's own input word the shot button is, which is the press orb holds back and hands over — see
 /// `th07.rs`'s own pad test, which reads the same bit.
 const SHOOT: u16 = 0x1;
 
@@ -54,7 +54,7 @@ fn at_the_title_menu(game: &Fake) {
     game.one_frame();
     game.one_frame_to_drain_the_log();
     // And orb saying what it read of it, which is the line a launch is read back through: **no launch of
-    // 妖々夢 has ever put this question up**, every e2e test here passes, and every constant on the way to it
+    // th07 has ever put this question up**, every e2e test here passes, and every constant on the way to it
     // has been held against the exe and matches — so what is left is a runtime fact, and this is the line
     // that will name it. See `Th07::says_what_it_reads_of_the_front_end`.
     assert!(
@@ -168,8 +168,8 @@ fn one_press_chooses_the_mode_the_cursor_is_on_and_th07s_own_read_gets_it() {
     });
 }
 
-/// And somebody in レガシーモード reaches 完全無欠 by moving the cursor once. Down or up, either of them: with two
-/// items each direction is the other one.
+/// And somebody in legacy mode reaches Pointdevice mode by moving the cursor once. Down or up, either of
+/// them: with two items each direction is the other one.
 ///
 /// Which is also what says the answer is remembered: the question is asked a second time in the same launch, and
 /// the cursor starts on what the first one chose.
@@ -179,7 +179,7 @@ fn the_cursor_of_th07s_question_moves_either_way_and_the_mode_it_lands_on_is_kep
         let game = game("th07-mode-moved");
         let log = game.log();
         ask(&game);
-        // Down to レガシーモード and chosen there, which is the mode the next question starts on.
+        // Down to legacy mode and chosen there, which is the mode the next question starts on.
         game.press(keys::DOWN);
         assert_eq!(under_the_cursor(&game), Mode::Normal);
         answer(&game, keys::Z);
@@ -211,7 +211,7 @@ fn the_cursor_of_th07s_question_moves_either_way_and_the_mode_it_lands_on_is_kep
 
 /// Cancelling leaves neither chosen, on the bomb key the game's own menus read as back and on escape.
 ///
-/// Which is not the same as choosing レガシーモード: the press that would have started a run was held back, so a
+/// Which is not the same as choosing legacy mode: the press that would have started a run was held back, so a
 /// cancelled question is a run not started at all rather than one started without chapters. The screen underneath
 /// is where it was — the title menu, on the item the question was about.
 #[test]

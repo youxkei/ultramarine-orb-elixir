@@ -1,9 +1,9 @@
-//! **The chapters a fight of 妖々夢 causes: the boss arriving, each attack it moves to, and the waves handed
+//! **The chapters a fight of th07 causes: the boss arriving, each attack it moves to, and the waves handed
 //! back when a midboss goes down.**
 //!
 //! Which fight it is comes out of the *music*: an STD names two songs per stage and the game plays the second
-//! for the boss the stage ends with, while the timeline says nothing — that reading was made off 紅魔郷 in
-//! `a_chapter_of_the_stages_own_boss.rs`, and what this asks is that 妖々夢's own fields carry it. The
+//! for the boss the stage ends with, while the timeline says nothing — that reading was made off th06 in
+//! `a_chapter_of_the_stages_own_boss.rs`, and what this asks is that th07's own fields carry it. The
 //! manager's boss slot, the timer each attack puts back to nothing, the flag and number a card is declared as,
 //! and the record the streaming source is reading: those four are what a fight of this game is, and a chapter
 //! at every boundary of one is what makes the mode worth having in a fight at all.
@@ -19,7 +19,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The cards the two fights put up, by the record each has of its own, named the way 妖々夢 names cards.
+/// The cards the two fights put up, by the record each has of its own, named the way th07 names cards.
 const MIDBOSS_CARD: usize = 96;
 const MIDBOSS_CARD_NAME: &str = "幽夢「猫の見た夢」";
 const BOSS_CARD: usize = 104;
@@ -32,7 +32,7 @@ const BOSS_LAST_CARD: usize = 105;
 /// is a chapter of its own rather than one folded into the chapter before it.
 const APART: u32 = 120;
 
-/// A 完全無欠モード run of this game with its stage's own track streaming, which is what makes a boss arriving
+/// A Pointdevice mode run of this game with its stage's own track streaming, which is what makes a boss arriving
 /// under it a *midboss*: the music is what says which fight it is.
 fn fighting(name: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
@@ -120,7 +120,7 @@ fn a_fight_of_th07_is_a_chapter_at_its_arrival_at_every_attack_and_at_the_waves_
         chapter(&game, 7, "a boss spellcard");
 
         // **The last card of the fight, declared with the boss all but dead**, which is the shape a launch of
-        // 妖々夢 was found in: `boss_life=46` a moment before, a card declared, and the boss gone 42 frames
+        // th07 was found in: `boss_life=46` a moment before, a card declared, and the boss gone 42 frames
         // later. A chapter for it is a chapter whose whole content is the defeat.
         on(&game);
         game.a_card_starts(BOSS_LAST_CARD, BOSS_CARD_NAME);
@@ -161,11 +161,11 @@ fn a_fight_of_th07_is_a_chapter_at_its_arrival_at_every_attack_and_at_the_waves_
 /// stage's own data names are what settles: the game plays the second of them for the fight the stage ends with,
 /// so a fight under the *first* of them is a midboss however the stage began.
 ///
-/// Reached the way a launch of 妖々夢 reached it: a stage's first chapter is taken frames into the stage, where
+/// Reached the way a launch of th07 reached it: a stage's first chapter is taken frames into the stage, where
 /// the track the stream is on is still the song the stage was come into with — the stage's own starting after
 /// it. Read off the track at the stage's start instead, every fight of that stage is the stage's own boss, its
 /// chapters keep a music they should rewind, and the retry menu offers them under the wrong name. Watched on
-/// 妖々夢's stage 6, whose midboss came out as `a boss nonspell, boss, music=keep`.
+/// th07's stage 6, whose midboss came out as `a boss nonspell, boss, music=keep`.
 #[test]
 fn a_midboss_of_th07_is_a_midboss_whatever_the_stages_start_was_taken_under() {
     in_its_own_process(|| {
@@ -217,7 +217,7 @@ fn a_midboss_of_th07_is_a_midboss_whatever_the_stages_start_was_taken_under() {
 /// the fight's, so a chapter taken there is one whose music a restore *rewinds* while the chapters either side of
 /// it are left playing.
 ///
-/// A launch of 妖々夢 is what that cost: retrying a chapter of its sixth stage's second phase, the song was heard
+/// A launch of th07 is what that cost: retrying a chapter of its sixth stage's second phase, the song was heard
 /// looping over a stretch of itself and then still playing at the title — the restore having put back a stream
 /// the second phase had already replaced.
 #[test]
@@ -276,7 +276,7 @@ fn a_chapter_of_th07s_second_phase_keeps_its_music() {
 /// snapshot's bytes go over its own — the countdown the loop is taken on among them.
 ///
 /// Which is heard as the song going round a stretch of itself: the countdown runs out where the file is not, so
-/// no loop of the track is taken and the buffer plays its own contents over. A launch of 妖々夢 retrying a
+/// no loop of the track is taken and the buffer plays its own contents over. A launch of th07 retrying a
 /// chapter of its sixth stage's fight had exactly that, and the song still playing at the title after it.
 #[test]
 fn a_chapter_of_th07_left_playing_leaves_the_stream_it_is_playing_through() {
@@ -357,7 +357,7 @@ fn a_card_of_th07_declared_after_its_attack_names_the_chapter_that_attack_began(
             log.lines().join("\n  ")
         );
 
-        // 被弾, and the retry menu offers the chapter as the card it turned out to be rather than as the
+        // The hit, and the retry menu offers the chapter as the card it turned out to be rather than as the
         // nonspell it arrived as — which is what taking the name is *for*.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 3"));

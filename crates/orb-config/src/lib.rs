@@ -52,7 +52,7 @@ pub struct Config {
     /// is worked out from what the game itself holds and handed to the run through the same read a playback's
     /// own words go through.
     ///
-    /// What it is for is every measurement of a resume: each one has cost somebody a stage of 妖々夢 and
+    /// What it is for is every measurement of a resume: each one has cost somebody a stage of th07 and
     /// another every time the file grew a field, and a run the machine plays is a run to be had again on
     /// demand. Which game knows how is the game's — see `Game::word_to_press`.
     ///
@@ -206,9 +206,9 @@ pub struct Config {
 
 /// Which language orb writes its own screens in.
 ///
-/// Two, and which two follows from what orb is: the mode it brings over is 紺珠伝's and the game it
+/// Two, and which two follows from what orb is: the mode it brings over is th15's and the game it
 /// brings it to is Japanese, so Japanese is the language every screen was written in first — and
-/// English is what somebody playing 紅魔郷 in any other language is already playing it in, the
+/// English is what somebody playing th06 in any other language is already playing it in, the
 /// translation patches being English. A third language is words nobody in this repository can write.
 ///
 /// **The log is not one of the screens** and stays English whichever this is: it is read by whoever
@@ -224,7 +224,7 @@ impl Language {
     /// The language the machine shows its own windows in, as far as orb has words for it.
     ///
     /// Every language but Japanese is answered English, which is the honest answer rather than a
-    /// fallback: a machine in German is one orb has no German for, and whoever is playing 紅魔郷 on it
+    /// fallback: a machine in German is one orb has no German for, and whoever is playing th06 on it
     /// is reading either the game's own Japanese or an English patch over it.
     ///
     /// The LANGID and the two numbers it is read with are the seam's — `orb_api::locale` — because a
@@ -473,7 +473,7 @@ impl Config {
     /// the file answered it, and otherwise whether `language` came out as anything but Japanese.
     ///
     /// **Which is the language orb writes its own screens in deciding**, and so the machine's where the
-    /// file left that to the machine. Japanese is somebody reading the words 紅魔郷 already has, and a
+    /// file left that to the machine. Japanese is somebody reading the words th06 already has, and a
     /// patch putting English over them would be orb translating a game away from the language its owner
     /// reads; anything else is somebody who cannot read those words, and thcrap installed beside the game
     /// is what they installed it for. Read off the answer rather than off `GetUserDefaultUILanguage`

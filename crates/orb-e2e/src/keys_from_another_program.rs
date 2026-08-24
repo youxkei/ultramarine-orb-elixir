@@ -2,7 +2,7 @@
 //!
 //! **A key another program sent is not a key a hand is holding, and the difference is which read sees it.**
 //! `orb_sim::Keyboard::sends` is the first — `GetKeyboardState` reports it and
-//! `orb_sim::Keyboard::held` does not — and the laid-out 紅魔郷 reads its keyboard through whichever of the
+//! `orb_sim::Keyboard::held` does not — and the laid-out th06 reads its keyboard through whichever of the
 //! two the game is on: the device it took `DISCL_EXCLUSIVE | DISCL_FOREGROUND` while it still holds one,
 //! and `GetKeyboardState` once orb has let that device go. Which of those the game is on is the pointer at
 //! `g_Supervisor + 0x10`, because that is what the game's own read branches on and what orb clears.

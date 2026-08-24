@@ -15,7 +15,7 @@ stage back, and the waves after it are the only part of a stage with nothing els
 while the stage's own boss going down ends the stage, where a chapter whose first act is that the fight is
 already won has nothing to retry.
 
-**Neither game marks a boss as the one its stage ends with.** 妖々夢's registration at 0x413d70 writes the
+**Neither game marks a boss as the one its stage ends with.** th07's registration at 0x413d70 writes the
 slot at `[enemy+0x2e17]` and sets 0x40 at `[enemy+0x2e29]` the same way for a midboss as for the fight the
 stage ends with, and the instruction that ends a stage — `[gamemanager+0x209bc]`, read at 0x427ea5 — fires
 after the fight rather than saying anything about it. There is no field to read.
@@ -24,17 +24,17 @@ after the fight rather than saying anything about it. There is no field to read.
 carries `char songPaths[4][128]` at `+0x290`, the stage's own track first and the boss's second, with the
 names beside them at `+0x90`.
 
-- 紅魔郷: the ECL dispatcher at 0x418d73 takes the argument of the instruction it is on, `[instr+0x4]`, and
+- th06: the ECL dispatcher at 0x418d73 takes the argument of the instruction it is on, `[instr+0x4]`, and
   plays `stdData->songPaths[arg]` — `stdData + 0x290 + arg*128` — through `Supervisor::PlayAudio` at
   0x424b5d, which is the call a restore already restarts a chapter's music through. The same argument
   indexes the names for the line it draws at 0x418d3c.
-- 妖々夢: the stage's build loads `songPaths[0]` into the player's first slot and `songPaths[1]` into its
+- th07: the stage's build loads `songPaths[0]` into the player's first slot and `songPaths[1]` into its
   second (0x42f1d5 and 0x42f1ec, through 0x439dd0), stage 6 a third into the one after (0x42f233), and plays
   the first at 0x42f216. The ECL plays the slot its instruction names, at 0x42a251 through 0x439ec1.
 
-**And neither keeps what it was asked for.** 紅魔郷's `PlayAudio` copies the path into two stack buffers
+**And neither keeps what it was asked for.** th06's `PlayAudio` copies the path into two stack buffers
 (0x424bd0 through 0x424c8e) and nothing outlives the call — its `CWaveFile` holds the `HMMIO`, the sizes and
-the loop points, and no name. 妖々夢's 0x439ec1 either hands the slot straight to the backend's own object
+the loop points, and no name. th07's 0x439ec1 either hands the slot straight to the backend's own object
 (0x436790) or queues command 2 with it for `PLAY_SOUNDS` to walk (0x44d2f0), and that queue is walked empty.
 So the song that is playing is the whole of what is left of the script's statement, and reading the music is
 reading that instruction rather than guessing from it.
@@ -42,7 +42,7 @@ reading that instruction rather than guessing from it.
 **What broke was when it was read, not what was read.** A step back replays part of a stage over frames the
 game's own sound never runs on — `runtime::run_to` walks the calc chain and nothing else — and the restore
 has asked the game for the track the chapter it put back was taken under. So the music over a replayed fight
-is the stage's own whatever fight it is. A launch of 妖々夢 stepping about in its second stage had the whole
+is the stage's own whatever fight it is. A launch of th07 stepping about in its second stage had the whole
 of that stage's fight as `a midboss nonspell` and `a midboss spellcard`, and the boss going down took a
 chapter of its own.
 
@@ -60,8 +60,8 @@ misreading itself, and a fight the stage has no boundary under the frame of — 
 death, and the boss after it read against the midboss's last spellcard — is one the music is still right
 about.
 
-Where the game can name the track, the music is asked by name: 妖々夢's `the_fights_own_song_is_playing`
-holds the record's own name against `songPaths[1]`'s stem. 紅魔郷 keeps no name anywhere, as above, so it is
+Where the game can name the track, the music is asked by name: th07's `the_fights_own_song_is_playing`
+holds the record's own name against `songPaths[1]`'s stem. th06 keeps no name anywhere, as above, so it is
 left with `music_identity` — the file's length and loop points — having changed since the stage began.
 
 ## What follows
@@ -76,12 +76,12 @@ is read off the music again, which is what a stage nobody has played yet needs.
 
 ## Alternatives, and why not
 
-**The timeline's wait.** 妖々夢 parks its timeline on `RunEclTimeline`'s `case 0xc` for a boss, and that is
+**The timeline's wait.** th07 parks its timeline on `RunEclTimeline`'s `case 0xc` for a boss, and that is
 also how stage 3 waits for its *midboss*, which called that fight the stage's own.
 
 **The slot number the script asked for.** It is the script's statement itself and it is fresh on a replayed
-frame, the ECL running in the calc chain. But nothing keeps it, as measured above: on 妖々夢 it sits in the
-player's queue until `PLAY_SOUNDS` walks it and on 紅魔郷 it never leaves the stack, while what has to be
+frame, the ECL running in the calc chain. But nothing keeps it, as measured above: on th07 it sits in the
+player's queue until `PLAY_SOUNDS` walks it and on th06 it never leaves the stack, while what has to be
 answered is every frame of a fight that lasts thousands of them.
 
 **Waiting to see whether the stage ends.** The stage's own boss going down is followed by the stage ending

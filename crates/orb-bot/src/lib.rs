@@ -1,7 +1,7 @@
 //! **The harness that plays the game, so that a run to be picked up out of a file costs nobody an
 //! afternoon.**
 //!
-//! Every measurement of a resume has cost somebody a stage of 妖々夢 and another every time the file grew a
+//! Every measurement of a resume has cost somebody a stage of th07 and another every time the file grew a
 //! field. A run the machine plays is a run to be had again on demand, and the same run every launch — which is
 //! what makes two launches comparable at all.
 //!
@@ -33,8 +33,8 @@
 //! - quit: true                             # interrupted — and then the game closed
 //! ```
 //!
-//! **What each name is, is the game's** — `Game::button_bit`, `decide` being a shot and a return key in 妖々夢
-//! and something else in the next game. A shared vocabulary could only be the union of every game's, and 東方 is
+//! **What each name is, is the game's** — `Game::button_bit`, `decide` being a shot and a return key in th07
+//! and something else in the next game. A shared vocabulary could only be the union of every game's, and Touhou is
 //! not one kind of game to take a union of.
 //!
 //! **The rules a run is played by are [`steer`]'s**, off what `Game::what_a_bot_sees` hands over: reading a
@@ -262,7 +262,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // frame back without reaching the rules — orb's own offer to retry is one, and that offer going down is
     // the very thing that says a chapter is being played again.
     let hazards = playing.hits.this_frame(reached);
-    // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: 完全無欠モード
+    // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: Pointdevice mode
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
     // rather than held, a menu answering the frame a button goes down.
@@ -470,7 +470,7 @@ mod tests {
     use super::{A_TAP, install, word_to_press};
     use orb_core::game::{Game, Question, Reached, th07::Th07};
 
-    /// The game these are read against, which is 妖々夢 for the reason every recipe test uses it: what a button
+    /// The game these are read against, which is th07 for the reason every recipe test uses it: what a button
     /// name *is* is the game's, and this is the game whose bot the recipes were written for.
     const GAME: &Th07 = &Th07;
 
@@ -492,7 +492,7 @@ mod tests {
 
     /// **A tap goes on until the game's own cursor is on the item the step names**, and stops the frame it is.
     ///
-    /// Which is the whole of how 面別プラクティス is entered: the title menu's third item is Practice Start and
+    /// Which is the whole of how stage practice is entered: the title menu's third item is Practice Start and
     /// each screen after it is another list, and a step that tapped a fixed number of times would be walking
     /// somebody else's unlocks.
     #[test]
@@ -503,7 +503,7 @@ mod tests {
                 GAME,
             )
         };
-        let down = GAME.button_bit("down").expect("妖々夢 moves a cursor down");
+        let down = GAME.button_bit("down").expect("th07 moves a cursor down");
 
         let mut on = Reached {
             cursor: Some(0),
@@ -528,7 +528,7 @@ mod tests {
 
     /// **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on.
     ///
-    /// 完全無欠モード is a mode whose whole content is that a death is retried, and a launch that sat on that
+    /// Pointdevice mode is a mode whose whole content is that a death is retried, and a launch that sat on that
     /// menu stopped at its first death — waiting out its step's own bound on the screen it died on. It cannot be
     /// a step, because a death lands in the middle of one and no recipe can say when.
     ///
@@ -540,7 +540,7 @@ mod tests {
         unsafe { install("[]", GAME) };
         let decide = GAME
             .button_bit("decide")
-            .expect("妖々夢 decides with something");
+            .expect("th07 decides with something");
 
         let mut pressed = Vec::new();
         for _ in 0..A_TAP * 2 {

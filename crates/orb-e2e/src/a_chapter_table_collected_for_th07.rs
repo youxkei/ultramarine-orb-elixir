@@ -1,4 +1,4 @@
-//! **`--collect` and `--judge` over 妖々夢: the midstage chapter table built out of a replay.**
+//! **`--collect` and `--judge` over th07: the midstage chapter table built out of a replay.**
 //!
 //! A fight's boundaries are found from the game as it is fought, but a stage's waves are a script on a clock, so
 //! those boundaries are frame numbers somebody has to choose. `--collect` proposes them — a second into each gap
@@ -7,13 +7,13 @@
 //! source, and `tuning.txt`, which is read back at startup so that a stage can be judged over more than one
 //! sitting.
 //!
-//! **This is the pass 妖々夢 is waiting for.** `Th07::midstage_table` is eight empty rows, so a chapter of this
+//! **This is the pass th07 is waiting for.** `Th07::midstage_table` is eight empty rows, so a chapter of this
 //! game falls at a stage's start and nowhere inside one until a run with `--chapter-tuning` fills them — which is
 //! the one piece of work in `docs/todo/th07-the-run.md` that cannot be read out of the exe. What this e2e test
 //! says is that the pass works over this game: the gap is proposed out of *its* enemy count and *its* script
 //! clock, the chapter begins there, and both files come out with the row in them.
 //!
-//! The waves are driven from here rather than laid out as a script, which is what a laid-out 妖々夢 has: what the
+//! The waves are driven from here rather than laid out as a script, which is what a laid-out th07 has: what the
 //! detector reads is the count of enemies alive and the boss's slot, so a wave is that count going up and a gap is
 //! it going back to nothing.
 
@@ -149,7 +149,7 @@ fn a_collect_pass_over_th07_proposes_the_stages_gap_and_writes_the_table_out() {
             table.contains(&format!("proposed({proposed_at})")),
             "the boundary the pass proposed is not in the table it wrote:\n{table}",
         );
-        // And the row is the one whose stage this is, in a table of this game's own eight: what 妖々夢 has
+        // And the row is the one whose stage this is, in a table of this game's own eight: what th07 has
         // compiled in is nothing at all, so every other row comes out empty rather than carrying somebody else's
         // numbers.
         assert!(
@@ -174,7 +174,7 @@ fn a_collect_pass_over_th07_proposes_the_stages_gap_and_writes_the_table_out() {
 /// And a judging pass steps back onto that boundary and puts it out of the table, which is what a pass is *for*:
 /// a proposal nobody looked at is a number the detector chose.
 ///
-/// The keys are orb's own and `a_chapter_table_collected.rs` holds them over 紅魔郷; what this asks of 妖々夢 is
+/// The keys are orb's own and `a_chapter_table_collected.rs` holds them over th06; what this asks of th07 is
 /// the half that is the game's — the step landing on the frame out of this game's own script clock, and the
 /// boundary that is judged out no longer beginning a chapter of it.
 #[test]

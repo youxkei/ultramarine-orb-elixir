@@ -1,7 +1,7 @@
-//! 完全無欠モード, chosen at the question orb puts over the game's own title menu.
+//! Pointdevice mode, chosen at the question orb puts over the game's own title menu.
 //!
 //! What the question *decides* — which of the two a run is, and which of the two rankings a `Score`
-//! is — driven the way somebody meets it: a 紅魔郷 at its title menu, keys pressed at it, and what
+//! is — driven the way somebody meets it: a th06 at its title menu, keys pressed at it, and what
 //! came of that read off the screen and out of orb's log. Not by calling `Question::update`, which is
 //! how these were written before and is the shape `docs/adr/0001` rules out: a test that reaches in
 //! and works the question itself is playing the game's part from a script of its own, and it cannot
@@ -128,7 +128,7 @@ fn back_out(game: &Fake) {
     });
 }
 
-/// The cursor starts on the mode orb is already in, so 完全無欠モード is one press away from somebody
+/// The cursor starts on the mode orb is already in, so Pointdevice mode is one press away from somebody
 /// who played a pointdevice run last time — and the press that answers is handed to the game's own
 /// menu, which is what starts the run.
 ///
@@ -163,7 +163,7 @@ fn one_press_chooses_the_mode_the_cursor_is_on_and_the_run_starts() {
     });
 }
 
-/// And somebody in レガシーモード reaches 完全無欠 by moving the cursor once. Down or up, either of them:
+/// And somebody in legacy mode reaches Pointdevice mode by moving the cursor once. Down or up, either of them:
 /// with two items each direction is the other one.
 ///
 /// Which is also what says the answer is remembered: the question is asked a second time in the same
@@ -173,13 +173,13 @@ fn the_cursor_moves_either_way_and_the_mode_it_lands_on_is_kept() {
     in_its_own_process(|| {
         let game = game("mode-moved");
         ask(&game);
-        // Down to レガシーモード and chosen there, which is the mode the next question starts on.
+        // Down to legacy mode and chosen there, which is the mode the next question starts on.
         game.press(keys::DOWN);
         assert_eq!(under_the_cursor(&game), Mode::Normal);
         answer(&game, keys::Z);
         assert!(
             game.log().said("mode: normal, was pointdevice"),
-            "レガシーモード was not chosen: {:?}",
+            "legacy mode was not chosen: {:?}",
             game.log().lines(),
         );
 
@@ -201,7 +201,7 @@ fn the_cursor_moves_either_way_and_the_mode_it_lands_on_is_kept() {
         answer(&game, keys::Z);
         assert!(
             game.log().said("mode: pointdevice, was normal"),
-            "完全無欠モード was not chosen the second time: {:?}",
+            "Pointdevice mode was not chosen the second time: {:?}",
             game.log().lines(),
         );
     });
@@ -209,7 +209,7 @@ fn the_cursor_moves_either_way_and_the_mode_it_lands_on_is_kept() {
 
 /// Cancelling leaves neither chosen, on the bomb key the game's own menus read as back and on escape.
 ///
-/// Which is not the same as choosing レガシーモード: the press that would have started a run was held
+/// Which is not the same as choosing legacy mode: the press that would have started a run was held
 /// back, so a cancelled question is a run not started at all rather than one started without chapters.
 /// The screen underneath is where it was — the title menu, on the item the question was about.
 #[test]
@@ -374,7 +374,7 @@ fn the_ranking_is_asked_the_same_way_and_says_it_is_about_a_ranking() {
             "the question over a ranking is the one asked about a run",
         );
         assert_eq!(under_the_cursor(&game), Mode::Pointdevice);
-        game.press_until(keys::Z, "完全無欠のスコア画面", || {
+        game.press_until(keys::Z, "the Pointdevice score screen", || {
             game.image().scene() == orb_core::game::th06::image::Scene::Ranking
         });
     });

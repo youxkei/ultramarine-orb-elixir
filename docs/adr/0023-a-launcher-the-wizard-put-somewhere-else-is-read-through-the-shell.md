@@ -60,7 +60,7 @@ this game is what they installed to play this game with.
 **`games.js` is read for the one id rather than parsed.** What is wanted is one string out of a file of
 `"th07": "../th07.exe"` lines. The `\u` escapes are taken off because the writer puts them there — the
 configuration tool serialises with .NET's own encoder, which escapes everything outside ASCII, so
-紅魔郷's exe is five of them in the file.
+th06's exe is five of them in the file.
 
 ## What follows
 

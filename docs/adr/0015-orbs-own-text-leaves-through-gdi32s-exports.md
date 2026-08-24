@@ -11,13 +11,13 @@ not only when a player arranges it, is
 
 ## Context
 
-**orb is not the only thing injected into the game.** 紅魔郷 is played in English through thcrap, which
+**orb is not the only thing injected into the game.** th06 is played in English through thcrap, which
 injects its own DLLs and rewrites import tables to put a language pack's words where the game's own were.
 It rewrites them **per module, orb's DLL included** — its own log names the file it did that to — and what
 it puts in the GDI text entries is a replacement written for the game's `-A` calls. Handed a `-W` call it
 takes the count of characters for a count of bytes.
 
-**What that did to the screen**, measured on 紅魔郷 1.02h with orb and thcrap 2025-12-02 in one process
+**What that did to the screen**, measured on th06 1.02h with orb and thcrap 2025-12-02 in one process
 and thcrap's `lang_en` installed:
 
 - Beside the game, orb's status line came out `INPUT LAG 3.0ms` → `INPUT LA` and `COMPOSE 2.6ms` →

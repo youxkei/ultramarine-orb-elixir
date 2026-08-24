@@ -15,7 +15,7 @@ meantime so that the restored pointers in the game's own bookkeeping point at me
 
 That works while the *address space* is still the game's. It is not always. A block of a few megabytes is
 not inside one of a heap's segments: Windows gives a heap a reservation of its own for each, and freeing
-one hands that reservation back to the OS. 妖々夢 frees blocks of that size — a stage's own data — and
+one hands that reservation back to the OS. th07 frees blocks of that size — a stage's own data — and
 what is left behind is address space anybody may be given next.
 
 **Orb does not see the free that does it.** Its hooks are on the exe's import table — `HeapCreate`,
@@ -23,7 +23,7 @@ what is left behind is address space anybody may be given next.
 block is the heap manager's own `VirtualFree`, called from inside `ntdll` where an import hook does not
 reach. So the game's `free` returns, the space is gone, and nothing has told orb.
 
-**Two takers have taken 妖々夢 down**, both in one session of `--judge` stepping back through a stage:
+**Two takers have taken th07 down**, both in one session of `--judge` stepping back through a stage:
 
 - orb's own copy. A step back faulted inside the *next* chapter's snapshot — `code 0xc0000005 ... reading
   0x00000018`, the stack `render → run_calc_chain → on_update → run_to → Chapters::observe →

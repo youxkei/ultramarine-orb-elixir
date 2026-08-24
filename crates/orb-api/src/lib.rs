@@ -630,7 +630,7 @@ pub trait Win: Send + Sync + 'static {
     /// the caller has one to ask for and a face by charset where it is empty, in which case which one comes
     /// back is the machine's answer.
     ///
-    /// For the game that ships no font: 妖々夢 keeps its own sprites inside `th07.dat` and asks the machine
+    /// For the game that ships no font: th07 keeps its own sprites inside `th07.dat` and asks the machine
     /// for its text — `ＭＳ ゴシック`, bold — so what orb asks for is the same family, and its screens are in
     /// the face the game's own text is in. See `docs/adr/0019`.
     fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face>;
@@ -887,7 +887,7 @@ pub struct JoyInfo {
 
 /// And what a joystick *is* — `JOYCAPSA`, the same way and for a harder reason.
 ///
-/// 紅魔郷 keeps one of these at 0x69d760 and measures every axis against it, and it only ever reads
+/// th06 keeps one of these at 0x69d760 and measures every axis against it, and it only ever reads
 /// one where a joystick answered at startup — so a pad that turns up later is measured against zeros.
 /// orb writes the answering device's caps in there, byte for byte, which is why this has to be the
 /// same 0x194 bytes rather than the four fields orb reads for itself.
@@ -958,7 +958,7 @@ impl Default for JoyCaps {
 /// **Not the whole of `XINPUT_GAMEPAD`**, which is what makes this unlike [`JoyInfo`] beside it: that
 /// one is winmm's own layout because it is handed to the game, and nothing here is — what is done with
 /// one of these is a word of the game's own input built out of it. So the triggers and the right stick,
-/// which 紅魔郷 names nowhere and orb reads nowhere, are not carried.
+/// which th06 names nowhere and orb reads nowhere, are not carried.
 ///
 /// The buttons are XInput's own mask and not the numbering the game's mapping names buttons by:
 /// translating one into the other is [`crate::xinput`]'s caller's, since it is the game's mapping that

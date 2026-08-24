@@ -52,7 +52,7 @@ fn a_chapter_of_the_fight_begins_while_a_bomb_is_going_off() {
             ))
         });
 
-        // ボム, a few dozen frames before the attack changes. The bomb is spent — one fewer than the run
+        // The bomb, a few dozen frames before the attack changes. The bomb is spent — one fewer than the run
         // had — and the flag orb reads one by is up in the game's own memory.
         game.frames_until("the frame the bomb goes off on", BOMBS_AT + 60, || {
             game.state().stage_frames >= BOMBS_AT

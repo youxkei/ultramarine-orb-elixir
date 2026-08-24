@@ -1,7 +1,7 @@
-//! **What a stage of 妖々夢 leaves its player as, which is nothing that keeps them alive.**
+//! **What a stage of th07 leaves its player as, which is nothing that keeps them alive.**
 //!
-//! 紅魔郷's own answer is `the_player_a_stage_starts.rs`: spawning, 120 on the invulnerability count, and a first
-//! update that turns it into 240 updates nothing can kill the player in. **妖々夢 has no such thing**, and that is
+//! th06's own answer is `the_player_a_stage_starts.rs`: spawning, 120 on the invulnerability count, and a first
+//! update that turns it into 240 updates nothing can kill the player in. **th07 has no such thing**, and that is
 //! why this file is not a second copy of that one — it says the opposite, and where it was read is here:
 //!
 //! - **0x4429d0 is the player's own register**, and its two callers are a run's build (0x42e9d6) and *every*
@@ -11,7 +11,7 @@
 //!   callbacks (0x441fb0, 0x4420b0, 0x442350) follow, and none of them writes either field.
 //! - **The hit test's only guard is that state byte.** 0x43e353 lets a player in state 4 break the border
 //!   (0x441bd0), 0x43e375 returns without a death for any other non-zero state, and 0 falls through to the death
-//!   at 0x43edc0 — **no count of frames is read anywhere in it**. So what makes 妖々夢's player unkillable is
+//!   at 0x43edc0 — **no count of frames is read anywhere in it**. So what makes th07's player unkillable is
 //!   being in one of the four states that are not 0, and nothing else.
 //! - **What puts the player in state 3 is a bomb or the respawn**, never a stage's start: the twelve routines at
 //!   0x408710 through 0x40da80 write it beside sound 0xd, and the respawn writes it at 0x441785, 0x441a42,

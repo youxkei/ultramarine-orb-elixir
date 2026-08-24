@@ -1,4 +1,4 @@
-//! **`--self-check` over 妖々夢: every chapter's snapshot restored into the state it was just taken from.**
+//! **`--self-check` over th07: every chapter's snapshot restored into the state it was just taken from.**
 //!
 //! Which is the one moment a restore can be held against what it should have produced without disturbing
 //! anything — the memory is already what the snapshot holds, so putting it back has to leave every byte where it
@@ -24,7 +24,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards, and the shot this run is
+/// The card the midboss puts up, by its own record, named the way th07 names cards, and the shot this run is
 /// played with — whose own word of that record is where an attempt is counted.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
@@ -87,7 +87,7 @@ fn every_chapter_of_th07_gives_back_the_state_its_snapshot_was_taken_from() {
             wrong.join("\n  ")
         );
 
-        // And the restore a run really asks for, which is the one the check above is evidence about: 被弾,
+        // And the restore a run really asks for, which is the one the check above is evidence about: The hit,
         // チャプターをやり直す, and the run back where the chapter began field for field.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 3"));

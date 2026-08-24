@@ -1,6 +1,6 @@
 //! The joysticks winmm has, as a test plugs them in.
 //!
-//! **The host's and not the game's.** 紅魔郷 asks winmm for joystick 0 only where its own DirectInput
+//! **The host's and not the game's.** th06 asks winmm for joystick 0 only where its own DirectInput
 //! enumeration found no game controller — the controller it did find is laid out in the game's own memory,
 //! `Image::controller` — so this is the device on the other branch, and the one orb's own menus have to
 //! read to answer to the same pad the game does.

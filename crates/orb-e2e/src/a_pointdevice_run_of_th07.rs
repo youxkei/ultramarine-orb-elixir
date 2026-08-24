@@ -1,10 +1,10 @@
-//! 完全無欠モード over a laid-out 妖々夢: the question that starts it, a chapter, a death and a retry.
+//! Pointdevice mode over a laid-out th07: the question that starts it, a chapter, a death and a retry.
 //!
 //! **This is what `Th07::rewinds` rests on.** Everything else about that game is a unit test over a laid-out
 //! address space — one method, one answer — and none of those can say that the *mode* holds together there:
-//! the chapter a snapshot is taken as covers 14MB of this game's own data rather than 紅魔郷's 2MB, the
+//! the chapter a snapshot is taken as covers 14MB of this game's own data rather than th06's 2MB, the
 //! ranges a restore must leave alone are this game's sound system, the retry menu is drawn in a face the
-//! machine lent because 妖々夢 ships no font, and the card record has to come back through the seal this
+//! machine lent because th07 ships no font, and the card record has to come back through the seal this
 //! game checks itself with. A `true` there without this file would be orb claiming the mode on the strength
 //! of unit tests.
 //!
@@ -57,7 +57,7 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
         );
         let log = game.log();
 
-        // ── 1. The mode. A game orb can rewind starts in 完全無欠モード and is asked which at its own
+        // ── 1. The mode. A game orb can rewind starts in Pointdevice mode and is asked which at its own
         // title menu, which is what `Th07::rewinds` answering `true` turns on.
         assert!(
             log.said(&format!(
@@ -69,7 +69,7 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
         );
 
         // The overlay first, which is orb's own rule about asking anything — and here it is a face the
-        // machine lent, 妖々夢 shipping no `font.ttf`. See `docs/adr/0019`.
+        // machine lent, th07 shipping no `font.ttf`. See `docs/adr/0019`.
         game.frames_until("an overlay", 8, || log.said("overlay: ready"));
 
         // The title menu up and past the frames its own press test refuses, with the cursor on the item
@@ -144,7 +144,7 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
         );
 
         // ── 4. The death. The game counts one, takes the life, and puts the player in its own dying state —
-        // and it is the *count* orb reads a death off, which is what makes a death bomb no death at all: that
+        // and it is the *count* orb reads a death off, which is what makes a deathbomb no death at all: that
         // number moves only once the window for one has closed.
         game.image().has_died(1.0);
         game.image().has_lives_and_bombs(LIVES - 1.0, BOMBS);
@@ -153,7 +153,7 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
 
         // The retry menu, drawn over the frozen game and read off the screen: its own question, and the
         // chapter the run was in under it. In the face the machine lent, which is what makes this the one
-        // e2e test that says orb's own screens are readable in 妖々夢 at all.
+        // e2e test that says orb's own screens are readable in th07 at all.
         game.one_frame();
         assert_eq!(
             (

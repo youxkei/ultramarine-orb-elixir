@@ -1,8 +1,8 @@
-//! **orb's cadence over 妖々夢's own frame, with a run in it.**
+//! **orb's cadence over th07's own frame, with a run in it.**
 //!
 //! `pacing.rs` is the pacing itself — the budget, the allowance, the spin, the compositor's own lateness — and
 //! all of that is orb's code, the same code whichever game is in front of it. What is the *game's* is the frame
-//! that runs inside the loop: 妖々夢's own update, its draw chain with the queue of quads either side of it, and
+//! that runs inside the loop: th07's own update, its draw chain with the queue of quads either side of it, and
 //! its present. So what this asks is the question a player asks of that pair — **does a run of this game come out
 //! at sixty frames a second** — over the display shapes a machine really has, and with a run in progress rather
 //! than a launch sitting at a menu.
@@ -40,7 +40,7 @@ const SIXTY: f64 = frame::LOGIC_HZ as f64;
 /// the rates a defect produces, which are 30 on a latched allowance, 48, 52, 71.
 const NEAR_SIXTY: f64 = 6.0;
 
-/// A 完全無欠モード run of this game on the display given, played for `SECONDS` of it.
+/// A Pointdevice mode run of this game on the display given, played for `SECONDS` of it.
 ///
 /// The song is streaming and the fight is left alone: what this is about is the frames, and a chapter at every
 /// boundary of a fight would be snapshots taken on frames this is measuring.

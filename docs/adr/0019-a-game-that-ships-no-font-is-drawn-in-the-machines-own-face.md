@@ -1,27 +1,27 @@
 # 19. A game that ships no font is drawn in the machine's own face
 
 **Status:** accepted and built. `overlay::loaded` in `crates/orb-core/src/overlay.rs` falls back to
-`orb_api::text::Font::of_the_machine`, and a launch of 妖々夢 says so in its log — asserted in
+`orb_api::text::Font::of_the_machine`, and a launch of th07 says so in its log — asserted in
 `crates/orb-e2e/src/th07.rs`, where the same launch used to assert `overlay: unavailable`.
 
 **And the face asked for is the game's own family, which this document first said it could not be.** The
-walk below was of the *file* the game ships and stopped there; 妖々夢 ships none and **asks Windows for
+walk below was of the *file* the game ships and stopped there; th07 ships none and **asks Windows for
 one by name**, which the exe says outright — `CreateFontA` at 0x4322e7 with `ＭＳ ゴシック` and the weight
 0x2bc. So the family is a fact about the game after all, and `Game::own_face` is where each game answers
 it. What is below stands except where it says no name is asked for; *What follows* carries the correction.
 
 ## Context
 
-**Everything orb draws, it draws with one font, and it took that font from the game.** 紅魔郷 ships
+**Everything orb draws, it draws with one font, and it took that font from the game.** th06 ships
 `font.ttf` beside its exe — the whole reason `overlay::loaded` takes a path at all — and orb loads it
 process-private through `AddFontResourceExW`, asks GDI for `Rounded M+ 2p regular` at two heights, and
 writes into the log which face GDI really selected. Everything of orb's own is drawn in it: the status
 line, the retry menu, the wash a chapter gets, the mode question, and the word on the mark over the
 lives.
 
-**妖々夢 ships none.** Its fonts are inside `th07.dat` as sprites, and its directory holds no `.ttf` at
+**th07 ships none.** Its fonts are inside `th07.dat` as sprites, and its directory holds no `.ttf` at
 all. So `Overlay::new` answered `None`, the log said `overlay: unavailable`, and *nothing of orb's was
-drawn* — which is not a degraded 完全無欠モード but no 完全無欠モード at all: the retry menu a death
+drawn* — which is not a degraded Pointdevice mode but no Pointdevice mode at all: the retry menu a death
 offers is the mode, and a menu nobody can see is not a menu.
 
 That was written down as a question rather than a gap — `docs/todo/th07-the-run.md` had it as "the font,
@@ -40,14 +40,14 @@ face comes back is the machine's answer to "something that can draw Shift-JIS at
 is and which face came back, because what a substituted face changes is the glyphs on the screen and that
 is worth a line either way.
 
-Nothing changes for 紅魔郷: its file is there, so the fallback is never reached.
+Nothing changes for th06: its file is there, so the fallback is never reached.
 
 ## What follows
 
 - A machine with no Japanese face draws orb's own screens in boxes. The line in the log names the face,
   which is what turns that into something somebody can read rather than guess at.
 - ~~The face is not the game's~~ — **it is the family the game itself asks for**, which the reading above
-  missed by looking only for a file. A game that ships no font still names a face: 妖々夢 hands
+  missed by looking only for a file. A game that ships no font still names a face: th07 hands
   `CreateFontA` `ＭＳ ゴシック` at weight 700 and bakes its strings through `TextOutA` into a DIB, and
   `ascii.anm` inside `th07.dat` is its panel's digits rather than a face anything is written in. So
   `Game::own_face` answers a family and a weight, `Font::of_the_machine` takes them, and orb's screens are
@@ -66,13 +66,13 @@ Nothing changes for 紅魔郷: its file is there, so the fallback is never reach
   somebody plays a patched launch and sees the two faces side by side.
 
 - **And the family alone turned out not to be the same text**, which is the second correction this document
-  carries. A 妖々夢 session read orb's screens beside the game's own and said the font was not the game's, with
+  carries. A th07 session read orb's screens beside the game's own and said the font was not the game's, with
   `ＭＳ ゴシック` in the log both as asked for and as returned. The rest of that `CreateFontA` call is why: the
   height it is given is `size * 2 - 2` and it is **positive**, so what is asked for is the whole cell rather
   than the em; the bitmap it draws into is twice as wide and `size * 2 + 6` tall (0x432343, 0x43233b); and the
   string is drawn into it several times one to four pixels apart (0x4323b0 and the calls after it), which is an
   outline at double resolution. All of that is then shown at half the size — a 36-pixel bitmap is nothing like
-  the height of 妖々夢's own text — so the glyphs on screen are baked at twice the size and scaled down, and
+  the height of th07's own text — so the glyphs on screen are baked at twice the size and scaled down, and
   that is what they look like.
 
   So `Game::own_face` carries the height the game asks for and how many times over the glyphs are baked, GDI's
@@ -92,8 +92,8 @@ Nothing changes for 紅魔郷: its file is there, so the fallback is never reach
   anything. What it costs is a licence decision that is the user's rather than this repository's, and
   megabytes in the one file a release hands out — and the machine's own face can be replaced by a shipped
   one later without changing anything above `overlay::loaded`.
-- **Read a face out of `th07.dat`.** There is no face in it to read: 妖々夢's fonts are sprite sheets, so
+- **Read a face out of `th07.dat`.** There is no face in it to read: th07's fonts are sprite sheets, so
   this would be orb rasterising from bitmaps of the game's own text at the game's own sizes, which is a
   renderer rather than a font.
-- **Leave it as it was.** Then the midstage table landing would still leave 妖々夢 with a mode whose every
+- **Leave it as it was.** Then the midstage table landing would still leave th07 with a mode whose every
   screen is invisible, and the first launch of it would report a bug that is this decision unmade.

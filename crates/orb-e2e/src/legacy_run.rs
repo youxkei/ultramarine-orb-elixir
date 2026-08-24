@@ -1,4 +1,4 @@
-//! One レガシーモード run, which is the same game with none of orb's own work happening in it.
+//! One legacy mode run, which is the same game with none of orb's own work happening in it.
 //!
 //! The e2e test beside this one — `pointdevice_run` — is what the mode *does*; this is what answering
 //! the other way costs, and it is worth an e2e test of its own because every one of those things is
@@ -36,7 +36,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         });
         let log = game.log();
 
-        // ── 1. レガシーモード. The same question over the same title menu, answered the other way: one
+        // ── 1. Legacy mode. The same question over the same title menu, answered the other way: one
         // press down the list of two, after the frames the question reads nothing over.
         game.frames_until("an overlay", 8, || log.said("overlay: ready"));
         game.frames_until("the title menu ready to act on a press", 60, || {
@@ -146,7 +146,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         // either mode: that number is the game's and orb only ever adds to it.
         assert_eq!(game.image().card_attempts(CARD), 1);
 
-        // ── 4. 被弾. A life, and no menu: the game takes the death, respawns, and carries on.
+        // ── 4. The hit. A life, and no menu: the game takes the death, respawns, and carries on.
         let before = game.state();
         game.dies();
         // **Two frames, because the life goes after the death and not with it**: the first runs the last of
@@ -225,7 +225,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
             "the record a legacy run is written from counts an attempt orb added",
         );
 
-        // ── 7. レガシーのスコア画面, read the way somebody reads it: the title menu's `Score`, the same
+        // ── 7. The legacy score screen, read the way somebody reads it: the title menu's `Score`, the same
         // question about which of the two rankings, and then the row for that card. What it shows is the
         // one attempt the card's own start counted — nothing of orb's, there having been no retry to count.
         //
@@ -250,7 +250,7 @@ fn a_legacy_run_keeps_no_chapters_offers_no_retry_and_leaves_nothing_behind() {
         game.forget();
         game.frame();
         assert_eq!(game.says(title(Menu::Scores, LANGUAGE)).len(), 1);
-        game.press_until(keys::Z, "レガシーのスコア画面", || {
+        game.press_until(keys::Z, "the legacy score screen", || {
             game.image().scene() == Scene::Ranking
         });
 

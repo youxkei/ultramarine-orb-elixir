@@ -26,7 +26,7 @@ const ACROSS: u8 = orb_config::keys::SHIFT.0;
 const NEXT: u8 = orb_config::keys::RIGHT.0;
 const BACK: u8 = orb_config::keys::LEFT.0;
 
-/// What the first extra life a run's score pays for costs, which is 紅魔郷's own **10,000,000**:
+/// What the first extra life a run's score pays for costs, which is th06's own **10,000,000**:
 /// `g_ExtraLivesScores`' first entry, and the threshold `GameManager::OnUpdate`'s own `while` loop raises
 /// `extraLives` past.
 const AN_EXTRA_LIFE: u32 = 10_000_000;
@@ -238,7 +238,7 @@ fn a_screen_shake_does_not_reach_the_stage_after_the_one_that_started_it() {
             game.state().stage_frames > INTO_THE_STAGE
         });
 
-        // 被弾するより先にボム. Inside the shake's own 80 frames of the move, which is the case: a shake
+        // A bomb before the hit. Inside the shake's own 80 frames of the move, which is the case: a shake
         // that had run out would have put the region back itself.
         game.bombs();
         game.frames(SHAKE_FRAMES / 2);
@@ -300,7 +300,7 @@ fn a_screen_shake_left_to_run_out_puts_the_region_back_itself() {
             game.state().stage_frames > INTO_THE_STAGE
         });
 
-        // 被弾するより先にボム, and this time the whole of the shake: it moves the region while it runs,
+        // A bomb before the hit, and this time the whole of the shake: it moves the region while it runs,
         // and on its last frame it writes the region back and takes its own job out of the chain.
         game.bombs();
         game.frames(SHAKE_FRAMES / 2);
@@ -407,7 +407,7 @@ fn a_job_that_asks_to_be_removed_is_cut_by_the_walk_and_the_walk_goes_on() {
         });
         let without_a_shake = game.image().calc_chain_jobs();
 
-        // ボム, which is one more job in the chain.
+        // The bomb, which is one more job in the chain.
         game.bombs();
         assert_eq!(
             game.image().calc_chain_jobs(),
@@ -579,7 +579,7 @@ fn a_stage_played_twice_across_a_move_agrees_to_the_last_digit() {
 /// left behind: a fight's, which is a wash. So the frames a new stage settles over washed the field green
 /// over the opening of a stage.
 ///
-/// Seen on 妖々夢, whose stages end without spending a frame outside the scene a run is played in, and asked
+/// Seen on th07, whose stages end without spending a frame outside the scene a run is played in, and asked
 /// here as well because the cause is nothing to do with either game: what a stage being left has to leave
 /// behind is everything it held.
 #[test]

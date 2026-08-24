@@ -1,4 +1,4 @@
-//! 東方紅魔郷 1.02h, as a [`Game`].
+//! th06 1.02h, as a [`Game`].
 //!
 //! Globals come from `config/globals.csv` of the GensokyoClub/th06
 //! decompilation and field offsets from its struct definitions, both for this
@@ -32,15 +32,15 @@ use crate::game::{
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
 
-/// **What one pass of a stage of 紅魔郷 is held against another's**, which is this game's numbers and
+/// **What one pass of a stage of th06 is held against another's**, which is this game's numbers and
 /// nobody else's — see `Game::reproduction` for why the type is per game and what a shared one carried.
 ///
 /// **Not a field of it may change**, and that is what makes it worth its own type here rather than a
 /// format string: a chapter is written down in the resume file with the line of its own frame, kept as the
-/// text the log printed, and 紅魔郷 is released. A field added, dropped or renamed makes every file on
+/// text the log printed, and th06 is released. A field added, dropped or renamed makes every file on
 /// somebody's disk disagree at that field while the file's version says nothing is wrong. So this is the
 /// line as it shipped, and a number worth having about *this* game goes in a line of its own.
-/// **Public because 紅魔郷's own tests read these one at a time** — the rank a run starts at, the box the
+/// **Public because th06's own tests read these one at a time** — the rank a run starts at, the box the
 /// player is held inside, where a stage starts them. What everything outside this game holds against another
 /// pass is the line, and [`Th06::reproduced`] is where a test gets the numbers behind it.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1345,7 +1345,7 @@ impl Game for Th06 {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
             })),
-            // No screen of 紅魔郷's reads a pad by button number: what its buttons are is `custom.exe`'s
+            // No screen of th06's reads a pad by button number: what its buttons are is `custom.exe`'s
             // to write into `東方紅魔郷.cfg`, and the game reads that mapping and never the pad's own
             // numbering. So there is no such read to get in front of.
             pad_buttons: None,
@@ -1353,7 +1353,7 @@ impl Game for Th06 {
     }
 
     /// Every method below this one is why: the midstage table, the two moments a stage's numbers go back,
-    /// the snapshot a chapter is, the retry the trait offers a death. 紅魔郷 is the game orb was written
+    /// the snapshot a chapter is, the retry the trait offers a death. th06 is the game orb was written
     /// against.
     fn rewinds(&self) -> bool {
         true
@@ -1639,7 +1639,7 @@ impl Game for Th06 {
     /// so with rows 16 tall there are 24 pixels free above this one and 8 below.
     ///
     /// The smaller of the two, because the stroke's box is centred on the row and so reaches as far either way:
-    /// 30 tall against a row of 16 is 7, which fits. 妖々夢, whose rows are as far apart as they are tall, is
+    /// 30 tall against a row of 16 is 7, which fits. th07, whose rows are as far apart as they are tall, is
     /// what makes this a number a game answers rather than one the mark keeps.
     fn room_around_the_lives_row(&self) -> f32 {
         8.0
@@ -1760,7 +1760,7 @@ impl Game for Th06 {
         unsafe { mem::write::<f32>(G_SUPERVISOR + supervisor::FRAMERATE_MULTIPLIER, 1.0) };
     }
 
-    /// Nothing either side of the draw chain, which is 紅魔郷's frame and not a gap in what has been read
+    /// Nothing either side of the draw chain, which is th06's frame and not a gap in what has been read
     /// of it: `GameWindow::Render` goes `IDirect3DDevice8::BeginScene` at 0x4207d1, `Chain::RunDrawChain`
     /// at 0x4207dc and `EndScene` at 0x4207ef, with nothing between any of them. The clear its options
     /// ask for and the viewport are above that, before the update, which is [`Th06::prepare_frame`].
@@ -1883,7 +1883,7 @@ impl Game for Th06 {
         timer >= grace - MENU_GRACE_LOOKAHEAD
     }
 
-    /// The same index `State::in_dialogue` is read from: 紅魔郷 has no line of its own for handing the screen
+    /// The same index `State::in_dialogue` is read from: th06 has no line of its own for handing the screen
     /// over, so a line being up and a dialogue running are one thing here.
     unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
         unsafe { dialogue_msg_idx() >= 0 }
@@ -2016,7 +2016,7 @@ impl Game for Th06 {
     }
 
     /// **Every field of them, out of the struct rather than out of a list written here** — see
-    /// `Th07::say_run_state` for what a list written here cost. This one was short of four of 紅魔郷's own
+    /// `Th07::say_run_state` for what a list written here cost. This one was short of four of th06's own
     /// numbers, the point items and the extra lives among them, for as long as it was a list.
     ///
     /// The seed is said again in front of it because a generator's state is `0x1a2b` everywhere else in the
@@ -2346,7 +2346,7 @@ impl Game for Th06 {
     /// Both the pads there are to read: the one the game's own enumeration found, and the one orb
     /// sampled last saw pushed.
     ///
-    /// **Merged rather than one standing behind the other**, which is what 紅魔郷 being a one-player
+    /// **Merged rather than one standing behind the other**, which is what th06 being a one-player
     /// game settles: either is that one player's, and a menu that answered to one of the two in front of
     /// somebody is a menu ignoring the pad in their hands. Which is also why the game's own device
     /// cannot simply be left out — orb's sampling never sees it, `Supervisor::RegisterChain` having
@@ -2377,7 +2377,7 @@ impl Game for Th06 {
     /// The device the game holds is read here rather than the game's own read of it being reached into,
     /// because there is nothing to reach: it fills a `DIJOYSTATE2` on its own stack and hands back a word
     /// with the axes already turned into bits. Once a frame, which is what that function did.
-    /// Nothing, and nothing reaches it: [`Hooks::pad_buttons`] is `None` here, 紅魔郷 having no screen
+    /// Nothing, and nothing reaches it: [`Hooks::pad_buttons`] is `None` here, th06 having no screen
     /// that reads a pad by number.
     unsafe fn add_pad_buttons(&self, _into: *mut std::ffi::c_void, _pad: Option<Reading>) {}
 
@@ -2469,7 +2469,7 @@ impl Game for Th06 {
         &chapters::MIDSTAGE
     }
 
-    /// The Extra, and nothing after it: 紅魔郷's own stage switch ends there.
+    /// The Extra, and nothing after it: th06's own stage switch ends there.
     fn stages_past_the_numbered(&self) -> &'static [&'static str] {
         &["extra"]
     }
@@ -2487,7 +2487,7 @@ const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 impl Th06 {
     /// The numbers behind [`Game::reproduction`]'s line, read where this game keeps each of them.
     ///
-    /// **Here rather than inside that method because 紅魔郷's own tests read them one at a time**: the rank
+    /// **Here rather than inside that method because th06's own tests read them one at a time**: the rank
     /// a run starts at, the box the player is held inside, where a stage starts them. Everything outside
     /// this game gets the line — see [`Reproduction`].
     ///
@@ -2943,7 +2943,7 @@ fn path_at(address: usize) -> Option<(usize, String)> {
 
 /// The `.end` script the ending is reading, out of the ending's own object.
 ///
-/// 紅魔郷's six endings all finish on `@Fdata/staff00.end`, the staff roll: the script
+/// th06's six endings all finish on `@Fdata/staff00.end`, the staff roll: the script
 /// interpreter's `F` instruction, at 0x40fc06, reads that file over the one running and
 /// carries straight on into it. Which file is loaded is therefore what tells the ending from
 /// the roll, and nothing else does — the scene stays 10 across the two and `isInEnding` stays

@@ -23,7 +23,7 @@
 //! the real game's, and `docs/adr/0008` is why it never had a copy of it. So a button that reaches the
 //! word reached it through orb.
 //!
-//! レガシーモード throughout: what a direction does to the player is the same in either mode, and a
+//! Legacy mode throughout: what a direction does to the player is the same in either mode, and a
 //! pointdevice run would put a chapter's frames between the push and the player.
 
 use crate::fake::th06::{Fake, MAPPING, SPEED, button, the_run};

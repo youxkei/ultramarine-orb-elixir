@@ -1,8 +1,8 @@
-//! **更に前からやり直す over a run of 妖々夢**: the chapters the stage has behind the one that was lost, and
+//! **更に前からやり直す over a run of th07**: the chapters the stage has behind the one that was lost, and
 //! the run put back at any of them.
 //!
-//! The same question `a_chapter_further_back.rs` puts to 紅魔郷 — why the way back has to reach further than
-//! one chapter is beside `chapter.rs`'s `guarded` — asked of this game's own fields. What 妖々夢 brings is what
+//! The same question `a_chapter_further_back.rs` puts to th06 — why the way back has to reach further than
+//! one chapter is beside `chapter.rs`'s `guarded` — asked of this game's own fields. What th07 brings is what
 //! a chapter of it is *made* of: the fight read off the manager's slot and the timer of an attack, the frame
 //! read off the game manager's own clock, and the memory a restore puts back. So the assertion that a run came
 //! back to a chapter is made field for field against the state that chapter began with, which is the whole of
@@ -22,7 +22,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -49,7 +49,7 @@ const QUIT: &str = "タイトルに戻る";
 /// What the screen behind 更に前からやり直す asks above the chapters it lists.
 const ASKED: &str = "どこからやり直す";
 
-/// A 完全無欠モード run of this game with its stage's own track streaming, stopped at the stage's own first
+/// A Pointdevice mode run of this game with its stage's own track streaming, stopped at the stage's own first
 /// chapter.
 fn a_run(name: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
@@ -187,7 +187,7 @@ fn the_chapters_behind_the_one_lost_in_th07_are_listed_and_are_where_choosing_on
             log.said("chapter 4")
         });
 
-        // ── 被弾, and the four ways on over the frozen game, with the chapter that was lost named above them
+        // ── the hit, and the four ways on over the frozen game, with the chapter that was lost named above them
         // and the cursor on the item that puts it back.
         game.dies();
         game.one_frame();

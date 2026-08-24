@@ -19,7 +19,7 @@ so settings put there survive a redeploy.
 
 ## One game, and one monitor
 
-**Nothing in 東方 stops a second copy of itself starting, and two of them fight over the same files.** So
+**Nothing in a Touhou game stops a second copy of itself starting, and two of them fight over the same files.** So
 before a launch, ask whether one is running and close it if it is. The exe to ask about is the game's own and
 not orb's — `game::KNOWN` in `orb-core` is the list of them — and the filter is what to ask with:
 
@@ -149,7 +149,7 @@ down cannot answer it, and a tap lets go and presses again inside the grace fram
 
 **A tap overshoots its target by one press, so `until` cannot land the cursor on an item.** The press for the
 frame the condition became true has already gone in, and no wait afterwards takes it back: a step that walked
-the title's cursor onto Run pressed `up` once more onto the item beside it — 終了 — and the `decide` after it
+the title's cursor onto Run pressed `up` once more onto the item beside it — Quit — and the `decide` after it
 closed the game. Aim a cursor with `until` only where the item after the target is harmless.
 
 **And a question raised *by* the press that would answer it cannot be photographed by a recipe at all.** orb's
@@ -205,7 +205,7 @@ at all.
 
 **And the card and its name are two conditions because they are two frames.** A card starts and the plate its
 name is on is put up after that, so a picture asked for on `card: true` has the boss's name and the timer in it
-and nothing between them. `card_name: true` is the plate itself — for 妖々夢, the bit the engine's own draw reads
+and nothing between them. `card_name: true` is the plate itself — for th07, the bit the engine's own draw reads
 before it draws that vm.
 
 **A picture asked for on the frame a screen is reached is a picture of the screen before it.** The front end
@@ -217,7 +217,7 @@ drawn.
 
 **So a state to wait for and the frames a drawing takes are both needed, and neither replaces the other.** The
 condition is what gets a step to the right moment of the run without counting a stage's frames; the frames are
-what let the thing that moment is about be drawn. Measured on 1面's first card: the plate is put up two or three
+what let the thing that moment is about be drawn. Measured on stage 1's first card: the plate is put up two or three
 frames after `card: true`, `card_name: true` catches it as a shape with nothing readable on it, and thirty frames
 on it reads `Cold Sign "Lingering Cold"`.
 

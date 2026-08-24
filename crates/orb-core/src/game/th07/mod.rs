@@ -1,8 +1,8 @@
-//! 東方妖々夢, as a [`Game`] that answers what has been measured and declines the rest.
+//! th07, as a [`Game`] that answers what has been measured and declines the rest.
 //!
 //! `th07.exe`, 650752 bytes, `md5 0126afce1e805370d36c3482445e98da`. Every address below was read off
 //! that exe with `i686-w64-mingw32-objdump -d -M intel` and nothing else: no table anybody published
-//! and nothing carried across from 紅魔郷's addresses, which are where the same things happen to live
+//! and nothing carried across from th06's addresses, which are where the same things happen to live
 //! in another game. Each constant says what identifies it, because that is the whole of the evidence
 //! there is — there is no decompilation of this build to cross-check against, as [`th06`](super::th06)
 //! has.
@@ -14,7 +14,7 @@
 //! ranking asked for and left, the card record held across both, a card's attempt counted and its name baked
 //! onto the plate again, the front end's own menus read and answered, and a resumed run's stage begun.
 //!
-//! **So 妖々夢 is a game orb plays**: [`Th07::rewinds`] answers `true`, and what that rests on is the e2e test
+//! **So th07 is a game orb plays**: [`Th07::rewinds`] answers `true`, and what that rests on is the e2e test
 //! over a run of a laid-out one rather than the list above — `crates/orb-e2e/src/a_pointdevice_run_of_th07.rs`.
 //! The music is in with the rest, the stream rewound through the file this game opens itself, which is
 //! `audio::Track`'s second shape.
@@ -67,12 +67,12 @@ use crate::game::{
 };
 use crate::{detail, log};
 
-/// **What one pass of a stage of 妖々夢 is held against another's**, which is this game's numbers and
+/// **What one pass of a stage of th07 is held against another's**, which is this game's numbers and
 /// nobody else's — see `Game::reproduction` for why the type is per game and what a shared one carried.
 ///
-/// **Four of 紅魔郷's are gone from it**, which is what a shared struct had this game answering zero for:
+/// **Four of th06's are gone from it**, which is what a shared struct had this game answering zero for:
 /// the box the player is held inside, the extra lives the score has paid for, and the rank and the subrank.
-/// 妖々夢 pays for its extra lives out of the cherry and has no rank at all.
+/// th07 pays for its extra lives out of the cherry and has no rank at all.
 ///
 /// **And three of its own are in it**, which is what a divergence of the family this game keeps producing
 /// turns on: two runs of a stage agreed on every field of the old line — the same buttons, the same place,
@@ -82,8 +82,8 @@ use crate::{detail, log};
 /// somewhere without saying where.
 ///
 /// A field changed here makes every file already written disagree at it — a chapter is written down with
-/// the line of its own frame — and the version does not catch it. Which is why this is 妖々夢's own and
-/// changing it cannot reach 紅魔郷, whose file is frozen at what shipped.
+/// the line of its own frame — and the version does not catch it. Which is why this is th07's own and
+/// changing it cannot reach th06, whose file is frozen at what shipped.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Reproduction {
     /// `ReplayManager::frameId`, which the replay walks its record of inputs by. Its own count, not the
@@ -108,14 +108,14 @@ struct Reproduction {
     /// **The three numbers a border comes up on**, each a count from [`SCORE_BASELINE`] the way every reader
     /// of them takes it: the cherry, the most it can be, and the cherry+.
     ///
-    /// Here because the cherry+ is what puts a border up — over 50000 and 森羅結界 fires, and 妖々夢's own
+    /// Here because the cherry+ is what puts a border up — over 50000 and 森羅結界 fires, and th07's own
     /// manual is what says so — and a border absorbs every item on the screen, deflects a bullet, and is
     /// counted in [`COUNTED_ALL_RUN`], which decides what the next item's cherry is. So two passes whose
     /// borders come up on different frames are two different runs from there, and **none of it shows in any
     /// other field of this line**: the cherry moves without the generator moving, so a divergence in it is
     /// invisible until the border it leads to arrives.
     ///
-    /// Which is measured: a run of 妖々夢 picked up in stage 2 agreed with the run for 807 frames and then
+    /// Which is measured: a run of th07 picked up in stage 2 agreed with the run for 807 frames and then
     /// deflected a hit the run had not, `counted` going up on the one side alone. Where the cherry+ parted is
     /// what this says.
     cherry: i32,
@@ -171,14 +171,14 @@ const G_D3D_DEVICE: usize = 0x00575958;
 ///
 /// The `hFocusWindow` argument of that same `CreateDevice`, pushed at 0x434d7b — and also the object
 /// [`RENDER`] is called on, at `mov ecx,0x575c20` in the message pump. So the handle is that object's
-/// first field, as 紅魔郷's window object's is.
+/// first field, as th06's window object's is.
 const G_GAME_WINDOW: usize = 0x00575c20;
 
 /// `th07::Chain`, the object both walks below are called on.
 ///
 /// The `this` of the two calls at 0x43474d and 0x4347da. What says it is a `Chain` of the shape orb
 /// already knows is that the two walks start 0x20 apart — [`RUN_CALC_CHAIN`] from `this` and
-/// [`RUN_DRAW_CHAIN`] from `this + 0x20` — which is 紅魔郷's layout arrived at from this exe rather
+/// [`RUN_DRAW_CHAIN`] from `this + 0x20` — which is th06's layout arrived at from this exe rather
 /// than assumed from that one.
 const G_CHAIN: usize = 0x00626218;
 
@@ -187,14 +187,14 @@ const G_CHAIN: usize = 0x00626218;
 ///
 /// Its answer is what the frame's own is made of, which is what identifies it: at 0x4347f1 a zero
 /// makes the frame return 1 and at 0x434801 a `-1` makes it return 2, so nothing and a failed walk are
-/// the game asking to stop. 紅魔郷's chain answers the same two.
+/// the game asking to stop. th06's chain answers the same two.
 const RUN_CALC_CHAIN: usize = 0x0042fd60;
 /// `th07::Chain::RunDrawChain`, `__thiscall`. Called from [`RENDER`] at 0x43474d, between
 /// `IDirect3DDevice8::BeginScene` (+0x88, at 0x434728) and `EndScene` (+0x8c, at 0x434788) — which is
 /// what makes it the draw, and the only place an overlay may draw.
 const RUN_DRAW_CHAIN: usize = 0x0042fe20;
 /// `push ebp; mov ebp,esp; sub esp,0x14` — position-independent, 6 bytes, read out of the exe at both
-/// addresses. The same prologue as 紅魔郷's two, which is MSVC6 and not a coincidence worth resting
+/// addresses. The same prologue as th06's two, which is MSVC6 and not a coincidence worth resting
 /// anything on.
 const RUN_CHAIN_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x14];
 
@@ -202,12 +202,12 @@ const RUN_CHAIN_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x14];
 /// handed to the sound system.
 ///
 /// Called from the game's own frame at 0x4347e7, immediately after the calc chain, which is where
-/// 紅魔郷 hands its own over. What it does with the object agrees: it answers nothing at once where
+/// th06 hands its own over. What it does with the object agrees: it answers nothing at once where
 /// `[this + 0x610]` is zero and otherwise walks a list at `this + 0x73c`.
 const PLAY_SOUNDS: usize = 0x0044c9c0;
 const G_SOUND_PLAYER: usize = 0x004ba0d8;
 
-/// The music thread's id, `+0x614` of that player — the same offset 紅魔郷 keeps its own at.
+/// The music thread's id, `+0x614` of that player — the same offset th06 keeps its own at.
 ///
 /// `CreateThread` at 0x44c113 is given `this + 0x614` as its `lpThreadId` and its answer goes into `+0x618`,
 /// the handle; `StopBGM` at 0x44c6b0 posts message 0x12 to the id and waits on the handle. That thread is what
@@ -234,7 +234,7 @@ const SOUND_PLAYER_BYTES: usize = 0xe73 * size_of::<u32>();
 /// Which is why orb reads it: what a restore does about the sound has to happen where the ask it made has been
 /// carried out, and the frame's own sound is not that moment — the stage's build knows it too, looping
 /// PlaySounds at 0x42f238 until it answers nothing rather than leaving its music for the next frame. A launch of
-/// 妖々夢 acting one frame after the ask heard the stage's song start anyway and read `could not be put` for the
+/// th07 acting one frame after the ask heard the stage's song start anyway and read `could not be put` for the
 /// seek that was to follow it: both are the same command still sitting in this queue.
 const SOUND_COMMANDS: usize = 0x73c;
 
@@ -286,7 +286,7 @@ const SOURCE_LEFT: usize = 0x08;
 ///
 /// The three numbers the game's own seek is built out of, at 0x45e2cc — the file's base at `+0x39c8` of the
 /// player plus the record's `+0x18` and `+0x10` — so they are the record's identity as far as the game itself
-/// uses it. Which is the shape 紅魔郷's identity has too, and for the same reason: what a chapter needs to
+/// uses it. Which is the shape th06's identity has too, and for the same reason: what a chapter needs to
 /// know is whether the track has *changed*, and one file holds every track here.
 const RECORD_AT: usize = 0x10;
 const RECORD_LOOP_AT: usize = 0x18;
@@ -305,7 +305,7 @@ const RECORD_NAME_BYTES: usize = RECORD_AT;
 ///
 /// `IDirect3DDevice8::Present(NULL, NULL, NULL, NULL)` through +0x3c at 0x4345df, the lost-device
 /// `Reset` beside it at 0x434604, and the game's own screenshot key after it at 0x434621 — the three
-/// things 紅魔郷's present does, in one function. The game's own frame calls it once per frame, at
+/// things th06's present does, in one function. The game's own frame calls it once per frame, at
 /// 0x434a0e and 0x434a18, which are the two ways out of its frame-skip loop.
 ///
 /// No `this`: it reads `ecx` nowhere, so the [`Call`] below carries nothing to call it on. `__thiscall`
@@ -321,7 +321,7 @@ const PRESENT: usize = 0x004345c0;
 /// update, the sounds and the present — and around them a loop that decides, from the game's own
 /// frame-skip setting at 0x575a8b and its own timing at 0x575c34, whether a pass draws at all and whether
 /// to take another before presenting. Read off 0x434708 to 0x434a33. orb's loop takes all of that out, as
-/// it takes 紅魔郷's out: one update and one draw a frame, handed over on the display's own cadence.
+/// it takes th06's out: one update and one draw a frame, handed over on the display's own cadence.
 const RENDER: usize = 0x004346e0;
 /// `push ebp; mov ebp,esp; sub esp,0x4c` — position-independent, 6 bytes, read out of the exe at that
 /// address.
@@ -349,13 +349,13 @@ const INPUT_READ_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x81, 0xec, 0x08, 0x01, 0
 ///
 /// A tail call inside [`INPUT_READ`] and its only caller — `mov ecx,[ebp-0x104]; call 0x4303f0` at 0x430f1a
 /// and again at 0x4312b7, once per way that read has of getting the keys — so it cannot be told apart from
-/// that read from outside it, which is what 紅魔郷's is too. **The convention is not 紅魔郷's**: that one
+/// that read from outside it, which is what th06's is too. **The convention is not th06's**: that one
 /// takes the word on the stack (`push edx; call 0x41cfc0; add esp,4` at 0x41dc77), and this one in `ecx`,
 /// which is why the seam says which — see [`Entered`].
 ///
 /// What it does with the word is [`PAD_MAPPING`] and the stick, and orb answers the whole of it rather
 /// than calling through: see [`crate::runtime::get_controller_input`] for why that is one thing in one
-/// place. **Which is what makes a pad work here at all** — 妖々夢 reads a DirectInput device of its own
+/// place. **Which is what makes a pad work here at all** — th07 reads a DirectInput device of its own
 /// first (`[0x575964]`, polled at 0x430684) and falls back to `joyGetPosEx(0)` at 0x43042e, and a pad
 /// neither of those two reaches is a pad the game has none of.
 const GET_CONTROLLER_INPUT: usize = 0x004303f0;
@@ -485,7 +485,7 @@ const FOG_OFF: usize = 0x0043a207;
 ///
 /// `mov ecx,0x575950` at 0x434743, and the `SetRenderState` inside [`FOG_OFF`] goes through
 /// `[[this+8]]+0xc8` — which is 0x575958, the device the one `CreateDevice` fixed. So the device
-/// pointer orb reads is a field of this object, and that 紅魔郷's own supervisor keeps its device at
+/// pointer orb reads is a field of this object, and that th06's own supervisor keeps its device at
 /// +8 as well is agreement rather than the evidence for it.
 const G_SUPERVISOR: usize = 0x00575950;
 
@@ -514,7 +514,7 @@ const G_GAME_MANAGER: usize = 0x00626270;
 /// The difficulty a run is being played on, `+0x10` of it.
 ///
 /// **Two directions say so.** The added callback reads it at 0x42eab1 and starts the rank at 0xc8 where it
-/// is 4 or more and 0x32 where it is less, which is the pair 紅魔郷 takes out of a table by difficulty. And
+/// is 4 or more and 0x32 where it is less, which is the pair th06 takes out of a table by difficulty. And
 /// a replay's own header writes its difficulty straight into it: the byte at `+0x57` of what 0x455b45 read
 /// goes to 0x626280, which is this field.
 const DIFFICULTY: usize = 0x10;
@@ -536,7 +536,7 @@ const G_RUN_NUMBERS: usize = 0x00626278;
 /// where two entries into a stage have to be held against each other — see [`Th07::the_runs_own_bytes`].
 const RUN_NUMBER_BYTES: usize = 0xc8;
 
-/// The power the shot is at, which this game keeps as a **float** where 紅魔郷 keeps an integer:
+/// The power the shot is at, which this game keeps as a **float** where th06 keeps an integer:
 /// `[run+0x7c]`.
 ///
 /// Three places read it the same way — `fld DWORD PTR [0x626278+0x7c]`, the float-to-int at 0x48b8a0, then
@@ -583,17 +583,17 @@ const COUNTED_ALL_RUN: usize = 0x18;
 /// `+0x2a` written three instructions earlier.
 ///
 /// **Carried because the game's own replay restore carries it**, 0x443347 into a stage's record and 0x443922
-/// back out, and because a run of 妖々夢 fills its cherry at a rate its captures decide. Nothing in the exe
+/// back out, and because a run of th07 fills its cherry at a rate its captures decide. Nothing in the exe
 /// reads this field where a stage is being played, so what it is read *for* has not been found here; the
 /// game's own record is what says it belongs to a stage's start.
 const CARDS_CAPTURED: usize = 0x1c;
 
-/// **The step 妖々夢's awards have climbed to, `[0x62f644]`**, which is an index into the 31 dwords at
+/// **The step th07's awards have climbed to, `[0x62f644]`**, which is an index into the 31 dwords at
 /// 0x49ecf8 — 10, 20, 30 … 100, 200 … 1000, 2000, 3000 … 12000, 12800. 0x432efe adds one to it, 0x432f19 holds
 /// it at 30, 0x432f27 reads the table by it and 0x432f42 adds a tenth of what it finds to [`SCORE`]. It goes
 /// back to nothing at 0x432fb2 and where the player is hit, at 0x440d6a.
 ///
-/// **This is what a resumed run of 妖々夢 was getting wrong, and the arithmetic is what says so**: a run picked
+/// **This is what a resumed run of th07 was getting wrong, and the arithmetic is what says so**: a run picked
 /// up in stage 2 reproduced 978 frames of itself word for word and then took 3 where the run had taken 203 —
 /// 30 against 2030, a difference of exactly 2000, which is entry 19 of that table. The recording carried the
 /// step its first stage had climbed to; the run put back started from the bottom. A stage 1 resume, whose step
@@ -612,7 +612,7 @@ const AWARD_STEP: usize = 0x0062f644;
 /// **The point items are the count with thresholds behind it**: that same pickup adds one to `+0x28` at
 /// 0x43327d, and 0x4333bd compares it against `+0x30` — where it has reached it, `+0x2c` goes up by one and
 /// `+0x30` becomes `(+0x2c - 2) * 0x1f4 + 0x320`. So `+0x2c` is how far the point value has climbed and
-/// `+0x30` is the next step's count, which is 妖々夢's own 点 system and not a rank: the build starting `+0x30`
+/// `+0x30` is the next step's count, which is th07's own point system and not a rank: the build starting `+0x30`
 /// at 0x32 or 0xc8 by difficulty is the first step, higher for the Extra and the Phantasm.
 const SCORE: usize = 0x4;
 const POINT_ITEMS: usize = 0x28;
@@ -627,7 +627,7 @@ const POINT_VALUE_NEXT: usize = 0x30;
 /// and 0x403c0e. What [`Th07::leave_run`] does with it is what those three do.
 const SCORE_SHOWN: usize = 0x00;
 
-/// **妖々夢's cherry, which is three numbers and a baseline they are all counted from.** The baseline is
+/// **th07's cherry, which is three numbers and a baseline they are all counted from.** The baseline is
 /// `[run+0x88]` and the three are statics: the cherry at 0x62f88c, what it is filling towards at 0x62f888,
 /// and the cherry+ at 0x62f890. Each is kept as an absolute number and every reader takes the baseline off
 /// it — 0x408621, 0x41b3f9, 0x42013b, 0x43316a and a dozen more — which is what makes the baseline part of
@@ -696,7 +696,7 @@ const SEALED_COPY: usize = 0xac;
 /// **Said and not restored, because whether they need restoring is not established.** Nothing in the exe
 /// writes `[0x62f8a4]` while a run is played, and the header's other 54 bytes are read by nothing, so both
 /// read as things a resume gets for free — from the shot the front end was driven to, and from the difficulty
-/// it chose. A run of 妖々夢 picked up in stage 2 still parts from itself, and three times now a number has
+/// it chose. A run of th07 picked up in stage 2 still parts from itself, and three times now a number has
 /// been carried on that kind of reasoning and turned out not to be the one. So this is the reading that
 /// settles it: a stage's start says them on both sides, and a launch says whether they agree.
 const SHOTS_OWN_NUMBER: usize = 0x0062f8a4;
@@ -807,13 +807,13 @@ const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x40]
 /// has been drawn from the generator yet**, which is what [`crate::resume::stage_building`] needs.
 ///
 /// **Both of those are inside [`GAME_MANAGER_ADDED`]**, which is why the seed cannot go in with the numbers:
-/// orb's hook over that callback runs when it returns, by which time the build has drawn. A 妖々夢 run picked
+/// orb's hook over that callback runs when it returns, by which time the build has drawn. A th07 run picked
 /// up out of its file parted from the run at the stage's first frame with its generator still holding the seed
 /// — `the generator is 0x6167 where the run had 0xe33d` — and the stage had been laid out from a seed of the
 /// new build's own.
 const STAGE_BUILD: usize = 0x004074c0;
 /// `push ebp; mov ebp,esp; sub esp,0x8; push edi` — position-independent, 7 bytes, read out of the exe at that
-/// address. The same seven 紅魔郷's own stage register begins with, both being what this compiler writes.
+/// address. The same seven th06's own stage register begins with, both being what this compiler writes.
 const STAGE_BUILD_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x08, 0x57];
 
 /// The player, which is a static object at 0x4bdad8 and not a pointer: its register at 0x4429d0 is called
@@ -834,20 +834,20 @@ const G_PLAYER: usize = 0x004bdad8;
 /// be taken or begun in any of the four.
 const PLAYER_STATE: usize = 0x2408;
 const PLAYER_NORMAL: i8 = 0;
-/// **The border the player has up, as the pointer to it** — 妖々夢's own, and not [`PLAYER_HIT`]'s window.
+/// **The border the player has up, as the pointer to it** — th07's own, and not [`PLAYER_HIT`]'s window.
 ///
 /// 0x441bd0 is the deflection: given the player as its `this`, 0x441bdc reads this pointer, 0x441bee zeroes the
 /// byte at `+0x2cc` of what it points at, and 0x441bf8 nulls it. So the border is up while this is not null, and
 /// a hit taken on one never reaches the state a hit is noticed by — which is why a run kept alive by borders
 /// reads as a run that was never hit.
 const PLAYER_BORDER: usize = 0xb7e6c;
-/// And the one a bomb is still 決死結界 in: 2, which the hit test leaves at 0x43ee0e and the update the death
+/// And the one a bomb is still a deathbomb in: 2, which the hit test leaves at 0x43ee0e and the update the death
 /// handler runs on finds at 0x441fee — see [`bot`].
 const PLAYER_HIT: i8 = 2;
 /// And the one of the five [`Th07::make_invulnerable`] writes: 3, which the respawn at 0x441785 enters and
 /// which nothing can hit — the two hit tests, 0x43e375 and 0x43e360, answer *survived* for any state but 0.
 ///
-/// **Not 4, which is the state after it.** 4 is 妖々夢's border, and a hit there is deflected by 0x441bd0 —
+/// **Not 4, which is the state after it.** 4 is th07's border, and a hit there is deflected by 0x441bd0 —
 /// which takes the border down, plays its own effect and is part of what a run scores. Writing that from orb
 /// would be playing the game rather than keeping the player alive for an update.
 const PLAYER_COMING_BACK: i8 = 3;
@@ -855,7 +855,7 @@ const PLAYER_COMING_BACK: i8 = 3;
 /// every update, and the state's own handler puts the player back to [`PLAYER_NORMAL`] at 0x4413fa where it has
 /// run out.
 ///
-/// **It has to be written and not only the state**, for 紅魔郷's reason: frames left where the last respawn
+/// **It has to be written and not only the state**, for th06's reason: frames left where the last respawn
 /// left them is a state put back to normal in the same update it was written for, and the update it runs out in
 /// is one the hit test sees a player it can kill. 0xf0 is what the respawn itself writes first (0x441756),
 /// before it settles on 0x28 for the walk in — and it is far enough from nothing that the tick cannot reach it
@@ -874,7 +874,7 @@ const PLAYER_POSITION: usize = 0x930;
 ///
 /// **Worth the three indirections after all.** A bot that guessed this instead spent a boss fight stepping
 /// aside by twice what it really moved, so every sidestep left it in the bullet's path and every hit it took
-/// was a bomb: bombs 3, 2, 1, 0 through 1面's boss with the deaths still at zero.
+/// was a bomb: bombs 3, 2, 1, 0 through stage 1's boss with the deaths still at zero.
 const PLAYER_SPEEDS: usize = 0xb7e70;
 const SPEED_STRAIGHT: usize = 0x24;
 const SPEED_DIAGONAL: usize = 0x2c;
@@ -890,7 +890,7 @@ const SPEED_DIAGONAL: usize = 0x2c;
 ///
 /// **What puts a fraction there is not established.** The writes sit in per-character code, and the one at
 /// 0x4091b0 reaches the 1.0 off a timer comparison — `[player+0x16a20+0x18]` against `+0x8` — rather than off
-/// any key, so this is not simply 低速移動's own halving; that is not in the eight-way switch at 0x43f0f5
+/// any key, so this is not simply the focused step's own halving; that is not in the eight-way switch at 0x43f0f5
 /// either, which reads [`SPEED_STRAIGHT`] and [`SPEED_DIAGONAL`] and nothing else. Whatever selects it, it is
 /// written by the player's own update at priority 8, which runs *after* the supervisor's input read — so what a
 /// bot reads is the frame before's, and a frame that changes it is a frame projected with the wrong step.
@@ -918,8 +918,8 @@ const BOMB_IN_USE: usize = 0x16a20;
 /// The manager is the object the frame already reaches for its queue of quads, [`G_QUAD_QUEUE`] — a pointer,
 /// null until the game made one, which is why the answer is a walk through it rather than an address.
 ///
-/// **What is deliberately left out** is everything else it holds: 妖々夢 does not lose its device inside a
-/// stage any more than 紅魔郷 does, and a range left out of a restore is a range the snapshot no longer
+/// **What is deliberately left out** is everything else it holds: th07 does not lose its device inside a
+/// stage any more than th06 does, and a range left out of a restore is a range the snapshot no longer
 /// describes.
 const ANM_TEXTURES: usize = 0x282ac;
 const ANM_TEXTURE_SLOTS: usize = 0x108;
@@ -949,10 +949,10 @@ const ENEMY_ALIVE_BIT: u8 = 0x80;
 /// and 0x420ebc is the only place an enemy's position and size are handed to the player's own box test. So an
 /// enemy with either bit down is not a thing to keep away from, whatever else it is doing.
 ///
-/// **A run is what says why this matters.** 妖々夢's 6面 boss fires 自機狙い off an enemy the script keeps at the
-/// player, invisible and with a body of 8 units; a bot that read every living enemy as solid was cornered by a
-/// hazard that followed it, and three hits in one chapter said `nowhere open to it` — every one of the nine
-/// moves shut by a thing that could not have touched it.
+/// **A run is what says why this matters.** th07's stage 6 boss fires aimed shots off an enemy the script keeps
+/// at the player, invisible and with a body of 8 units; a bot that read every living enemy as solid was
+/// cornered by a hazard that followed it, and three hits in one chapter said `nowhere open to it` — every one
+/// of the nine moves shut by a thing that could not have touched it.
 const ENEMY_SOLID: usize = 0x2e29;
 const ENEMY_SOLID_BITS: u8 = 0x03;
 
@@ -973,7 +973,7 @@ const ENEMY_BOX_OF_ITS_SIZE: f32 = 1.5;
 /// 0x4210c2 is where the game builds one: `enemy + 0x2f78 + n * 0x1c`, handed to 0x420490 as the position with
 /// the enemy's own [`ENEMY_SIZE`] as the size — the same call the body itself goes through at 0x420ebc. So a
 /// turning beam is one enemy and a trail of its own past places, and an enemy read as a single box is a beam
-/// read as its head alone. Which is what six hits across four practices were: 6面's white spiral across the
+/// read as its head alone. Which is what six hits across four practices were: stage 6's white spiral across the
 /// player with the model holding nine enemies and nothing within reach of it.
 const ENEMY_TRAIL: usize = 0x2f78;
 const ENEMY_TRAIL_BYTES: usize = 0x1c;
@@ -999,7 +999,7 @@ const BOSS_SLOTS: usize = 8;
 /// supervisor's helper at 0x43958d, which is the same step every other timer in the game takes. The manager
 /// is re-registered for every stage, so the clock starts again with the stage.
 ///
-/// **Which of the four is a decision and not a reading** — 紅魔郷 has one timeline on one clock and orb's
+/// **Which of the four is a decision and not a reading** — th06 has one timeline on one clock and orb's
 /// midstage boundaries are written in its frames. See `docs/adr/0018`.
 ///
 /// And it stops where [`STAGE_FRAMES`] stops, for a reason that is not its own: the contexts are stepped from
@@ -1063,7 +1063,7 @@ const G_LASERS: usize = 0x00995f80;
 /// - and `+0x4e8` is how far through its own phases it is, which 0x426790 steps and both bullet walks skip a
 ///   laser that has reached [`LASER_FADING`] of
 ///
-/// **Why the bot has to see them**: a launch that could not was hit eighteen times on 4面's boss, and every one
+/// **Why the bot has to see them**: a launch that could not was hit eighteen times on stage 4's boss, and every one
 /// of those hits said the move it was taken on had twenty units of room — which is a hazard that is not in the
 /// model at all rather than a hitbox got wrong. The lasers were the only thing left it could not see.
 const LASER_ORIGIN: usize = 0x498;
@@ -1075,7 +1075,7 @@ const LASER_WIDTH: usize = 0x4b4;
 /// against `+0x4c4`.
 ///
 /// 0x4266dc is the gate: the player's own laser test at 0x43e6b0 is called only where the count has reached
-/// that number, so **a beam still drawing its 予告線 hits nothing at all**. A model that made the warning a
+/// that number, so **a beam still drawing its warning line hits nothing at all**. A model that made the warning a
 /// hazard would keep the player out of the one place the pattern leaves open; a model that ignored it would walk
 /// into the beam the frame it fires. Both are wrong and neither has to be: the count says which frames of a
 /// look-ahead the beam is live for.
@@ -1097,7 +1097,7 @@ const G_GUI: usize = 0x0049fbf0;
 const GUI_IMPL: usize = 0x08;
 
 /// The line of a dialogue being played, `+0x1fbac` of it, put to -1 by the load at 0x42998a — the shape
-/// 紅魔郷's own message index has.
+/// th06's own message index has.
 ///
 /// **The predicate is the game's own**, at 0x42ad66: null pointer is no dialogue, a line of -1 or less is no
 /// dialogue *except* -2, which counts. -2 is written at 0x42a624 beside `+0x209bc`, and what makes it a
@@ -1120,8 +1120,8 @@ const CARD_NAME_VM: usize = 0x6760;
 /// nothing where it is clear.
 ///
 /// Which is what a picture of a card's name has to wait for. `SPELLCARD_RUNNING` is set as the card starts and
-/// the plate is put up after that, so pictures asked for as 1面's and 2面's cards started each came out with the
-/// boss's name and the timer in place and no plate between them.
+/// the plate is put up after that, so pictures asked for as stage 1's and stage 2's cards started each came out
+/// with the boss's name and the timer in place and no plate between them.
 const CARD_NAME_DRAWN: usize = 0x1c0;
 const CARD_NAME_IS_DRAWN: u32 = 1;
 /// The colour that baking is asked for, `0xfff0f0` at 0x428a61, and the zero pushed in front of it at
@@ -1155,7 +1155,7 @@ const G_INPUT_THE_RUN_ACTED_ON: usize = 0x004b9e58;
 /// Every bit of it, which is what this game's own replay records: 0x442da8 writes the whole word into the
 /// entry and masks nothing, four bytes a frame with the flags at `+0x2` beside it.
 ///
-/// A mask would be 紅魔郷's answer, whose record leaves the pause button out because a resume feeding it back
+/// A mask would be th06's answer, whose record leaves the pause button out because a resume feeding it back
 /// would open the menu. Here that cannot happen, [`G_INPUT_READ`] being where the pause is read from — so
 /// leaving every bit in is both what the game does and what is safe.
 const RUN_INPUT: u16 = 0xffff;
@@ -1211,7 +1211,7 @@ const CARD_COUNT_CAP: u16 = 0x270f;
 /// looks. The captures are `+0x6a`, which is why that offset is a constant after all: the sum is over both. [`Th07::count_card_attempt`] recomputes it for that reason, and this is the same shape the run's own
 /// numbers have: see [`DEATHS`] for the other seal and what failing it costs.
 ///
-/// Seven and not six, which is the loop's own bound at 0x41004d and 0x4100ac — 妖々夢 has six shots and the
+/// Seven and not six, which is the loop's own bound at 0x41004d and 0x4100ac — th07 has six shots and the
 /// arrays have room for one more.
 const CARD_CHECK: usize = 0x2a;
 const CARD_NAME: usize = 0x2b;
@@ -1266,10 +1266,10 @@ const AN_ITEMS_BLOCK: usize = 32;
 /// is worth is settled:
 ///
 /// - [`ITEM_POWER`] hands 1 to the power step at 0x432fb9, and [`ITEM_BIG_POWER`] hands 8 at 0x433466 —
-///   妖々夢's 大パワーアイテム. Both read `[run+0x7c]` against 128 first and award a score off the chain
+///   th07's big power item. Both read `[run+0x7c]` against 128 first and award a score off the chain
 ///   instead where the shot is already full, and the spawn at 0x433b75 is the third place the two are treated
 ///   as the one thing.
-/// - [`ITEM_LIFE`] calls 0x42d83a, which reads `[run+0x5c]` — the lives — against 8, so it is the 残機アイテム;
+/// - [`ITEM_LIFE`] calls 0x42d83a, which reads `[run+0x5c]` — the lives — against 8, so it is the life item;
 ///   [`ITEM_BOMB`] reads `[run+0x68]`, the bombs, against the same 8.
 /// - [`ITEM_POINT`] is the one worth a score off the chain at 0x4330d2, and [`ITEM_CHERRY`] reads the cherry
 ///   at 0x62f88c against what it is filling towards at 0x43375f.
@@ -1308,7 +1308,7 @@ const AN_ITEM_MANAGERS_HEAD: usize = 0x40;
 const THE_MANAGERS_OWN_RUN: usize = 0x93d0;
 const A_MANAGERS_RUN: usize = 0x280;
 
-// **妖々夢's collection at the top of the play field is read and not used.** `[[0x575948]+0x20]` is the y above
+// **th07's collection at the top of the play field is read and not used.** `[[0x575948]+0x20]` is the y above
 // which an item comes in to the player — 0x432c74 compares the player's own y against it and 0x432cd2 marks the
 // item as homing where the player is the higher of the two — and going up to it is what the bot's rules gave up
 // on, three launches having gone up there and stayed. See `bot::THE_BAND` for what was chosen instead.
@@ -1342,7 +1342,7 @@ const BULLET_SLOTS: usize = 0x400;
 /// to 0x425b89 — the write of 1 — where that comes back set, so a bullet starts hitting when its own coming-out
 /// animation ends, and the frames left are inside that object rather than here.
 ///
-/// So a bullet left out of the frames a move is judged over is left out of all of them, where the 予告線 is
+/// So a bullet left out of the frames a move is judged over is left out of all of them, where the warning line is
 /// left out of only the frames before it fires — see [`LASER_LIVE_AT`]. What makes that the better way round
 /// for now is that a bullet coming out is next to whatever fired it rather than next to the player, so it is in
 /// the model again with the whole look-ahead to spare; and what would say otherwise is a hit reading twenty
@@ -1437,7 +1437,7 @@ const GAME_MENU_UP: usize = 0x93dc;
 const OTHER_MENU_UP: usize = 0x93dd;
 
 /// The stage a run is on, **counted from one while that stage is being played**, where orb counts stages
-/// from zero everywhere — so what orb reads is this less one, the way 紅魔郷's own 1-based field is read.
+/// from zero everywhere — so what orb reads is this less one, the way th06's own 1-based field is read.
 ///
 /// **The switch at 0x407081 is what says which it is**: it takes the word, subtracts one at 0x40708d, bounds
 /// that at 7 and jumps through a table of eight at 0x4073e9 — six stages, the Extra and the Phantasm. The
@@ -1509,7 +1509,7 @@ const SCENE_START_OVER: i32 = 0xa;
 const SCENE_ENDING: i32 = 9;
 
 /// The ending's update, which is how its object is reached: the register puts the object in the element's
-/// argument and nowhere else, so orb walks the chain for this callback the way it does in 紅魔郷.
+/// argument and nowhere else, so orb walks the chain for this callback the way it does in th06.
 const ENDING_UPDATE: usize = 0x0041d2f0;
 
 /// And the script that object is running, `+0x24d4`: what the load at 0x41e4d2 wrote there, which is the file
@@ -1519,7 +1519,7 @@ const ENDING_UPDATE: usize = 0x0041d2f0;
 /// choice of file is made at 0x41e73f out of two tables — `[0x49f628 + character*4]`, whose names are
 /// `end00b.end` and its two neighbours, where `[run+0x20]` says a continue was used, and
 /// `[0x49f634 + shot*4]` otherwise. Which is a second reading of `[run+0x20]` as the continues used: a run
-/// that continued gets 妖々夢's other ending.
+/// that continued gets th07's other ending.
 const ENDING_SCRIPT: usize = 0x24d4;
 
 /// The front end, as its own update and the two fields orb asks it about.
@@ -1546,7 +1546,7 @@ const ENDING_SCRIPT: usize = 0x24d4;
 /// 0x456184.
 ///
 /// **Phase 0 was written here first, and it cost every question orb has over that menu.** A press is only held
-/// back where the phase is the items', so with 0 the hold never happened: no launch of 妖々夢 ever put the mode
+/// back where the phase is the items', so with 0 the hold never happened: no launch of th07 ever put the mode
 /// question up, while every e2e test over it passed — the laid-out game wrote the phase orb expected. What said
 /// so in the end was a launch: `front end: object 0x0a4a2bf8, screen Some(0), item Some(2), phase Some(1), up
 /// for Some(84) frame(s)`, from `Th07::says_what_it_reads_of_the_front_end`. The laid-out game writes its own
@@ -1610,8 +1610,8 @@ const DIFFICULTY_LABEL_TOP: f32 = 400.0;
 ///
 /// **So which of them orb may read depends on which screen it is standing on.** The character's screen has been
 /// left by the time the shot select is up, so its byte is that choice; the shot's has not, so its byte still
-/// holds whichever shot the run before settled on — and a 妖々夢 session was offered 霊夢B's unfinished run with
-/// the cursor sitting on 霊夢A. What [`Th07::run_pointed_at`] reads for the shot is the cursor.
+/// holds whichever shot the run before settled on — and a th07 session was offered ReimuB's unfinished run with
+/// the cursor sitting on ReimuA. What [`Th07::run_pointed_at`] reads for the shot is the cursor.
 const G_CHARACTER_CHOSEN: usize = 0x0062f645;
 /// **Only a laid-out game needs the shot's own byte**, which is why it is behind that gate: orb reads the cursor
 /// on that screen and [`G_SHOT_COMBINED`] once a run is running, so the one thing left to do with this address
@@ -1683,7 +1683,7 @@ const SCENE_RANKING: i32 = 5;
 /// **0x444c20 reads the file** — `__fastcall` with the name in `ecx`, answering the buffer it read. **0x4452f4
 /// parses the `PSCR` records out of it** into a table given in `edx`: it lays every entry out empty first and
 /// then copies each record the file holds over its own, indexed `shot * 24 + stage * 4 + difficulty` at 0x18
-/// bytes apiece — six shots, six stages and four difficulties, which is 妖々夢's practice without the Extra.
+/// bytes apiece — six shots, six stages and four difficulties, which is th07's practice without the Extra.
 /// **0x4454fc gives the buffer back.**
 ///
 /// The table is **0x62e760**, which all three of the game's own callers pass: the run's build at 0x42e757, the
@@ -1923,7 +1923,7 @@ const MUSIC_EVENT: usize = 0x39c0;
 /// `[0x1347f9c]+0x290` into slot 0 (0x42f1d5, played at 0x42f216), and the fight it ends with at `+0x310` into
 /// slot 1 (0x42f1ec).
 ///
-/// These two are what a track is held against rather than the slots' own contents, and a 妖々夢 session is why:
+/// These two are what a track is held against rather than the slots' own contents, and a th07 session is why:
 /// a chapter at a stage's start is taken frames into the stage — `stage 6 chapter 1 (stage start) at frame 9` —
 /// and what was playing then was `th07_01.wav`, the title screen's, which the front end had left **in slot 8**.
 /// A slot did hold it, so asking for the slot the track was in asked for slot 8 and the title screen's song is
@@ -1945,7 +1945,7 @@ const MUSIC_EVENT: usize = 0x39c0;
 /// at 0x4986b4, `bgm/th07_13b.mid`, which stage 6's build loads into a slot of its own at 0x42f233 — the branch
 /// it takes where `[gm+0x95ec]` is 6 (0x42f206).
 ///
-/// **So the two names above cannot answer for it, and a launch of 妖々夢 is what that cost.** Its sixth stage's
+/// **So the two names above cannot answer for it, and a launch of th07 is what that cost.** Its sixth stage's
 /// second phase is that song, whose stem is `th07_13b` where the fight's own is `th07_13`: read against the
 /// stage's data alone it is neither the stage's song nor the fight's, so a chapter taken in the second phase is
 /// one whose music a restore *rewinds* while every chapter around it is left playing. What that was heard as is
@@ -2090,7 +2090,7 @@ const CREATE_GAME_WINDOW_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x34]
 /// The play field, in the game's own 640x480 output.
 ///
 /// The `D3DVIEWPORT8` built on the stack at 0x406ace — `0x20`, `0x10`, `0x180`, `0x1c0` — set through
-/// +0xa0 at 0x406afc and cleared through +0x90 straight after it. The same rectangle 紅魔郷 has, read
+/// +0xa0 at 0x406afc and cleared through +0x90 straight after it. The same rectangle th06 has, read
 /// off this exe rather than taken from that one.
 const PLAY_AREA: Rect = Rect {
     left: 32.0,
@@ -2120,7 +2120,7 @@ const PLAY_AREA: Rect = Rect {
 /// load at 0x428b91 is what ties the two together — `data/front.anm` into slot 0x15 with its scripts numbered
 /// from 0x600 — and [`Th07::panel_tile`] needs none of it, reading the tile it draws with out of the game.
 ///
-/// 144 wide, 496 to the right edge of the output, the way 紅魔郷's own row is: the count can reach 624 and the
+/// 144 wide, 496 to the right edge of the output, the way th06's own row is: the count can reach 624 and the
 /// band from there is the panel's, repainted with it — see [`Th07::repaint_lives_row`] for what repaints it.
 ///
 /// **Which is also why `Game::room_around_the_lives_row` is left at nothing for this game**: the bombs are 16
@@ -2137,7 +2137,7 @@ const LIVES_ROW: Rect = Rect {
 /// The face this game draws its own text in, which it has the machine make rather than shipping — the whole of
 /// the ask it hands `CreateFontA` at 0x4322e7.
 ///
-/// **It ships no font at all**, which is what makes this the answer to *what is 妖々夢's own face*: the only
+/// **It ships no font at all**, which is what makes this the answer to *what is th07's own face*: the only
 /// text machinery in the exe is GDI's — `CreateFontA`, `CreateCompatibleDC`, `CreateDIBSection`, `TextOutA`,
 /// one import each — and that one call site asks for `ＭＳ ゴシック` (the Shift-JIS name at 0x497cbc), weight
 /// 0x2bc, charset 0x80, quality 4 and pitch 0x11, then bakes the string into a DIB it uploads. `ascii.anm`
@@ -2148,7 +2148,7 @@ const LIVES_ROW: Rect = Rect {
 /// *positive*, so what is asked for is the whole cell rather than the em. The bitmap it draws into is twice as
 /// wide and `2 * n + 6` tall — 0x432343's `shl $1` and 0x43233b's `lea 0x6(%eax,%eax,1)` — so the glyphs are
 /// baked at twice the size the string is shown at and scaled back down, and the edges and stroke weights that
-/// come of that are what 妖々夢's text looks like. A 妖々夢 session saw orb's screens beside it and said they
+/// come of that are what th07's text looks like. A th07 session saw orb's screens beside it and said they
 /// were not the same face; they were the same family baked at the size it is drawn at.
 ///
 /// The two fields of the ask that are *not* carried are the pitch and the out precision: `FIXED_PITCH |
@@ -2200,7 +2200,7 @@ const PAINT_FOR_TWO_FRAMES: u32 = 0b10;
 /// And how long the panel's own background has left to be painted for: 0x575ab4, counted down by one a frame
 /// at 0x4346c9 and read by the draw at 0x42b685, which lays the whole grid again while it is not zero.
 ///
-/// **Two writes and not one, because the row and the ground under it are two things here.** 紅魔郷 erases a
+/// **Two writes and not one, because the row and the ground under it are two things here.** th06 erases a
 /// row with a bar of its own before it draws the count again, so asking for the row is the whole of it there;
 /// this panel draws the marks and nothing else, and what takes the last frame's away is the grid being laid
 /// again. A mark of orb's over a row whose ground nobody repainted is ink over ink until it is a shape of its
@@ -2219,7 +2219,7 @@ const CHAIN_DRAW_LIST: usize = 0x20;
 
 impl Th07 {
     /// **What a pass of one of this game's stages is**, every number of it read where this game keeps it —
-    /// see [`Reproduction`], which is 妖々夢's own type, and `Game::reproduction`, which is the line.
+    /// see [`Reproduction`], which is th07's own type, and `Game::reproduction`, which is the line.
     ///
     /// # Safety
     /// Must run on the game's main thread, with a stage running.
@@ -2274,7 +2274,7 @@ impl Th07 {
     /// that is not null **and leads to an enemy that is still alive**.
     ///
     /// 0x4232a0 asks the first half of that and nothing in the exe so much as writes those slots back to zero,
-    /// so a slot outlives the boss it was filled for — and 妖々夢's 4面 is where that shows, three bosses
+    /// so a slot outlives the boss it was filled for — and th07's stage 4 is where that shows, three bosses
     /// sharing the stage and the first slot left pointing at whichever of them went first. Reading a position
     /// out of one is reading a freed object: a launch spent 22505 of its 38820 frames on that stage pinned
     /// against the left wall, going for an x that came from a boss no longer there.
@@ -2381,8 +2381,8 @@ impl Th07 {
     /// Must run on the game's main thread.
     /// **Read outright and not through the memory map**, which is what makes 0x40 reads worth what 0x40
     /// reads cost: every slot is inside the exe's own `.data`, which the loader commits whole, so there is
-    /// nothing for the map to answer — and asking it is a `VirtualQuery` apiece. A launch of 妖々夢 spent
-    /// **1206us a frame** in orb's own work against 紅魔郷's 18us with this walk going through the map, and
+    /// nothing for the map to answer — and asking it is a `VirtualQuery` apiece. A launch of th07 spent
+    /// **1206us a frame** in orb's own work against th06's 18us with this walk going through the map, and
     /// a run picked up out of its file took 3.2 seconds to play 2667 frames of buttons in.
     unsafe fn lasers() -> i32 {
         (0..LASER_SLOTS)
@@ -2491,7 +2491,7 @@ impl Th07 {
 
     /// What orb read of the front end this frame, said once per change of it.
     ///
-    /// **Because a launch of 妖々夢 has never once put the mode question up**, and every e2e test over that
+    /// **Because a launch of th07 has never once put the mode question up**, and every e2e test over that
     /// question passes: the question is asked where [`Th07::menu_pointed_at`] answers `Menu::Run`, so what a
     /// log has to be able to say is which of the reads on the way there did not answer — the element the
     /// front end's own update is registered in, the screen it is on, the item under its cursor, its phase,
@@ -2576,7 +2576,7 @@ impl Th07 {
 }
 
 impl Game for Th07 {
-    /// Every seam 紅魔郷 has, less the two this game does not need — and each of those two is a reading rather
+    /// Every seam th06 has, less the two this game does not need — and each of those two is a reading rather
     /// than a gap: the replay write and the recording's own teardown are declined beside `save_replay` below.
     fn hooks(&self) -> Hooks {
         Hooks {
@@ -2608,8 +2608,8 @@ impl Game for Th07 {
             // reached from one place in this game, the offer at the end of a run — which
             // [`Th07::skip_replay_prompt`] takes the game off before a frame of it is drawn, so there is
             // no write left to suppress. And nothing here finishes a record off at a stage's teardown:
-            // 紅魔郷 needs that seam because its own `StopRecording` runs from the teardown and, during
-            // playback, terminates the *replay's* record at wherever it had reached — 妖々夢's teardown
+            // th06 needs that seam because its own `StopRecording` runs from the teardown and, during
+            // playback, terminates the *replay's* record at wherever it had reached — th07's teardown
             // (0x42f347) cuts its three chain elements at 0x442b10 and writes no entry at all, and its
             // recorder (0x442cd0) refuses a frame outright where the run is a playback.
             save_replay: None,
@@ -2622,7 +2622,7 @@ impl Game for Th07 {
                 prologue: GAME_MANAGER_ADDED_PROLOGUE,
             })),
             // **And the other half after all, which a launch settled.** This was declined for a stage's worth
-            // of reasoning — 妖々夢 takes its stage's seed *during* the build, so the seed could go in where
+            // of reasoning — th07 takes its stage's seed *during* the build, so the seed could go in where
             // the numbers go in — and a run picked up out of its file parted from that run at the stage's
             // first frame all the same: the numbers go in at the *end* of the build, which is after the
             // build's own draws. See [`STAGE_BUILD`], and [`crate::resume::stage_building`] for what is
@@ -2658,7 +2658,7 @@ impl Game for Th07 {
                 prologue: CREATE_GAME_WINDOW_PROLOGUE,
             }),
             // The device's `Present` redirected, which is what puts the game's frames through a
-            // letterbox: 妖々夢 renders 640x480 and its own present stretches that over whatever client
+            // letterbox: th07 renders 640x480 and its own present stretches that over whatever client
             // area it has, so a window that is not 4:3 — every borderless one on a 16:9 display — showed
             // the game stretched until this went in. [`INIT_D3D_DEVICE`] is where the slot can be
             // swapped, and where a reset that replaced it is caught.
@@ -2666,7 +2666,7 @@ impl Game for Th07 {
                 target: INIT_D3D_DEVICE,
                 prologue: INIT_D3D_DEVICE_PROLOGUE,
             }),
-            // Two things want this one, and both are 妖々夢's now: keys are not read to the game while its
+            // Two things want this one, and both are th07's now: keys are not read to the game while its
             // window is behind — which this game needs *more* than a game with a device of its own, its read
             // being `GetKeyboardState` and so answering what somebody typed at whatever is in front, see
             // [`Th07::acquire_input`] — and a run whose buttons are written down here is a run that can be
@@ -2697,7 +2697,7 @@ impl Game for Th07 {
     /// music, the retry menu's own reads, and the front end asked which mode a run is.
     ///
     /// **What it rests on is one e2e test and not this list**, which is why the answer moved on the day that
-    /// test did: `crates/orb-e2e/src/a_pointdevice_run_of_th07.rs` plays a run of a laid-out 妖々夢 through
+    /// test did: `crates/orb-e2e/src/a_pointdevice_run_of_th07.rs` plays a run of a laid-out th07 through
     /// the whole of the mode — the question, a chapter, a death, the retry, the numbers back. The unit tests
     /// beside it each say one method answers one address; that one says the mode holds together.
     ///
@@ -2708,7 +2708,7 @@ impl Game for Th07 {
     /// table comes *after* this answer, out of a run somebody plays.
     ///
     /// **What the answer decides is also a file.** A launch here once left a `pointdevice_score.dat` in a
-    /// 妖々夢 install while nothing of that game could be rewound, so the runs in it were runs anybody could
+    /// th07 install while nothing of that game could be rewound, so the runs in it were runs anybody could
     /// have played. That is what a `false` was for; with the mode really there, a rewound run's score belongs
     /// in orb's file and a normal one in the game's, which is what the fork does either way.
     fn rewinds(&self) -> bool {
@@ -2738,7 +2738,7 @@ impl Game for Th07 {
         // over the added callback included, which is the one moment a resumed run's numbers can go in.
         //
         // **The numbers are what tell that from the frame the front end merely asked for a run**, which has the
-        // same pair of scenes and no run object at all — the last one's teardown freed it. A 妖々夢 session is
+        // same pair of scenes and no run object at all — the last one's teardown freed it. A th07 session is
         // why this is here: a run picked up out of its file came up with the game's own lives, bombs and power,
         // the log saying `resume: not put back`, because `in_run` was false inside the very build it describes.
         let building = (wanted == SCENE_RUN || wanted == SCENE_RUN_AGAIN) && run.is_some();
@@ -2797,8 +2797,8 @@ impl Game for Th07 {
     /// there is, how much goes in at a time, the countdown the loop is taken on and the offset the next chunk
     /// goes at — see [`STREAM`] for where each comes from.
     ///
-    /// **The file is this game's own rather than winmm's**, which is the one thing 妖々夢 does not share with
-    /// 紅魔郷: it opens `thbgm.dat` itself at 0x44bff0 and reads every track out of that handle, so what
+    /// **The file is this game's own rather than winmm's**, which is the one thing th07 does not share with
+    /// th06: it opens `thbgm.dat` itself at 0x44bff0 and reads every track out of that handle, so what
     /// carries the position is [`Track::OpenFile`] and a position in it is an offset in the archive. See
     /// `audio::Track`, which is where that difference is written down.
     ///
@@ -2832,7 +2832,7 @@ impl Game for Th07 {
     }
 
     /// Which track that is, out of the record the source is reading — see [`RECORD_AT`] for why those three
-    /// numbers, and 紅魔郷's own answer for why they are mixed this way: what a chapter asks is whether the
+    /// numbers, and th06's own answer for why they are mixed this way: what a chapter asks is whether the
     /// track has changed, so what this has to be is different for different tracks rather than meaningful.
     fn music_identity(&self) -> Option<u32> {
         let stream = Self::the_stream()?;
@@ -2910,7 +2910,7 @@ impl Game for Th07 {
     /// **Asked for even where the chapter had nothing audible**, which is not orb wanting the song: this player
     /// keeps its stream in one field — [`STREAM`] — and a track is started by making a new object there, so the
     /// take-down before the copy leaves that field null and a play is the only thing that fills it again. A field
-    /// left null is a launch of 妖々夢 with no music at all and then a crash: the play command's own block is
+    /// left null is a launch of th07 with no music at all and then a crash: the play command's own block is
     /// skipped whole where it is null (0x44cbf3), so the stage's script asking for its song does nothing, and
     /// 0x44d01a reads the stream through it with no test at all — measured as a fault at 0x44d023 reading `0x74`
     /// with `ecx` zero, three instructions before the same code tests the same field. What such a chapter has
@@ -2923,7 +2923,7 @@ impl Game for Th07 {
         // **Which is read out of the stage's data and not out of the slots**: the track a chapter's stream is on
         // can be a third thing entirely — a stage's first chapter falls frames into the stage, where that stream
         // is still on the song of the scene before it — and that song is in a slot of its own all the same, so
-        // the slot the track is in is no answer: a 妖々夢 session asked for it and got the title screen's music
+        // the slot the track is in is no answer: a th07 session asked for it and got the title screen's music
         // back. What the stage's own data names is the stage's music whatever the stream is on.
         let slot = if self.the_fights_own_song_is_playing() == Some(true) {
             FIGHT_SONG_SLOT
@@ -2939,7 +2939,7 @@ impl Game for Th07 {
         //
         // **A play walks that.** The command the game's own play queues reuses the stream this field names
         // rather than making one: it stops the buffers that stream owns, points its source at a record and
-        // fills its buffer. A launch of 妖々夢 stepping about in stage 3 faulted twice over doing it —
+        // fills its buffer. A launch of th07 stepping about in stage 3 faulted twice over doing it —
         // `0x0045d8d5` with `E_INVALIDARG` left by an `IDirectSoundBuffer::Stop` that had written over the
         // game's own frame, and then a call through address zero from the fill at 0x45dfaf once the released
         // buffer's block had been reused.
@@ -2967,7 +2967,7 @@ impl Game for Th07 {
         unsafe { start(G_SUPERVISOR, slot) };
         // **And the queue left to the frame's own sound**, which is the one thing this must not do itself: the
         // ask is a command the player walks a phase at a time, and carrying it out here is carrying it out over
-        // the stream the memory copy has just written back — a launch of 妖々夢 faulted inside the game's own
+        // the stream the memory copy has just written back — a launch of th07 faulted inside the game's own
         // sound doing exactly that, at `0x0045d8d5` reading `4` with `E_INVALIDARG` in two registers. What waits
         // for the queue to empty is `Snapshot::finish_the_restores_sound`.
         true
@@ -3003,7 +3003,7 @@ impl Game for Th07 {
             .map(|manager| {
                 let textures = manager + ANM_TEXTURES;
                 // One range, said as one: the slots are contiguous, and `vec!` of a single range is a
-                // lint 紅魔郷's own answer avoids the same way.
+                // lint th06's own answer avoids the same way.
                 std::iter::once(textures..textures + ANM_TEXTURE_SLOTS * size_of::<usize>())
                     .collect()
             })
@@ -3068,7 +3068,7 @@ impl Game for Th07 {
     }
 
     /// Above the difficulty's own name, which is what this game writes in the bottom-left: 驚異, then
-    /// `Lunatic Level`, then 奇特な方向け under it — where 紅魔郷 has nothing, and a launch of 妖々夢 showed
+    /// `Lunatic Level`, then 奇特な方向け under it — where th06 has nothing, and a launch of th07 showed
     /// orb's two lines over the top of them. Above it and not in another corner: the top-left was tried, and
     /// read badly for being nowhere near what it is about.
     ///
@@ -3106,7 +3106,7 @@ impl Game for Th07 {
     /// +0x90 — `D3DCLEAR_TARGET`, Z 1.0, no stencil, read off the pushes at 0x406b02. That clear is the
     /// stage wiping its own field rather than device setup being put back, and no depth clear beside it
     /// has been read, so putting one here would be orb inventing one. Reached only on the frames orb
-    /// freezes the game for, of which 妖々夢 has none: it asks no question and offers no menu here.
+    /// freezes the game for, of which th07 has none: it asks no question and offers no menu here.
     unsafe fn set_play_viewport(&self, device: Device) {
         let viewport = Viewport {
             x: PLAY_AREA.left as u32,
@@ -3125,28 +3125,28 @@ impl Game for Th07 {
     }
 
     /// Taken as not wiping it, so that orb cleans up after whatever it draws rather than leaving it to
-    /// a wipe that may not come. Which of 妖々夢's options wipes the back buffer has not been read, and
+    /// a wipe that may not come. Which of th07's options wipes the back buffer has not been read, and
     /// the wrong way round here is orb's own drawing hardening into the corners of a frame.
     unsafe fn clears_back_buffer(&self) -> bool {
         false
     }
 
-    /// The keyboard needs nothing done to it, which is what `true` says: **妖々夢 reads its keys with
+    /// The keyboard needs nothing done to it, which is what `true` says: **th07 reads its keys with
     /// `GetKeyboardState`**, and the system never takes that away.
     ///
     /// Read off the read itself — 0x430b76 calls `[0x48d1b0]`, the second entry of the USER32 import table at
     /// 0x48d1ac, which is `GetKeyboardState`, with a 0x100-byte buffer on its own stack, and every key it wants
     /// is a byte of that buffer tested against 0x80. So there is no device to lose and none to ask for again,
-    /// which is 紅魔郷's `--sent-keys` launch and not its ordinary one.
+    /// which is th06's `--sent-keys` launch and not its ordinary one.
     unsafe fn acquire_input(&self) -> bool {
         true
     }
 
-    /// Nothing was let go of, because there is nothing to let go of: 妖々夢 reads its keys with
+    /// Nothing was let go of, because there is nothing to let go of: th07 reads its keys with
     /// `GetKeyboardState` — see [`Th07::acquire_input`] — which is the read a key another program sent is seen
     /// through already.
     ///
-    /// So `--sent-keys` costs this game nothing and buys it nothing: what that flag does to 紅魔郷 is take away a
+    /// So `--sent-keys` costs this game nothing and buys it nothing: what that flag does to th06 is take away a
     /// device held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` so that the game falls back to this same read.
     unsafe fn take_sent_keys(&self) -> bool {
         false
@@ -3158,7 +3158,7 @@ impl Game for Th07 {
     /// +0xa0 at 0x4347d4, which is where its own frame does it: after the scene it drew into ends and
     /// before the update. No background
     /// clear, that being an option of the game's that has not been read, and no framerate multiplier,
-    /// 妖々夢 not having been read for one.
+    /// th07 not having been read for one.
     unsafe fn prepare_frame(&self, device: Device) {
         let viewport = Viewport {
             x: 0,
@@ -3172,7 +3172,7 @@ impl Game for Th07 {
         orb_api::d3d8::set_viewport(device, viewport);
     }
 
-    /// What 妖々夢's own frame does inside its scene before its draw chain, in that frame's own order:
+    /// What th07's own frame does inside its scene before its draw chain, in that frame's own order:
     /// the queue of quads emptied, the fog flag written, and the fog put out.
     ///
     /// Three things and not one address. The queue is the one that must be here — the append the drawing
@@ -3352,7 +3352,7 @@ impl Game for Th07 {
         }
     }
 
-    /// No card is counted. Where 妖々夢 keeps its record of spell cards has not been read, and a count
+    /// No card is counted. Where th07 keeps its record of spell cards has not been read, and a count
     /// written into an address that is not that would be a number in somebody's score file.
     /// One more attempt at the card being fought, counted where the game cannot count it itself: a chapter
     /// begun inside a card never starts that card, so the game's own count at 0x410110 never runs for it.
@@ -3756,7 +3756,7 @@ impl Game for Th07 {
     /// What the pad is doing, for the menus orb puts over this game: the reading orb sampled, made into the
     /// game's own word and read with the game's own masks.
     ///
-    /// **Which is the only pad there is here.** 妖々夢 looks for a DirectInput device of its own and falls back to
+    /// **Which is the only pad there is here.** th07 looks for a DirectInput device of its own and falls back to
     /// one winmm joystick, and neither found the pad on the machine [`GET_CONTROLLER_INPUT`] was measured on — so
     /// the pad that plays the game is the one orb samples, and a menu of orb's reading anything else is a menu
     /// ignoring a pad that plainly works. What that costs is the mode question and, dozens of times a fight, the
@@ -3859,7 +3859,7 @@ impl Game for Th07 {
     /// **Not [`SCENE_RUN_OVER`], which is what that menu asks for**, and the difference is one call in the
     /// game's own transition out of a run: both of them tear the run down through 0x42f45d, and 6 then
     /// registers the screen a run ends on with `0x44a302(1)` (0x43803c) while the front end's registers
-    /// nothing (0x43801f). That screen is drawn — a launch of 妖々夢 showed a frame or two of its background
+    /// nothing (0x43801f). That screen is drawn — a launch of th07 showed a frame or two of its background
     /// on the way back to the title — and a run given up through orb's own menu is not a run anybody is being
     /// shown the score of. The replay's scene is left as it is: what a replay ends at is not that screen.
     ///
@@ -4016,15 +4016,15 @@ impl Game for Th07 {
             character: i32::from(mem::read_committed::<u8>(G_CHARACTER_CHOSEN)?),
             // **The cursor, and not [`G_SHOT_CHOSEN`]**: this is the screen the shot is chosen *on*, and that
             // byte is written where the choice is decided (0x459e7d) or the screen left (0x459f72) — out of this
-            // very field both times. So while the cursor moves it holds the shot of the run before, and a 妖々夢
-            // session was offered 霊夢B's unfinished run with the cursor sitting on 霊夢A.
+            // very field both times. So while the cursor moves it holds the shot of the run before, and a th07
+            // session was offered ReimuB's unfinished run with the cursor sitting on ReimuA.
             //
             // The difficulty and the character above are the screens *before* this one, so their bytes are
             // decided by the time anybody is standing here — see [`G_DIFFICULTY_CHOSEN`].
             shot_type: mem::read_committed::<i32>(front + FRONT_END_CURSOR)?,
             practice: false,
             // A whole run's chapter can be in any of its stages, and which one is what the mark says rather
-            // than part of naming the run — the same answer 紅魔郷 gives here.
+            // than part of naming the run — the same answer th06 gives here.
             stage: 0,
         })
     }
@@ -4032,13 +4032,13 @@ impl Game for Th07 {
     /// One slot per run there can be one of, named by the three numbers that make it that run — and nothing
     /// for a practice run, which is one stage rather than a run to come back to.
     ///
-    /// **Named by the numbers and not by the characters, on purpose.** 妖々夢 has the six names in the exe —
+    /// **Named by the numbers and not by the characters, on purpose.** th07 has the six names in the exe —
     /// `ReimuA` through `SakuyaB`, eight bytes apart from 0x495b28 downwards, which is `character * 2 + shot`'s
     /// own order — and its five difficulties twelve apart from 0x495628. Neither table is reached from any
     /// code: no address in either range is pushed or indexed anywhere in the exe, so the tie between an index
     /// and a name is the layout's suggestion rather than something read. A directory of runs reads better with
-    /// names, and a name against the wrong number would offer somebody 魔理沙's unfinished run as 霊夢's, so
-    /// the numbers go in until the tables are read from the other end. 紅魔郷's own answer falls back to this
+    /// names, and a name against the wrong number would offer somebody Marisa's unfinished run as Reimu's, so
+    /// the numbers go in until the tables are read from the other end. th06's own answer falls back to this
     /// same shape where its tables do not cover an index.
     fn run_slot(&self, run: &RunStart) -> Option<String> {
         if run.practice {
@@ -4062,7 +4062,7 @@ impl Game for Th07 {
             .ok()
             .and_then(|at| SHOTS.get(at));
         // Numbered where either is not one of this game's, a name being the one thing this cannot make up — and
-        // the file has to be some run's either way. Which is 紅魔郷's own answer here, and was this game's whole
+        // the file has to be some run's either way. Which is th06's own answer here, and was this game's whole
         // answer until the names went in.
         Some(match (difficulty, shot) {
             (Some(difficulty), Some(shot)) => format!("{difficulty}-{shot}"),
@@ -4075,7 +4075,7 @@ impl Game for Th07 {
 
     /// The numbers of the run this stage started with, all but three of them.
     ///
-    /// **`power_items`, `extra_lives` and `rank` are nothing, and each for its own reason.** 妖々夢 gives its
+    /// **`power_items`, `extra_lives` and `rank` are nothing, and each for its own reason.** th07 gives its
     /// power in whole steps rather than counting items towards one, so there is no count to read. Its extra
     /// lives are paid for out of the cherry rather than the score, so there is no count of ones already paid
     /// either — what pays for them is the three below, [`G_CHERRY`] and the two beside it. And it has no rank
@@ -4124,7 +4124,7 @@ impl Game for Th07 {
     unsafe fn run_state(&self) -> Vec<u8> {
         let run = unsafe { self.run_numbers() };
         // **Both of the score's fields, because a stage's own start reads the live one as nothing.** A run of
-        // 妖々夢 wrote every chapter of stage 4 down with `score=0` and the reproduction line of the frame nine
+        // th07 wrote every chapter of stage 4 down with `score=0` and the reproduction line of the frame nine
         // frames later said `score=6756516` — the same field, read twice within nine frames of a stage nobody
         // could earn six million in. So one of the two is not what this reads, and which is decided here:
         // asked once a stage, where [`Th07::run_state`] is asked once a stage. See [`SCORE`] and
@@ -4202,7 +4202,7 @@ impl Game for Th07 {
     /// [`RESEAL`], which draws twice.
     ///
     /// **And the seed is not written here**, which is where it used to be: it goes in at [`STAGE_BUILD`], before
-    /// the build draws the stage out of it. Written here it would be written *after* those draws, and a 妖々夢 run
+    /// the build draws the stage out of it. Written here it would be written *after* those draws, and a th07 run
     /// picked up out of its file parted from the run at the stage's first frame because of it.
     ///
     /// **The order here is the sum [`RESEAL`] takes**, `run+0x34` through `run+0xac`: [`LIVES`], [`BOMBS`],
@@ -4248,7 +4248,7 @@ impl Game for Th07 {
             mem::write::<u8>(AWARD_STEP, state.award_step);
             // **And the number the shot is scaled by**, a static like the step above and so outside the seal.
             // Left at what the build filled it with, a stage put back is a stage whose player walks at another
-            // speed — which is what the parting was: the same 2面 held 0x20 entered by a transition against
+            // speed — which is what the parting was: the same stage 2 held 0x20 entered by a transition against
             // 0x10 built by a resume, and every pair of launches parted on an item collected once.
             mem::write::<u32>(SHOTS_OWN_NUMBER, state.shots_own_number);
         }
@@ -4373,7 +4373,7 @@ impl Game for Th07 {
         let cursor = mem::read_committed::<i32>(front + FRONT_END_CURSOR)?;
         // **Said whenever either changes**, which is what a recipe naming an item by where it sits has to be
         // written against: the cursor is one field whatever screen is up, so a step waiting for a number cannot
-        // tell 練習スタート's own list from the title's. Which id each screen is and where each item sits in it
+        // tell Practice Start's own list from the title's. Which id each screen is and where each item sits in it
         // is not read off the exe — [`SCREEN_TITLE`] and [`SCREEN_SHOT_SELECT`] are the two that are — so it is
         // read off a launch instead, and this is the line it is read from.
         let screen = mem::read_committed::<i32>(front + FRONT_END_SCREEN).unwrap_or(-1);
@@ -4509,7 +4509,7 @@ impl Game for Th07 {
     }
 
     /// The table [`chapters`] holds, which is a stage per entry and nothing in any of them yet — so a chapter
-    /// falls at a stage's start and nowhere inside it. Its own file for the reason 紅魔郷's is: what a
+    /// falls at a stage's start and nowhere inside it. Its own file for the reason th06's is: what a
     /// `--chapter-tuning` pass writes is a `chapters.rs` to paste over, and a table inline here would be a paste
     /// into the middle of this file. Everything about how it is filled is in that module.
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
@@ -4659,9 +4659,9 @@ mod tests {
     /// which is what keeps it costing what reads cost: every ask is a `VirtualQuery` in a launch, and a
     /// syscall is not what reading a word out of the exe's own `.data` is worth.
     ///
-    /// Measured, and it is why this is here: orb's own per-frame work was **1206us a frame** on 妖々夢
-    /// against **18us** on 紅魔郷 — `perf: update=1206us/frame` — and a run picked up out of its file took
-    /// 3.2 seconds to play 2667 frames of buttons in, at 1.2ms an update, where the same thing on 紅魔郷
+    /// Measured, and it is why this is here: orb's own per-frame work was **1206us a frame** on th07
+    /// against **18us** on th06 — `perf: update=1206us/frame` — and a run picked up out of its file took
+    /// 3.2 seconds to play 2667 frames of buttons in, at 1.2ms an update, where the same thing on th06
     /// runs 13675 of them in 0.8s. The state read is made twice a frame and the laser count walked all
     /// 0x40 slots through the map.
     ///
@@ -4712,7 +4712,7 @@ mod tests {
             (fighting.boss_life, fighting.boss_attack_frames),
             (Some(1500), Some(240))
         );
-        // A boss without a card is a boss: the two are separate reads, and 妖々夢's non-card attacks are
+        // A boss without a card is a boss: the two are separate reads, and th07's non-card attacks are
         // where a chapter is taken as much as its cards are.
         assert_eq!(fighting.spellcard, None);
 
@@ -4746,7 +4746,7 @@ mod tests {
     ///
     /// **Which is what a border does that nothing else in these numbers does**: it absorbs every item on the
     /// screen, deflects a bullet, and its absorbing is counted in [`COUNTED_ALL_RUN`] — so a stage put back
-    /// without the one it had collects what the run did not. Five pairs of launches of 妖々夢 parted exactly
+    /// without the one it had collects what the run did not. Five pairs of launches of th07 parted exactly
     /// there: an item taken on one pass and passed through on the other, the count up by one and the score by
     /// 200, with every field of a frame's own line agreeing and the plus between 5790 and 8780.
     #[test]
@@ -5034,7 +5034,7 @@ mod tests {
             practice: false,
             stage: 0,
         };
-        // **Named and not numbered**, which is what the directory of runs left unfinished is read as: 咲夜's
+        // **Named and not numbered**, which is what the directory of runs left unfinished is read as: Sakuya's
         // second shot on Lunatic. See [`Th07::run_slot`] for where each half of that name comes from.
         assert_eq!(Th07.run_slot(&run).as_deref(), Some("lunatic-sakuya-b"));
         assert_eq!(
@@ -5713,7 +5713,7 @@ mod tests {
         assert_eq!(music.buffer_size, sound.buffer_size());
         assert_eq!(music.notify_size, sound.notify_size());
         let Track::OpenFile(file) = music.track else {
-            panic!("妖々夢 reads every track out of the one file it opened itself")
+            panic!("th07 reads every track out of the one file it opened itself")
         };
         assert_eq!(file, sound.mmio());
 
@@ -5738,7 +5738,7 @@ mod tests {
     ///
     /// **And which slot the start asks for is read off the track that was playing**: the fight's own song where
     /// that is what the stage's data names, and the stage's own for anything else — including a track this stage
-    /// has since loaded over, whose slot holds another name entirely. A 妖々夢 session that asked for a fixed slot
+    /// has since loaded over, whose slot holds another name entirely. A th07 session that asked for a fixed slot
     /// heard the title screen's song where the chapter's own should have come back.
     #[test]
     fn the_music_is_taken_down_and_started_again_by_the_games_own_calls() {
@@ -5937,7 +5937,7 @@ mod tests {
     /// a read whose buffer is never released is one every visit to the title leaks.
     ///
     /// The stage-select screen showing a legacy run's scores is what this is about: the front end reads the game's
-    /// own file at its own build, and 完全無欠モード's scores are in a file of its own.
+    /// own file at its own build, and Pointdevice mode's scores are in a file of its own.
     ///
     /// **Which of the two files that is, is not this test's**: the open orb makes carries the game's own name and
     /// the fork over `CreateFileA` decides from it, so what is laid out here is whichever file an open lands in
@@ -6093,8 +6093,8 @@ mod tests {
 
         // **The shot the cursor is on, and not the one the game last decided**, which is the byte at
         // [`G_SHOT_CHOSEN`]: it is written where an item is decided and where the screen is left, so on the
-        // screen itself it holds the shot of the run before. A 妖々夢 session was offered 霊夢B's unfinished run
-        // with the cursor on 霊夢A, which is that byte read as the cursor.
+        // screen itself it holds the shot of the run before. A th07 session was offered ReimuB's unfinished run
+        // with the cursor on ReimuA, which is that byte read as the cursor.
         image.the_shot_it_last_decided_is(1);
         image.the_shot_select_points_at(SCREEN_SHOT_SELECT, 3, 2, 0);
         assert_eq!(
@@ -6217,7 +6217,7 @@ mod tests {
 
         // **And the third song, which is the fight's as well**: stage 6's build loads one more into a slot of its
         // own — see [`SECOND_PHASE_SONG`] — and that name is in the exe rather than in the stage's data, so the
-        // two above cannot answer for it. A launch of 妖々夢 is what it costs: its sixth stage's second phase
+        // two above cannot answer for it. A launch of th07 is what it costs: its sixth stage's second phase
         // came out as neither the stage's song nor the fight's, so a chapter taken there was one whose music a
         // restore rewinds while the chapters around it are left playing, and the song was heard looping over a
         // stretch of itself and then still playing at the title.

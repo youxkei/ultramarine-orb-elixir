@@ -406,7 +406,7 @@ impl Tuning {
 /// see [`Game::stages_past_the_numbered`].
 ///
 /// **Asked of the game and not read off the table's length.** Taking the last row for the Extra is right for
-/// 紅魔郷 and wrong for 妖々夢, whose Phantasm sits after it: a pass over 妖々夢's Extra wrote the row out as
+/// th06 and wrong for th07, whose Phantasm sits after it: a pass over th07's Extra wrote the row out as
 /// `stage 7` and the Phantasm as `extra`, so the file said Extra of the row above the Extra's.
 fn row_label(game: &dyn Game, stage: usize) -> String {
     let named = game.stages_past_the_numbered();
@@ -605,7 +605,7 @@ mod tests {
         assert!(source.contains("proposed(880)"), "{source}");
     }
 
-    /// **And it names the rows the game does not number.** 妖々夢's table is its six stages, its Extra and
+    /// **And it names the rows the game does not number.** th07's table is its six stages, its Extra and
     /// the Phantasm after it, so the row to paste an Extra boundary into is not the last one — and a writer
     /// that took the last for the Extra called the Extra `stage 7` and the Phantasm `extra`, which is the row
     /// above the one a reader would put it in.
@@ -622,7 +622,7 @@ mod tests {
         assert!(!source.contains("/* stage 7"), "{source}");
         assert!(!source.contains("/* stage 8"), "{source}");
 
-        // And 紅魔郷's Extra is its last row, which is the case the shape used to be read off.
+        // And th06's Extra is its last row, which is the case the shape used to be read off.
         let of_th06 = Tuning::new(&Th06, dir).table(&Th06);
         assert!(of_th06.contains("/* extra"), "{of_th06}");
         assert!(!of_th06.contains("/* stage 7"), "{of_th06}");

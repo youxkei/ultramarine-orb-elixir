@@ -83,7 +83,7 @@ fn asks_for_the_ranking(game: &Fake, mode: Mode) {
         "the press did not put the ranking's question up:\n  {}",
         log.lines().join("\n  ")
     );
-    // 完全無欠モード is the item the cursor starts on, so the game's own ranking is one press down. A
+    // Pointdevice mode is the item the cursor starts on, so the game's own ranking is one press down. A
     // direction cannot be repeated the way a decide can — a list of two is on the other item every press —
     // so the frames the question holds its keys off for are waited out first.
     if mode == Mode::Normal {
@@ -430,7 +430,7 @@ fn a_launch_with_no_score_file_offers_no_extra_and_is_left_the_failed_reads_own_
 /// screen leaves, `MainMenu.cpp:848` the request being a reservation the front end acts on 60 frames later.
 ///
 /// The three ways out a run has that are not the result screen, each in the mode it can be reached in: two
-/// in 完全無欠モード, where orb's own menu is one of them, and the game's own in レガシーモード, where it is
+/// in Pointdevice mode, where orb's own menu is one of them, and the game's own in legacy mode, where it is
 /// the only one. The fourth way — a run that finished, whose own screen writes for it and which needs no
 /// ranking built at all — is `the_screen_a_finished_run_ends_at.rs`'s.
 #[test]
@@ -482,7 +482,7 @@ fn a_run_ended_away_from_the_result_screen_has_a_ranking_built_to_write() {
             );
         }
 
-        // ── And the same run in レガシーモード, whose file is the game's own: nothing of orb's is kept in
+        // ── And the same run in legacy mode, whose file is the game's own: nothing of orb's is kept in
         // one, and what it counted about spell cards is still a session's work to lose.
         {
             let game = launched("the-score-file-out-of-a-legacy-run");
@@ -790,7 +790,7 @@ fn at_the_cards_chapter(game: &Fake) {
     );
 }
 
-/// 被弾 and then チャプターをやり直す, which is the retry menu's first item and the attempt orb counts.
+/// The hit and then チャプターをやり直す, which is the retry menu's first item and the attempt orb counts.
 fn retries_the_chapter(game: &Fake) {
     let log = game.log();
     let from = log.written();
@@ -806,7 +806,7 @@ fn retries_the_chapter(game: &Fake) {
     });
 }
 
-/// 被弾 and then タイトルに戻る, which is up once from the item the cursor starts on, and the question
+/// The hit and then タイトルに戻る, which is up once from the item the cursor starts on, and the question
 /// that item asks, whose own cursor starts on いいえ.
 ///
 /// The frames each holds its keys off for are waited out first: a direction pressed inside those is one
@@ -933,7 +933,7 @@ fn asks_for_a_practice_stage(game: &Fake, mode: Mode) {
         "the press over Practice Start put no question up:\n  {}",
         log.lines().join("\n  ")
     );
-    // 完全無欠モード is the item the cursor starts on, and レガシーモード is one press down — after the
+    // Pointdevice mode is the item the cursor starts on, and legacy mode is one press down — after the
     // frames the question holds its keys off for, a list of two being on the other item every press.
     if mode == Mode::Normal {
         game.frames(READS_KEYS_AFTER);
@@ -967,7 +967,7 @@ fn leaves_the_practice_stages(game: &Fake) {
 
 /// **The score a practice stage is offered with is the answered mode's own.**
 ///
-/// 完全無欠モード's practice runs are written to orb's file, so the score that mode shows for a stage is
+/// Pointdevice mode's practice runs are written to orb's file, so the score that mode shows for a stage is
 /// that file's — and it was `score.dat`'s, the front end reading the practice scores in the very read its
 /// own items are lit from. That read has to stay pointed at the game's file, so the scores are read again
 /// out of the mode's: `Game::read_practice_scores`, at the question over `Practice Start`.
@@ -1005,7 +1005,7 @@ fn the_practice_scores_shown_are_the_answered_modes_own() {
         );
         game.at_the_title_menu();
 
-        // ── 完全無欠モード, whose runs are in orb's file: the row shows what that file holds, and the
+        // ── Pointdevice mode, whose runs are in orb's file: the row shows what that file holds, and the
         // number in the game's own file is on no row of the screen.
         game.forget_score_file_opens();
         asks_for_a_practice_stage(&game, Mode::Pointdevice);
@@ -1039,7 +1039,7 @@ fn the_practice_scores_shown_are_the_answered_modes_own() {
         );
         assert!(writes.is_empty(), "answering the question wrote a file");
 
-        // ── And レガシーモード, answered at the same item in the same session: the game's own file, which
+        // ── And legacy mode, answered at the same item in the same session: the game's own file, which
         // is what a run somebody could have played is ranked in.
         leaves_the_practice_stages(&game);
         game.forget_score_file_opens();
@@ -1083,7 +1083,7 @@ const REACHED: u8 = 3;
 /// practice stages and no Extra — one fact from each array, and a record that had been cleared could not
 /// tell them apart, both of its arrays holding 99.
 ///
-/// And Easy has a row fewer than its count: 紅魔郷 ends an Easy run at stage 5, so a cleared record offers
+/// And Easy has a row fewer than its count: th06 ends an Easy run at stage 5, so a cleared record offers
 /// six stages on Normal and five there (0x439a1b).
 #[test]
 fn the_practice_stages_offered_are_how_far_the_shot_has_got() {

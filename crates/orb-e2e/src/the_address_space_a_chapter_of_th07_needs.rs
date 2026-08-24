@@ -1,4 +1,4 @@
-//! **The address space a chapter of 妖々夢 would put back is held for as long as that chapter is kept.**
+//! **The address space a chapter of th07 would put back is held for as long as that chapter is kept.**
 //!
 //! A snapshot is a copy of ranges of memory, named by where they are. What a copy cannot hold is the
 //! *address space*: a block of a few megabytes is a reservation of its own inside the game's heap, so the
@@ -6,7 +6,7 @@
 //! own, inside `ntdll`, which no hook on the exe's imports sees. Whoever is given that space next is who
 //! a restore of the older snapshot writes over.
 //!
-//! **Both of the two things that took it have taken 妖々夢 down.** A step back at a stage's end faulted
+//! **Both of the two things that took it have taken th07 down.** A step back at a stage's end faulted
 //! inside the next snapshot's own copy, `chapter::take`'s memcpy loop walking a `saved` list whose slice
 //! pointer read as 8 — orb's own buffer had been given the game's freed pages and then written over. The
 //! step back after that faulted inside `ntdll`'s heap with `take` under it, the process heap having taken
@@ -30,7 +30,7 @@ const WORK_US: i64 = 700;
 /// one is a chapter of its own.
 const APART: u32 = 120;
 
-/// A 完全無欠モード run of this game with its stage's own track streaming, played to its first chapter.
+/// A Pointdevice mode run of this game with its stage's own track streaming, played to its first chapter.
 fn in_a_run(name: &str) -> Box<Fake> {
     let game = Fake::attach_configured(
         Display::agreed(120),

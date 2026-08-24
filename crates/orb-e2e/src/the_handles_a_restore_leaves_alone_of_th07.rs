@@ -1,4 +1,4 @@
-//! **The handles a restore of a chapter of 妖々夢 leaves where it finds them, and everything beside them that
+//! **The handles a restore of a chapter of th07 leaves where it finds them, and everything beside them that
 //! it puts back.**
 //!
 //! A chapter comes back by putting every byte of the game's memory back, allocator bookkeeping included, so
@@ -6,7 +6,7 @@
 //! are the exception**: they cannot be copied into a snapshot, so a handle to one put back from a snapshot names
 //! something that may since have been released — and the game releasing it a second time faults inside itself.
 //!
-//! 妖々夢's own array is the sprite manager's, which is the block the frame queues its quads in: `Th07::
+//! th07's own array is the sprite manager's, which is the block the frame queues its quads in: `Th07::
 //! live_handles` names it and a restore skips it. **The array only**: everything else in that block is the
 //! game's own state and comes back like any other memory, which is the half of the claim that makes the first
 //! half say something.
@@ -55,7 +55,7 @@ fn a_texture_handle_of_th07_is_not_put_back_from_a_snapshot_and_the_rest_of_the_
         game.image().loads_the_panels_sheet(LOADED_SINCE);
         game.image().set_sprite_manager_word(WORD_WRITTEN_SINCE);
 
-        // 被弾 and チャプターをやり直す.
+        // The hit and チャプターをやり直す.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
         game.press_until(keys::Z, "the retry menu answered", || {
@@ -87,7 +87,7 @@ fn a_texture_handle_of_th07_is_not_put_back_from_a_snapshot_and_the_rest_of_the_
 
 /// And the chain's own linked list comes back with the memory, which nothing had ever asked.
 ///
-/// 妖々夢's `g_Chain` and the `ChainElem`s its scenes register are in `.data`, so a chapter is a copy of the
+/// th07's `g_Chain` and the `ChainElem`s its scenes register are in `.data`, so a chapter is a copy of the
 /// list as well as of the run: the `next` pointers, the callbacks and the elements themselves are all inside
 /// the range a snapshot takes. Which means a job cut *after* the chapter is a job the restore puts back, and
 /// none of that is anything orb does on purpose.
@@ -113,7 +113,7 @@ fn a_restore_of_a_chapter_of_th07_puts_the_chains_own_list_back() {
             "the stage registered no draw job for its panel, so there is nothing to put back",
         );
 
-        // The job cut, which is what the teardown of the object it belongs to does — and then 被弾 straight
+        // The job cut, which is what the teardown of the object it belongs to does — and then the hit straight
         // after it, soon enough that no boundary of the stage's own has gone by.
         game.image().paints_no_panel();
         game.one_frame();

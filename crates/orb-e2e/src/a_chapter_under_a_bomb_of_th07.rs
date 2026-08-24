@@ -1,9 +1,9 @@
-//! **A bomb of 妖々夢 is not a frame orb keeps away from either**, and the chapter that begins under one says
+//! **A bomb of th07 is not a frame orb keeps away from either**, and the chapter that begins under one says
 //! so.
 //!
 //! `chapter::guarded` is the list of frames no chapter may begin on — mid-dialogue and paused — and a bomb is
-//! deliberately not on it, for the reason its comment records and `a_chapter_under_a_bomb.rs` holds 紅魔郷 to.
-//! What this game brings of its own is the flag: 妖々夢 keeps `bombInUse` in its own player, and orb reads a
+//! deliberately not on it, for the reason its comment records and `a_chapter_under_a_bomb.rs` holds th06 to.
+//! What this game brings of its own is the flag: th07 keeps `bombInUse` in its own player, and orb reads a
 //! bomb off that word and off nothing else. So a boundary the fight really has begins its chapter whatever the
 //! player has just spent, and the flag turns up in the line that carries the frame's state — which is where
 //! somebody looking into a boundary they cannot account for reads a bomb back rather than blaming the frame.
@@ -15,7 +15,7 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -47,7 +47,7 @@ fn a_chapter_of_a_fight_of_th07_begins_while_a_bomb_is_going_off() {
             log.said("chapter 2") && log.said("a midboss spellcard")
         });
 
-        // ボム. One fewer on the count, and the flag orb reads a bomb off up in the game's own memory.
+        // The bomb. One fewer on the count, and the flag orb reads a bomb off up in the game's own memory.
         game.frames(APART - UNDER_THE_BOMB);
         let bombs_before = game.state().bombs;
         game.a_bomb_goes_off();

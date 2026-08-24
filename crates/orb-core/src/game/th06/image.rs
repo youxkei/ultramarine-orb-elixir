@@ -8,7 +8,7 @@
 //! The regions are the game's own, at the game's own addresses, and they are laid out from the
 //! same constants the reads use — so what this cannot catch is a constant that is wrong. A wrong
 //! offset makes the writer and the reader wrong together, and only the real game says otherwise —
-//! every one of these was read against 東方紅魔郷 1.02h running, with what the screen showed held
+//! every one of these was read against th06 1.02h running, with what the screen showed held
 //! against what came back. What this does catch is everything built on
 //! top of the offsets, which is where the code is.
 //!
@@ -55,7 +55,7 @@ const BOSS: Range<usize> = 0x0300_0000..0x0300_1000;
 /// pointing at it at all — `chain_argument` is the whole of how orb finds it — so the element goes in
 /// the chain's calc list with this block hanging off it.
 ///
-/// **One block, because in 紅魔郷 it is one screen.** `ResultScreen` is what the *Score* item's ranking
+/// **One block, because in th06 it is one screen.** `ResultScreen` is what the *Score* item's ranking
 /// and a run's own end both build, so the state orb writes to send a ranking away is the same field a
 /// finished run's name entry is standing in — see [`result_screen_leaving`](Image::result_screen_leaving).
 /// Two blocks here answered that question for orb instead of asking it.
@@ -192,7 +192,7 @@ mod record {
     pub const STRIDE: usize = 0x8;
 }
 
-/// The frame number `ReplayManager::StopRecording` terminates a record at, which is 紅魔郷's own: no run
+/// The frame number `ReplayManager::StopRecording` terminates a record at, which is th06's own: no run
 /// reaches it, so playback that walked into it would stand still for ever rather than end.
 pub const RECORD_ENDS_AT: i32 = 9_999_999;
 
@@ -296,7 +296,7 @@ const MAX_CLEARS: u8 = 99;
 const CLEARS_THAT_COUNT: Range<usize> = 1..4;
 
 /// And Easy itself, as the game numbers its difficulties: the practice stage select has one row fewer of
-/// it, 紅魔郷 ending an Easy run a stage early, so a count of six there is five stages — 0x439a1b, which
+/// it, th06 ending an Easy run a stage early, so a count of six there is five stages — 0x439a1b, which
 /// asks for that difficulty and that count.
 ///
 /// `pub` because a run is declared above the seam and one on Easy is what an e2e test about that row needs.
@@ -1427,7 +1427,7 @@ impl Image {
 
     /// How many stages the practice stage select offers, which is the other array's answer: how far the
     /// shot being started has got on this difficulty, at most [`PRACTICE_STAGES`] of them — and one fewer
-    /// on Easy, which 紅魔郷 ends a stage early.
+    /// on Easy, which th06 ends a stage early.
     ///
     /// The game's own arithmetic, 0x4399e8 to 0x439a2a: the byte read, held under six, and then the Easy
     /// case, which is that difficulty and a count of exactly six. The shot and the difficulty come out of
@@ -2226,7 +2226,7 @@ impl Image {
     }
 
     /// `ResultScreen::RegisterChain(NULL)`, which the *Score* item reaches: the same element and the same
-    /// callback a finished run's screen registers, because in 紅魔郷 they are one screen — both the item and
+    /// callback a finished run's screen registers, because in th06 they are one screen — both the item and
     /// a run's own end go through `SUPERVISOR_STATE_RESULTSCREEN`.
     ///
     /// The state it starts in is the difference, and it is the argument that decides it: a null one writes
@@ -2253,7 +2253,7 @@ impl Image {
     }
 
     /// `Ending::LoadEndingFile` reading the staff roll's script over the one running, which is every
-    /// ending's last act: all six of 紅魔郷's finish on `@Fdata/staff00.end`, so the script changing is
+    /// ending's last act: all six of th06's finish on `@Fdata/staff00.end`, so the script changing is
     /// where the ending itself ends and the roll begins.
     pub fn hands_over_to_the_roll(&self) {
         self.space()
@@ -2417,7 +2417,7 @@ impl Image {
             .collect()
     }
 
-    /// How many attempts the game's record holds for `card`, which is the number the 完全無欠 ranking
+    /// How many attempts the game's record holds for `card`, which is the number the Pointdevice ranking
     /// screen shows against it.
     pub fn card_attempts(&self, card: i32) -> u16 {
         self.space()

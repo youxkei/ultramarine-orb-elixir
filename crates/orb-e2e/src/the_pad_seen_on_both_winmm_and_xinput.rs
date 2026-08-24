@@ -4,7 +4,7 @@
 //! winmm index and once as an XInput slot. Both were candidates for `joystick::last_pushed`, and both are
 //! pushed by one press, so the choice went to whichever of the two reported it later.
 //!
-//! **What that does to the player is what a session measured.** A run of 妖々夢 played on a pad that showed
+//! **What that does to the player is what a session measured.** A run of th07 played on a pad that showed
 //! up as `winmm 1` (mid=1532 pid=0a57) and `xinput 0` had the log write
 //! `is the pad the run is played with` eighteen times — nine `winmm 1` → `xinput 0` pairs, forty
 //! milliseconds apart, which is one press seen twice with the two interfaces' own delays between them. And a

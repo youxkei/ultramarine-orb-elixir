@@ -1,4 +1,4 @@
-//! **The recipe orb plays a run of 妖々夢 to**, and the words it presses to get through the screens on the
+//! **The recipe orb plays a run of th07 to**, and the words it presses to get through the screens on the
 //! way.
 //!
 //! A run to be picked up out of a file has to be started, and starting one is menus: the mode question orb
@@ -13,7 +13,7 @@
 //!
 //! The tap is what a run being *started* takes, and it is not a convenience: a menu answers the frame a button
 //! goes down, so one word held across four screens takes one of them — and how many screens there are between
-//! the title and a stage is not something a recipe can count, which item 妖々夢's title menu comes up on being
+//! the title and a stage is not something a recipe can count, which item th07's title menu comes up on being
 //! whatever its score file last remembered.
 //!
 //! What comes after the last step is the run being played, which is [`the_bot_playing_th07`]'s rules.
@@ -27,7 +27,7 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// 妖々夢's own first two buttons, as `Th07` has them.
+/// th07's own first two buttons, as `Th07` has them.
 const SHOT: u16 = 0x001;
 const BOMB: u16 = 0x002;
 
@@ -92,7 +92,7 @@ fn a_recipe_is_played_a_step_at_a_time() {
 ///
 /// Which is what the screens between the title and a stage take. A menu of this game's answers the frame a
 /// button goes down and not the frames it stays down, so a word held across four screens takes one of them —
-/// and how many there are is not something a recipe can count: which item 妖々夢's title menu comes up on is
+/// and how many there are is not something a recipe can count: which item th07's title menu comes up on is
 /// whatever its score file last remembered.
 #[test]
 fn a_press_with_an_until_is_tapped_until_it_is_reached() {
@@ -278,7 +278,7 @@ fn a_picture_can_be_asked_for_a_moment_after_its_step_begins() {
 ///
 /// A boss's conversation is what a stage's midsection ends at and the fight begins after, and the rules press
 /// past it as fast as the game takes presses — so it is up for a handful of frames, and a step bounded by a
-/// count of them walks either side of it. Six shots at hundred-frame intervals through 1面's midsection caught
+/// count of them walks either side of it. Six shots at hundred-frame intervals through stage 1's midsection caught
 /// the stage every time and the conversation never. Whether one is up is a thing orb already reads to decide
 /// whether the rules have a line to press past, so it is a thing a step can wait for.
 #[test]
@@ -312,8 +312,8 @@ fn a_step_ends_where_a_dialogue_is_up() {
         );
 
         // **And not on the line the screen is handed over on**, which is a frame with no words drawn on it: the
-        // game's own predicate counts it, and a picture asked for there caught 5面's and 6面's boxes still being
-        // drawn and nothing being said in them.
+        // game's own predicate counts it, and a picture asked for there caught stage 5's and stage 6's boxes
+        // still being drawn and nothing being said in them.
         game.image().the_dialogue_is_at_line(-2);
         words(&game, 4);
         assert!(
@@ -339,8 +339,8 @@ fn a_step_ends_where_a_dialogue_is_up() {
 
 /// **A step can wait for a spell card, which is the frame the plate its name is on is being drawn on.**
 ///
-/// Which chapter of a stage is a card is the game's own numbering and differs stage by stage — 1面's boss opens
-/// its card at chapter 7 and 4面's at chapter 12 — so a step that named one was a step written against a
+/// Which chapter of a stage is a card is the game's own numbering and differs stage by stage — stage 1's boss opens
+/// its card at chapter 7 and stage 4's at chapter 12 — so a step that named one was a step written against a
 /// reading of one afternoon's logs, and twelve pictures taken at chapters named that way caught no plate at
 /// all. Whether a card is running is a thing orb already reads to name the chapter, so it is a thing a step can
 /// wait for and no chapter has to be counted.
@@ -391,10 +391,10 @@ fn a_step_ends_where_a_spell_card_is_running() {
 
 /// **And a step can wait for the plate a card's name is on, which is not the frame the card started on.**
 ///
-/// A card starting and its name being on the screen are two frames: pictures asked for as 1面's and 2面's cards
-/// started each came out with the boss's name and the timer in place and nothing between them. So the plate is
-/// its own condition — the bit the engine's own draw reads before it draws the thing — rather than a count of
-/// frames after the card, which is a guess about an animation.
+/// A card starting and its name being on the screen are two frames: pictures asked for as stage 1's and stage
+/// 2's cards started each came out with the boss's name and the timer in place and nothing between them. So
+/// the plate is its own condition — the bit the engine's own draw reads before it draws the thing — rather
+/// than a count of frames after the card, which is a guess about an animation.
 #[test]
 fn a_step_ends_where_a_cards_name_is_shown() {
     in_its_own_process(|| {
@@ -672,8 +672,8 @@ fn a_chance_that_is_not_a_chance_is_refused() {
 
 /// **And a midboss is not the boss it waits for**, the midsection carrying on after one.
 ///
-/// A step waiting for a boss ended at 4面's midboss, which is a third of the way into the midsection it was
-/// written to practise. What tells the two apart is the song: 妖々夢 names two per stage and loads the second for
+/// A step waiting for a boss ended at stage 4's midboss, which is a third of the way into the midsection it was
+/// written to practise. What tells the two apart is the song: th07 names two per stage and loads the second for
 /// the fight the stage ends with, so a fight with the stage's own song still playing is a midboss — which is the
 /// same test the chapter model already makes to decide whether to put a stage's song back on a resume.
 #[test]

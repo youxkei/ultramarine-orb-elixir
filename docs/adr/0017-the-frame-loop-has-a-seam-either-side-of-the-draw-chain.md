@@ -2,13 +2,13 @@
 
 **Status:** accepted and built. `Game::begin_drawing` and `Game::end_drawing` are what `runtime::render`
 calls inside the scene it draws in, `Th06` answers nothing to both, `Th07::hooks` asks for `render` at
-0x4346e0, and `crates/orb-e2e/src/th07.rs` drives orb's own loop over a laid-out 妖々夢 whose draw chain
+0x4346e0, and `crates/orb-e2e/src/th07.rs` drives orb's own loop over a laid-out th07 whose draw chain
 queues a quad the way a real one does.
 
 It answers the question [0004](0004-th07-is-a-second-game-chosen-at-the-attach.md) and
 [issue 2](https://github.com/youxkei/ultramarine-orb-elixir/issues/2) parked: *whether `prepare_frame` is
-where those belong or whether 妖々夢 wants a different loop.* Neither. They belong either side of the draw
-chain, and 妖々夢 wants the loop it has.
+where those belong or whether th07 wants a different loop.* Neither. They belong either side of the draw
+chain, and th07 wants the loop it has.
 
 It stands on [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), whose rule the three
 calls this adds are handed over under: code is the one thing an address space laid out by hand cannot
@@ -16,17 +16,17 @@ hold.
 
 ## Context
 
-**妖々夢's frame is the same shape as 紅魔郷's, and it is not the same frame.** `GameWindow::Render` at
+**th07's frame is the same shape as th06's, and it is not the same frame.** `GameWindow::Render` at
 0x4346e0, `__thiscall` on the window object at 0x575c20, reached from the message pump at 0x4341f2 on the
 frames `TestCooperativeLevel` answers `D3D_OK` for. 0x434708 to 0x434a33 is one draw, one update, the
 sounds and the present, and around them a loop deciding — from the frame-skip setting at 0x575a8b and the
-timing at 0x575c34 — whether a pass draws at all and whether to take another before presenting. 紅魔郷's is
+timing at 0x575c34 — whether a pass draws at all and whether to take another before presenting. th06's is
 0x4206e0 and has the same counter at `[this+0x10]`, the same skip setting, the same two chain exits mapped
 to 1 and 2. That is the shape, and it is why replacing it looked like the same job.
 
 What differs is inside the scene:
 
-| | 紅魔郷, 0x4206e0 | 妖々夢, 0x4346e0 |
+| | th06, 0x4206e0 | th07, 0x4346e0 |
 | --- | --- | --- |
 | before the draw chain | `BeginScene` at 0x4207d1 and nothing else | `BeginScene` at 0x434728, the queue of quads emptied at 0x434734, the fog flag written at 0x434739, the fog put out at 0x434748 |
 | the draw chain | 0x4207dc | 0x43474d |
@@ -48,10 +48,10 @@ loop used was right. See 0004's *What the two launches said*.
 **Two things 0004 read out of that pair of launches were wrong, and this is where they are corrected.**
 
 - `perf: … update=8us/frame worst=1084us calls=1200 draw=3us/frame worst=341us calls=570` over 600 frames
-  was read there as 妖々夢's timing loop *running the update twice a frame*. It is not: `runtime.rs`
+  was read there as th07's timing loop *running the update twice a frame*. It is not: `runtime.rs`
   records the update phase twice per update-hook call, once before the chain call and once at the end of
   the hook, so 1200 is 600 hook calls. What the line says is 600 logic frames against 570 drawings in the
-  same reporting period, and which of 妖々夢's two skip paths the missing 30 are is not in it.
+  same reporting period, and which of th07's two skip paths the missing 30 are is not in it.
 - The two calls on `[0x4b9e44]` at 0x43472e and 0x434757 were read as *a render-state block*. They are the
   queue of quads emptied and drawn.
 
@@ -72,8 +72,8 @@ call are two lines of disassembly apart and the arithmetic between their address
 them inside the scene.**
 
 - **`begin_drawing(device)` after `BeginScene` and before the draw chain, `end_drawing(device)` after the
-  chain and before `EndScene`.** 紅魔郷 answers nothing to both, which is measured of its frame and not a
-  gap in it. 妖々夢 empties the queue, writes the fog flag and puts the fog out in the first, and draws the
+  chain and before `EndScene`.** th06 answers nothing to both, which is measured of its frame and not a
+  gap in it. th07 empties the queue, writes the fog flag and puts the fog out in the first, and draws the
   queue in the second.
 
 - **Not `prepare_frame`, which is a different place in the frame.** That one runs before the wait and
@@ -81,10 +81,10 @@ them inside the scene.**
   ask for. A queue emptied there would be emptied after the previous frame's drawing had already filled
   it; a queue drawn there would be drawn outside the scene it was queued in.
 
-- **Not a different loop for 妖々夢 either.** The loop's order — the viewport, the wait, the update, the
-  sounds, the drawing, the hold, the present — is what removes the frame of input lag, and 妖々夢's frame
+- **Not a different loop for th07 either.** The loop's order — the viewport, the wait, the update, the
+  sounds, the drawing, the hold, the present — is what removes the frame of input lag, and th07's frame
   is that same list in the game's own order with a skip loop around it. orb takes the skipping out here as
-  it takes 紅魔郷's out.
+  it takes th06's out.
 
 - **The three calls are `handed_over!` slots.** They are calls out of the seam into the game, so a game
   laid out by hand has to be able to answer them, which is 0002's rule and the third time it has been
@@ -101,7 +101,7 @@ them inside the scene.**
 
 ## Consequences
 
-**What a launch in 妖々夢 now gets.** Its window at the right shape, and orb's own frame: the update before
+**What a launch in th07 now gets.** Its window at the right shape, and orb's own frame: the update before
 the draw, the sounds where the game hands its own over, the drawing inside one scene, and the frame held
 for the blank before the one it is aimed at. Which is a frame of input lag gone and the cadence
 [0006](0006-the-frame-loop-waits-on-a-high-resolution-timer.md) and
@@ -113,40 +113,40 @@ four calls a frame makes, the queue emptied and drawn once a frame with the writ
 started, the fog taken off to the device on *every* frame, and the game's own score file left alone. Each
 is red without this decision, and the queue's is red the way the real game was red — the laid-out game's
 draw chain queues a quad through the same field, so a loop that skips the empty writes 168 bytes to address
-zero and the sim says so. What none of them can say is that the addresses are right: a laid-out 妖々夢 is
+zero and the sim says so. What none of them can say is that the addresses are right: a laid-out th07 is
 written from the same constants `Th07` reads, so a wrong one is wrong on both sides at once.
 
 **What is left open, and the line that decides it.** orb's overlay is drawn inside the draw hook, so the
-queue drawn by `end_drawing` is drawn *over* it. Nothing today — 妖々夢 is the game with a queue and it has
+queue drawn by `end_drawing` is drawn *over* it. Nothing today — th07 is the game with a queue and it has
 no font to build an overlay from — and the day it has one, `end_drawing` moves into the draw hook ahead of
 `after_draw`, which is where the game's own frame has it relative to everything drawn inside the chain.
 The comment beside the call in `runtime::render` says so.
 
-**What it costs.** Two calls per frame that do nothing at all in 紅魔郷, and a `&dyn Game` call for each:
+**What it costs.** Two calls per frame that do nothing at all in th06, and a `&dyn Game` call for each:
 the loop already makes five of that kind. And every game after this one has two more methods to answer,
 which is the price of the seam being the frame's *order* rather than a list of addresses.
 
 **What it rules out.**
 
 - **Composing the frame from `FrameCalls`.** Three more `Call`s there and three more `Originals` fields
-  would put 妖々夢's frame in `runtime::render`, where 紅魔郷 would have to answer for a queue it has not
+  would put th07's frame in `runtime::render`, where th06 would have to answer for a queue it has not
   got. The seam exists so that the loop is one frame and each game says what its own frame is.
-- **Reading the game's own skip setting.** orb draws every frame it updates. 妖々夢's frame at 0x575a8b and
-  紅魔郷's at 0x6c6e4b are the same setting, and orb's loop has ignored 紅魔郷's since it was written.
+- **Reading the game's own skip setting.** orb draws every frame it updates. th07's frame at 0x575a8b and
+  th06's at 0x6c6e4b are the same setting, and orb's loop has ignored th06's since it was written.
 - **Deciding which of the frame's writes matter.** The fog flag looked like a write nothing reads, and
   leaving it out would have cost `D3DRS_FOGENABLE` on every frame but one. What the frame does, orb's
   frame does.
 - **`[this+8]` and `[this+0x10]`, the frame's own two fields.** The first is what makes the game's frame
-  return at once — 紅魔郷 has it too, at 0x6c6bdc, and orb's loop has always ignored it, that being what
+  return at once — th06 has it too, at 0x6c6bdc, and orb's loop has always ignored it, that being what
   keeps a run going while the window is behind. The second is the skip counter, which nothing outside the
   frame reads. Neither is touched.
 
 ## Plan
 
-1. **Built.** The laid-out 妖々夢 grows the queue: the block at the length the game's own has, the three
+1. **Built.** The laid-out th07 grows the queue: the block at the length the game's own has, the three
    functions over it in `th07/image.rs` where the block is, and a draw chain that queues a quad.
    `Launch::new` is handed `orbs_own_loop`, so a game that declines `render` is one the e2e tests do not
-   drive a loop for — which 妖々夢 was, and which is what let the tests be red for the right reason twice.
+   drive a loop for — which th07 was, and which is what let the tests be red for the right reason twice.
 2. **Built.** `Th07::hooks` asks for `render`, and the e2e tests over the queue fault where the game
    faulted.
 3. **Built.** The seam, the loop's two calls, `Th06` answering nothing, and `Th07` composing the frame.

@@ -10,12 +10,12 @@ script on one clock.* It holds, on the first context's clock, and the table's sh
 
 ## Context
 
-**紅魔郷 has one timeline and 妖々夢 has four scripts.** `State::script_frames` exists because a midstage
+**th06 has one timeline and th07 has four scripts.** `State::script_frames` exists because a midstage
 boundary has to be expressed in a clock that runs the same way however the player is doing and on every
-difficulty — not in the stage's own frames, which a dialogue and a menu stop. In 紅魔郷 that clock is the
+difficulty — not in the stage's own frames, which a dialogue and a menu stop. In th06 that clock is the
 enemy manager's `TIMELINE_TIME_CURRENT`: one timeline, spawning the stage's enemies, one number.
 
-妖々夢 has no timeline. Its enemy manager at 0x9a9b00 keeps **four main contexts** of 0x10 bytes from
+th07 has no timeline. Its enemy manager at 0x9a9b00 keeps **four main contexts** of 0x10 bytes from
 `+0x9545f4`, each a timer with the instruction it is up to after it — `previous`, `current_f`, `current`,
 `instruction` — and 0x41f6f0 runs each of them: while `current` has reached the time word at the head of the
 instruction it runs that instruction and steps the pointer on by the size at the instruction's `+0x6`, then
@@ -25,7 +25,7 @@ spawn that copies 0x13d2 dwords of template into one of the manager's 0x1e0 enem
 enemy's ECL. The stage's spawns come out of `data/ecldataN.ecl`, loaded by [`G_STAGE`] into the holder at
 0x1347938, whose subs the manager's update assigns to the four contexts at 0x420762.
 
-So there are four clocks where 紅魔郷 has one, all four stepped once per frame, and the four differ only in
+So there are four clocks where th06 has one, all four stepped once per frame, and the four differ only in
 what each is running and whether it is running at all — a context whose instruction has a negative time word
 is finished and 0x41f6f0 returns from it at once.
 
@@ -38,7 +38,7 @@ stage's own spawns come out of. The manager is re-registered for every stage, by
 clock starts again with the stage — which is what a per-stage boundary number needs.
 
 The midstage table keeps its shape: frame numbers per stage, as `Game::midstage_table` already has them for
-紅魔郷. Nothing about the table changes for this game.
+th06. Nothing about the table changes for this game.
 
 ## What follows
 

@@ -28,7 +28,7 @@ use crate::real::gdi;
 use crate::{Face, Mask};
 
 /// The two weights orb asks for, which are Windows' own numbers: 400 and 700, the second being the one
-/// 妖々夢's `CreateFontA` asks for as `0x2bc`.
+/// th07's `CreateFontA` asks for as `0x2bc`.
 const FW_NORMAL: i32 = 400;
 const FW_BOLD: i32 = 700;
 const BLACK: u32 = 0x0000_0000;
@@ -95,7 +95,7 @@ fn made(height: i32, name: &str) -> HFONT {
 }
 
 /// And the same with the weight asked for, which is what matching a game that asks for a bold family means:
-/// 妖々夢 asks for `ＭＳ ゴシック` at 700, and a face of it at 400 is the same glyphs in a lighter hand.
+/// th07 asks for `ＭＳ ゴシック` at 700, and a face of it at 400 is the same glyphs in a lighter hand.
 ///
 /// **`height` is GDI's own number and goes in as it comes**: negative for the em height, positive for the whole
 /// cell. Which of the two a game asks for is the game's — see `Game::own_face` — so negating it here would be

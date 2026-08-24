@@ -239,7 +239,7 @@ fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
             "the game's own streaming fields did not move with it",
         );
 
-        // 被弾 and チャプターをやり直す.
+        // The hit and チャプターをやり直す.
         game.dies();
         game.frame();
         let log = game.log();
@@ -368,7 +368,7 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             || game.state().stage_frames > STAGE_BOSS_ARRIVES,
         );
 
-        // 被弾, and then ステージをやり直す — the retry menu's third item, two presses down from the first:
+        // The hit, and then ステージをやり直す — the retry menu's third item, two presses down from the first:
         // this stage has chapters behind the one that was lost, so the item that lists those is between
         // them.
         let log = game.log();
@@ -437,7 +437,7 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
             "the file is not one buffer past the sound that is audible",
         );
 
-        // ── And the chapter holds that stream from now on: 被弾 again where the restore left the run,
+        // ── And the chapter holds that stream from now on: The hit again where the restore left the run,
         // and the sound comes back the ordinary way — the buffer and the cursor put back over a stream
         // that is still there. Taken again after the restart, it would otherwise name the stream the
         // game freed for ever, and every death in this chapter would take the track down again.
@@ -475,9 +475,9 @@ fn a_chapter_whose_track_has_gone_is_restored_by_taking_the_music_down_and_start
 /// is that the track it brings is not the one the chapter's position belongs to, and putting that position into
 /// it would be the stage's song starting somewhere in its middle.
 ///
-/// Written for both games at once: 妖々夢 names a slot rather than a path and can be asked for the very slot
+/// Written for both games at once: th07 names a slot rather than a path and can be asked for the very slot
 /// the chapter's own track was in, which is what
-/// `the_music_across_a_restore_of_th07.rs`'s own case of this is about, and this is the same rule from 紅魔郷's
+/// `the_music_across_a_restore_of_th07.rs`'s own case of this is about, and this is the same rule from th06's
 /// end.
 #[test]
 fn a_chapter_whose_track_was_never_the_stages_gets_the_stages_song_and_no_seek() {
@@ -550,7 +550,7 @@ fn a_chapter_whose_track_was_never_the_stages_gets_the_stages_song_and_no_seek()
 /// first chapter can fall, the song of the scene before it down and the stage's own not started. `music: true`
 /// does not tell that apart, being a stream captured rather than a sound heard.
 ///
-/// Written for both games at once, this being orb's own rule rather than either game's: 妖々夢's own case of it
+/// Written for both games at once, this being orb's own rule rather than either game's: th07's own case of it
 /// is in `the_music_across_a_restore_of_th07.rs`, where a launch heard the stage's song twice over — once from
 /// orb's start and once from the top when its script reached its own play — and a launch that asked for no track
 /// at all had no music for the rest of the stage and then faulted inside the game's own sound.
@@ -630,7 +630,7 @@ fn a_chapter_taken_with_nothing_audible_comes_back_to_that_silence() {
     });
 }
 
-/// The path the stage's data names its own track by, as 紅魔郷 writes one.
+/// The path the stage's data names its own track by, as th06 writes one.
 const STAGE_SONG: &str = "bgm/th06_02.mid";
 
 /// A stream whose file handle orb cannot read has the buffer and the cursor put back and the file left
@@ -668,7 +668,7 @@ fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file
         let moved_on = game.stream_now();
         assert_ne!(moved_on, at_the_chapter, "the stream did not move");
 
-        // 被弾 and チャプターをやり直す.
+        // The hit and チャプターをやり直す.
         let log = game.log();
         game.dies();
         game.frame();
@@ -702,7 +702,7 @@ const RESTORED_EVERY: u32 = 20;
 /// stream that is keeping up — the number growing past one is the streaming falling behind.
 const BEHIND: u32 = 3_000;
 
-/// 被弾 and then タイトルに戻る, which leaves the chapter behind for the next launch to offer.
+/// The hit and then タイトルに戻る, which leaves the chapter behind for the next launch to offer.
 fn gives_the_run_up(game: &Fake) {
     let log = game.log();
     game.dies();
@@ -726,7 +726,7 @@ fn gives_the_run_up(game: &Fake) {
 ///
 /// And where the track has changed since the snapshot, it is asked to start again rather than copied back:
 /// `StopBGM` and then `PlayAudio`, given the path read out of the memory the restore had just put back.
-/// **That half is the real game's**, taking the music down and starting it again being calls into 紅魔郷's own
+/// **That half is the real game's**, taking the music down and starting it again being calls into th06's own
 /// two functions at their own addresses, and there is no code at those addresses in a game laid out by hand.
 #[test]
 fn the_track_is_rewound_for_the_chapters_that_share_it_and_left_alone_for_a_boss() {
@@ -833,7 +833,7 @@ fn a_stream_whose_buffer_has_been_freed_leaves_the_chapters_without_sound() {
             game.log().lines().join("\n  ")
         );
 
-        // And the run is still a run: 被弾, チャプターをやり直す, and the chapter comes back.
+        // And the run is still a run: The hit, チャプターをやり直す, and the chapter comes back.
         game.frames_until("the card's chapter", CARD_STARTS + 400, || {
             game.log().said(&format!(
                 "chapter 3 at frame {CARD_STARTS} (script {CARD_STARTS}): a midboss spellcard"

@@ -19,7 +19,7 @@
 //! read from: the controller the game polls itself, and the pad winmm has where the game's own
 //! enumeration found none.
 //!
-//! レガシーモード throughout: what a direction does to the player is the same in either mode, and a
+//! Legacy mode throughout: what a direction does to the player is the same in either mode, and a
 //! pointdevice run would put a chapter's frames between the push and the player.
 
 use crate::fake::th06::{Fake, MAPPING, SPEED, the_run};

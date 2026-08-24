@@ -47,7 +47,7 @@ fn a_region_that_cannot_be_committed_is_named_and_the_chapter_still_comes_back()
         );
         game.sim().space().refuses_to_commit(base);
 
-        // 被弾 and チャプターをやり直す, which is the restore.
+        // The hit and チャプターをやり直す, which is the restore.
         game.dies();
         game.frame();
         assert!(log.said("died in chapter 3"));

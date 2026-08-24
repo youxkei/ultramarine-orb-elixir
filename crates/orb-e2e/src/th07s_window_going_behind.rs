@@ -1,16 +1,16 @@
-//! **妖々夢's window going behind and coming forward again: the keys, and the device they are read through.**
+//! **th07's window going behind and coming forward again: the keys, and the device they are read through.**
 //!
 //! **The game keeps running while its window is behind**, which is what `always_draw` is and what a launch has by
 //! default: a replay or a stress run goes on while attention is elsewhere, and coming back to it is instant rather
 //! than a stale frame. So the keys cannot be dealt with by stopping — they are dropped in the input hook.
 //!
-//! **And this game needs that more than one with a device of its own.** 妖々夢 reads its keys with
+//! **And this game needs that more than one with a device of its own.** th07 reads its keys with
 //! `GetKeyboardState` — 0x430b76 calls the second entry of the USER32 import table at 0x48d1ac with a 0x100-byte
 //! buffer, and every key it wants is a byte of it tested against 0x80 — which answers what somebody typed at
 //! whatever window is in front. A launch that read it while behind is a launch playing the game with somebody
 //! else's typing.
 //!
-//! Which is also why there is no device to take again on the way back: what 紅魔郷 re-acquires is a foreground
+//! Which is also why there is no device to take again on the way back: what th06 re-acquires is a foreground
 //! DirectInput device, and `Th07::acquire_input` answers that this game has none. So the keys are read again on
 //! the very frame the window comes forward, and nothing is asked of any device.
 
@@ -87,7 +87,7 @@ fn keys_are_dropped_while_th07s_window_is_behind_and_read_again_the_frame_it_com
             "the keys were not read again on the frame the window came forward",
         );
         // And orb says it has the keyboard back all the same, which is the line that marks the frame the keys came
-        // back: there was never a device to lose here, and the same line is what a 紅魔郷 launched with
+        // back: there was never a device to lose here, and the same line is what a th06 launched with
         // `--sent-keys` writes for the same reason — see `the_window_going_behind.rs`'s second arm.
         assert!(
             log.said("input: keyboard re-acquired"),

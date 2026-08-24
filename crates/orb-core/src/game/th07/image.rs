@@ -40,8 +40,8 @@ use orb_sim::{Sim, Space};
 use orb_api::Device;
 
 /// The game's static data, as the real one is: **one range**, `0x0049c000..0x01365258`, which is what
-/// orb reads out of the PE and writes in the log every run. Six times 紅魔郷's, and the range a
-/// snapshot of a chapter would be a copy of if 妖々夢 had chapters.
+/// orb reads out of the PE and writes in the log every run. Six times th06's, and the range a
+/// snapshot of a chapter would be a copy of if th07 had chapters.
 ///
 /// The section header's own virtual size, `0xec9258` — not its raw size, which is `0x3800`: the rest is
 /// the globals the loader zeroes, and every address below is in it.
@@ -197,7 +197,7 @@ const STAGE_SONGS: usize = 0x033a_4000;
 /// Read off the game's own update of that screen: 0x4555dd branches on `[this+8]` at 0x4555f8 — 0 to 0x455621,
 /// which is the frame the screen arrives on (it starts the title's own song from slot 8 and sets 1), and 1 to
 /// 0x45599d, which is where the cursor moves and the decide is read. So 1 is the phase a press is acted on in,
-/// and a launch of 妖々夢 says the same thing: `front end: object 0x0a4a2bf8, screen Some(0), item Some(2),
+/// and a launch of th07 says the same thing: `front end: object 0x0a4a2bf8, screen Some(0), item Some(2),
 /// phase Some(1), up for Some(84) frame(s)`, on a title menu nobody could get orb's question out of.
 ///
 /// **Its own number and not the constant orb reads with**, which is the whole point of it being here: a laid-out
@@ -410,7 +410,7 @@ impl Image {
     /// A quad added is the whole of why any of this is laid out: it writes [`QUAD_BYTES`] where
     /// [`QUEUE_WRITE_AT`] points, so a frame whose queue was never emptied writes to address zero, and
     /// one that emptied it and never drew walks up the buffer until it runs off the end. Both are what
-    /// the real game does, which is the point — the first of them is the fault that took 妖々夢 down.
+    /// the real game does, which is the point — the first of them is the fault that took th07 down.
     pub fn empties_the_queue(&self) {
         let space = self.space();
         space.write::<u32>(QUAD_QUEUE.start + QUEUED, 0);
@@ -631,8 +631,8 @@ impl Image {
             .read::<u32>(RUN_NUMBERS.start + super::SCORE_SHOWN)
     }
 
-    /// How far the point value has climbed and how many items the next step of it wants, which is 妖々夢's own
-    /// 点 system: 0x4333bd compares the count against the second of these and, where it has reached it, raises
+    /// How far the point value has climbed and how many items the next step of it wants, which is th07's own
+    /// point system: 0x4333bd compares the count against the second of these and, where it has reached it, raises
     /// the first and works the second out again — see `Th07`'s own `SCORE`, where the arithmetic is written down.
     pub fn the_point_value_has_climbed(&self, step: u32, next: u32) {
         let space = self.space();
@@ -710,7 +710,7 @@ impl Image {
     /// One of the manager's eight boss slots pointed at one of its enemy slots, and nothing else — no life, no
     /// attack frames and not a word about whether that enemy is alive.
     ///
-    /// Which is the state 妖々夢's 4面 leaves behind: three bosses share the stage, the slots are written as
+    /// Which is the state th07's stage 4 leaves behind: three bosses share the stage, the slots are written as
     /// each arrives, and nothing in the exe writes one back to zero — so a slot outlives the boss it was for.
     pub fn a_boss_slot_leads_to(&self, slot: usize, enemy: usize) {
         self.space().write::<usize>(
@@ -780,7 +780,7 @@ impl Image {
 
     /// **The player hit and not yet dead**, which is the state the hit test leaves at 0x43ee0e: the death
     /// handler is called out of the *update* that finds it, at 0x441fee, so this is what stands for the
-    /// updates in between — and a bomb pressed in them is 妖々夢's 決死結界 rather than a bomb spent.
+    /// updates in between — and a bomb pressed in them is a deathbomb rather than a bomb spent.
     /// **The border up**, which is the pointer 0x441bdc reads and 0x441bf8 nulls when a hit is deflected.
     ///
     /// Any address: what orb asks about it is whether it is there, and nothing follows it.
@@ -826,7 +826,7 @@ impl Image {
         space.write::<i32>(super::G_PLAYER + super::PLAYER_COMING_BACK_FRAMES, frames);
     }
 
-    /// And the player behind 妖々夢's border, which is the state after that one.
+    /// And the player behind th07's border, which is the state after that one.
     pub fn the_players_border_is_up(&self) {
         self.space()
             .write::<i8>(super::G_PLAYER + super::PLAYER_STATE, 4);
@@ -1367,8 +1367,8 @@ impl Image {
         // **The shot under the cursor is the cursor and not the byte.** 0x62f646 is written where the item is
         // *decided* (0x459e7d) and where the screen is left (0x459f72), out of `[front+0x0]` both times — so
         // while the cursor moves it still holds whichever shot was decided last. A laid-out game that wrote it
-        // here would agree with an orb that read it, and a 妖々夢 session found what that costs: the mark for
-        // 霊夢B's unfinished run, shown while the cursor was on 霊夢A.
+        // here would agree with an orb that read it, and a th07 session found what that costs: the mark for
+        // ReimuB's unfinished run, shown while the cursor was on ReimuA.
         self.the_title_menu_points_at(i32::from(shot));
     }
 
@@ -1579,7 +1579,7 @@ impl Image {
         );
     }
 
-    /// And one still drawing its 予告線, with this many frames to go before it starts hitting.
+    /// And one still drawing its warning line, with this many frames to go before it starts hitting.
     pub fn the_laser_fires_in(&self, slot: usize, frames: i32) {
         let laser = super::G_LASERS + slot * super::LASER_BYTES;
         let space = self.space();
@@ -2720,7 +2720,7 @@ const A_PLAY: u32 = 2;
 /// game walking the phases the real player walks rather than finishing a command in the run it was queued in.
 ///
 /// Without it every e2e test over a restore's sound passes on a game that cannot be wrong about the timing, and
-/// two launches of 妖々夢 were what said so: one read `restore: the song could not be put` for a seek made the
+/// two launches of th07 were what said so: one read `restore: the song could not be put` for a seek made the
 /// frame after the ask, and one heard the stage's own song start after orb had stopped it in that same frame.
 /// What the real player does is advance the command's phase at `+0x8` and return (0x44ca96), so the run the ask
 /// was made in is not the run that carries it out.
@@ -2783,7 +2783,7 @@ fn fills_the_buffer(stream: usize) -> bool {
 ///
 /// **The name is written down rather than assumed**, for the reason [`asks_for_a_song`] carries its slot rather
 /// than checking it: a stand-in that ignores what it is given cannot fail on being given the wrong thing, and a
-/// launch of 妖々夢 handed this call a *track's* name — the game answered -1, left the player holding no stream
+/// launch of th07 handed this call a *track's* name — the game answered -1, left the player holding no stream
 /// at all, and its own sound then read through that null field and faulted at 0x44d023.
 extern "thiscall" fn plays_the_bgm(_player: usize, name: usize) -> i32 {
     let name = super::name_at(name, MUSIC_FILE_NAME_BYTES).unwrap_or_default();
@@ -2913,7 +2913,7 @@ extern "C" fn gathers_and_writes(_screen: *mut std::ffi::c_void) -> i32 {
     unsafe { parse(SCORE_FILE_IMAGE, super::G_CARD_RECORDS) };
     // **And written only where the phase says so**, which the game gates the write on at 0x44a1e0: the two the
     // ranking screen is built with reach this read and leave the file exactly as it was. A laid-out gather that
-    // wrote at every read would be one that cannot tell what a look at the ランキング costs.
+    // wrote at every read would be one that cannot tell what a look at the ranking screen costs.
     if mem::read_committed::<i32>(on + super::RESULT_PHASE) != Some(super::SAVE_PHASE_WRITES) {
         return 0;
     }

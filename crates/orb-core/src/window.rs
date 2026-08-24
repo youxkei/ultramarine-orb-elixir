@@ -440,7 +440,7 @@ fn report_letterbox_failure(result: Hresult) {
 /// cannot reach its blank, and the budget the frame after it is started against rises to what that frame
 /// took: `next_budget` climbs at once and falls a sixty-fourth at a time, so a paint every thirtieth frame
 /// holds it near the paint for the whole run, and that budget is lag on every frame rather than on the
-/// ones that painted. Measured on 紅魔郷: two per cent of frames a refresh late, and a budget of 4.1 to
+/// ones that painted. Measured on th06: two per cent of frames a refresh late, and a budget of 4.1 to
 /// 7.5ms against a game whose own work is 2.9.
 ///
 /// Which is [`log::defer`] and [`log::drain`] again, for the same reason and in the same shape — see the

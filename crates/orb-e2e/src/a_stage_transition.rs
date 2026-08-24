@@ -19,7 +19,7 @@
 //! scene is still `Scene::Rebuilding` for a transition and already `Scene::Playing` for a run's first
 //! stage — the game's own `curState`, read the way the game reads it.
 //!
-//! レガシーモード throughout, so that nothing of orb's is between the run and the game: a chapter put back
+//! Legacy mode throughout, so that nothing of orb's is between the run and the game: a chapter put back
 //! over a death would be a second answer to what the next stage begins with.
 
 use crate::fake::th06::{
@@ -370,7 +370,7 @@ fn the_start_of_a_stage_after_a_transition_is_not_washed() {
         game.stages_last(ATTACK_CHANGES + 60);
         game.fights_its_boss_out();
 
-        // A 完全無欠モード run, chapters being what a wash is about at all: a run with none takes no
+        // A Pointdevice mode run, chapters being what a wash is about at all: a run with none takes no
         // boundary and washes nothing wherever it is.
         //
         // The first stage of it is a stage's start like any other: nothing has been played, so there is

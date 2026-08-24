@@ -16,7 +16,7 @@ two.
 
 ## Context
 
-**紅魔郷 holds exactly one game controller and settles which at startup.** `g_Supervisor.controller`
+**th06 holds exactly one game controller and settles which at startup.** `g_Supervisor.controller`
 (0x6c6d2c) is written in one place in the whole exe — the enumeration's callback at 0x423da0, which calls
 `CreateDevice` only while the pointer is still null and returns `DIENUM_STOP` the moment it succeeds — and
 the one other device it will read is winmm's joystick 0. So a second pad, a pad plugged in after the game

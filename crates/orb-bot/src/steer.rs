@@ -9,7 +9,7 @@
 //!
 //! - the shot held, let go for one frame in every [`SHOT_LET_GO_EVERY`] so that a screen waiting for a press
 //!   gets one, and the skip key while a dialogue is up
-//! - the bomb the frame the player is hit, which is 決死結界 — [`Frame::hit`] stands for the window the game
+//! - the bomb the frame the player is hit, which is a deathbomb — [`Frame::hit`] stands for the window the game
 //!   counts down, and a bomb inside it is a death taken back
 //! - **the nearest to where it wants to be, of the nine moves nothing will be at.** Holding each one is
 //!   followed [`LOOK_AHEAD`] frames out, against every bullet's own step and every body where it stands, and a
@@ -22,11 +22,11 @@
 //!
 //! **Safety filters the choice rather than replacing it**, which is the third shape this took and the one the
 //! others were wrong for. Fleeing — the move furthest from everything — is a bot that spends the stage leaving,
-//! the screen of a 妖々夢 stage never being empty; and reading the bullets only once one is *near* is a bot that
+//! the screen of a th07 stage never being empty; and reading the bullets only once one is *near* is a bot that
 //! walks into one on its way to an item, which two launches did. What the next frames' positions are for is
 //! knowing which moves are open, and among those the one that gets on with it.
 //!
-//! Nothing here presses for a 雑魚: the shot is held on every frame already, and what a killed one drops falls
+//! Nothing here presses for a small enemy: the shot is held on every frame already, and what a killed one drops falls
 //! to whoever is under it.
 //!
 //! **Which is not a claim that they clear the game.** Nothing laid out by hand can say that; a launch says it,
@@ -58,7 +58,7 @@ const ABOVE_THE_BOTTOM: f32 = 64.0;
 /// reason: a corner is where a dodge runs out of moves, three of the nine leading into the wall where the clamp
 /// makes them the move the player is already making.
 ///
-/// **Which a run paid for.** 妖々夢's 4面 has three bosses and one of them stands at the left edge; a run that
+/// **Which a run paid for.** th07's stage 4 has three bosses and one of them stands at the left edge; a run that
 /// followed its x was hit at `27.8,432.0` with nowhere open to it — every one of the nine shut, in the corner it
 /// had been led into.
 ///
@@ -70,7 +70,7 @@ const IN_FROM_THE_SIDE: f32 = 48.0;
 /// A bound and not a preference, and it is the third thing tried: three launches in a row went up the field for
 /// something and stayed up, and each time the reason was a different one — an item's own place, then a screen
 /// worth sweeping at full power, then the next item always being above the last. What a band gives up is
-/// 妖々夢's collection at the top of the field, which needs the whole climb; what it buys is a run that is
+/// th07's collection at the top of the field, which needs the whole climb; what it buys is a run that is
 /// never up among the bullets for anything, and one thing to change rather than a reason to chase each time.
 const THE_BAND: f32 = 1.0 / 3.0;
 
@@ -84,7 +84,7 @@ const THE_BAND: f32 = 1.0 / 3.0;
 /// motion scale, any of which can move between the read and the frame, and a bullet's own script can re-aim it
 /// mid-flight. Until a reading names it, room under a unit is not room.
 ///
-/// **The game's own test agrees**: 妖々夢 compares the edges inclusively at 0x43e2e7 where this one is strict,
+/// **The game's own test agrees**: th07 compares the edges inclusively at 0x43e2e7 where this one is strict,
 /// so nought of room is already a hit there and never was room at all.
 ///
 /// Two, which is more than the largest margin a hit has been taken on and half of one unfocused step — so a
@@ -98,15 +98,15 @@ const ROOM_TO_SPARE: f32 = 2.0;
 ///
 /// **And the number is set by the widest bullet in the game.** To be out from under one the player has to have
 /// travelled that bullet's half and its own on top, which is `(12 + 2) / a step` frames — four at the step
-/// 妖々夢 works out and eight at the halved one 低速移動 leaves, its widest bullet being 24 across. A move first
-/// seen three frames out is therefore one there is no getting away from whatever is pressed, and 自機狙い is the
-/// shot that makes it: a launch spent 6面's boss dying to the same aimed 大玉 over and over, 30 hits at one
-/// chapter. Twelve is those eight and room to pick a direction in rather than having to move the frame the
-/// bullet appears; past that a bullet's own step stops describing where it goes, and nothing here reads what
-/// turns one.
+/// th07 works out and eight at the halved one the focused step leaves, its widest bullet being 24 across. A
+/// move first seen three frames out is therefore one there is no getting away from whatever is pressed, and
+/// the aimed shot is what makes it: a launch spent stage 6's boss dying to the same aimed large bullet over
+/// and over, 30 hits at one chapter. Twelve is those eight and room to pick a direction in rather than having
+/// to move the frame the bullet appears; past that a bullet's own step stops describing where it goes, and
+/// nothing here reads what turns one.
 const LOOK_AHEAD: usize = 12;
 
-/// **What the rules made of a frame**: the 十字キー to press, whether the step must not be halved, the room the
+/// **What the rules made of a frame**: the d-pad to press, whether the step must not be halved, the room the
 /// move chosen was left with where it was clear, and whether it is a move towards something to collect rather
 /// than towards the fight.
 ///
@@ -183,7 +183,7 @@ impl Settled {
 ///
 /// Which is the one thing a hit saying `14.5 of room` needs and no other field of [`Steered`] can give: a model
 /// that says a move is clear by fourteen units and is wrong is a model missing a hazard, and the passing over
-/// rules are where a missing hazard would have gone. A run cleared the game with eight hits on 6面's boss
+/// rules are where a missing hazard would have gone. A run cleared the game with eight hits on stage 6's boss
 /// reading between six and fourteen of room, every one of them after those rules went in.
 #[derive(Clone, Copy, Default)]
 struct Counted {
@@ -197,7 +197,7 @@ struct Counted {
     no_body: u32,
     no_body_at: Option<((f32, f32), f32)>,
     lasers: u32,
-    /// Of those, how many had not started hitting yet — a 予告線, judged for where its beam will be.
+    /// Of those, how many had not started hitting yet — a warning line, judged for where its beam will be.
     warnings: u32,
     /// And how many of them are fading. Judged like any other, and worth saying because the width read for one
     /// is the width it had while what the game is testing against by then is narrower — so a beam left too
@@ -239,7 +239,7 @@ struct Nearest {
 /// which is the one answer that says nothing. Held here, an empty list means the model never had it.
 ///
 /// A fixed room and not a list that grows: [`Steered`] is copied out of a lock on every frame, and a frame of
-/// 妖々夢's own bullet hell would put a hundred of these in it.
+/// th07's own bullet hell would put a hundred of these in it.
 const HELD: usize = 12;
 
 /// One of them, with which slot of which array it came out of — the slot being what makes it findable again in
@@ -260,9 +260,9 @@ struct Held {
 ///
 /// **The room between the boxes and not between the middles.** A hit is two boxes overlapping, so what says how
 /// near a move came to being one is what was left on the tighter of its two axes; a distance between middles
-/// puts a 米弾 six away ahead of a 大玉 seventeen away, when it is the 大玉 that is one unit from a hit. Which
-/// is not only a number in the log: it is what picks between moves that are all hit, and what the log names as
-/// the hazard to look at.
+/// puts a small bullet six away ahead of a large one seventeen away, when it is the large one that is one unit
+/// from a hit. Which is not only a number in the log: it is what picks between moves that are all hit, and what
+/// the log names as the hazard to look at.
 /// **And which of them a beam will only be drawing its warning on**, which is a frame to be elsewhere for and
 /// not a frame that is lost. The game's own test is gated on the beam's own countdown, so a warning cannot hit
 /// anything at all — a move into one is worse than a move out of one and better than a move into a beam that is
@@ -342,7 +342,7 @@ const WAYS: [(f32, f32); 9] = [
 /// **The bits this game puts the buttons a bot presses in**, asked for by name once a frame.
 ///
 /// By name and through the seam, because that is where a name is resolved: `left` is a bit of one word in
-/// 妖々夢 and a bit of another elsewhere, and the recipe a bot walks names its presses the same way.
+/// th07 and a bit of another elsewhere, and the recipe a bot walks names its presses the same way.
 struct Keys {
     shot: u16,
     bomb: u16,
@@ -558,7 +558,7 @@ fn turned(was: Option<f32>, angle: f32) -> f32 {
 /// **The step's own change is the half that catches a beam.** Comparing only the movement against the step
 /// misses a piece that turns gently: the disagreement in one frame is under any threshold worth having, and the
 /// straight line it is then projected along is wrong by the whole of the turn twelve frames out — which is a hit
-/// reading `12.2 of room` with nothing else near, and 6面's turning card gave three of them.
+/// reading `12.2 of room` with nothing else near, and stage 6's turning card gave three of them.
 const A_STEP_OF_ITS_OWN: f32 = 0.5;
 
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
@@ -571,8 +571,8 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// than a frame's: an attempt drawn to be hit in ignores them for the whole of itself — see [`crate::hits`].
 ///
 /// **Nothing off a stage, the shot included.** The rules are asked for a word by the game's own keyboard read,
-/// which every screen makes — and a menu of 妖々夢's is taken by the shot as much as by the return key, so a
-/// word held on the title screen walks that menu once and then holds it, while 十字キー there moves a cursor
+/// which every screen makes — and a menu of th07's is taken by the shot as much as by the return key, so a
+/// word held on the title screen walks that menu once and then holds it, while the d-pad there moves a cursor
 /// these rules cannot read. The front end is the recipe's to drive, one press to a screen; a rule pressing
 /// alongside it is a press nobody wrote.
 ///
@@ -580,7 +580,7 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// Must run on the game's main thread.
 pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     // **The one buffer, kept between frames**, so that a frame of a run costs no allocation once it has run
-    // once: the three lists it holds are cleared and filled, and a stage of 妖々夢 fills the first of them six
+    // once: the three lists it holds are cleared and filled, and a stage of th07 fills the first of them six
     // hundred times.
     let mut seen = SEEN
         .lock()
@@ -593,7 +593,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     // **The shot held, and let go for one frame in every [`SHOT_LET_GO_EVERY`].** A stage's own clear screen
     // goes on to the next stage the frame the shot goes *down* and otherwise waits out its own timer, and a run
     // that has held the shot since the stage began never gives it that frame: one launch spent 60 seconds
-    // between 1面's last chapter and 2面's first. A shot in sixty is what that costs, 妖々夢's own shot firing
+    // between stage 1's last chapter and stage 2's first. A shot in sixty is what that costs, th07's own shot firing
     // off the player's timer rather than off a press.
     let count = FRAMES.fetch_add(1, Ordering::Relaxed);
     let mut word = if count.is_multiple_of(SHOT_LET_GO_EVERY) {
@@ -627,15 +627,15 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     // of room, and every one of those numbers was measured after the thing being measured had been removed.
     // What was decided on the frame the hit came out of is [`LAST_FRAME`].
     //
-    // Said once for the hit and not once for every frame of the window it opened: 決死結界 stands for as long as
-    // the game counts it down, and a line a frame turns one hit into a page of them.
+    // Said once for the hit and not once for every frame of the window it opened: the deathbomb window stands for
+    // as long as the game counts it down, and a line a frame turns one hit into a page of them.
     if WAS_HIT.swap(frame.hit, Ordering::Relaxed) != frame.hit && frame.hit {
         said_what_took_it(game);
         // And the frame itself, which is the one thing the arrays cannot be asked for: a hit whose dump
         // names nothing within reach of the player was still made by something that was drawn.
         orb_core::shot::wanted("hit");
     }
-    // **And a border broken is a hit, which orb was not counting at all.** 妖々夢 deflects a hit taken on a
+    // **And a border broken is a hit, which orb was not counting at all.** th07 deflects a hit taken on a
     // border rather than putting the player into the state above, so a run kept alive by borders read as a run
     // that was never hit — every `0 hit(s)` reported before this was reported without them.
     //
@@ -660,10 +660,10 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     *LAST_FRAME
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(steered);
-    // **低速移動 under a boss**, which is where this game's shots do their damage — and off again for either of
-    // the two things that want the whole step: anything that reaches the move chosen inside the frames looked
-    // at, since the halving is paid for by the frame a bullet is a hit, and an item to go for, which is most of
-    // a field of crossing at half the speed.
+    // **The focused step under a boss**, which is where this game's shots do their damage — and off again for
+    // either of the two things that want the whole step: anything that reaches the move chosen inside the frames
+    // looked at, since the halving is paid for by the frame a bullet is a hit, and an item to go for, which is
+    // most of a field of crossing at half the speed.
     //
     // **And off in a chapter drawn to be hit in**, whatever is up: the halved step is what a player fighting a
     // boss holds, and this is a run on its way to a death — twice as many frames to cross the field in is twice
@@ -677,9 +677,9 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     }
     // **Whether the step the projection was made of is the step the frame will take.** The step handed over is
     // what the player's own update left last frame, and that update is what the focus key moves — so on any
-    // frame this changes its mind about 低速 the projection was made with the step of the other state, which for
-    // 1.0 against 0.4 is two and a half times out. Whether that is what a hit is is a thing only a launch can
-    // say, so the hit line says it.
+    // frame this changes its mind about the focus bit the projection was made with the step of the other state,
+    // which for 1.0 against 0.4 is two and a half times out. Whether that is what a hit is is a thing only a
+    // launch can say, so the hit line says it.
     let focused = word & keys.focus != 0 && keys.focus != 0;
     let changed = WAS_FOCUSED.swap(focused, Ordering::Relaxed) != focused;
     THE_STEP_WAS_STALE.store(changed, Ordering::Relaxed);
@@ -768,7 +768,7 @@ fn said_what_took_it(game: &dyn Game) {
             None => String::new(),
         },
         if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
-            "; 低速 changed on that frame, so the step was the one before's"
+            "; the focus bit changed on that frame, so the step was the one before's"
         } else {
             ""
         },
@@ -828,7 +828,7 @@ fn said_what_took_it(game: &dyn Game) {
 /// How near a thing has to be to the player for a hit to name it, whatever rule the model judged it by.
 const NEAR_ENOUGH_TO_BE_IT: f32 = 16.0;
 
-/// **The 十字キー of the safest of the nine one-frame moves**, or the one towards where the rules want to be
+/// **The d-pad of the safest of the nine one-frame moves**, or the one towards where the rules want to be
 /// where nothing is near enough to dodge.
 ///
 /// **Or the nearest to where it wants to be and nothing else, in a chapter drawn to be hit in.** Everything
@@ -1002,12 +1002,12 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             //
             // **And with where it is going**, which is the difference from last frame and not a field: nothing
             // on a body is a step, its script being what moves it. A body read as standing still is one the
-            // model leaves room beside for as long as it takes to arrive — a launch was hit beside 2面's
+            // model leaves room beside for as long as it takes to arrive — a launch was hit beside stage 2's
             // midboss with 4.7 of room, which is less than a body covers in a frame.
             //
             // **And only the ones with a body to run into.** The game gates its own collision on whether an
-            // enemy is solid, so one with that down cannot touch the player at all — which 妖々夢's 6面 boss
-            // relies on: it fires 自機狙い off an enemy its script keeps *at* the player, and a model that made
+            // enemy is solid, so one with that down cannot touch the player at all — which th07's stage 6 boss
+            // relies on: it fires an aimed shot off an enemy its script keeps *at* the player, and a model that made
             // that solid had a hazard nothing could get away from.
             Kind::Body { solid: false } => {
                 counted.no_body += 1;
@@ -1021,7 +1021,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             }
             Kind::Body { solid: true } => {
                 counted.enemies += 1;
-                // **And feared rather than projected where a script is swinging it.** 6面's turning beam is a
+                // **And feared rather than projected where a script is swinging it.** Stage 6's turning beam is a
                 // line of these, and a straight line from last frame's motion is wrong by the whole of the
                 // sweep — so the test is whether that motion is itself changing, and what is kept away from is
                 // everywhere it could reach.
@@ -1073,7 +1073,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     // point, so a move is judged inside the beam's own frame — turn the landing about the origin by the angle
     // and it is *along* and *across*, which is the shape the game's own test makes of it.
     //
-    // **A 予告線 is left for the frames it will be firing on and not for being drawn**: the game's own test is
+    // **A warning line is left for the frames it will be firing on and not for being drawn**: the game's own test is
     // gated on the beam's own countdown, so one still drawing its warning hits nothing at all — and a bot that
     // made the warning a hazard would keep the player out of the one lane a pattern leaves open. The warning is
     // still where the beam *will* be, though, which is the whole reason anybody moves off one: the frames
@@ -1151,7 +1151,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     // **The nearest to where it wants to be, of the moves nothing will be at.** Which is not the same as the
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
-    // since the screen of a 妖々夢 stage is never empty and being near one is the ordinary state of playing.
+    // since the screen of a th07 stage is never empty and being near one is the ordinary state of playing.
     // **Where to be, and only now that the bullets have been walked**: which box of the field a script is
     // sweeping a beam across is one of the things that decides it, and that is a thing the walk finds.
     let sweeping = a_sweep(swept, swept_x);
@@ -1186,7 +1186,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
         // to decide in, and a move clear for nine of them and hit on two after that is worth more than one hit
         // on the very next frame. The count came first while [`LOOK_AHEAD`] was three, where "hit at all" and
         // "hit next frame" are nearly the same thing; at twelve they are not, and a launch that kept the old
-        // order was hit nine times before 3面's boss where the one before it reached 4面 without a scratch.
+        // order was hit nine times before stage 3's boss where the one before it reached stage 4 without a scratch.
         // **Three and not two: nothing will be at it, a warning is drawn across it, something will.** Which is
         // what lets a card that fans its warnings over the whole field be crossed — every move being warned, the
         // three collapse to one and the wanting decides, where shutting a move per warning left all nine shut.
@@ -1264,14 +1264,14 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             best = Some((which, judged, way.0, towards));
         }
     }
-    // **What the 低速移動 under a boss is off for is anything that reaches the move chosen** inside the frames
+    // **What the focused step under a boss is off for is anything that reaches the move chosen** inside the frames
     // looked at, and not only what would hit it next frame: halving the step doubles the frames it takes to be
     // out from under something, so by the frame a bullet is a hit the halving has already been paid for.
     //
     // **And not a distance beside it**, which is what this was: a distance is between two centres where a hit is
-    // two boxes overlapping, so a bullet 12 away is inside a 大玉's own half and outside a 米弾's — the same
-    // number meaning a hit and a clear frame. [`LOOK_AHEAD`] frames of the game's own test already say whether
-    // anything reaches the player, and one more margin on top of it says nothing the test does not.
+    // two boxes overlapping, so a bullet 12 away is inside a large bullet's own half and outside a small one's —
+    // the same number meaning a hit and a clear frame. [`LOOK_AHEAD`] frames of the game's own test already say
+    // whether anything reaches the player, and one more margin on top of it says nothing the test does not.
     // **Whether the player has to move at all**, which is [`WAYS`]'s own first entry and not the move chosen:
     // the move chosen is clear on almost every frame, that being what choosing it means, so a slowing taken off
     // by it is a slowing never taken off. Where holding still keeps the player out of everything for the frames
@@ -1297,7 +1297,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
 /// are too few to be one.
 ///
 /// A turning beam in this game is a line of bullets, and a script rather than any field of theirs is what swings
-/// it: 6面's is a dozen and more of them at once. So what tells one from a bullet whose own curve the reading
+/// it: stage 6's is a dozen and more of them at once. So what tells one from a bullet whose own curve the reading
 /// happens to miss is how many there are, and the floor is the one the thickest box already uses — more than
 /// the nine moves, which is more than a rounding difference in either.
 ///
@@ -1396,7 +1396,7 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
 /// How many pieces the field is cut into across its width for the fire in each to be counted.
 ///
 /// **An odd cut, so that the middle has a box of its own.** The place a pattern converges on is the middle —
-/// 自機狙い goes there and so does most of what a boss fires — and it is discounted for that by
+/// an aimed shot goes there and so does most of what a boss fires — and it is discounted for that by
 /// [`IN_THE_MIDDLE_ANYWAY`]; an even cut puts that place on a boundary, where the discount lands on neither
 /// side of it. Five rather than three is somebody who plays this game asking for a finer answer to *where to
 /// wait*: at a third of a 384-wide field, the emptiest box is 128 across and standing in the middle of it is
@@ -1406,7 +1406,7 @@ const BOXES_ACROSS: usize = 5;
 /// **The room the bot keeps on every side of each place a beam-carrying body has been**, on top of the box that
 /// place is tested as.
 ///
-/// The box itself is the body's own size as the game hands it to the test, which for 6面's spiral is a couple of
+/// The box itself is the body's own size as the game hands it to the test, which for stage 6's spiral is a couple of
 /// units — so a beam a few units off the player is one every move reads as clear on the frame before it is not,
 /// and the trail's own boxes are the only hazard in this game a *line* is made of. Grazing a line is not the
 /// same trade as grazing a bullet: a bullet is gone next frame and the line is where the body will lay the next
@@ -1423,19 +1423,20 @@ const BOXES_ACROSS: usize = 5;
 /// down by something moving needs and a bullet does not.
 const CLEAR_OF_A_BEAM: f32 = 24.0;
 
-/// **The smallest bullet 妖々夢 fires, which is the unit the fire in a box is counted in.**
+/// **The smallest bullet th07 fires, which is the unit the fire in a box is counted in.**
 ///
 /// The sizes are written at spawn and there are six of them, from 4 up to 24 — so counting bullets one apiece
 /// asks how many heads are in a box where what decides whether there is a way through is how much of its width
-/// they take. A 大玉 is six of these across, and three of them across a box is a wall where three 米弾 is a gap.
+/// they take. A large bullet is six of these across, and three of them across a box is a wall where three of
+/// these is a gap.
 const A_SMALL_ONE: f32 = 4.0;
 
 /// **How much of a box one hazard of a given size fills**, in [`A_SMALL_ONE`]s squared.
 ///
 /// **Squared, because what a box holds is an area.** A bullet twice as wide takes four times the room to weave
-/// past, not twice: it blocks that much of the box in both directions at once, and a 大玉 is six of the smallest
-/// across. Counted by the width alone, a handful of the big ones read as a handful and the box they filled read
-/// as passable.
+/// past, not twice: it blocks that much of the box in both directions at once, and a large bullet is six of the
+/// smallest across. Counted by the width alone, a handful of the big ones read as a handful and the box they
+/// filled read as passable.
 ///
 /// **And never less than one of them**, which is not a guard against a bad reading: nothing this game fires is
 /// narrower than the smallest it fires, so a size below that is a size that has not been written yet — a slot
@@ -1448,7 +1449,7 @@ fn how_much_it_fills(half: f32) -> f32 {
 
 /// **What the middle box's count is multiplied by before the boxes are compared.**
 ///
-/// The middle of the field is where a pattern is thickest by nature — 自機狙い converges there and so does most
+/// The middle of the field is where a pattern is thickest by nature — an aimed shot converges there and so does most
 /// of what a boss fires — so counting it against the outer boxes as it stands is a bot that leaves the middle for
 /// an imbalance that was always going to be there.
 ///
@@ -1570,7 +1571,7 @@ const MORE_THAN_A_HANDFUL: f32 = WAYS.len() as f32 / 2.0;
 /// And how much more it takes to leave the box the player is already standing in.
 ///
 /// **Because leaving that one costs the damage it is there for.** Not walking into a pile is free; walking out of
-/// one is walking out from under the boss, and a fight nobody shoots is a fight that does not end — 6面's own
+/// one is walking out from under the boss, and a fight nobody shoots is a fight that does not end — stage 6's own
 /// practice runs for twenty-seven thousand frames as it is. So the bar is the one above raised, and dodging comes
 /// before shooting only where the box is worse than somewhere else by more than an imbalance.
 ///
@@ -1624,8 +1625,8 @@ fn the_counted_band(field: (f32, f32, f32, f32)) -> f32 {
 /// **What each kind of pickup is worth going for**, largest first — a life, a bomb, the big power item, the small
 /// one, the point item, the cherry, and last anything the six of them do not name.
 ///
-/// Which is 妖々夢's own worth of them and near enough every game's: a life is a life, a bomb is a life this
-/// bot's 決死結界 will spend, and a big power item is eight steps of power against a small one's one. **Nothing
+/// Which is th07's own worth of them and near enough every game's: a life is a life, a bomb is a life this
+/// bot's deathbomb will spend, and a big power item is eight steps of power against a small one's one. **Nothing
 /// scores zero**, so no item on the screen is walked past — a kind with no place of its own is still worth the
 /// step it costs.
 const fn worth(kind: Worth) -> u8 {

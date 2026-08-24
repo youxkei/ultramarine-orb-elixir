@@ -1,6 +1,6 @@
 # Ultramarine Orb Elixir — specification
 
-What orb does, and the facts about 東方紅魔郷 1.02h and about Windows that shape how. The README
+What orb does, and the facts about th06 1.02h and about Windows that shape how. The README
 says where to download it and which games it runs, and nothing more than that; everything anybody
 would use it with — the settings, the arguments, the files it writes and every screen it puts up — is
 here.
@@ -46,24 +46,24 @@ that starts a game the DLL does not recognise is a launch where orb is loaded an
 Two entries, each a game orb plays, and what one of them is cross-checked against is the difference
 between them.
 
-`東方紅魔郷.exe`, 1.02h, `md5 fa3d64768b1bfc50703dedc2db92f7fa` — everything this document describes.
+`東方紅魔郷.exe` — th06, 1.02h, `md5 fa3d64768b1bfc50703dedc2db92f7fa` — everything this document describes.
 Every address below was read off that build and cross-checked against the
 [GensokyoClub/th06](https://github.com/GensokyoClub/th06) decompilation.
 
-`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — 東方妖々夢. Every address of it was read off that exe
+`th07.exe`, `md5 0126afce1e805370d36c3482445e98da` — th07. Every address of it was read off that exe
 alone, each with the evidence in `orb-core/src/game/th07/mod.rs`, and what a launch there gets is: the
 window *How much of the screen the
 game gets* below describes, its frames presented into a letterbox of the 4:3 that 640x480 output is — the game's own present stretches over whatever client it has, so that rectangle is what keeps the
 shape — and orb's own frame in place of the game's, the update before the draw, which is the frame of
 input lag removed, on the cadence the rest of this document describes. Composing that frame
-is what 妖々夢 asks for and 紅魔郷 does not: the queue of quads its drawing fills has to be emptied
+is what th07 asks for and th06 does not: the queue of quads its drawing fills has to be emptied
 before the drawing and drawn before the scene ends, and the fog a stage left on put out, which is the
 seam either side of the draw chain in
 [docs/adr/0017](docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
 
-**And the pad half of its input read is orb's**, as 紅魔郷's is: every pad the machine has, through the
+**And the pad half of its input read is orb's**, as th06's is: every pad the machine has, through the
 game's own button mapping and with the d-pad reaching the player where `dpad_moves` says so. Which is
-worth naming because 妖々夢 looks for a DirectInput device of its own and falls back to one winmm
+worth naming because th07 looks for a DirectInput device of its own and falls back to one winmm
 joystick, and a pad neither of those two reaches is a pad the game has none of — see *Input* below for
 what orb's own reading of them is. **Every question of orb's is answered on that pad too**, the game
 being frozen on the frames one is up and its own read therefore not running: what the mode question and
@@ -75,15 +75,15 @@ rewound: the mode question at its own title menu, chapters, the mark over its pa
 death offers, a run picked up in a later launch, a card's attempt counted and its name put back on the
 plate, and orb's own `pointdevice_score.dat` for the runs that were rewound. Two of those work
 differently here and the difference is the game's, not a setting: **the music is rewound through the file
-妖々夢 opens itself** — one `thbgm.dat` for every track, where 紅魔郷 opens a wav per track through winmm,
+th07 opens itself** — one `thbgm.dat` for every track, where th06 opens a wav per track through winmm,
 which is `audio::Track`'s two shapes — and **orb's own screens are drawn in a face the machine lent**,
-that exe shipping no `font.ttf` where 紅魔郷 ships one, which is
+that exe shipping no `font.ttf` where th06 ships one, which is
 [docs/adr/0019](docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md). The face
 asked for is the one the game asks for itself, `ＭＳ ゴシック` at bold: this game ships no font and makes its
 own text through GDI, so orb's screens are in the same face as the game's text and the log names what came
 back.
 
-**And a track change is put right by naming a slot rather than a path.** 妖々夢 starts a track by naming a
+**And a track change is put right by naming a slot rather than a path.** th07 starts a track by naming a
 slot of its sound player, and which slot is its music comes out of the stage's own data: that data names two
 songs, its own and the one the fight it ends with brings, and the stage's build loads them into slots 0 and 1.
 So a chapter taken under the second gets the second back and every other chapter gets the stage's own, a chapter
@@ -110,14 +110,14 @@ Neither the stop nor the start has done anything by the time it returns, on the 
 each writes a command into that queue and nothing more, and what walks it is `SoundPlayer::PlaySounds`, which
 the game's own frame calls once a frame.
 
-**What a chapter of it is, is coarser than 紅魔郷's until a tuning run says otherwise**: the midstage
+**What a chapter of it is, is coarser than th06's until a tuning run says otherwise**: the midstage
 table is a stage per entry with nothing in any of them, so a chapter falls at a stage's start and nowhere
 inside one. *Building the midstage table* below is the procedure that fills it, and it is the one thing
 about this game that cannot be read off the exe.
 
-None of it answers a guess: an address written down because it is where 紅魔郷 keeps the same thing is
+None of it answers a guess: an address written down because it is where th06 keeps the same thing is
 the one thing that must not happen, and that rule is what the frame loop cost once already — the
-addresses in 妖々夢's frame lined up with 紅魔郷's and the *shape* of the frame did not, and orb's first
+addresses in th07's frame lined up with th06's and the *shape* of the frame did not, and orb's first
 loop over it took the game down on its first frame. See
 [docs/adr/0004](docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
 [docs/adr/0017](docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
@@ -149,7 +149,7 @@ through a fight and the frame one lands on is a frame being dodged on. Not a sta
 that is already unmistakable from the title, the music and an empty field, and a wash over its
 first frame says nothing that was not obvious. Green because the game flashes white itself — a
 bomb, a boss going down — and a mark that means something orb decided should not look like
-something the game did; nothing in 紅魔郷 fills the play field with green. It holds a moment
+something the game did; nothing in th06 fills the play field with green. It holds a moment
 before it fades, since a wash that starts fading at once reads as dim however bright its first
 frame is. The play field and no further, because that is the part the game repaints every frame:
 the panel beside it and the border around it are not, so a wash drawn there would never be drawn
@@ -231,12 +231,12 @@ sound it starts taken back off.** A stream held is not a sound heard: a game bet
 stopped its buffer and not asked for the track after it yet, while the stream, its source and the record that
 source is on are all still there — which is where a stage's first chapter falls, frames into a stage whose own
 song its script has not reached. Left playing, that song is heard twice, orb's start now and the script's when
-its own moment comes, the second from the top — which is what a launch of 妖々夢 heard.
+its own moment comes, the second from the top — which is what a launch of th07 heard.
 
 **The ask is made all the same**, and that is not a detail of how the silence is arrived at: both games keep the
 stream a track plays through in one field of their sound player, and the take-down above empties it, so a play
 is the only thing that fills it again. A launch that asked for nothing had no music for the rest of that stage —
-妖々夢 skips its play command's whole block where that field is null (0x44cbf3) — and then faulted at 0x44d023,
+th07 skips its play command's whole block where that field is null (0x44cbf3) — and then faulted at 0x44d023,
 which reads the stream through the same field with no test at all, three instructions before the same code
 tests it. So the sound is stopped through the buffer rather than through the game's own call, that one taking
 the stream down with it: what has to be left standing is the stream, and what has to go is only the sound the
@@ -244,7 +244,7 @@ making of it started.
 
 **The chapters of the stage are kept from its start up to the one being played**, since every one of
 them is a place the retry menu offers to go back to. Eight of them at once, which reaches back across a
-fight — 紅魔郷's bosses have eight or nine attacks, so the chapter a fight began at is usually still
+fight — th06's bosses have eight or nine attacks, so the chapter a fight began at is usually still
 there to be gone back to from the one it is being lost in. When a ninth is due **the oldest above the
 stage's own start goes**: that one stays whatever else does, being the way out of the whole stage, and
 what a death wants is the chapters around the one it happened in.
@@ -275,7 +275,7 @@ them.
 ## Where the chapter was lost
 
 The menu goes up on the frame the miss becomes certain, which is `deaths` moving rather than the
-player being hit: the death bomb window closes first, and a successful one never gets here. The
+player being hit: the deathbomb window closes first, and a successful one never gets here. The
 game is frozen underneath it — `RunCalcChain` returning `CHAIN_BREAK` with the drawing carrying
 on — so the frame the player died on stays on the screen behind the menu, and the play field's
 viewport has to be set by orb because the game's own frame setup is part of the update being held
@@ -296,7 +296,7 @@ it somebody reading the item does not already know: that the run is over is the 
 that the game carries on into its own front end is not.
 
 **And it asks for the front end rather than for the scene a run ending goes to.** Both tear the run down —
-妖々夢's own transition out of a run calls that teardown for either — and the run-ending one then registers the
+th07's own transition out of a run calls that teardown for either — and the run-ending one then registers the
 screen a run ends on, whose background is drawn for a frame or two on the way past. A run given up is not a run
 anybody is being shown the score of, so orb asks for the scene where nothing is registered. A replay is left as
 it was: what one ends at is not that screen.
@@ -346,7 +346,7 @@ stage's own start is either of the two screens it is on.
 
 **Neither of orb's menus writes its keys on the screen.** Both had a `Z 決定    X 戻る` line under
 them and both lost it: the keys are the game's own — `z` shoots and `x` bombs, which is what its own
-menus take as decide and back — so the line was telling somebody playing 紅魔郷 the one thing they
+menus take as decide and back — so the line was telling somebody playing th06 the one thing they
 already know. Where a way out is worth pointing at, the screen does it with an item rather than with
 a key: a confirmation's cursor sits on its no, and the retry menu's last item says where it goes.
 
@@ -449,7 +449,7 @@ A chapter is never written down part-way through: the resume point is a chapter'
 which is where dying sends the player anyway, and the frame a run was abandoned on is as likely as
 not the frame they were hit on.
 
-**One per run there can be one of**, the way 紺珠伝 keeps a pointdevice save per difficulty and
+**One per run there can be one of**, the way th15 keeps a pointdevice save per difficulty and
 character. A run of another character is another run and its buttons would play somebody else's
 shot, so what two runs have in common when a chapter of one can be picked up in the other is the
 difficulty, the character and the shot. That answer is one string, `lunatic-marisa-b`, which is both
@@ -706,7 +706,7 @@ it is built on, which is what a fault in a run that chapters alone do not explai
 
 **Which of the two a run is, is asked where the run is started**, over the game's own title
 menu, because that is where it belongs: a run with chapters and a run without are two different
-things to start, and 紺珠伝 asks it in the same place. Not a key in `orb.yaml`, which is for
+things to start, and th15 asks it in the same place. Not a key in `orb.yaml`, which is for
 what somebody sets once.
 
 **On the press, not after it.** The title menu's decide is held back the same way the shot type
@@ -740,7 +740,7 @@ button out of the run started next, and out of what a resumed run writes down as
 | 完全無欠モード / `Pointdevice Mode` | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, and `pointdevice_score.dat` |
 | レガシーモード / `Legacy Mode` | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
 
-On screen they are 紺珠伝's own two names, in whichever of the two languages that game itself calls
+On screen they are th15's own two names, in whichever of the two languages that game itself calls
 them, since that is where the mode comes from and those are
 the names somebody who wants it knows. In the code, the log and the file it writes they are
 pointdevice and normal — the English of the first, and what the second actually is.
@@ -748,8 +748,8 @@ pointdevice and normal — the English of the first, and what the second actuall
 **The game's own count of lives is painted over with a brush stroke in a pointdevice run**, with
 `DISABLE` written on it. Dying there costs the chapter and not a life — the menu goes up, and the
 snapshot that puts the chapter back puts the count back with it — so the row is the one thing left
-on the screen still describing the game as it was. 紺珠伝 says it the same way across its own 残機
-row, which is where somebody who wants the mode will look for it. Drawn on three conditions: the
+on the screen still describing the game as it was. th15 says it the same way across its own row of
+lives, which is where somebody who wants the mode will look for it. Drawn on three conditions: the
 mode, a run of somebody's own rather than a demo or a replay, and a chapter with a snapshot to go
 back to — that last being the frames at a stage's start before its own snapshot has been taken,
 where a death does still cost a life.
@@ -807,11 +807,11 @@ with a colour of orb's, because the panel is a noise and a flat rectangle inside
 patch. What that also buys: what is left where orb stops drawing is the panel the game would have
 painted there itself.
 
-**How far past the row the stroke may reach is the game's to say, and can be nothing.** 紅魔郷's
+**How far past the row the stroke may reach is the game's to say, and can be nothing.** th06's
 panel leaves 8 pixels either side of that row, which the squash to 144x30 was made to fit inside;
-妖々夢 puts its bombs 16 pixels under a row 16 tall, so there the box is the row, the word is scaled
+th07 puts its bombs 16 pixels under a row 16 tall, so there the box is the row, the word is scaled
 to fit it, and there are no strips to paint at all. Watched the other way first, on a launch of
-妖々夢: the box hung 7 pixels into the bombs' row, and the strip painted there took the tops of the
+th07: the box hung 7 pixels into the bombs' row, and the strip painted there took the tops of the
 bombs' own stars with it.
 
 **Over the count and not over the `Player` beside it.** The count is where the stars are — from
@@ -1331,7 +1331,7 @@ orb answers — and its `Poll` and `GetDeviceState` are the fast case, a device 
 
 **Every pad the machine has is read, and not the one device the game asks about.** The game holds
 exactly one controller and asks winmm about joystick 0 alone, so a second pad, a pad plugged in after
-the game started, and — on this machine — the pad itself are pads it can do nothing with. 紅魔郷 is a
+the game started, and — on this machine — the pad itself are pads it can do nothing with. th06 is a
 one-player game, so every pad on the machine is that one player's. orb's own thread reads all of them:
 every index `joyGetNumDevs` reports, and each of XInput's four slots, through
 `orb_api::joystick` and `orb_api::xinput`. Which of XInput's three libraries a machine has is a property
@@ -1516,7 +1516,7 @@ in front is in nobody's way.
 
 **Whether the pointer is drawn is one counter the whole process shares**, and it is a counter rather
 than a flag: `ShowCursor` moves it one step per call, and Windows draws the pointer while it is not
-negative. **The game moves it too.** 紅魔郷 answers `WM_SETCURSOR` itself — its window procedure at
+negative. **The game moves it too.** th06 answers `WM_SETCURSOR` itself — its window procedure at
 0x420d40 sends `0x20` to the case at 0x420dc0 — and with the game in a window, which is every launch of
 orb's, that case loads the arrow, sets it, asks for the pointer to be drawn, and answers 1 so
 `DefWindowProcA` never sees the message. One of those arrives per movement of the pointer over the
@@ -1614,7 +1614,7 @@ drawn, rather than jumped over — the ending is also where the game sets the cl
 enters the score. Never entered during a demo or a replay.
 
 **The staff roll is kept**, which the scene cannot say: an ending and its roll are all one
-scene, so what the skip stops on is the script the ending is reading. 紅魔郷 runs an ending
+scene, so what the skip stops on is the script the ending is reading. th06 runs an ending
 from a `.end` file of one-character instructions, one file per part of it, and the last
 instruction of every one of the six — `end00`, `end01`, `end10`, `end11`, and the
 `end00b`/`end10b` a clear on Easy or with a continue gets — is `@Fdata/staff00.end`, the roll.
@@ -1686,7 +1686,7 @@ the card's own start, so what the restore puts the game back into is that card. 
 says so: `score: no spell card is up; no attempt counted`, said rather than left as a missing line, since a
 line only written when the count was made would put the meaning in the absence.
 
-**And only against a card the game has named.** 紅魔郷 fills all 64 records from `Rng::GetRandomU16` before
+**And only against a card the game has named.** th06 fills all 64 records from `Rng::GetRandomU16` before
 it reads the file — 0x41bc87, the whole 0x40 of each of them — and writes back only the magic, the two
 lengths, the version, the card's number and the two counts, 0x41bca0 to 0x41bcd5. So the name a record
 carries is the generator's until the card itself starts and copies one in (0x409720), and `catk`'s parse
@@ -1711,7 +1711,7 @@ that heals a row already written wrong.
 
 **Where a session stops without the game writing, orb has the ranking built and taken down.** The
 write is reached from one place, so a run given up or quit with `ESC` leaves what it counted about
-spell cards in memory and nowhere else — 紅魔郷 loses it, and orb does not. On the first frame the
+spell cards in memory and nowhere else — th06 loses it, and orb does not. On the first frame the
 front end is up after a run that ended anywhere else, orb writes `MainMenu.gameState` with what the
 `Score` item writes — 0xa, from the handler at 0x437f56 — runs the updates that brings inside that one
 frame with nothing drawn, and writes `curState` back to the front end the way the ranking leaves
@@ -1719,7 +1719,7 @@ itself. The deleted callback then writes the file. Bounded at 240 updates, again
 end waits and the one each scene change costs; at 30µs an update the whole of it is under a frame's
 worth of time and none of it is seen, the draw chain running once a frame after this.
 
-**妖々夢 is written through its own save instead, and its ranking screen is never built.** The one write in
+**th07 is written through its own save instead, and its ranking screen is never built.** The one write in
 that exe is gated on a phase its ranking screen never reaches — the two kinds the screen is built with skip
 it — so driving that screen wrote nothing however many updates it was given, and a launch faulted inside
 those updates reading a vm the screen it had just asked to leave no longer had. What writes is
@@ -1757,7 +1757,7 @@ Whether a run wrote on its own is asked rather than assumed: every open for writ
 run that ended at the result screen has one. Both modes build one. A legacy session stopping
 partway keeping its record is the one place orb is deliberately not the game as it was.
 
-**The captures in memory are emptied before a ranking is read.** 紅魔郷 keeps the record of which
+**The captures in memory are emptied before a ranking is read.** th06 keeps the record of which
 spell cards have been captured in one place, `g_GameManager.cardHistory` at 0x69bcd0 — 64 records of
 0x40 — and both reads that load it copy the records the file holds while leaving the rest as they
 were: 0x42b466 has no clear of its own, unlike `clrd`'s parse at 0x42b502, which memsets four
@@ -1783,7 +1783,7 @@ the one that is bracketed, so the line says which of them it is and no more. The
 itself says so on the line after — `the practice scores read out of the mode's own file` — that
 being a read orb knows it is making rather than one it is guessing at from a callback.
 
-**One read is not the mode's, and it is the one that is not a record.** 紅魔郷 keeps four things in
+**One read is not the mode's, and it is the one that is not a record.** th06 keeps four things in
 the one file: `hscr`, the ranking; `catk`, which spell cards have been captured; `clrd`, how far each
 shot has got on each difficulty, which is what the Extra and the practice stages are behind; `pscr`,
 what each of those stages has been practised for. The ranking and the captures are the mode's own — a
@@ -1803,7 +1803,7 @@ the mode. The three reads are told apart by which callback is running:
 
 **The fourth read is there because half of the first one is a record after all.** `pscr` is a score,
 one per shot, difficulty and stage, and a stage practised in a chapter that can be played again was
-not practised for that score — so what 完全無欠モード shows beside a practice stage belongs in orb's
+not practised for that score — so what Pointdevice mode shows beside a practice stage belongs in orb's
 file with the rest of that mode's runs, and it was `score.dat`'s number, the front end reading the
 scores in the very read its items are lit from. One read lands in one file, so the score is read
 again: at the answer to the mode question, orb calls the game's own read helper for the file the fork
@@ -1827,7 +1827,7 @@ every stage (0x41bf01) and the first only where the run has used no continue (0x
 `g_GameManager+0x1818` that a continue puts up at 0x402f0f), and a clear writes 99 — no stage's number —
 into the first under that same condition (0x410c41) and into the second whatever happened (0x410c7d). The
 Extra is behind the first: `GameManager::HasReachedMaxClears` at 0x43a736 compares Normal, Hard and
-Lunatic against that 99, which is why clearing 紅魔郷 on a continue earns no Extra. The practice stage
+Lunatic against that 99, which is why clearing th06 on a continue earns no Extra. The practice stage
 select counts its rows out of the second, so a stage reached on a continue can be practised. `ParseClrd`'s
 fixup leaves every entry of both at 1 where it found no chunk, which is stage 1 reached: one practice
 stage, and no Extra.
@@ -1894,7 +1894,7 @@ front end read.
 **Only the open is redirected, which is enough here and would not be everywhere.** That other
 file class truncates a `"w"` by calling `DeleteFileA` on the name before creating it — at
 0x43cea9, its only call site in the exe — so a game whose score write went that way would have
-its own file deleted while orb's was written. 紅魔郷's does not go that way.
+its own file deleted while orb's was written. th06's does not go that way.
 
 The whole file name is compared, ignoring case, and the directory the game named is kept. So
 `pointdevice_score.dat` is not itself taken for the game's file and forked again — a second pass
@@ -2161,7 +2161,7 @@ over before anyone looks. A crash adds a line naming the faulting module and off
 says — is the language Windows itself is in.** `GetUserDefaultUILanguage` answers that, and orb reads
 the primary language out of the LANGID it gives: `LANG_JAPANESE` is Japanese and every other language
 is English. Which is the honest answer rather than a fallback — a machine in German is one orb has no
-German for, and whoever is playing 紅魔郷 on it is reading either the game's own Japanese or an English
+German for, and whoever is playing th06 on it is reading either the game's own Japanese or an English
 patch over it. The user locale is *not* what is read: that one carries the regional formats, which are
 set apart from the language Windows shows its own windows in.
 
@@ -2177,7 +2177,7 @@ lost*, whose list is named the way the status line names them. What
 each screen says in either language is beside the screen itself — `mode.rs`, `retry_ui.rs`,
 `resume_ui.rs`, `launcher/settings.rs` — as a `match` over the language, so a screen added without a
 wording in both is a build that stops rather than a line nobody can read. 完全無欠モード and
-レガシーモード are 紺珠伝's own names for the two modes, and `Pointdevice Mode` and `Legacy Mode` are that
+レガシーモード are th15's own names for the two modes, and `Pointdevice Mode` and `Legacy Mode` are that
 game's own names for them in English.
 
 **The log is not one of the screens** and stays English whichever language is chosen: it is read beside
@@ -2208,7 +2208,7 @@ mid-answer. What the row asks for is what the game and the next launch are in. T
 named in themselves — `日本語` and `English` — the way every language picker names them; only the
 machine's own is a word the dialog translates, `自動` or `Automatic`.
 
-**Which language the *game* is in is not orb's**, and orb does not touch it: 紅魔郷 draws its own text
+**Which language the *game* is in is not orb's**, and orb does not touch it: th06 draws its own text
 from its own data files, and an English one is a patch over the game — see *Which game a launch is* for
 what orb accepts as the exe.
 
@@ -2470,12 +2470,12 @@ sound may be being taken down again. The defeat is where the answer matters most
 down being a boundary and the stage's own boss going down being the stage ending.
 
 **And where the game names those two songs, the answer is which of them is playing rather than
-whether the track has changed.** 妖々夢 does: its stage data carries both names, so the fight it
+whether the track has changed.** th07 does: its stage data carries both names, so the fight it
 ends with is the one under the second of them and every other fight is a midboss, whatever was
 playing when the chapter at the stage's start was taken. That last part is why the two readings are
 not the same — a stage's first chapter falls frames into the stage, and the song the stage was come
 into with can still be playing then, which made every fight of that stage a track change and its
-midboss the boss. 紅魔郷 keeps the comparison: its track is named by a path its stage data holds and
+midboss the boss. th06 keeps the comparison: its track is named by a path its stage data holds and
 what is playing is a wave file with no name orb can read.
 
 **The judging keys work only with the game held on a boundary.** A frame is a sixtieth of a
@@ -2655,7 +2655,7 @@ Installed per thread and taken off again when the test ends, as the rest of the 
 
 What this cannot catch is an offset that is wrong: the space is written from the same constants
 the reads use, so a wrong one is wrong on both sides at once. Offsets are settled against
-東方紅魔郷 1.02h running, each read held against what the screen showed, and each is written down beside
+th06 1.02h running, each read held against what the screen showed, and each is written down beside
 the offset it was read at — see `orb_core::game::th06::image`. Everything built on top of them
 is what the space is for.
 
@@ -2670,7 +2670,7 @@ In a build without the `sim` feature the space does not exist and none of `mem`'
 
 ## Running the game with no game there
 
-Above the memory there is a 東方紅魔郷 that plays the game's part rather than the address space's:
+Above the memory there is a th06 that plays the game's part rather than the address space's:
 `orb-e2e/src/fake`. It owns a laid-out image, has a front end and a stage of its own, and calls orb's
 hook bodies where the real game's code calls them — the draw chain and then the update, with the input read
 inside the update, which is the game's own order. `orb_core::runtime::attach_to` puts a runtime in place with
@@ -2706,7 +2706,7 @@ in some state, the game is played into it. See
 the two calls the loop makes into the game are addresses `Game::frame_calls` hands over, so this game
 hands over two of its own. Its `Present` is where an e2e test counts a frame handed over — the
 tick, and the host told a frame is in the compositor's hands — and its `PlaySounds` is nothing, a laid-out
-game having no sound system to hand a frame's sounds to. A launch started `--no-frame-loop` runs 紅魔郷's
+game having no sound system to hand a frame's sounds to. A launch started `--no-frame-loop` runs th06's
 own draw-then-update order instead, which is the other configuration orb ships, and an e2e test reads which
 of the two ran off the order the loop asked the game for things in.
 
@@ -2851,7 +2851,7 @@ and offsets.
   The launch is refused naming every game and build orb knows — see *Which game a launch is*. A patch
   that leaves the exe alone is not this: what orb reads off the file is its md5, and a patch applied
   while the game runs does not change one.
-- Making the game itself run on a machine whose code page is not Japanese. 紅魔郷 opens its own data
+- Making the game itself run on a machine whose code page is not Japanese. th06 opens its own data
   files through `CreateFileA` with their names held in the exe as Shift-JIS bytes — `紅魔郷ST.dat` at
   file offset 0x6af74 and five more like it — and rasterises its own text through `CreateFontA` and
   `TextOutA`, so a machine whose code page reads those bytes as something else is a game that cannot

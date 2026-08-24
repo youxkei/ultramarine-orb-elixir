@@ -99,7 +99,7 @@ fn the_fight_reads_as(game: &Fake, card: u32, spell: &str, nonspell: &str, late_
         log.lines().join("\n  ")
     );
 
-    // And the chapter is that card's from then on, which is what the name is *for*: 被弾, and the retry
+    // And the chapter is that card's from then on, which is what the name is *for*: The hit, and the retry
     // menu offers the card rather than the nonspell the chapter began as.
     game.dies();
     game.frame();

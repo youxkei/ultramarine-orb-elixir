@@ -1,4 +1,4 @@
-//! **The count 妖々夢 keeps for the whole of a run, and what a stage resumed without it is worth.**
+//! **The count th07 keeps for the whole of a run, and what a stage resumed without it is worth.**
 //!
 //! `[run+0x18]`, capped at 999999 by the compare at 0x43ebcb. One routine adds to it — 0x43eb90, which adds one
 //! to the stage's own count at `[run+0x14]` beside it and takes 2000 points at 0x43ed12 — and two read it,

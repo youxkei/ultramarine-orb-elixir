@@ -111,7 +111,7 @@ const STRESS_PER_CHAPTER: u32 = 4;
 
 /// Green rather than white, because the game itself flashes white — a bomb, a boss going
 /// down — and a mark that means something orb decided should not look like something the
-/// game did. Nothing in 紅魔郷 fills the play field with green.
+/// game did. Nothing in th06 fills the play field with green.
 const FLASH_COLOR: u32 = 0x0040_ff40;
 
 /// The wash over the play field the moment a boundary is reached: how far it goes, how long
@@ -190,7 +190,7 @@ const RESUME_START_FRAMES: u32 = 600;
 /// with the clock standing still. Bounded on the clock, the same playback gives up at 5959 and the game is
 /// back in the player's hands fifteen seconds sooner.
 ///
-/// And the other way the two counts differ, which no session has shown yet: 妖々夢 skips the run on one
+/// And the other way the two counts differ, which no session has shown yet: th07 skips the run on one
 /// update in five while it is slowing itself down (0x42e186), so a stage played through that takes as many
 /// updates again — stage 5 has it and stage 6 does not.
 const STALLED_FRAMES: u32 = 60;
@@ -285,7 +285,7 @@ pub struct Runtime {
     /// after that the choice has been made.
     walled: bool,
     /// Whether this run has been in a stage at all, which is what tells a stage that has
-    /// ended from one that has not begun. 妖々夢 reads as a run before its first is built —
+    /// ended from one that has not begun. th07 reads as a run before its first is built —
     /// its supervisor's scene lags that build by the rest of an update — and a wall there is
     /// one nothing lifts, the update it stops being the update that would build the stage.
     played: bool,
@@ -567,9 +567,9 @@ pub static INPUT_ACTIVE: AtomicBool = AtomicBool::new(true);
 /// extra ones is the one thing a playback cannot reproduce: it drives its updates in a burst, and the count
 /// that decides the skipping is the manager's own.
 ///
-/// **Which a parting asked for.** A pair of launches of 妖々夢 agreed on every field of a frame's line — the
+/// **Which a parting asked for.** A pair of launches of th07 agreed on every field of a frame's line — the
 /// word, the player, the generator, the score, the cherry, and the fold over every item slot — for 852 frames of
-/// 2面, and on 853 the run collected a point item the playback passed through. The same state and the same word
+/// stage 2, and on 853 the run collected a point item the playback passed through. The same state and the same word
 /// cannot come out differently, so the count of updates is what differed, and nothing was saying it.
 static UPDATES_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
 static THE_FRAME_THEY_ARE_ON: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -1179,7 +1179,7 @@ unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
 /// Only ever called from the frame hook, on the game's main thread, with no run in progress and the
 /// game settled where it is.
 unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut i32) {
-    // The game's own save first, where it has one that writes: 妖々夢's ranking screen writes nothing at either
+    // The game's own save first, where it has one that writes: th07's ranking screen writes nothing at either
     // phase it is built with, so the pump below would spend frames on a screen and leave the file as it was —
     // see `Game::save_its_records`. What the run counted goes on top of the file's own records inside that call,
     // at the seam `card_records_read` is hooked over.
@@ -1194,9 +1194,9 @@ unsafe fn commit_records(runtime: &mut Runtime, chain: *mut c_void, result: &mut
     }
     let mut frames = 0;
     // **The walk giving up stops this, and the frame limit stops it otherwise.** `CHAIN_EXIT_ERROR` is
-    // what the game's own frame returns on — 妖々夢 tests the answer at 0x434801 and returns at 0x43480c,
-    // and 紅魔郷's frame does the same — so a walk asked for after it is a walk no frame of the game's own
-    // makes, over a chain whose scene is being taken apart. A launch of 妖々夢 faulted in exactly that:
+    // what the game's own frame returns on — th07 tests the answer at 0x434801 and returns at 0x43480c,
+    // and th06's frame does the same — so a walk asked for after it is a walk no frame of the game's own
+    // makes, over a chain whose scene is being taken apart. A launch of th07 faulted in exactly that:
     // three more walks after the answer, inside the pump that takes the ranking down.
     //
     // `CHAIN_EXIT_SUCCESS` is not that answer, though the game's frame returns on it too: it is 0, which
@@ -1497,13 +1497,13 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let (drawn, held) = unsafe {
         d3d8::begin_scene(device);
         // What the game's own frame does around its own draw chain, inside its own scene. Nothing at all
-        // for 紅魔郷, whose frame has nothing there; 妖々夢's queue of quads is emptied by the first and
+        // for th06, whose frame has nothing there; th07's queue of quads is emptied by the first and
         // drawn by the second, and a frame missing either is a frame that writes a quad through a null
         // pointer or draws one outside the scene it was queued in. See `Game::begin_drawing`.
         game.begin_drawing(device);
         draw(chain);
         // On the far side of `draw`, which is the hook: orb's own overlay is drawn inside that call, so
-        // what a game queues and has drawn here is drawn *over* the overlay. Nothing today — 妖々夢 is
+        // what a game queues and has drawn here is drawn *over* the overlay. Nothing today — th07 is
         // the game with a queue and it has no font beside its exe to build an overlay from — and the
         // day it has one this is the line that decides it: the flush moves into the draw hook, ahead of
         // `after_draw`, which puts it where the game's own frame has it relative to everything drawn
@@ -1595,7 +1595,7 @@ pub extern "system" fn get_input() -> u16 {
         // its whole loop inside one of the game's frames and every update in it comes through this read, and a
         // game whose frames orb does not drive feeds one per frame instead. Either way the song the stage's build
         // started would otherwise play its opening for the seconds the buttons take and then jump where it
-        // belongs as the run lands — which is what a 妖々夢 session heard on a run picked up in the first stage.
+        // belongs as the run lands — which is what a th07 session heard on a run picked up in the first stage.
         //
         // Stopped and not taken down: the landing puts the song back with a seek — see the `play_from` there —
         // and a stream that had been deleted is one nothing could seek. A stop on a stopped buffer costs the call
@@ -1643,7 +1643,7 @@ pub extern "system" fn get_input() -> u16 {
     // the same word out of [`pad`]. See [`what_is_reached`].
     // **Through [`noted`] like every other way out of this hook**, which is what writes a frame's buttons down
     // for the chapter it belongs to. A path of its own here is a run orb kept nothing of — and a run to pick up
-    // out of a file is the one thing a bot exists to make: the first launch that played its way into 2面 left
+    // out of a file is the one thing a bot exists to make: the first launch that played its way into stage 2 left
     // `resume: not written — 0 frame(s) of buttons` behind it, and there was nothing to measure.
     if let Some(word) = pressing() {
         return unsafe { noted(game, frame, word) };
@@ -1899,7 +1899,7 @@ unsafe fn a_write_follows_this_read(screen: *mut c_void) -> bool {
 ///
 /// **At every one of those reads, and let go of at one**: the game reads its file for the front end's own menus
 /// (0x45bff3), inside every save (0x44a059) and at a run's build (0x42e735), and each of them leaves the records
-/// in memory as the file has them. Which is what somebody looking at the ランキング sees — that screen walks the
+/// in memory as the file has them. Which is what somebody looking at the ranking screen sees — that screen walks the
 /// records in memory into itself (0x44a145) — so a session's counts belong back in memory at all of them. The
 /// note is only let go of where a write follows, [`A_WRITE_FOLLOWS`] saying which: let go of at a read that
 /// writes nothing, what the run counted would be in memory and nowhere else, and gone at the next read.
@@ -1961,7 +1961,7 @@ static COUNTED: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
 /// one that writes nothing is records stranded in memory with the note spent.
 static A_WRITE_FOLLOWS: AtomicBool = AtomicBool::new(false);
 
-/// The same read where the game's own callback takes the screen in `ecx` — 妖々夢's, at 0x449b05, its chain
+/// The same read where the game's own callback takes the screen in `ecx` — th07's, at 0x449b05, its chain
 /// calling every callback that way. See [`game::Entered`].
 ///
 /// # Safety
@@ -1981,7 +1981,7 @@ pub unsafe extern "fastcall" fn ranking_read_in_ecx(screen: *mut c_void) -> i32 
     answered
 }
 
-/// The same bracket where the game's own callback takes the front end in `ecx` — 妖々夢's, at 0x45c4c8, its
+/// The same bracket where the game's own callback takes the front end in `ecx` — th07's, at 0x45c4c8, its
 /// chain calling every callback that way. See [`game::Entered`].
 pub extern "fastcall" fn unlocks_read_in_ecx(menu: *mut c_void) -> i32 {
     let original: extern "fastcall" fn(*mut c_void) -> i32 =
@@ -1993,7 +1993,7 @@ pub extern "fastcall" fn unlocks_read_in_ecx(menu: *mut c_void) -> i32 {
     result
 }
 
-/// The same moment where the game's own callback takes the manager in `ecx` — 妖々夢's added callback, at
+/// The same moment where the game's own callback takes the manager in `ecx` — th07's added callback, at
 /// 0x42e83e, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`. See
 /// [`game::Entered`], and [`get_controller_input_in_ecx`] for why this is an entry point of its own rather
 /// than one function told which.
@@ -2059,7 +2059,7 @@ pub extern "C" fn pad_buttons() -> *mut c_void {
     buttons
 }
 
-/// The same read where the game takes that word in `ecx` — 妖々夢's, at 0x4303f0. See
+/// The same read where the game takes that word in `ecx` — th07's, at 0x4303f0. See
 /// [`game::Entered`]: which of the two a game has is what the seam says, and this is the other entry
 /// point it says it with.
 ///
@@ -2313,7 +2313,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // file it left hold their generators against each other frame for frame, and the first frame the two
         // differ is where the playback stopped reproducing the run. Held against the state line a run writes
         // anyway, the comparison is only as fine as that line is often, which is once every sixty frames: a
-        // 妖々夢 run picked up in stage 6 parted somewhere in the sixty frames after 853 and nothing narrowed
+        // th07 run picked up in stage 6 parted somewhere in the sixty frames after 853 and nothing narrowed
         // it further.
         //
         // **The whole reproduction line and not the generator alone**, because which *field* parts first is
@@ -2519,7 +2519,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         playing.reached.over = !state.in_run;
         // And whether the stage's own boss is up, which is what a midsection ends at — read here for the same
         // reason, this being where the state is read. **Not the boss slot being filled**, which a midboss fills
-        // as well: a step written to play the whole of 4面's midsection ended at its midboss a third of the way
+        // as well: a step written to play the whole of stage 4's midsection ended at its midboss a third of the way
         // in.
         playing.reached.boss = runtime
             .chapters
@@ -2527,9 +2527,9 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // And whether a line of dialogue is up, which is the frame a picture of a boss's conversation has to be
         // asked on: the rules press past a line as fast as the game takes presses, so a step bounded by frames
         // instead walks either side of one.
-        // **A line and not the game's own predicate.** `in_dialogue` counts 妖々夢's hand-over line, which is a
-        // frame with no words drawn on it: a recipe photographing a conversation waited on that in 5面 and 6面
-        // and got the frame the box was still being drawn on.
+        // **A line and not the game's own predicate.** `in_dialogue` counts th07's hand-over line, which is a
+        // frame with no words drawn on it: a recipe photographing a conversation waited on that in stage 5 and
+        // stage 6 and got the frame the box was still being drawn on.
         playing.reached.dialogue = unsafe { runtime.game.a_line_of_dialogue_is_shown() };
         // And whether a card is running, and whether the plate its name is on is being drawn — which is a frame
         // or more later, and the frame a picture of that name has to be asked on.
@@ -2928,12 +2928,12 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
     // hold is what stops the update that would do it.
     //
     // **A stage this run has not been in is not one it has left**, which is the other way a
-    // run reads as playing nothing: 妖々夢's is a run from the frame its front end asked for
+    // run reads as playing nothing: th07's is a run from the frame its front end asked for
     // one, and a wall on the way *in* is the same trap `leave` avoids on the way across — the
     // update it stops is the one that would build the stage it is waiting for.
     //
     // **And the fight a stage ends with being won is that stage's end as well**, which is the
-    // only one of the two 妖々夢 ever gives: its supervisor does a whole transition inside one
+    // only one of the two th07 ever gives: its supervisor does a whole transition inside one
     // update, so no frame of one is a frame outside the scene a run is played in and the wall
     // above has nothing to fire on — a pass over a replay of it played six stages through
     // without stopping. This one is inside the stage, where every chapter of it is still a
@@ -3153,8 +3153,8 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
     while !aim.reached(&reached, runtime.chapters.number())
         && reached.playing
         // **And the stage's own fight not yet won**, which is where this stage ends and so where a step
-        // inside it has to stop. `playing` is what stops it on 紅魔郷 — the game leaves the gameplay scene
-        // for the frames a transition takes — and 妖々夢 leaves it for none of them: its supervisor tears
+        // inside it has to stop. `playing` is what stops it on th06 — the game leaves the gameplay scene
+        // for the frames a transition takes — and th07 leaves it for none of them: its supervisor tears
         // the stage down, builds the next and puts the scene back inside one update, so a loop watching the
         // scene runs on into the stage after. A launch found it: `next` at the end of a fight came to rest
         // in stage 2, with the stage it was judging gone and no chapter of it left to go back into.
@@ -3214,7 +3214,7 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
 unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State, i32) {
     // **The music stopped for as long as this takes.** The stage's own song was started by the build a moment
     // ago and the buffer plays on its own thread, so the seconds of wall clock these updates take are seconds of
-    // the stage's opening — and then the song jumps where it belongs as the run lands. A 妖々夢 session heard
+    // the stage's opening — and then the song jumps where it belongs as the run lands. A th07 session heard
     // exactly that on a run picked up in the first stage.
     //
     // Stopped and not taken down, because the landing is what puts it back: `play_from` below seeks the stream
@@ -3239,7 +3239,7 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // **An update of a stage is not a frame of it**, for two reasons that are not the same. The one a
     // session has shown: a playback whose run dies out stops advancing the clock and every update after
     // that is spent on nothing — `24179 update(s) run; stage 6 frame 5900`, of which 5959 played the run in
-    // and eighteen thousand went by with the clock where it was. The one the exe shows: 妖々夢 slows its own
+    // and eighteen thousand went by with the clock where it was. The one the exe shows: th07 slows its own
     // run down when the screen fills, 0x42e186 answering one update in five with the 3 that skips both
     // clocks, so a stage played through that takes as many updates again.
     let mut stalled = 0;
@@ -3503,10 +3503,10 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
 /// is picked up at the stage *before*, which is a whole stage of a run thrown away; and where the stage before
 /// ended on a chapter of its own, the run **cannot get past the boundary at all**.
 ///
-/// Which two launches of 妖々夢 measured. One played into the way into 2面 and left the run for the title with
+/// Which two launches of th07 measured. One played into the way into stage 2 and left the run for the title with
 /// `resume: stage 2 begins with … power: 81, counted: 231` in its log and a file holding `stage 1 chapter 9`;
-/// the next picked that up, played 1面's boss again, reached the same window and left the same file — not one
-/// write between the landing and the end of it, that chapter being 1面's last. So the numbers are there and
+/// the next picked that up, played stage 1's boss again, reached the same window and left the same file — not one
+/// write between the landing and the end of it, that chapter being stage 1's last. So the numbers are there and
 /// nothing was writing them.
 ///
 /// **The stage's first frame, and its first chapter's own name.** A stage's start is chapter 1 at frame 0 with
@@ -4113,7 +4113,7 @@ mod tests {
     /// put where this test wants it first, for the same reason.
     #[test]
     fn a_press_held_back_is_reported_once_and_reaches_the_game_only_when_handed_over() {
-        // 紅魔郷's own bits, this being about which of them a read hands over and which are kept: the
+        // th06's own bits, this being about which of them a read hands over and which are kept: the
         // holding is any game's and the words it is done to are one game's.
         let game = &Th06;
         let decide = game.menu_decide();

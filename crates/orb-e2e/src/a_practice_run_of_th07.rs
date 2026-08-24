@@ -1,4 +1,4 @@
-//! A practice run of 妖々夢: one stage played on its own, which is a run orb rewinds and a run it writes
+//! A practice run of th07: one stage played on its own, which is a run orb rewinds and a run it writes
 //! nothing down for.
 //!
 //! **Both halves are the same fact from two sides.** A practice run is a run — the chapters, the snapshots and
@@ -7,7 +7,7 @@
 //! nothing to offer the next time the same stage is practised. It is one stage started again from the game's
 //! own menu in less time than a playback takes.
 //!
-//! Which for this game rests on one bit — 妖々夢 keeps what kind of run this is in a bitfield of its own, and
+//! Which for this game rests on one bit — th07 keeps what kind of run this is in a bitfield of its own, and
 //! bit 0 is what its title menu sets for Practice Start (see `Th07`'s `G_RUN_KIND`). Both the run's own name
 //! and every flag `read_state` answers come out of that bit, so a run whose kind is not read is a practice run
 //! written down as a whole one — a file offering to pick up a stage that was never part of a run.
@@ -20,7 +20,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the fight of this stage puts up, by its own record, named the way 妖々夢 names cards, and the shot
+/// The card the fight of this stage puts up, by its own record, named the way th07 names cards, and the shot
 /// this run is played with — whose own word of that record is where an attempt is counted.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
@@ -57,7 +57,7 @@ fn a_practice_run_of_th07_is_rewound_and_nothing_is_written_down_for_it() {
         });
         let at_the_card = game.state();
 
-        // ── 3. 被弾, and the chapter put back: what the mode promises is the memory as it was, which for a
+        // ── 3. The hit, and the chapter put back: what the mode promises is the memory as it was, which for a
         // practice run is the same mechanism and the same snapshot as for a whole one.
         game.dies();
         game.frames_until("the death seen", 8, || log.said("died in chapter 2"));

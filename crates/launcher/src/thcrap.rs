@@ -1,6 +1,6 @@
 //! The translation patch installed beside the game, put into the game orb starts.
 //!
-//! **Why orb does this at all.** 紅魔郷 is played in English through thcrap, and thcrap patches a game by
+//! **Why orb does this at all.** th06 is played in English through thcrap, and thcrap patches a game by
 //! injecting into it. Two launchers for one game is one too many: somebody who installs both has to start
 //! the game through thcrap and edit its `games.js` to name `orb.exe`, or start it through orb and lose the
 //! translation. So orb looks for a thcrap installed beside the game and hands the game it has just created
@@ -294,7 +294,7 @@ fn games_js_names(text: &str, game_id: &str) -> Option<String> {
 /// The next string of a JSON file and what follows it, with the escapes taken off.
 ///
 /// **`\u` is here because the writer puts it there**: the configuration tool serialises with .NET's own
-/// encoder, which escapes everything outside ASCII — so 紅魔郷's exe, whose name is in kanji, is five of
+/// encoder, which escapes everything outside ASCII — so th06's exe, whose name is in kanji, is five of
 /// these in the file. A pair of them is one character where the first is a high surrogate, which is what
 /// a name outside the basic plane arrives as.
 fn a_json_string(text: &str) -> Option<(String, &str)> {

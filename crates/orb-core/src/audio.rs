@@ -38,17 +38,17 @@ type ReadFile = unsafe extern "system" fn(usize, *mut u8, u32, *mut u32, *mut u8
 /// Where a track's sound is and how the game's place in it is read and moved.
 ///
 /// **Two shapes because the two games stream differently, and the difference is not orb's to hide.**
-/// 紅魔郷 opens a `.wav` per track through winmm and keeps the `HMMIO` it got back; 妖々夢 opens
+/// th06 opens a `.wav` per track through winmm and keeps the `HMMIO` it got back; th07 opens
 /// `thbgm.dat` itself, keeps the Win32 handle, and reads every track out of that one file — so a position
 /// in it is an absolute offset in the archive rather than an offset in the track's own sound. Everything
 /// above works in differences of positions, which is what lets one shape serve both: the only place the
-/// difference shows is that an offset [`Music::audible_offset`] answers for 妖々夢 means nothing in another
+/// difference shows is that an offset [`Music::audible_offset`] answers for th07 means nothing in another
 /// game's file, and a resume already keeps those per track.
 #[derive(Clone, Copy)]
 pub enum Track {
-    /// 紅魔郷's, seeked and read through the game's own winmm.
+    /// th06's, seeked and read through the game's own winmm.
     Mmio(usize),
-    /// 妖々夢's, seeked and read through kernel32 on the handle the game opened.
+    /// th07's, seeked and read through kernel32 on the handle the game opened.
     OpenFile(usize),
 }
 
@@ -204,7 +204,7 @@ impl Music {
     /// **Going round whatever the capture found**, which is the one thing here that is not put back as it was:
     /// a streaming buffer *is* a ring — the game's own thread writes into it ahead of the mixer and the mixer
     /// wraps at its end for as long as the track lasts — so `DSBPLAY_LOOPING` is what a played stream is and not
-    /// a state a chapter was taken in. A launch of 妖々夢 retrying a resumed stage's first chapter had it back
+    /// a state a chapter was taken in. A launch of th07 retrying a resumed stage's first chapter had it back
     /// as `status 0x1`, playing with that bit clear: every number the restore asked for came back and the music
     /// stopped where the buffer ended, with the game's own thread still filling one nobody was playing.
     pub unsafe fn restore(&self, saved: &Saved) {
@@ -224,7 +224,7 @@ impl Music {
         }
         // **What was put back, and what the game's own bookkeeping says beside it.** A chapter whose track has
         // not changed is put back through this and nothing is written down about it, which is a restore whose
-        // sound can only be reported as "the music stopped" — a launch of 妖々夢 retrying stage 4's first
+        // sound can only be reported as "the music stopped" — a launch of th07 retrying stage 4's first
         // chapter had exactly that to go on. The pair to watch is the file and the countdown the loop is taken
         // on: they are moved by the streaming thread together, and this puts one of them back while the memory
         // copy puts the other.

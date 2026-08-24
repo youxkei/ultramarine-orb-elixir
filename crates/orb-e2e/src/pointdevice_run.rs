@@ -1,4 +1,4 @@
-//! One 完全無欠モード run, from the question that starts it to the chapter it is picked up at.
+//! One Pointdevice mode run, from the question that starts it to the chapter it is picked up at.
 //!
 //! Every other e2e test in the tree takes one mechanism at a time. This one takes the whole of what
 //! the mode *is*, in the order somebody playing meets it, because the parts have to agree with each
@@ -72,7 +72,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         );
 
         // And what the question put on the screen, read off it: one frame, so each label is one quad.
-        // The two modes a line apart, 完全無欠モード the one under the cursor — which is a colour and not a
+        // The two modes a line apart, Pointdevice mode the one under the cursor — which is a colour and not a
         // position, `menu_ui` drawing the chosen item in `SELECTED` — with the cursor's own mark to its
         // left on the same line, and under them the lines that say what that choice means.
         game.forget();
@@ -281,7 +281,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             "the chapter that came back is not the one that was lost: {:?}",
             log.lines(),
         );
-        // The number the 完全無欠 ranking screen shows against that card, out of the game's own record: the
+        // The number the Pointdevice ranking screen shows against that card, out of the game's own record: the
         // game counts an attempt where a card *starts*, and a chapter that begins inside one never starts
         // it — so this attempt is one only orb can have counted.
         assert_eq!(
@@ -330,7 +330,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
         game.frames_until("the ranking built and taken down", 30, || {
             log.said("score: the ranking built and taken down")
         });
-        // **The number the 完全無欠 ranking shows against that card.** The screen's own read is what fills
+        // **The number the Pointdevice ranking shows against that card.** The screen's own read is what fills
         // this record — and orb empties it first, so that a ranking read defines the history rather than
         // adding to what was in memory — and the file is written from the record as it stands when the
         // screen goes down. So what has to be here afterwards is this session's count, which is the game's
@@ -351,7 +351,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             log.lines(),
         );
 
-        // ── 9. 完全無欠のスコア画面, which is where that count is somebody's to read. Asked for the way
+        // ── 9. The Pointdevice score screen, which is where that count is somebody's to read. Asked for the way
         // anybody asks — the title menu's `Score`, and then orb's question about which of the two rankings
         // — and read off the screen rather than out of the record: the game draws its rows from
         // `CARD_HISTORY`, which is the record orb put back on the way out of the run.
@@ -386,7 +386,7 @@ fn a_pointdevice_run_is_chosen_lost_retried_given_up_and_picked_up_again() {
             game.says(title(Menu::Run, LANGUAGE)).is_empty(),
             "the question over a ranking is the one asked about a run",
         );
-        game.press_until(keys::Z, "完全無欠のスコア画面", || {
+        game.press_until(keys::Z, "the Pointdevice score screen", || {
             game.image().scene() == Scene::Ranking
         });
 

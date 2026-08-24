@@ -268,7 +268,7 @@ fn a_run_given_up_at_orbs_own_menu_needs_no_frame_after_it() {
 /// paint with, and flat where there is not.
 ///
 /// **Which matters because nothing repaints the panel after a stage's first 250 frames.** What orb leaves
-/// on the row is what stays there, so it has to be the panel and not a patch: 紅魔郷's is a noise of four
+/// on the row is what stays there, so it has to be the panel and not a patch: th06's is a noise of four
 /// shades within seven of each other, and the flat colour is their average — close enough to be worth
 /// having and not close enough to be right.
 ///
@@ -351,7 +351,7 @@ fn the_strips_are_painted_with_the_games_own_panel_tile_where_there_is_one() {
 /// at this address, which is the whole of what it has to be.
 const FRONT_SHEET: usize = 0x0500_0000;
 
-/// How far apart the panel's own tiles go, which is 紅魔郷's sprite 5: 32x32, laid every 32 pixels.
+/// How far apart the panel's own tiles go, which is th06's sprite 5: 32x32, laid every 32 pixels.
 const TILE: f32 = 32.0;
 
 /// Two fields in the ask, and the game's own repaint of a stage's first frames is why one of them decides

@@ -1,4 +1,4 @@
-# 妖々夢, as read off its exe
+# th07, as read off its exe
 
 What is written here was read off `th07.exe` of **md5 `0126afce1e805370d36c3482445e98da`**, which is the one
 build `game::th07` has addresses for. Every address below is that build's and means nothing about another.
@@ -140,7 +140,7 @@ stage is played: `+0x1c`, the difficulty, held against 3 at `0x42829a` and `0x42
 tested at `0x402b0d`, `0x42e0f7`, `0x43a19e`, `0x442d0e` and `0x442f02`.
 
 **`0x62f8a4` does differ between a run played into a stage and a run built at it**, and a pair of launches is
-what says so: the same 2面 held `0x20` entered by a transition against `0x10` built by a resume, read off the
+what says so: the same stage 2 held `0x20` entered by a transition against `0x10` built by a resume, read off the
 dump at the stage's start on both sides.
 
 Two readings said otherwise and both were wrong in the same way. `0x42e38c`, which fills it out of
@@ -158,7 +158,7 @@ came from, over the pair at `[player+0x2ba8]` and `[player+0x2bac]` that `0x40fe
 few hundred frames of that is a world that collects items the run did not.
 
 `[0x626274]`, the run's header, is the other half of the same pair and needs no restoring: the two entries into
-one 2面 held all fourteen of its words the same.
+one stage 2 held all fourteen of its words the same.
 
 ### And the mirror: where a stage's record is written
 

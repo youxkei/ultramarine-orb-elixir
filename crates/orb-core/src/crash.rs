@@ -481,7 +481,7 @@ mod tests {
     /// **Whose the memory is, for the address the fault touched and for every register that names one.**
     ///
     /// Which is the question a fault is read to answer and the one an address on its own cannot: `0x18`,
-    /// `0x1f` and `0xb7f` were three faults of one 妖々夢 session, and what each of them turned on was
+    /// `0x1f` and `0xb7f` were three faults of one th07 session, and what each of them turned on was
     /// whether the pointer they came off belonged to the game, to a chapter's own copy or to orb — hours of
     /// reading a dll with `nm` and a disassembler to say what the process could have said itself.
     #[test]
@@ -628,7 +628,7 @@ mod tests {
 
     /// **And whether the heaps were sound**, which is the difference between a pointer that was never
     /// anything and a heap somebody had already written over: the second is read off the heap and not off
-    /// the fault, and every fault of that 妖々夢 session was one of the two.
+    /// the fault, and every fault of that th07 session was one of the two.
     #[test]
     fn a_fault_says_which_heaps_no_longer_validate() {
         let sim = std::sync::Arc::new(orb_sim::Sim::new());

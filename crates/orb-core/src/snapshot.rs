@@ -75,7 +75,7 @@ static WAITING: std::sync::Mutex<Option<Waiting>> = std::sync::Mutex::new(None);
 /// itself seconds later.
 ///
 /// The number is a bound rather than a measurement — what says the wait is over is the queue going empty — so it
-/// is generous: a stage of 妖々夢 whose own song starts seconds into it is the case this exists for, and every
+/// is generous: a stage of th07 whose own song starts seconds into it is the case this exists for, and every
 /// frame of the wait says so in the log.
 static WAITED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const FRAMES_A_COMMAND_MAY_TAKE: u32 = 30;
@@ -493,7 +493,7 @@ impl Snapshot {
             // the block is free — but pages that are *another allocation* than the one these bytes came
             // out of belong to whoever was given them, and the game's old bytes over them is a restore
             // corrupting somebody. Which somebody is not asked: enumerating them is what this replaced,
-            // and two crashes of 妖々夢 were two different answers to it.
+            // and two crashes of th07 were two different answers to it.
             let now = mem::allocation_at(entry.region.base);
             // **Every page of it and not only the first**, which is what a range of this list can hide: a
             // heap region's committed runs and the reservations beside them are merged where they abut, so
@@ -563,7 +563,7 @@ impl Snapshot {
         // again somewhere else, so the written-down addresses hold back memory nobody is playing through and
         // leave the live stream to be written over: its countdown, its source, the buffer it names.
         //
-        // Measured on 妖々夢: retrying a chapter of stage 6's fight, whose second phase had replaced that
+        // Measured on th07: retrying a chapter of stage 6's fight, whose second phase had replaced that
         // stream, left the song going round a stretch of itself and still playing at the title.
         //
         // What the snapshot's own list still decides is *whether* the sound is held back at all, which is the
@@ -608,7 +608,7 @@ impl Snapshot {
             // **The music left playing, which is what a chapter of a boss's own fight is put back with** — see
             // `Chapters::audio_for`. Nothing is done to the sound and its own memory was held back, so what this
             // says is only what it was left as: a restore whose sound is wrong afterwards has nothing else to be
-            // read from, which is what a launch of 妖々夢 retrying stage 6's second phase came back with —
+            // read from, which is what a launch of th07 retrying stage 6's second phase came back with —
             // the song looping over a section of itself, and still playing at the title afterwards.
             _ => unsafe { self.say_what_the_sound_was_left_as(game) },
         }
@@ -630,10 +630,10 @@ impl Snapshot {
     /// place in the stage's song as the chapter it was taken at.
     ///
     /// **Left rather than done, because the track is not playing yet.** The game was asked for it, and on
-    /// the backend 妖々夢 makes that ask is a command in the sound player's own queue: what carries it out
+    /// the backend th07 makes that ask is a command in the sound player's own queue: what carries it out
     /// is the game's own per-frame sound, which orb's frame runs after its update. A seek before that is a
     /// seek of the stream the memory copy has just written back — the one the game had already freed — and
-    /// a launch of 妖々夢 faulted inside the game's own sound code doing exactly that, at `0x0045d8d5`
+    /// a launch of th07 faulted inside the game's own sound code doing exactly that, at `0x0045d8d5`
     /// reading `4` with `E_INVALIDARG` in two registers. So what to do waits, and
     /// [`finish_the_restores_sound`] is called where the frame's sound has run.
     ///
@@ -646,7 +646,7 @@ impl Snapshot {
     /// coming out of it — see [`audio::Saved::was_playing`]. The ask is made all the same, the player's own
     /// stream field being what it fills; what this leaves is that ask taken back off once it has been carried
     /// out, so a stage's first chapter comes back to the silence it was taken in and the stage's own script is
-    /// what starts its song. A launch of 妖々夢 heard the other thing: the song from orb's ask, and then the
+    /// what starts its song. A launch of th07 heard the other thing: the song from orb's ask, and then the
     /// same song from its beginning where that script reached its own play.
     fn leave_the_song_to_be_picked_up(&self) {
         let Some((music, saved)) = &self.music else {
@@ -944,7 +944,7 @@ mod tests {
     /// leave alone: the game handing a block back to the OS puts that address space up for anybody, and
     /// what a restore would write the game's old bytes over is then whatever was given it next.
     ///
-    /// **A 妖々夢 session is why this is here, and it crashed three times.** A step back at a stage's
+    /// **A th07 session is why this is here, and it crashed three times.** A step back at a stage's
     /// end faulted inside the *next* snapshot's own copy — `code 0xc0000005 ... reading 0x00000018`, the
     /// stack naming `chapter::take` under `Chapters::begin_chapter`, and the faulting instruction the
     /// memcpy loop over `saved` whose slice pointer read as 8 with a count that did not: orb's own buffer

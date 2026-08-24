@@ -212,7 +212,7 @@ fn attach() {
     // Only where the score file might have to be somewhere other than the game's own: with
     // `--no-chapters` nothing can rewind, so every run belongs in the game's own ranking and
     // there is nothing to fork — and the same where the *game* has nothing orb can rewind, which is
-    // what left a `pointdevice_score.dat` in a 妖々夢 install. See `Game::rewinds`. Loud rather than
+    // what left a `pointdevice_score.dat` in a th07 install. See `Game::rewinds`. Loud rather than
     // fatal if the import is not there, since what it costs is which file scores land in and not a run
     // that cannot be played.
     //

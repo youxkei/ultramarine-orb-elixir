@@ -1,7 +1,7 @@
 # 2. The frame loop's two calls into the game are addresses it hands over
 
 **Status:** accepted and built. `Game::frame_calls` answers with the two, `render` calls through them,
-and a laid-out 紅魔郷 drives the frame loop's e2e tests through `render` itself: the `pacing_*` and
+and a laid-out th06 drives the frame loop's e2e tests through `render` itself: the `pacing_*` and
 `log_deferral` stopped being tests of `orb-core` against a copy of the loop, and `frame_loop.rs` covered
 the loop's own shape. `orb-sim/tests/pacing/mod.rs` and its 414 lines are gone. What the built shape
 does differently from the plan below is at the end of *Consequences*.
@@ -79,7 +79,7 @@ closed, and the test for adding to it is the one this document set.
 
 ## Context
 
-[0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a 紅魔郷 that plays the game's part in front of
+[0001](0001-a-fake-th06-drives-orb-end-to-end.md) put a th06 that plays the game's part in front of
 orb, and every e2e test a game can drive is driven by one now — a whole run in each mode, the question
 that chooses between them on the keyboard and on a controller the game answers with, a `State` read at
 frames a game was played to. The frame loop was written off in that document as the one thing a game

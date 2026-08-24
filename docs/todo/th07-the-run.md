@@ -6,7 +6,7 @@ the device setup and the pad reads: **everything a run is made of.**
 **What is left of *that* is one measurement and the confirmations a launch makes**, and the measurement is the
 midstage table at the end of this file: a boundary inside a stage is read off a run with `--chapter-tuning` and
 off nothing else, so it cannot be walked out of the exe the way every other line here was. Everything else is
-in — `Th07::rewinds` answers `true`, so a run of 妖々夢 is chaptered, marked, lost, retried and picked up.
+in — `Th07::rewinds` answers `true`, so a run of th07 is chaptered, marked, lost, retried and picked up.
 
 **And every one of those has now been played on the real game**, which is the other half of "in": a run
 chaptered and retried with its music and its cards, given up, picked up out of its file in a later launch and
@@ -44,15 +44,15 @@ claim about the game to an e2e test, a decision about shape to `docs/adr/`.
 
 Everything below this section was read out of the exe. These were read off the game *running*, which is the only
 place they could be read, and each is now an e2e test with the fake made to model the game's own order first —
-because in every one of them the laid-out game had been agreeing with orb rather than with 妖々夢.
+because in every one of them the laid-out game had been agreeing with orb rather than with th07.
 
 | what a launch said | where the answer lives |
 | --- | --- |
-| the input read hands the word to the run a frame late, which is 妖々夢's famous frame of lag | `Game::hand_the_read_to_the_run`, and the three chain priorities beside `G_INPUT_THE_RUN_ACTS_ON` |
+| the input read hands the word to the run a frame late, which is th07's famous frame of lag | `Game::hand_the_read_to_the_run`, and the three chain priorities beside `G_INPUT_THE_RUN_ACTS_ON` |
 | a run picked up out of its file came up with the game's own lives, bombs and power — `resume: not put back` | `Th07::read_state`'s `in_run`: the supervisor's scene lags a run's build by the rest of one update |
 | and then played a stage nobody played, parting from the run at its first frame | `STAGE_BUILD`: the seed goes in before the build draws, and `set_run_state` holds the generator still over the reseal |
 | and the stage's own song played from the top for the seconds that took | the silence in the fed branch of the input read, put back by the landing's `play_from` |
-| 霊夢B's unfinished run was offered with the cursor on 霊夢A | `run_pointed_at` reads the cursor; `G_SHOT_CHOSEN` is written where an item is *decided* |
+| ReimuB's unfinished run was offered with the cursor on ReimuA | `run_pointed_at` reads the cursor; `G_SHOT_CHOSEN` is written where an item is *decided* |
 | 中断データあり was written over the difficulty's own name | `Th07::mark_corner` and `DIFFICULTY_LABEL_TOP`, both read off a screen |
 | orb's screens were not in the game's face after all | `OWN_FACE` carries the height and the 2× bake — [0019](../adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md) |
 | a boss beaten left a chapter with nothing to fight | `chapter.rs`, where a chapter the defeat closed is dropped |
@@ -119,7 +119,7 @@ and the run's numbers are the second: 0x42ea66 to 0x42eae3 walks `[this+0x8]` an
 `+0x8`, `+0x18`, `+0x28` and `+0x2c` to nothing, the byte at `+0x20` to nothing, `+0xc` to **0x186a0**,
 and `+0x30` to **0x32 or 0xc8** — the second where `[this+0x10]` is 4 or more, which is what makes
 `+0x10` **the difficulty**. It is *not* what makes `+0x30` a rank, and that reading is corrected in the
-table below: the pair 50 and 200 by difficulty is 紅魔郷's rank and this game's first point-value step, and
+table below: the pair 50 and 200 by difficulty is th06's rank and this game's first point-value step, and
 only the code that moves the field tells them apart. `[this+0x4]`'s byte at `+0x25` is cleared beside them.
 
 So: the game manager is 0x626270, its difficulty is `+0x10`, its character and shot are `+0x93d5` and
@@ -131,13 +131,13 @@ names the field, which is the cheapest evidence there is for a number:
 
 | field | evidence |
 | --- | --- |
-| `+0x0`, `+0x20` | **the score the panel shows and the continues used**, which is one row of it: 0x42bdf8 draws `+0x0` with `%.8d` under a hundred million and `%.9d` over it and then the byte `+0x20` with `%1d` one glyph along, which is 妖々夢 showing the continues as the score's last digit. The continue path at 0x4042e0 adds one to that byte, and the ending chooser at 0x41e73f reads it to pick `end00b.end` over `end00.end` — a run that continued gets the other ending |
+| `+0x0`, `+0x20` | **the score the panel shows and the continues used**, which is one row of it: 0x42bdf8 draws `+0x0` with `%.8d` under a hundred million and `%.9d` over it and then the byte `+0x20` with `%1d` one glyph along, which is th07 showing the continues as the score's last digit. The continue path at 0x4042e0 adds one to that byte, and the ending chooser at 0x41e73f reads it to pick `end00b.end` over `end00.end` — a run that continued gets the other ending |
 | `+0x4` | **the score.** 0x42f45d is the run's teardown — it cuts both of the game manager's chain elements and then clamps this field to 0x3b9ac9ff where it is 0x3b9aca00 or more, and copies it into `+0x0`. A cap of 999,999,999 applied as a run ends is a score's, and `+0x0` is the copy a panel's own number chases |
 | `+0x14`, `+0x18` | incremented together, each under its cap, by the `__thiscall` at 0x43eb90 whenever `[0x4d44f8]` is nothing — two counters of the same event, and neither is anything `State` or `RunState` carries |
 | `+0xc` | **the high score shown.** Drawn by exactly the shape `+0x0` is drawn by — under 0x5f5e100 with `%.8d` at 0x42bf0d and over it with `%.9d`, a `%1d` byte after each — and the callback starts it at 0x186a0, which is the 100,000 these games show before any run has beaten it. A score would start at nothing |
 | `+0x14` | `cmp DWORD PTR [eax+0x14],0x270f` at 0x43eba8 — 9999, a counter's cap |
 | `+0x18` | `cmp DWORD PTR [ecx+0x18],0xf423f` at 0x43ebcb — 999999, beside the one above |
-| `+0x24`, `+0x28`, `+0x2c`, `+0x30` | **the point item system, and no rank anywhere in it.** An item collected at 0x433247 adds a tenth of its value to the score and one to both `+0x24` and `+0x28`; 0x4333bd compares `+0x28` against `+0x30` and, where it has reached it, calls 0x42d83a on the game manager, adds one to `+0x2c` and sets `+0x30` to `(+0x2c - 2) * 0x1f4 + 0x320`. So `+0x28` is the point items collected, `+0x2c` is how far the point value has climbed and `+0x30` is the next step's count — the 0x32 or 0xc8 the build puts there by difficulty is the first step, higher for the Extra and the Phantasm, **which is what made it look like 紅魔郷's rank starting at 50 or 200.** It is not one, and `RunState::rank` is nothing for this game |
+| `+0x24`, `+0x28`, `+0x2c`, `+0x30` | **the point item system, and no rank anywhere in it.** An item collected at 0x433247 adds a tenth of its value to the score and one to both `+0x24` and `+0x28`; 0x4333bd compares `+0x28` against `+0x30` and, where it has reached it, calls 0x42d83a on the game manager, adds one to `+0x2c` and sets `+0x30` to `(+0x2c - 2) * 0x1f4 + 0x320`. So `+0x28` is the point items collected, `+0x2c` is how far the point value has climbed and `+0x30` is the next step's count — the 0x32 or 0xc8 the build puts there by difficulty is the first step, higher for the Extra and the Phantasm, **which is what made it look like th06's rank starting at 50 or 200.** It is not one, and `RunState::rank` is nothing for this game |
 | `+0x88` | always `[0x62f88c] - [run+0x88]` (0x4048f7, 0x41b3ff, 0x433170 and on), and that difference is compared against 0xc350 and 0x186a0 — 50000 and 100000, which are score thresholds and not frame counts. So `+0x88` is a score baseline and 0x62f88c is the total it is measured against; the continue path copies the one into the other at 0x4043bf, which is the difference being put back to nothing |
 | `+0x10`, `+0x20` | **the continues used**, one for each score above it: the byte the continue path at 0x4042e0 adds one to is `+0x20`, and each is drawn with `%1d` immediately after its own score and one glyph along from it, which is this game showing the continues as the score's last digit |
 
@@ -155,8 +155,8 @@ bombs were found by the events that move them instead, and everything below took
 
 **The power is `+0x7c`, and it is a float.** Three places do the same three instructions — `fld DWORD PTR
 [0x626278+0x7c]`, the float-to-int at 0x48b8a0, `cmp eax,0x80` — at 0x415478, 0x42c3e3 and 0x432710, and
-the continue path above puts that same field back to nothing. 128 is 妖々夢's full power, so the field
-compared against it is the power, and it is held as a float where 紅魔郷 holds an integer.
+the continue path above puts that same field back to nothing. 128 is th07's full power, so the field
+compared against it is the power, and it is held as a float where th06 holds an integer.
 
 **Which is the first real material for the question [0004](../adr/0004-th07-is-a-second-game-chosen-at-the-attach.md)
 parked**: whether `State` says everything a chapter needs for a game whose resources work differently.
@@ -186,7 +186,7 @@ at 7 over a table of eight — and **it is 1-based while a stage is played**: th
 0x40708d before the bound, which is the instruction the first reading walked past. The build at 0x42e83e
 adds the one at 0x42ef50 and then loads `data/ecldataN.ecl` and `data/stgNenm.anm` by the result, out of the
 tables at 0x49f560 and 0x49f588 whose first usable entry is index 1. So orb reads the word less one, the way
-紅魔郷's own 1-based field is read, and `docs/todo` carries this paragraph rather than the code: what the code
+th06's own 1-based field is read, and `docs/todo` carries this paragraph rather than the code: what the code
 says now is what is true.
 
 **What caught it was arithmetic on two addresses that were already in the tree**: the game manager is
@@ -247,7 +247,7 @@ the frame's own three calls are, and orb calls it after the numbers and puts the
 because sealing draws twice from the generator. That order is the game's own at 0x443790, and the reason it is
 that order is now in the code beside the constant.
 
-**The three counters a resumed run used to be short of are in**, and what they are is 妖々夢's **cherry**:
+**The three counters a resumed run used to be short of are in**, and what they are is th07's **cherry**:
 0x62f88c is the cherry, 0x62f888 is what it is filling towards, 0x62f890 is the cherry+, and all three are
 kept absolutely with `[run+0x88]` as the baseline every reader takes off them. What each is was read off what
 moves it — the item at 0x42016e and the bomb at 0x440ae7 spend the cherry, 0x43375f tests it against the
@@ -255,7 +255,7 @@ second, and 0x4428aa is where the third passing 0xc350 puts a border up.
 
 **`RunState` grew three fields for them**, which was the first of the three options this file used to cost out,
 and what settled it is that the struct already holds both games' vocabularies: `rank` and `power_items` are
-紅魔郷's and 妖々夢 answers nothing for them, so the trade the other way is the same one. The resume file went
+th06's and th07 answers nothing for them, so the trade the other way is the same one. The resume file went
 to version 2 with them, so a file written by an earlier build is refused with a line in the log — which is what
 that version number is for. `set_run_state` writes the three against the baseline *this* stage has and does the
 one thing the game's own restore does rather than writing outright: the cherry+ held to 0xc350 with the border
@@ -291,7 +291,7 @@ gets its score from somewhere else. Where, is the next thing to read.
 
 **Three of `RunState`'s ten have no address yet**: `point_items`, `power_items` and `extra_lives`. The place
 to look is the three globals above — 0x62f888, 0x62f88c and 0x62f890, each kept as a difference from
-`[run+0x88]` and compared against 0xc350 and 0x186a0, which are 妖々夢's cherry thresholds — and `[run+0x98]`,
+`[run+0x88]` and compared against 0xc350 and 0x186a0, which are th07's cherry thresholds — and `[run+0x98]`,
 `[run+0xac]` and `[run+0xb0]`, which are the fields the seal is computed from.
 
 **And `+0xc` is the high score, not the next extend**, which is worth writing down because the panel cannot
@@ -373,7 +373,7 @@ counting one into 0x62f52c, and a run *given up* through the pause menu does not
 finished from left, which is exactly what that method asks. **But nothing in the exe ever clears it.** The five
 `and` writes to this word clear bits 0, 1 and 3 and none of them touches 0x10, so a second run would read as
 finished before it started. What `run_finished` needs is either where the word is reset at a run's build —
-which is not one of the writes found — or the result screen's own object, the way 紅魔郷 answers it.
+which is not one of the writes found — or the result screen's own object, the way th06 answers it.
 
 **Bit 2 is the one bit of that word nothing has needed**, and where to start on it if something does: it is
 read at 0x439195, 0x4393a0 and three times around 0x442cd9. Bit 4's own addresses are above — set with
@@ -397,35 +397,35 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
 
 1. ~~**`Th07::read_state`**~~ — **done, every field of it.** What each is read off is beside the constant
    in `th07/mod.rs`, and the thing that came out of doing it is below: the numbers are sealed. The way in was
-   the same each time and is worth keeping for the rest: the event that moves the field, not where 紅魔郷 keeps
+   the same each time and is worth keeping for the rest: the event that moves the field, not where th06 keeps
    the same thing.
 2. ~~**The two questions [0004](../adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) parked**~~ —
    **both answered by the run being played.** `State` says what a chapter of this game needs once `RunState`
-   carries the cherry as well as 紅魔郷's rank and power items, and the table's shape holds: script frame
+   carries the cherry as well as th06's rank and power items, and the table's shape holds: script frame
    numbers per stage, on the clock [0018](../adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md)
-   settled, with `Game::midstage_table` answering each game's own `chapters.rs` — seven rows for 紅魔郷 and
-   eight for 妖々夢, neither of them a number in the code that reads them.
+   settled, with `Game::midstage_table` answering each game's own `chapters.rs` — seven rows for th06 and
+   eight for th07, neither of them a number in the code that reads them.
 3. ~~**The snapshot**~~ — **done, the audio with it.** `live_handles` is the sprite manager's 0x108 textures
    at `+0x282ac`, found by the release at 0x44e6f0 whose own two offsets check each other.
 
    **The audio went in as one piece and the shape of it is the thing to know**: `Music` used to be
-   紅魔郷's — a buffer, a countdown and an `HMMIO` — and what 妖々夢 has instead is a Win32 handle on
+   th06's — a buffer, a countdown and an `HMMIO` — and what th07 has instead is a Win32 handle on
    `thbgm.dat`, which it opens itself at 0x44bff0 and reads every track out of. So `audio::Track` is now two
    shapes, winmm's and this one, and everything above them works in *differences* of positions, which is what
    lets one rewind serve both. The three objects are the player (0x39cc bytes, its own ctor at 0x44b51a), the
    stream at `+0x39bc` of it (0x78 bytes, allocated at 0x45cb93) and the source at `+0xc` of that (0x94 bytes,
    0x45c933) — and the source is the *streaming* kind, `+0x7c` at nothing, so the position really is a file
    pointer and not memory. `music_identity` is the record the source is reading, `+0x10`, `+0x18` and `+0x1c`
-   of it, which is 紅魔郷's own three numbers in this game's terms. `stop_music` and `restart_stage_music`
+   of it, which is th06's own three numbers in this game's terms. `stop_music` and `restart_stage_music`
    stay the game's own two calls, which answer for both sound backends.
-4. ~~**The stage's two moments**~~ — **done, and they are not the two 紅魔郷 has.**
+4. ~~**The stage's two moments**~~ — **done, and they are not the two th06 has.**
 
    **`stage_begun` is the game manager's added callback, 0x42e83e**, prologue `55 8b ec 83 ec 40` read out of
    the exe's own bytes — the function whose end is where a stage's numbers have just been put in place, which
    is what that seam is for, and orb's own `set_run_state` is called after it returns.
 
    **`stage_building` is the stage's own build, 0x4074c0**, prologue `55 8b ec 83 ec 08 57` — and it was
-   declined first, for a stage's worth of reasoning a launch then refuted. The reasoning was that 妖々夢 takes
+   declined first, for a stage's worth of reasoning a launch then refuted. The reasoning was that th07 takes
    its stage's seed *during* the build (0x42f0a4 copies `[0x49fe20]` into `[gm+0x95e4]`) and that its own replay
    restore puts the seed back at the *end* of a restore, so the seed could go in where the numbers go in — the
    tail of `Th07::set_run_state`.
@@ -441,7 +441,7 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    **And the calling convention is why the patch could not simply be declared**: this game's chain calls its
    callbacks `__thiscall`, with the object in `ecx` — `RUN_CALC_CHAIN`'s own walk does
    `mov ecx,[elem+0x1c]; call [elem+0x4]` — while `runtime::stage_begun` is `extern "C"` and calls the
-   original with the argument on the stack, as 紅魔郷's `__cdecl` callback wants. Hooked that way, 0x42e83e
+   original with the argument on the stack, as th06's `__cdecl` callback wants. Hooked that way, 0x42e83e
    would read `[ebp-0x2c]` out of whatever `ecx` happened to hold, which is a crash and not a wrong number.
    What went in is the shape the pad read already had: `PadRead` became `game::Entered`, which both seams now
    carry, `runtime::stage_begun_in_ecx` is the `fastcall` twin, and the DLL picks between them.
@@ -493,7 +493,7 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    Phantasm — while `run_start`, answered after the build, reads the same word one higher. Two methods, the
    same field, read differently, which is [`G_STAGE`]'s own note in the code.
 
-   **`run_slot` is in and names the run** — `lunatic-sakuya-b` — which is 紅魔郷's own shape here and what
+   **`run_slot` is in and names the run** — `lunatic-sakuya-b` — which is th06's own shape here and what
    makes a listing of `pointdevice_resume/` read as the runs somebody left. The two orders it needs are read
    rather than guessed: the difficulty is 0x626280's own numbering, `Easy` through `Phantasm`, and the shot is
    `character * 2 + shot`, which is the byte at 0x62f647 every table the game indexes by them is in — the
@@ -523,7 +523,7 @@ it, and `Image::the_next_stage_is_being_asked_for` is where a laid-out transitio
    0x498c54 (96.0) — and the anchor is the corner because the same instruction lays the tile grid from
    (416, 16) in 32s.
 
-   `repaint_lives_row` writes **two** things and 紅魔郷 writes one: the lives' pair of bits in `[0x49fbf0+4]`
+   `repaint_lives_row` writes **two** things and th06 writes one: the lives' pair of bits in `[0x49fbf0+4]`
    asks for the marks, and 0x575ab4 asks for the ground under them, this panel having no erase bar of its
    own. `draws_lives_row` is the panel's own draw job being on the draw list, 0x427f22 off the chain's
    `+0x20` list.
@@ -538,7 +538,7 @@ comes before the table, not after it, and the table's entries are empty rather t
 pass has one line to write per stage.
 
 **What the answer rests on is `crates/orb-e2e/src/a_pointdevice_run_of_th07.rs`**, which plays a run of a
-laid-out 妖々夢 through the whole of the mode: the question over the title menu, the answer on the keyboard,
+laid-out th07 through the whole of the mode: the question over the title menu, the answer on the keyboard,
 a run built, the stage's first chapter at frame 249 — a snapshot of 14MB of this game's own data — the mark
 over the lives with the panel's own tile in the strips, a death, the retry menu read off the screen in the
 face the machine lent, and the chapter put back with the numbers it had. Three things the laid-out game
@@ -549,7 +549,7 @@ needed for that, each of which is what a real one does:
   calls and the baking of a card's name. A launch that left one unanswered jumped into the real game's
   addresses — which in a laid-out one is memory nothing has mapped, and the child process died with no output
   at all;
-- **the keys**, mapped to the word 妖々夢's own read builds — shot 0x1, bomb 0x2 and the four directions from
+- **the keys**, mapped to the word th07's own read builds — shot 0x1, bomb 0x2 and the four directions from
   0x10 — because orb decides a press off the word the *game* read and a game whose read answers nothing sees
   no press;
 - **the two clocks moving**, which is `Fake::the_run_goes_on`: orb waits a stage's settling out before the
@@ -559,9 +559,9 @@ And one thing the laid-out game had wrong: an object laid out and left at nothin
 *zero*, which every reader takes for a line being played — so a stage with a panel had a dialogue up on every
 frame and no chapter was ever due. The load's own -1 goes in with the object now.
 
-## The e2e sweep: what 紅魔郷 is asked and 妖々夢 is not yet
+## The e2e sweep: what th06 is asked and th07 is not yet
 
-**Every e2e test over 紅魔郷 is a question that can be put to 妖々夢 now**, and the ones already put are the
+**Every e2e test over th06 is a question that can be put to th07 now**, and the ones already put are the
 files with `_of_th07` in the name beside `th07.rs` and `a_pointdevice_run_of_th07.rs`. What each of those took
 is written in it; what the rest will take is the same three kinds of thing — a laid-out object the image does
 not lay out yet, a call of the game's own handed over, or the game's part played frame by frame in the fake.
@@ -588,10 +588,10 @@ the file or the stage behind that question is declined.
 **Three things the sweep found, every one of them a hole rather than a difference**, and each is fixed with the
 e2e test that found it:
 
-- `Th07::run_start` answered `practice: false` outright, so a practice run of 妖々夢 was written down as a whole
+- `Th07::run_start` answered `practice: false` outright, so a practice run of th07 was written down as a whole
   run and offered back. The bit is [`G_RUN_KIND`]'s bit 0, which `read_state` already read.
 - `Th07::menu_takes_a_press` answered only for the title menu, so the press at the shot select was never held
-  back and the question about a run left unfinished could never be asked: 妖々夢 wrote a resume file that nothing
+  back and the question about a run left unfinished could never be asked: th07 wrote a resume file that nothing
   could ever offer.
 - `Th07::pad` answered `Pad::default()`, so **no question of orb's could be answered on a pad** — the mode
   question, the retry menu, the list of chapters behind one and the resume question, all of them keyboard-only in
@@ -603,25 +603,25 @@ And two claims in the code that were true when they were written and are not now
 game's menus. The reason both answers are still right is the read itself — 0x430b76 is `GetKeyboardState` — and
 that is what they say now.
 
-**And nothing of 紅魔郷's own files is left to port.** Three of them turned out to be asked of this game already
+**And nothing of th06's own files is left to port.** Three of them turned out to be asked of this game already
 rather than portable:
 
 - `the_process_orb_woke_up_in` walks the whole table — every entry, every build named, and every one found by its
-  own exe — so 妖々夢 is in both of its assertions.
-- `mode_on_a_winmm_pad` is the branch where the game has no DirectInput device of its own, which for 妖々夢 is
+  own exe — so th07 is in both of its assertions.
+- `mode_on_a_winmm_pad` is the branch where the game has no DirectInput device of its own, which for th07 is
   *every* launch: the pad orb's menus and its word are asked about in `the_mode_of_th07_on_the_pad.rs` and
   `th07.rs` is winmm's joystick 0 sampled on a thread of orb's own, which is that file's device.
 - What a replay's own record does across a stage teardown is a question this game answers by not having it:
-  `Th07::hooks` declines `stop_recording` because 妖々夢's teardown writes no entry and its recorder refuses a
+  `Th07::hooks` declines `stop_recording` because th07's teardown writes no entry and its recorder refuses a
   frame during playback, which is written where it is declined.
 
 And `a_chapter_out_of_the_table` has nothing to read here yet by design: `Th07::midstage_table` is eight empty
 rows until the pass in `a_chapter_table_collected_for_th07.rs` is run against a real replay, which is the
 measurement at the end of this file.
 
-**And the last two of 紅魔郷's are settled**, both about the game's own player:
+**And the last two of th06's are settled**, both about the game's own player:
 
-- **`the_player_a_stage_starts`** asserts 紅魔郷's spawning branch turning 120 into 240. 妖々夢 does the opposite
+- **`the_player_a_stage_starts`** asserts th06's spawning branch turning 120 into 240. th07 does the opposite
   and `the_player_a_stage_of_th07_starts.rs` is that read written down: the register every stage's build runs
   leaves the state a run is played in with nothing on the timer, and the hit test reads no count of frames at all,
   so a stage of this game begins with a player anything can kill. What the e2e test holds is what a build leaves
@@ -672,7 +672,7 @@ ranking built and taken down with nothing drawn. The call that faults is a scree
 it holds at `+0xb0c8` — 0x4555a0, guarded on that field being non-zero — so the screen is there and the vm it
 points at is not.
 
-**One thing about that pump was wrong and is fixed**: it ignored what the walk answered, and 妖々夢's own frame
+**One thing about that pump was wrong and is fixed**: it ignored what the walk answered, and th07's own frame
 *returns* on two of those answers — 0x4347f1 and 0x434801 test them, 0x4347fc and 0x43480c return — so a walk
 asked for after one of them is a walk no frame of the game's own makes, over a chain whose scene is being taken
 apart. The pump now stops at `CHAIN_EXIT_ERROR` and says so:
@@ -682,7 +682,7 @@ was watched failing at three walks past that answer and then at one, and which i
 this game to reach `commit_records` at all — the hole the fault fell through.
 
 **And then the pump stopped being asked for at all**, which closes this route rather than fixing it:
-`commit_records` returns on `Game::writes_its_own_records` before it walks anything, and 妖々夢 answers that
+`commit_records` returns on `Game::writes_its_own_records` before it walks anything, and th07 answers that
 `true` — so no launch of this game asks the chain for an update again, and the walk the fault was inside is one
 nothing makes. The line to look for now is
 `score: this game writes its own file; what the run counted waits for the save it makes itself`.
@@ -711,8 +711,8 @@ so what a session counted is put back over the file's own records at the parse t
 `Th07::put_back_the_cards_a_run_left` and `its_records_are_about_to_be_written`, and a launch's
 `score: card 91 now 126 …` line. What is below is the reading that led there.
 
-**Read because the pump that builds it is where the fault above lives**, and the question was whether 妖々夢
-needs it: 紅魔郷 writes its score file only as the ranking screen goes down, and if this game wrote its own on
+**Read because the pump that builds it is where the fault above lives**, and the question was whether th07
+needs it: th06 writes its score file only as the ranking screen goes down, and if this game wrote its own on
 the way out then the pump could go. It does write on the way out, and that write is **not** the one the
 session's counts reach the file through.
 
@@ -792,9 +792,9 @@ the other 140 standing. `--no-chapters` because the fork sends a pointdevice lau
 `pointdevice_score.dat` while the front end's own unlocks read still comes out of the game's file, which mixes
 the two files' numbers in that line.
 
-**A run somebody plays cannot be driven from a script, and the reason is [`Game::take_sent_keys`]**: 紅魔郷
+**A run somebody plays cannot be driven from a script, and the reason is [`Game::take_sent_keys`]**: th06
 answers it by letting its own keyboard device go, so `--sent-keys` makes a session drivable with `SendInput`;
-妖々夢's answers `false`, so synthesized keys reach nothing — a launch with `--sent-keys` says
+th07's answers `false`, so synthesized keys reach nothing — a launch with `--sent-keys` says
 `the game had no keyboard device to let go of` and its own demo plays on through every key sent at it. Which is
 why the flag above exists: what it takes out of the check is the playing, not the game.
 
@@ -818,7 +818,7 @@ accident — and what it presses goes in where a playback's own recorded words g
 the same score file and the same ranking a run somebody played leaves. Anything less is not a run to measure a
 resume against.
 
-The rules 妖々夢 is played by are in `crates/orb-core/src/game/th07/bot.rs`, each with the e2e test in
+The rules th07 is played by are in `crates/orb-core/src/game/th07/bot.rs`, each with the e2e test in
 `the_bot_playing_th07.rs` that pins it. **What no laid-out game can say is whether they clear the game**, and
 that is this section: a launch says it, and a run that dies says which rule to look at.
 
@@ -840,24 +840,24 @@ What has been closed, each now standing beside the thing it is about rather than
 - **An enemy's body and its motion**, and **a laser's turn**, both by remembering last frame: neither an enemy
   nor a laser has a step or a rate anywhere on it, so the difference from last frame is the only reading there
   is. `bot::moved` and `bot::turned`.
-- **A boss's slot outliving its boss**, which cost 妖々夢's 4面 22505 of its 38820 frames against the left
+- **A boss's slot outliving its boss**, which cost th07's stage 4 22505 of its 38820 frames against the left
   wall. `Th07::boss` carries it.
 
 **And what a hit turned out to mean most often is not a hazard missed but a hazard invented.** Three of the
 readings above are the game saying a thing *cannot* touch the player, and each one had been costing hits by
 making the bot dodge it:
 
-- **An enemy with no body**, the low two bits of `+0x2e29` (0x420e86, 0x420e9f). 6面's boss fires 自機狙い off
+- **An enemy with no body**, the low two bits of `+0x2e29` (0x420e86, 0x420e9f). Stage 6's boss fires aimed shots off
   one its script keeps at the player, so dodging it is a corner with no way out — three hits in one chapter
   reading `nowhere open to it`.
 - **A bullet still coming out**, which is any state but the first of the five at 0x426add. Most of a wall of
   bullets on the frame it is fired.
-- **A 予告線 before it fires**, `+0x4e0` against `+0x4c4` (0x4266dc). The one lane a laser pattern leaves open
+- **A warning line before it fires**, `+0x4e0` against `+0x4c4` (0x4266dc). The one lane a laser pattern leaves open
   is the one the warning is drawn across.
 
 So the shape to look for in a `nowhere open to it` is not a missing hazard: it is one of these.
 
-**Two questions are open.** Which of 妖々夢's 4面 bosses the fight is *with* — three share the stage and all
+**Two questions are open.** Which of th07's stage 4 bosses the fight is *with* — three share the stage and all
 three are on the screen for the last cards, so standing under the first slot inside the field is standing under
 whichever it happens to be. Nothing has been read that tells them apart; `ENEMY_LIFE` is the candidate and no
 launch has confirmed the decoys have none. It costs time rather than hits — an attack that is not being shot
@@ -900,7 +900,7 @@ read, and one of them is that source:
   just its distance — which is the shape of a hit the model called clear. The frame it turns on is readable:
   `+0xd5c` counts up and 0x425a23 compares it with `+0xd60`.
 
-So the work is the same shape as the 予告線's: trust the straight line for the frames before the turn and treat
+So the work is the same shape as the warning line's: trust the straight line for the frames before the turn and treat
 the frames after it as what they are, which is nothing known. And the same instrument decides whether it was
 worth it — a hit reading about two units of room is this, and one reading twenty is a hazard still missing.
 
@@ -935,7 +935,7 @@ It was the first: **0x43e6b0 is the player's own laser test**, and 0x426713 and 
 origin and angle, which it turns the player into the beam's frame with through 0x4319b0. So a beam is its own
 hazard and not a bullet wearing one, and the bot reads it as one.
 
-**妖々夢 has two kinds**, and one reading covers both: the beam about to fire is thin and the beam firing is
+**th07 has two kinds**, and one reading covers both: the beam about to fire is thin and the beam firing is
 wide, so the width it has *now* makes the warning line a hazard exactly the size it looks — nothing has to know
 which of the two a slot holds. What tells a beam that is done from one that is not is the phase at `+0x4e8`,
 which both of the game's own walks skip at 2.
@@ -1027,12 +1027,12 @@ that only lands, in place of five runs from nothing:
 
 | launch | recipe | what its log answers |
 | --- | --- | --- |
-| A | `to-the-second-stages-boss.yaml` | nothing; it leaves the run in 2面's fight |
-| B | `took-it-back-and-on-to-the-third.yaml` | 2面 |
-| C | `took-it-back-and-on-to-the-fourth.yaml` | 3面 |
-| D | `took-it-back-and-on-to-the-fifth.yaml` | 4面 |
-| E | `took-it-back-and-on-to-the-sixth.yaml` | 5面 |
-| F | `took-the-run-back.yaml` | 6面 |
+| A | `to-the-second-stages-boss.yaml` | nothing; it leaves the run in stage 2's fight |
+| B | `took-it-back-and-on-to-the-third.yaml` | stage 2 |
+| C | `took-it-back-and-on-to-the-fourth.yaml` | stage 3 |
+| D | `took-it-back-and-on-to-the-fifth.yaml` | stage 4 |
+| E | `took-it-back-and-on-to-the-sixth.yaml` | stage 5 |
+| F | `took-the-run-back.yaml` | stage 6 |
 
 **The fight is waited for and not a chapter number**, because which chapter of a stage a fight begins at depends
 on how many waves came before it, and that is not the same in two stages. The grammar refuses `boss` beside a
@@ -1041,7 +1041,7 @@ on how many waves came before it, and that is not the same in two stages. The gr
 **And the fight it waits for is the one the stage ends with, not the midboss.** `Reached::boss` is
 `Chapters::the_stages_own_boss_is_up`, which is the fight having a song of its own — a midboss fights under the
 stage's own song, so it is deliberately not this. A recipe written expecting otherwise walked its run straight
-past 3面's midboss and sat on `still waiting` until the stage's boss came up. Leaving the run in the boss fight
+past stage 3's midboss and sat on `still waiting` until the stage's boss came up. Leaving the run in the boss fight
 is what these launches do, and a fight is the hardest point of a stage to come back to: the file holds the
 chapter the run was standing in, so a pickup has thousands of that stage's frames to play back before it
 arrives, and every one of them has to land.

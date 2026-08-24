@@ -216,7 +216,7 @@ const ASKS: u32 = 125;
 
 /// The game asking for the pointer back is answered by orb rather than by the host.
 ///
-/// 紅魔郷 answers `WM_SETCURSOR` with `ShowCursor(TRUE)` on every movement of the pointer over its
+/// th06 answers `WM_SETCURSOR` with `ShowCursor(TRUE)` on every movement of the pointer over its
 /// window, which is what makes the display counter something orb has to own outright: a call let through
 /// raises it without changing the screen, and the one step that takes the pointer off then takes it
 /// nowhere. So the ask is answered where the import was patched — the pointer stays where orb put it, and

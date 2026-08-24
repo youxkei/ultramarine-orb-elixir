@@ -128,13 +128,13 @@ fn a_button_held_from_before_the_question_does_not_answer_it() {
     });
 }
 
-/// The pad moves the cursor too, so 完全無欠モード is reachable without touching the keyboard — on the
+/// The pad moves the cursor too, so Pointdevice mode is reachable without touching the keyboard — on the
 /// stick and on the hat, which the game reads out of different fields of its device.
 #[test]
 fn the_stick_and_the_hat_both_move_the_cursor() {
     in_its_own_process(|| {
         let game = asking("pad-moves");
-        // Down to レガシーモード on the stick: past the threshold the game keeps beside its mapping, since
+        // Down to legacy mode on the stick: past the threshold the game keeps beside its mapping, since
         // the middle of an axis is not a direction.
         game.push(Pushed {
             y: i32::from(MAPPING.y_axis) + 1,

@@ -13,7 +13,7 @@ thcrap's presence did to orb's own text is [0015](0015-orbs-own-text-leaves-thro
 
 ## Context
 
-**紅魔郷 in English is thcrap, and thcrap is a launcher.** It patches a game by injecting into it, and its
+**th06 in English is thcrap, and thcrap is a launcher.** It patches a game by injecting into it, and its
 configuration tool installs a wrapper exe per patch stack in the game's directory —
 `th06 (en).exe` — which runs `thcrap_loader.exe` with a run configuration and a game id. orb is a launcher
 too, for the same reason: it creates the process suspended so that its DLL is in before the game's entry
@@ -29,7 +29,7 @@ hand is bad:
   rather than into the game, which is not what either of them meant.
 
 **And it is not a rare pair.** orb's screens are in English because the machine is (0014); a machine whose
-Windows is in English is a machine whose 紅魔郷 is very likely under thcrap.
+Windows is in English is a machine whose th06 is very likely under thcrap.
 
 ## Decision
 
@@ -41,10 +41,10 @@ to arrange the two.
 `auto`** — off where that is Japanese and on where it is anything else, which is
 `Config::thcrap_wanted`. That answer and not `GetUserDefaultUILanguage` directly, so `language:
 japanese` on an English machine turns the patch off too: somebody who says which language they read has
-said it about the patch as well. It is 0014's question with the same answer: Japanese is somebody reading the words 紅魔郷 already
+said it about the patch as well. It is 0014's question with the same answer: Japanese is somebody reading the words th06 already
 has, and a patch putting English over them would be orb translating a game away from the language its
 owner reads. The alternative was a switch that defaults to on for everybody, which is what this was
-built as: it makes a Japanese machine with thcrap installed for some other game start 紅魔郷 in English,
+built as: it makes a Japanese machine with thcrap installed for some other game start th06 in English,
 and a translation nobody asked for is worse than a translation somebody has to ask for. Defaulting off
 for everybody was rejected the other way — it leaves whoever installed thcrap to play this game in
 English playing it in Japanese until they find a checkbox, which is the arrangement this whole document
@@ -69,7 +69,7 @@ is the question a launch is asking, and it is the arrangement the wizard offers 
 **The injection is two of thcrap's exports, in the order thcrap's own loader calls them.**
 `WaitUntilEntryPoint` runs the suspended process to its entry point and stops it there;
 `thcrap_inject_into_running` then takes the process and the run configuration. Both are cdecl.
-Measured, on 紅魔郷 1.02h with thcrap 2025-12-02:
+Measured, on th06 1.02h with thcrap 2025-12-02:
 
 - Without `WaitUntilEntryPoint`, a process created suspended and handed straight to
   `thcrap_inject_into_running` ends up with thcrap's DLLs in it and no window ever created. Its export list

@@ -1,6 +1,6 @@
-//! **The numbers a run of 妖々夢 is made with, and what a resume is allowed to do to them.**
+//! **The numbers a run of th07 is made with, and what a resume is allowed to do to them.**
 //!
-//! 妖々夢 keeps a seal over the run's own numbers and checks it: 0x4012b0 draws a word into `[run+0x3c]` and
+//! th07 keeps a seal over the run's own numbers and checks it: 0x4012b0 draws a word into `[run+0x3c]` and
 //! copies it into `[run+0xac]`, 0x404fe0 holds the two against each other, and every guarded write the game
 //! makes asks that check first. Where it fails the caller fills 0xb4 dwords from 0x575950 with 0xffffffff — the
 //! device pointer and the scene the supervisor reads are both in that range — so a run whose seal has come
@@ -32,7 +32,7 @@ const SETTLES: u32 = 600;
 /// **And the numbers a stage of a run in progress has that a first stage does not**: the score the panel is
 /// drawing, and how far the point value has climbed.
 ///
-/// Neither is what the buttons play against — the score no more decides a frame of 妖々夢 than the number on
+/// Neither is what the buttons play against — the score no more decides a frame of th07 than the number on
 /// the panel does, and this game's extra lives are bought with cherry — so a run resumed without them is a run
 /// that plays out right and is *recorded* wrong: the panel counts up from whatever the front end left, and the
 /// items are worth what a first stage's are. What a run is for is the number at the end of it, so that is not

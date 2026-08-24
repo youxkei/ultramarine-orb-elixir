@@ -2,13 +2,13 @@
 //!
 //! Everything above this module — chapters, snapshots, the retry menu, the
 //! overlay — is written against [`Game`] and [`State`] rather than against
-//! 東方紅魔郷. The point of the seam is that porting to another Touhou game means
+//! th06. The point of the seam is that porting to another Touhou game means
 //! writing addresses and offsets, not reworking how chapters or retries behave.
 //!
 //! Two implement it. [`th06`] answers everything, and [`th07`] answers what has
-//! been measured of 妖々夢 — a frame, and nothing about a run — and declines the
+//! been measured of th07 — a frame, and nothing about a run — and declines the
 //! rest, which is how the list of what a second game still needs is found rather
-//! than guessed at. So orb paces 妖々夢 and plays 紅魔郷. Which of them a process
+//! than guessed at. So orb paces th07 and plays th06. Which of them a process
 //! is is [`KNOWN`].
 
 /// Where to call one of the game's own functions, which is its address in a real process and whatever a
@@ -16,7 +16,7 @@
 ///
 /// **Code is the one thing an address space laid out by hand cannot hold**, so every call a game in here
 /// makes into itself that an e2e test reaches has to be answerable — a shake still running at a stage
-/// move is taken down through one of 紅魔郷's, and the queue of quads a frame of 妖々夢's drawing fills is
+/// move is taken down through one of th06's, and the queue of quads a frame of th07's drawing fills is
 /// emptied and drawn through two more. An e2e test without them would be jumping into memory nothing has
 /// mapped. The same answer `window::install_over` and `score::install_over` are — see
 /// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
@@ -281,7 +281,7 @@ pub struct Hooks {
     /// at *this* moment is the whole of what reaches the file, and a session's counts have nowhere else
     /// to be put. Entered `(the file's image, the array)` in `ecx` and `edx`.
     ///
-    /// `None` for a game whose score file is written as its ranking screen goes down, which is 紅魔郷:
+    /// `None` for a game whose score file is written as its ranking screen goes down, which is th06:
     /// there the record in memory is what the write takes and nothing lays a file over it first.
     pub card_records_read: Option<Patch>,
     /// Runs after the config is read and before the window and device exist, which
@@ -307,7 +307,7 @@ pub struct Hooks {
     /// found stands, and [`Game::add_pad_buttons`] adds the pads orb read for itself.
     ///
     /// A read of its own because a mapping screen cannot use a mapped word — it is the screen the mapping
-    /// is made on. `None` for a game with no such screen, which is 紅魔郷: its buttons are configured by
+    /// is made on. `None` for a game with no such screen, which is th06: its buttons are configured by
     /// `custom.exe` beside it and nothing in the game reads a pad by number.
     pub pad_buttons: Option<Patch>,
 }
@@ -315,11 +315,11 @@ pub struct Hooks {
 /// A patch, and where the argument of the function under it arrives.
 ///
 /// **Because a hook is entered by its ABI and nothing else**, and MSVC compiled the same call differently
-/// in the two games. The pad read is the pair this was first needed for: 紅魔郷's
+/// in the two games. The pad read is the pair this was first needed for: th06's
 /// `Controller::GetControllerInput` takes the word the keyboard was read into on the stack — `push edx;
-/// call 0x41cfc0; add esp,4` at 0x41dc77 — and 妖々夢's takes it in `ecx`, `mov ecx,[ebp-0x104]; call
-/// 0x4303f0` at 0x430f1a. A stage's own beginning is the second: 紅魔郷's added callback is `__cdecl` and
-/// 妖々夢's is `__thiscall`, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`.
+/// call 0x41cfc0; add esp,4` at 0x41dc77 — and th07's takes it in `ecx`, `mov ecx,[ebp-0x104]; call
+/// 0x4303f0` at 0x430f1a. A stage's own beginning is the second: th06's added callback is `__cdecl` and
+/// th07's is `__thiscall`, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`.
 /// Entered the wrong way, a hook that calls the original through reads its argument out of whatever the
 /// register or the stack happened to hold, which is a crash and not a wrong number.
 ///
@@ -433,7 +433,7 @@ impl Pad {
         }
     }
 
-    /// Two pads' worth of pushing as one. 紅魔郷 is a one-player game, so every pad on the machine is
+    /// Two pads' worth of pushing as one. th06 is a one-player game, so every pad on the machine is
     /// that one player's and which of them a push came from is nothing a menu has any use for.
     pub fn or(self, other: Self) -> Self {
         Self {
@@ -469,7 +469,7 @@ pub struct PanelTile {
 /// Which run this is: everything the game's own front end is asked for before one starts.
 ///
 /// What says whether a chapter written down belongs to the run about to be played. A run of another
-/// character is another run — its buttons would play somebody else's shot — which is why 紺珠伝 keeps
+/// character is another run — its buttons would play somebody else's shot — which is why th15 keeps
 /// a pointdevice save per difficulty and character, and why orb keeps one per [`Game::run_slot`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RunStart {
@@ -488,10 +488,10 @@ pub struct RunStart {
 /// see [`Game::run_state`], which hands them over as that game's bytes, and the two games' own
 /// `resume` modules, where each says what its own file holds.
 ///
-/// It was one struct, with 紅魔郷's rank, power items and extra lives beside 妖々夢's cherry, and each game
+/// It was one struct, with th06's rank, power items and extra lives beside th07's cherry, and each game
 /// wrote nothing into the other's fields. What that cost was not the six wasted numbers: it was that the file
-/// they went into had one version between the two games, so a field 妖々夢 needed could not be added without
-/// refusing every 紅魔郷 run on a disk. It was added without the version being raised, a run of 妖々夢 was
+/// they went into had one version between the two games, so a field th07 needed could not be added without
+/// refusing every th06 run on a disk. It was added without the version being raised, a run of th07 was
 /// picked up out of a file that predated it, and the playback parted from the run with nothing in the log
 /// able to say where.
 /// A face the host is asked for by name, as the game itself asks for one: the family, whether it is wanted
@@ -500,10 +500,10 @@ pub struct RunStart {
 /// What a game that ships no font of its own draws its text with — see [`Game::own_face`].
 ///
 /// **The family alone is not the same text on the screen**, which is what the last two are for. The size orb
-/// draws its own lines at is orb's, but *how a glyph of that size is made* is the game's: 妖々夢 asks GDI for
+/// draws its own lines at is orb's, but *how a glyph of that size is made* is the game's: th07 asks GDI for
 /// a height of `size * 2 - 2` — positive, so the whole cell rather than the em — and bakes into a bitmap twice
 /// the size before that is drawn back down. Baked at the size instead, the same family comes out with different
-/// stroke weights and edges, which a 妖々夢 session saw as text that did not look like the game's.
+/// stroke weights and edges, which a th07 session saw as text that did not look like the game's.
 #[derive(Clone, Copy)]
 pub struct Face {
     pub family: &'static str,
@@ -579,8 +579,8 @@ pub trait Game {
     /// It has to agree with them all the same, and a game that answered `true` here while declining
     /// `midstage_table`, `stage_begun` and the rest would be a launch in a mode it cannot be in: the log
     /// would say pointdevice, the front end would be asked which mode a run is, and the runs it wrote
-    /// would go to orb's file having never been rewindable. Which is what 妖々夢 did before this was
-    /// asked — a `pointdevice_score.dat` in a 妖々夢 install, holding runs anybody could have played.
+    /// would go to orb's file having never been rewindable. Which is what th07 did before this was
+    /// asked — a `pointdevice_score.dat` in a th07 install, holding runs anybody could have played.
     ///
     /// `false` for a game orb has read no run of, which keeps that game's scores in its own file and
     /// orb's question off its menus.
@@ -643,9 +643,9 @@ pub trait Game {
     }
 
     /// Whether a line of a conversation is on the screen, which is narrower than [`State::in_dialogue`]: that
-    /// one is the *game's* predicate, and 妖々夢's counts the line it hands the screen over on — the one no words
-    /// are drawn for. A recipe waiting for a conversation to photograph waited on that in 5面 and 6面 and got the
-    /// frame the box was still being drawn on.
+    /// one is the *game's* predicate, and th07's counts the line it hands the screen over on — the one no words
+    /// are drawn for. A recipe waiting for a conversation to photograph waited on that in stage 5 and stage 6
+    /// and got the frame the box was still being drawn on.
     ///
     /// # Safety
     /// Must run on the game's main thread.
@@ -663,7 +663,7 @@ pub trait Game {
     /// Notices what the game has counted of its own play time since the frame before, so that a span counted
     /// before anybody chose a mode can be carried onto whichever file the sitting turns out to write.
     ///
-    /// **Nothing for a game whose score file does not record one**, which is what the default is: 紅魔郷's
+    /// **Nothing for a game whose score file does not record one**, which is what the default is: th06's
     /// その他の記録 has no such total, so there is nothing of it to attribute.
     ///
     /// # Safety
@@ -696,7 +696,7 @@ pub trait Game {
     /// [`music_identity`](Game::music_identity) having changed since the stage began —
     /// which is what a game whose songs cannot be named by name is left with.
     ///
-    /// **The two are not the same reading, and 妖々夢 is why.** A stage's first chapter is
+    /// **The two are not the same reading, and th07 is why.** A stage's first chapter is
     /// taken frames into the stage, so the track at the stage's start can be the song the
     /// stage was come into with rather than the stage's own; then every fight of that stage
     /// is a track change, and its midboss comes out as the boss the stage ends with — its
@@ -710,8 +710,8 @@ pub trait Game {
     /// The family the game draws its own text in, where it ships no font and asks the host for
     /// one by name — so that orb's own screens are in the same face as the game's text.
     ///
-    /// `None` where the game ships a font instead, which orb loads: 紅魔郷 adds the `font.ttf`
-    /// beside its exe. 妖々夢 ships none — the sprites in `th07.dat` are its panel's digits — and
+    /// `None` where the game ships a font instead, which orb loads: th06 adds the `font.ttf`
+    /// beside its exe. th07 ships none — the sprites in `th07.dat` are its panel's digits — and
     /// makes every string it draws out of a family it names to GDI: `CreateFontA` at 0x4322e7 with
     /// `ＭＳ ゴシック` and the weight 0x2bc, into a DIB it then uploads. The `bold` beside the name
     /// is that weight, 700 being what Windows calls bold.
@@ -728,7 +728,7 @@ pub trait Game {
     /// **0.0 by default, which is a panel whose rows are as far apart as they are tall.** The
     /// mark is a brush stroke and a stroke is not the shape of a row, so it is drawn taller
     /// than one where there is room — and where there is not, a mark reaching past the row
-    /// paints over a neighbour the game repaints no oftener than this row: 妖々夢 puts its
+    /// paints over a neighbour the game repaints no oftener than this row: th07 puts its
     /// bombs 16 pixels under a row 16 tall, and the stroke's own box hung 7 pixels into them,
     /// which took the tops of the bombs' stars with it.
     fn room_around_the_lives_row(&self) -> f32 {
@@ -755,7 +755,7 @@ pub trait Game {
     /// a restore has left to do about the sound waits for the ask it made to have
     /// been carried out.
     ///
-    /// Nothing for a game whose calls are done by the time they return; 妖々夢's are
+    /// Nothing for a game whose calls are done by the time they return; th07's are
     /// not, and one of its own runs of the sound is not enough to finish one either.
     fn a_sound_command_is_in_flight(&self) -> bool {
         false
@@ -830,8 +830,8 @@ pub trait Game {
     ///
     /// **Its own answer per game, because which corner is free is the game's own layout.** It is drawn over the
     /// shot select while that screen is still being read, so a corner the game writes in is a corner where
-    /// orb's two lines land on top of the game's. 紅魔郷 leaves the bottom-left of it empty, which is what this
-    /// default is; 妖々夢 writes the difficulty's own name and its English line there, and a session of it read
+    /// orb's two lines land on top of the game's. th06 leaves the bottom-left of it empty, which is what this
+    /// default is; th07 writes the difficulty's own name and its English line there, and a session of it read
     /// orb's mark over the top of them.
     /// **The last line that fits, said as one**: a line's own height off the bottom, and four pixels more for a
     /// face that measures taller than the spacing between lines. It was twenty pixels off the bottom while those
@@ -923,11 +923,11 @@ pub trait Game {
     /// **Two seams rather than more of [`prepare_frame`](Game::prepare_frame)**, because these are a
     /// different place in the frame: that one runs before the wait and before the update, outside any
     /// scene, and what goes here is between `BeginScene` and `EndScene` with the draw chain in the
-    /// middle. 妖々夢 empties the queue of quads its drawing fills here and draws it there, and a loop
+    /// middle. th07 empties the queue of quads its drawing fills here and draws it there, and a loop
     /// that put either of those in `prepare_frame` would be emptying a queue the game's own drawing had
     /// already filled or drawing one outside the scene it was queued in.
     ///
-    /// Nothing for a game whose frame does nothing there, which is 紅魔郷: its `GameWindow::Render` goes
+    /// Nothing for a game whose frame does nothing there, which is th06: its `GameWindow::Render` goes
     /// `BeginScene` at 0x4207d1, `Chain::RunDrawChain` at 0x4207dc, `EndScene` at 0x4207ef with nothing
     /// between any of them. See
     /// [docs/adr/0017](../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
@@ -1077,7 +1077,7 @@ pub trait Game {
 
     /// Puts the card records a run left back over the ones a save's own read of the file has just laid down.
     ///
-    /// **Back rather than added**, and that is a reading of the game rather than a choice: 妖々夢 empties every
+    /// **Back rather than added**, and that is a reading of the game rather than a choice: th07 empties every
     /// record as it builds a run (0x42e657) and reads the file straight back into them (0x42e735), so what
     /// stands in them when that run ends is the file's own counts *with* the run's on top. Added to the file's
     /// again, a run's history would be counted twice — and it was, until a laid-out build that reads its file
@@ -1109,8 +1109,8 @@ pub trait Game {
     /// Whether the game writes its own score file, so that nothing above has to build a ranking screen for
     /// it.
     ///
-    /// **妖々夢 does and 紅魔郷 does not**, and it is a difference in where the write is: 紅魔郷's runs as its
-    /// ranking screen goes down, which is why orb builds one and takes it down; 妖々夢's screen writes at no
+    /// **th07 does and th06 does not**, and it is a difference in where the write is: th06's runs as its
+    /// ranking screen goes down, which is why orb builds one and takes it down; th07's screen writes at no
     /// phase it is built with, and the one write in that exe is a save the game makes for itself at every run's
     /// build and on its way out. Which is enough — every way a session's records are lost goes through one of
     /// those two — so what orb does for it is put the records back inside that save rather than ask for a save
@@ -1124,7 +1124,7 @@ pub trait Game {
     /// read is made on.
     ///
     /// **Which is what says a session's records belong back in memory at the parse inside it.** Every read of
-    /// 妖々夢's file lays the file's own card records over the ones in memory, and only some of those reads are
+    /// th07's file lays the file's own card records over the ones in memory, and only some of those reads are
     /// part of a save: the phase the object carries is what tells them apart, and the same field orb reads as
     /// [`Game::ranking_state`] carries it.
     ///
@@ -1177,15 +1177,15 @@ pub trait Game {
     /// **What a stage select offers is not a record, and the score beside it is.** The game takes both out
     /// of one read — the front end's own, which is pointed at the game's own file so that a mode whose file
     /// is new does not lock what an installation has earned — and the record in that file is the other
-    /// mode's. Which left 完全無欠モード showing legacy practice scores on a screen whose runs go in orb's
+    /// mode's. Which left Pointdevice mode showing legacy practice scores on a screen whose runs go in orb's
     /// file. One read cannot land in two files, so the record is read again: the front end's read stands as
     /// it is, and this puts the mode's own numbers over the half of it that is a record rather than an
     /// unlock.
     ///
-    /// **Every such record, which for 妖々夢 is two**: the practice scores, and the card records its
-    /// ランキング shows and a run counts into. A session that never answered the mode question again showed
+    /// **Every such record, which for th07 is two**: the practice scores, and the card records its
+    /// ranking screen shows and a run counts into. A session that never answered the mode question again showed
     /// the other mode's of both — a run given up back to the practice stage select carried a legacy score
-    /// for the stage it had just been played in, and the ランキング counted nothing of the session.
+    /// for the stage it had just been played in, and the ranking screen counted nothing of the session.
     ///
     /// Called after the front end's own read, and again wherever the mode is settled: the first is every
     /// path that brings that screen up, including a run coming back to it, and the second is the last thing
@@ -1312,7 +1312,7 @@ pub trait Game {
     /// hand. Handed over afterwards the same way, by putting the bits back in for one read, which
     /// leaves starting the run to the screen whose business it is.
     ///
-    /// Which bits those are is the game's own: 紅魔郷's shot type select tests
+    /// Which bits those are is the game's own: th06's shot type select tests
     /// `g_CurFrameInput & 0x1001` against the frame before at 0x436d79.
     fn menu_decide(&self) -> u16;
 
@@ -1368,19 +1368,19 @@ pub trait Game {
     /// Hands the word a frame's read produced to the run, where the game itself would hand it over too late
     /// for that frame's own update to act on.
     ///
-    /// **妖々夢's frame of input lag is this and nothing else.** Its jobs run in the order their chain
+    /// **th07's frame of input lag is this and nothing else.** Its jobs run in the order their chain
     /// priorities give: the read at 0, the player at 8 — which reads the word *the run acts on* and moves on
     /// it — and the copy from the one word into the other at 0x10, inside the recorder. So the player moves on
     /// what the copy left a frame ago. Called from the input hook, which is the read at priority 0, this makes
     /// that copy early and the frame's own keys are what its update acts on.
     ///
-    /// Nothing where a game hands the read to its own update in time, which is 紅魔郷: there is one word and
+    /// Nothing where a game hands the read to its own update in time, which is th06: there is one word and
     /// the player reads it. And nothing while a replay is being watched, where what the run acts on is the
     /// recording rather than the keyboard.
     ///
     /// **`moved_on` is whether this read is the first of a frame of the run**, and what it decides is the
     /// *pair*: a run reads a bomb as an edge, so the word it last acted on has to be the frame before's rather
-    /// than the read before's. 妖々夢 reads the keyboard again for a frame it did not advance the run on — its
+    /// than the read before's. th07 reads the keyboard again for a frame it did not advance the run on — its
     /// own slowdown answers the manager's 3, which stops the chain walk before both the player's job and the
     /// copy this stands in for — so on such a read the game moves neither word, and a hand-over that moved
     /// them made the pair hold one word twice. The press on that frame is then no edge, and which frames it
@@ -1396,7 +1396,7 @@ pub trait Game {
     /// Which bits of a frame's input decide how a run goes, and so are the ones worth writing
     /// down and handing back.
     ///
-    /// 紅魔郷's own replay records exactly these, which is what says the rest do not change a run.
+    /// th06's own replay records exactly these, which is what says the rest do not change a run.
     /// The pause button is outside them, which is the one that matters: a resume that fed it back
     /// would open the menu instead of playing.
     fn run_input(&self) -> u16;
@@ -1437,14 +1437,14 @@ pub trait Game {
     ///
     /// What [`crate::resume`] does with a kept run — when to write it, where the file goes, playing the
     /// buttons back into a stage, holding the landing against what was written down — is the same work for
-    /// either game. What a *file* holds is not: 紅魔郷 keeps a rank, a count of power items and a count of the
-    /// extra lives its score has paid for, where 妖々夢 keeps a cherry it pays its own with, and each game
+    /// either game. What a *file* holds is not: th06 keeps a rank, a count of power items and a count of the
+    /// extra lives its score has paid for, where th07 keeps a cherry it pays its own with, and each game
     /// wrote nothing into the other's fields for as long as the two shared one shape.
     ///
     /// **And one version number stood in front of both**, which is what settled it: the generator of every
     /// frame — the one thing that can say where a playback stopped reproducing a run — went into the file
-    /// without that number being raised, because raising it would have refused every 紅魔郷 run already on a
-    /// disk. A 妖々夢 run picked up out of a file from before it parted from itself inside its first thousand
+    /// without that number being raised, because raising it would have refused every th06 run already on a
+    /// disk. A th07 run picked up out of a file from before it parted from itself inside its first thousand
     /// frames and nothing in the log could say where. So the file is the game's, and each game's version is
     /// its own: `th06::resume` is frozen at what shipped, `th07::resume` starts again at 1.
     fn encode_resume(&self, saved: &crate::resume::Kept) -> Vec<u8>;
@@ -1455,10 +1455,10 @@ pub trait Game {
     /// **The run's numbers as this stage began, in the game's own bytes.**
     ///
     /// Opaque here, and the whole point of that: what a run *is* differs between the games and the
-    /// machinery does not need to know. 紅魔郷 pays for extra lives out of the score and keeps a rank its
-    /// enemies read; 妖々夢 pays for them out of a cherry it draws from its own generator as the run is made,
+    /// machinery does not need to know. th06 pays for extra lives out of the score and keeps a rank its
+    /// enemies read; th07 pays for them out of a cherry it draws from its own generator as the run is made,
     /// and keeps a baseline every reader of that cherry measures from. They were one struct with both games'
-    /// fields in it, each writing nothing into the other's — and with the shape shared, a number 妖々夢 needed
+    /// fields in it, each writing nothing into the other's — and with the shape shared, a number th07 needed
     /// could not be added without touching the game people already have.
     ///
     /// These bytes go into the game's own file and come back out of it — see [`Game::encode_resume`] — so
@@ -1499,7 +1499,7 @@ pub trait Game {
     unsafe fn seed_the_stage(&self, state: &[u8]);
 
     /// And what those bytes say, for the log: the game's own numbers in the game's own words, since a line
-    /// about a run of 紅魔郷 has a rank in it and one about a run of 妖々夢 has a cherry.
+    /// about a run of th06 has a rank in it and one about a run of th07 has a cherry.
     fn say_run_state(&self, state: &[u8]) -> String;
 
     /// Whether the game's front end has asked for a run and nothing of that run has been built yet.
@@ -1543,8 +1543,8 @@ pub trait Game {
     /// **The numbers in it are the game's own and so is the type they are held in** —
     /// `th06::Reproduction` and `th07::Reproduction`, the way each game's resume file has its own
     /// `Numbers`. What stood here before was one struct carrying the union of both: the box the player is
-    /// held inside, the extra lives the score has paid for, the rank and the subrank are 紅魔郷's, and
-    /// 妖々夢 answered zero for all four and printed them on every line. The union of every 東方 game is
+    /// held inside, the extra lives the score has paid for, the rank and the subrank are th06's, and
+    /// th07 answered zero for all four and printed them on every line. The union of every Touhou game is
     /// not one kind of game to take a union of — a photo game and a versus game have none of the four
     /// either, and no lives to pay for at all.
     ///
@@ -1573,8 +1573,8 @@ pub trait Game {
     /// thing to add to and to change as the next parting needs, and a line the files hold is a line that cannot
     /// be. So it goes in the log next to that one and nowhere else.
     ///
-    /// **Which a parting asked for.** A pair of launches of 妖々夢 agreed on every field of a reproduction line
-    /// for 992 frames of 2面 and parted at 993 on a point item: the run collected one where the playback passed
+    /// **Which a parting asked for.** A pair of launches of th07 agreed on every field of a reproduction line
+    /// for 992 frames of stage 2 and parted at 993 on a point item: the run collected one where the playback passed
     /// through it, with the same word, the same player, the same count of items in the air and the same cherry.
     /// Two worlds that differ in nothing a line carries and differ in what they collect differ in where those
     /// things *are*, and that is the one thing no field of it looks at.
@@ -1610,7 +1610,7 @@ pub trait Game {
     /// **The bit a recipe's button name is in this game's own word**, or `None` for a name it has nothing for.
     ///
     /// What a bot presses is a name in a file — `decide`, `focus`, `left` — and what one *is* differs from game
-    /// to game: `decide` is a shot and a return key in 妖々夢 and something else in the next game. So the names
+    /// to game: `decide` is a shot and a return key in th07 and something else in the next game. So the names
     /// are resolved here and the recipe that holds them is `orb-bot`'s.
     ///
     /// `None` for everything, from a game nobody has written a bot's vocabulary for.
@@ -1629,7 +1629,7 @@ pub trait Game {
     /// and `orb-bot` is where it is decided.
     ///
     /// The buffer is the caller's so that a frame of a run costs no allocation once it has run once: the three
-    /// lists are cleared and filled, and a stage of 妖々夢 fills the first of them six hundred times.
+    /// lists are cleared and filled, and a stage of th07 fills the first of them six hundred times.
     ///
     /// Nothing filled and `false` from a game nobody has read a frame of.
     ///
@@ -1692,8 +1692,8 @@ pub trait Game {
     /// **What the rows of that table are called where `stage N` is not what they are**, in the order the table
     /// holds them: the last rows, and as many of them as the game has.
     ///
-    /// The game's because the games differ — 紅魔郷's table ends at its Extra and 妖々夢's carries the Phantasm
-    /// after it — and a tuning pass that read the shape off the table instead wrote 妖々夢's Extra down as
+    /// The game's because the games differ — th06's table ends at its Extra and th07's carries the Phantasm
+    /// after it — and a tuning pass that read the shape off the table instead wrote th07's Extra down as
     /// `stage 7` and its Phantasm as `extra`, which is the row above the one a reader would paste an Extra
     /// boundary into.
     fn stages_past_the_numbered(&self) -> &'static [&'static str];
@@ -1760,7 +1760,7 @@ pub struct Frame {
     pub straight: (f32, f32),
     pub diagonal: (f32, f32),
     /// Whether the game says the player has just been hit and is inside whatever window it gives to take that
-    /// back — 妖々夢's 決死結界 and whatever the next game calls its own.
+    /// back — th07's deathbomb window and whatever the next game calls its own.
     pub hit: bool,
     /// Whether the player is in its ordinary state: neither hit nor in the middle of dying or coming back.
     ///
@@ -1852,7 +1852,7 @@ pub struct Pickup {
     pub at: (f32, f32),
 }
 
-/// **The kinds of thing 東方 drops**, which is a vocabulary the games share where their own numbering for it is
+/// **The kinds of thing Touhou drops**, which is a vocabulary the games share where their own numbering for it is
 /// not: what one is called here is what every game of them has one of, and how much any of them is worth going
 /// for is the bot's to decide.
 #[derive(Clone, Copy, PartialEq, Eq)]

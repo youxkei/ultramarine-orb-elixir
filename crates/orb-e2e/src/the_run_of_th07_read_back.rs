@@ -1,4 +1,4 @@
-//! What 妖々夢's memory says a run is, read the way the frame hook reads it.
+//! What th07's memory says a run is, read the way the frame hook reads it.
 //!
 //! `Th07::read_state` — every offset, every pointer chase, every derived flag — over a game that got where it
 //! is by being played, rather than over an image a test wrote fields into. Which is the half the unit tests

@@ -324,7 +324,7 @@ impl Sound {
         self.status.get() & DSBSTATUS_LOOPING != 0
     }
 
-    /// The buffer going round *not* set, which a launch of 妖々夢 was measured in: a chapter of a resumed run
+    /// The buffer going round *not* set, which a launch of th07 was measured in: a chapter of a resumed run
     /// whose sound came back `status 0x1` — playing, and stopping at the buffer's end.
     pub fn plays_without_looping(&self) {
         self.status.set(DSBSTATUS_PLAYING);
@@ -360,12 +360,12 @@ pub(crate) mod buffer {
             return (REFUSED, 0, 0);
         }
         let play = streaming().play.get();
-        // A released buffer answers this, as the one that crashed a launch of 妖々夢 did — see [`status`].
+        // A released buffer answers this, as the one that crashed a launch of th07 did — see [`status`].
         released();
         (OK, play, play)
     }
 
-    /// **A released buffer answers, and says it is lost**, which is what the real one did: 妖々夢's crash
+    /// **A released buffer answers, and says it is lost**, which is what the real one did: th07's crash
     /// walked `Music::capture` past its own `asked < 0` here and on into the lock, so this slot cannot have
     /// refused. The lost bit is the other half of that walk — `with_locked_buffer` reads this again after a
     /// refused lock and only calls `Restore` where the bit is set, and it called `Restore`.

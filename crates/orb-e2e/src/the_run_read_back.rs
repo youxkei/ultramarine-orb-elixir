@@ -8,7 +8,7 @@
 //!
 //! What it still cannot catch is an offset that is wrong: the game lays its memory out through the same
 //! constants the reads use, so a wrong one is wrong on both sides at once. Those are settled against
-//! 東方紅魔郷 1.02h running, each read held against what the screen showed — see
+//! th06 1.02h running, each read held against what the screen showed — see
 //! `orb_core::game::th06::image`, where each is written down beside the offset it is written from.
 //!
 //! The chases are the part worth having here. A field the game has not built yet is reached through a

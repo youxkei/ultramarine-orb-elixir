@@ -1,4 +1,4 @@
-//! **What a stage transition of 妖々夢 carries, and what only the start of a run puts in place.**
+//! **What a stage transition of th07 carries, and what only the start of a run puts in place.**
 //!
 //! `GameManager::AddedCallback` is one function reached two ways, and the whole of the difference is its own
 //! first condition: 0x42e894 compares the scene the supervisor has been *asked for* against the rebuild scene
@@ -109,10 +109,10 @@ fn a_run_of_th07_carries_its_lives_bombs_and_power_across_a_stage_boundary() {
 /// at the stage *before*, which is a whole stage of a run thrown away, and where the stage before ends on a
 /// chapter of its own it is worse than that: **the run can never get past the boundary.**
 ///
-/// Which two launches of 妖々夢 measured. One played into the way into 2面 and left the run for the title with
+/// Which two launches of th07 measured. One played into the way into stage 2 and left the run for the title with
 /// `resume: stage 2 begins with … power: 81, counted: 231` in its log and a file holding `stage 1 chapter 9`; the
-/// next picked that up, played 1面's boss again, reached the same window, and left a file holding the same
-/// chapter — not one `written to` line between the landing and the end of it, 1面's chapter 9 being its last.
+/// next picked that up, played stage 1's boss again, reached the same window, and left a file holding the same
+/// chapter — not one `written to` line between the landing and the end of it, stage 1's chapter 9 being its last.
 /// Interrupt there twice and the second launch is the first.
 ///
 /// **Nothing here is a guess about what the chapter model will say.** A stage's start is its first chapter at
@@ -145,7 +145,7 @@ fn a_stage_of_th07_is_written_down_as_it_begins() {
 
 /// **A chapter inside a stage the run walked into is written down like any other.**
 ///
-/// Which is what a session interrupted at 4面's boss is picked up from, and the whole of what the file is for:
+/// Which is what a session interrupted at stage 4's boss is picked up from, and the whole of what the file is for:
 /// the furthest chapter reached, not the stage it is in. A rule that wrote a stage's start in place of its
 /// chapters was built here once and taken out again — it made every interrupted stage cost the run that whole
 /// stage, which is the thing orb exists to stop.
@@ -251,14 +251,14 @@ const SETTLES: u32 = 600;
 
 /// **A run that walked through two stages is written down at the one it is in.**
 ///
-/// Which is the half of the rule above that one transition cannot tell from another: a run left at 4面's
-/// midboss is picked up at 4面's start and not at 3面's, and what says so is the point being written again at
+/// Which is the half of the rule above that one transition cannot tell from another: a run left at stage 4's
+/// midboss is picked up at stage 4's start and not at stage 3's, and what says so is the point being written again at
 /// every boundary rather than once. A stage's start is the *newest* point the file holds, so the run comes back
 /// where it was standing to within a stage.
 ///
 /// The one thing that could go wrong and pass the test above is a start written once and never again — a rule
-/// that refused every chapter *and* every start after the first would leave a session interrupted in 6面
-/// picked up in 2面, which is five stages of a run thrown away and worse than what the rule was written to
+/// that refused every chapter *and* every start after the first would leave a session interrupted in stage 6
+/// picked up in stage 2, which is five stages of a run thrown away and worse than what the rule was written to
 /// stop.
 #[test]
 fn a_run_of_th07_that_walked_through_two_stages_is_written_down_at_the_one_it_is_in() {
@@ -298,7 +298,7 @@ fn a_run_of_th07_that_walked_through_two_stages_is_written_down_at_the_one_it_is
     });
 }
 
-/// The card the midboss puts up in that test, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up in that test, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 

@@ -23,14 +23,14 @@ use orb_core::game::th06::image::{Scene, attempts_in, result_state};
 
 /// How long each stage of these runs is, in frames, and how many frames a whole run of six needs — the
 /// same shape `a_clear_on_demand.rs` uses, since `--clear` is how a result screen is reached at all in
-/// 完全無欠モード.
+/// Pointdevice mode.
 const STAGE_FRAMES: u32 = 300;
 const A_WHOLE_RUN: u32 = STAGE_FRAMES * STAGES as u32 * 2;
 
 /// The two names an open of the score file can land in.
 const THEIRS: &str = "score.dat";
 
-/// A run in 完全無欠モード, finished: `--clear` to the ending, and the result screen after it.
+/// A run in Pointdevice mode, finished: `--clear` to the ending, and the result screen after it.
 fn a_cleared_pointdevice_run(name: &str) -> Box<Fake> {
     let game = Fake::attach(name, the_run(), |config| {
         config.fast_clear = true;
@@ -87,7 +87,7 @@ fn stands_until_it_moves_on(game: &Fake) -> i32 {
     game.image().result_screen_state()
 }
 
-/// A finished 完全無欠モード run's name entry stands, and the one state orb writes into that screen is
+/// A finished Pointdevice mode run's name entry stands, and the one state orb writes into that screen is
 /// written at the question after it.
 ///
 /// Which is the whole of what orb has to do with `ResultScreen`: the question is one this run cannot answer
@@ -122,7 +122,7 @@ fn a_finished_runs_name_entry_stands_and_only_the_question_is_written_past() {
     });
 }
 
-/// And a finished レガシーモード run's, whose question nothing writes past: the screen walks all of itself
+/// And a finished legacy mode run's, whose question nothing writes past: the screen walks all of itself
 /// out, and what it wrote is what the run counted.
 ///
 /// The mode makes two differences and this is where both are visible. Nothing of orb's is in the way of that

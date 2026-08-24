@@ -25,7 +25,7 @@
 //! one every e2e test here agreed with. See
 //! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
 //!
-//! レガシーモード throughout, so nothing of orb's is between the bullet and the player: `--clear` writes
+//! Legacy mode throughout, so nothing of orb's is between the bullet and the player: `--clear` writes
 //! the state and the frames under it before every update, which is
 //! `a_clear_on_demand.rs`'s subject and would answer this one's question for it.
 

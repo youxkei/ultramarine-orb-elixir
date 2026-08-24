@@ -1,4 +1,4 @@
-//! **The file a chapter of 妖々夢 is written down in is written from a thread of orb's own, not in the frame.**
+//! **The file a chapter of th07 is written down in is written from a thread of orb's own, not in the frame.**
 //!
 //! One is written every time a chapter begins — see `resume.rs`, and *Picking a run up again* — which is a few
 //! tens of kilobytes at every boundary. A `WriteFile` takes what it takes: on one machine the boundaries
@@ -10,7 +10,7 @@
 //! Windows records per file: the frames run on the test's own thread, so a write from any other thread is one
 //! that is not in the frame.
 //!
-//! And what 妖々夢 brings of its own is the name that file has. Its runs are told apart by the difficulty, the
+//! And what th07 brings of its own is the name that file has. Its runs are told apart by the difficulty, the
 //! character and the shot — `Th07::run_slot` — so a chapter of one run is offered back to that run and to no
 //! other, and picking it up again is this game's own `start_stage`, `set_run_state` and the added callback the
 //! numbers go in on.
@@ -22,7 +22,7 @@ use orb_config::LogLevel;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 
@@ -33,7 +33,7 @@ const APART: u32 = 120;
 const THE_CARD: &str = "MIDBOSS SPELL 1";
 
 /// The name orb gives the run this plays, which is what names its file: `DIFFICULTY`, `CHARACTER` and `SHOT` are
-/// 1, 0 and 0 — Normal, and 霊夢's first shot. Written out rather than asked of `Th07::run_slot`, which would be
+/// 1, 0 and 0 — Normal, and Reimu's first shot. Written out rather than asked of `Th07::run_slot`, which would be
 /// this agreeing with the code it is about.
 const SLOT: &str = "normal-reimu-a";
 
@@ -117,7 +117,7 @@ const TAKES: std::time::Duration = std::time::Duration::from_millis(40);
 ///
 /// **What it refuses is a walk of one of the game's own arrays made through the map.** The laser slots are 0x40
 /// on their own, so a state read that asked about each was over this bound by itself — which is what a launch of
-/// 妖々夢 was doing, at 196 asks a frame, and what it cost is above.
+/// th07 was doing, at 196 asks a frame, and what it cost is above.
 const ASKS_A_FED_FRAME_MAY_MAKE: u64 = 48;
 
 #[test]
@@ -179,9 +179,9 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
         game.picks_the_run_up();
         // **And what each of those frames cost in asks of the memory map**, which is the seconds a launch waits
         // before the run lands: every ask is a `VirtualQuery` there, a syscall apiece, and the playback makes
-        // one frame's worth of reads per frame of buttons. A 妖々夢 session waited **3.2 seconds** for 2667 of
-        // them — 1.2ms an update, against 紅魔郷 running 13675 in 0.8s — and `perf: update=1206us/frame` said
-        // whose those milliseconds were: orb's own per-frame work, 18us a frame on 紅魔郷.
+        // one frame's worth of reads per frame of buttons. A th07 session waited **3.2 seconds** for 2667 of
+        // them — 1.2ms an update, against th06 running 13675 in 0.8s — and `perf: update=1206us/frame` said
+        // whose those milliseconds were: orb's own per-frame work, 18us a frame on th06.
         //
         // The count and not the time, because the time is the host's: how long a syscall takes is nothing a
         // suite can hold anything against, and how many of them a frame makes is orb's own.
@@ -199,7 +199,7 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
         );
         // **And it was quiet while it came back.** The stage's own song is started by the build a moment before
         // the buttons go in, so a playback that leaves the sound alone plays the stage's opening for as long as
-        // the buttons take and then jumps to the chapter's place as the run lands — which is what a 妖々夢
+        // the buttons take and then jumps to the chapter's place as the run lands — which is what a th07
         // session heard, seconds of it, on a run picked up in the first stage.
         //
         // **One frame of it and no more**, which is the shape of where orb quietens it: in the game's own input
@@ -217,7 +217,7 @@ fn the_chapter_of_th07_written_down_is_written_from_a_thread_of_orbs_own() {
         // with, written back by `Th07::set_run_state`.
         //
         // Those and not the whole `State`, because the rest of what the chapter was inside is the stage's own
-        // script's to put up again — the fight, its card, the enemies — and a laid-out 妖々夢 has no script to
+        // script's to put up again — the fight, its card, the enemies — and a laid-out th07 has no script to
         // run. What says the landing is right field for field is the line above, which is orb's own comparison
         // against what it wrote down.
         let landed = game.state();

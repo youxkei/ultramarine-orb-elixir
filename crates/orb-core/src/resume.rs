@@ -12,7 +12,7 @@
 //! the resume point is a chapter's own first frame, which is where dying sends the player anyway,
 //! and the frame a run was abandoned on is as likely as not the frame they were hit on.
 //!
-//! **One per run there can be one of**, the way 紺珠伝 keeps a pointdevice save per difficulty and
+//! **One per run there can be one of**, the way th15 keeps a pointdevice save per difficulty and
 //! character: a run of another character is another run, and its buttons would play somebody else's
 //! shot with them. Which runs are the same run is the game's to say — see [`Game::run_slot`] — and
 //! the answer doubles as the name of the file, so a listing of the directory reads as the runs
@@ -127,7 +127,7 @@ pub struct Kept {
     /// **Per frame and not all-or-none.** They were all-or-none, and a run picked up out of a file from before
     /// orb wrote them down — every file on a disk, [`VERSION`] having stayed at 2 for them — wrote a list with
     /// nothing in it at every chapter after that, because the frames it had played back had no word to carry
-    /// forward. One such file made every file after it as blind as itself, and a 妖々夢 session was played
+    /// forward. One such file made every file after it as blind as itself, and a th07 session was played
     /// through with the only check that names a parting frame switched off.
     pub generators: Vec<Option<u16>>,
 }
@@ -202,7 +202,7 @@ pub struct Landing {
 ///
 /// **One entry and not two lists**, because two lists are two lengths. They were two, and a playback that ended
 /// early left the buttons at the length its file had and the generators empty — the first frame written down
-/// after that indexed the short one, and a 妖々夢 launch crashed where a run was picked up:
+/// after that indexed the short one, and a th07 launch crashed where a run was picked up:
 /// `index out of bounds: the len is 0 but the index is 3609`.
 #[derive(Clone, Copy, Default)]
 struct Played {
@@ -254,7 +254,7 @@ impl Record {
     }
 
     /// Writes down what the update of `frame` is about to act on. The same frame reached twice —
-    /// a chapter retried, a frame the game spent with a menu up, or one 妖々夢's own slowdown decided
+    /// a chapter retried, a frame the game spent with a menu up, or one th07's own slowdown decided
     /// not to advance the run on — is one entry, the last write winning, which is the one that update
     /// sees.
     fn note(&mut self, frame: u32, buttons: u16, generator: u16) {
@@ -277,7 +277,7 @@ impl Record {
     /// **And the generator held against what it was on that frame**, which is the only thing that says a
     /// playback has stopped reproducing the run *and where*. The buttons cannot: a run that has parted plays on
     /// with the same presses landing on a different stage, and what shows up is a death thousands of frames
-    /// later or a landing check at the end — neither of which says which frame it went wrong on. A 妖々夢 run
+    /// later or a landing check at the end — neither of which says which frame it went wrong on. A th07 run
     /// picked up out of its file was hit at frame 1206 of 8553 and had died seven times by the chapter, and the
     /// generator at the stage's ninth frame was already `0x3874` where the run had `0x4289`.
     ///
@@ -1185,7 +1185,7 @@ mod tests {
     /// is what a playback that ended early made of two lists: `resume.rs` kept the buttons and the generators
     /// side by side, a playback filled the buttons out of its file and the generators stayed empty, and the
     /// first frame written down after it indexed the short one — `index out of bounds: the len is 0 but the
-    /// index is 3609`, in a 妖々夢 launch that crashed where a run was picked up.
+    /// index is 3609`, in a th07 launch that crashed where a run was picked up.
     #[test]
     fn a_frame_written_down_over_a_playback_grows_the_whole_of_it() {
         let mut record = feeding_a_run();

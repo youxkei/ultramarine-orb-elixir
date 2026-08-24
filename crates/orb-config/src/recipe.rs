@@ -57,7 +57,7 @@
 //! **The grammar is here and the names are the game's.** A list of button names, a stage and a chapter and a
 //! question is the same list whatever game reads it, so it is read once — and what `decide` *is*, and which
 //! chapter a stage's midboss falls in, differ from game to game, so nothing here resolves either.
-//! `game::th07::bot` is where 妖々夢's are, and a name that game has nothing for is a recipe it refuses.
+//! `game::th07::bot` is where th07's are, and a name that game has nothing for is a recipe it refuses.
 //!
 //! Here rather than in `orb-core` because this is where the YAML reader is: `orb.yaml` goes through the same
 //! one, and a second copy of it in the DLL for a diagnostic would be weight in what ships.
@@ -164,20 +164,21 @@ pub enum Until {
     /// **The game's own cursor being on the item at this place in the list**, counted from zero the way the
     /// game counts it.
     ///
-    /// Which is how a screen this grammar cannot see the items of is walked: 面別プラクティス is the third of
+    /// Which is how a screen this grammar cannot see the items of is walked: Practice Start is the third of
     /// the title menu's items and every screen after it is another list, so a recipe that counted taps instead
     /// would be a recipe written against one machine's unlocks.
     Cursor(i32),
     /// **That item of that screen**, which is what a list has to be named by: the cursor is one field whatever
     /// screen is up, so waiting for a number alone waits for whichever screen reaches it first. A launch
-    /// walking into 面別プラクティス put the difficulty on Lunatic that way — the 3 it was waiting for was the
+    /// walking into stage practice put the difficulty on Lunatic that way — the 3 it was waiting for was the
     /// difficulty's fourth item and not the stage's.
     Where { screen: i32, cursor: i32 },
     /// **A boss being up**, which is what the part of a stage before one ends at.
     ///
     /// Practising that part was a thing this grammar could not say: bounded by a count of frames instead, a run
     /// guessed at a minute and ended with the midsection still going. Whether a boss is up is a thing orb reads
-    /// already — the log's own `boss=` and the 低速 the rules hold under one — so it is a thing to wait for.
+    /// already — the log's own `boss=` and the focused step the rules hold under one — so it is a thing to wait
+    /// for.
     Boss,
     /// **A dialogue being up**, which is what a boss's fight begins after.
     ///
@@ -547,7 +548,7 @@ mod tests {
     use super::{Step, Until, read};
 
     /// A recipe of every step there is, which is what one looks like — and what the scenario this was
-    /// written for is: 妖々夢 played into stage 2 as far as its midboss, left, picked up again, and closed.
+    /// written for is: th07 played into stage 2 as far as its midboss, left, picked up again, and closed.
     #[test]
     fn a_recipe_is_a_list_of_steps_carried_out_in_order() {
         assert_eq!(
@@ -719,7 +720,7 @@ mod tests {
     /// grammar cannot see the items of walkable: the item is named by where it sits, and the game keeps that
     /// number itself.
     ///
-    /// Which is how 面別プラクティス is reached at all — Practice Start is the third of the title menu's items
+    /// Which is how stage practice is reached at all — Practice Start is the third of the title menu's items
     /// and each screen after it is another list, so a recipe that could only count taps would be a recipe
     /// written against somebody's unlocks.
     #[test]

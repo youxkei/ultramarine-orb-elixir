@@ -8,7 +8,7 @@
 //!
 //! The launcher takes them and hands them on to the game it starts, and the injected DLL
 //! reads them back off its own command line, so the two sides always agree without either
-//! writing anything down. 東方紅魔郷 never looks at its command line: `lpCmdLine` appears
+//! writing anything down. th06 never looks at its command line: `lpCmdLine` appears
 //! once in the whole of `main.cpp`, as the parameter it ignores.
 //!
 //! Both sides read them with the same [`Options`]: the launcher as one part of its own

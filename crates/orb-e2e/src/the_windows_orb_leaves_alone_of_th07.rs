@@ -1,10 +1,10 @@
-//! **The two windows orb's rewrite of `CreateWindowExA` hands straight on, over a launch of 妖々夢.**
+//! **The two windows orb's rewrite of `CreateWindowExA` hands straight on, over a launch of th07.**
 //!
 //! `the_window_of_th07.rs` is every window orb *decides*: where it goes on the monitor, how big the client comes
 //! out, and the black beside the game. This is the other side of the same rewrite — the asks it must not touch —
 //! and there are exactly two of them, both settled before a rectangle is worked out at all:
 //!
-//! - **a window that is not the game's own class.** 妖々夢 registers its play window as `BASE`, which is what orb
+//! - **a window that is not the game's own class.** th07 registers its play window as `BASE`, which is what orb
 //!   recognises one by; a window of any other class made the size orb decided for the play window would be a
 //!   window nobody asked for. The class is looked at *first*, so such a window is not even the reason the host is
 //!   asked about its panel.

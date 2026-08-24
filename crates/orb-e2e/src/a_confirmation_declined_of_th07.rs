@@ -1,4 +1,4 @@
-//! **The two items of 妖々夢's retry menu that ask first, and the two ways of saying no to them.**
+//! **The two items of th07's retry menu that ask first, and the two ways of saying no to them.**
 //!
 //! ステージをやり直す throws away everything the stage has gained since its start and タイトルに戻る throws away
 //! the run, and both are two presses from the hand that has just answered チャプターをやり直す for the fortieth
@@ -8,7 +8,7 @@
 //!
 //! Two ways of declining, because they are different presses and not one: **いいえ** is the cursor left where
 //! the question puts it and decide pressed again, and **cancel** is the key that closes anything. Either goes
-//! back to the ways on with nothing thrown away — which for 妖々夢 means the memory of the stage untouched, so
+//! back to the ways on with nothing thrown away — which for th07 means the memory of the stage untouched, so
 //! what is read back after each is the state the death was noticed on, field for field — and the menu is still
 //! the menu, which the チャプターをやり直す at the end of each is evidence of.
 
@@ -21,7 +21,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 

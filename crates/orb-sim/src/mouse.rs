@@ -3,7 +3,7 @@
 //! **The counter and not a flag, because that is what Windows keeps.** `ShowCursor` moves one number
 //! by one step per call and the pointer is drawn while it is not negative, so two callers in a process
 //! are two callers adding up — which is the whole of why orb cannot hide the pointer by asking once and
-//! reading nothing back. The game asks too: 東方紅魔郷 1.02h answers `WM_SETCURSOR` with
+//! reading nothing back. The game asks too: th06 1.02h answers `WM_SETCURSOR` with
 //! `ShowCursor(TRUE)`, so a launch that let those calls through would be a launch where the counter
 //! climbs by one for every mouse move over the window. Modelled here rather than smoothed over, so an
 //! e2e test can hold orb against that.

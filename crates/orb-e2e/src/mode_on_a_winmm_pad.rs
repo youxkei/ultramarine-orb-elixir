@@ -139,7 +139,7 @@ fn a_pad_winmm_has_answers_the_question_and_its_axis_is_measured_against_its_own
     in_its_own_process(|| {
         let game = asking("winmm-pad-answers");
 
-        // Down to レガシーモード on the stick, past the dead zone the caps make: a quarter of the travel
+        // Down to legacy mode on the stick, past the dead zone the caps make: a quarter of the travel
         // either side of the middle, which is what the game's own read does with the same two numbers.
         game.sim()
             .joystick()

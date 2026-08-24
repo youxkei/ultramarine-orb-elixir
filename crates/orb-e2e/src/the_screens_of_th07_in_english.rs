@@ -1,4 +1,4 @@
-//! **The same launch of 妖々夢 on a machine whose own windows are English.**
+//! **The same launch of th07 on a machine whose own windows are English.**
 //!
 //! Every other e2e test over this game reads orb's screens in Japanese, that being the language the game is in
 //! and the one a simulated machine is set to — see [`LANGUAGE`](crate::fake::LANGUAGE). This one declares the
@@ -10,7 +10,7 @@
 //! Japanese by name, because a table with one cell in the wrong language is the mistake two languages make and it
 //! draws a screen that looks finished.
 //!
-//! And it is asked of this game because the *face* is this game's own: 妖々夢 ships no `font.ttf`, so every screen
+//! And it is asked of this game because the *face* is this game's own: th07 ships no `font.ttf`, so every screen
 //! here is drawn in a face the machine lent — see
 //! [docs/adr/0019](../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md) — and a
 //! face lent for one language is not evidence about the other.
@@ -26,7 +26,7 @@ use orb_sim::{keys, langid};
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The card the midboss puts up, by its own record, named the way 妖々夢 names cards.
+/// The card the midboss puts up, by its own record, named the way th07 names cards.
 const CARD: usize = 96;
 const CARD_NAME: &str = "幽夢「猫の見た夢」";
 

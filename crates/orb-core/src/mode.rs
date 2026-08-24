@@ -3,7 +3,7 @@
 //! Asked where the game is asked, because that is where the answer belongs: a run is started from
 //! the title menu, and one with chapters and one without are two different things to start. Not a
 //! setting in `orb.yaml`, which is for what somebody sets once — this is a choice made per run, the
-//! way 紺珠伝 asks it.
+//! way th15 asks it.
 //!
 //! On the press that would have chosen the item, held back in the input read, so the menu has not
 //! moved: answering picks the mode and hands that press over, and cancelling is the press never
@@ -58,7 +58,7 @@ impl fmt::Display for Mode {
 pub const CHOICES: [Mode; 2] = [Mode::Pointdevice, Mode::Normal];
 
 impl Mode {
-    /// What the mode is called on screen: 紺珠伝's own names for the two, in whichever of the two
+    /// What the mode is called on screen: th15's own names for the two, in whichever of the two
     /// languages that game itself calls them — since that is where the mode comes from and those are
     /// the names somebody who wants it knows.
     ///
@@ -231,10 +231,10 @@ mod tests {
         assert!(english.contains("Replays cannot be saved"));
     }
 
-    /// 完全無欠モード is the first of the two, which is what a cursor starting on neither would land
+    /// Pointdevice mode is the first of the two, which is what a cursor starting on neither would land
     /// on — and it is the mode orb exists for.
     #[test]
-    fn the_mode_with_chapters_is_the_first_choice_and_is_named_for_紺珠伝() {
+    fn the_mode_with_chapters_is_the_first_choice_and_is_named_for_th15() {
         assert_eq!(CHOICES[0], Mode::Pointdevice);
         assert_eq!(CHOICES[0].name(Language::Japanese), "完全無欠モード");
         assert_eq!(CHOICES[0].name(Language::English), "Pointdevice Mode");

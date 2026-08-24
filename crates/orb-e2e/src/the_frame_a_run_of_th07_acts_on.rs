@@ -1,6 +1,6 @@
-//! **The keys a frame of 妖々夢 is played with reach that frame's own update.**
+//! **The keys a frame of th07 is played with reach that frame's own update.**
 //!
-//! 妖々夢 is known for a frame of input lag beyond what its loop costs, and where it is is written in the
+//! th07 is known for a frame of input lag beyond what its loop costs, and where it is is written in the
 //! chain priorities its own jobs are registered at:
 //!
 //! | priority | what |
@@ -26,7 +26,7 @@ use orb_sim::keys;
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
 
-/// The bit 妖々夢's own read leaves for up, which is what the player's own job tests at 0x43ee93.
+/// The bit th07's own read leaves for up, which is what the player's own job tests at 0x43ee93.
 const UP: u16 = 0x10;
 
 #[test]

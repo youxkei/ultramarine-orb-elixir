@@ -1,10 +1,10 @@
-//! **The name of the spell card a chapter of 妖々夢 is put back inside, which is a sprite and not memory.**
+//! **The name of the spell card a chapter of th07 is put back inside, which is a sprite and not memory.**
 //!
-//! The same fault 紅魔郷 has and the same shape of answer, through this game's own calls: 0x428887 bakes a
+//! The same fault th06 has and the same shape of answer, through this game's own calls: 0x428887 bakes a
 //! card's name into a vm's own sprite where the card is declared and keeps no copy of the string, so a plate
 //! put back into a chapter whose card was declared *before* a later one keeps the later card's name over the
 //! card the run is now fighting. See `the_card_name_across_a_restore.rs` for the run that was read off the
-//! real 紅魔郷.
+//! real th06.
 //!
 //! What orb bakes again is the copy the game itself made in that card's record at 0x40ffb4 — the one copy of
 //! a name that is memory — and this asks that it is the *chapter's* card that is named after a restore and not
@@ -19,7 +19,7 @@ use orb_sim::keys;
 const WORK_US: i64 = 700;
 
 /// The two cards the fight puts up, by the record each has of its own: a midboss's and the boss's, named the
-/// way 妖々夢 names cards.
+/// way th07 names cards.
 const FIRST: usize = 96;
 const FIRST_NAME: &str = "幽夢「猫の見た夢」";
 const SECOND: usize = 104;

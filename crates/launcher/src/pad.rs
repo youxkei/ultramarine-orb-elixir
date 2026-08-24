@@ -388,7 +388,7 @@ fn with_nul(name: &str) -> Vec<u8> {
 /// **All four and not the first with a pad in it**, which is what a one-player game settles: two pads
 /// plugged in is one in somebody's hands and one on the floor, and which of them is which is not the
 /// slot number. It was the first for a while, on the reasoning that two pads answering at once is two
-/// people — true of a game with two players, and 紅魔郷 has one.
+/// people — true of a game with two players, and th06 has one.
 ///
 /// **Merged, where the run reads the pad it last saw pushed** — see `orb_core::joystick`. The two are
 /// the same rule for the two things being asked: what this answers is the *press*, so a stick left

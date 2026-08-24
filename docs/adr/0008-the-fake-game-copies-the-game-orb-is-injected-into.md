@@ -6,7 +6,7 @@ fixed or a comment that no longer misstates why. What each fix stands on is an e
 failing first, and the three scope decisions taken while building it are in *What was weighed and rejected*
 below — they were taken here rather than in the worklist, because two of them contradict what this document
 said. It stands on
-[0001](0001-a-fake-th06-drives-orb-end-to-end.md), which built the fake 紅魔郷 and named its own cost —
+[0001](0001-a-fake-th06-drives-orb-end-to-end.md), which built the fake th06 and named its own cost —
 *a wrong offset makes the writer and the reader wrong together, and only the real game says otherwise* —
 and this is where that got an answer which is not a run against the real game. The answer arrived with a
 second finding 0001 did not anticipate, and that finding is what this decision is about: the layer 0001
@@ -19,7 +19,7 @@ frame.
 ## Context
 
 0001 answered *is the fake wrong in the same direction as the reads it feeds?* by putting the confirmation
-on the real game: the offsets are 紅魔郷's to confirm, each written down beside the offset it was read at.
+on the real game: the offsets are th06's to confirm, each written down beside the offset it was read at.
 That is a good answer for an offset and no answer at all for a behaviour. Where the fake decides *when*
 something happens — which frame a scene's first update falls on, how many numbers a screen shake draws,
 what a stage start puts back — there was no witness of any kind, and an e2e test asserting the fake's answer
@@ -54,7 +54,7 @@ because the fake is both the writer and the reader — which is 0001's own state
 0001 did not name.
 
 **And the comparison had been aimed at the wrong game.** The first pass of this cross-check held the fake
-against 紅魔郷. That is not what orb runs in. orb replaces `GameWindow::Render` outright, so the frameskip
+against th06. That is not what orb runs in. orb replaces `GameWindow::Render` outright, so the frameskip
 loop that function is mostly made of is dead code in a default launch, and a fake that reproduced it would
 be spending fidelity on something no launch executes. Meanwhile the walk `Chain::RunCalcChain` performs is
 *not* replaced — orb calls through to it — so the fake owes that walk everything. The two are opposite
@@ -62,7 +62,7 @@ obligations, and nothing in the fake said which was which.
 
 ## Decision
 
-**The fake game is faithful to the game orb is injected into, not to 紅魔郷, and the seam is what decides
+**The fake game is faithful to the game orb is injected into, not to th06, and the seam is what decides
 where fidelity is owed.**
 
 `attach_to` stores each `Originals` entry in the same static a real launch fills with `hook::install`'s
@@ -98,7 +98,7 @@ should be treated as unmade.
 
 ## What was weighed and rejected
 
-- **Holding the fake against 紅魔郷, which is what the first pass did.** It gets both halves wrong at once:
+- **Holding the fake against th06, which is what the first pass did.** It gets both halves wrong at once:
   it charges the fake for reproducing code orb has replaced, and it says nothing about the one function —
   the chain walk — where the fake is standing in for everything. The relation to check is *fake ↔ injected
   game*, and that relation is legible because `attach_to` and `attach` fill the same statics.
@@ -143,7 +143,7 @@ should be treated as unmade.
   and no red can reach the difference, because the memory that comes out of them is the same either way and
   their order inside the frame is already what `Fake::stage` walks. Which is a declared stand-in in the sense
   0001 means it, and it is written down beside the priorities in `orb_core::game::th06::image`.
-- **The replay's record fed where 紅魔郷 feeds it.** `ReplayManager::OnUpdate` is priority 15 and
+- **The replay's record fed where th06 feeds it.** `ReplayManager::OnUpdate` is priority 15 and
   `OnUpdateDemo` 5 or 16; the fake feeds the record inside the supervisor's own job instead. Nothing can tell:
   the word the stage acts on is the record's either way and the stage's job is its only reader. Moving it
   would put `a_stage_played_twice_across_a_move_agrees_to_the_last_digit` — the most sensitive e2e test in

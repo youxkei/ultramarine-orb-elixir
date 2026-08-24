@@ -17,7 +17,7 @@ them — and whether that alone wants one file is now a question about what a fi
 of buying dead-code detection back. The file is `crates/orb-e2e/src/pacing.rs`.
 
 It follows [0002](0002-the-frame-loops-two-calls-into-the-game-are-addresses.md), which put those
-e2e tests in front of a laid-out 紅魔郷 and left them in the shape the harness they replaced had: a file
+e2e tests in front of a laid-out th06 and left them in the shape the harness they replaced had: a file
 apiece. It was `orb/tests/pacing.rs` when this was decided;
 [0005](0005-every-e2e-test-lives-in-orb-sims-tests.md) moved it to
 `orb-sim/tests/scenario_pacing.rs` without changing a line of it, so the paths below are this decision's

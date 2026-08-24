@@ -1,10 +1,10 @@
-//! **The brush stroke over 妖々夢's count of lives, and the row it has to stay inside.**
+//! **The brush stroke over th07's count of lives, and the row it has to stay inside.**
 //!
 //! What the stroke *is* has tests already — `lives_ui.rs`'s own, and `a_pointdevice_run_of_th07.rs` reads
 //! `DISABLE` off the screen over a run of this game. What is left, and what these are, is this game's own half
-//! of it: **this panel has no room around that row**. 紅魔郷 leaves 8 pixels of panel either side, which the
-//! stroke's own box wants 7 of, and 妖々夢 puts the bombs 16 pixels under a row 16 tall — so the mark here has
-//! the row and nothing else, and the strips 紅魔郷's mark paints its panel tile across do not exist. That the
+//! of it: **this panel has no room around that row**. th06 leaves 8 pixels of panel either side, which the
+//! stroke's own box wants 7 of, and th07 puts the bombs 16 pixels under a row 16 tall — so the mark here has
+//! the row and nothing else, and the strips th06's mark paints its panel tile across do not exist. That the
 //! tile itself is the one out of the vm the game lays its background with is `Th07::panel_tile`'s own test.
 //!
 //! Every one of them reads what was drawn off the device, which is what somebody watching the screen saw.
@@ -64,9 +64,9 @@ fn th07s_mark_is_one_word_over_the_count_with_no_panel_painted_beside_it() {
         );
 
         // And **nothing painted with that tile**, which is this game's own answer and not an omission: the
-        // strips are the panel the stroke reaches past the row into, and 妖々夢 leaves none to reach — its
+        // strips are the panel the stroke reaches past the row into, and th07 leaves none to reach — its
         // bombs are 16 pixels under a row 16 tall, so the mark has the row and the tile has nothing to paint.
-        // What the reading is for is the two strips 紅魔郷 does have, and `the_mark_over_the_lives.rs` is where
+        // What the reading is for is the two strips th06 does have, and `the_mark_over_the_lives.rs` is where
         // they are laid tile by tile.
         let (texture, _) = game.image().the_panels_tile();
         let painted: Vec<_> = game
@@ -83,12 +83,12 @@ fn th07s_mark_is_one_word_over_the_count_with_no_panel_painted_beside_it() {
 }
 
 /// And **nothing of the mark reaches the rows either side of it**, which for this game means the row itself and
-/// no more: 妖々夢 puts the bombs 16 pixels under a row 16 tall — the same loop from y at 0x498c54 (96.0) and
+/// no more: th07 puts the bombs 16 pixels under a row 16 tall — the same loop from y at 0x498c54 (96.0) and
 /// 0x498ca8 (112.0) — so there is no panel between the two to reach into.
 ///
 /// Watched on a launch: the stroke's own box is 30 tall against a row of 16, so it hung 7 pixels into the bombs'
 /// row, the strip below it was painted with the panel's own tile, and the tops of the bombs' stars went with it.
-/// 紅魔郷 has 8 pixels of panel there and the same box fits inside them, which is why this is a question about
+/// th06 has 8 pixels of panel there and the same box fits inside them, which is why this is a question about
 /// this game.
 #[test]
 fn nothing_of_th07s_mark_reaches_the_rows_either_side_of_it() {

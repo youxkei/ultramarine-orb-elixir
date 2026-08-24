@@ -1,4 +1,4 @@
-//! **The other answers to どこから始める over a run of 妖々夢, and the ways the file behind it is declined.**
+//! **The other answers to どこから始める over a run of th07, and the ways the file behind it is declined.**
 //!
 //! `the_run_of_th07_written_down_off_the_frame.rs` answers つづきから, which is the one that puts a run back.
 //! The two answers it leaves are the ones that do not: **はじめから** starts the run the game was going to start
@@ -44,7 +44,7 @@ const KEPT_AS: &str = "msgpack";
 ///
 /// **Written out rather than asked of `run_slot`**, which would be this agreeing with the code it is about: what
 /// the name has to be is what somebody reading the directory sees, and `DIFFICULTY`, `CHARACTER` and `SHOT` are
-/// 1, 0 and 0 — Normal, and 霊夢's first shot.
+/// 1, 0 and 0 — Normal, and Reimu's first shot.
 const SLOT: &str = "normal-reimu-a";
 
 /// And the same difficulty and character with the other shot, which is a run of its own with a file of its own

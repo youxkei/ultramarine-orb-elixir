@@ -20,7 +20,7 @@ const WORK_US: i64 = 700;
 /// The monitor this is played on, as the laid-out host declares it in real pixels — the same one
 /// `the_window_of_th07` measures against.
 const MONITOR: (i32, i32) = (3840, 2160);
-/// And the client the bot's window is given inside its frame: half of 妖々夢's own 640x480, which is small
+/// And the client the bot's window is given inside its frame: half of th07's own 640x480, which is small
 /// enough to sit in a corner and big enough to see what the bot is doing to the run.
 const BOT_CLIENT: (i32, i32) = (320, 240);
 
