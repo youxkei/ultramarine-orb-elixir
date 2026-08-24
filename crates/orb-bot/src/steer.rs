@@ -1644,11 +1644,17 @@ const fn worth(kind: Worth) -> u8 {
 ///
 /// **The worth first and the distance only inside it**, which is what makes a big power item across the field
 /// beat a small one under the player's hand. Between two of a kind it is the nearer.
+///
+/// **And no power item at all where the shot is already full**, whichever kind: what one is worth is the power
+/// it adds, and at the top there is none to add. th07 turns one into something else there and hands it over
+/// as that, so this is th06's rule — its own stay power items worth a scrap of score, and a run that crossed
+/// the field for one crossed it for nothing and dodged nothing on the way.
 fn the_item_worth_going_for(frame: &Frame) -> Option<(Worth, (f32, f32))> {
     let (at_x, at_y) = frame.at;
     frame
         .items
         .iter()
+        .filter(|item| !frame.full_power || !matches!(item.worth, Worth::Power | Worth::BigPower))
         .map(|item| {
             (
                 item.worth,

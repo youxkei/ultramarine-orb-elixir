@@ -24,7 +24,11 @@ const PAD: u16 = UP | DOWN | LEFT | RIGHT;
 
 /// The kinds of item this game drops, as the table at 0x4200f8 indexes them.
 const POWER: i8 = 0;
+const POINT: i8 = 1;
+const BIG_POWER: i8 = 2;
 const LIFE: i8 = 5;
+/// And the power this game stops adding to, as `th06::POWER_FULL` has it.
+const FULL_POWER: u16 = 128;
 
 /// A field for these to move in, and the places in it the rules are read against: the y they wait at, off the
 /// bottom edge, and the middle of it.
@@ -250,6 +254,55 @@ fn the_bot_leaves_a_laser_of_th06_that_is_firing() {
             game.image().input_now() & PAD,
             0,
             "the bot left a beam its own manager had freed the slot of:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And no power item at all where the shot is already full**, which is this game's own difference: th07
+/// turns one into something else at full power and hands it over as that, where th06 leaves it a power item
+/// worth a scrap of score — so a run that crossed the field for one crossed it for nothing.
+///
+/// Both kinds, the big one as much as the small: what either is worth is the power it adds.
+#[test]
+fn the_bot_goes_for_no_power_item_of_th06_at_full_power() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th06-the-bot-leaves-power-at-full");
+        // The two kinds of power item to one side and a point item to the other, so the answer is which way it
+        // goes and nothing else.
+        game.image().an_item_is_at(100, POWER, MIDDLE - 60.0, LOW);
+        game.image()
+            .an_item_is_at(200, BIG_POWER, MIDDLE - 40.0, LOW);
+        game.image().an_item_is_at(300, POINT, MIDDLE + 60.0, LOW);
+        game.image().set_power(FULL_POWER - 1);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().input_now() & PAD,
+            LEFT,
+            "the bot passed over a power item with power left to gain:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        game.image().set_power(FULL_POWER);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().input_now() & PAD,
+            RIGHT,
+            "the bot went for a power item with the shot already full:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And with only power items on the screen there is nothing to go for at all, so the rules stand where
+        // they want to be rather than crossing to one.
+        game.image().the_item_is_gone(300);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(1);
+        assert_eq!(
+            game.image().input_now() & PAD,
+            0,
+            "the bot crossed to a power item with nothing else on the screen:\n  {}",
             game.log().lines().join("\n  "),
         );
     });

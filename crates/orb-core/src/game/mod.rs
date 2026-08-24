@@ -1739,6 +1739,17 @@ pub struct Frame {
     /// Whether the player is carrying something that takes a hit for it, for a game that has such a thing: its
     /// going away while the player is otherwise well is a hit that the count of deaths never sees.
     pub border: bool,
+    /// **Whether the shot is at the power the game stops adding to**, which is what makes a power item worth
+    /// crossing a field for or worth nothing at all.
+    ///
+    /// **The game's own, because the number it is compared with is.** 128 is where both games stop, and each
+    /// keeps the power in its own type — an integer in th06 and a float in th07 — so what a full shot *is*
+    /// is a question about the game and what to do about it is the bot's.
+    ///
+    /// **And it is th06 the answer matters for.** th07 turns a power item collected at full power into
+    /// something else, so a run that goes for one there gets what it went for; th06 leaves it a power item
+    /// worth a scrap of score, and a run that crosses the field for one has crossed it for nothing.
+    pub full_power: bool,
     /// Whether a line of dialogue is up, which is a thing to press past.
     pub dialogue: bool,
     /// Where the boss is, for a fight that has one up.

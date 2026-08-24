@@ -22,8 +22,8 @@ use super::{
     BUTTON_BOMB, BUTTON_DOWN, BUTTON_FOCUS, BUTTON_LEFT, BUTTON_RIGHT, BUTTON_SHOOT, BUTTON_SKIP,
     BUTTON_UP, G_BULLET_MANAGER, G_CUR_FRAME_INPUT, G_ENEMY_MANAGER, G_GAME_MANAGER,
     G_ITEM_MANAGER, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, MENU_CANCEL, MENU_DECIDE, PLAYER_DEAD,
-    PLAYER_NORMAL, STATE_GAMEMANAGER, Th06, bullet_manager, enemy, enemy_manager, game_manager,
-    item, player, supervisor,
+    PLAYER_NORMAL, POWER_FULL, STATE_GAMEMANAGER, Th06, bullet_manager, enemy, enemy_manager,
+    game_manager, item, player, supervisor,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name th06 has nothing for.
@@ -72,6 +72,10 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // **And no border**, which is a thing th07 has and this game has not: nothing here takes a hit for the
     // player, so every hit it takes is one the deaths count.
     into.border = false;
+    // **And whether the shot is full**, which this game keeps as an integer and stops adding to at
+    // [`POWER_FULL`] — the number its own item handlers compare against before they step it up.
+    into.full_power =
+        unsafe { mem::read::<u16>(G_GAME_MANAGER + game_manager::CURRENT_POWER) } >= POWER_FULL;
     into.dialogue = unsafe { crate::game::Game::a_line_of_dialogue_is_shown(&Th06) };
     into.boss = unsafe { the_boss_the_fight_is_with() };
     into.hazards.clear();

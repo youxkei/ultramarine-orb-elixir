@@ -33,8 +33,8 @@ use super::{
     LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER, LASER_WIDTH, MENU_CANCEL,
     MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BORDER, PLAYER_BOX_MAX,
     PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_NORMAL, PLAYER_POSITION, PLAYER_SCALE_ACROSS,
-    PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE, SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT,
-    SUPERVISOR_SCENE, Th07,
+    PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE, POWER, POWER_FULL, SCENE_RUN, SPEED_DIAGONAL,
+    SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name 妖々夢 has nothing for.
@@ -85,6 +85,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // rather than putting the player into the state above, so a run kept alive by borders is a run the deaths
     // never counted — see [`super::PLAYER_BORDER`].
     into.border = unsafe { mem::read::<usize>(G_PLAYER + PLAYER_BORDER) } != 0;
+    // **And whether the shot is full**, which this game keeps as a float and takes the whole part of before it
+    // compares — the three sites at 0x415478, 0x42c3e3 and 0x432710 all against 128. Nothing where there is no
+    // run's numbers to read it out of.
+    into.full_power = unsafe { Th07.run_numbers() }
+        .and_then(|run| mem::read_committed::<f32>(run + POWER))
+        .is_some_and(|power| power >= POWER_FULL);
     into.dialogue = unsafe { Th07::dialogue_line() }.is_some();
     into.boss = unsafe { the_boss_the_fight_is_with(into.field) };
     into.hazards.clear();

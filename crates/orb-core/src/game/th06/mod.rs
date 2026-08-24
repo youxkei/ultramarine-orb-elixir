@@ -1256,6 +1256,15 @@ const PLAYER_INVULNERABLE: i8 = 3;
 /// every update is seen as 239 there, which is not.
 const PLAYER_INVULNERABLE_FRAMES: i32 = 0xf0;
 
+/// **The power this game stops adding to**, which is what its own item handlers ask before they step it up:
+/// `cmp eax,0x80` at 0x41f951 for the power item, at 0x41fd80 for the big one and at 0x41ff92 for the one that
+/// fills it.
+///
+/// **And a power item collected here is still a power item.** th07 turns one into something else at full
+/// power; this game leaves it where it is, worth a scrap of score — so a bot that crossed the field for one
+/// crossed it for nothing.
+const POWER_FULL: u16 = 0x80;
+
 /// `th06::Difficulty`, whose last value the Extra stage runs at.
 const DIFFICULTY_EXTRA: i32 = 4;
 /// What the game counts as already paid for there, so that the four scores an extra life

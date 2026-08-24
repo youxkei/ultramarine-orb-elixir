@@ -550,6 +550,12 @@ const RUN_NUMBER_BYTES: usize = 0xc8;
 /// `docs/adr/` then rather than in a cast here.
 const POWER: usize = 0x7c;
 
+/// **And the power it stops adding to**, which is the number those three sites compare against.
+///
+/// A float here, the power being one: what a bot asks is whether a power item is worth going for, and the
+/// answer is the same comparison the game makes before it steps the power up.
+const POWER_FULL: f32 = 128.0;
+
 /// **What an item's cherry is worked out from, `[run+0x18]`.** 0x4338e3 reads it, makes
 /// `(count / 40) * 10 + 300` of it, and hands that to 0x42f5a2 — which is the cherry going up:
 /// `[gm+0x961c]` is [`G_CHERRY`], clamped at `[gm+0x9618]`, which is [`G_CHERRY_TARGET`], and
