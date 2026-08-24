@@ -181,6 +181,18 @@ someone back to it, not into `SPEC.md`.
 - **The why not is in the comments.** The alternative rejected, the constraint that is not obvious,
   the reason the straightforward approach was avoided.
 
+**And all three are written in English**, comments and doc comments and test names alike — and so are
+the commit messages, whose subject lines this settles too. A term this project reaches for in Japanese
+has an English name and that name is what goes in: *deathbomb* rather than 決死結界, *focused* rather
+than 低速, *Pointdevice mode* rather than 完全無欠モード, *the warning line* rather than 予告線, *stage 2*
+rather than 2面.
+
+**What stays Japanese is what the game itself holds.** A string the game draws or orb draws over
+it — 「チャプターをやり直す」, the questions orb puts over the title menu — is that text and not a
+translation of it, and an e2e test matching one matches the characters. The same goes for a file name
+the game owns (`東方紅魔郷.exe`, `紅魔郷ST.dat`), a directory of an install, and `README.ja.md`, which
+is the Japanese half of a pair by design. Everything else is prose, and prose here is English.
+
 **How many of something there are is not written down.** Not in a comment and not in `SPEC.md`: a
 count beside a list is a second place to edit every time the list grows, and it is the place nothing
 fails when it is wrong — `settings.rs` said its dialog template was ten controls where the template
