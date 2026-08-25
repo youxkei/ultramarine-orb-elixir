@@ -3554,32 +3554,6 @@ impl Game for Th07 {
         mem::read_committed::<i32>(screen as usize + RESULT_PHASE) == Some(SAVE_PHASE_WRITES)
     }
 
-    /// One attempt and one capture on a card's record, and the total with them — the words the game's own
-    /// counting moves, held at [`CARD_COUNT_CAP`] the way it holds them.
-    unsafe fn count_a_card_for_a_check(&self, card: usize) -> bool {
-        if card >= CARDS {
-            log!("score: {card} is not a card of this game's {CARDS}; nothing counted");
-            return false;
-        }
-        let at = G_CARD_RECORDS + card * CARD_RECORD_BYTES;
-        let shot = usize::from(unsafe { mem::read::<u8>(G_SHOT_COMBINED) });
-        for word in [
-            CARD_ATTEMPTS + shot * size_of::<u16>(),
-            CARD_CAPTURES + shot * size_of::<u16>(),
-            CARD_ATTEMPTS_IN_ALL,
-        ] {
-            let Some(standing) = mem::read_committed::<u16>(at + word) else {
-                return false;
-            };
-            unsafe { mem::write::<u16>(at + word, counted_once_more(standing)) };
-        }
-        unsafe { Self::seal_card_record(at) };
-        log!(
-            "score: card {card} counted once more for shot {shot}, for a check of the file's write"
-        );
-        true
-    }
-
     /// The captures in memory emptied where a ranking read is about to define them, and kept where it is not.
     ///
     /// **The scene is what tells those apart in this game**, rather than the screen's own state: 0x44a302 builds

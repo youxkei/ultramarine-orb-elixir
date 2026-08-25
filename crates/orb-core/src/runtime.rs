@@ -312,8 +312,6 @@ pub struct Runtime {
     /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
     /// which is asked once and cannot be asked before the device exists.
     sent_keys: bool,
-    /// Whether the card a check asks for has been counted and written yet, that being once a launch.
-    counted_a_card: bool,
     /// Which language every screen of orb's own is written in, settled at the attach: `orb.yaml` says,
     /// or the machine does where it says nothing. Kept here rather than read per screen because it
     /// cannot change while a process runs and the machine's own is a call to the host.
@@ -1037,7 +1035,6 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             kept: None,
             starting: 0,
             sent_keys: false,
-            counted_a_card: false,
             language,
         });
     }
@@ -2539,24 +2536,6 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // running, which is a cleared run's own way to that screen: the roll is played out an update a frame,
     // and a ranking asked for over one is asked of a front end that cannot come up, so the whole
     // allowance went on frames of the roll — see `the_ending.rs`.
-    // A card counted and the file written for a launch that is reading that write back rather than playing a
-    // run to a spell card — see `Config::counted_a_card`. Once a launch, and where a run has ended is where the
-    // save is safe to ask for: the front end up, between frames.
-    if let Some(card) = runtime
-        .config
-        .counted_a_card
-        .filter(|_| !runtime.counted_a_card && !state.in_run && state.scene == state.wanted)
-    {
-        runtime.counted_a_card = true;
-        if unsafe { runtime.game.count_a_card_for_a_check(card) } {
-            // **The one that replaces, and not the one that defers to a note already held.** What this launch
-            // is for is the counts it has just put in the records; a note left over from a run played earlier
-            // in it would be put back over them at the save, and the write the check exists to read back would
-            // hold everything except the card it named.
-            unsafe { note_the_records_as_they_stand(runtime.game) };
-            log!("score: the check's counts wait for the save the game makes itself");
-        }
-    }
     if runtime.given_up && !state.in_run && !state.in_ending && state.scene == state.wanted {
         runtime.given_up = false;
         unsafe { commit_records(runtime, chain, &mut result) };

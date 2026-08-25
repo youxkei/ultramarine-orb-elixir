@@ -1112,20 +1112,6 @@ pub trait Game {
         let _ = left;
     }
 
-    /// Counts one attempt and one capture against a card, as the game's own counting would, and answers
-    /// whether it could.
-    ///
-    /// **For a launch that reads the score file's write back without a run being played to a spell card** —
-    /// `Config::counted_a_card`, which is what asks for it. Nothing an ordinary launch reaches: what counts
-    /// a card in a run is the game itself.
-    ///
-    /// # Safety
-    /// Must run on the game's main thread.
-    unsafe fn count_a_card_for_a_check(&self, card: usize) -> bool {
-        let _ = card;
-        false
-    }
-
     /// Whether the game writes its own score file, so that nothing above has to build a ranking screen for
     /// it.
     ///

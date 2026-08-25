@@ -101,10 +101,6 @@ pub struct Config {
     /// Restore the current chapter every this many frames, 0 to never. Exercises
     /// the snapshot and the music over and over without anyone playing.
     pub stress_restore_frames: u32,
-    /// The card one attempt and one capture are counted against before the score file is written, for a
-    /// launch that reads that write back without a run being played — see `args`. `None` for every
-    /// ordinary launch.
-    pub counted_a_card: Option<usize>,
     /// Updates to run per drawn frame while a replay plays or a run is being cleared
     /// with `fast_clear`, so a pass or a clear over a full run takes a minute rather
     /// than half an hour.
@@ -449,7 +445,6 @@ impl Config {
             chapter_tuning: false,
             during_replay: false,
             stress_restore_frames: 0,
-            counted_a_card: None,
             speed: 1,
             fast_clear: false,
             chapter_stepping: false,

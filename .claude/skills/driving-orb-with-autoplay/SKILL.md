@@ -283,3 +283,14 @@ side.
 
 Where several stages have to be measured, chain them: each launch picks the run up, answers for the stage it
 picked up in, plays on to the next stage's fight and leaves it there.
+
+**And `quit` reaches no save of the game's own**, which is what a measurement of anything the game writes at
+its own exit has to be built around: `quit: true` is `process::exit`, and th07's write on the way out is after
+the message pump. What a recipe can reach instead is the save a run's *build* makes, so the shape is to play
+the run, `leave` it, and start a second one — that build is where the first run's records are written.
+
+**And a rewindable launch has two score files in it, so a line naming a count does not say which file's.**
+Every open of one goes to the mode's own file except the front end's unlocks read, which stays the game's — so
+`score: card N now A attempt(s) and C capture(s) …, where the file had a and c` can hold the two files'
+numbers at once. `--no-chapters` leaves one file and is what makes such a line readable; without it, what
+settles a number is the pair of launches rather than the line.
