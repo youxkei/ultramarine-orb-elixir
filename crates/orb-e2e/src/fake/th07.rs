@@ -1048,8 +1048,22 @@ impl Fake {
     /// Naming whichever step the run did not get past.
     pub fn in_a_pointdevice_run(&self) {
         self.the_mode_is_answered_at_the_title_menu();
+        self.the_run_is_chosen();
         self.builds_a_stage();
         self.takes_the_stages_first_chapter();
+    }
+
+    /// The one frame a run has been chosen and not built: the front end has asked for the run scene and the
+    /// supervisor has not acted on it — see `Th07::run_chosen`.
+    ///
+    /// **A frame of its own and not a state the build carries in**, which is what it was: the build sets the
+    /// same pair, but nothing of orb's looks between the two, so a run that only ever passed through it
+    /// *inside* a build was a run orb was never handed. Which is the one frame two things happen on — a
+    /// chapter pointed at the stage about to be built, and the replay this run writes into settled — so a
+    /// laid-out game that skipped it was a game where neither could.
+    fn the_run_is_chosen(&self) {
+        self.image.a_run_has_been_chosen();
+        self.frame();
     }
 
     /// And one stage of it practised rather than the whole game played, which is the same walk with the bit

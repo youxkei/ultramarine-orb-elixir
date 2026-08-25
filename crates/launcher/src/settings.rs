@@ -68,6 +68,7 @@ pub struct Answers {
     pub skip_ending: bool,
     pub hide_mouse: bool,
     pub dpad_moves: bool,
+    pub save_replays: bool,
     pub ask_at_startup: bool,
 }
 
@@ -85,6 +86,7 @@ impl Answers {
         config.skip_ending = self.skip_ending;
         config.hide_mouse = self.hide_mouse;
         config.dpad_moves = self.dpad_moves;
+        config.save_replays = self.save_replays;
         config.ask_at_startup = self.ask_at_startup;
     }
 }
@@ -183,7 +185,7 @@ struct Switch {
 }
 
 /// The switches, in the order they are stacked. Each is one key of `orb.yaml`.
-const SWITCHES: [Switch; 7] = [
+const SWITCHES: [Switch; 8] = [
     Switch {
         text: |language| match language {
             Language::Japanese => "インストールされている翻訳パッチを使う",
@@ -231,6 +233,16 @@ const SWITCHES: [Switch; 7] = [
         },
         shown: |config, _| config.dpad_moves,
         answered: |answers, on| answers.dpad_moves = on,
+    },
+    // Off is not "no replays": it is orb asking at the end of a run, which is where somebody says
+    // which runs were worth keeping. On is every one of them kept without a question.
+    Switch {
+        text: |language| match language {
+            Language::Japanese => "完全無欠モードのリプレイを自動保存する",
+            Language::English => "Save a Pointdevice mode run's replay without asking",
+        },
+        shown: |config, _| config.save_replays,
+        answered: |answers, on| answers.save_replays = on,
     },
     Switch {
         text: |language| match language {
@@ -325,6 +337,13 @@ const SCREEN_ID: u16 = 100;
 const LANGUAGE_ID: u16 = 150;
 const SWITCH_ID: u16 = 200;
 
+/// **There is no row here a name is typed into.** Whose the replays are is the name the game's own name
+/// entry holds — `Game::the_name_its_own_entry_holds`, read off the screen a played run ends at and kept in
+/// `orb.yaml` from there — so a row asking for one again would be a second place to answer a question the
+/// game already asks, and whichever of the two somebody had last touched would be the name.
+///
+/// The key stays in the file: what this dialog writes back is every key, and `player_name` goes back as it
+/// was read.
 /// The dialog, in dialog units — a quarter of the font's average character width across and an
 /// eighth of its height down — so all of it scales with the font the system gives it.
 ///
@@ -344,7 +363,7 @@ const BUTTON: (i16, i16) = (56, 16);
 const COMBO: i16 = 90;
 /// Where the language row is, which is under the row the sizes are on.
 const LANGUAGE_TOP: i16 = MARGIN.1 + LINE;
-/// And where the switches start, under both of the rows with a list on them.
+/// And where the switches start, under both of the rows with a control of their own.
 const SWITCHES_TOP: i16 = LANGUAGE_TOP + LINE + 6;
 /// And the line about the pad, under the last of them.
 const HINT_TOP: i16 = SWITCHES_TOP + LINE * SWITCHES.len() as i16 + 4;
@@ -499,6 +518,7 @@ unsafe extern "system" fn procedure(
                 .position(|item| *item == setup.chosen_language)
                 .unwrap_or(0);
             unsafe { SendMessageW(languages, CB_SETCURSEL, selected, 0) };
+
             for (index, on) in setup.switches.iter().enumerate() {
                 if *on {
                     let switch = unsafe { GetDlgItem(dialog, (SWITCH_ID + index as u16) as i32) };
@@ -555,6 +575,10 @@ fn row(id: u16) -> usize {
 
 /// The rows, in the order the pad walks them: the two with a list on them, then one per switch, and
 /// the two buttons sharing the last.
+///
+/// **Every row a pad reaches is one a pad can answer**, which is what taking the name row out left: it
+/// was the one row with nothing on a pad to fill it — up and down left it and decide did nothing —
+/// and the name it asked for is the game's own name entry's now.
 const SCREEN_ROW: usize = 0;
 const LANGUAGE_ROW: usize = 1;
 const SWITCHES_ROW: usize = 2;
@@ -729,6 +753,7 @@ unsafe fn take_answers(dialog: HWND) {
         skip_ending: false,
         hide_mouse: false,
         dpad_moves: false,
+        save_replays: false,
         ask_at_startup: false,
     };
     for (index, switch) in SWITCHES.iter().enumerate() {
@@ -992,11 +1017,31 @@ mod tests {
     /// differently in one of them — the template is laid out from the words in it.
     const LANGUAGES_TO_READ: [Language; 2] = [Language::Japanese, Language::English];
 
-    /// Every key at what a file that is not there gives it, which is on for every switch — and no
-    /// directory is made, the read of a file that is not there being the whole of what this needs.
+    /// Every key at what a file that is not there gives it — and no directory is made, the read of a
+    /// file that is not there being the whole of what this needs.
     fn defaults() -> Config {
         let missing = std::env::temp_dir().join(format!("orb-no-settings-{}", std::process::id()));
         Config::load_beside(&missing.join("orb.exe")).expect("the defaults")
+    }
+
+    /// A dialog whose every switch is off and whose two rows with a list on them answer what they were
+    /// given, which is what the tests below read one switch at a time off.
+    ///
+    /// The way the dialog itself builds one: every box is read back by its own `answered`, so an
+    /// `Answers` starts as nothing and the calls fill it.
+    fn nothing_answered(config: &Config) -> Answers {
+        Answers {
+            screen: config.screen,
+            language: config.language,
+            thcrap: false,
+            always_draw: false,
+            boundary_flash: false,
+            skip_ending: false,
+            hide_mouse: false,
+            dpad_moves: false,
+            save_replays: false,
+            ask_at_startup: false,
+        }
     }
 
     /// Each switch answers the key it shows.
@@ -1012,28 +1057,29 @@ mod tests {
         /// every box below be asserted the same way.
         const IN: Language = Language::English;
 
-        let shown = defaults();
+        // Every switch answered on, which is where the loop below reads one of them off from: what a
+        // file that is not there gives them is no longer all on — `save_replays` is off, a run's
+        // replay being offered rather than kept — so the starting point is answered rather than read.
+        let shown = {
+            let mut answers = nothing_answered(&defaults());
+            for switch in &SWITCHES {
+                (switch.answered)(&mut answers, true);
+            }
+            let mut config = defaults();
+            answers.apply(&mut config);
+            config
+        };
         for switch in &SWITCHES {
             assert!(
                 (switch.shown)(&shown, IN),
-                "{}: not shown as on with every key at its default",
+                "{}: not shown as on where its own key was answered on",
                 (switch.text)(IN),
             );
         }
         for (index, switch) in SWITCHES.iter().enumerate() {
             // Answered the way the dialog reads its controls: an `Answers` of nothing, and one call
             // per switch — this one off and every other on.
-            let mut answers = Answers {
-                screen: shown.screen,
-                language: shown.language,
-                thcrap: false,
-                always_draw: false,
-                boundary_flash: false,
-                skip_ending: false,
-                hide_mouse: false,
-                dpad_moves: false,
-                ask_at_startup: false,
-            };
+            let mut answers = nothing_answered(&shown);
             for (other, answering) in SWITCHES.iter().enumerate() {
                 (answering.answered)(&mut answers, other != index);
             }
@@ -1087,6 +1133,7 @@ mod tests {
                 skip_ending: true,
                 hide_mouse: true,
                 dpad_moves: true,
+                save_replays: true,
                 ask_at_startup: true,
             };
             answers.apply(&mut config);

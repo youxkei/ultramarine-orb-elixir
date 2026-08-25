@@ -9,6 +9,11 @@ pub struct VirtualKey(pub u8);
 
 pub const A: VirtualKey = VirtualKey(0x41);
 pub const D: VirtualKey = VirtualKey(0x44);
+/// The game's own bomb key, which its menus read as back, and escape beside it — the two orb's own screens
+/// take a cancel on. Here because one thing outside a menu reads them: an attempt out of a replay being
+/// watched, whose own buttons are the game's, so the keyboard is the only way to stop it.
+pub const X: VirtualKey = VirtualKey(0x58);
+pub const ESCAPE: VirtualKey = VirtualKey(0x1b);
 pub const SHIFT: VirtualKey = VirtualKey(0x10);
 pub const CTRL: VirtualKey = VirtualKey(0x11);
 pub const SPACE: VirtualKey = VirtualKey(0x20);

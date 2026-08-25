@@ -312,6 +312,13 @@ pub trait Win: Send + Sync + 'static {
     /// `QueryPerformanceFrequency` — ticks a second, and zero where there is no counter.
     fn frequency(&self) -> i64;
 
+    /// `GetLocalTime` — the host's calendar, in the zone the machine is set to.
+    ///
+    /// Behind the seam because a real one answers whatever day it is, and the file names orb builds out
+    /// of it are names an e2e test has to be able to say in full. A simulated host answers a date a test
+    /// sets, so a replay saved in one lands at a path the test wrote down.
+    fn local_time(&self) -> crate::clock::LocalTime;
+
     /// Waits `ticks` of the counter out on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` waitable
     /// timer, made on first use and kept for the rest of the run — and `false` where it could not
     /// be made at all.

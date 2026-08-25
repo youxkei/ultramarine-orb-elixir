@@ -169,6 +169,60 @@ Then the clamp, `0x427e03` onwards: against `[0x69d6ec]` and `[0x69d6ec] + [0x69
 the field its bullets fly through: `0x4156e3` and `0x415748` bounce a bullet off 0 and `[0x46a7c0]` = 384 in x
 and 0 and `[0x46a7bc]` = 448 in y.
 
+## What starting a run does, and what an enemy is spawned out of
+
+**The item is the shot type select's, `0x436dae` to `0x436fc5`**, and every write it makes is one of these:
+the shot from its own cursor into `GameManager+0x181e`, the starting lives and bombs out of the options at
+`Supervisor+0x12c` and `+0x12d` into `+0x181a` and `+0x181b` — 2 and 3 where the difficulty is Extra
+(`0x436e0f`) — `currentStage` nought, or 6 for Extra, `isInReplay` nought, one call into the sound player to
+fade the music, the multiplier the refresh ladder at `0x436e9d` picked into `Supervisor+0x1ac`, and
+`curState` = 2 at `0x436e1d`. `0x436dbc` is where it goes to the practice stage select instead, on
+`isInPracticeMode`.
+
+**`GameManager::RegisterChain` is `0x41bb02`**, and three of the things it does are keyed on `currentStage`
+as it stands at the build: the enemy manager registered with the pair at `[stage*8 + 0x4764e8]`
+(`0x41c07d`), the ECL loaded by name from `[stage*4 + 0x4764c4]` into the interpreter at `0x487e50`
+(`0x41c0c1`), and the game's own replay recorder — `ReplayManager::RegisterChain` at `0x42a240`, mode 0 for
+recording and 1 for playing one back, chosen on `isInReplay`. **That one refuses to record while
+`Supervisor+0x1ac` is under the 0.99f at `0x46b734`** (`0x42a246`), and writes 1.0 over it where it does; so
+on a display the ladder puts under 0.99 the game keeps no replay of a run at all.
+
+`Ecl::Load` is `0x407340`: `[0x487e50]` is the file as it was read, `[0x487e54]` is the sub table at
+`+0x10`, and the loop at `0x4073a5` turns each sub's offset into a pointer. Stage 1's holds 24 subs, and the
+timeline the enemy manager walks sits at `+0x472e` of the same block.
+
+**`EnemyManager::SpawnEnemy` is `0x411390`, and what a new enemy starts as is a copy**: `rep movsd` of 0x3b2
+dwords — one enemy — from the template at `manager+0x8` over the free slot (`0x4113f2`), then the life and
+the position patched in, then two calls on the interpreter at `0x487e50` with `enemy+0x990` and the sub id
+out of the timeline entry (`0x40744x` sets the context: `[ctx] = subs[subId]`, `[ctx+4] = -999`,
+`[ctx+0x48] = subId`).
+
+`EnemyManager::OnTick` is `0x4123e0`: 256 slots of `0xec8` from `manager+0xed0`, a slot skipped where bit 7
+of `[enemy+0xe50]` is clear, the count written to `manager+0xee5bc`, and — where bit 2 of `[enemy+0xe51]` is
+clear — `[enemy+0xc0]`'s `+0x2c` and `+0x30` read at `0x412499` and handed to a test with the enemy's own
+position. **That read is where an enemy with no sprite takes the process down**, `+0xc0` being nought until
+the ECL instruction at `0x40189a` writes `anmManager + (byte - 0x15) * 0x38` into it.
+
+## The name entry a run ends at, and the name a replay carries
+
+`ResultScreen::OnUpdate` is `0x42d98e` and dispatches on `[this+8]`; **state 9 is the name entry** and its
+handler is `0x42bc85`. What that walks is a cursor at `[this+0x20]` over the 96 characters at `[0x4784d4]` —
+±0x10 a row, ±1 a column, the 94th of them the space item, and a slot holding `0x20` skipped as the grid's own
+hole. On the shot key it copies the character under the cursor into the name: `0x42c14e` writes it at
+`[this+0x5193 + [this+0x10]]`, `0x42c165` writes a space there where the space item was chosen, `0x42c176`
+caps `[this+0x10]` at eight, and `0x42c226` is the delete. So the field is **`[screen+0x5193]`, eight bytes
+with spaces to the end**.
+
+**And that is the name the game writes into a replay of its own.** Three of one machine's `replay/th6_*.rpy`
+were read: the key is the byte at `+0x0e` and every byte from `+0x10` has it subtracted with the key climbing
+by 7 — *the first byte included*, so the key the loop starts with is `byte + 7`, which is what told the three
+files apart from every other candidate. What comes out holds `MM/DD/YY` and a NUL at `+0x10` and then eight
+bytes at `+0x19`, spaces to the end: `YXK` in two of them and `YKI` in the third. The body is not compressed,
+unlike th07's.
+
+Which is why orb reads the field rather than asking for a name of its own — see
+`Game::the_name_its_own_entry_holds`.
+
 ## What is not established
 
 - Which of the five bullet states is which kind. That nought is an empty slot and 5 is one that has just hit is

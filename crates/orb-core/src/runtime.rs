@@ -23,10 +23,10 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, AtomicUsize
 
 use orb_config::{Config, Language};
 
-use crate::game::{CountedDeath, Game, Pad, Question, Reached, RunStart, State};
+use crate::game::{CountedDeath, Game, Menu, Pad, Question, Reached, RunStart, State};
 use crate::input::{Keyboard, Pads};
 use crate::lives_ui::LivesMark;
-use crate::menu_ui::By;
+use crate::menu_ui::{By, Keys};
 use crate::mode_ui::{Answer, Mode, ModeMenu};
 use crate::mouse::Mouse;
 use crate::overlay::{FONT_HEIGHT, MARK_FONT_HEIGHT, Overlay};
@@ -36,7 +36,8 @@ use orb_api::d3d8;
 
 use crate::chapter::{Cause, Chapters, Judgement};
 use crate::{
-    detail, frame, game, joystick, log, pacing, profile, resume, resume_ui, score, summary,
+    detail, frame, game, joystick, log, pacing, profile, replay, replay_ui, resume, resume_ui,
+    score, summary, writer,
 };
 
 /// The frame loop's state, made on the first ask.
@@ -93,6 +94,22 @@ const CHAIN_EXIT_ERROR: i32 = -1;
 /// update of it costs 13µs — 484ms for all 36,932 — so an ending that never ends is a
 /// pause under a second rather than a game that never comes back.
 const ENDING_SKIP_LIMIT: u32 = 60 * 60 * 15;
+
+/// How long a list of replays waits for the screen it is to stand over before going up over whatever the
+/// front end has instead — see [`ToPutUp::waited`].
+///
+/// Five seconds against the one that screen takes, which is what a stop on this has to be: a screen asked
+/// for that never arrives is a game somewhere orb did not expect, and a list nobody can see is a launch
+/// somebody has to close.
+const A_SCREEN_IS_WAITED_FOR: u32 = 300;
+
+/// And a stop on the same run-out for the screens a finished run ends at — see
+/// [`Game::the_screen_a_run_ends_at_is_up`].
+///
+/// Ten seconds of them against the twenty frames th06's result screen takes to leave: what it is a stop on
+/// is a screen that answers the write by standing there, which is a screen that would otherwise hang the
+/// frame it is in rather than one that shows for a moment.
+const RESULT_SKIP_LIMIT: u32 = 600;
 
 /// A stop on building the ranking and taking it down, which is what writes what a run counted about
 /// spell cards: room for the front end's wait on the item and the screen building itself, in updates
@@ -181,6 +198,29 @@ mod keys {
 /// stage it cannot load does.
 const RESUME_START_FRAMES: u32 = 600;
 
+/// The frames the screen a list of replays stands over is left to draw itself in before the list goes over
+/// it.
+///
+/// **A second of them, because what is under one of these lists is frozen for as long as it is up.** A list
+/// put up on the frame the front end became what was running stood over a screen the game had not drawn yet,
+/// and went on standing over it — the chain being broken from then on, nothing ever drew the screen behind.
+/// Thirty frames caught th06's logo mid-fade; sixty has it up. What these frames are for is the picture
+/// behind the list, and nothing waits on them but that.
+///
+/// **A screen orb asked the front end for is drawn in over these frames as much as a front end just built
+/// is**, which two frames of them was not enough for: th06's replay screen came up and drew its own title
+/// and the row its fifteen slots are headed by over the frames after that, and a list put up on the third
+/// froze it half drawn.
+const THE_SCREEN_DRAWS_FOR: u32 = 60;
+
+/// The frames a watched attempt reads no stop over, counted from the frame its playback landed on.
+///
+/// **For a button still down from the list the attempt was chosen out of.** A pad is read as an edge — see
+/// [`menu::Keys::read`] — and the edge is against what the pad was doing the frame before, which for the
+/// first frame of a watch is a `Keys` that has seen no frame at all: a button held then reads as a press.
+/// The same frames the lists themselves hold their keys off for.
+const STOP_GRACE_FRAMES: u32 = 12;
+
 /// How many updates in a row a playback may run without the stage's own clock moving before it gives up on
 /// that clock — and **not** how many updates a stage's frames may take, which is the game's own business.
 ///
@@ -243,6 +283,14 @@ pub struct Runtime {
     /// Frames left to report the margin every frame, set by a restore so that what
     /// a restore does to the streaming is visible rather than averaged away.
     margin_trace: u32,
+    /// **Whose the replays this launch writes are**: the name the game's own name entry was last seen holding
+    /// — see [`Game::the_name_its_own_entry_holds`] — and, until one has been seen, the one the settings file
+    /// carries, which is where the last launch to see one wrote it.
+    ///
+    /// Read from the game rather than asked for, because the game asks: a name typed on the screen a run ends
+    /// at is the name that run's own replay would have been saved under, and a second place to type one is a
+    /// second answer to keep in step with the first.
+    name: String,
     /// The flash now running — its numbers and the drawn frames of it left — and the
     /// boundary it was started for.
     flash: Option<(Flash, u32)>,
@@ -297,6 +345,25 @@ pub struct Runtime {
     /// `Some` while the game is frozen on the question of where to start a run that has one left
     /// unfinished, holding the run that would be picked up.
     asking_resume: Option<(resume_ui::ResumeMenu, resume::Kept)>,
+    /// `Some` while the game is frozen on the question of whether to keep the replay of a run that is
+    /// finished with, holding the slot that run's replay is being written under.
+    /// The offer to keep the replay of a run finished with: the question, which run's it is, and how that run
+    /// ended — the two moments this is asked at being a run that reached the screens it ends at and one being
+    /// written over, which is what the kept file has to say for itself afterwards.
+    asking_replay: Option<(replay_ui::SaveMenu, String, replay::Ended)>,
+    /// `Some` while the game is frozen on the lists a replay is chosen out of — the replays, then the
+    /// stages, chapters and attempts of the one picked.
+    choosing_replay: Option<replay_ui::WatchMenu>,
+    /// `Some` while an attempt out of one is being watched, holding what is being watched for the line that
+    /// says the attempt is over.
+    ///
+    /// What it also says is that this run is nobody's: while it is set, nothing about the run is written
+    /// down, no chapter of it is kept, dying does not offer a retry, and what it counted goes in no ranking
+    /// — see [`Runtime::chaptering`], which is where the first three of those come from.
+    watching: Option<WatchedAttempt>,
+    /// The list orb's replays are chosen out of, waiting for the screen it is to stand over — see
+    /// [`ToPutUp`].
+    to_put_up: Option<ToPutUp>,
     /// The line drawn on the shot type select where the run under the cursor has a chapter written
     /// down. Kept across frames because it holds what it read, the screen being one somebody sits on.
     mark: resume_ui::Mark,
@@ -316,6 +383,44 @@ pub struct Runtime {
     /// or the machine does where it says nothing. Kept here rather than read per screen because it
     /// cannot change while a process runs and the machine's own is a call to the host.
     language: Language,
+}
+
+/// An attempt out of a replay being watched: how far it runs, which is where the run it is watched in ends.
+struct WatchedAttempt {
+    /// The frame of the stage the attempt ran to, which is where the run it is being watched in is left.
+    until: u32,
+    /// **The list it was chosen out of, kept for when it is over.** What somebody who has watched an attempt
+    /// wants next is another attempt at that same chapter, and the walk down to it — the replay, its stage,
+    /// the chapter — is one they have already made; the menu holds where its cursor was on each of the four,
+    /// so putting this same one back up is that walk not made again.
+    list: replay_ui::WatchMenu,
+    /// And the keys the one way out of it is asked for on, read the way every menu of orb's reads its own:
+    /// the keyboard's cancel keys and the pad's cancel button, each as a press rather than as a button that
+    /// is down. Kept across the frames of the attempt because an edge is against the frame before.
+    keys: Keys,
+}
+
+/// A list of orb's own replays waiting for the screen it is to stand over.
+///
+/// **The same wait whether the list is going up for the first time or coming back after an attempt**, which
+/// is what makes it one thing: the screen the game keeps its own replays on is asked for and arrives a
+/// second later — sixty frames of a fade on th06 — and until it is there the list would be standing over a
+/// screen nobody chose. It is where a list of replays belongs, that item being what was chosen to get here.
+struct ToPutUp {
+    list: replay_ui::WatchMenu,
+    /// Whether this is a list coming back after an attempt rather than one going up for the first time. Which
+    /// is two things: the line said when it goes up, and whether the screen behind it needs drawing frames —
+    /// the front end a run left is one built that frame.
+    came_back: bool,
+    /// And whether the game took the ask for the screen the replays are on, which is the other way a screen
+    /// needs them: it came up on this list's account and draws itself in over the frames after that.
+    asked: bool,
+    /// The frames the screen it stands over has been up for, counted from the frame it arrived — against
+    /// [`THE_SCREEN_DRAWS_FOR`].
+    drawn: u32,
+    /// And the frames spent waiting for a screen that never came, against [`A_SCREEN_IS_WAITED_FOR`]: a list
+    /// that never goes up is worse than one over the wrong screen.
+    waited: u32,
 }
 
 /// A run the resume question has been answered for, waiting for the game to get to it.
@@ -498,6 +603,49 @@ fn asked_to_give_the_run_up() -> bool {
 }
 
 static ASKED_TO_GIVE_THE_RUN_UP: AtomicBool = AtomicBool::new(false);
+
+/// **An item of whichever question of orb's is up, taken outright**, for whatever is playing the run.
+///
+/// **The generalisation of the flag above, and it is here for the reason that one is.** A question of orb's
+/// keeps its own cursor and nothing of it reaches a bot, so a press can only ever take the item the cursor
+/// came up on — the first of them. Every second item is therefore unreachable to a recipe: `はじめから`,
+/// `いいえ` at the offer about a replay, and any stage, chapter or attempt but the first of each.
+///
+/// **Which three launches on the real game measured.** Each was written to answer `はじめから` by pressing
+/// `down` and then `decide`; each came back `resume: from where it stopped` — the item the cursor was on —
+/// and one of them then reported keeping a replay it went on writing into. A recipe that cannot say which
+/// item it means cannot drive the screens this exists for.
+///
+/// It waits where no question is up, the same as [`give_the_run_up_at_the_retry`]: what takes it is the block
+/// that answers whichever question is up, on the next frame one is.
+///
+/// The number is the item's place in the list as it is on the screen, counted from nought — which is what a
+/// recipe can say about a list it cannot see.
+pub fn answer_the_question(item: usize) {
+    ANSWERED_OUTRIGHT.store(item as i64, Ordering::Relaxed);
+}
+
+/// And whether one is waiting to be taken, which is what stops a bot pressing at a question it has already
+/// answered — see [`giving_the_run_up_at_the_retry`], which is the same guard on the same hazard.
+pub fn answering_a_question() -> bool {
+    ANSWERED_OUTRIGHT.load(Ordering::Relaxed) >= 0
+}
+
+/// The item asked for, taken: `None` where nothing has asked.
+fn asked_outright() -> Option<usize> {
+    match ANSWERED_OUTRIGHT.swap(NOTHING_ASKED, Ordering::Relaxed) {
+        NOTHING_ASKED => None,
+        item => usize::try_from(item).ok(),
+    }
+}
+
+/// Which item of the question up now has been asked for, and [`NOTHING_ASKED`] where none has.
+///
+/// An `i64` and not an `Option<usize>` because it is a static every one of the question blocks reads: what
+/// it holds is one number, and a number outside the items is a question the item is not in — said where it
+/// is answered rather than checked here, the lists being as long as the file they came out of.
+static ANSWERED_OUTRIGHT: AtomicI64 = AtomicI64::new(NOTHING_ASKED);
+const NOTHING_ASKED: i64 = -1;
 
 /// Installs one, or takes what is there out.
 ///
@@ -902,9 +1050,9 @@ pub unsafe fn attach_to(
 pub unsafe fn detached() {
     unsafe { *RUNTIME.get() = None };
     // Before the log, since the writer says what it wrote: a line from it afterwards would go into
-    // whatever log this process opens next. See `resume::stop_writing` for why waiting for it is this
-    // path's to do and not `DllMain`'s.
-    resume::stop_writing();
+    // whatever log this process opens next. See `writer::stop` for why waiting for it is this path's to
+    // do and not `DllMain`'s.
+    writer::stop();
     // And the log, which a real launch closes from `DllMain`'s `DLL_PROCESS_DETACH` and which this is
     // the whole of the way out of for anything else. Left open it is a handle onto a game that has
     // gone: the next `log::line` writes through it, and where the next thing along is another game in
@@ -950,7 +1098,11 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // Whether this launch keeps what it plays, and which runs an earlier one left unfinished. The
     // names only: which of them is offered depends on what is chosen at the character select, and
     // this is the line that says whether there was anything there to offer at all.
-    resume::keep(config.chapters && config.resume && mode == Mode::Pointdevice);
+    let keeping = config.chapters && config.resume && mode == Mode::Pointdevice;
+    resume::keep(keeping);
+    // And the replay of the whole run beside it, which is the same answer and one thing more: a launch that
+    // refuses to write a replay refuses this one — see [`Runtime::keeping_the_replay`], where the reason is.
+    replay::keep(keeping && !config.block_replay_save);
     if config.resume {
         let left = resume::left(&config.base_dir);
         log!(
@@ -994,6 +1146,9 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
 
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
+    // What the settings file carries, which is what the last launch to see the game's own name entry wrote
+    // there — see [`Runtime::name`] and [`notice_the_name`].
+    let name = config.player_name.clone();
     unsafe {
         *RUNTIME.get() = Some(Runtime {
             game,
@@ -1011,6 +1166,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
+            name,
             flash: None,
             flashed: None,
             stream: (0, None),
@@ -1030,6 +1186,10 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             rolling: false,
             given_up: false,
             asking_resume: None,
+            asking_replay: None,
+            choosing_replay: None,
+            watching: None,
+            to_put_up: None,
             mark: resume_ui::Mark::new(language),
             started: None,
             kept: None,
@@ -1041,15 +1201,32 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
 }
 
 impl Runtime {
-    /// Whether this run has chapters at all: the mode says so, and `--no-chapters` says not.
+    /// Whether this run has chapters at all: the mode says so, `--no-chapters` says not, and an attempt out
+    /// of a replay being watched is not a run anybody is playing.
+    ///
+    /// **That last one turns off everything a run of somebody's own gets**, and each of them would be wrong
+    /// here: a snapshot to send the player back to, an offer to retry a death that already happened, a
+    /// chapter written down over the file of the run this attempt came out of, and a replay of a replay.
     fn chaptering(&self) -> bool {
-        self.config.chapters && self.mode == Mode::Pointdevice
+        self.config.chapters && self.mode == Mode::Pointdevice && self.watching.is_none()
     }
 
     /// And whether what it presses is being written down, so that the chapter it is left in can be
     /// played again in a later launch.
     fn keeping(&self) -> bool {
         self.chaptering() && self.config.resume
+    }
+
+    /// And whether a replay of the whole of it is being kept, which is that and one thing more: a launch
+    /// that refuses to write a replay refuses this one too.
+    ///
+    /// `--clear` is what sets that, and the reason is written beside it: what such a run recorded is the
+    /// buttons of a player nothing could hit, so a replay of it plays back as a run that dies where this one
+    /// did not. Which is the same reason that flag takes the chapter file away — and the chapter file has
+    /// `resume` to be turned off by where this has nothing of its own, orb's own replay being newer than
+    /// either.
+    fn keeping_the_replay(&self) -> bool {
+        self.keeping() && !self.config.block_replay_save
     }
 }
 
@@ -1113,6 +1290,10 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         Some(Question::Resume)
     } else if runtime.retry.is_some() {
         Some(Question::Retry)
+    } else if runtime.asking_replay.is_some() {
+        Some(Question::KeepReplay)
+    } else if runtime.choosing_replay.is_some() {
+        Some(Question::ChooseReplay)
     } else {
         None
     };
@@ -1150,6 +1331,9 @@ unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     score::fork(mode == Mode::Pointdevice);
     unsafe { the_modes_own_records_again() };
     resume::keep(runtime.keeping());
+    // The replay of a run follows the same two things the chapter it is left in does: the mode, and orb
+    // keeping what the run pressed at all. What each of them then *does* with it is its own — see [`replay`].
+    replay::keep(runtime.keeping_the_replay());
     // Nothing kept of a run that will not be rewound: a stage's snapshots are several megabytes a
     // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
     // Its buttons go with them — a run that cannot be rewound has nothing a chapter would be
@@ -1157,6 +1341,7 @@ unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     if mode == Mode::Normal {
         runtime.chapters.forget();
         unsafe { resume::forget() };
+        unsafe { replay::forget() };
     }
     log!("mode: {mode}, was {was}");
 }
@@ -1642,8 +1827,14 @@ pub extern "system" fn get_input() -> u16 {
     // for the chapter it belongs to. A path of its own here is a run orb kept nothing of — and a run to pick up
     // out of a file is the one thing a bot exists to make: the first launch that played its way into stage 2 left
     // `resume: not written — 0 frame(s) of buttons` behind it, and there was nothing to measure.
+    // **And through [`held_back`] as well, which is what lets a bot reach a question of orb's at all.** The
+    // decide is taken out of the word on the reads a question is to be asked on, and the question is raised by
+    // that read — so a word handed over in front of it is a press that reaches the item and never the question.
+    // What that cost is four launches on the real game: every one of them pressed at the title menu's replay
+    // item and every one opened the game's own replay list, `menu:` never once in the log, while the same press
+    // made at a keyboard put orb's question up.
     if let Some(word) = pressing() {
-        return unsafe { noted(game, frame, word) };
+        return unsafe { noted(game, frame, held_back(game, word)) };
     }
 
     // Not read at all while behind, rather than read and thrown away. The game's
@@ -1769,8 +1960,14 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
 /// Only ever called from the input hook, on the game's main thread.
 unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     if let Some(frame) = frame {
+        let word = buttons & game.run_input();
+        let generator = unsafe { game.generator() };
         unsafe {
-            resume::noted(frame, buttons & game.run_input(), game.generator());
+            resume::noted(frame, word, generator);
+            // And into the run's own replay, which keeps the whole of it rather than the stage the chapter
+            // is in — see [`replay`]. The same word: what a replay of this run plays back is what the run
+            // was played with, and that is what the update is about to act on.
+            replay::noted(frame, word, generator);
         }
     }
     // And handed to the run here, which is the read's own moment: a game whose own hand-over comes after the
@@ -1809,6 +2006,9 @@ pub extern "C" fn stage_begun(manager: *mut c_void) -> i32 {
         && let Some(game) = unsafe { chosen() }
     {
         unsafe { resume::stage_begun(game) };
+        // After it, because a resumed stage's numbers go back in there and what a replay writes down is the
+        // numbers the stage is going to be played with — see [`replay::stage_begun`].
+        unsafe { replay::stage_begun(game) };
     }
     result
 }
@@ -2071,6 +2271,7 @@ pub extern "fastcall" fn stage_begun_in_ecx(manager: *mut c_void) -> i32 {
         && let Some(game) = unsafe { chosen() }
     {
         unsafe { resume::stage_begun(game) };
+        unsafe { replay::stage_begun(game) };
     }
     result
 }
@@ -2210,6 +2411,10 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // the frames it counts on include the ones orb holds the chain back for — the mode question among them, which
     // is exactly the screen where nobody has chosen yet whose time it is.
     unsafe { runtime.game.notice_the_time() };
+    // Beside it because it is the same kind of thing: a field of the game's that orb has to have read *before*
+    // the moment it matters. The name entry is two screens in front of the question about keeping a replay, and
+    // the screen it is on is gone by the time that file is sealed.
+    unsafe { notice_the_name(runtime) };
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.
@@ -2252,6 +2457,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
             };
             if acted {
                 runtime.retry = None;
+                // The frame the attempt that has just been rewound away ended on, taken before the
+                // comparison below is dropped: the menu froze the game, so the frame orb last played is the
+                // frame the death was on. Nothing for the item that gives the run up — that attempt was not
+                // rewound, it is where the run stopped.
+                let ended = match choice {
+                    Choice::Quit => None,
+                    _ => runtime.previous.map(|previous| previous.stage_frames),
+                };
                 // What the game carries on into is not a continuation of the frame we
                 // froze on — a chapter put back, or the front end being built where the
                 // run was given up — so nothing about it should be compared against that
@@ -2265,6 +2478,20 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 // `keep_chapter` refuses. Nothing is written where the run has not moved, the file
                 // already describing the chapter it was in.
                 let state = unsafe { runtime.game.read_state() };
+                // The attempt into the run's own replay first, and from the frame the restore has just put
+                // the run on: the frames from there are about to be played again and written over, so this
+                // is the one moment the attempt that was rewound away is still readable. Filed under the
+                // chapter the run went back to, which is where somebody watching it will start it from.
+                if let Some(ended) = ended {
+                    unsafe {
+                        replay::rewound(
+                            &runtime.config.base_dir,
+                            runtime.game,
+                            runtime.chapters.started_at(),
+                            ended,
+                        )
+                    };
+                }
                 unsafe { keep_chapter(runtime, &state) };
             }
         }
@@ -2276,7 +2503,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // than the play field's viewport.
     if let Some(asking) = &mut runtime.asking {
         let pad = unsafe { pad(runtime.game) };
-        if let Some((answer, by)) = asking.update(&runtime.keyboard, pad) {
+        let asked = asking.asked();
+        let answered = match asked_outright() {
+            Some(item) => asking
+                .answered_outright(item)
+                .map(|answer| (answer, By::Recipe)),
+            None => asking.update(&runtime.keyboard, pad),
+        };
+        if let Some((answer, by)) = answered {
             runtime.asking = None;
             // Whichever way it was answered: the keys that answered it are the title menu's own keys
             // too, and the frame it carries on into is one where nothing of orb's has moved its
@@ -2288,7 +2522,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
                 Answer::Chosen(mode) => {
                     log!("mode: answered on the {by}");
                     unsafe { choose(runtime, mode) };
-                    FEED_DECIDE.store(true, Ordering::Relaxed);
+                    // **The replays are the one item where the press is not always handed over.** The
+                    // game's own replays are on the game's own screen, so that answer is the item being
+                    // chosen; a pointdevice run's are orb's own — the game has no screen for them — so
+                    // that answer is a list of orb's over an item the game never acted on.
+                    match (asked, mode) {
+                        (Menu::Replays, Mode::Pointdevice) => {
+                            the_replays_to_watch(runtime);
+                        }
+                        _ => FEED_DECIDE.store(true, Ordering::Relaxed),
+                    }
                 }
                 // The item is not chosen: the press that would have chosen it was held back, so the
                 // menu never left the item it is on and there is no animation to put back. The mode is
@@ -2305,11 +2548,104 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         return CHAIN_BREAK;
     }
 
+    // The lists a replay is chosen out of, over the game's own title menu — whose press was held back for
+    // the question this came from, so no `hold_frame` here either: what is underneath is a menu, and
+    // `prepare_frame` has given the frame the whole output.
+    if let Some(choosing) = &mut runtime.choosing_replay {
+        let pad = unsafe { pad(runtime.game) };
+        // **Or the item a recipe asked for outright**, which is the only way a launch playing itself reaches
+        // anything but the first of each list — see [`answer_the_question`]. Asked before the keys are read,
+        // because a bot that has asked presses nothing while it waits.
+        let answered = match asked_outright() {
+            Some(item) => {
+                let (list, count) = (choosing.list_now(), choosing.items_now());
+                if item >= count {
+                    log!("replay: the {list} list has {count} item(s), so there is no item {item}");
+                }
+                choosing
+                    .answered_outright(item)
+                    .map(|chosen| (chosen, By::Recipe))
+            }
+            None => choosing.update(&runtime.keyboard, pad),
+        };
+        if let Some((chosen, by)) = answered {
+            // Taken rather than dropped: the list an attempt was chosen out of is put back up when that
+            // attempt is over — see [`WatchedAttempt::list`].
+            let list = runtime.choosing_replay.take();
+            SETTLE_KEYS.store(true, Ordering::Relaxed);
+            match chosen {
+                replay_ui::Watched::Chosen { .. } => {
+                    log!("replay: chosen on the {by}");
+                    unsafe { watch_an_attempt(runtime, &chosen, list) };
+                }
+                // The item is not chosen: the press that would have chosen it was held back, so the menu
+                // never left the item it is on. The key that cancelled is held back until it is let go, the
+                // way the mode question's is — what the title menu does with it is put its cursor on `Quit`.
+                replay_ui::Watched::Cancelled => {
+                    log!("replay: nothing chosen; the menu is where it was");
+                    HOLD_CANCEL.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        return CHAIN_BREAK;
+    }
+
+    // Whether to keep the replay of a run that is finished with. Over the screen the run ended at, or over
+    // the shot type select where a run is about to be started over — both of them the game's own screens, so
+    // no `hold_frame` here: what is underneath wants the whole output, which `prepare_frame` has given it.
+    if let Some((menu, _, _)) = &mut runtime.asking_replay {
+        let pad = unsafe { pad(runtime.game) };
+        // Or the answer a recipe asked for outright, `いいえ` being an item no press walks to — see
+        // [`answer_the_question`].
+        let answered = match asked_outright() {
+            Some(item) => menu
+                .answered_outright(item)
+                .map(|answer| (answer, By::Recipe)),
+            None => menu.update(&runtime.keyboard, pad),
+        };
+        if let Some((answer, by)) = answered {
+            let (_, slot, ended) = runtime.asking_replay.take().expect("the question is up");
+            SETTLE_KEYS.store(true, Ordering::Relaxed);
+            match answer {
+                replay_ui::Answer::Keep => {
+                    log!("replay: kept on the {by}");
+                    replay::keep_what_was_being_played(
+                        &runtime.config.base_dir,
+                        runtime.game,
+                        &slot,
+                        &runtime.name,
+                        orb_api::clock::local_time(),
+                        ended,
+                    );
+                }
+                replay_ui::Answer::Decline => {
+                    log!("replay: declined on the {by}");
+                    replay::declined(&runtime.config.base_dir, &slot);
+                }
+            }
+            // The press that answered is handed on where one was being held back for this, which is the
+            // question asked on the way into a run: the run is still to be started. Nothing is held back at
+            // the screen a run ended at, and nothing is handed over there either.
+            if HELD_FOR_THE_REPLAY.swap(false, Ordering::Relaxed) {
+                FEED_DECIDE.store(true, Ordering::Relaxed);
+            }
+        }
+        return CHAIN_BREAK;
+    }
+
     // Where to start a run that has a chapter of its own left unfinished. Over the game's own shot
     // type select, whose decide is being held back for exactly this — so no `hold_frame` here either.
     if let Some((menu, ..)) = &mut runtime.asking_resume {
         let pad = unsafe { pad(runtime.game) };
-        if let Some((answer, by)) = menu.update(&runtime.keyboard, pad) {
+        // Or the answer a recipe asked for outright, `はじめから` being the item no press walks to — see
+        // [`answer_the_question`], where three launches on the real game are what says so.
+        let taken = match asked_outright() {
+            Some(item) => menu
+                .answered_outright(item)
+                .map(|answer| (answer, By::Recipe)),
+            None => menu.update(&runtime.keyboard, pad),
+        };
+        if let Some((answer, by)) = taken {
             let (_, saved) = runtime.asking_resume.take().expect("the menu is up");
             SETTLE_KEYS.store(true, Ordering::Relaxed);
             unsafe { answered(runtime, answer, saved, by) };
@@ -2415,6 +2751,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         state = reached;
         result = ran;
     }
+    // The stage a watched attempt is in, which the run the front end just started has none of: see
+    // [`resume::the_stage_of_a_watch`], and [`Game::front_end_starts_a_run`] for why that item is what starts
+    // it. Before the block below, so that a stage which does not come up is one this had its say about.
+    if unsafe { resume::starting() } && unsafe { runtime.game.run_chosen() } {
+        unsafe { resume::the_stage_of_a_watch(runtime.game) };
+    }
     // Waiting for the stage one asked for. A stage takes a second to build; ten seconds of frames
     // is the game having gone somewhere else with the run, which is what a stage it cannot load
     // does.
@@ -2437,7 +2779,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // Never during a demo or a replay. Only a run someone played reaches an ending worth
     // skipping, and a demo that looked like one is what turned this into a hundred
     // thousand updates a frame.
-    if runtime.config.skip_ending
+    // **And always where an attempt out of a replay was what reached it**, whatever the setting says: an
+    // ending is what a run of somebody's own earned, and the run an attempt is watched in is nobody's — it
+    // played the frames the boss died on again. Somebody who asked for the ending asked for it about their
+    // own clear.
+    if (runtime.config.skip_ending || runtime.watching.is_some())
         && state.in_ending
         && !state.demo
         && !state.replay
@@ -2488,11 +2834,21 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         runtime.rolling = false;
     }
 
-    // The screen that offers to save a replay of the run just finished, which a pointdevice run
-    // has nothing to put in one — see `Game::skip_replay_prompt`. Costs one read on every other
+    // The screen that offers to save a replay of the run just finished, which a pointdevice run has
+    // nothing the *game* could put in one — see `Game::skip_replay_prompt`. Costs one read on every other
     // frame there is.
+    //
+    // **And it is where the offer to keep orb's own goes**, that being what the game's question is written
+    // past for: this is the frame the game would have asked on, which is after the name entry and the stats
+    // screen — the two screens whoever just finished the run reads and orb has no business over. Asked here
+    // rather than where the chapter file is taken away, which is the frame the result screen comes up on:
+    // a question there covers the name entry.
     if runtime.mode == Mode::Pointdevice && unsafe { runtime.game.skip_replay_prompt() } {
-        log!("result: no replay is offered for a run with chapters");
+        log!("result: no replay of the game's own is offered for a run with chapters");
+        let run = unsafe { runtime.game.run_start() };
+        if let Some(slot) = runtime.game.run_slot(&run) {
+            unsafe { the_replay_of_a_run_finished_with(runtime, &slot) };
+        }
     }
 
     // Over a replay as well as over a run someone is playing, because a replay is
@@ -2501,6 +2857,153 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         tune(runtime, &state);
         boundary_reached(runtime, &state);
         unsafe { keep_chapter(runtime, &state) };
+    }
+    // **An attempt out of a replay running out, which is where the run orb built to watch it in is left.**
+    //
+    // The attempt is a stretch of a stage and not a run: what follows the frame it ended on is whatever the
+    // player's own keyboard does to a stage nobody is playing, so there is nothing to carry on into. Ended
+    // here rather than where the buttons stop being fed, because the frame they stop on is one the game
+    // still has to run — the last of the attempt.
+    // **And not while the run it is to be watched in is still being started**, which is the frames between
+    // the front end being asked for one and the game registering it — see
+    // [`Game::front_end_starts_a_run`]. A run that has not come up yet is not a run that has gone, and
+    // taking it for one ended every watch on the frame after the attempt was chosen. What bounds the wait is
+    // [`RESUME_START_FRAMES`], which the playback holds itself to.
+    let starting = unsafe { resume::starting() };
+    if let Some(watching) = runtime.watching.as_mut().filter(|_| !starting) {
+        let over = !state.in_run || state.stage_frames > watching.until;
+        // And the way out somebody watching one has, which is the only one they have: the buttons the game
+        // acts on are the attempt's, so its own pause is not theirs to open. A cancel, on either hand — the
+        // keyboard's two keys and whichever button this game's menus take one on, which is what somebody
+        // with a controller in their hands has. Read through [`Keys`] and not off the keyboard, because a
+        // stop the pad could not ask for left a chapter minutes long with escape as the only way out of it.
+        let stopped = watching
+            .keys
+            .read(&runtime.keyboard, unsafe { pad(runtime.game) })
+            .and_then(|pressed| pressed.cancel);
+        if state.in_run && (over || stopped.is_some()) {
+            let asked = stopped.map_or_else(String::new, |by| format!(", asked for on the {by}"));
+            log!("replay: the attempt is over; the run it was watched in is left{asked}");
+            unsafe { give_up(runtime.game) };
+        }
+        if !state.in_run {
+            // The list it was chosen out of comes back with it, once the screen it stands over is up — see
+            // [`ToPutUp`].
+            runtime.to_put_up = runtime.watching.take().map(|watched| ToPutUp {
+                list: watched.list,
+                came_back: true,
+                asked: false,
+                drawn: 0,
+                waited: 0,
+            });
+            unsafe { resume::forget() };
+            // What this run was is nothing, so nothing about the frame before it applies to the one after —
+            // which is also what keeps the block below from taking it for a run somebody gave up and
+            // building a ranking out of what it counted.
+            runtime.previous = None;
+            resume::keep(runtime.keeping());
+            replay::keep(runtime.keeping_the_replay());
+            log!("replay: the run it was watched in has gone");
+        }
+    }
+    // **The run taken out of the screens a finished run ends at**, where the attempt just watched was the
+    // path the boss died on and the game has gone into them. The name entry is where somebody types their own
+    // name and the stats after it are theirs to read; this run is nobody's — see
+    // [`Game::leave_the_screen_a_run_ends_at`], and `score::watching` for the file, which the screen writes
+    // on its way down whichever way it goes.
+    // **And run out inside the frame they came up in, the way an ending is.** Drawing happens once per
+    // frame, so a screen taken down before this frame's draw is a screen nobody sees. The write on its own
+    // only asks the screen to leave, and it plays its own way out over the frames that takes — twenty of
+    // them on th06 — so a run nobody played put its name entry on the screen on the way past.
+    // **The write asked for inside the loop and not once before it**, because the frame the scene becomes
+    // that screen's is a frame the screen is not on the chain yet: asked once, the write missed that frame
+    // and the frame drew a name entry.
+    if runtime.to_put_up.is_some() && unsafe { runtime.game.the_screen_a_run_ends_at_is_up() } {
+        let mut frames = 0;
+        while unsafe { runtime.game.the_screen_a_run_ends_at_is_up() }
+            && frames < RESULT_SKIP_LIMIT
+            && result != CHAIN_EXIT_SUCCESS
+            && result != CHAIN_EXIT_ERROR
+        {
+            unsafe { runtime.game.leave_the_screen_a_run_ends_at() };
+            result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+            state = unsafe { runtime.game.read_state() };
+            frames += 1;
+        }
+        log!(
+            "replay: the screens a finished run ends at are none of the watched run's; the game is taken \
+             out of them in {frames} update(s)"
+        );
+    }
+    // **And the list put up over the screen the game keeps its own replays on**, which is where a list of
+    // replays belongs: that item is what was chosen to get here, and a list over the title menu — or, coming
+    // back after an attempt, over th06's logo — reads as having left the replays rather than as being in
+    // them. Asked for on every frame the front end is up and not on it yet, a run being taken down being no
+    // front end to ask; the game answers `false` while it is already on its way there, which is what keeps a
+    // transition from being restarted every frame.
+    //
+    // **And the frames the front end is left to draw itself in where the game has no such screen**, because
+    // the list freezes what is under it: put up the moment the front end was what was running, the list
+    // stood over a screen the game had not drawn yet and went on standing over it, the chain being broken
+    // from then on. Measured on the real game, where that was a list on a flat dark screen.
+    if let Some(mut waiting) = runtime.to_put_up.take() {
+        let front = !state.in_run && unsafe { runtime.game.front_end_screen() }.is_some();
+        let there = front && unsafe { runtime.game.the_screen_the_replays_are_on() };
+        if front && !there {
+            waiting.asked |= unsafe { runtime.game.to_the_screen_the_replays_are_on() };
+            waiting.waited += 1;
+        }
+        if there {
+            waiting.drawn += 1;
+        }
+        // How long that screen is left to draw itself in: a screen that came up on this list's account draws
+        // itself in over those frames, and so does a front end built on the frame a run was taken down — the
+        // one screen that needs none of them is the one somebody was already sitting on, drawn every frame
+        // since they walked a cursor to that item.
+        let draws_in = match waiting.asked || waiting.came_back {
+            true => THE_SCREEN_DRAWS_FOR,
+            false => 0,
+        };
+        let drawn = there && waiting.drawn > draws_in;
+        // And a screen that never came: the list goes over whatever the front end has rather than not at all.
+        let given_up = front && waiting.waited > A_SCREEN_IS_WAITED_FOR;
+        if drawn || given_up {
+            if given_up && !there {
+                log!(
+                    "replay: the screen the game keeps its own replays on never came up; the list goes over \
+                     the screen that did"
+                );
+            }
+            runtime.choosing_replay = Some(waiting.list);
+            if let Some(list) = &mut runtime.choosing_replay {
+                // The keys held off, the way they are on every list this menu opens: the press that answered
+                // the mode question — or the one that ended the attempt — is not a press at this list.
+                list.opened_again();
+                // And the ranking is a run's own again from here: the screens the watched run ended at are
+                // down, and their write is behind them.
+                score::watching(false);
+            }
+            if waiting.came_back {
+                log!(
+                    "replay: the attempts at that chapter again, the one that was watched under the cursor"
+                );
+            } else {
+                log!("replay: the replays to watch, over the screen the game keeps its own on");
+            }
+        } else {
+            runtime.to_put_up = Some(waiting);
+        }
+    }
+
+    // **The run's own replay written down and the record of it dropped, on the first frame there is no run
+    // any more.** This is what leaves the stretch the run ended in watchable: what otherwise hands the file
+    // over is a chapter beginning, and on the frame a chapter begins the run has played none of it yet.
+    //
+    // Asked of this frame alone and not of the change from the frame before, which is how the block below
+    // notices a run ending: the retry menu drops the comparison as it acts, so a run given up through it has
+    // no frame before to be held against — and that is the way out this is most for.
+    if !state.in_run && unsafe { replay::keeping() } {
+        unsafe { replay::left(&runtime.config.base_dir, runtime.game) };
     }
     // The run over, whichever way: what was written down is a stage the game is taking down, and
     // the file beside it is left holding the chapter unless the run *finished* — the result screen
@@ -2659,25 +3162,53 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // A run the game keeps no slot for is a practice run: nothing was written down for it and
         // nothing is asked about it, and that ends here rather than in a line of the log.
         if let Some(slot) = runtime.game.run_slot(&run) {
+            // Whether a question about this run is standing by the end of this frame, which is what the
+            // replay below must not be settled over.
+            let mut asking = false;
             match runtime.started.take() {
                 // Answered a screen earlier, on the press that started this run. The chapter goes in
                 // here and not there because this is the one frame the game will take a stage for a
                 // run it has not built yet — see [`Game::start_stage`].
-                Some(started) if started.slot == slot => {
-                    if let Some(saved) = started.saved {
-                        runtime.starting = 0;
-                        unsafe { resume::begin(runtime.game, saved) };
-                    }
-                }
-                answered => {
-                    if let Some(started) = answered {
+                Some(started) => {
+                    if started.slot != slot {
                         log!(
                             "resume: {} was answered for, and {slot} is what the game registered",
                             started.slot
                         );
                     }
-                    ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::Nothing);
+                    if let Some(saved) = started.saved.filter(|_| started.slot == slot) {
+                        runtime.starting = 0;
+                        unsafe { resume::begin(runtime.game, saved) };
+                    }
                 }
+                // Nothing was answered a screen earlier, which is the one frame left to ask on — see
+                // [`resume_ui::Cancels::Nothing`].
+                None => {
+                    asking = ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::Nothing);
+                }
+            }
+            // **And the replay this run writes, where nothing has settled one yet.** What settles it is the
+            // press on the shot type select and the answer that press puts up — see
+            // [`the_replay_this_run_writes`] — and this is the frame that catches a run neither reached: a
+            // launch with no overlay holds no press back, and a run started by anything but that press is
+            // still a run whose replay is worth keeping. The slot here is the one the game gives, which for
+            // th07 is a build's away from being this run's; `replay::stage_begun` is where that is put right.
+            //
+            // **And not while a question about this very run is standing**, which a launch on the real game
+            // caught: the frame `どこから始める` went up here, this settled a fresh replay over the one being
+            // asked about — sealing it and taking its file away — and the つづきから answered twenty-two
+            // frames later found nothing to carry on. What the answer decides is which replay this run
+            // writes, so a settling that runs before it is a settling of the wrong one.
+            if !asking && !unsafe { replay::keeping() } {
+                unsafe {
+                    the_replay_this_run_writes(
+                        runtime,
+                        &run,
+                        &slot,
+                        None,
+                        replay::TheOneBefore::Kept,
+                    )
+                };
             }
         }
     }
@@ -2729,7 +3260,19 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     if DECIDE_PRESSED.swap(false, Ordering::Relaxed) {
         match (pointing, pointed, asked_about) {
             (Some(run), Some(slot), _) => {
-                ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::TheRun);
+                // Nothing left of this run is nothing answered, so this press is where the replay it writes
+                // is settled: see [`the_replay_this_run_writes`], and [`answered`] for the other two ways.
+                if !ask_where_to_start(runtime, &run, &slot, resume_ui::Cancels::TheRun) {
+                    unsafe {
+                        the_replay_this_run_writes(
+                            runtime,
+                            &run,
+                            &slot,
+                            None,
+                            replay::TheOneBefore::Kept,
+                        )
+                    };
+                }
             }
             (_, _, Some(menu)) => {
                 log!("menu: {menu:?} is under the cursor, asking which mode");
@@ -2823,6 +3366,230 @@ fn moved_on(from: Option<usize>, to: Option<usize>) -> bool {
     matches!((from, to), (Some(from), Some(to)) if from != to)
 }
 
+/// Puts the replays somebody has kept on the screen, which is what 完全無欠モード at the game's own replay
+/// item answers to.
+///
+/// **Every one of them read here**, which is a file read apiece on the frame the question was answered: the
+/// game is frozen and what the list has to show is whose run each was and what is inside it, and nothing but
+/// the file says either. Each is a few tens of kilobytes, and there are as many of them as somebody has kept.
+///
+/// What is left out is a replay with nothing to watch in it: a stage whose chapters have no attempt, and a
+/// chapter with none, are a list that leads nowhere — and a chapter has none where the last write of the file
+/// caught it on the frame it began on.
+fn the_replays_to_watch(runtime: &mut Runtime) {
+    let base = &runtime.config.base_dir;
+    let mut replays = Vec::new();
+    for name in replay::saved(base) {
+        let Some(replay) = replay::read_saved(base, &name, runtime.game) else {
+            continue;
+        };
+        let stages: Vec<replay_ui::ListedStage> = replay
+            .stages
+            .iter()
+            .map(|stage| replay_ui::ListedStage {
+                // As somebody counts them, which is one more than the run does.
+                stage: stage.stage + 1,
+                chapters: stage
+                    .chapters
+                    .iter()
+                    .map(|chapter| replay_ui::ListedChapter {
+                        number: chapter.number,
+                        name: chapter.name.clone(),
+                        attempts: (0..stage.tries(chapter))
+                            .filter_map(|which| {
+                                let attempt = stage.attempt(chapter, which)?;
+                                Some(replay_ui::ListedAttempt {
+                                    frames: attempt.buttons.len() as u32,
+                                    // The last of a chapter's is the one the run went on from, every other
+                                    // having been rewound away — see `replay::Stage::tries`.
+                                    survived: which + 1 == stage.tries(chapter),
+                                })
+                            })
+                            .collect(),
+                    })
+                    .filter(|chapter| !chapter.attempts.is_empty())
+                    .collect(),
+            })
+            .filter(|stage| !stage.chapters.is_empty())
+            .collect();
+        if stages.is_empty() {
+            continue;
+        }
+        // Which run it was, as the game names one — and not the file's own name, which is that same slot with
+        // the day it was kept on after it: the line already says the day.
+        let slot = runtime
+            .game
+            .run_slot(&replay.run)
+            .unwrap_or_else(|| name.clone());
+        // **What the first column says**: whose orb this is for a run that was played out, and that it was
+        // interrupted for one that was not — a name being what a run *ends* with in this game, so a name
+        // against a run somebody walked away from is a name from nowhere. A file written before orb recorded
+        // which of the two it was says neither, and keeps the name it always showed.
+        let whose = match replay.ended {
+            Some(replay::Ended::Interrupted) => replay_ui::interrupted(runtime.language),
+            Some(replay::Ended::Finished) | None => &replay.name,
+        };
+        replays.push(replay_ui::Listed {
+            said: replay.describe(&slot, whose),
+            started: replay.started,
+            name,
+            stages,
+        });
+    }
+    log!("replay: {} replay(s) to watch", replays.len());
+    // **Not up yet: it waits for the screen it is to stand over**, which is the game's own — see [`ToPutUp`].
+    // The press that would have taken the game there is the one orb held back for its question, so the screen
+    // is asked for instead, and the list goes up when it is there.
+    runtime.to_put_up = Some(ToPutUp {
+        list: replay_ui::WatchMenu::new(replays, runtime.language),
+        came_back: false,
+        asked: false,
+        drawn: 0,
+        waited: 0,
+    });
+}
+
+/// Starts the run an attempt out of a replay is watched in, and puts that attempt in the way of it.
+///
+/// **The run's own three numbers are orb's to write here**, which they are nowhere else: every other run orb
+/// puts a chapter back into was chosen on the game's own screens, and this one was chosen out of a file — so
+/// the difficulty, the character and the shot come from the replay and the scene is written the way the shot
+/// type select writes it. See [`Game::start_a_run`].
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread, between frames.
+unsafe fn watch_an_attempt(
+    runtime: &mut Runtime,
+    chosen: &replay_ui::Watched,
+    list: Option<replay_ui::WatchMenu>,
+) {
+    let replay_ui::Watched::Chosen {
+        replay: name,
+        stage: which_stage,
+        chapter: which_chapter,
+        attempt: which_attempt,
+    } = chosen
+    else {
+        return;
+    };
+    let base = &runtime.config.base_dir;
+    let Some(replay) = replay::read_saved(base, name, runtime.game) else {
+        return log!("replay: {name} cannot be read now; nothing is watched");
+    };
+    // The three indices are the ones the list was built from, and the list was built from this same file a
+    // moment ago — so a stage, a chapter or an attempt that is not there is a file somebody replaced while
+    // the question was up.
+    let Some(stage) = replay.stages.get(*which_stage) else {
+        return log!("replay: {name} has no stage {which_stage}; nothing is watched");
+    };
+    let Some(chapter) = stage.chapters.get(*which_chapter) else {
+        return log!("replay: that stage has no chapter {which_chapter}; nothing is watched");
+    };
+    let Some(attempt) = stage.attempt(chapter, *which_attempt) else {
+        return log!("replay: that chapter has no attempt {which_attempt}; nothing is watched");
+    };
+    log!(
+        "replay: watching attempt {} of {} at chapter {} of stage {}, {} frame(s) of it",
+        which_attempt + 1,
+        stage.tries(chapter),
+        chapter.number,
+        stage.stage + 1,
+        attempt.buttons.len(),
+    );
+    // What the playback is handed is a chapter of a run, which is what [`resume`] plays back: the frames
+    // below the attempt's own first are the path that reached it, and the numbers are the stage's own.
+    let run = RunStart {
+        difficulty: replay.run.difficulty,
+        character: replay.run.character,
+        shot_type: replay.run.shot_type,
+        practice: false,
+        stage: stage.stage,
+    };
+    let saved = resume::Kept {
+        run,
+        state: stage.state.clone(),
+        at: attempt.at,
+        chapter: chapter.number,
+        name: chapter.name.clone(),
+        // Nothing of this run is written down, so the count of rewinds is the one the status line shows
+        // while the attempt is watched: what it was when the attempt was made.
+        retries: 0,
+        song: chapter.song,
+        landing: chapter.landing.clone(),
+        // **The path that reaches the attempt and then the attempt itself, as one list of frames.** The
+        // playback reads its buttons out of exactly this, so the frames past the landing are the attempt's
+        // and need nothing else put anywhere — see [`resume::watch`].
+        buttons: stage.played[..upto(attempt.at, stage.played.len())]
+            .iter()
+            .copied()
+            .chain(attempt.buttons.iter().copied())
+            .collect(),
+        // And the generator of the frames below the landing alone, which is as far as the playback is held
+        // to the run: an attempt is watched rather than checked, so there is nothing to compare its own
+        // frames against.
+        generators: stage.generators[..upto(attempt.at, stage.generators.len())].to_vec(),
+    };
+    let frames = attempt.buttons.len() as u32;
+    // **The front end's own item asked for the run where this game has one to ask**, and the press it reads
+    // handed over with it: what a run written into being was missing is whatever else that item does — see
+    // [`Game::front_end_starts_a_run`]. The run is registered a few frames later, which the playback waits
+    // out the way a picked-up run's does.
+    if unsafe { runtime.game.front_end_starts_a_run(&run) } {
+        log!(
+            "replay: the front end is asked for a run of stage {}",
+            saved.run.stage + 1
+        );
+        // **And the press handed over rather than swallowed**, this one being the press that item reads: what
+        // is fed is a fresh edge, which is what the front end acts on — `swallow_input` writes every button
+        // down, so a press fed after it reads as a button that was already held and the item never fires.
+        FEED_DECIDE.store(true, Ordering::Relaxed);
+    } else {
+        if !unsafe { runtime.game.start_a_run(&run) } {
+            return log!(
+                "replay: the game did not take a run of {}",
+                saved.run.stage + 1
+            );
+        }
+        // Nothing of the press is handed over: the item the lists came up over is one the game never acted
+        // on, and what follows is a run orb wrote into being.
+        unsafe { runtime.game.swallow_input() };
+    }
+    let until = saved.at + frames;
+    if !unsafe { resume::watch(runtime.game, saved, frames) } {
+        return;
+    }
+    // The list is what the attempt was chosen out of, so there is always one here; a watch asked for by
+    // anything but that list would be one nothing puts back up.
+    let Some(list) = list else {
+        return log!("replay: nothing chose this attempt; there is no list to come back to");
+    };
+    runtime.watching = Some(WatchedAttempt {
+        until,
+        list,
+        keys: Keys::new(STOP_GRACE_FRAMES),
+    });
+    runtime.starting = 0;
+    // Nothing of this run written down and no chapter of it kept, which is what the two flags say: see
+    // `Runtime::chaptering`, and `resume::WATCHING` for the one thing that is still done — the numbers put
+    // back and the buttons fed.
+    resume::keep(false);
+    replay::keep(false);
+    // And out of the ranking, for as long as this lasts: what the run counts was counted once already by the
+    // run the attempt came out of — see [`score::watching`]. Cleared where the list comes back, the write
+    // being the last thing the screens a finished run ends at do on their way down.
+    score::watching(true);
+}
+
+/// A frame number as an index into a list that may be shorter than it, which is a file saying a chapter is
+/// further into a stage than the path it carries.
+///
+/// Held rather than refused, because what a short path costs is the frames it has not got: the playback
+/// lands somewhere else and the line held against the reproduction written down says so, which is the check
+/// that exists for exactly this.
+fn upto(frame: u32, held: usize) -> usize {
+    (frame as usize).min(held)
+}
+
 /// Puts the resume question up, where the run has a chapter of its own to ask about.
 ///
 /// `cancels` says what a cancel does, which is what differs between the two frames this is asked on.
@@ -2834,7 +3601,7 @@ fn ask_where_to_start(
     run: &RunStart,
     slot: &str,
     cancels: resume_ui::Cancels,
-) {
+) -> bool {
     let asked = match resume::load(&runtime.config.base_dir, runtime.game, run) {
         // Not without the overlay, which is what would draw it: a frozen game with an invisible
         // question over it is a game that looks broken, and what is lost by not asking is the run
@@ -2857,6 +3624,47 @@ fn ask_where_to_start(
     if !asked && cancels == resume_ui::Cancels::TheRun {
         FEED_DECIDE.store(true, Ordering::Relaxed);
     }
+    asked
+}
+
+/// Which replay this run is written into: the one it is picking up where an earlier session left it, or a
+/// new one over whatever was being written before.
+///
+/// `picked_up` is the chapter the run was picked up at, and `None` is a run starting from the beginning —
+/// which is where the replay of the run being written over is finished with, that being the moment nothing
+/// more will ever be added to it. `before` says whether that is this call's to do or the answer to a question
+/// already up; see [`replay::begun`].
+///
+/// **Settled where the resume question is asked or declined and nowhere else**, which is the press on the
+/// game's own shot type select and the answer to what that press put up. Two things make it that frame. It
+/// is the last one before a run is built, so a replay begun there is begun before anything of the run
+/// happens; and it is the one frame *both* games say which run this is — the frame the run is registered on
+/// does not, th07 keeping the difficulty a build is about to write where a run in progress keeps it, so a
+/// replay settled there came out `easy-reimu-a` for a Normal run.
+///
+/// Which means a launch with no overlay keeps no replay: the press is not held back without one, so this is
+/// not reached. That is the honest answer rather than a gap — without an overlay there is no screen to offer
+/// a replay on and no list to watch one from, so what would be written is a file nobody could ever be asked
+/// about or shown.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread, between frames.
+unsafe fn the_replay_this_run_writes(
+    runtime: &Runtime,
+    run: &RunStart,
+    slot: &str,
+    picked_up: Option<&resume::Kept>,
+    before: replay::TheOneBefore,
+) {
+    let base = &runtime.config.base_dir;
+    let name = &runtime.name;
+    let now = orb_api::clock::local_time();
+    match picked_up {
+        Some(saved) => unsafe {
+            replay::picked_up(base, runtime.game, slot, name, saved, now);
+        },
+        None => unsafe { replay::begun(base, runtime.game, run, slot, name, now, before) },
+    }
 }
 
 /// What answering it does, which is not the same at the two frames it can be asked on. The game is
@@ -2867,6 +3675,9 @@ fn ask_where_to_start(
 /// Must run on the game's main thread, between frames.
 unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resume::Kept, by: By) {
     let slot = runtime.game.run_slot(&saved.run);
+    // The run this was asked about, which is the one the file was found under: what the game says on this
+    // frame is not it — see [`the_replay_this_run_writes`].
+    let run = saved.run;
     let picked_up = match answer {
         resume_ui::Answer::Continue => {
             log!("resume: from where it stopped, answered on the {by}");
@@ -2891,6 +3702,35 @@ unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resu
         }
     };
     if unsafe { runtime.game.run_chosen() } {
+        if let Some(slot) = &slot {
+            // **Kept without asking here, whatever the setting says.** This is the frame the run was
+            // chosen on: the front end has taken its own job out and the next thing to run is the build,
+            // so there is no screen left to put a question over and no press held back to hand on after
+            // one. What the alternative would cost is a replay thrown away by a launch that could not ask
+            // — see `the_replay_of_a_run_finished_with` for where the question does go.
+            //
+            // **Said only where something is being written over**, which is はじめから: a run picked up
+            // carries its replay on and nothing is kept or lost. Left unqualified it was a launch on the
+            // real game announcing it had kept, unasked, a file the very next line went on writing into.
+            if picked_up.is_none()
+                && !runtime.config.save_replays
+                && replay::is_being_played(&runtime.config.base_dir, slot)
+            {
+                log!(
+                    "replay: {slot} is being written over by a run chosen on this frame; it is kept \
+                     without asking"
+                );
+            }
+            unsafe {
+                the_replay_this_run_writes(
+                    runtime,
+                    &run,
+                    slot,
+                    picked_up.as_ref(),
+                    replay::TheOneBefore::Kept,
+                )
+            };
+        }
         if let Some(saved) = picked_up {
             runtime.starting = 0;
             unsafe { resume::begin(runtime.game, saved) };
@@ -2903,10 +3743,30 @@ unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resu
     }
     match slot {
         Some(slot) => {
+            // **はじめから, which is where the replay of the run being written over is finished with**: the
+            // chapter file this run's own first chapter writes over describes a run somebody played, and
+            // nothing will ever be added to the replay of it. So it is asked about here, on the frame the
+            // answer was given and while the press that starts the run is still held back — the question
+            // that follows is answered over the same screen, and handing that press on is what it ends
+            // with. Where nobody is asked, this run's own beginning is what keeps it.
+            let before = match picked_up.is_none() && the_replay_being_written_over(runtime, &slot)
+            {
+                true => replay::TheOneBefore::Asked,
+                false => replay::TheOneBefore::Kept,
+            };
+            // And the record this run writes into, started here rather than on the frame the run is
+            // registered: this is the frame that says which run it is — see
+            // [`the_replay_this_run_writes`]. Nothing of it is written until this run's first chapter, so
+            // a question still up over the one before is a question with its own file still there.
+            unsafe { the_replay_this_run_writes(runtime, &run, &slot, picked_up.as_ref(), before) };
+            let asked = before == replay::TheOneBefore::Asked;
             runtime.started = Some(Started {
                 slot,
                 saved: picked_up,
             });
+            if asked {
+                return;
+            }
         }
         // Not reachable through the question, `resume::load` having found the file under that very
         // name; said rather than unwrapped, an answer dropped being a run that starts from the
@@ -2915,6 +3775,42 @@ unsafe fn answered(runtime: &mut Runtime, answer: resume_ui::Answer, saved: resu
     }
     FEED_DECIDE.store(true, Ordering::Relaxed);
 }
+
+/// Puts the question about a replay being written over up, and says whether it went up.
+///
+/// Nothing where there is no replay of that run being written — the ordinary case, a run started over having
+/// usually been started over before its replay was kept — and nothing where the setting says to keep every
+/// one without asking, which is where [`replay::begun`] keeps this one as the run begins.
+fn the_replay_being_written_over(runtime: &mut Runtime, slot: &str) -> bool {
+    if runtime.config.save_replays || !replay::is_being_played(&runtime.config.base_dir, slot) {
+        return false;
+    }
+    // Not without the overlay, which is what would draw it: a frozen game with an invisible question over
+    // it is a game that looks broken, and what is lost by not asking is a replay kept that somebody may
+    // not have wanted — against a launch that cannot start a run at all.
+    if runtime.overlay.is_none() {
+        log!(
+            "replay: {slot} is being written over, and there is no overlay to ask over the game with"
+        );
+        return false;
+    }
+    log!("replay: {slot} is being written over; asking whether to keep it");
+    runtime.asking_replay = Some((
+        replay_ui::SaveMenu::new(runtime.language),
+        slot.to_owned(),
+        replay::Ended::Interrupted,
+    ));
+    HELD_FOR_THE_REPLAY.store(true, Ordering::Relaxed);
+    true
+}
+
+/// Whether the press that starts a run is being held back for the question about a replay, which is what
+/// says the answer has to hand it on.
+///
+/// The question is asked at two moments and only one of them has a press behind it: the screen a run ended
+/// at has none — the run is over and the game is walking its own way out — where the answer given on the way
+/// into a run is the one that lets that run start.
+static HELD_FOR_THE_REPLAY: AtomicBool = AtomicBool::new(false);
 
 /// Where a step left the game, when one happened.
 enum Step {
@@ -3542,7 +4438,7 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
     // Set whether or not the write comes off: what it would do again next frame is fail again,
     // and the line saying why has been written once.
     runtime.kept = Some(chapter);
-    unsafe {
+    let written = unsafe {
         resume::write(
             &runtime.config.base_dir,
             runtime.game,
@@ -3550,6 +4446,67 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
             runtime.chapters.number(),
             &name.to_string(),
             runtime.chapters.retries(),
+        )
+    };
+    unsafe { the_replay_reaches(runtime, written.as_ref()) };
+}
+
+/// What becomes of the replay of a run that is finished with: the screen a run ends at, and the answer that
+/// writes over the chapter a run was left in, are the two moments nothing more will ever be added to one.
+///
+/// Kept without asking where the setting says so, and otherwise offered — see [`replay_ui::SaveMenu`]. Off
+/// is not "no replays": it is orb asking, which is where somebody says which of their runs were worth
+/// keeping.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread.
+unsafe fn the_replay_of_a_run_finished_with(runtime: &mut Runtime, slot: &str) {
+    // The file and not the record in memory: by the time a run has reached this screen it is over, and the
+    // record of it was written down and dropped where it ended — see [`replay::left`]. Which is the same
+    // gate the question on the way into a run reads, that one having only ever had a file to go on.
+    if !replay::is_being_played(&runtime.config.base_dir, slot) {
+        return;
+    }
+    if runtime.config.save_replays {
+        replay::keep_what_was_being_played(
+            &runtime.config.base_dir,
+            runtime.game,
+            slot,
+            &runtime.name,
+            orb_api::clock::local_time(),
+            replay::Ended::Finished,
+        );
+        return;
+    }
+    log!("replay: {slot} is finished with; asking whether to keep it");
+    runtime.asking_replay = Some((
+        replay_ui::SaveMenu::new(runtime.language),
+        slot.to_owned(),
+        replay::Ended::Finished,
+    ));
+}
+
+/// And the same chapter into the run's own replay, which is what somebody watches this run from.
+///
+/// Handed what the chapter file wrote rather than reading the game again: the song's position and the
+/// reproduction line are the chapter's own frame's, and a second read of them is a read off a game that has
+/// moved on. Nothing where nothing was written, the two files being consistent about a run or neither being.
+///
+/// # Safety
+/// Only ever called from the frame hook, on the game's main thread, on the frame the chapter began on.
+unsafe fn the_replay_reaches(runtime: &Runtime, written: Option<&resume::Kept>) {
+    let Some(saved) = written else {
+        return;
+    };
+    unsafe {
+        replay::chapter(
+            &runtime.config.base_dir,
+            runtime.game,
+            saved.chapter,
+            &saved.name,
+            saved.at,
+            saved.song,
+            saved.landing.clone(),
         )
     };
 }
@@ -3592,7 +4549,7 @@ unsafe fn keep_the_stages_start(runtime: &mut Runtime, state: &State) {
     // attempt came back `resume: not written — 0 frame(s) of buttons for a chapter at 1`. So the frames of the
     // wait are attempted in turn and the first that is self-consistent is the one that lands, which is a stage's
     // start a frame or two in rather than a file written from numbers that do not go together.
-    if unsafe {
+    let wrote = unsafe {
         resume::write(
             &runtime.config.base_dir,
             runtime.game,
@@ -3601,9 +4558,11 @@ unsafe fn keep_the_stages_start(runtime: &mut Runtime, state: &State) {
             &Chapters::what_a_stages_start_is_called().to_string(),
             runtime.chapters.retries(),
         )
-    } {
+    };
+    if wrote.is_some() {
         runtime.kept = Some(written);
     }
+    unsafe { the_replay_reaches(runtime, wrote.as_ref()) };
 }
 
 /// Starts the flash when the game comes to rest on a boundary it was not on before.
@@ -3733,6 +4692,39 @@ unsafe fn hold_frame(game: &dyn Game) {
     let device = unsafe { game.d3d_device() };
     if !device.is_null() {
         unsafe { game.set_play_viewport(device) };
+    }
+}
+
+/// **Notices the name the game's own entry holds**, which is the name the replays this launch writes carry.
+///
+/// Read every frame rather than on the frame that screen is left: what the entry holds is what somebody has
+/// typed so far, and the screen goes down on a press orb does not see coming. The read costs a field of the
+/// game's own on the frames that screen is up and one comparison on every other — see
+/// [`Game::the_name_its_own_entry_holds`], which answers nothing off it.
+///
+/// **And kept in the settings file, which is what carries it to the next launch.** A run given up at orb's own
+/// menu never reaches a name entry, so a launch spent grinding one chapter would otherwise write its replays
+/// under no name at all; what the game itself does there is come up holding the name the last run was entered
+/// under, and this is the same thing said in a file.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn notice_the_name(runtime: &mut Runtime) {
+    let held = unsafe { runtime.game.the_name_its_own_entry_holds() };
+    let Some(name) = held else {
+        return;
+    };
+    if name == runtime.name {
+        return;
+    }
+    log!("replay: the game's own name entry says {name:?}; that is whose the replays are now",);
+    runtime.name = name;
+    let written = orb_config::remember_the_name(&runtime.config.base_dir, &runtime.name);
+    if let Err(error) = written {
+        log!(
+            "replay: cannot keep {:?} in orb.yaml: {error}",
+            runtime.name
+        );
     }
 }
 
@@ -4009,6 +5001,16 @@ unsafe fn draw_overlay() {
 
     if let Some((asking, _)) = &mut runtime.asking_resume {
         unsafe { asking.draw(overlay) };
+        return;
+    }
+
+    if let Some((asking, _, _)) = &mut runtime.asking_replay {
+        unsafe { asking.draw(overlay) };
+        return;
+    }
+
+    if let Some(choosing) = &mut runtime.choosing_replay {
+        unsafe { choosing.draw(overlay) };
         return;
     }
 

@@ -89,6 +89,10 @@ const LIMIT: usize = 1024;
 static CREATE_FILE_A: AtomicUsize = AtomicUsize::new(0);
 
 static WRITTEN: AtomicBool = AtomicBool::new(true);
+
+/// Whether what is being played is a run an attempt out of a replay is being watched in — see
+/// [`watching`], which is where the reason is.
+static WATCHED: AtomicBool = AtomicBool::new(false);
 /// Whether opens of the score file go to orb's own, which is what pointdevice mode means for
 /// this file. Off until orb says, so a run started before anything was chosen is the game's own
 /// file — the same answer as no orb at all.
@@ -128,11 +132,25 @@ pub fn refuse_writes() {
     WRITTEN.store(false, Ordering::Relaxed);
 }
 
+/// And keeps a run an attempt is being *watched* in out of the file, for as long as that lasts.
+///
+/// **What such a run counted was counted once already**, by the run the attempt came out of: an attempt that
+/// happens to be the one the boss died on clears the run again, and a clear watched three times would be
+/// three clears in the ranking. Nobody played it.
+///
+/// Its own flag rather than [`refuse_writes`], which is the launch's answer for a clear and holds for the
+/// whole of one: this is set as an attempt starts and cleared when the front end is back, because the write
+/// comes as the screen a finished run ends at goes down — which is after the run itself has gone.
+pub fn watching(on: bool) {
+    WATCHED.store(on, Ordering::Relaxed);
+}
+
 /// Whether an open of the score file is one to refuse. Only a write: a read is where the ranking
 /// screen and what the file has unlocked come from, and a session showing none of those would
 /// look like the file had been lost rather than left alone.
 pub fn refused(access: u32) -> bool {
-    !WRITTEN.load(Ordering::Relaxed) && access & GENERIC_WRITE != 0
+    (!WRITTEN.load(Ordering::Relaxed) || WATCHED.load(Ordering::Relaxed))
+        && access & GENERIC_WRITE != 0
 }
 
 /// What the open now happening is for, as far as anything here can tell: a write, the read the front
@@ -304,7 +322,16 @@ pub unsafe extern "system" fn create_file_a(
     // on as if it had saved. Before the fork, since what must not be written is whichever file
     // this run would have written.
     if refused(access) {
-        log!("score: nothing written, this run had nothing able to hit the player");
+        // Which of the two refusals it is, because they are different runs: one is a clear nothing could
+        // hit the player in, the other an attempt out of a replay being watched again.
+        log!(
+            "score: nothing written, {}",
+            if WATCHED.load(Ordering::Relaxed) {
+                "this run is one an attempt is being watched in"
+            } else {
+                "this run had nothing able to hit the player"
+            },
+        );
         return INVALID_HANDLE as *mut c_void;
     }
     // Written whichever file the open lands in, so that no fact about this file has to be read out

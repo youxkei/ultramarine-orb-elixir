@@ -53,6 +53,17 @@ impl ModeMenu {
         self.question.update(keyboard, pad)
     }
 
+    /// One of the two taken outright, for a launch playing itself — see [`Question::answered_outright`].
+    pub fn answered_outright(&self, item: usize) -> Option<Answer> {
+        self.question.answered_outright(item)
+    }
+
+    /// Which of the game's own items this was asked over, which the answer is not the whole of: the two
+    /// modes mean one thing about a run and another about the replays — see [`Menu::Replays`].
+    pub fn asked(&self) -> Menu {
+        self.question.asked()
+    }
+
     /// # Safety
     /// Must run between the game's `BeginScene` and `EndScene`.
     pub unsafe fn draw(&mut self, overlay: &Overlay) {
@@ -117,7 +128,7 @@ mod tests {
     /// Both languages, a translation being where a fourth line would come from.
     #[test]
     fn no_description_is_longer_than_the_labels_kept_for_it() {
-        for asked in [Menu::Run, Menu::Scores] {
+        for asked in [Menu::Run, Menu::Scores, Menu::Replays] {
             for mode in [Mode::Pointdevice, Mode::Normal] {
                 for language in [Language::Japanese, Language::English] {
                     assert!(aside(asked, mode, language).len() <= ASIDE_LINES);

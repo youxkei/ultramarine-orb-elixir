@@ -56,7 +56,15 @@ fn launched(name: &str) -> Box<Fake> {
         Display::agreed(120),
         name,
         Work::wandering(WORK_US),
-        |config| config.log_level = LogLevel::Verbose,
+        |config| {
+            config.log_level = LogLevel::Verbose;
+            // Every replay kept without asking, because these e2e tests are about the *chapter* file: a run
+            // played and given up leaves a replay of itself as well, and はじめから is one of the two moments
+            // orb offers to keep one — see `watching_a_pointdevice_replay_of_th07`, which drives that offer.
+            // Left to be asked, the question would go up over the shot select here and the run would never
+            // start.
+            config.save_replays = true;
+        },
     )
 }
 

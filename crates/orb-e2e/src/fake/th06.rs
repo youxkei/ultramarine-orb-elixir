@@ -632,6 +632,13 @@ pub struct Fake {
     /// Whether the title screen falls into its attract demo when nothing is pressed at it — see
     /// [`demos_when_idle`](Fake::demos_when_idle).
     demos: Cell<bool>,
+    /// How many times the title menu has acted on a press at its replay item — see
+    /// [`asked_for_its_own_replays`](Fake::asked_for_its_own_replays).
+    ///
+    /// Counted rather than laid out, because what that item leads to is a screen this game has none of: what
+    /// an e2e test needs of it is whether the press orb held back was handed over, and that is this number
+    /// moving.
+    replays_asked_for: Cell<u32>,
     /// Whether the result screen ever reached the frame its question about saving a replay is drawn
     /// from — see [`the_replay_question_was_drawn`](Fake::the_replay_question_was_drawn).
     ///
@@ -1085,6 +1092,7 @@ impl Fake {
             sound: RefCell::new(None),
             given_up: Cell::new(false),
             demos: Cell::new(false),
+            replays_asked_for: Cell::new(0),
             replay_question_drawn: Cell::new(false),
             window: Cell::new(orb_api::Hwnd::NULL),
             music_stops: Cell::new(0),
@@ -1805,6 +1813,13 @@ impl Fake {
         self.replay_question_drawn.get()
     }
 
+    /// How many times the title menu has acted on a press at its replay item, which is what an e2e test
+    /// reads to say the press orb held back for its own question was handed over: the screen that item leads
+    /// to is the game's own and this game lays none of it out.
+    pub fn asked_for_its_own_replays(&self) -> u32 {
+        self.replays_asked_for.get()
+    }
+
     /// The game in a Pointdevice mode run with its first chapter taken, which is where every e2e test about
     /// a run being played from further on starts.
     ///
@@ -2286,6 +2301,24 @@ impl Fake {
             // The three items that start a run go through the difficulty and character selects; the
             // ranking is a state of the front end's own, which is also what orb asks for on the way
             // out of a run — see `Th06::show_ranking`.
+            // The replays, which is a screen this game has none of: th06's own list is drawn from its own
+            // files and orb asks nothing at it, so what a laid-out game owes that item is having *acted* on
+            // the press — which is what says the press orb held back for its question was handed over.
+            // The replays, whose own screen this game does have: the item asks for it and it comes up a
+            // count of frames later, having read the fifteen files it draws a row apiece for. Which is what
+            // a list of orb's own stands over — asked for by orb itself where no press asked for it, so the
+            // state below is reached both ways.
+            Screen::Title if decide && front.cursor == item::REPLAY => {
+                self.replays_asked_for.set(self.replays_asked_for.get() + 1);
+                (
+                    FrontEnd {
+                        screen: Screen::ReplaysComingUp,
+                        frames: 0,
+                        ..front
+                    },
+                    None,
+                )
+            }
             Screen::Title if decide && front.cursor == item::SCORE => (
                 FrontEnd {
                     screen: Screen::Ranking,
@@ -2332,10 +2365,19 @@ impl Fake {
                 },
                 None,
             ),
-            // What the item that starts a run writes: the shot under the cursor, and the scene it
-            // wants. The supervisor has already made its copy this frame, so this update ends with
-            // the two disagreeing and nothing of the run built.
-            Screen::ShotType if decide => (front, Some(Scene::Playing)),
+            // What the item that starts a run writes: the shot under the cursor, the stage the menu's own
+            // answer is — nothing, a full run starting at the first — and the scene it wants. The supervisor
+            // has already made its copy this frame, so this update ends with the two disagreeing and nothing
+            // of the run built.
+            //
+            // **The stage is written here and not only at the title**, because that is where 0x436de7 writes
+            // it: a run asked of this screen from outside — an attempt out of a replay being watched — is one
+            // whose own stage this write goes over, and where it went over it, orb had a stage to put back
+            // afterwards. A laid-out game that left the field alone said nothing about that.
+            Screen::ShotType if decide => {
+                self.image.starts_the_stage_the_menu_asks_for();
+                (front, Some(Scene::Playing))
+            }
             // And back where it came from, which for the real screen is the character select and for
             // this game is the title menu: the two screens between them are ones orb asks nothing at.
             Screen::ShotType if self.pressed(Th06.menu_cancel()) => (
@@ -2358,6 +2400,35 @@ impl Fake {
                 None,
             ),
             Screen::PracticeStage => (
+                FrontEnd {
+                    frames: front.frames + 1,
+                    ..front
+                },
+                None,
+            ),
+            // The replay screen's own two states: the wait its fade takes, and then the screen itself. What
+            // the real one does at the end of that wait is read the fifteen files, which a laid-out game has
+            // no rows to draw — what it owes orb's list is the state, and the frames before it are what that
+            // list waits out.
+            Screen::ReplaysComingUp if front.the_replays_come_up_now() => (
+                FrontEnd {
+                    screen: Screen::Replays,
+                    frames: 0,
+                    ..front
+                },
+                None,
+            ),
+            // And its own cancel, which is the way back to the title menu — the one a cancel out of orb's
+            // list leaves standing.
+            Screen::Replays if self.pressed(Th06.menu_cancel()) => (
+                FrontEnd {
+                    screen: Screen::Title,
+                    cursor: item::REPLAY,
+                    frames: 0,
+                },
+                None,
+            ),
+            Screen::ReplaysComingUp | Screen::Replays => (
                 FrontEnd {
                     frames: front.frames + 1,
                     ..front

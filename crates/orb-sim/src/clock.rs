@@ -58,8 +58,28 @@ thread_local! {
 /// [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
 const PAUSE_TICKS: i64 = 10;
 
+/// The calendar a simulated host is set to, which nothing here moves: a test that wants a run saved
+/// under another date says so.
+///
+/// A date in the past rather than one nobody could have played on, because it goes into a file name an
+/// e2e test asserts about and reads best as one: the evening th06's own 1.02h was current is
+/// [`the_replay_a_run_leaves_behind`](../../orb-e2e/src/the_replay_a_run_leaves_behind.rs)'s answer to
+/// what a saved replay is called.
+const CALENDAR: orb_api::clock::LocalTime = orb_api::clock::LocalTime {
+    year: 2004,
+    month: 8,
+    day: 15,
+    hour: 21,
+    minute: 42,
+    second: 33,
+};
+
 pub struct Clock {
     counter: AtomicI64,
+    /// What the host's calendar says, which is not derived from [`Clock::counter`]: a counter is how
+    /// long this launch has been going and a date is what day it is, and no arithmetic turns one into
+    /// the other. Moved only by a test — see [`Clock::set_local_time`].
+    calendar: Mutex<orb_api::clock::LocalTime>,
     /// What a read costs. [`READ_TICKS`] unless a test has said otherwise — nothing that spins may
     /// set it to zero.
     read_cost: AtomicI64,
@@ -87,11 +107,23 @@ impl Clock {
         // this at the very start" are the same reading, and orb has statics that mean the first.
         Self {
             counter: AtomicI64::new(FREQUENCY),
+            calendar: Mutex::new(CALENDAR),
             read_cost: AtomicI64::new(READ_TICKS),
             timer: AtomicBool::new(true),
             pause_cost: AtomicI64::new(PAUSE_TICKS),
             sleeps: Mutex::new(Vec::new()),
         }
+    }
+
+    /// What the calendar says now.
+    pub fn local_time(&self) -> orb_api::clock::LocalTime {
+        *self.calendar.lock().unwrap()
+    }
+
+    /// And what a test sets it to, for a launch that saves two of something and has to tell them
+    /// apart by name.
+    pub fn set_local_time(&self, now: orb_api::clock::LocalTime) {
+        *self.calendar.lock().unwrap() = now;
     }
 
     /// Reads the counter, and moves it on by what the read cost.

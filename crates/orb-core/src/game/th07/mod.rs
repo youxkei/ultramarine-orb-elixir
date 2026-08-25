@@ -523,6 +523,11 @@ const DIFFICULTY: usize = 0x10;
 /// number every table of either game is indexed by.
 const CHARACTER: usize = 0x93d5;
 const SHOT_TYPE: usize = 0x93d6;
+/// How many of that combined index there are: three characters with two shots each, which is the width of
+/// every table indexed by it — and what a run chosen out of a file is held to, see [`Th07::start_a_run`].
+///
+/// A number the game fixes rather than one this tree grows: th07 has the three characters it shipped with.
+const SHOT_COMBINATIONS: i32 = 6;
 
 /// The run's own numbers, **as a pointer**: 0xc8 bytes off the allocator at 0x42e93f, kept at the game
 /// manager's `+0x8` and so at 0x626278 absolutely, which is how the rest of the game reaches them — 287
@@ -1623,6 +1628,12 @@ const SETTLED_FRAMES: i32 = 0xa;
 const TITLE_ITEM_START: i32 = 0;
 const TITLE_ITEM_EXTRA: i32 = 1;
 const TITLE_ITEM_PRACTICE: i32 = 2;
+/// The replays, in the same place th06's are — the item between the three that start a run and the ranking.
+///
+/// Nothing of the item is read or written: orb asks which kind of replay is wanted and either hands the press
+/// over, for the game's own list out of the game's own files, or puts up a list of its own and leaves the item
+/// unchosen. See [`crate::replay`].
+const TITLE_ITEM_REPLAY: i32 = 3;
 const TITLE_ITEM_SCORE: i32 = 4;
 
 /// And the scene the front end is, which is the one a run is entered from: 0x437ee3 is the case for leaving
@@ -1647,6 +1658,20 @@ const SCENE_FRONT_END: i32 = 1;
 /// 0x44a3a6 with 0x445db3 as the callback and keeps its address nowhere else.
 const RESULT_UPDATE: usize = 0x00445db3;
 const RESULT_PHASE: usize = 0x08;
+
+/// **The name that screen's own entry is typed into**, eight bytes with spaces to the end.
+///
+/// Phase 0xa is the entry, and 0x446a66 is its handler — the jump table at 0x446a1f, indexed through the byte
+/// table at 0x446a4f. It walks a cursor at `[this+0x20]` over the 96 characters at `[0x49ec30]` — ±0x10 a row,
+/// ±1 a column, the 94th the space item — and on the shot key copies the one under it here: 0x446faf writes
+/// the character at `[this+0xbfaf + [this+0x10]]`, 0x447087 writes a space where that item was chosen, and
+/// 0x446fd7 caps `[this+0x10]` at eight.
+///
+/// **Which is the name a replay of the game's own carries.** Seven of this machine's `replay/th7_*.rpy` were
+/// read the way `docs/th07/asm.md` says one is read: at +0x5e of the unpacked header, eight bytes with spaces
+/// to the end. One name in six of them and the same name less a letter in the seventh.
+const RESULT_NAME: usize = 0xbfaf;
+const RESULT_NAME_BYTES: usize = 8;
 const RESULT_FROM_A_RUN: i32 = 0xa;
 const RESULT_FROM_A_PRACTICE_RUN: i32 = 0x12;
 /// And the phase the other way in leaves: the ranking asked for from the front end, which 0x44a38d writes.
@@ -3717,6 +3742,7 @@ impl Game for Th07 {
         }
         match mem::read_committed::<i32>(front + FRONT_END_CURSOR)? {
             TITLE_ITEM_START | TITLE_ITEM_EXTRA | TITLE_ITEM_PRACTICE => Some(Menu::Run),
+            TITLE_ITEM_REPLAY => Some(Menu::Replays),
             TITLE_ITEM_SCORE => Some(Menu::Scores),
             _ => None,
         }
@@ -3950,6 +3976,46 @@ impl Game for Th07 {
         true
     }
 
+    /// The same phase written over whatever phase the screen is in, [`RESULT_LEAVING`] being its own way out
+    /// — the name entry included, which is the one this exists for. See
+    /// [`Game::leave_the_screen_a_run_ends_at`].
+    unsafe fn leave_the_screen_a_run_ends_at(&self) -> bool {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
+        if scene != SCENE_RUN_OVER {
+            return false;
+        }
+        let on_the_chain = unsafe { Self::chain_argument(RESULT_UPDATE) };
+        let Some(screen) = on_the_chain else {
+            return false;
+        };
+        if mem::read_committed::<i32>(screen + RESULT_PHASE) == Some(RESULT_LEAVING) {
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(screen + RESULT_TIMER, 0);
+            mem::write::<i32>(screen + RESULT_PHASE, RESULT_LEAVING);
+        }
+        true
+    }
+
+    /// The scene alone, the phase being what part of the screen is up rather than whether it is.
+    unsafe fn the_screen_a_run_ends_at_is_up(&self) -> bool {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
+        scene == SCENE_RUN_OVER
+    }
+
+    /// **Out of the screen a run ends at**, that being the only screen of this game with a name entry on it:
+    /// the *Score* item's ranking is the same object built with nothing behind it — see [`SCENE_RANKING`] — so
+    /// what says a name was typed for the run just played is the scene, and the field is read either way.
+    unsafe fn the_name_its_own_entry_holds(&self) -> Option<String> {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
+        if scene != SCENE_RUN_OVER {
+            return None;
+        }
+        let screen = unsafe { Self::chain_argument(RESULT_UPDATE) }?;
+        crate::game::the_name_held_at(screen + RESULT_NAME, RESULT_NAME_BYTES)
+    }
+
     /// The frames the stage has run for, which is the manager's own count — and only while a stage is one of
     /// the two scenes it runs in, so that a frame of the front end is never written down as a stage's.
     unsafe fn stage_frame(&self) -> Option<u32> {
@@ -4063,6 +4129,10 @@ impl Game for Th07 {
                 run.difficulty, run.character, run.shot_type
             ),
         })
+    }
+
+    fn named(&self) -> &'static str {
+        "th07"
     }
 
     /// The numbers of the run this stage started with, all but three of them.
@@ -4328,6 +4398,87 @@ impl Game for Th07 {
             return false;
         }
         unsafe { mem::write::<i32>(G_STAGE, stage) };
+        true
+    }
+
+    /// What the item that starts a run leaves behind, written from outside: the run's own numbers, the
+    /// stage, and the scene asked for.
+    ///
+    /// **The three numbers and the combined byte beside them.** `character` and `shot` are the two bytes the
+    /// character and shot selects write, and `character * 2 + shot` at `+0x93d7` is what every table of
+    /// either is indexed by — the added callback builds it at 0x42e864, so writing it here is writing what
+    /// that callback is about to write anyway, and what reads it before then reads this. The kind of run is
+    /// cleared of all three of its bits: a run of somebody's own is neither a practice run, the demo nor a
+    /// replay of the game's own.
+    ///
+    /// **And the scene *wanted*, this game's supervisor keeping the two the other way round from th06's**:
+    /// `wantedState` is what has been asked for and `curState` is what is running, so a run asked for is the
+    /// first of them written and the second left — see [`Th07::run_chosen`], which reads that same pair.
+    unsafe fn start_a_run(&self, run: &RunStart) -> bool {
+        if !(0..STAGES).contains(&run.stage) {
+            log!("replay: there is no stage {}", run.stage + 1);
+            return false;
+        }
+        if !(0..DIFFICULTIES as i32).contains(&run.difficulty) {
+            log!("replay: there is no difficulty {}", run.difficulty);
+            return false;
+        }
+        let shot = run.character * 2 + run.shot_type;
+        if !(0..SHOT_COMBINATIONS).contains(&shot) {
+            log!(
+                "replay: there is no character {} shot {}",
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(G_GAME_MANAGER + DIFFICULTY, run.difficulty);
+            mem::write::<u8>(G_GAME_MANAGER + CHARACTER, run.character as u8);
+            mem::write::<u8>(G_GAME_MANAGER + SHOT_TYPE, run.shot_type as u8);
+            mem::write::<u8>(G_SHOT_COMBINED, shot as u8);
+            mem::write::<u32>(G_RUN_KIND, 0);
+            // The word a build reads, which is 0-based until the build adds one — see [`G_STAGE`].
+            mem::write::<i32>(G_STAGE, run.stage);
+            mem::write::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED, SCENE_RUN);
+        }
+        true
+    }
+
+    /// **The shot select put back up on this run's own shot**, which is the screen whose own press starts a
+    /// run — see [`Game::front_end_starts_a_run`] for why a run is asked for this way rather than written
+    /// into being.
+    ///
+    /// The difficulty and the character go where the screens before it write them, and the shot goes under
+    /// the cursor and nowhere else: that screen's own press is what writes the shot from it, which is the
+    /// same reason [`Th07::run_pointed_at`] reads the cursor rather than the byte. The phase is the one that
+    /// screen takes a press in.
+    unsafe fn front_end_starts_a_run(&self, run: &RunStart) -> bool {
+        let shot = run.character * 2 + run.shot_type;
+        if !(0..DIFFICULTIES as i32).contains(&run.difficulty)
+            || !(0..SHOT_COMBINATIONS).contains(&shot)
+        {
+            log!(
+                "replay: there is no difficulty {} character {} shot {}",
+                run.difficulty,
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        let front = unsafe { Self::chain_argument(FRONT_END_UPDATE) };
+        let Some(front) = front else {
+            log!("replay: the front end is not what is running; no run is asked of it");
+            return false;
+        };
+        unsafe {
+            mem::write::<u8>(G_DIFFICULTY_CHOSEN, run.difficulty as u8);
+            mem::write::<u8>(G_CHARACTER_CHOSEN, run.character as u8);
+            mem::write::<u32>(G_RUN_KIND, 0);
+            mem::write::<i32>(front + FRONT_END_CURSOR, run.shot_type);
+            mem::write::<i32>(front + FRONT_END_SCREEN, SCREEN_SHOT_SELECT);
+            mem::write::<i32>(front + FRONT_END_PHASE, SHOT_SELECT_PHASE_ITEMS);
+        }
         true
     }
 
@@ -5977,8 +6128,8 @@ mod tests {
             (TITLE_ITEM_START, Some(Menu::Run)),
             (TITLE_ITEM_EXTRA, Some(Menu::Run)),
             (TITLE_ITEM_PRACTICE, Some(Menu::Run)),
+            (TITLE_ITEM_REPLAY, Some(Menu::Replays)),
             (TITLE_ITEM_SCORE, Some(Menu::Scores)),
-            (3, None),
             (5, None),
             (7, None),
         ] {

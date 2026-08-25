@@ -59,6 +59,12 @@ fn the_other_shot() -> RunStart {
 fn left_a_run(name: &str) -> Box<Fake> {
     let game = Fake::attach(name, the_run(), |config| {
         config.log_level = LogLevel::Verbose;
+        // Every replay kept without asking, because these e2e tests are about the *chapter* file: a run
+        // played and given up leaves a replay of itself as well, and はじめから is one of the two moments
+        // orb offers to keep one — see `the_replay_a_run_leaves_behind`, which is where that offer is
+        // driven. Left to be asked, the question would go up over the shot type select here and the run
+        // would never start.
+        config.save_replays = true;
     });
     let log = game.log();
     game.in_a_pointdevice_run();

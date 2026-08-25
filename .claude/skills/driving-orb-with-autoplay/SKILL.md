@@ -23,11 +23,16 @@ so settings put there survive a redeploy.
 before a launch, ask whether one is running and close it if it is. The exe to ask about is the game's own and
 not orb's — `game::KNOWN` in `orb-core` is the list of them — and the filter is what to ask with:
 
-    tasklist.exe /FI "IMAGENAME eq <the game's exe>" /FO CSV /NH 2>/dev/null | grep '^"' | wc -l
+    tasklist.exe /FI "IMAGENAME eq <the game's exe>" /FO CSV /NH 2>/dev/null | grep -a '^"' | wc -l
 
 **A row per process, counted, and never a grep for the name**: an image name comes back in the console code
 page, so a grep for 東方紅魔郷.exe finds a running game never — the filter the command is given is Windows'
 own and matches.
+
+**And `-a`, or the count is nought while the game is up.** That code page is not this shell's, so the row
+comes back with bytes grep reads as binary and it prints `binary file matches` to stderr rather than the
+line. Measured: a launch that had already injected, whose window was on the screen, was watched for sixty
+seconds and then declared never to have come up.
 
 Nought means none — **once**. It is a Windows process reached through the interop, and it answered
 nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts on one
@@ -50,7 +55,12 @@ recipe="${3:?usage: drive-a-run.sh <game-dir> <game-exe> <recipe.yaml>}"
 # comes back in the console code page, so a grep for 東方紅魔郷.exe finds a running game never — the filter
 # itself is Windows' own and matches. And `grep -c` answered nothing at all where nothing matched, which
 # reaches `[ -eq ]` as an empty string and reads as a game still running.
-running() { tasklist.exe /FI "IMAGENAME eq $exe" /FO CSV /NH 2>/dev/null | grep '^"' | wc -l; }
+#
+# **And `-a`, which is the whole of whether this works at all.** That code page is not this shell's, so the
+# row comes back with bytes grep reads as binary: without it grep prints `binary file matches` to stderr and
+# no line, so the count is nought while the game is up. Measured — a launch that had already injected, whose
+# window was on the screen, was watched for sixty seconds and then declared never to have come up.
+running() { tasklist.exe /FI "IMAGENAME eq $exe" /FO CSV /NH 2>/dev/null | grep -a '^"' | wc -l; }
 
 # **Asked twice, because one empty task list is not a game that has gone.** `tasklist.exe` is a Windows
 # process reached through the interop and it answered nothing once while the game was up and playing, which
@@ -147,16 +157,81 @@ and on whether orb's question is standing in front of them; the question is reac
 down cannot answer it, and a tap lets go and presses again inside the grace frames, which answers it. Then
 `- wait_until: { frames: 20 }` for `mode::INPUT_GRACE_FRAMES`, which swallows a press inside them.
 
-**A tap overshoots its target by one press, so `until` cannot land the cursor on an item.** The press for the
-frame the condition became true has already gone in, and no wait afterwards takes it back: a step that walked
-the title's cursor onto Run pressed `up` once more onto the item beside it — Quit — and the `decide` after it
-closed the game. Aim a cursor with `until` only where the item after the target is harmless.
+**A tap can overshoot its target by one press.** The press for the frame the condition became true has already
+gone in, and no wait afterwards takes it back: a step that walked the title's cursor onto Run pressed `up` once
+more onto the item beside it — Quit — and the `decide` after it closed the game.
 
-**And a question raised *by* the press that would answer it cannot be photographed by a recipe at all.** orb's
-mode question comes up on a `decide` at the title's Run: waiting for it presses nothing and it never comes,
-tapping toward it answers it the frame it appears, and walking the cursor there is the overshoot above. The
-questions a recipe can hold still are the ones something *else* raises — picking a run up, and where to start
-again.
+**So a cursor is aimed with `until` only where the item after the target is harmless**, and where it is, that
+is how to aim one:
+
+    - press: [down]
+      frames: 6
+      until: { cursor: 3 }
+      give_up_after: 600
+
+Six launches walking th06's title cursor onto the replays that way landed on it every time, `Score` being the
+item after it and nothing to be afraid of. Counting the presses instead needs the item the cursor starts on,
+which is the score file's business and not a recipe's — `MainMenu::RegisterChain` memsets it to the first item
+where a run was just left, and a launch that only started the game finds it wherever the last session left it.
+
+**And the cursor a step can wait for is the game's own**, which is `Game::front_end_cursor` — a game whose
+front end nobody has read that off answers nothing, and `until: { cursor: N }` then waits for something that
+never comes.
+
+**A question raised *by* a press is reached by the press step that waits for it**, and the step ends the frame
+it is up — so the words are on the screen with nothing pressing at them. That is what makes orb's mode question
+reachable at all: waiting for it presses nothing and it never comes, and walking the cursor there is the
+overshoot above.
+
+    - press: [decide]
+      frames: 30
+      until: { question: mode }
+      give_up_after: 900
+    - answer: { question: mode, item: 0 }
+      give_up_after: 300
+
+**And the answer goes straight after that press, with nothing between.** A launch that put a `wait_until` and a
+`screenshot` between them came back `resume: from where it stopped, answered on the pad` — thirty-three frames
+after the question went up and before the `answer` step was reached, so every one of its five answers gave up.
+Nothing a recipe pressed can have done it (`wait_until` hands over a word of nothing, and off a run the rules
+say nothing either); what the same launch logged at startup is `joystick: xinput 0 has a pad, read in 24353us`,
+and a pad orb reads answers its questions whoever is holding it. A picture of one of these is worth having and
+costs that risk: take it *after* the answer, of the screen the answer opened.
+
+**An answer names the item, and a press never walks to one.** Every question orb asks keeps a cursor of its own
+and a recipe's presses go to the game underneath it, so what a press answers is the item the question came up
+on: three launches written to press `down` before `decide` at どこから始める all answered つづきから. So the item
+is named instead, counted from nought:
+
+    - answer: { question: resume, item: 1 }
+      give_up_after: 600
+
+`question` is one of the names `until: { question: … }` takes — `Question` in `orb-core`'s `game` module is the
+list of them — and what a list holds in what order is the module that draws it. The step waits for that question
+to be up, answers it, and is over once it has gone, so one that never comes up ends at `give_up_after`.
+
+**Which is what reaches the questions a press cannot.** A pointdevice replay is chosen out of four lists of
+twelve items and there is no other way into one; and the mode question, raised by the press at the title's own
+item, is answered on the frame a tap toward it lets go — item nought, whatever was meant.
+
+**And an attempt watched to its end puts that same list back up**, on the attempt just watched, a second after
+the front end comes back — so a recipe watching several attempts of one chapter is one `answer` step per
+attempt and nothing in between:
+
+    - answer: { question: choose_replay, item: 0 }
+      give_up_after: 600
+    - wait_until: { frames: 900 }          # the attempt itself
+    - answer: { question: choose_replay, item: 1 }
+      give_up_after: 900
+
+**The list that comes back is the *attempts* one, and an item is an item of whichever list is up.** A step
+written for the chapter list after a watch names an item that list has not got: `replay: the attempt list has
+1 item(s), so there is no item 14` is what the log said, and the step then answered nought and watched the
+same attempt over. Another chapter is a walk from the title again — every list of it, in order.
+
+**And the four lists wait for the screen they stand over**, which orb asks the front end for: `replay: the
+replays to watch, over the screen the game keeps its own on` is the line saying they are up, about a second
+after the mode question is answered. A step that presses in that second is pressing at the game.
 
 **A picture is asked for before the press that answers what it is of.** A question answered is a question gone,
 so a shot after the press is a shot of whatever came next.
@@ -179,6 +254,11 @@ beside the game and without it is the check that the patch reached them.
 nothing, so the rules get no frame and the player stands still until something shoots it — and each death
 raises orb's retry menu, which the recipe's own next press then answers. Between two things a recipe does to a
 running stage, the step is `play_until: { frames: N }`.
+
+**And the other way round while an attempt out of a replay is being watched, which plays itself**: there
+`wait_until` is the step, and `play_until` is what must not be there — the rules press the bomb button, which
+is one of the two this game's menus take a cancel on, and a cancel stops the watch. `press: [cancel]` is how a
+recipe stops one on purpose, and the log says `asked for on the pad`, a recipe's word arriving as one.
 
 **The run is chosen and not fallen into.** Picking a saved run up is the item that question comes up on, so
 starting from nothing is `- press: [down]` for two frames first.

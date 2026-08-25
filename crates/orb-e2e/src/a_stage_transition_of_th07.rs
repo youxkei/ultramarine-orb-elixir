@@ -284,11 +284,13 @@ fn a_run_of_th07_that_walked_through_two_stages_is_written_down_at_the_one_it_is
 
         // **And it is the newest point in the file**, which is what a resume would offer: the last write the log
         // carries is that stage's, not the stage before it's.
+        // The chapter file's own writes and not every file orb writes: the replay of this run is handed over
+        // at every chapter too, and it is the *chapter* a resume would be offered out of.
         let last = log
             .lines()
             .iter()
             .rev()
-            .find(|line| line.contains("written to"))
+            .find(|line| line.contains("resume: stage") && line.contains("written to"))
             .expect("nothing was written down at all")
             .clone();
         assert!(

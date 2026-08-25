@@ -18,7 +18,8 @@
 use crate::fake::th06::{CARD_STARTS, Fake};
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};
 use orb_config::{Language, LogLevel};
-use orb_core::game::th06::image::{Scene, Screen};
+use orb_core::game::th06::Th06;
+use orb_core::game::th06::image::{Scene, Screen, item};
 use orb_core::game::{Menu, RunStart};
 use orb_core::menu_ui::SELECTED;
 use orb_core::mode::{self, Mode};
@@ -306,3 +307,157 @@ fn the_question_about_a_run_left_unfinished_is_in_english() {
         );
     });
 }
+
+/// **The screens a replay is kept and watched on**, which is the offer at the end of a run and the four
+/// lists a replay is chosen out of.
+///
+/// Every one of them is orb's own — the game has no screen for a replay of a run that was rewound — so all
+/// of it is a table of two languages, which is exactly where a cell in the wrong one hides.
+#[test]
+fn the_screens_a_replay_is_kept_and_watched_on_are_in_english() {
+    in_its_own_process(|| {
+        let game = on_an_english_machine("english-replay-screens");
+        let log = game.log();
+        game.in_a_pointdevice_run();
+        game.frames_until("the card's chapter", CARD_STARTS + 400, || {
+            log.said(&format!("chapter 3 at frame {CARD_STARTS}"))
+        });
+        game.gives_the_run_up_at_its_own_pause();
+        game.frames_until("the front end", 60, || {
+            game.image().scene() == Scene::FrontEnd
+        });
+        game.frames_until_a_thread("the replay written down", || {
+            orb_core::replay::read_being_played(game.dir(), SLOT, &Th06).is_some()
+        });
+
+        // ── The offer, which はじめから is the second of the two moments of: the run left unfinished is
+        // about to be written over, so its replay is offered before that happens.
+        let from = log.lines().len();
+        game.frames_until("the title menu ready to act on a press", 300, || {
+            let front = game.image().front_end_now();
+            front.screen == Screen::Title && front.acts_on_a_press()
+        });
+        game.press(keys::Z);
+        game.press_until(keys::Z, "the mode question answered again", || {
+            game.image().front_end_now().screen == Screen::ShotType
+        });
+        game.frames_until("the shot type select ready to act on a press", 90, || {
+            game.image().front_end_now().acts_on_a_press()
+        });
+        game.press(keys::Z);
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
+        game.press_until(keys::Z, "はじめから answered", || {
+            log.said_since(from, "resume: from the beginning, answered on the keyboard")
+        });
+        game.frames_until("the offer", 60, || {
+            log.said_since(from, "asking whether to keep it")
+        });
+        reads(
+            &game,
+            &[
+                ("Keep this replay", "リプレイを保存する"),
+                ("Yes", "はい"),
+                ("No", "いいえ"),
+                (
+                    "Watchable by stage, chapter and attempt",
+                    "ステージ・チャプター・トライを選んで見られます",
+                ),
+            ],
+            // Keeping is what the cursor starts on: a replay declined by accident is a run nobody can
+            // watch again.
+            Some("Yes"),
+        );
+        // And what the other answer costs, said only while the cursor is on it.
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::DOWN);
+        game.forget();
+        game.frame();
+        assert_eq!(game.says("This replay is lost").len(), 1);
+        assert!(game.says("このリプレイは失われます").is_empty());
+
+        // Kept, and the run it was written over started: back up to はい and answered.
+        game.frames(READS_KEYS_AFTER);
+        game.press(keys::UP);
+        game.press_until(keys::Z, "the replay kept", || {
+            log.said_since(from, "replay: kept on the keyboard")
+        });
+
+        // ── And the lists it is watched out of, reached the way anybody reaches them: the replay item on
+        // the title menu, and 完全無欠モード over it.
+        game.frames_until("the run started", 400, || game.state().playing);
+        game.gives_the_run_up_at_its_own_pause();
+        let from = log.lines().len();
+        game.frames_until("the title menu ready to act on a press", 400, || {
+            let front = game.image().front_end_now();
+            game.image().scene() == Scene::FrontEnd
+                && front.screen == Screen::Title
+                && front.acts_on_a_press()
+        });
+        while game.image().front_end_now().cursor < item::REPLAY {
+            game.press(keys::DOWN);
+        }
+        game.press(keys::Z);
+        reads(
+            &game,
+            &[
+                ("Which replays to watch", "どちらのリプレイを見る"),
+                ("Pointdevice Mode", "完全無欠モード"),
+                ("Legacy Mode", "レガシーモード"),
+            ],
+            Some("Pointdevice Mode"),
+        );
+        game.press_until(keys::Z, "the list of replays", || {
+            log.said_since(from, "replay(s) to watch")
+        });
+        // Which waits for the screen it stands over — the one the game keeps its own replays on, asked for
+        // and a second in coming.
+        game.frames_until("the list up over that screen", 300, || {
+            log.said_since(from, "over the screen the game keeps its own on")
+        });
+        // And what its one line says where a name would be: this run was left rather than played out. The
+        // whole line, that being what an item is — the word alone is a substring of it and nothing draws it.
+        reads(
+            &game,
+            &[
+                ("Choose a replay", "リプレイを選ぶ"),
+                (
+                    &format!("Interrupted  {SLOT}  {DATED}"),
+                    &format!("中断  {SLOT}  {DATED}"),
+                ),
+            ],
+            None,
+        );
+
+        game.press_until(keys::Z, "the stages", || {
+            log.said_since(from, "stage(s) in it")
+        });
+        reads(&game, &[("Choose a stage", "ステージを選ぶ")], None);
+
+        game.press_until(keys::Z, "the chapters", || {
+            log.said_since(from, "chapter(s) in it")
+        });
+        reads(&game, &[("Choose a chapter", "チャプターを選ぶ")], None);
+
+        game.press_until(keys::Z, "the attempts", || {
+            log.said_since(from, "attempt(s) at it")
+        });
+        reads(
+            &game,
+            &[
+                ("Choose an attempt", "トライを選ぶ"),
+                ("Attempt 1", "トライ 1"),
+                (
+                    "The attempt the run went on from",
+                    "このトライで先に進みました",
+                ),
+            ],
+            Some("Attempt 1"),
+        );
+    });
+}
+
+/// The name the game gives the run these e2e tests play, which is what the replay of one is kept under.
+const SLOT: &str = "normal-reimu-a";
+/// And the date the simulated host's calendar is set to, which the kept replay's own line carries.
+const DATED: &str = "20040815-214233";

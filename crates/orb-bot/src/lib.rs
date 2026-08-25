@@ -83,6 +83,10 @@ struct Playing {
     /// **What the rules are to do about being hit**, which a [`Step::TakeHits`] sets and which every frame
     /// after it asks — the chapter it is in being what the answer is about rather than the step.
     hits: hits::TakingHits,
+    /// Whether the step now being carried out has asked for its answer, for a [`Step::Answer`]: what ends one
+    /// is the question it named being *gone*, and a question that was never up is one to wait for. Without
+    /// this the two are the same frame, and a step whose question never came up read as done.
+    asked: bool,
 }
 
 /// One step, with its buttons already turned into the word they are and its question already resolved.
@@ -110,6 +114,11 @@ enum Step {
     },
     StartOver,
     TakeHits(hits::Told),
+    Answer {
+        question: Question,
+        item: usize,
+        give_up_after: Option<u32>,
+    },
 }
 
 enum Wait {
@@ -209,6 +218,18 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                 times_each_retry,
                 gives_up,
             }),
+            recipe::Step::Answer {
+                question,
+                item,
+                give_up_after,
+            } => match named_question(&question, at) {
+                Some(question) => Step::Answer {
+                    question,
+                    item,
+                    give_up_after,
+                },
+                None => return,
+            },
         };
         steps.push(step);
     }
@@ -221,6 +242,7 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
         at: 0,
         frames: 0,
         hits: hits::TakingHits::default(),
+        asked: false,
     });
     unsafe { runtime::plays_the_run(Some(word_to_press)) };
 }
@@ -236,18 +258,29 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::Card => Wait::Card,
         Until::CardName => Wait::CardName,
         Until::Frames(frames) => Wait::Frames(frames),
-        Until::Question(name) => Wait::Question(match name.as_str() {
-            "mode" => Question::Mode,
-            "resume" => Question::Resume,
-            "retry" => Question::Retry,
-            _ => {
-                log!(
-                    "autoplay: the recipe cannot be read: step {at} waits for a question orb does \
-                     not put up, {name}"
-                );
-                return None;
-            }
-        }),
+        Until::Question(name) => Wait::Question(named_question(&name, at)?),
+    })
+}
+
+/// One of orb's own questions by the name the log gives it, or `None` — said in the log — for a name orb does
+/// not put up.
+///
+/// One table for the two places a recipe names one: a step can wait for a question and a step can answer it,
+/// and a name that meant one in the first and nothing in the second would be a grammar with two vocabularies.
+fn named_question(name: &str, at: usize) -> Option<Question> {
+    Some(match name {
+        "mode" => Question::Mode,
+        "resume" => Question::Resume,
+        "retry" => Question::Retry,
+        "keep_replay" => Question::KeepReplay,
+        "choose_replay" => Question::ChooseReplay,
+        _ => {
+            log!(
+                "autoplay: the recipe cannot be read: step {at} names a question orb does not put \
+                 up, {name}"
+            );
+            return None;
+        }
     })
 }
 
@@ -381,6 +414,33 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
             );
             (0, true)
         }
+        // **An item of one of orb's own questions, asked for outright.** The step waits for that question to
+        // be up — nothing else raises one — and ends once the answer has been taken, which is the frame the
+        // block that answers it runs. Nothing is pressed while it waits: a press at one of these takes the
+        // item the cursor is on, which is the item this step exists to say is not the one meant.
+        Step::Answer { question, item, .. } => {
+            let up = reached.question == Some(*question);
+            if up && !playing.asked && !runtime::answering_a_question() {
+                runtime::answer_the_question(*item);
+                playing.asked = true;
+                log!(
+                    "autoplay: step {} of {} answers with item {item}",
+                    playing.at + 1,
+                    playing.steps.len(),
+                );
+            }
+            // **Over once the answer it asked for has been taken**, which is the item no longer standing
+            // where the blocks that answer these read it from — and never before it has asked at all: a
+            // question that has not come up is one to wait for, and the two read as the same frame without
+            // the flag. Asking twice would be answered by whatever screen came after, so the flag holds that
+            // too.
+            //
+            // **And not the question having gone**, which is the same thing for every question but these
+            // lists: the four a replay is chosen out of are one question under one name, so a step that
+            // waited for `choose_replay` to go would sit out its whole bound with the next list already up —
+            // ten seconds a list, three times over, on the launch that measured it.
+            (0, playing.asked && !runtime::answering_a_question())
+        }
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which
         // one the launch stopped on, and the game is asked to close.
         Step::Quit => {
@@ -405,7 +465,11 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // would sit out its whole bound. An attempt that failed ends and lets the next one start.
     let gave_up = !over
         && match step {
-            Step::Press { give_up_after, .. } | Step::Wait { give_up_after, .. } => {
+            // An `answer` waits for its question the way a `wait_until` for one does, so it takes a bound the
+            // same way: a question that never comes up is a step that would never end.
+            Step::Press { give_up_after, .. }
+            | Step::Wait { give_up_after, .. }
+            | Step::Answer { give_up_after, .. } => {
                 give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             Step::Play { give_up_after, .. } => {
@@ -423,6 +487,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     if over || gave_up {
         playing.at += 1;
         playing.frames = 0;
+        playing.asked = false;
         log!(
             "autoplay: step {} of {} {}",
             playing.at,

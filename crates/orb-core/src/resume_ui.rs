@@ -149,6 +149,15 @@ impl ResumeMenu {
         Some((answer, by?))
     }
 
+    /// One of the two items taken outright, for a launch playing itself: the cursor is orb's own and nothing
+    /// of it reaches a bot, so `はじめから` is an item no press can walk to — see
+    /// `runtime::answer_the_question`.
+    ///
+    /// `None` for a number this question has no item at, which is a recipe naming one that is not there.
+    pub fn answered_outright(&self, item: usize) -> Option<Answer> {
+        CHOICES.get(item).copied()
+    }
+
     fn step(&mut self, pressed: &Pressed) -> Option<Answer> {
         self.selection = menu_ui::moved(self.selection, CHOICES.len(), pressed);
         if pressed.cancel.is_some() && self.cancels == Cancels::TheRun {

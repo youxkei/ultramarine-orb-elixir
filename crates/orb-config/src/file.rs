@@ -43,11 +43,19 @@ pub(crate) struct File {
     pub skip_ending: bool,
     pub hide_mouse: bool,
     pub dpad_moves: bool,
+    pub save_replays: bool,
+    pub player_name: String,
     pub ask_at_startup: bool,
 }
 
 /// What each key is when the file does not say. Written out rather than derived, because
-/// `bool::default()` is off and every one of these is on.
+/// `bool::default()` is off and every switch here but one is on.
+///
+/// **That one is `save_replays`**, which is off: a run's replay is offered rather than kept, because
+/// keeping every one of them fills a directory nobody asked to have filled, and a question at the end
+/// of a run is where somebody says which are worth keeping. The name beside it is empty for a reason
+/// of the same kind — nobody has said whose runs these are, and orb inventing one would put a name
+/// somebody did not choose into every replay they save.
 impl Default for File {
     fn default() -> Self {
         Self {
@@ -59,6 +67,8 @@ impl Default for File {
             skip_ending: true,
             hide_mouse: true,
             dpad_moves: true,
+            save_replays: false,
+            player_name: String::new(),
             ask_at_startup: true,
         }
     }
@@ -100,6 +110,18 @@ fn switch_or_auto<'de, D: serde::Deserializer<'de>>(
     }
 }
 
+/// A name as a YAML scalar nothing can misread: double-quoted, with the two characters that mode
+/// gives a meaning of their own put back as escapes.
+///
+/// Quoted rather than written bare because this is the one key whose value is somebody's own text:
+/// `12` bare is a number, `yes` is a switch, a leading `#` starts a comment and a colon inside it ends
+/// the key. Double quotes rather than single because a name is Japanese as often as not and the escapes
+/// are two characters either way.
+fn quoted(name: &str) -> String {
+    let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 /// The file as orb writes it: every key and the value it was given.
 pub(crate) fn text(file: &File) -> String {
     format!(
@@ -112,6 +134,8 @@ always_draw: {always_draw}
 boundary_flash: {boundary_flash}
 hide_mouse: {hide_mouse}
 dpad_moves: {dpad_moves}
+save_replays: {save_replays}
+player_name: {player_name}
 ask_at_startup: {ask_at_startup}
 ",
         screen = file.screen,
@@ -128,6 +152,8 @@ ask_at_startup: {ask_at_startup}
         boundary_flash = file.boundary_flash,
         hide_mouse = file.hide_mouse,
         dpad_moves = file.dpad_moves,
+        save_replays = file.save_replays,
+        player_name = quoted(&file.player_name),
         ask_at_startup = file.ask_at_startup,
     )
 }

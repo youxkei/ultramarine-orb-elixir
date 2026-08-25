@@ -46,11 +46,15 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex};
 
 use crate::game::{Game, RunStart};
 use crate::sync::MainThread;
-use crate::{detail, log};
+use crate::{detail, log, writer};
+
+/// What every line about a chapter written down starts with, the thread that writes one included: a log
+/// read for this machinery holds all of it, and the writer's own lines say which of the files it writes
+/// they are about — see [`writer::Handed::about`].
+const ABOUT: &str = "resume";
 
 /// A directory beside the game, and one file in it per run there is a chapter of — named for that
 /// run, so a listing of it reads as the runs somebody has left unfinished.
@@ -232,8 +236,23 @@ struct Record {
     skipped: bool,
     /// Set while a saved run is being played in, and taken when it arrives.
     feeding: Option<Landing>,
+    /// The frame the buttons stop being fed on, which is not always the frame the playback is *going* to.
+    ///
+    /// **The two are the same for a run being picked up and not for a replay being watched.** Picking one up
+    /// feeds every frame below the chapter inside the frame that built the stage and hands the keyboard back
+    /// there — see [`landing`]. Watching an attempt feeds those same frames and then goes on, one frame of
+    /// the run to one frame of the game, for as long as the attempt lasted: so the landing is where the
+    /// *fast* part stops and this is where the feeding does. See [`watch`].
+    until: Option<u32>,
     /// A saved run whose stage the game has been asked to build, waiting for it to be built.
     starting: Option<Kept>,
+    /// How many frames past the chapter the playback of `starting` goes on feeding for, and `None` for a run
+    /// being picked up — which is the ordinary case: the chapter is where the keyboard becomes the player's.
+    watch: Option<u32>,
+    /// Whether the stage a watched attempt is in has been written into the run the front end started — see
+    /// [`the_stage_of_a_watch`], which is asked on every frame the run is registered on and there is more
+    /// than one of those on th07.
+    watching_that_stage: bool,
 }
 
 impl Record {
@@ -249,7 +268,10 @@ impl Record {
             fed: None,
             skipped: false,
             feeding: None,
+            until: None,
             starting: None,
+            watch: None,
+            watching_that_stage: false,
         }
     }
 
@@ -284,8 +306,8 @@ impl Record {
     /// Said once, the first frame being the one with the cause in it, and the playback carried on so that the
     /// landing check still gets its say.
     fn feed(&mut self, frame: u32, generator: u16) -> Option<u16> {
-        let at = self.feeding.as_ref()?.at;
-        if frame >= at {
+        let until = self.until?;
+        if frame >= until {
             return None;
         }
         // **The frames a playback is asked for go one at a time**, the same frame twice being ordinary — the
@@ -334,7 +356,10 @@ impl Record {
         self.fed = None;
         self.skipped = false;
         self.feeding = None;
+        self.until = None;
         self.starting = None;
+        self.watch = None;
+        WATCHING.store(false, Ordering::Relaxed);
     }
 }
 
@@ -343,6 +368,16 @@ impl Record {
 pub fn keep(on: bool) {
     KEEPING.store(on, Ordering::Relaxed);
 }
+
+/// Whether what is being put back is an attempt somebody is watching rather than a run they are picking up.
+///
+/// **A flag of its own beside [`KEEPING`], because the two say different things and a watched attempt needs
+/// one of each answered the other way.** Putting a run back is what both do — the same numbers into the same
+/// stage, the same buttons fed in — so a stage begun while this is set is one to write over. Writing the run
+/// down is not: what a watched attempt would write is a replay's own frames into the file of the run
+/// somebody left, which is that run overwritten by a recording of itself. So this puts the numbers back and
+/// keeps nothing, and `KEEPING` keeps and puts back.
+static WATCHING: AtomicBool = AtomicBool::new(false);
 
 /// What the game is to see on the keyboard for the frame about to run, while a saved run is being
 /// played in. `None` leaves the read to the game.
@@ -397,15 +432,18 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     // A run there is a slot to keep as well as one somebody is playing, so that a practice run is not
     // recorded and then found to have nowhere to go. The reinit state counts as playing, since a stage
     // reached from the one before it is registered from there.
-    let keeping = KEEPING.load(Ordering::Relaxed)
-        && state.in_run
+    let a_run_of_somebodys_own = state.in_run
         && !state.demo
         && !state.replay
         && game.run_slot(&unsafe { game.run_start() }).is_some();
+    let keeping = KEEPING.load(Ordering::Relaxed) && a_run_of_somebodys_own;
+    // And a run to *put back*, which is the same run with one more way of being one: an attempt somebody is
+    // watching is put back and written down nowhere — see [`WATCHING`].
+    let putting_back = keeping || (WATCHING.load(Ordering::Relaxed) && a_run_of_somebodys_own);
     if let Some(saved) = record.starting.take() {
         // Two ways this is not the stage it asked for, said apart: what came up is a run orb has no
         // business writing down, or it is the wrong stage of one.
-        if !keeping {
+        if !putting_back {
             record.stop();
             return log!(
                 "resume: not put back — what came up is a demo, a replay, or a run in a mode that \
@@ -421,7 +459,10 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             );
         }
         unsafe { game.set_run_state(&saved.state) };
-        record.stage = Some(state.stage);
+        // **Nothing written down where this is an attempt being watched**, which is what an unnamed stage
+        // makes of [`Record::note`]: the frames fed are not noted anyway, and the frames after them are the
+        // replay's own rather than a run's — see [`WATCHING`].
+        record.stage = keeping.then_some(state.stage);
         log!(
             "resume: {saved} {}; playing its buttons in",
             game.say_run_state(&saved.state),
@@ -442,6 +483,10 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             },
         );
         unsafe { hold_captures(game) };
+        // Where the feeding stops, which is the chapter for a run being picked up and the end of the
+        // attempt for one being watched — see [`Record::until`]. The playback of a watched attempt has
+        // buttons for the frames past the chapter, and [`Record::played`] below is where they are.
+        record.until = Some(saved.at + record.watch.take().unwrap_or(0));
         record.feeding = Some(Landing {
             at: saved.at,
             chapter: saved.chapter,
@@ -602,8 +647,94 @@ pub unsafe fn begin(game: &dyn Game, saved: Kept) -> bool {
     true
 }
 
-/// Writes down where the run is, which is what the next launch offers to pick up. Says whether it
-/// wrote.
+/// Puts an attempt out of a replay in the way of the run the game is about to build, to be watched rather
+/// than picked up: the frames below the chapter played in as fast as a run being picked up, and then the
+/// attempt's own frames one to a frame of the game.
+///
+/// `frames` is how many of them the attempt lasted. Everything else is the machinery a run being picked up
+/// goes through, and that is the point of it being this function's neighbour: the stage is seeded from the
+/// numbers written down, the buttons go in through the same read, and the landing is held against the same
+/// reproduction line — so an attempt that plays back somewhere else says so in the same words a resume that
+/// lands somewhere else does.
+///
+/// **Nothing is written down while it runs**, which is [`WATCHING`]'s whole job: the run this looks like to
+/// the game is not one somebody is playing, and the files of the run it came out of are not to be touched.
+///
+/// # Safety
+/// Must run on the game's main thread, between frames, with the game about to build the run whose numbers
+/// this attempt belongs to — see [`Game::start_a_run`].
+pub unsafe fn watch(game: &dyn Game, saved: Kept, frames: u32) -> bool {
+    if !unsafe { game.start_stage(saved.run.stage) } {
+        log!(
+            "replay: the game did not take stage {}",
+            saved.run.stage + 1
+        );
+        return false;
+    }
+    let record = unsafe { RECORD.get() };
+    record.stop();
+    log!("replay: {saved}; {frames} frame(s) of it to watch from there");
+    record.starting = Some(saved);
+    record.watch = Some(frames);
+    record.watching_that_stage = false;
+    WATCHING.store(true, Ordering::Relaxed);
+    true
+}
+
+/// **The stage a watched attempt is in, written on the frame the run it is watched in is registered.**
+///
+/// The item that starts a run writes the stage its own menu asked for — nothing, a full run starting at the
+/// first — so an attempt made in any other stage has to have its own put in after that. This frame is where:
+/// it is the one frame the game will take a stage for a run it has not built yet, and a run being *picked up*
+/// has the same thing done for it by [`begin`], which is called on it too.
+///
+/// Answers whether it wrote, which is only where an attempt is what is starting.
+///
+/// # Safety
+/// Must run on the game's main thread, on the frame the run was registered.
+pub unsafe fn the_stage_of_a_watch(game: &dyn Game) -> bool {
+    if !WATCHING.load(Ordering::Relaxed) {
+        return false;
+    }
+    let record = unsafe { RECORD.get() };
+    // Once, however many frames the run is registered on: th07's own registration stands for several, and a
+    // stage written on each of them is that many lines saying the same thing.
+    if record.watching_that_stage {
+        return false;
+    }
+    let Some(stage) = record.starting.as_ref().map(|saved| saved.run.stage) else {
+        return false;
+    };
+    if !unsafe { game.start_stage(stage) } {
+        return false;
+    }
+    record.watching_that_stage = true;
+    log!(
+        "resume: stage {} is put in for the attempt being watched",
+        stage + 1
+    );
+    true
+}
+
+/// The frame the buttons stop being fed on while an attempt is being watched, and `None` where nothing is —
+/// which is what says a watched attempt is over and the run it was in is orb's to end.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn watching() -> Option<u32> {
+    WATCHING
+        .load(Ordering::Relaxed)
+        .then(|| unsafe { RECORD.get() }.until)
+        .flatten()
+}
+
+/// Writes down where the run is, which is what the next launch offers to pick up. Answers with the chapter
+/// it wrote, and `None` where it wrote nothing.
+///
+/// **The chapter itself and not whether it wrote**, because the run's replay wants the same chapter and the
+/// numbers in it have to be the ones that went in the file: the song's position and the reproduction line
+/// are that frame's, and read a second time they are read off a game that has moved. See
+/// [`crate::replay::chapter`], which is handed what this answers.
 ///
 /// # Safety
 /// Must run on the game's main thread, on the frame the chapter began on — `at` is what says
@@ -615,18 +746,16 @@ pub unsafe fn write(
     chapter: u32,
     name: &str,
     retries: u32,
-) -> bool {
+) -> Option<Kept> {
     let record = unsafe { RECORD.get() };
     let run = unsafe { game.run_start() };
     // Nothing said where there is no slot: a practice run is the ordinary case for that, not a fault.
-    let Some(path) = slot(dir, game, &run) else {
-        return false;
-    };
+    let path = slot(dir, game, &run)?;
     // The numbers held are the ones read as *that* stage began. A record of another stage's would be
     // a run put back with the wrong lives and the wrong seed, and nothing about the file would say
     // so, so it is not written at all.
     if record.stage != Some(run.stage) {
-        return false;
+        return None;
     }
     // Every frame before the chapter, and there is one for each of them: a chapter is reached by
     // playing the frames under it, so a record that is short is a record that missed some.
@@ -635,7 +764,7 @@ pub unsafe fn write(
             "resume: not written — {} frame(s) of buttons for a chapter at {at}",
             record.played.len(),
         );
-        return false;
+        return None;
     }
     let saved = Kept {
         run,
@@ -666,222 +795,14 @@ pub unsafe fn write(
             .collect(),
     };
     // The game's own file, asked for here where the game is at hand: the thread that writes it has none.
-    handed_over(Handed {
+    writer::hand_over(writer::Handed {
+        about: ABOUT,
         path,
         bytes: game.encode_resume(&saved),
         said: format!("{saved} {}", game.say_run_state(&saved.state)),
-        chapter: saved.chapter,
+        overtaken: format!("chapter {}", saved.chapter),
     });
-    true
-}
-
-/// A chapter on its way to the disk: where it goes, the bytes to put there, and what the log calls it.
-///
-/// **The bytes and not the chapter itself**, because the bytes are the *game's* — see
-/// `Game::encode_resume`, which is where a file's shape lives now — and the thread that writes them has no
-/// game to ask. Reading the run and asking its game for its file are both the frame's work; what is left
-/// for the thread is the write, which is the part that takes a disk's time.
-struct Handed {
-    path: PathBuf,
-    bytes: Vec<u8>,
-    /// The line the write is said with, worked out where the chapter still is one.
-    said: String,
-    /// And its number, for the line saying a chapter was overtaken before it reached the disk.
-    chapter: u32,
-}
-
-/// What the thread that writes chapters down is waiting for.
-///
-/// **One chapter and not a queue.** What the file holds is where the run is *now*, so a chapter still
-/// waiting when the next one arrives is one nothing wants: the newer answers the same question, and a
-/// queue would spend a slow disk's time writing places the run has already left.
-struct Waiting {
-    next: Option<Handed>,
-    /// Whether the writer has been asked to stop, and whether it has — see [`stop_writing`].
-    stopping: bool,
-    stopped: bool,
-}
-
-static WAITING: Mutex<Waiting> = Mutex::new(Waiting {
-    next: None,
-    stopping: false,
-    stopped: false,
-});
-/// What the writer waits on for a chapter and the stopper waits on for the writer, so that neither
-/// costs anything while nothing is happening.
-static CHANGED: Condvar = Condvar::new();
-/// Whether there is a writer. Cleared by [`stop_writing`], so that a launch after one that was taken
-/// out gets a thread of its own rather than handing chapters to a thread that has gone.
-static WRITING: AtomicBool = AtomicBool::new(false);
-
-/// How long [`stop_writing`] waits for the writer to finish what it holds, in milliseconds.
-///
-/// Long enough for a write that is slow — which is what this whole arrangement is about — and not long
-/// enough to hold a game that is closing behind a disk that has stopped answering. A chapter lost to
-/// that is the chapter before it still being on the disk, which is the arrangement anyway.
-const STOP_WAIT_MS: u64 = 2_000;
-
-/// Where a write is slow enough to be worth a line at the level a run is ordinarily logged at, in
-/// microseconds.
-///
-/// A frame at sixty a second, because that is the unit the thing being watched for is measured in: a
-/// write that fits inside one would have cost the frame nothing even in the frame, and one that does not
-/// is the reason the write is not in the frame any more.
-const SLOW_WRITE_US: i64 = 16_666;
-
-/// Hands the chapter to the thread that writes it, and starts that thread the first time.
-///
-/// **Not in the frame**, where it was: `WriteFile` takes what a disk, an antivirus reading every write or
-/// a folder being synced decides, none of which orb can ask about beforehand, and a frame that waits for
-/// one waits that long. What only the frame can do is the *reading* — the numbers, the song's position
-/// and the reproduction line are that frame's — so that is the frame's part and no more of it.
-///
-/// **Not held for the frame's own slack** either, which is what [`crate::log`] does with its lines and
-/// is the answer that suggests itself here: `defer` keeps them and `drain` writes them where what is left
-/// of the turn is nobody's. The slack is what remains of one frame's turn, so a write of about a second
-/// put there misses the next frame's blank instead of this one's — the same stutter, one frame later.
-///
-/// Where no thread can be made, the write happens here instead: a chapter written down in the frame is
-/// worse than a frame, and a chapter not written down at all is a run nobody can pick up.
-fn handed_over(handed: Handed) {
-    if WRITING
-        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-        .is_ok()
-        // Through the seam, which carries whatever simulated Windows this thread reads through onto
-        // the one being made — see `orb_api::thread::spawn`.
-        && orb_api::thread::spawn(writing).is_err()
-    {
-        log!("resume: cannot start a thread; chapters are written down in the frame");
-        WRITING.store(false, Ordering::Relaxed);
-        written(&handed);
-        return;
-    }
-    let Ok(mut waiting) = WAITING.lock() else {
-        return log!("resume: the writer left its own state locked; nothing more is written down");
-    };
-    let overwritten = waiting.next.replace(handed);
-    drop(waiting);
-    CHANGED.notify_all();
-    if let Some(overwritten) = overwritten {
-        detail!(
-            "resume: chapter {} was still waiting to be written; the newer one is what the file wants",
-            overwritten.chapter,
-        );
-    }
-}
-
-/// The thread that writes them, one at a time, until it is stopped.
-///
-/// Below the game's priority, because a chapter written a millisecond later costs nobody anything and
-/// a late frame costs the thing orb was written for.
-///
-/// Nothing is held while the write happens: the chapter is taken out from under the lock and the lock
-/// let go of before the disk is touched, so a frame handing the next one over never waits for a write.
-fn writing() {
-    orb_api::thread::below_normal();
-    loop {
-        let Ok(mut waiting) = WAITING.lock() else {
-            return;
-        };
-        while waiting.next.is_none() && !waiting.stopping {
-            match CHANGED.wait(waiting) {
-                Ok(next) => waiting = next,
-                Err(_) => return,
-            }
-        }
-        // Whatever is waiting goes first, stopping or not: a chapter handed over and then dropped is a
-        // run somebody would be offered the chapter before.
-        if let Some(handed) = waiting.next.take() {
-            drop(waiting);
-            written(&handed);
-            continue;
-        }
-        waiting.stopped = true;
-        drop(waiting);
-        CHANGED.notify_all();
-        return;
-    }
-}
-
-/// Stops the writer once it has written what it holds, and waits for it.
-///
-/// Called where orb is going away — see [`crate::runtime::detached`] — for two reasons. A line written
-/// after the log has been closed goes into whatever log this process opens next, and a thread carrying
-/// the simulated Windows of a launch that has gone would write the next launch's chapters into it. What
-/// is waiting is written first, this being the one moment there is to write it.
-///
-/// **The way out of a real launch does not come through here**: `DllMain`'s `DLL_PROCESS_DETACH` closes
-/// the log and lets the process end, and waiting for a thread from inside the loader lock is the
-/// deadlock every note about that lock is about. What waits here is a launch being taken out by hand,
-/// which is what an e2e test does at the end of one.
-pub fn stop_writing() {
-    if !WRITING.swap(false, Ordering::Relaxed) {
-        return;
-    }
-    let Ok(mut waiting) = WAITING.lock() else {
-        return log!("resume: the writer left its own state locked; it is not being waited for");
-    };
-    waiting.stopping = true;
-    CHANGED.notify_all();
-    let waited = CHANGED.wait_timeout_while(
-        waiting,
-        std::time::Duration::from_millis(STOP_WAIT_MS),
-        |waiting| !waiting.stopped,
-    );
-    let Ok((mut waiting, timed_out)) = waited else {
-        return log!("resume: the writer left its own state locked; it is not being waited for");
-    };
-    if timed_out.timed_out() {
-        log!(
-            "resume: the writer has not finished in {STOP_WAIT_MS}ms; what it holds goes unwritten"
-        );
-    }
-    // Whatever came of it, the next launch in this process starts a writer of its own.
-    *waiting = Waiting {
-        next: None,
-        stopping: false,
-        stopped: false,
-    };
-}
-
-/// Writes one of them where it stands, and says what it cost.
-///
-/// The microseconds are the point of the line as much as the chapter is: the write being slow enough
-/// to stop a frame is what took it off the frame, and this is where that is read.
-fn written(handed: &Handed) -> bool {
-    let Handed {
-        path, bytes, said, ..
-    } = handed;
-    let started = crate::profile::now();
-    // The directory is made where it is written rather than at startup, so an installation nobody
-    // has left a run in has nothing of orb's beside the game but the log.
-    if let Some(parent) = path.parent()
-        && let Err(error) = orb_api::fs::create_dir_all(parent)
-    {
-        log!("resume: cannot make {}: {error}", parent.display());
-        return false;
-    }
-    match orb_api::fs::write(path, bytes) {
-        Ok(()) => {
-            let us = crate::profile::since(started);
-            // Not left to `verbose` alone, where this line was: a session on the machine a slow write
-            // is about was played through at the ordinary level and said nothing about the disk,
-            // because nobody knew there was a level to ask for. Nor said at the ordinary level every
-            // time, which is a line a chapter about a disk that is behaving.
-            if us >= SLOW_WRITE_US {
-                log!(
-                    "resume: writing {} took longer than a frame: {us}us",
-                    path.display(),
-                );
-            }
-            detail!("resume: {said} written to {} in {us}us", path.display(),);
-            true
-        }
-        Err(error) => {
-            log!("resume: cannot write {}: {error}", path.display());
-            false
-        }
-    }
+    Some(saved)
 }
 
 /// Where this run's chapter is kept: one file per run there can be one of, named as the game names
@@ -1109,7 +1030,10 @@ mod tests {
         assert_eq!(record.feed(0, 0xa0), Some(0));
         assert_eq!(record.feed(2, 0xa2), Some(2));
         assert_eq!(record.feed(3, 0xa3), None);
-        record.feeding = None;
+        // And nothing at all once the playback is over, which is what the end of the feeding says: the
+        // landing being taken is what hands the run to whoever is playing it, and that is a frame later —
+        // see [`Record::until`].
+        record.until = None;
         assert_eq!(record.feed(0, 0xa0), None);
     }
 
@@ -1220,6 +1144,34 @@ mod tests {
             song: None,
             reproduction: String::new(),
         });
+        // Where the feeding stops, which for a run being picked up is the chapter it is going to.
+        record.until = Some(3);
         record
+    }
+
+    /// **An attempt being watched is fed past the chapter it starts at**, which is the one thing a playback
+    /// of one does that a run being picked up does not: the frames below the chapter go in as fast as they
+    /// do for a resume, and the attempt's own go in after it.
+    #[test]
+    fn an_attempt_being_watched_is_fed_past_the_chapter_and_stops_where_it_ended() {
+        let mut record = feeding_a_run();
+        record.until = Some(4);
+        assert_eq!(record.feed(2, 0xa2), Some(2));
+        // The frame the chapter began on, which a resume hands back to the keyboard and this does not.
+        assert_eq!(record.feed(3, 0xa3), Some(3));
+        assert_eq!(record.feed(4, 0xa4), None, "the attempt ran past its end");
+    }
+
+    /// And the landing is still the chapter, whichever of the two this is: what the playback is *aimed* at
+    /// is where the fast part stops, and for an attempt being watched the rest is played a frame at a time.
+    #[test]
+    fn the_landing_is_the_chapter_and_not_where_the_feeding_stops() {
+        let mut record = feeding_a_run();
+        record.until = Some(4);
+        assert_eq!(
+            record.feeding.as_ref().map(|landing| landing.at),
+            Some(3),
+            "the frame the playback is aimed at moved with the feeding's own end",
+        );
     }
 }

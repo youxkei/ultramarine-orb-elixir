@@ -118,6 +118,13 @@ impl Question {
         Some((Answer::Chosen(CHOICES[self.selection]), by))
     }
 
+    /// One of the two taken outright, for a launch playing itself: this cursor is orb's own and the word a
+    /// recipe presses moves the game's, so a press here answers whichever mode the cursor came up on — see
+    /// `runtime::answer_the_question`. `item` is its place in [`CHOICES`].
+    pub fn answered_outright(&self, item: usize) -> Option<Answer> {
+        Some(Answer::Chosen(*CHOICES.get(item)?))
+    }
+
     /// Which is being asked about, and which of the two the cursor is on. Both for the drawing,
     /// which is the other half of this and lives over the seam.
     pub fn asked(&self) -> Menu {
@@ -139,6 +146,8 @@ pub fn title(asked: Menu, language: Language) -> &'static str {
     match (asked, language) {
         (Menu::Scores, Language::Japanese) => "どちらのスコアを見る",
         (Menu::Scores, Language::English) => "Which scores to see",
+        (Menu::Replays, Language::Japanese) => "どちらのリプレイを見る",
+        (Menu::Replays, Language::English) => "Which replays to watch",
         (Menu::Run, Language::Japanese) => "モードを選ぶ",
         (Menu::Run, Language::English) => "Choose a mode",
     }
@@ -162,18 +171,31 @@ pub fn aside(asked: Menu, mode: Mode, language: Language) -> &'static [&'static 
         // line naming the file each is kept in answers a question about the disk that nobody
         // standing in front of a ranking is asking.
         (Menu::Scores, _, _) => &[],
-        // What a pointdevice run gives and what it costs, both: the progress kept is the reason to
-        // choose it, and the replay is the one thing the game would have offered afterwards that it
-        // no longer does — see `Game::skip_replay_prompt`.
+        // The replays have a line each, unlike the ranking, because the two answers do different things
+        // rather than the same thing to different files: one is the game's own screen and the other is a
+        // list of orb's, and what can be chosen out of the second is not what the first offers.
+        (Menu::Replays, Mode::Pointdevice, Language::Japanese) => {
+            &["ステージ・チャプター・トライを選んで見られます"]
+        }
+        (Menu::Replays, Mode::Pointdevice, Language::English) => {
+            &["Watchable by stage, chapter and attempt"]
+        }
+        (Menu::Replays, Mode::Normal, Language::Japanese) => &["ゲーム本来のリプレイです"],
+        (Menu::Replays, Mode::Normal, Language::English) => &["The game's own replays"],
+        // What a pointdevice run gives, in the order somebody choosing cares about it: dying costs the
+        // chapter, the progress is kept, and the replay is orb's own rather than the game's — which is
+        // what makes it hold the attempts that were rewound away as well as the one that survived. See
+        // `Game::skip_replay_prompt`, which is the game's own offer being written past, and
+        // [`crate::replay`] for what is offered instead.
         (Menu::Run, Mode::Pointdevice, Language::Japanese) => &[
             "被弾したらチャプターの頭からやり直します",
             "進行状況は自動的にセーブされ、いつでも続きから遊べます",
-            "リプレイは保存できません",
+            "リプレイはやり直したトライも残ります",
         ],
         (Menu::Run, Mode::Pointdevice, Language::English) => &[
             "Getting hit starts the chapter over",
             "Your progress is saved and can be picked up at any time",
-            "Replays cannot be saved",
+            "Its replay keeps the attempts you were rewound from too",
         ],
         (Menu::Run, Mode::Normal, Language::Japanese) => {
             &["いつものゲームモードです", "被弾したら残機が減ります"]
@@ -193,17 +215,45 @@ mod tests {
     /// somebody reads with a blank in it.
     const LANGUAGES: [Language; 2] = [Language::Japanese, Language::English];
 
-    /// A run and a ranking are asked about differently, and the run's two choices each say what
-    /// they mean.
+    /// And every screen the question is asked over, for the same reason: what each of them says is a table
+    /// this crate keeps by hand.
+    const ASKED: [Menu; 3] = [Menu::Run, Menu::Scores, Menu::Replays];
+
+    /// A run, a ranking and the replays are asked about differently, and each answer that has a
+    /// description says what it means.
     #[test]
     fn each_question_says_what_it_is_about() {
         for language in LANGUAGES {
-            assert_ne!(title(Menu::Run, language), title(Menu::Scores, language));
-            assert_ne!(
-                aside(Menu::Run, Mode::Pointdevice, language),
-                aside(Menu::Run, Mode::Normal, language)
+            let asked: std::collections::BTreeSet<&str> =
+                ASKED.iter().map(|asked| title(*asked, language)).collect();
+            assert_eq!(
+                asked.len(),
+                ASKED.len(),
+                "two of the screens are asked about in the same words",
             );
+            for asked in [Menu::Run, Menu::Replays] {
+                assert_ne!(
+                    aside(asked, Mode::Pointdevice, language),
+                    aside(asked, Mode::Normal, language)
+                );
+            }
         }
+    }
+
+    /// **The replays are the one item where the two answers do different things**, so each says what it is:
+    /// one is the game's own screen and the other a list of orb's, out of which a stage, a chapter and an
+    /// attempt can be chosen.
+    #[test]
+    fn the_replays_say_which_of_the_two_screens_each_answer_is() {
+        let pointdevice = aside(Menu::Replays, Mode::Pointdevice, Language::Japanese).join("\n");
+        assert!(pointdevice.contains("トライ"));
+        let normal = aside(Menu::Replays, Mode::Normal, Language::Japanese).join("\n");
+        assert!(normal.contains("ゲーム本来"));
+
+        let pointdevice = aside(Menu::Replays, Mode::Pointdevice, Language::English).join("\n");
+        assert!(pointdevice.contains("attempt"));
+        let normal = aside(Menu::Replays, Mode::Normal, Language::English).join("\n");
+        assert!(normal.contains("The game's own"));
     }
 
     /// A ranking is asked with nothing under either choice: what a mode does to a run is not what
@@ -217,18 +267,19 @@ mod tests {
         }
     }
 
-    /// The two things a pointdevice run does that the game does not: it keeps where the run got to,
-    /// and it has no replay to offer at the end of one. Said because the question is the last place
-    /// the choice between the modes is still open.
+    /// The two things a pointdevice run does that the game does not: it keeps where the run got to, and its
+    /// replay keeps the attempts that were rewound away — which the game's own cannot, its record of inputs
+    /// being rewound with the run. Said because the question is the last place the choice between the modes
+    /// is still open.
     #[test]
-    fn a_pointdevice_run_says_its_progress_is_kept_and_its_replay_is_not() {
+    fn a_pointdevice_run_says_its_progress_is_kept_and_what_its_replay_holds() {
         let japanese = aside(Menu::Run, Mode::Pointdevice, Language::Japanese).join("\n");
         assert!(japanese.contains("セーブ"));
-        assert!(japanese.contains("リプレイは保存できません"));
+        assert!(japanese.contains("トライ"));
 
         let english = aside(Menu::Run, Mode::Pointdevice, Language::English).join("\n");
         assert!(english.contains("saved"));
-        assert!(english.contains("Replays cannot be saved"));
+        assert!(english.contains("attempts"));
     }
 
     /// Pointdevice mode is the first of the two, which is what a cursor starting on neither would land
@@ -247,7 +298,7 @@ mod tests {
     #[test]
     fn nothing_english_is_said_in_japanese_and_nothing_japanese_in_english() {
         let japanese = |text: &str| text.chars().any(|c| c > '\u{2000}');
-        for asked in [Menu::Run, Menu::Scores] {
+        for asked in ASKED {
             for mode in CHOICES {
                 for language in LANGUAGES {
                     let said: Vec<&str> = [mode.name(language), title(asked, language)]

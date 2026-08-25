@@ -36,6 +36,8 @@ pub mod mode_ui;
 pub mod mouse;
 pub mod overlay;
 pub mod profile;
+pub mod replay;
+pub mod replay_ui;
 pub mod resume;
 pub mod resume_ui;
 pub mod retry_ui;
@@ -46,6 +48,7 @@ pub mod snapshot;
 pub mod sync;
 pub mod tuning;
 pub mod window;
+pub mod writer;
 
 /// One brush stroke, as coverage: what the mark over the lives is drawn from, baked out of
 /// `brush.png` by `build.rs` rather than kept here as four thousand numbers.

@@ -105,7 +105,11 @@ const FRONT_END: Range<usize> = 0x0335_0000..0x0336_0000;
 const FRONT_END_ELEMENT: usize = 0x0049_ee40;
 
 /// The screen a run ends on, allocated with its scene in the real game, and the element that carries it.
-const RESULT: Range<usize> = 0x0337_0000..0x0337_1000;
+///
+/// **As long as the field furthest into it**, which is the name entry's at `super::RESULT_NAME`: the real
+/// object is `malloc(0xce6c)` and a block that stopped short of that field would be a game whose name entry
+/// orb reads memory nothing mapped for.
+const RESULT: Range<usize> = 0x0337_0000..0x0337_d000;
 const RESULT_ELEMENT: usize = 0x0049_ee80;
 
 /// The replay's own manager and header, allocated in the real game: a base of this file's choosing.
@@ -1240,6 +1244,11 @@ impl Image {
         self.the_title_menu_points_at(TITLE_ITEM_START);
     }
 
+    /// And the item the replays are behind, for the same reason.
+    pub fn the_title_menu_points_at_the_replays(&self) {
+        self.the_title_menu_points_at(super::TITLE_ITEM_REPLAY);
+    }
+
     /// A whole run's own shot select up, with a difficulty and a character already chosen and a shot under the
     /// cursor: the screen orb asks a run left unfinished over.
     ///
@@ -2097,6 +2106,28 @@ impl Image {
     /// That screen's own object, for a test that has to hand it to a callback the way the chain hands it.
     pub fn the_screen_a_run_ends_at(&self) -> usize {
         RESULT.start
+    }
+
+    /// **A name in that screen's own entry**, laid out the way the entry leaves one: the characters it was given
+    /// and spaces to the end of the field — see `Th07`'s `RESULT_NAME`.
+    ///
+    /// The field and not the typing: what the cursor over the grid of characters does is put one byte here per
+    /// press, and an e2e test about the name a replay carries is about the eight bytes it left.
+    ///
+    /// # Panics
+    /// Where the name is longer than the field, which is a test asking for something the entry cannot hold.
+    pub fn the_name_its_entry_holds(&self, name: &str) {
+        let bytes = name.as_bytes();
+        assert!(
+            bytes.len() <= super::RESULT_NAME_BYTES,
+            "a name of {} byte(s) in a field of {}",
+            bytes.len(),
+            super::RESULT_NAME_BYTES,
+        );
+        let mut held = [b' '; super::RESULT_NAME_BYTES];
+        held[..bytes.len()].copy_from_slice(bytes);
+        self.space()
+            .write_bytes(RESULT.start + super::RESULT_NAME, &held);
     }
 
     /// And that screen's phase moved, which is all the difference between the two ways in.

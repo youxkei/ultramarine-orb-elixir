@@ -770,6 +770,114 @@ fn a_play_step_ends_where_the_run_is_over() {
     });
 }
 
+/// **Every question orb puts up is one a step can name**, which is what a launch playing itself needs to
+/// reach the screens behind them at all: a name orb does not put up is a recipe refused, so a question added
+/// to orb and not to this list is a screen no recipe can wait for.
+///
+/// The two about a replay are the ones this is here for — whether to keep the one just played, and the lists
+/// one is chosen out of. Waited for with nothing to put them up, so what each step proves is that its name
+/// was *read*: a step that gave up is a step whose `until` was understood, where an unreadable one takes the
+/// whole recipe with it.
+#[test]
+fn every_question_orb_puts_up_is_one_a_step_can_name() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-naming-questions",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- wait_until: { question: mode }\n  give_up_after: 2\n\
+                     - wait_until: { question: resume }\n  give_up_after: 2\n\
+                     - wait_until: { question: retry }\n  give_up_after: 2\n\
+                     - wait_until: { question: keep_replay }\n  give_up_after: 2\n\
+                     - wait_until: { question: choose_replay }\n  give_up_after: 2\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        let pressed = words(&game, 12);
+        assert!(
+            !game.log().said("the recipe cannot be read"),
+            "a question orb puts up is not one a step can name:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        for step in 1..=5 {
+            assert!(
+                game.log()
+                    .said(&format!("autoplay: step {step} of 6 gave up")),
+                "step {step} never waited on the question it names:\n  {}",
+                game.log().lines().join("\n  "),
+            );
+        }
+        // And the step after them got its frames, which is what says the recipe was read to the end.
+        assert_eq!(
+            pressed.last().map(|(word, _)| *word),
+            Some(BOMB),
+            "the step after the questions never got a frame",
+        );
+    });
+}
+
+/// **A step answers one of orb's own questions by item, which is the one thing a press cannot do to them.**
+///
+/// A question of orb's keeps its own cursor and nothing of it reaches a bot, so every press takes the item the
+/// cursor came up on: `つづきから` and never `はじめから`, and the first stage, chapter and attempt of a replay
+/// and never any other. Three launches on the real game were written to press `down` and then `decide` at
+/// `どこから始める`, and all three came back `resume: from where it stopped` — the item the cursor was on.
+///
+/// So the step says which item it means, and the number is its place in the list on the screen. What this
+/// asserts is the grammar and the waiting: the step is read, it waits for the question it names, and its bound
+/// ends it where nothing puts one up. The answer landing on the item named is
+/// `the_replay_offered.rs`'s, over the question that has one.
+#[test]
+fn a_step_answers_one_of_orbs_questions_by_the_item_it_names() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-answering",
+            Work::wandering(WORK_US),
+            |config| {
+                config.autoplay = Some(
+                    "- answer: { question: resume, item: 1 }\n  give_up_after: 3\n\
+                     - answer: { question: keep_replay, item: 1 }\n  give_up_after: 3\n\
+                     - press: [bomb]\n  frames: 2\n"
+                        .to_owned(),
+                );
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+
+        let pressed = words(&game, 8);
+        assert!(
+            !game.log().said("the recipe cannot be read"),
+            "a step that answers a question by item is not a step:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        // Nothing pressed while it waits, which is the point of it: a press at one of these takes the item
+        // the cursor is on, and that is the item the step exists to say is not the one meant.
+        assert_eq!(
+            pressed,
+            vec![(0, 6), (BOMB, 2)],
+            "the steps answering a question pressed something:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        for step in 1..=2 {
+            assert!(
+                game.log()
+                    .said(&format!("autoplay: step {step} of 3 gave up")),
+                "step {step} never waited on the question it answers:\n  {}",
+                game.log().lines().join("\n  "),
+            );
+        }
+    });
+}
+
 /// **A step that is getting nowhere says so, over and over, for as long as it is getting nowhere.**
 ///
 /// Which is what a launch nobody is watching needs of its log: three launches in a row sat on a screen the

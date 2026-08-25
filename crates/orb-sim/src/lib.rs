@@ -537,6 +537,10 @@ impl Win for Sim {
         self.clock.frequency()
     }
 
+    fn local_time(&self) -> orb_api::clock::LocalTime {
+        self.clock.local_time()
+    }
+
     fn wait(&self, ticks: i64) -> bool {
         self.clock.wait(ticks)
     }

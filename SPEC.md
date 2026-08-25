@@ -72,8 +72,9 @@ the game's own front end reads a decide and a back with.
 
 **And the rest of this document is that game's too**, `Game::rewinds` answering that a run of it can be
 rewound: the mode question at its own title menu, chapters, the mark over its panel, the retry menu a
-death offers, a run picked up in a later launch, a card's attempt counted and its name put back on the
-plate, and orb's own `pointdevice_score.dat` for the runs that were rewound. Two of those work
+death offers, a run picked up in a later launch, a replay of one kept and watched again, a card's attempt
+counted and its name put back on the plate, and orb's own `pointdevice_score.dat` for the runs that were
+rewound. Two of those work
 differently here and the difference is the game's, not a setting: **the music is rewound through the file
 th07 opens itself** — one `thbgm.dat` for every track, where th06 opens a wav per track through winmm,
 which is `audio::Track`'s two shapes — and **orb's own screens are drawn in a face the machine lent**,
@@ -702,6 +703,164 @@ playback that has come out of step at or before that frame.
 `--no-resume` takes the whole of it out — the two hooks and the file — while leaving the chapters
 it is built on, which is what a fault in a run that chapters alone do not explain wants.
 
+## Watching a pointdevice run again
+
+**The game cannot keep a replay of one, and what it would keep is the reason.** Its record of inputs
+lives in the heap a snapshot covers, so a retry rewinds the record along with the run and each attempt
+writes over the last from the chapter's own frame: what the game would save is the path that survived,
+with nothing in it of the attempts that did not — a run nobody could tell from a flawless one. So the
+game's own offer is written past (see *Pointdevice and normal*) and orb keeps its own, which holds the
+thing the game's cannot.
+
+**An attempt is a stretch the run played from one rewind point to the next**, filed under the chapter it
+started at. Every chapter therefore has the attempts that were rewound away and, last, the one that
+survived — and that last one is held nowhere of its own: it is the stage's own path from that chapter's
+frame to the frame the chapter after it began on, because the path a stage was left with *is* the attempts
+that survived, strung together. The same property picking a run up leans on, and it is why a chapter
+retried costs this nothing either.
+
+**One file per run there can be one of**, named for the same slot the chapter that run was left in is
+named for. The two correspond by that name and by nothing else: a run picked up in a later launch reads
+the chapter out of one and goes on writing the other, and neither had to be told about the other to do
+it. A launch that has the chapter and not the replay — the file deleted, or a run left before orb kept
+these at all — starts the replay *from the chapter it picked up*, which the chapter file holds every
+frame of.
+
+**A run still being played is not a saved replay, and the extension says which is which.** `.pending` is
+the run somebody is in the middle of, or one they walked away from; `.msgpack` is one that has been kept,
+and its name carries the day and the time — `normal-reimu-a-20040815-214233` — so that two runs of one
+slot are two replays and what tells them apart is when. Both live in `pointdevice_replay/`, because they
+are the same file at two moments of its life, and the list orb offers replays from shows the kept ones
+alone.
+
+**It grows as the run does**, for the reason the chapter file does: there is no moment a session ends at.
+A chapter beginning and an attempt being rewound each hand the whole of it to the thread orb's own files
+are written on. And a run *ending* hands it over once more, whichever way it ended — that write is what
+leaves the stretch the run ended in watchable at all, since on the frame a chapter begins the run has
+played none of that chapter yet.
+
+**One shape for both games, unlike the chapter file.** That one is per-game because it shipped that way,
+and what it cost is written where its version number is. This file is new and has no installed base, so
+what each game contributes to it travels as what it already is: the numbers a stage starts with are that
+game's own bytes, opaque to the rest. What is checked instead is the game's own name in the file, so one
+carried between two installations is refused rather than read as this game's numbers. MessagePack with
+the field names in it, and the buttons as the frames they changed on, exactly as the chapter file writes
+its own.
+
+**Kept without asking, or offered.** `save_replays` on keeps every one; off is orb asking, at the two
+moments nothing more will ever be added to one — the screen a run ended at, which is the frame the game's
+own offer would have been on, and `はじめから`, where the run left unfinished is about to be written over.
+`はい` is the file given the day and the time and put where the list offers it; `いいえ` takes it away, and
+so does a cancel, there being no third way out of a question about a run that is over either way. The
+cursor starts on `はい`: a replay kept by accident is a file somebody deletes, and one declined by accident
+is a run nobody can watch again. A run that never reaches either moment — a window closed, a game
+killed — leaves its `.pending` where it is, which is the next session going on writing it.
+
+**A cleared run's replay is not kept**, for the reason `--clear` refuses the game's own and refuses to
+write a chapter down: what it recorded is the buttons of a player nothing could hit, so a replay of it
+plays back as a run that dies where this one did not.
+
+**Watched by stage, then chapter, then attempt**, which is what one of these holds: a run is stages, a
+stage is chapters, and a chapter is the attempts made at it. Four lists, one line per item — the replays
+with whose run each was and when it was played, then the stages, then the chapters by the names the
+boundary detector gave them, then the attempts by number with what each was under the cursor: the one the
+run went on from, or one it was rewound away from, and how long it lasted.
+
+**Whose a replay is comes from the game's own name entry.** Both games ask for a name on the screen a played
+run ends at — a cursor over a grid of characters, eight of them into a field, and the field's own eight bytes
+are what the game writes into a replay of its own. That entry stands two screens in front of the question orb
+asks about keeping one, so what a run's replay is named by is what its player typed into the game itself, and
+orb asks nobody for a name. It is read off that screen every frame it is up rather than on the frame it is
+left, the screen going down on a press orb does not see coming, and kept in `orb.yaml` afterwards: a run given
+up at orb's own menu never reaches an entry at all, and what the game does there is come up holding the name
+the last run was entered under.
+
+**And `中断` where a name would be, for the replay of a run nobody finished.** A name is what a run *ends*
+with in this game — the high-score entry a run played out reaches — so a name at all is said about
+a run that got there, and about one that was given up or written over the line says that instead. Which of
+the two a kept replay is of is written in the file as it is kept: the two moments one is kept at are the
+screens a run ends at and the answer that writes a run over. A file kept before orb recorded it says
+neither, and keeps the name it always showed.
+
+Twelve items on the screen at once with the cursor held inside the window, a stage having more chapters than
+that. A cancel goes back a list, and a cancel on the first closes them.
+
+**And what was chosen out of every list already walked past is above the one that is up**, a line apiece and
+in the words that list's own item had: the replay, then its stage, then that stage's chapter. Because the item
+chosen is what the next list is *about* — three lists deep the screen was `トライを選ぶ` over a column of
+numbered attempts, with nothing on it to say whose run or which chapter they were attempts at.
+
+**The replays newest first**, which is the run somebody has just played; the three lists below it are in the
+run's own order, a stage list that did not start at stage 1 being no list of a run. Ordered by when each run
+began, which is what its line says — and not as the directory reads, since a name says which run it was
+before it says when: `hard-` sorts before `normal-` whatever evening either was played on, which put
+tonight's runs above last night's and read oldest-first inside each of them.
+
+**And all four stand over the screen the game keeps its own replays on**, which orb asks the front end for
+rather than pressing for: the press that would have chosen that item was held back for the mode question,
+so what takes the game there is orb writing the state that item writes. A list of replays over the title
+menu reads as having left the replays rather than as being in them.
+
+**Asked for with the frames its coming-up state waits already spent**, so it arrives on the next update
+rather than a second later. Those frames are the item's own fade, and what they draw is the screen being
+left — which for a list coming back after an attempt is the title menu a left run goes to, a second of it
+on the way to a list that exists so that screen need not be walked again.
+
+Then the frames that screen is left to *draw* itself in, everything under one of these lists being frozen
+for as long as it is up: a couple where the list is going up for the first time, the screen behind it having
+been drawn every frame since somebody walked a cursor to that item, and a second where it is coming back —
+the front end a left run goes to is one built on the frame the run went, and a list two frames later stood
+over the flat grey an undrawn screen is.
+
+What a cancel out of the first list leaves standing is that screen, whose own cancel is the way back to the
+title menu — which is where whoever chose the item would have been.
+
+A launch with nothing kept says so on the screen rather than nothing appearing, a press held back for a
+screen that never came being the one thing that would look broken. And a screen asked for that never comes
+up is the same: after five seconds the list goes over whatever the front end has instead.
+
+**The playback is a run being picked up, with a second end.** The frames below the attempt's own first
+are fed inside the frame that built the stage, exactly as a resume feeds them, and the landing is held
+against the reproduction line written down — so an attempt that plays back somewhere else says so in the
+same words a resume that lands somewhere else does. Then the feeding goes on, one frame of the attempt to
+one frame of the game, which is the part somebody is watching. So a resume's playback and this one differ
+in one number: where the buttons stop.
+
+**The run it is watched in is asked of the game's own front end**, which is the only run orb asks for:
+every other one was chosen on the game's own screens by whoever was there, and this one came out of a
+file. The difficulty and the character go where the screens before it write them, the shot goes under the
+cursor of the screen whose item starts a run, and the press that chose the attempt is handed to that item
+rather than swallowed — so the run is started by the game's own code, and the stage the attempt was made
+in is written on the frame the run is registered, which is the one frame the game takes a stage for a run
+it has not built yet. That item starts every run at the stage its own menu asked for, which is the first.
+
+**And when the attempt runs out, the list it was chosen out of comes back**, on the attempt just watched:
+another attempt at the same chapter is what somebody watching one wants next, and the walk down to it is
+one they have already made. Over the same screen it stood over the first time, which orb asks the front end
+for again — a run left goes back to th06's logo, and that is no more where a list of replays belongs than
+the title menu is.
+
+**And nothing about that run is written down.** No chapter of it is kept, no replay of it is written, dying
+offers no retry, and what it counted goes in no ranking: it is not a run anybody played. The one thing
+still done is what a resume does — the numbers put back and the buttons fed. A playback that wrote either
+file would be the run it came out of overwritten by a recording of itself.
+
+**It ends where the attempt ends**, which for the attempt that survived a chapter is the frame the chapter
+after it began on: the frames past that are the next chapter's, and it is one chapter's attempts this was
+chosen out of. What follows the frame an attempt ran to is whatever a keyboard does to a stage nobody is
+playing, so orb takes the game out of the run there, the way the retry menu's `タイトルに戻る` does. A
+cancel does the same at any point and is the only way out somebody watching one has — `x` or escape, or
+whichever button the game's own menus take a cancel on, since somebody watching has a controller in their
+hands — because the buttons the game acts on are the attempt's and the game's own pause is not theirs to
+open.
+
+**And where the attempt was the path the boss died on, the screens the run ends at are run out inside the
+frame they came up in.** The name entry is where somebody types their own name and the stats after it are
+theirs to read, and this run is nobody's: the state written over that screen is the game's own way out of
+it, and the frames its way out takes are run by calling the game's update over until the screen is gone.
+Drawing happens once per frame, so nothing of it reaches the screen at all — asked for with the write alone,
+twenty frames of a name entry did.
+
 ## Pointdevice and normal
 
 **Which of the two a run is, is asked where the run is started**, over the game's own title
@@ -737,8 +896,8 @@ button out of the run started next, and out of what a resumed run writes down as
 
 | | |
 | --- | --- |
-| 完全無欠モード / `Pointdevice Mode` | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, and `pointdevice_score.dat` |
-| レガシーモード / `Legacy Mode` | the game as it was: dying costs a life, a replay can be saved, and the score goes in the game's own `score.dat` |
+| 完全無欠モード / `Pointdevice Mode` | chapters, snapshots, the retry menu, the wash a chapter gets, the lives painted over, the retry count on the status line, `pointdevice_score.dat`, and a replay of orb's own in `pointdevice_replay/` |
+| レガシーモード / `Legacy Mode` | the game as it was: dying costs a life, the game's own replay can be saved, and the score goes in the game's own `score.dat` |
 
 On screen they are th15's own two names, in whichever of the two languages that game itself calls
 them, since that is where the mode comes from and those are
@@ -869,6 +1028,20 @@ file pointdevice runs are written to. So looking at the other ranking puts orb i
 and the next run asks again — which is why the mode left behind cannot be what a screen reads from:
 every item that opens the file, the ranking included, asks first.
 
+**And over `Replay`, where the two answers do different things rather than the same thing to different
+files.** `Legacy Mode` there is the item being chosen: the press is handed over and the game shows the
+replays it saved itself, out of its own files and on its own screen, which orb has nothing to put on.
+`Pointdevice Mode` is a list of orb's own over an item the game never acted on — the game has no screen
+for these, having no way to record one. So the question is worded for the screen rather than for the
+file: `どちらのリプレイを見る` / `Which replays to watch`, with a line under each answer saying which of
+the two screens it is. See *Watching a pointdevice run again*.
+
+**Which item the cursor is on is `MainMenu+0x81a0`**, bounded to 0..=7 at 0x437c5c and jumped through the
+table at 0x4381cc: 0, 1 and 2 start a run, 3 is the replays and 4 is the ranking. The three left are the
+music room, the options and quitting, and orb has nothing to ask about any of them. Nothing of the replay
+item is read beyond the cursor being on it, and nothing of it is written: the press either reaches the item
+or never does.
+
 **How the moment is caught.** `g_MainMenu.gameState` at 0x6dc8b0 — 0x81f0 into the 0x10f34-byte
 `MainMenu` at 0x6d46c0, past its `AnmVm vm[122]` of 0x110 each — is read once a frame while the
 supervisor says the front end is what is running. All three of the items that start a run set it to
@@ -920,14 +1093,16 @@ for and stays there while the question is up, which is a background for it rathe
 with it. The vms' own scripts do stop, since those are stepped by `ExecuteScript` at the end of
 `MainMenu::OnUpdate`.
 
-**No replay is offered for a pointdevice run.** What one recorded here would play back as is a run
-nobody could tell from a flawless one: the game keeps its record of inputs in the heap a snapshot
-covers — `ReplayManager` is `new`ed at 0x42a27f and each stage's record allocated per stage — so a
-retry rewinds the record along with the run, and each attempt writes over the last from the
+**No replay of the game's own is offered for a pointdevice run.** What one recorded here would play
+back as is a run nobody could tell from a flawless one: the game keeps its record of inputs in the heap
+a snapshot covers — `ReplayManager` is `new`ed at 0x42a27f and each stage's record allocated per stage —
+so a retry rewinds the record along with the run, and each attempt writes over the last from the
 chapter's own frame. What would be saved is therefore the path that survived, with nothing in it of
 the attempts that did not. That is a better reason not to offer one than a broken replay would be,
 and it is the same property orb's own record of a run leans on — see *Picking a run up again*.
-The screen that offers to save one is `ResultScreen`, reached through the job it registers —
+**What is offered in its place is a replay of orb's own**, which holds the attempts as well as the path:
+see *Watching a pointdevice run again*, and this is the frame that offer is made on.
+The screen that offers to save the game's own is `ResultScreen`, reached through the job it registers —
 `ResultScreen::OnUpdate` at 0x42d98e, the same walk the ending's object is found by — and its
 `resultScreenState` at +0x8 is written from `SAVE_REPLAY_QUESTION` to `EXIT` on the frame it
 arrives there, before the frame timer reaches the 60 that starts the question's own animation. So
@@ -1963,15 +2138,31 @@ and leaves set; a launch's arguments hold what is different every time it is run
 run is in is asked inside the game, where the run is started — see *Pointdevice and normal*.
 
 `orb.yaml`'s keys are `screen`, `language`, `thcrap`, `skip_ending`, `always_draw`,
-`boundary_flash`, `hide_mouse`, `dpad_moves` and `ask_at_startup`. YAML read with serde; every one but
-the first three is a switch written `true` or
+`boundary_flash`, `hide_mouse`, `dpad_moves`, `save_replays`, `player_name` and `ask_at_startup`. YAML read
+with serde; every one but `screen`, `language`, `thcrap` and `player_name` is a switch written `true` or
 `false`, `screen` is written `fullscreen` or a size like `1280x720`, `language` is written `japanese`,
-`english` or `auto`, and `thcrap` is a switch that takes `auto` as well — the two whose answer the
-machine can give. `deny_unknown_fields`, so a key nobody
+`english` or `auto`, `thcrap` is a switch that takes `auto` as well — the two whose answer the
+machine can give — and `player_name` is the name orb read out of the game's own name entry, written back
+double-quoted so that a name that is a number, a switch's own word or a line with a colon in it comes back
+as itself.
+`deny_unknown_fields`, so a key nobody
 reads is an error naming it — including one that used to be a key, which is a file to edit rather
 than one to pass over quietly. A setting that is not read is a setting somebody thinks is on.
 
-**The launcher asks for every one of them before it starts the game**, and writes back what it is told.
+**Two of them are what a launch does with a replay, and neither is off meaning nothing.**
+`save_replays` on keeps the replay of every pointdevice run without asking; off — which is what a file
+that says nothing gives — is orb *asking*, at the two moments nothing more will ever be added to one, and
+keeping the ones that were said yes to. `player_name` is whose those runs are, shown against each replay
+in the list they are offered from, and it is **not a setting anybody types**: orb writes there the name it
+read out of the game's own name entry, and the key is what carries that name to the next launch — empty
+until a run has ended at one. A longer one written into the file by hand is cut to what orb has room to draw
+beside the rest of the line. See *Watching a pointdevice run again*.
+
+**The launcher asks for every one of them but the name before it starts the game**, and writes back what it
+is told. The name is not asked because the game asks it: what the dialog would have had is a row typed into
+beside a screen of the game's own that types the same thing, and whichever of the two was touched last would
+be whose the replays are. So `player_name` is written by orb out of that entry and passes through this dialog
+untouched.
 Which is why they are the keys they are: each is about the machine the game is being played on,
 and somebody who has just installed one file has nothing to edit. It is orb's own window rather
 than a dialog resource — a resource means a `.rc` and a resource compiler in the build, for a list of
@@ -2842,9 +3033,18 @@ and offsets.
   have their own — see *Picking a run up again*.
 - Returning the music to where it was across a track change: the track starts again from its
   beginning instead. See *Chapters and retries*.
-- A replay of a pointdevice run, because a rewound run does not play back: the screen that offers
-  to save one is skipped rather than the write being refused. Its score is kept, in orb's own
-  file — see *The score file*. A normal run saves replays the way the game always did.
+- A replay *of the game's own* for a pointdevice run, because the game's record of one is rewound with
+  the run: the screen that offers to save one is skipped rather than the write being refused. What is kept
+  instead is a replay of orb's own, which holds the attempts as well as the path — see *Watching a
+  pointdevice run again* — and it is watched on orb's own screens rather than the game's, since the game
+  has none for it. A normal run saves the game's replays the way it always did.
+- A pointdevice replay watched at anything but one attempt at a time: choosing a chapter plays the attempt
+  chosen and ends the run there, rather than running on into the attempts after it. What that would need
+  is a rewind between them, which is the retry menu — and a replay of a run being retried by whoever is
+  watching it is two runs.
+- Fast-forwarding or pausing an attempt being watched: the frames go by at the cadence the run was played
+  at, and `x` stops it. The buttons the game acts on are the attempt's, so its own pause is not the
+  watcher's to open.
 - Sound effects cut off on a restore rather than rewinding. Only the music is restored.
 - An exe orb's addresses have not been read against, whatever put it there: a translation patch that
   rewrote the exe, a build of the game orb has not been taught, another game under a name orb reads.

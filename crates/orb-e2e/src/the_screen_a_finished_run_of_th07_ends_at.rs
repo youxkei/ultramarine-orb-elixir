@@ -16,6 +16,7 @@
 use crate::fake::th07::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
 use orb_config::LogLevel;
+use orb_core::game::th07::Th07;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
@@ -116,5 +117,64 @@ fn a_finished_run_of_th07_leaves_no_chapter_to_pick_up() {
         game.frames_until_a_thread("the file taken away", || {
             orb_core::resume::left(game.dir()).is_empty()
         });
+    });
+}
+
+/// The name whoever finished the run left in the game's own entry, and the one the settings file was carrying
+/// before it: two names, because a file that already agreed with the entry could not say which of the two the
+/// replay took.
+const TYPED: &str = "REIMU";
+const CARRIED: &str = "ゆうか";
+
+/// **And the replay that run leaves is named by the game's own name entry**, which is the first of the screens
+/// it ends at: whoever finished the run types their name there for the score, and that is the name the game's
+/// own replay of the same run would have been saved under.
+#[test]
+fn a_replay_of_th07_is_named_by_the_games_own_entry() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-name-its-own-entry-holds",
+            Work::wandering(WORK_US),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+                // Kept without asking, the question being `the_replay_offered.rs`'s subject: what this is about
+                // is the name the file is sealed with.
+                config.save_replays = true;
+                config.player_name = CARRIED.to_owned();
+            },
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said("chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // The run over and the screen its own end arrives on, with the entry as whoever finished it left one:
+        // the characters they chose and spaces to the end of the field.
+        game.the_run_ends_at_its_own_screen();
+        game.image().the_name_its_entry_holds(TYPED);
+        game.frames_until("the name read out of the entry", 8, || {
+            log.said(&format!("name entry says {TYPED:?}"))
+        });
+
+        // And then the screen's own walk reaching the question about saving a replay, which is the frame the
+        // file is sealed on — two screens after the entry, and the whole reason the name is read before it.
+        game.the_screen_offers_a_replay();
+        game.frames_until_a_thread("the replay kept", || {
+            !orb_core::replay::saved(game.dir()).is_empty()
+        });
+
+        let kept = orb_core::replay::saved(game.dir());
+        let (slot, _) = kept[0].rsplit_once('-').expect("a kept replay's own name");
+        assert_eq!(
+            orb_core::replay::read_saved(game.dir(), &kept[0], &Th07)
+                .expect("the replay kept")
+                .name,
+            TYPED,
+            "the replay of {slot} is not named by the game's own entry:\n  {}",
+            log.lines().join("\n  ")
+        );
     });
 }

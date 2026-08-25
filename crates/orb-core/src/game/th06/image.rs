@@ -59,7 +59,10 @@ const BOSS: Range<usize> = 0x0300_0000..0x0300_1000;
 /// and a run's own end both build, so the state orb writes to send a ranking away is the same field a
 /// finished run's name entry is standing in — see [`result_screen_leaving`](Image::result_screen_leaving).
 /// Two blocks here answered that question for orb instead of asking it.
-const RESULT_SCREEN: Range<usize> = 0x0300_3000..0x0300_4000;
+/// **Away from the run of blocks below and as long as the field furthest into it**, which is the name entry's
+/// at `super::result_screen::NAME`: the real object is that long and a block that stopped short of the field
+/// would be a game whose name entry orb reads memory nothing mapped for.
+const RESULT_SCREEN: Range<usize> = 0x0310_0000..0x0310_6000;
 /// The chain element that screen registers, in a block of its own so that a snapshot has the same walk
 /// to do over it as over a real one.
 const RESULT_SCREEN_ELEM: Range<usize> = 0x0300_4000..0x0300_5000;
@@ -447,21 +450,31 @@ pub enum Screen {
     /// The practice stage select, which the shot type select goes to instead of starting a run where
     /// the run is a practice one, and the one screen the score file's practice scores are drawn on.
     PracticeStage,
+    /// The screen the game keeps its own replays on, on its way up: what the replay item asks for, and what
+    /// orb asks for so that its own list of replays has that screen behind it.
+    ReplaysComingUp,
+    /// And that screen up, which is the state a list of orb's own stands over.
+    Replays,
     /// Any other of its screens, as the number it is: the difficulty and the character select are
     /// two, and orb has nothing to ask over either.
     Other(i32),
 }
 
-/// Which item of the title menu a cursor is on, for the four orb has a question about — and [`EXTRA`]
+/// Which item of the title menu a cursor is on, for the ones orb has a question about — and [`EXTRA`]
 /// is also the one the score file decides.
 ///
 /// Three of them start a run, and orb asks the same question over all three: a practice stage and the
 /// Extra are runs with chapters as much as a full run is. What tells them apart is what the run turns out
 /// to be — see [`Game::run_slot`](crate::game::Game::run_slot), which a practice run has none of.
+///
+/// [`REPLAY`] and [`SCORE`] are asked about apiece, and the two are not the same question: a ranking is one
+/// file or the other and a replay is the game's own screen or a list of orb's — see
+/// [`Menu`](crate::game::Menu).
 pub mod item {
     pub const GAME_START: i32 = super::super::TITLE_ITEM_START;
     pub const EXTRA: i32 = super::super::TITLE_ITEM_EXTRA;
     pub const PRACTICE: i32 = super::super::TITLE_ITEM_PRACTICE;
+    pub const REPLAY: i32 = super::super::TITLE_ITEM_REPLAY;
     pub const SCORE: i32 = super::super::TITLE_ITEM_SCORE;
 }
 
@@ -484,6 +497,16 @@ impl FrontEnd {
     /// see `MENU_TITLE_GRACE_FRAMES`. Over the first two of them orb holds a press back for exactly
     /// these frames; the practice stage select is a screen it asks nothing at and a laid-out game
     /// still has to ignore a press over.
+    /// Whether the screen the replays are on has waited out the frames its own coming-up state waits — which
+    /// is where that state reads the files and hands over to the screen itself.
+    ///
+    /// Here beside [`FrontEnd::acts_on_a_press`] for the same reason: the count is the game's and a game laid
+    /// out by hand has to wait the same one out, orb's own list of replays being what waits for that screen.
+    pub fn the_replays_come_up_now(&self) -> bool {
+        self.screen == Screen::ReplaysComingUp
+            && self.frames >= super::MENU_REPLAYS_COMING_UP_FRAMES
+    }
+
     pub fn acts_on_a_press(&self) -> bool {
         self.frames
             >= match self.screen {
@@ -1116,6 +1139,26 @@ impl Image {
         space.write::<i32>(
             super::G_GAME_MANAGER + game_manager::CURRENT_STAGE,
             run.stage,
+        );
+    }
+
+    /// **The stage the item that starts a run asks for**: nothing at all for a full run, which starts at the
+    /// first stage, and the Extra's own where the difficulty is that one. `0x436dcb` is the comparison and
+    /// `0x436dd4` and `0x436ddd` are the two writes.
+    ///
+    /// Here because a laid-out game has to write it where the real one does: a run asked of that screen from
+    /// outside, with a stage of its own already in the field, is a run whose stage this write goes over.
+    pub fn starts_the_stage_the_menu_asks_for(&self) {
+        let space = self.space();
+        let difficulty: i32 = space.read(super::G_GAME_MANAGER + super::game_manager::DIFFICULTY);
+        let stage = if difficulty >= super::DIFFICULTY_EXTRA {
+            super::replay_data::STAGES - 1
+        } else {
+            0
+        };
+        space.write::<i32>(
+            super::G_GAME_MANAGER + super::game_manager::CURRENT_STAGE,
+            stage,
         );
     }
 
@@ -2194,6 +2237,28 @@ impl Image {
             .write::<i32>(RESULT_SCREEN.start + super::result_screen::STATE, state);
     }
 
+    /// **A name in that screen's own entry**, laid out the way the entry leaves one: the characters it was
+    /// given and spaces to the end of the field — see `Th06`'s `result_screen::NAME`.
+    ///
+    /// The field and not the typing: what the cursor over the grid of characters does is put one byte here per
+    /// press, and an e2e test about the name a replay carries is about the eight bytes it left.
+    ///
+    /// # Panics
+    /// Where the name is longer than the field, which is a test asking for something the entry cannot hold.
+    pub fn the_name_its_entry_holds(&self, name: &str) {
+        let bytes = name.as_bytes();
+        assert!(
+            bytes.len() <= super::result_screen::NAME_BYTES,
+            "a name of {} byte(s) in a field of {}",
+            bytes.len(),
+            super::result_screen::NAME_BYTES,
+        );
+        let mut held = [b' '; super::result_screen::NAME_BYTES];
+        held[..bytes.len()].copy_from_slice(bytes);
+        self.space()
+            .write_bytes(RESULT_SCREEN.start + super::result_screen::NAME, &held);
+    }
+
     /// `Ending::RegisterChain` (0x4107b0): the ending's own job in the chain's calc list, carrying
     /// `Ending::OnUpdate` as its callback and the ending itself as what to call it on, with the `.end`
     /// script it has read in the object.
@@ -2654,6 +2719,8 @@ fn screen_of(screen: Screen) -> i32 {
         Screen::ShotType => super::MENU_STATE_SHOT_TYPE,
         Screen::Ranking => super::MENU_STATE_SCORE,
         Screen::PracticeStage => super::MENU_STATE_PRACTICE,
+        Screen::ReplaysComingUp => super::MENU_STATE_REPLAYS_COMING_UP,
+        Screen::Replays => super::MENU_STATE_REPLAYS,
         Screen::Other(state) => state,
     }
 }
@@ -2664,6 +2731,8 @@ fn screen_from(state: i32) -> Screen {
         super::MENU_STATE_SHOT_TYPE => Screen::ShotType,
         super::MENU_STATE_SCORE => Screen::Ranking,
         super::MENU_STATE_PRACTICE => Screen::PracticeStage,
+        super::MENU_STATE_REPLAYS_COMING_UP => Screen::ReplaysComingUp,
+        super::MENU_STATE_REPLAYS => Screen::Replays,
         state => Screen::Other(state),
     }
 }

@@ -248,11 +248,11 @@ fn a_run_with_chapters_is_not_offered_the_screen_that_saves_a_replay() {
         // points at it.
         game.frames_until("the screen that saves a replay", A_WHOLE_RUN, || {
             game.log()
-                .said("result: no replay is offered for a run with chapters")
+                .said("result: no replay of the game's own is offered for a run with chapters")
         });
         assert!(
             game.log()
-                .said("result: no replay is offered for a run with chapters"),
+                .said("result: no replay of the game's own is offered for a run with chapters"),
             "the screen that saves a replay was left to come up:\n  {}",
             game.log().lines().join("\n  ")
         );

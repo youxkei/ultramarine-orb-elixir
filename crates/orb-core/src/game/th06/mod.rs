@@ -18,7 +18,7 @@ pub mod resume;
 mod sight;
 
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use orb_api::Hwnd;
 
@@ -689,6 +689,12 @@ mod game_manager {
     /// them is `character * 2 + shotType`.
     pub const CHARACTER: usize = 0x181d;
     pub const SHOT_TYPE: usize = 0x181e;
+    /// How many lives and bombs a run starts with, which the item that starts one copies out of the
+    /// options the game was configured with: 0x436de7 and 0x436df1 take them from
+    /// [`supervisor::CONFIG_LIVES`] and [`supervisor::CONFIG_BOMBS`], and 0x436e0f writes 2 and 3 over
+    /// them where the difficulty is Extra or the run is a practice one.
+    pub const STARTING_LIVES: usize = 0x181a;
+    pub const STARTING_BOMBS: usize = 0x181b;
     pub const IS_IN_GAME_MENU: usize = 0x181f;
     pub const IS_IN_RETRY_MENU: usize = 0x1820;
     pub const IS_IN_PRACTICE_MODE: usize = 0x1823;
@@ -826,6 +832,10 @@ mod supervisor {
     /// `effectiveFramerateMultiplier`, how far the game's timers advance in one
     /// update.
     pub const FRAMERATE_MULTIPLIER: usize = 0x1a8;
+    /// How many lives and bombs the options were set to, which is where a run's own starting numbers come
+    /// from — see [`super::game_manager::STARTING_LIVES`].
+    pub const CONFIG_LIVES: usize = 0x12c;
+    pub const CONFIG_BOMBS: usize = 0x12d;
     pub const CUR_STATE: usize = 0x18c;
     pub const IS_IN_ENDING: usize = 0x19c;
 }
@@ -1078,6 +1088,18 @@ mod main_menu {
     /// `stateTimer`, the frames the front end has been in that state. Every state that walks
     /// itself out counts this up to a number of its own.
     pub const STATE_TIMER: usize = 0x81f4;
+    /// The fade a screen leaves the title menu with: two colours, the frames it has run for, and the
+    /// frames it runs for.
+    ///
+    /// Every item that leaves that menu writes the same four — the title's own entry at 0x437b10, and the
+    /// five items at 0x437ce2, 0x437dc5, 0x437e88, 0x437f15 and 0x437f9b — and one function reads them all,
+    /// 0x439b3e onwards, which counts [`FADE_FRAMES_RUN`] up at 0x439b6c and mixes the two colours by it.
+    /// Named first and second by their addresses, which is as far as reading the writes goes: what the mix
+    /// does with each is that function's.
+    pub const FADE_FIRST_COLOUR: usize = 0x81fc;
+    pub const FADE_SECOND_COLOUR: usize = 0x8200;
+    pub const FADE_FRAMES_RUN: usize = 0x820c;
+    pub const FADE_FRAMES: usize = 0x8210;
 }
 
 /// `th06::ResultScreen`, 0x56b0 bytes on the heap, reached through the job it registers. Its
@@ -1085,6 +1107,21 @@ mod main_menu {
 mod result_screen {
     /// `i32 resultScreenState`, after the score file it opened and its frame timer.
     pub const STATE: usize = 0x8;
+
+    /// **The name the screen's own entry is typed into**, eight bytes with spaces to the end.
+    ///
+    /// [`super::RESULT_STATE_WRITING_HIGHSCORE_NAME`] is handled by 0x42bc85, which walks a cursor at
+    /// `[this+0x20]` over the 96 characters at `[0x4784d4]` — ±0x10 a row, ±1 a column, the 94th the space
+    /// item — and on the shot key copies the one under it here: `0x42c14e` writes the character at
+    /// `[this+0x5193 + [this+0x10]]`, `0x42c165` writes a space where that item was chosen, and `0x42c176`
+    /// caps `[this+0x10]` at eight.
+    ///
+    /// **Which is the name a replay of the game's own carries.** Three of this machine's `replay/th6_*.rpy`
+    /// were read: decrypted from +0x10 with the byte at +0x0e as the key — climbing by 7, the first byte
+    /// included — they hold `MM/DD/YY` and a NUL at +0x10 and then eight bytes at +0x19, spaces to the end.
+    /// `YXK` in two of them and `YKI` in the third.
+    pub const NAME: usize = 0x5193;
+    pub const NAME_BYTES: usize = 8;
 }
 
 /// `th06::Ending`, 0x1170 bytes on the heap, reached through the job it registers.
@@ -1174,6 +1211,31 @@ const MENU_STATE_TITLE: i32 = 2;
 /// and 0x436dae; the character select — entry 9, 0x4364e0 — is what sets this state, at 0x4368fd,
 /// right after writing the character it was asked for.
 const MENU_STATE_SHOT_TYPE: i32 = 0xb;
+/// The screen the game keeps its own replays on, on its way up: the title menu's replay item writes this
+/// state at 0x437ef7 with `stateTimer` zeroed at 0x437f0b and the fade beside it, and states 0xc to 0xf all
+/// dispatch to one function, 0x4381ec, through entries 12 to 15 of the table at 0x4374d0.
+///
+/// **A screen that comes up a second after it is asked for.** What this state does is wait: at
+/// `stateTimer == 0x3c` exactly — the compare at 0x438255 — it loads the screen's own art (0x43a1ec), opens
+/// `replay/th6_%.2d.rpy` for each of the fifteen slots to see which of them hold a replay, and writes
+/// [`MENU_STATE_REPLAYS`] at 0x4384c4. Every frame before that it draws the fade and nothing else.
+const MENU_STATE_REPLAYS_COMING_UP: i32 = 0xc;
+/// And the screen itself, which is the state that draws those fifteen slots and reads the keys — so it is
+/// the one a list of orb's own goes over, and the one to wait for.
+const MENU_STATE_REPLAYS: i32 = 0xd;
+
+/// The frames the state above waits through before it does any of that: the compare at 0x438255, and the
+/// same count the fade it comes in with runs for.
+const MENU_REPLAYS_COMING_UP_FRAMES: i32 = 0x3c;
+
+/// The fade that item starts, as the four writes it makes: 0x437e88, 0x437e95, 0x437ea2 and 0x437eac.
+const THE_FADE_THE_REPLAY_ITEM_STARTS: [(usize, u32); 4] = [
+    (main_menu::FADE_FIRST_COLOUR, 0x4000_0000),
+    (main_menu::FADE_SECOND_COLOUR, 0xff00_0000),
+    (main_menu::FADE_FRAMES_RUN, 0),
+    (main_menu::FADE_FRAMES, MENU_REPLAYS_COMING_UP_FRAMES as u32),
+];
+
 /// And the practice stage select, which is where a practice run is answered for at last: the shot type
 /// select sets this state instead of starting a run where the run is a practice one — the branch at
 /// 0x436dc5 on `isInPracticeMode`, writing the state at 0x436fd9 — and its handler is entry 17,
@@ -1192,11 +1254,19 @@ const MENU_STATE_PRACTICE: i32 = 0x11;
 /// 0..=7 at 0x437c5c and jumped through the table at 0x4381cc.
 ///
 /// The three that start a run set `gameState` to 6, the difficulty load — 0x437c9e, 0x437d9d and
-/// 0x437e4b, one per item — and the ranking sets 10 at 0x437f84. The four not named here are the
-/// replay, the music room, the options and quitting, none of which orb has anything to ask about.
+/// 0x437e4b, one per item — and the ranking sets 10 at 0x437f84. The three not named here are the music
+/// room, the options and quitting, none of which orb has anything to ask about.
 const TITLE_ITEM_START: i32 = 0;
 const TITLE_ITEM_EXTRA: i32 = 1;
 const TITLE_ITEM_PRACTICE: i32 = 2;
+/// The replays, which is the item between the three that start a run and the ranking: the fourth entry of
+/// that table, at 0x437ea8.
+///
+/// **What the item does is not read here and nothing of it is written.** orb asks which kind of replay is
+/// wanted and either hands the press over — the game's own list, from the game's own files — or puts up a
+/// list of its own and leaves this item unchosen. So unlike the three above and the ranking below, there is
+/// no `gameState` for it in this file: the press either reaches the item or never does.
+const TITLE_ITEM_REPLAY: i32 = 3;
 const TITLE_ITEM_SCORE: i32 = 4;
 
 /// The frames each of these screens ignores its own decide for, counted in `stateTimer`: the title
@@ -1276,6 +1346,17 @@ const POWER_FULL: u16 = 0x80;
 
 /// `th06::Difficulty`, whose last value the Extra stage runs at.
 const DIFFICULTY_EXTRA: i32 = 4;
+
+/// What the Extra stage is played with whatever the options say, which is the game's own pair of numbers at
+/// 0x436e0f — see [`game_manager::STARTING_LIVES`].
+const EXTRA_STARTING_LIVES: u8 = 2;
+const EXTRA_STARTING_BOMBS: u8 = 3;
+/// How many `character * 2 + shotType` there are, which is the two characters' two shots each: the width of
+/// every table the game indexes by that byte, and what a run chosen out of a file is held to — see
+/// [`Th06::start_a_run`].
+///
+/// A number the game fixes rather than one this tree grows: th06 has the two characters it shipped with.
+const SHOT_COMBINATIONS: i32 = 4;
 /// What the game counts as already paid for there, so that the four scores an extra life
 /// costs in a run are not paid again in a stage that is not one.
 const EXTRA_LIVES_IN_EXTRA: i8 = 4;
@@ -1976,6 +2057,10 @@ impl Game for Th06 {
         })
     }
 
+    fn named(&self) -> &'static str {
+        "th06"
+    }
+
     /// Two of these are not the field they look like, and both are because of where this is read:
     /// just after `GameManager::AddedCallback`, which is the moment the game's own replay reads
     /// them at.
@@ -2060,6 +2145,122 @@ impl Game for Th06 {
             return false;
         }
         unsafe { mem::write::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE, stage) };
+        true
+    }
+
+    /// What the item that starts a run leaves behind, written from outside: the run's own three numbers,
+    /// the stage, and the scene.
+    ///
+    /// **The three numbers go where the front end's own screens write them.** The difficulty select writes
+    /// `difficulty` (0x4372a3), the character select `character` and the shot type select `shotType` — the
+    /// two bytes at `+0x181d` and `+0x181e` — and the item at 0x436dae writes the scene in the same act as
+    /// the shot. What is written here is the same set, and the two flags beside them: a run of somebody's own
+    /// is neither a practice run nor the demo, and `isInReplay` stays nothing because none of this goes
+    /// through the game's own replay manager — see [`crate::replay`].
+    ///
+    /// **And `curState` alone, `wantedState` left as it is.** That is the shape the front end's own item
+    /// leaves the frame in, and it is what makes the supervisor build a run: its `OnUpdate` acts on the two
+    /// disagreeing. Written after the stage rather than before, so that a supervisor which somehow ran in
+    /// between would find the stage already in place.
+    unsafe fn start_a_run(&self, run: &RunStart) -> bool {
+        if !(0..replay_data::STAGES).contains(&run.stage) {
+            log!("replay: there is no stage {}", run.stage + 1);
+            return false;
+        }
+        if !(0..=DIFFICULTY_EXTRA).contains(&run.difficulty) {
+            log!("replay: there is no difficulty {}", run.difficulty);
+            return false;
+        }
+        // `character * 2 + shotType` is what every table the game indexes by them is in the order of — see
+        // `game_manager::CHARACTER` — so what has to be in range is that pair and not either alone.
+        if !(0..SHOT_COMBINATIONS).contains(&(run.character * 2 + run.shot_type)) {
+            log!(
+                "replay: there is no character {} shot {}",
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::DIFFICULTY, run.difficulty);
+            mem::write::<u8>(
+                G_GAME_MANAGER + game_manager::CHARACTER,
+                run.character as u8,
+            );
+            mem::write::<u8>(
+                G_GAME_MANAGER + game_manager::SHOT_TYPE,
+                run.shot_type as u8,
+            );
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::IS_IN_PRACTICE_MODE, 0);
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::DEMO_MODE, 0);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::IS_IN_REPLAY, 0);
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::CURRENT_STAGE, run.stage);
+            // The starting numbers out of the options, which the item copies as it goes: a run built
+            // without them starts on whatever the run before it was given.
+            let extra = run.difficulty >= DIFFICULTY_EXTRA;
+            mem::write::<u8>(
+                G_GAME_MANAGER + game_manager::STARTING_LIVES,
+                if extra {
+                    EXTRA_STARTING_LIVES
+                } else {
+                    mem::read(G_SUPERVISOR + supervisor::CONFIG_LIVES)
+                },
+            );
+            mem::write::<u8>(
+                G_GAME_MANAGER + game_manager::STARTING_BOMBS,
+                if extra {
+                    EXTRA_STARTING_BOMBS
+                } else {
+                    mem::read(G_SUPERVISOR + supervisor::CONFIG_BOMBS)
+                },
+            );
+            mem::write::<i32>(G_SUPERVISOR + supervisor::CUR_STATE, STATE_GAMEMANAGER);
+        }
+        true
+    }
+
+    /// **The shot type select put back up on this run's own shot**, which is the screen whose item starts a
+    /// run: `MainMenu::OnUpdate`'s entry 11 reads the decide at 0x436da0 and everything a run needs happens
+    /// inside that.
+    ///
+    /// The three numbers go where the screens before it write them, the way [`Th06::start_a_run`] writes
+    /// them; what this writes instead of the scene is the screen and its own timer, past the frames it
+    /// ignores a press for — see [`MENU_SHOT_TYPE_GRACE_FRAMES`]. The practice flag has to be nought here as
+    /// well as in the game manager, the item branching on it at 0x436dbc into the stage select.
+    unsafe fn front_end_starts_a_run(&self, run: &RunStart) -> bool {
+        if !(0..=DIFFICULTY_EXTRA).contains(&run.difficulty)
+            || !(0..SHOT_COMBINATIONS).contains(&(run.character * 2 + run.shot_type))
+        {
+            log!(
+                "replay: there is no difficulty {} character {} shot {}",
+                run.difficulty,
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        unsafe {
+            if mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) != STATE_MAINMENU {
+                log!("replay: the front end is not what is running; no run is asked of it");
+                return false;
+            }
+            mem::write::<i32>(G_GAME_MANAGER + game_manager::DIFFICULTY, run.difficulty);
+            mem::write::<u8>(
+                G_GAME_MANAGER + game_manager::CHARACTER,
+                run.character as u8,
+            );
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::IS_IN_PRACTICE_MODE, 0);
+            mem::write::<u8>(G_GAME_MANAGER + game_manager::DEMO_MODE, 0);
+            mem::write::<u32>(G_GAME_MANAGER + game_manager::IS_IN_REPLAY, 0);
+            // The shot is the cursor's own item on this screen, which is where the item reads it from — see
+            // [`main_menu::CURSOR`].
+            mem::write::<i32>(G_MAIN_MENU + main_menu::CURSOR, run.shot_type);
+            mem::write::<i32>(G_MAIN_MENU + main_menu::GAME_STATE, MENU_STATE_SHOT_TYPE);
+            mem::write::<i32>(
+                G_MAIN_MENU + main_menu::STATE_TIMER,
+                MENU_SHOT_TYPE_GRACE_FRAMES,
+            );
+        }
         true
     }
 
@@ -2338,9 +2539,33 @@ impl Game for Th06 {
         }
         match unsafe { mem::read::<i32>(G_MAIN_MENU + main_menu::CURSOR) } {
             TITLE_ITEM_START | TITLE_ITEM_EXTRA | TITLE_ITEM_PRACTICE => Some(Menu::Run),
+            TITLE_ITEM_REPLAY => Some(Menu::Replays),
             TITLE_ITEM_SCORE => Some(Menu::Scores),
             _ => None,
         }
+    }
+
+    /// The item under the front end's own cursor, which is what lets a recipe aim at one of the title menu's
+    /// items rather than count presses. `None` off the front end: `g_MainMenu` is a static and keeps whatever
+    /// the last screen left in it, so the supervisor is what says the number means anything.
+    ///
+    /// **Said whenever either it or the screen changes**, the way th07's own is: the cursor is one field
+    /// whatever screen is up, so a step waiting for a number cannot tell the title's fourth item from the
+    /// difficulty select's, and which screen is which number is read off a launch's own lines. Only
+    /// [`MENU_STATE_TITLE`] and [`MENU_STATE_SHOT_TYPE`] are read off the exe.
+    unsafe fn front_end_cursor(&self) -> Option<i32> {
+        let (screen, cursor) = unsafe { self.front_end() }?;
+        static LAST: AtomicI64 = AtomicI64::new(i64::MIN);
+        let both = i64::from(screen) << 32 | i64::from(cursor) & 0xffff_ffff;
+        if LAST.swap(both, Ordering::Relaxed) != both {
+            detail!("front end: screen {screen}, cursor on item {cursor}");
+        }
+        Some(cursor)
+    }
+
+    /// Which of the front end's screens is up, out of the same struct and behind the same gate.
+    unsafe fn front_end_screen(&self) -> Option<i32> {
+        Some(unsafe { self.front_end() }?.0)
     }
 
     /// Both the pads there are to read: the one the game's own enumeration found, and the one orb
@@ -2465,6 +2690,94 @@ impl Game for Th06 {
         true
     }
 
+    /// The same write over whatever state the screen is in, [`RESULT_STATE_EXIT`] being the game's own way
+    /// out of it — including [`RESULT_STATE_WRITING_HIGHSCORE_NAME`], which is the one the screen starts a
+    /// played run in and the one this exists for.
+    unsafe fn leave_the_screen_a_run_ends_at(&self) -> bool {
+        if unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) }
+            != STATE_RESULTSCREEN_FROMGAME
+        {
+            return false;
+        }
+        let Some(screen) = chain_argument(RESULT_SCREEN_ON_UPDATE) else {
+            return false;
+        };
+        let state = screen + result_screen::STATE;
+        if mem::read_committed::<i32>(state) == Some(RESULT_STATE_EXIT) {
+            return false;
+        }
+        unsafe { mem::write::<i32>(state, RESULT_STATE_EXIT) };
+        true
+    }
+
+    /// **Out of the screen a run ends at**, which is the only screen of this game that has a name entry: the
+    /// *Score* item's ranking is the same object with no run behind it, so what is read is the field either
+    /// way and what says a name was typed for *this* run is that the screen is the one a run ends at — see
+    /// [`STATE_RESULTSCREEN_FROMGAME`].
+    unsafe fn the_name_its_own_entry_holds(&self) -> Option<String> {
+        if unsafe { mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) }
+            != STATE_RESULTSCREEN_FROMGAME
+        {
+            return None;
+        }
+        let screen = chain_argument(RESULT_SCREEN_ON_UPDATE)?;
+        crate::game::the_name_held_at(screen + result_screen::NAME, result_screen::NAME_BYTES)
+    }
+
+    /// [`MENU_STATE_REPLAYS`] and not the state the item writes, which is the second of that screen's own
+    /// pair: the first waits its frames out and reads the files, and this is the one that draws the slots.
+    ///
+    /// The state alone and not the timer with it, which is no use here: nothing zeroes it on the way from
+    /// one of the two states to the other — 0x4384c4 writes the state and leaves the timer counting — so it
+    /// says how long the *screen was asked for* ago and not how long this state has been up. What waits for
+    /// the drawing is the frames the caller counts.
+    unsafe fn the_screen_the_replays_are_on(&self) -> bool {
+        unsafe { self.front_end() }.is_some_and(|(state, _)| state == MENU_STATE_REPLAYS)
+    }
+
+    /// **The replay item's own writes**, which is how that screen is reached when somebody chooses it: the
+    /// state and the fade the item starts.
+    ///
+    /// **But the timer written at the frame that state does its work rather than at nought**, which is the
+    /// difference between asking for a screen and asking for the transition to one. Those sixty frames are
+    /// the item's fade, and what they draw is the screen being left — for a run that has just been taken
+    /// down that is the title menu, a second of it, which is what a list of replays is not to be reached
+    /// through. `MainMenu::OnUpdate` counts the timer up *after* the state's own block (0x43740a), so the
+    /// value written here is the one that block sees on the next update.
+    ///
+    /// The 122 sprites the item also tells to fade are the title menu's items, which that fade is what
+    /// takes off the screen; there is no fade to take them off here, and nothing of the title is drawn
+    /// once the screen below it is up.
+    unsafe fn to_the_screen_the_replays_are_on(&self) -> bool {
+        let Some((state, _)) = (unsafe { self.front_end() }) else {
+            return false;
+        };
+        if state == MENU_STATE_REPLAYS_COMING_UP || state == MENU_STATE_REPLAYS {
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(
+                G_MAIN_MENU + main_menu::GAME_STATE,
+                MENU_STATE_REPLAYS_COMING_UP,
+            );
+            mem::write::<i32>(
+                G_MAIN_MENU + main_menu::STATE_TIMER,
+                MENU_REPLAYS_COMING_UP_FRAMES,
+            );
+            for (at, value) in THE_FADE_THE_REPLAY_ITEM_STARTS {
+                mem::write::<u32>(G_MAIN_MENU + at, value);
+            }
+        }
+        true
+    }
+
+    /// The scene alone: whichever state the screen is in, it is up while the supervisor is running it, and
+    /// what takes it down is `ResultScreen`'s own `DeletedCallback` putting the scene back.
+    unsafe fn the_screen_a_run_ends_at_is_up(&self) -> bool {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + supervisor::CUR_STATE) };
+        scene == STATE_RESULTSCREEN_FROMGAME
+    }
+
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
         &chapters::MIDSTAGE
     }
@@ -2485,6 +2798,19 @@ const GCOS_CLEAR_BACKBUFFER_ON_REFRESH: u32 = 3;
 const GCOS_DISPLAY_MINIMUM_GRAPHICS: u32 = 4;
 
 impl Th06 {
+    /// The front end's own screen and the item under its cursor, or `None` where what is running is not the
+    /// front end — see [`Game::front_end_cursor`] for why the supervisor decides that rather than the struct.
+    unsafe fn front_end(&self) -> Option<(i32, i32)> {
+        unsafe {
+            (mem::read::<i32>(G_SUPERVISOR + supervisor::CUR_STATE) == STATE_MAINMENU).then(|| {
+                (
+                    mem::read::<i32>(G_MAIN_MENU + main_menu::GAME_STATE),
+                    mem::read::<i32>(G_MAIN_MENU + main_menu::CURSOR),
+                )
+            })
+        }
+    }
+
     /// The numbers behind [`Game::reproduction`]'s line, read where this game keeps each of them.
     ///
     /// **Here rather than inside that method because th06's own tests read them one at a time**: the rank
@@ -2500,7 +2826,13 @@ impl Th06 {
                     .filter(|manager| *manager != 0)
                     .and_then(mem::read_committed::<i32>)
                     .unwrap_or(-1),
-                input: mem::read(G_CUR_FRAME_INPUT),
+                // **The bits a run acts on and not the whole word**, which is what th07 keeps here too — its
+                // own `G_INPUT_THE_RUN_ACTS_ON`. The rest of the word is the front end's: `MENU_DECIDE` is
+                // `0x1001`, so the press that started a run is still down over its first frames, and a
+                // chapter written down there carries a bit no playback of a run's own buttons can put back.
+                // Measured watching an attempt at a chapter nine frames into a stage: `input=0x1001 against
+                // input=0x0001`, every other field of the landing the same.
+                input: mem::read::<u16>(G_CUR_FRAME_INPUT) & RUN_INPUT,
                 player: (
                     mem::read(G_PLAYER + player::POSITION_CENTER),
                     mem::read(G_PLAYER + player::POSITION_CENTER + size_of::<f32>()),

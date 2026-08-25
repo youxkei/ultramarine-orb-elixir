@@ -149,6 +149,26 @@ pub enum Step {
         times_each_retry: f32,
         gives_up: f32,
     },
+    /// **An item of one of orb's own questions, taken outright rather than pressed for.**
+    ///
+    /// **Which is the one thing a press cannot do to those screens.** A question of orb's keeps its own cursor
+    /// and nothing of it reaches a bot, so every press takes the item the cursor came up on: `つづきから` and
+    /// never `はじめから`, `はい` and never `いいえ`, and the first stage, chapter and attempt of a replay and
+    /// never any other. Three launches on the real game were written to press `down` and then `decide` at
+    /// `どこから始める` and all three came back with the item the cursor was on.
+    ///
+    /// The item is its place in the list on the screen, counted from nought — which is what a recipe can say
+    /// about a list whose length it cannot see. A step names one question, so the four lists a replay is
+    /// chosen out of are four steps.
+    ///
+    /// It waits for that question to be up, the same as a `wait_until` for one, and ends when the answer has
+    /// been taken — so it takes a bound the same way, a question that never comes up being a step that would
+    /// otherwise never end.
+    Answer {
+        question: String,
+        item: usize,
+        give_up_after: Option<u32>,
+    },
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -228,6 +248,19 @@ struct Written {
     start_over: Option<bool>,
     /// And the chance of being hit on purpose in a chapter — see [`Step::TakeHits`].
     take_hits: Option<WrittenHits>,
+    /// And an item of one of orb's own questions, taken outright — see [`Step::Answer`].
+    answer: Option<WrittenAnswer>,
+}
+
+/// The question a step answers and which of its items.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenAnswer {
+    /// By the name the log gives it, the same names an `until` waits for one by.
+    question: String,
+    /// Its place in the list on the screen, counted from nought. Nothing said is the first, which is what a
+    /// press would have taken.
+    item: Option<usize>,
 }
 
 /// The two numbers a `take_hits` is written with.
@@ -397,6 +430,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
                 Some(0) => return Err(format!("step {at} is over before it starts")),
@@ -419,6 +453,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => Step::Play {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -435,6 +470,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => Step::Wait {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -451,6 +487,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => Step::Leave,
             Written {
                 press: None,
@@ -464,6 +501,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => Step::Quit,
             Written {
                 press: None,
@@ -477,6 +515,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: Some(named),
                 start_over: None,
                 take_hits: None,
+                answer: None,
             } => match named.trim() {
                 "" => return Err(format!("step {at} asks for a picture of nothing")),
                 named => Step::Screenshot {
@@ -498,6 +537,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: Some(true),
                 take_hits: None,
+                answer: None,
             } => Step::StartOver,
             Written {
                 press: None,
@@ -511,6 +551,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: Some(hits),
+                answer: None,
             } => Step::TakeHits {
                 chance: a_chance("a chance", hits.chance, at)?,
                 // **Nothing said is a chance that does not change** — see [`WrittenHits`].
@@ -520,6 +561,29 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     at,
                 )?,
                 gives_up: a_chance("a chance of giving up", hits.gives_up.unwrap_or(0.0), at)?,
+            },
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                answer: Some(answer),
+            } => match answer.question.trim() {
+                "" => return Err(format!("step {at} answers a question with no name")),
+                question => Step::Answer {
+                    question: question.to_owned(),
+                    // **Nothing said is the first item**, which is what a press would have taken: a step
+                    // that names no item is a step asking for the answer pressing would give.
+                    item: answer.item.unwrap_or(0),
+                    give_up_after: gives_up(*give_up_after, at)?,
+                },
             },
             // **Only `true`.** What a step could do with `start_over: false` is nothing: the question is
             // raised or it is not, and a step that raises nothing is a step to leave out.
@@ -534,7 +598,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             _ => {
                 return Err(format!(
                     "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a take_hits, a leave or a quit, and one of those and not two"
+                     a take_hits, an answer, a leave or a quit, and one of those and not two"
                 ));
             }
         };

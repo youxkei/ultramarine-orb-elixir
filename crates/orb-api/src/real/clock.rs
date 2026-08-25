@@ -2,8 +2,9 @@
 
 use std::sync::OnceLock;
 
-use windows_sys::Win32::Foundation::{FALSE, HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{FALSE, HANDLE, SYSTEMTIME, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 use windows_sys::Win32::System::Threading::{
     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, INFINITE, SetWaitableTimer,
     Sleep, TIMER_ALL_ACCESS, WaitForSingleObject,
@@ -19,6 +20,32 @@ pub fn frequency() -> i64 {
     let mut frequency = 0;
     unsafe { QueryPerformanceFrequency(&mut frequency) };
     frequency
+}
+
+/// `GetLocalTime`, which is the host's calendar in the zone the machine is set to.
+///
+/// It cannot fail and answers nothing: the struct it fills is always filled, and the two fields left out
+/// of [`LocalTime`] are the milliseconds and the day of the week.
+pub fn local_time() -> crate::clock::LocalTime {
+    let mut now = SYSTEMTIME {
+        wYear: 0,
+        wMonth: 0,
+        wDayOfWeek: 0,
+        wDay: 0,
+        wHour: 0,
+        wMinute: 0,
+        wSecond: 0,
+        wMilliseconds: 0,
+    };
+    unsafe { GetLocalTime(&mut now) };
+    crate::clock::LocalTime {
+        year: now.wYear,
+        month: now.wMonth as u8,
+        day: now.wDay as u8,
+        hour: now.wHour as u8,
+        minute: now.wMinute as u8,
+        second: now.wSecond as u8,
+    }
 }
 
 /// The `pause` instruction, which is all one turn of a spin is on a real host: no call, no kernel,

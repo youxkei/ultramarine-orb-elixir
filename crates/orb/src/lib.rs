@@ -158,7 +158,7 @@ fn attach() {
     }
     log!(
         "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
-         block_replay_save={} skip_ending={} screen={} during_replay={} \
+         block_replay_save={} save_replays={} player_name={:?} skip_ending={} screen={} during_replay={} \
          fast_clear={} speed={} stress_restore_frames={} chapters={} resume={} sent_keys={} \
          track_memory={} frame_hooks={} own_frame_loop={}",
         config.game_dir.display(),
@@ -168,6 +168,8 @@ fn attach() {
         config.self_check,
         config.chapter_tuning,
         config.block_replay_save,
+        config.save_replays,
+        config.player_name,
         config.skip_ending,
         config.screen,
         config.during_replay,

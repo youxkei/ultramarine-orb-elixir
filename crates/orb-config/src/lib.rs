@@ -122,6 +122,23 @@ pub struct Config {
     /// offered the screen that saves one, so there is nothing there for a switch to turn
     /// off; a cleared run is offered it, and what it would record is not what happened.
     pub block_replay_save: bool,
+    /// Keep the replay of a pointdevice run without asking, rather than putting the question up
+    /// where the run ends.
+    ///
+    /// A key in `orb.yaml` because it is what somebody sets once: whether they want every run of
+    /// theirs kept, or to be asked each time and to say so for the ones worth keeping. What the
+    /// question is and where it is asked is `replay`'s — and off is not "no replays", it is "ask".
+    pub save_replays: bool,
+    /// Whose run a replay says it is, shown against each one in the list orb offers them from.
+    ///
+    /// **A key nobody types**: what goes here is the name orb read out of the game's own name entry —
+    /// `orb_core::runtime::notice_the_name`, off the screen a played run ends at — and the key is what
+    /// carries that name to the next launch, a run given up at orb's own menu never reaching an entry.
+    /// [`remember_the_name`] is the write, and the settings dialog has no row for it.
+    ///
+    /// Empty is no run having ended at one yet, and then a replay is listed by which run it is and when
+    /// it was played, which is what names it anyway.
+    pub player_name: String,
     /// Wash the play field the moment a chapter begins, so that where dying sends you back
     /// to is something seen rather than a number to read. A judging pass flashes whichever
     /// way this is set: there the wash is what the pass is run with.
@@ -449,6 +466,8 @@ impl Config {
             fast_clear: false,
             chapter_stepping: false,
             block_replay_save: false,
+            save_replays: file.save_replays,
+            player_name: file.player_name.clone(),
             boundary_flash: file.boundary_flash,
             skip_ending: file.skip_ending,
             hide_mouse: file.hide_mouse,
@@ -498,6 +517,8 @@ impl Config {
             skip_ending: self.skip_ending,
             hide_mouse: self.hide_mouse,
             dpad_moves: self.dpad_moves,
+            save_replays: self.save_replays,
+            player_name: self.player_name.clone(),
             ask_at_startup: self.ask_at_startup,
         };
         orb_api::fs::write(path, file::text(&file).as_bytes()).map_err(|source| Error::Write {
@@ -507,9 +528,39 @@ impl Config {
     }
 }
 
+/// **Writes one key back: whose the replays are**, which is what orb does with a name it read out of the
+/// game's own name entry — see `orb_core::runtime::notice_the_name`.
+///
+/// **The file's own other keys and not this launch's**, which is why it is not [`Config::save`]: a `Config`
+/// inside the game holds what the file said *and* what this launch's arguments said over it, so saving one
+/// from there would write a `--windowed` into somebody's settings. So the file is read again, the one key
+/// changed, and the rest written back as it stood.
+///
+/// No file yet is every other key at its default, the same as reading one — a fresh install is the case that
+/// matters, since the name is the first thing it learns.
+pub fn remember_the_name(base_dir: &Path, name: &str) -> Result<(), Error> {
+    let path = base_dir.join(FILE_NAME);
+    let text = match orb_api::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(source) => return Err(Error::Read { path, source }),
+    };
+    let held: Option<file::File> =
+        serde_yaml_ng::from_str(&text).map_err(|source| Error::Parse {
+            path: path.clone(),
+            source,
+        })?;
+    let file = file::File {
+        player_name: name.to_owned(),
+        ..held.unwrap_or_default()
+    };
+    orb_api::fs::write(&path, file::text(&file).as_bytes())
+        .map_err(|source| Error::Write { path, source })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Config, Language, LogLevel, Screen};
+    use super::{Config, Language, LogLevel, Screen, file};
     use std::path::{Path, PathBuf};
 
     fn parse(text: &str) -> Config {
@@ -530,6 +581,10 @@ mod tests {
         assert!(config.skip_ending);
         assert!(config.hide_mouse);
         assert!(config.dpad_moves);
+        // The one switch that is off by default: a run's replay is offered rather than kept, and
+        // nobody has said whose runs these are.
+        assert!(!config.save_replays);
+        assert_eq!(config.player_name, "");
         assert_eq!(config.screen, Screen::Fullscreen);
         // The machine's own, which is the one answer that needs nobody to have set anything.
         assert_eq!(config.language, None);
@@ -595,6 +650,10 @@ mod tests {
         config.skip_ending = false;
         config.hide_mouse = false;
         config.dpad_moves = false;
+        config.save_replays = true;
+        // Somebody's own text, with the two characters the file quotes it against in it: a name that
+        // came back as anything else is a name the file cannot hold.
+        config.player_name = "ゆ\"き\\お".to_owned();
         config.ask_at_startup = false;
         config.save(&path).unwrap();
 
@@ -606,9 +665,25 @@ mod tests {
         assert!(!read.skip_ending);
         assert!(!read.hide_mouse);
         assert!(!read.dpad_moves);
+        assert!(read.save_replays);
+        assert_eq!(read.player_name, config.player_name);
         assert!(!read.ask_at_startup);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A player's name is read as the text it is, whatever that text looks like to YAML: the file
+    /// writes it quoted, so a name that is a number, a switch's own word or a line with a colon in it
+    /// comes back as itself.
+    #[test]
+    fn a_players_name_is_read_as_the_text_it_is() {
+        for name in ["12", "yes", "no", "a: b", "#1", "  spaced  ", ""] {
+            let file = file::File {
+                player_name: name.to_owned(),
+                ..file::File::default()
+            };
+            assert_eq!(parse(&file::text(&file)).player_name, name, "{name:?}");
+        }
     }
 
     /// The window size as it is written everywhere else a resolution is written, and

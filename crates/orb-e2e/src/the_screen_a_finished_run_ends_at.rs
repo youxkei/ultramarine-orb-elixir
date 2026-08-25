@@ -110,7 +110,7 @@ fn a_finished_runs_name_entry_stands_and_only_the_question_is_written_past() {
         );
         assert!(
             game.log()
-                .said("result: no replay is offered for a run with chapters"),
+                .said("result: no replay of the game's own is offered for a run with chapters"),
             "the write was made somewhere other than at the question about saving a replay:\n  {}",
             game.log().lines().join("\n  ")
         );

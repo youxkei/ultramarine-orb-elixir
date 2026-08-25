@@ -176,6 +176,10 @@ mod the_process_orb_woke_up_in;
 #[cfg(test)]
 mod the_recipe_a_bot_plays_to;
 #[cfg(test)]
+mod the_replay_a_run_leaves_behind;
+#[cfg(test)]
+mod the_replay_offered;
+#[cfg(test)]
 mod the_run_a_retried_chapter_of_th07_writes_down;
 #[cfg(test)]
 mod the_run_left_behind;
@@ -221,3 +225,7 @@ mod the_windows_orb_leaves_alone;
 mod the_windows_orb_leaves_alone_of_th07;
 #[cfg(test)]
 mod the_word_a_run_of_th07_is_written_down_as;
+#[cfg(test)]
+mod watching_a_pointdevice_replay;
+#[cfg(test)]
+mod watching_a_pointdevice_replay_of_th07;

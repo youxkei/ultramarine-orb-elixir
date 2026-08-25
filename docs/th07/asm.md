@@ -448,6 +448,23 @@ list names:
 | `+0x5e` | the name, eight bytes, spaces to the end |
 | `+0xe0` | `0100b`, which is the build |
 
+## The name entry that screen starts in
+
+The screen's phases are dispatched at `0x445dd4`: the byte table at `0x446a4f` indexes the jump table at
+`0x446a1f`, and **phase `0xa` is the name entry**, whose handler is `0x446a66`. Phases `0xb` to `0xf` reach
+`0x447198`, the replay's, and `0x10` and `0x11` reach `0x447fd0` — the walk `docs`' own note above names.
+
+`0x446a66` walks a cursor at `[this+0x20]` over the 96 characters at `[0x49ec30]` — ±0x10 a row, ±1 a column,
+the 94th of them the space item, and a slot holding `0x20` skipped as the grid's own hole. On the shot key it
+copies the character under the cursor into the name: `0x446faf` writes it at `[this+0xbfaf + [this+0x10]]`,
+`0x447087` writes a space there where the space item was chosen, and `0x446fd7` caps `[this+0x10]` at eight. So
+the field is **`[screen+0xbfaf]`, eight bytes with spaces to the end** — inside the `0xce6c` bytes `0x44a302`
+allocates.
+
+**And it is the same eight bytes the header above carries at `+0x5e`**: seven of one machine's
+`replay/th7_*.rpy` read out as one name in six and the same name less a letter in the seventh. Which is why orb reads the field
+rather than asking for a name of its own — see `Game::the_name_its_own_entry_holds`.
+
 ## What is not established
 
 - What event the twelve `[player+0x2408] = 3` sites are. They are in the item code's own address range and

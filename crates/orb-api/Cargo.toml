@@ -45,6 +45,8 @@ features = [
     # `PROCESS_HEAP_REGION`, which the heap walk tests each entry against and which is declared here
     # rather than beside `HeapWalk`.
     "Win32_System_SystemServices",
+    # `GetLocalTime`, which is the calendar a saved replay's file name is dated by.
+    "Win32_System_SystemInformation",
     "Win32_System_Performance",
     "Win32_System_Threading",
 ]

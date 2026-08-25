@@ -48,6 +48,62 @@ pub fn ticks() -> u32 {
     (counter() / (frequency / 1_000)) as u32
 }
 
+/// What the host's calendar says the time is now, in the zone the machine is set to.
+///
+/// Apart from [`ticks`] because the two answer different questions. That one is a stamp: how long after
+/// this launch started something happened, which is what every line of the log is read against. This one
+/// is a date, and the only thing orb needs one for is naming a file somebody will look for later — a
+/// replay is a run they played on an evening, and `20260825-214233` is how they find it. A counter
+/// cannot say that: it starts where the host booted and means nothing outside this process.
+///
+/// The zone the machine is set to and not UTC, for the same reason: the person reading the name is
+/// sitting at that machine.
+pub fn local_time() -> LocalTime {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.local_time();
+    }
+    host::local_time()
+}
+
+/// A date and a time to the second, which is `SYSTEMTIME` less the fields nothing here reads: the
+/// milliseconds, and the day of the week the host works out for itself.
+///
+/// Its own type rather than one string, because where the parts go is the caller's: a file name wants
+/// them run together and a line of the log wants them apart. [`fmt::Display`] is the file name's shape,
+/// that being the one this exists for.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct LocalTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+impl std::fmt::Display for LocalTime {
+    /// `20260825-214233`: the date, a hyphen, and the time, each part zero-padded so that a listing
+    /// sorts by when the runs were played.
+    ///
+    /// A hyphen between them and nothing inside either, because this goes in a file name beside a run's
+    /// own slot — `normal-reimu-a-20260825-214233` — and a colon is a character Windows will not take.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        } = self;
+        write!(
+            f,
+            "{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}"
+        )
+    }
+}
+
 /// Waits `ticks` of the counter out, and answers whether the host could.
 ///
 /// `false` is the high-resolution timer refusing to be created, which is a host orb does not run on:
@@ -103,5 +159,8 @@ mod host {
     }
     pub fn spin_once() {
         no_windows("clock::spin_once")
+    }
+    pub fn local_time() -> super::LocalTime {
+        no_windows("clock::local_time")
     }
 }

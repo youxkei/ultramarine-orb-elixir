@@ -189,6 +189,29 @@ pub fn known_named() -> String {
         .join(", ")
 }
 
+/// The name a game's own name entry holds, out of the field it is padded into — see
+/// [`Game::the_name_its_own_entry_holds`], which both games answer through this.
+///
+/// **Spaces off both ends and nothing else touched.** The field is a fixed width the entry fills with
+/// spaces, and the entries let a space be chosen as a character too, so a name with one inside it is a name
+/// somebody typed and stays as it is.
+///
+/// **ASCII, which is what both entries offer** — 96 characters walked with a cursor, and letters, digits and
+/// punctuation are all of them. A field holding anything else is one nothing typed into, and answering
+/// nothing there is what keeps a name orb writes into a file it owns to what the game itself would have
+/// written.
+pub(crate) fn the_name_held_at(address: usize, bytes: usize) -> Option<String> {
+    let held = orb_api::mem::read_committed_bytes(address, bytes)?;
+    if held
+        .iter()
+        .any(|byte| !byte.is_ascii_graphic() && *byte != b' ')
+    {
+        return None;
+    }
+    let name = String::from_utf8(held).ok()?.trim().to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
 /// A function to hook and the bytes expected at it, so a mismatch is caught
 /// rather than relocating an instruction that cannot be relocated.
 pub struct Patch {
@@ -356,6 +379,12 @@ pub enum Menu {
     Run,
     /// The ranking, of which there is one per mode.
     Scores,
+    /// The replays, of which there is a kind per mode — and this is the one item where the two answers
+    /// do different things rather than the same thing to different files. A normal run's replay is the
+    /// game's own, kept in the game's own files and shown on the game's own screen; a pointdevice run's
+    /// is orb's, the game having no way to record one — see [`crate::replay`] — so orb's own list is
+    /// what comes up for it.
+    Replays,
 }
 
 /// One pad as `joyGetPosEx` reports one — which are the numbers the game's own read of a pad works in,
@@ -659,6 +688,27 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn keep_the_run_where_it_is(&self) {}
+
+    /// **The name the game's own name entry holds**, which is what a replay of orb's own is named by — see
+    /// [`crate::replay`].
+    ///
+    /// Both games ask for one on the screen a played run ends at, before the question about saving a replay
+    /// that orb's own offer stands in front of, and both keep it as eight bytes with spaces to the end. So
+    /// the name a run's replay carries is the name that run's player typed into the game itself, and orb asks
+    /// nobody for one.
+    ///
+    /// **Whatever the entry holds, rather than what was typed on the frame it was left**: it comes up holding
+    /// the name the last run was entered under, so a run whose player passes the screen without touching it
+    /// is a run whose name is the one before it — which is what the game's own replay would have carried too.
+    ///
+    /// Trimmed of the spaces the field is padded with, and `None` where no such screen is up, where the field
+    /// holds nothing but spaces, or where the game orb is in has no name entry read yet.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn the_name_its_own_entry_holds(&self) -> Option<String> {
+        None
+    }
 
     /// Notices what the game has counted of its own play time since the frame before, so that a span counted
     /// before anybody chose a mode can be carried onto whichever file the sitting turns out to write.
@@ -1348,6 +1398,68 @@ pub trait Game {
     /// Must run on the game's main thread, between frames.
     unsafe fn skip_replay_prompt(&self) -> bool;
 
+    /// **Takes the game off the screen a finished run ends at, whatever part of it is up**, and says whether
+    /// it did.
+    ///
+    /// For the run an attempt out of a replay was watched in, where that screen was reached because the
+    /// attempt is the path the boss died on: the name entry is where somebody types their own name, and the
+    /// stats after it are theirs to read. This run is nobody's — [`Game::skip_replay_prompt`] writes past one
+    /// screen of it because a pointdevice run has no replay to offer, and this writes past all of it because
+    /// there is no run.
+    ///
+    /// **What it does not stop is the file being written on the way out.** That is the screen's own
+    /// `DeletedCallback` and happens whichever way it goes down, so what keeps a watched run out of the
+    /// ranking is `score::watching` and not this.
+    ///
+    /// Asked only while an attempt's run is being taken down, so it may cost a read.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn leave_the_screen_a_run_ends_at(&self) -> bool;
+
+    /// **Whether the game is on that screen at all**, which is what says the write above has been answered.
+    ///
+    /// Beside it because it is the other half of taking a watched run out of those screens: the write asks
+    /// the screen to leave and the screen plays its own way out over the frames that takes — twenty of them
+    /// on th06, every one of which drew a name entry belonging to nobody. So the run-out is a loop over the
+    /// game's own update, the way an ending is skipped, and this is its condition.
+    ///
+    /// Asked only on the frames such a run-out is running, so it may cost a read.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn the_screen_a_run_ends_at_is_up(&self) -> bool;
+
+    /// **Whether the front end is on the screen the game keeps its own replays on**, up and drawing.
+    ///
+    /// Which is where a list of orb's own replays belongs: whoever answered 完全無欠モード did it at that
+    /// item, so the screen behind the list is the one the item leads to. The title menu stood there instead
+    /// and the list that came back after an attempt stood over the logo, both of which read as having left
+    /// the replays rather than being in them.
+    ///
+    /// The default is any screen the front end has up, which is what a game orb has not read this screen of
+    /// answers: what a list needs behind it is a screen the game has drawn, and which one is a nicety.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn the_screen_the_replays_are_on(&self) -> bool {
+        unsafe { self.front_end_screen() }.is_some()
+    }
+
+    /// **Asks the front end for that screen**, and says whether it asked.
+    ///
+    /// Asked on every frame a list of orb's is waiting for it, so an answer of `false` is what says the
+    /// screen is already on its way: asked twice, a screen restarts whatever transition it is in the middle
+    /// of, and one asked every frame never arrives.
+    ///
+    /// The default asks for nothing, and then the list goes over whatever the front end has up.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn to_the_screen_the_replays_are_on(&self) -> bool {
+        false
+    }
+
     /// The frame the stage now running is on, or `None` where no stage is running.
     ///
     /// Its own accessor rather than a whole [`State`] because the input read asks for it on every
@@ -1439,6 +1551,18 @@ pub trait Game {
     /// check three callers have to remember.
     fn run_slot(&self, run: &RunStart) -> Option<String>;
 
+    /// What this game calls itself in a file of orb's that is not one of the per-game ones.
+    ///
+    /// One file is like that, and it is the replay of a run: its shape is orb's — see [`crate::replay`] for
+    /// why, the short of it being that the shape is new and has no installed base to be frozen by — and what
+    /// each game contributes to it is the opaque bytes of [`Game::run_state`]. So the file carries this, and
+    /// one carried into another game's installation is refused rather than read as that game's numbers.
+    ///
+    /// **Not the exe's name**, which is what [`Known::exe`] is: that is the file a launch is recognised by
+    /// and it is the game's, where this is the word orb writes in its own files and its own log. `th06` and
+    /// `th07`, which is what everything in this tree calls the two.
+    fn named(&self) -> &'static str;
+
     /// **The file a run left unfinished is written in, which is this game's own.**
     ///
     /// What [`crate::resume`] does with a kept run — when to write it, where the file goes, playing the
@@ -1528,6 +1652,46 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, on a frame [`Game::run_chosen`] is true
     /// of.
     unsafe fn start_stage(&self, stage: i32) -> bool;
+
+    /// **Starts a run of these numbers from the front end, which is the one run orb chooses itself.**
+    ///
+    /// Every other run orb puts a chapter back into was chosen on the game's own screens: the difficulty, the
+    /// character and the shot are what somebody pressed, and [`Game::start_stage`] writes the one thing left.
+    /// An attempt out of a replay is chosen out of a *file* — orb's own list, over a title menu whose press
+    /// was never handed over — so the three numbers are this file's and the scene has to be asked for the way
+    /// the item that starts a run asks for it.
+    ///
+    /// `run`'s stage is the stage to start at, written as the menu counts it, so nothing further is needed
+    /// before the build: what makes that necessary is when this is called. The item on the game's own screen
+    /// writes the scene from a job that runs *after* the supervisor's own copy, which leaves the frame
+    /// ending with the two disagreeing — the one frame [`Game::run_chosen`] is true of, and where a chapter
+    /// goes in. Called from a menu of orb's the chain is not running at all, so the next frame's supervisor
+    /// builds the run before anything of orb's looks again, and that frame is not there.
+    ///
+    /// False where the game will not take it, which is a run of numbers no game of this one's has: nothing
+    /// is written then, a half-written run being worse than none.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the game's own front end up and settled.
+    unsafe fn start_a_run(&self, run: &RunStart) -> bool;
+
+    /// **The same run asked for through the front end's own item instead**, where this game's front end can
+    /// be put on the screen that item belongs to: the run's numbers go in, the screen goes up past the
+    /// frames it ignores a press for, and the press the caller hands over next is the one that item reads.
+    ///
+    /// **Which is not the same run as [`Game::start_a_run`] builds.** That one writes the scene itself, and a
+    /// run written into being is missing whatever else the item does: on th06, `EnemyManager::OnTick` read a
+    /// sprite pointer of nothing off the first enemy the stage spawned and took the process with it 129
+    /// frames in — where a run the item started spawned that enemy with its sprite and played on. What the
+    /// item is handed here it does all of, which is the whole reason to go this way round.
+    ///
+    /// False where this game has no such screen to put up, and then `start_a_run` is what is left.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames, with the game's own front end up and settled.
+    unsafe fn front_end_starts_a_run(&self, _run: &RunStart) -> bool {
+        false
+    }
 
     /// Whether the run has finished into the game's own result screen.
     ///
@@ -1928,6 +2092,15 @@ pub enum Question {
     /// bot takes it wherever it comes up rather than waiting for a step to say so: a death lands in the middle
     /// of one.
     Retry,
+    /// `keep_replay` — whether to keep the replay of a run that is finished with. Unlike the retry, a step
+    /// has to say when: the two moments it comes up are ones a recipe walks to on purpose, and what it
+    /// answers decides whether a file is there afterwards.
+    KeepReplay,
+    /// `choose_replay` — the lists a replay is watched out of: the replays, then the stages, chapters and
+    /// attempts of the one chosen. One question rather than four, the four being one screen at a time behind
+    /// one item on the title menu — what a step waits for is the lists being up, and a tapped decide walks
+    /// them.
+    ChooseReplay,
 }
 
 /// The game's state for one frame, read all at once so that everything in it
