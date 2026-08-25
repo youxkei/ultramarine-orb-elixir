@@ -1151,7 +1151,7 @@ fn pressing() -> Option<u16> {
 unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
-    unsafe { runtime.game.read_what_the_modes_file_records() };
+    unsafe { the_modes_own_records_again() };
     resume::keep(runtime.keeping());
     // Nothing kept of a run that will not be rewound: a stage's snapshots are several megabytes a
     // chapter and it keeps `chapter::KEPT_CHAPTERS` of them, and normal mode is the game as it was.
@@ -1845,8 +1845,25 @@ pub extern "C" fn unlocks_read(menu: *mut c_void) -> i32 {
 /// Must run on the game's main thread, between frames, and after that read rather than inside it: the read
 /// this makes is the mode's own file, which is the bracket being over.
 unsafe fn the_modes_own_records_again() {
-    if let Some(game) = unsafe { chosen() } {
-        unsafe { game.read_what_the_modes_file_records() };
+    let Some(game) = (unsafe { chosen() }) else {
+        return;
+    };
+    unsafe { game.read_what_the_modes_file_records() };
+    // **And what a run has counted back on top of it.** That read replaces the card records wholesale out of the
+    // mode's own file, so a run still playing has its counting taken out of memory here by a read of *orb's*
+    // rather than the game's — the same loss [`card_records_read`] puts back after the game's own read, and the
+    // reason a run left through the game's pause menu reached its file with nothing of itself in it.
+    //
+    // The note is not let go of: nothing is written here, and what lets go of it is the save.
+    //
+    // **And the read above happens before this lock is taken, which is not a tidiness.** On a real game that
+    // read enters [`card_records_read`], which locks this same mutex, and a `std::sync::Mutex` held across it
+    // would be the game stopped dead. A laid-out game would not show it: its read does not go through the hook.
+    let waiting = COUNTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(session) = waiting.as_deref() {
+        unsafe { game.put_back_the_cards_a_run_left(session) };
     }
 }
 
@@ -1910,6 +1927,17 @@ unsafe fn a_write_follows_this_read(screen: *mut c_void) -> bool {
 pub unsafe extern "fastcall" fn card_records_read(image: usize, records: usize) -> i32 {
     let original: unsafe extern "fastcall" fn(usize, usize) -> i32 =
         unsafe { std::mem::transmute(CARD_RECORDS_READ.load(Ordering::Relaxed)) };
+    // **And the note is taken here, before the parse, where a run was playing on the last frame orb saw.**
+    // This read is the last moment that run's own counting is in memory: the parse below lays the file's
+    // records over it. The frame hook asking once it sees the run has ended is too late for the way out
+    // through the game's own pause menu — th07 builds its front end inside that transition, so the unlocks
+    // read its build makes runs while `in_run` still answers true, and what the hook would note is the file's
+    // own records. A run whose two attempts at stage 1's cards reached the file as `put back over 0 the
+    // file's own differ in` is what says so.
+    if let Some(game) = (unsafe { chosen() }).filter(|_| A_RUN_WAS_PLAYING.load(Ordering::Relaxed))
+    {
+        unsafe { note_the_records_as_they_stand(game) };
+    }
     let answered = unsafe { original(image, records) };
     let mut waiting = COUNTED
         .lock()
@@ -1938,10 +1966,45 @@ pub unsafe extern "fastcall" fn card_records_read(image: usize, records: usize) 
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn note_what_the_run_counted(game: &dyn game::Game) {
+    let mut held = COUNTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // **A note already held is left alone**, because this is asked once the run is over and by then the records
+    // may be the file's own: th07's front end is registered inside the transition a run is left through, so its
+    // unlocks read lands before orb sees the run end and
+    // [`note_the_records_as_they_stand`] is what has the run's numbers. Overwriting here is what put a
+    // run's counting nowhere at all.
+    if held.is_some() {
+        return;
+    }
     let counted = unsafe { game.captures() };
     if counted.is_empty() {
         return;
     }
+    *held = Some(counted);
+}
+
+/// And what the game's records hold **as they stand**, which where a read is about to lay the file's own over
+/// them is the last moment a run's counting is anywhere.
+///
+/// **Replaces whatever is held rather than deferring to it**, which is the difference from
+/// [`note_what_the_run_counted`]: the reads this is called at come in an order, and the last of them while a run
+/// is playing is the one worth keeping.
+///
+/// **And nothing is noted where the records hold no count**, [`Game::these_records_hold_a_count`] being what
+/// answers that: a run's own build reads the file at the moment it has emptied every record, and a note of no
+/// counts put back over the file's own would be the file emptied by the save after it. The question is the
+/// game's because an emptied record is not a zeroed one — it keeps its header and its card number, so a scan
+/// for zero bytes answers that an emptied array is full, which is a guard that cannot fire.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn note_the_records_as_they_stand(game: &dyn game::Game) {
+    let counted = unsafe { game.captures() };
+    if !game.these_records_hold_a_count(&counted) {
+        return;
+    }
+    log!("score: what a run has counted taken before this read lays the file's own over it");
     *COUNTED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(counted);
@@ -1960,6 +2023,12 @@ static COUNTED: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
 /// that read lays the file's records over the ones in memory whether a write follows or not, and a put-back at
 /// one that writes nothing is records stranded in memory with the note spent.
 static A_WRITE_FOLLOWS: AtomicBool = AtomicBool::new(false);
+
+/// Whether the last frame orb saw had a run of somebody's in progress, which is what says the card records in
+/// memory at a read of the file are that run's own — see [`card_records_read`], which is where it is read.
+///
+/// A static beside the two above rather than [`Runtime::previous`], which the parse hook has no way to reach.
+static A_RUN_WAS_PLAYING: AtomicBool = AtomicBool::new(false);
 
 /// The same read where the game's own callback takes the screen in `ecx` — th07's, at 0x449b05, its chain
 /// calling every callback that way. See [`game::Entered`].
@@ -2480,7 +2549,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     {
         runtime.counted_a_card = true;
         if unsafe { runtime.game.count_a_card_for_a_check(card) } {
-            unsafe { note_what_the_run_counted(runtime.game) };
+            // **The one that replaces, and not the one that defers to a note already held.** What this launch
+            // is for is the counts it has just put in the records; a note left over from a run played earlier
+            // in it would be put back over them at the save, and the write the check exists to read back would
+            // hold everything except the card it named.
+            unsafe { note_the_records_as_they_stand(runtime.game) };
             log!("score: the check's counts wait for the save the game makes itself");
         }
     }
@@ -2721,6 +2794,12 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         pacing!("f{} {state}", runtime.frames);
     }
 
+    // Beside the state itself, because what reads it is the parse hook and not this function — a read of the
+    // file made while this is set is one whose card records in memory are the run's own.
+    A_RUN_WAS_PLAYING.store(
+        state.in_run && !state.demo && !state.replay,
+        Ordering::Relaxed,
+    );
     runtime.previous = Some(state);
     runtime.frames += 1;
     // Here rather than in the draw hook: this writes on the window itself, which is not

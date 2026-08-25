@@ -1813,7 +1813,18 @@ impl Image {
             (FILE_HEADER_BYTES + held.len()) as u32,
         );
         space.write_bytes(SCORE_FILE_IMAGE + FILE_HEADER_BYTES, &held);
-        unsafe { parses_the_card_records(SCORE_FILE_IMAGE, super::G_CARD_RECORDS) };
+        // **Through orb's own hook where a launch installed one**, the same as the save's own read below: the
+        // hook is installed over the parse itself, so every one of the game's three reads goes through it and a
+        // laid-out read that called past it is a read orb never sees. Which is what let a run's counting be lost
+        // at this one — the front end's read is the last moment those records are in memory, and orb had no way
+        // to be there.
+        let parse: unsafe extern "fastcall" fn(usize, usize) -> i32 =
+            if crate::runtime::CARD_RECORDS_READ.load(Ordering::Relaxed) == 0 {
+                parses_the_card_records
+            } else {
+                crate::runtime::card_records_read
+            };
+        unsafe { parse(SCORE_FILE_IMAGE, super::G_CARD_RECORDS) };
     }
 
     /// And every record emptied, which is what a run's build does before that read — a `rep stos` over the whole

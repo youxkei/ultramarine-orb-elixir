@@ -215,3 +215,153 @@ fn a_run_of_th07_given_up_has_its_cards_counted_into_the_score_file() {
         );
     });
 }
+
+/// **And the same for the way out the game's own pause menu takes, where the front end reads the file before
+/// orb has seen the run end.**
+///
+/// The other e2e test's give-up is orb's own menu, and the run is still standing when orb notes what it counted.
+/// The game's own way out is not: th07 registers its front end inside the transition the run is left through, so
+/// the unlocks read that build makes (0x45bff3) runs while the supervisor's scene still answers a run's — and
+/// that read lays the file's own card records over the ones in memory. A note taken after it is a note of the
+/// *file's* numbers, and the run's counting is in no file and no memory.
+///
+/// Which two launches of `--autoplay` measured: a run that attempted two of stage 1's cards and was left through
+/// the pause menu wrote `score: the records this run left put back over 0 the file's own differ in`, and the
+/// launch before it copied the game's own file's history into the mode's file instead.
+///
+/// So the note is taken at that read rather than after the run — the last moment the run's records are in
+/// memory — and here the read is made with the run still in progress, which is what makes this the other test's
+/// counterpart rather than a copy of it.
+#[test]
+fn a_run_of_th07_left_through_the_games_own_menu_has_its_cards_counted_too() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-cards-counted-the-games-way-out",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+
+        game.image().its_score_file_holds(
+            THE_MODES_OWN,
+            A_CARD,
+            THE_RUNS_SHOT,
+            ATTEMPTS_BEFORE,
+            CAPTURES_BEFORE,
+        );
+        game.image().its_score_file_holds(
+            THE_GAMES_OWN,
+            A_CARD_ONLY_THE_GAME_HAS,
+            THE_RUNS_SHOT,
+            ITS_ATTEMPTS,
+            ITS_CAPTURES,
+        );
+        game.streams_its_song(0);
+        game.in_a_pointdevice_run();
+
+        game.the_boss_arrives();
+        game.a_card_starts(A_CARD, A_CARDS_NAME);
+        game.frames(30);
+        game.image().a_card_has_been_captured(A_CARD, THE_RUNS_SHOT);
+        game.the_card_is_over();
+        // The premise, stated: the run's own attempt and capture are in the records, on top of the history the
+        // mode's own file had.
+        assert_eq!(
+            (
+                game.image().card_attempts(A_CARD, THE_RUNS_SHOT),
+                game.image().card_captures(A_CARD, THE_RUNS_SHOT),
+            ),
+            (ATTEMPTS_BEFORE + 1, CAPTURES_BEFORE + 1),
+            "the run counted nothing into the records, so this test is not about anything:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // **The front end's read, made while the run is still in progress**, which is where the game makes it —
+        // and out of the game's own file, that one read staying its whatever the mode.
+        //
+        // The premise this test turns on, asserted rather than left to the order these lines are written in:
+        // orb has not yet seen the run end, so nothing it does at a run's end can be what saves the counting.
+        // Move the two lines below this read above it and every assertion after them passes with none of the
+        // path this is about being taken.
+        assert!(
+            !log.said("score: a run ended"),
+            "orb had already seen the run end, so this read is not the one this test is about:\n  {}",
+            log.lines().join("\n  ")
+        );
+        let saves = game.image().times_it_was_asked_to_save();
+        assert_eq!(
+            game.reads_what_its_menus_offer(),
+            THE_GAMES_OWN,
+            "the front end's own read did not land in the game's own file, so this test is not about \
+             anything:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // And the note taken at that read said so, which is the line a launch is read by.
+        assert!(
+            log.said(
+                "score: what a run has counted taken before this read lays the file's own over it"
+            ),
+            "the note was not taken at the read, so what puts the counting back is something else:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // And what the run counted is **still in memory after it**, which is the whole of the fix: the parse laid
+        // the file's own records over the array and orb put the run's back over them, at the one read that is the
+        // last moment they are anywhere.
+        assert_eq!(
+            (
+                game.image().card_attempts(A_CARD, THE_RUNS_SHOT),
+                game.image().card_captures(A_CARD, THE_RUNS_SHOT),
+            ),
+            (ATTEMPTS_BEFORE + 1, CAPTURES_BEFORE + 1),
+            "what the run counted was gone from memory at the front end's own read:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            (
+                game.image()
+                    .card_attempts(A_CARD_ONLY_THE_GAME_HAS, THE_RUNS_SHOT),
+                game.image()
+                    .card_captures(A_CARD_ONLY_THE_GAME_HAS, THE_RUNS_SHOT),
+            ),
+            (0, 0),
+            "the game's own file's history was left standing in memory for the save to write:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And then the run gone, the way the game's own quit leaves it: the front end's scene, with no menu of
+        // orb's in it and no result screen either.
+        let front_end = game.image().scene_of_the_front_end();
+        game.image().is_in_scene(front_end, front_end);
+        game.frames_until("the run seen to be over", 60, || {
+            log.said("score: a run ended")
+        });
+
+        // The game's own next save, which is where those counts reach the file.
+        game.builds_a_stage();
+        assert!(
+            game.image().times_it_was_asked_to_save() > saves,
+            "the game's own build made no save, so nothing here says where the counts go:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image()
+                .its_score_file_counts(THE_MODES_OWN, A_CARD, THE_RUNS_SHOT),
+            (ATTEMPTS_BEFORE + 1, CAPTURES_BEFORE + 1),
+            "what the run counted was lost to the read the front end made before orb saw the run end:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // And the same guard the other way out has: the read that laid the game's own history over memory must
+        // not be what the save writes out.
+        assert_eq!(
+            game.image().its_score_file_counts(
+                THE_MODES_OWN,
+                A_CARD_ONLY_THE_GAME_HAS,
+                THE_RUNS_SHOT
+            ),
+            (0, 0),
+            "the game's own file's history reached the mode's own file:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}

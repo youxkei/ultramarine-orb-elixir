@@ -1069,6 +1069,26 @@ pub trait Game {
     /// Must run on the game's main thread.
     unsafe fn captures(&self) -> Vec<u8>;
 
+    /// Whether those records hold a count at all, `records` being the bytes [`Game::captures`] has just
+    /// answered — which is what says there is anything in them worth keeping across something that would
+    /// replace them.
+    ///
+    /// **An emptied record is not a zeroed one, which is why this cannot be a scan for zero bytes.** th07's
+    /// own emptying zeroes every record and then writes each one's `CATK` header and card number back into it
+    /// — `docs/th07/asm.md`, under the score file's own phases — so an array a run's build has just emptied
+    /// answers full to anything counting bytes. Only the game whose records they are can tell a header from a
+    /// count, so the question is here.
+    ///
+    /// **The bytes are handed over rather than read again**, because reading is what costs: a walk that asked
+    /// the memory map per word made a played-back frame of th07 ask it 76 times where 48 is what the game's own
+    /// allocations are behind — `the_run_of_th07_written_down_off_the_frame` is the e2e test that says so.
+    ///
+    /// `false` where the game keeps no such record, which is the same answer as records holding nothing.
+    fn these_records_hold_a_count(&self, records: &[u8]) -> bool {
+        let _ = records;
+        false
+    }
+
     /// Puts back what [`captures`](Game::captures) took.
     ///
     /// # Safety

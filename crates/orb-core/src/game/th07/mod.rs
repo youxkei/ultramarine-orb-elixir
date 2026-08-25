@@ -3439,6 +3439,24 @@ impl Game for Th07 {
         unsafe { mem::read_bytes(G_CARD_RECORDS, CARDS * CARD_RECORD_BYTES) }
     }
 
+    /// **A count in any record of any shot**, which is `+0x5c` and `+0x6a` per shot and `+0x68` beside them —
+    /// the three words a card's own counting moves. The header and the card number an emptied record keeps are
+    /// not looked at, which is the whole point of asking the game rather than the bytes.
+    fn these_records_hold_a_count(&self, records: &[u8]) -> bool {
+        records
+            .as_chunks::<CARD_RECORD_BYTES>()
+            .0
+            .iter()
+            .any(|record| {
+                let word = |at: usize| u16::from_le_bytes([record[at], record[at + 1]]);
+                word(CARD_ATTEMPTS_IN_ALL) != 0
+                    || (0..CARD_SHOTS).any(|shot| {
+                        let at = shot * size_of::<u16>();
+                        word(CARD_ATTEMPTS + at) != 0 || word(CARD_CAPTURES + at) != 0
+                    })
+            })
+    }
+
     /// And put back, all of it or none: a record half this build's size is one from another build, and
     /// writing part of it would leave the game reading a card that is half two others.
     unsafe fn set_captures(&self, saved: &[u8]) {
