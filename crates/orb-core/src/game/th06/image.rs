@@ -2396,6 +2396,20 @@ impl Image {
         self.space().read(WAVE + super::wave_file::BYTES_LEFT)
     }
 
+    /// **Which buffer the stream is playing through**, as the one entry of the array at its `+0x4` holds it —
+    /// see `Th06`'s own `streaming_sound::BUFFERS`, and `BUFFER_COUNT` for the array being an array.
+    ///
+    /// Read and written, because it is a pointer a restore can get wrong: what DirectSound made lives nowhere
+    /// in the game's own memory but *this* word, and the object it named at a chapter may have been released
+    /// since — see `Th06::audio_state`, where holding it back is.
+    pub fn the_buffer_its_stream_names(&self) -> usize {
+        self.space().read::<usize>(BUFFERS)
+    }
+
+    pub fn its_stream_names_the_buffer(&self, buffer: usize) {
+        self.space().write::<usize>(BUFFERS, buffer);
+    }
+
     /// And the same stream with a **buffer that is no longer a live object**: the word at its head points at
     /// the game's own data rather than into the image, which is the stale pointer a block the allocator did
     /// not scrub keeps.

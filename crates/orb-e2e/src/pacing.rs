@@ -691,6 +691,69 @@ mod blanks {
     }
 }
 
+/// **The frames asked for faster than the game's own rate**, which is what a launch spends walking a run to
+/// some stage rather than measuring anything at one.
+///
+/// What it must not change is the frame itself: orb's own work per frame — the read, the update, the chapters,
+/// the draw — is what it is in an ordinary launch, and what is shorter is the wait between one frame and the
+/// next. Which is the whole of the difference from `Config::speed`, whose updates run several to a drawn
+/// frame.
+///
+/// **And the blanks stop pacing it**, no display having one per frame to give at four times sixty: the clock
+/// paces instead, which is the fallback a display of an unknown rate already takes.
+mod paced_faster {
+    use super::*;
+    use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
+
+    const HZ: u32 = 120;
+    const WORK_US: i64 = 700;
+    /// Fewer than the blank path's, a frame being a quarter as long: what this reads is the rate, and the
+    /// rate is over the frames after the allowance has settled.
+    const FRAMES: u32 = 3_000;
+    const SETTLED: usize = 2_000;
+    /// How many game frames a sixtieth of a second is asked to hold.
+    const FASTER: u32 = 4;
+
+    #[test]
+    fn a_run_paced_faster_gets_that_many_times_sixty_frames_a_second() {
+        in_its_own_process(|| {
+            let game = Fake::attach_watching_the_pacing_at(
+                Display::agreed(HZ),
+                "pacing-faster",
+                Work::flat(WORK_US),
+                FASTER,
+            );
+            game.frames(FRAMES);
+            let handovers = game.handovers_us();
+
+            assert!(
+                game.log().said(&format!(
+                    "frame: paced at {}Hz, {FASTER} time(s) the game's own rate",
+                    frame::LOGIC_HZ * FASTER
+                )),
+                "the launch did not say it was pacing the game faster: {:?}",
+                game.log().lines()
+            );
+            assert_eq!(
+                handovers.len(),
+                FRAMES as usize,
+                "frames handed over — {}",
+                last_said(&game.log().lines())
+            );
+
+            // The rate itself, which is the whole of what this is for: four times the game's own, on a
+            // display whose blanks could pace one of them.
+            let rate = fps(&handovers, SETTLED);
+            let wanted = f64::from(frame::LOGIC_HZ * FASTER);
+            assert!(
+                (rate - wanted).abs() < wanted / 20.0,
+                "{rate} frames a second where {wanted} was asked for — {}",
+                last_said(&game.log().lines())
+            );
+        });
+    }
+}
+
 /// A display nothing will say the rate of, which is the one case paced by the clock.
 ///
 /// No compositor and no reported rate. The frames then have no blank to be put on, so the cadence is

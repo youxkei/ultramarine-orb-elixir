@@ -293,14 +293,9 @@ const PLAY_RECORDS_BYTES: usize = 0x160;
 /// (0x4454b7) — the same shape as `CARD_RECORD_TAG`.
 const PLAY_RECORDS_TAG: u32 = u32::from_le_bytes(*b"PLST");
 
-/// How many buffers that wrapper is the array of, at `+0x10` of the stream: what the game's own take-down of a
-/// stream is bounded by — 0x45d860 walks `i < [stream+0x10]`, reads `[[stream+0x4] + i*4]` and calls
-/// `IDirectSoundBuffer::Stop` through it (slot 18, `+0x48` of the vtable), and the play command's first phase
-/// is that call, 0x44cc23.
-///
-/// Here rather than beside the stream's other offsets in the parent, because orb neither reads nor writes it:
-/// what it is for is a laid-out game taking a stream down the way the real one does.
-const STREAM_BUFFER_COUNT: usize = 0x10;
+/// How many buffers that wrapper is the array of — the parent's own `STREAM_BUFFER_COUNT`, which orb reads now
+/// that a restore has to hold that array back.
+use super::STREAM_BUFFER_COUNT;
 /// The slot that texture is in, which is nothing but a number orb has to carry from the sprite to the array.
 const PANEL_TEXTURE_SLOT: u32 = 0x15;
 /// `front.anm`'s own 32x32 tile as a piece of its 256x256 sheet: sprite 12, at (0, 224).
@@ -2364,6 +2359,20 @@ impl Image {
         self.space().write::<usize>(BUFFER_WRAPPER, SOURCE);
     }
 
+    /// **Which buffer the stream is playing through**, as the one entry of the array at its `+0x4` holds it —
+    /// see `Th07`'s `STREAM_BUFFER`, and `STREAM_BUFFER_COUNT` for the array being an array.
+    ///
+    /// Read and written, because it is a pointer a restore can get wrong: what DirectSound made lives nowhere
+    /// in the game's own memory but *this* word, and the object it named at a chapter may have been released
+    /// since.
+    pub fn the_buffer_its_stream_names(&self) -> usize {
+        self.space().read::<usize>(BUFFER_WRAPPER)
+    }
+
+    pub fn its_stream_names_the_buffer(&self, buffer: usize) {
+        self.space().write::<usize>(BUFFER_WRAPPER, buffer);
+    }
+
     /// And the file forgotten, which is a stream orb cannot move the position of: every seek of a handle of
     /// nothing is refused, so a capture holds no position and a restore puts back everything else.
     pub fn forgets_the_file_handle(&self) {
@@ -2396,11 +2405,15 @@ impl Image {
             .write::<u32>(STREAM + super::STREAM_WRITE_AT, at);
     }
 
-    /// The three the music's own ranges are, for a test that says which memory a restore has to leave alone.
+    /// The music's own ranges, for a test that says which memory a restore has to leave alone — the array of
+    /// buffers the stream owns among them, that word being the only place what DirectSound made is kept.
+    ///
+    /// In the order `Th07::audio_state` builds them, which is the order a stream's own fields are read in.
     pub fn the_sound_systems_own_memory(&self) -> Vec<Range<usize>> {
         vec![
             super::G_SOUND_PLAYER..super::G_SOUND_PLAYER + super::SOUND_PLAYER_BYTES,
             STREAM..STREAM + super::STREAM_BYTES,
+            BUFFER_WRAPPER..BUFFER_WRAPPER + size_of::<usize>(),
             SOURCE..SOURCE + super::SOURCE_BYTES,
         ]
     }
@@ -2422,6 +2435,7 @@ impl Image {
         MUSIC_STOPPED.store(0, Ordering::Relaxed);
         MUSIC_STARTED.store(0, Ordering::Relaxed);
         QUEUED_PLAYS.lock().unwrap().clear();
+        QUEUED_MUSIC_COMMANDS.lock().unwrap().clear();
         TRACKS_STARTED.lock().unwrap().clear();
         SOUND_COMMANDS_RUN.store(0, Ordering::Relaxed);
         *MADE_A_STREAM_OVER.lock().unwrap() = None;
@@ -2438,6 +2452,7 @@ impl Image {
         super::set_start_music(starts_the_music as *const () as usize);
         super::set_play_bgm(plays_the_bgm as *const () as usize);
         super::set_play_sounds(runs_the_sound_commands as *const () as usize);
+        super::set_send_a_sound_command(sends_a_sound_command as *const () as usize);
         || {
             (
                 MUSIC_STOPPED.load(Ordering::Relaxed),
@@ -2452,12 +2467,31 @@ impl Image {
         runs_the_sound_commands(super::G_SOUND_PLAYER);
     }
 
+    /// **The music paused as that menu goes up**, which is the manager's own doing: 0x42d9b1 sends the pause on
+    /// the frame it sees the button's edge — see `Th07`'s `PAUSE_THE_MUSIC` — so every way out of the menu owes
+    /// the run an un-pause, and 「最初からやり直す」 is the way out that sends none.
+    pub fn the_manager_pauses_the_music(&self) {
+        sends_a_sound_command(super::G_SOUND_PLAYER, super::PAUSE_THE_MUSIC, 0, 0);
+    }
+
+    /// And the un-pause the menu's own ways out send — 0x403496 where it is left for the run, 0x4044b0 where a
+    /// continue is taken. Here so that a laid-out game's menu is symmetric: one that paused the music and never
+    /// un-paused it would let orb's own un-pause pass on a game nothing else could have got right either.
+    pub fn the_menu_un_pauses_the_music(&self) {
+        sends_a_sound_command(super::G_SOUND_PLAYER, super::UNPAUSE_THE_MUSIC, 0, 0);
+    }
+
     /// The pause menu's own 「最初からやり直す」 chosen, which is the run asked to be given up and begun again:
     /// the scene the supervisor is asked for, set the way 0x403908 sets it — see `Th07`'s `SCENE_START_OVER`.
     ///
     /// The item itself is a sprite rather than a string and its menu is the game's own, so what a test says is
     /// the ask that item leaves behind it.
+    ///
+    /// **The menu down with it and the music left paused**, which is the rest of what that item leaves: 0x403901
+    /// clears the flag the manager put the menu up with — `[gm+0x93dc]` is 0x62f64c — and the two calls beside
+    /// it send nothing to the music, unlike every other way out of the menu.
     pub fn the_pause_menu_asks_to_start_over(&self) {
+        self.is_not_paused();
         self.space()
             .write::<i32>(super::G_SUPERVISOR + super::SUPERVISOR_WANTED, 0xa);
     }
@@ -2703,6 +2737,9 @@ static MUSIC_STARTED: AtomicU32 = AtomicU32::new(0);
 /// restore writes over its object, and a laid-out game has no such thread for anything here to say that about.
 static QUEUED_PLAYS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 static TRACKS_STARTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// And the pauses and un-pauses standing in that same queue, queued for the same reason — see
+/// [`sends_a_sound_command`], which is the one call that puts one there.
+static QUEUED_MUSIC_COMMANDS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 /// And the file a stream was last made over, which is what [`plays_the_bgm`] is given.
 static MADE_A_STREAM_OVER: Mutex<Option<String>> = Mutex::new(None);
 /// The name the game's own calls hand `PlayBGM`, which is the file every track of this game is in — see
@@ -2743,6 +2780,74 @@ extern "thiscall" fn stops_the_music(_supervisor: usize) {
 /// where a chapter's own should have come back, with the suite green.
 extern "thiscall" fn starts_the_music(_supervisor: usize, slot: u32) {
     asks_for_a_song(slot);
+}
+
+/// `SoundPlayer::SendCommand` as far as the two kinds that reach the music go — see `Th07`'s
+/// [`SEND_A_SOUND_COMMAND`](super::SEND_A_SOUND_COMMAND).
+///
+/// **Queued and not carried out**, which is what the real call does with every kind: it writes the kind into the
+/// player's own queue and returns, and [`runs_the_sound_commands`] is what walks it. So a pause or an un-pause
+/// nothing ran the sound for is one that has not happened, which is the whole of what orb has to get right
+/// about it.
+extern "thiscall" fn sends_a_sound_command(
+    _player: usize,
+    kind: u32,
+    _argument: u32,
+    _name: usize,
+) {
+    QUEUED_MUSIC_COMMANDS.lock().unwrap().push(kind);
+    unsafe { mem::write::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS, kind) };
+}
+
+/// And those two carried out, as 0x44d00e and 0x44d057 carry them out: the buffer the player's stream owns
+/// stopped, and played again.
+///
+/// Through the seam and not the sound object, the way [`takes_the_stream_down`] does it: what the game's own
+/// handlers reach is `IDirectSoundBuffer::Stop` and `Play` on that buffer (0x45d910 and 0x45d960), so a
+/// laid-out game reaching the same two answers a released buffer the way the real one does.
+fn carries_the_music_commands_out() {
+    let queued: Vec<u32> = QUEUED_MUSIC_COMMANDS.lock().unwrap().drain(..).collect();
+    if queued.is_empty() {
+        return;
+    }
+    let stream =
+        mem::read_committed::<usize>(super::G_SOUND_PLAYER + super::STREAM).filter(|it| *it != 0);
+    for kind in queued {
+        let buffer = stream
+            .and_then(|stream| mem::read_committed::<usize>(stream + super::STREAM_BUFFER))
+            .and_then(|array| mem::read_committed::<usize>(array).filter(|it| *it != 0));
+        let Some(buffer) = buffer.map(orb_api::SoundBuffer) else {
+            continue;
+        };
+        if kind == super::UNPAUSE_THE_MUSIC {
+            orb_api::dsound::play(buffer, 0, 0, orb_api::dsound::DSBPLAY_LOOPING);
+        } else if let Some(stream) = stream {
+            // **Through orb's hook over the stop**, which is where a real launch's own pause goes: the handler
+            // at 0x44d00e calls the stream's own `Stop` and that function is what carries the patch — so a
+            // laid-out game that stopped the buffer itself would be a game whose silence nothing said.
+            crate::runtime::stops_the_music(stream);
+        }
+    }
+    // The queue empty again where nothing else is in it, which is what orb reads to know its ask has been
+    // carried out — see `Th07`'s `SOUND_COMMANDS`.
+    if QUEUED_PLAYS.lock().unwrap().is_empty() {
+        unsafe { mem::write::<u32>(super::G_SOUND_PLAYER + super::SOUND_COMMANDS, 0) };
+    }
+}
+
+/// `StreamingSound::Stop` (0x45d910): the buffer the stream owns stopped, through the seam the way the real
+/// handler reaches it — and **handed over as the original of orb's hook over that function**, which is what
+/// [`carries_the_music_commands_out`] and orb's own asks both reach.
+///
+/// Answers nothing where the stream owns no buffer, as the real one answers `0x800401f0` for it.
+pub extern "thiscall" fn stops_the_stream(stream: usize) -> i32 {
+    let buffer = mem::read_committed::<usize>(stream + super::STREAM_BUFFER)
+        .and_then(|array| mem::read_committed::<usize>(array).filter(|it| *it != 0));
+    let Some(buffer) = buffer.map(orb_api::SoundBuffer) else {
+        return 0;
+    };
+    orb_api::dsound::stop(buffer);
+    0
 }
 
 fn asks_for_a_song(slot: u32) {
@@ -2842,6 +2947,7 @@ extern "thiscall" fn plays_the_bgm(_player: usize, name: usize) -> i32 {
 
 extern "thiscall" fn runs_the_sound_commands(_player: usize) {
     SOUND_COMMANDS_RUN.fetch_add(1, Ordering::Relaxed);
+    carries_the_music_commands_out();
     // A phase advanced and the command left where it is, which is what a run that is not a command's last does
     // — see [`RUNS_A_PLAY_TAKES`]. The queue is what orb reads, so it is emptied on the run that carries the
     // play out and not before.

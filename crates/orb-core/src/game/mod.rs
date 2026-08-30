@@ -325,6 +325,34 @@ pub struct Hooks {
     /// left this out is a launch where no pad does anything. `None` for a game whose pad read has not
     /// been measured, which is a game orb reads no pad in at all.
     pub joystick: Option<Entered>,
+    /// The game's own refill of the music buffer, run on its streaming thread: one chunk of the track's file
+    /// into the buffer, at the offset the game keeps for it.
+    ///
+    /// **The one place a sound becomes audible**, which is what makes it the place a log can be held to. Every
+    /// other line about the music is a position, a cursor or a countdown read from outside, and a track looping
+    /// over a section of itself changes none of them — the same track goes on playing, its buffer goes on being
+    /// fed, and what is coming out is a few seconds of the song over and over. Read at the refill, that is the
+    /// offsets it reads from going round a bounded range, which is a thing a log says outright.
+    ///
+    /// A [`Patch`] and not an [`Entered`]: both games' threads call their refill the same way — `__thiscall`
+    /// on the stream with one argument on the stack — so there is one shape for the hook to be entered by.
+    ///
+    /// `None` for a game whose refill has not been read, which leaves its music with nothing said about what
+    /// is being fed into it.
+    pub tops_up_the_music: Option<Patch>,
+    /// And the game's own stop of it: th07's stream stop at 0x45d910, which clears the playing flag and stops
+    /// the buffer, and th06's whole `SoundPlayer::StopBGM`.
+    ///
+    /// **The other half of where a sound is made.** The refill says what is being fed and a stop says the
+    /// feeding is over, and neither can be read off the other: a buffer stopped between two frames is a buffer
+    /// every reading from the frame calls stopped without saying when or by whose ask, and the silence this
+    /// session chased was three different asks — the pause menu's, a fed frame's, and a restore's.
+    ///
+    /// **Every stop through that function, whoever asked for it**, orb's own calls of it included: what tells
+    /// them apart is orb's own line beside this one, and a stop with no such line is the game's.
+    ///
+    /// `None` for a game whose stop has not been read.
+    pub stops_the_music: Option<Patch>,
     /// The pad's buttons one byte apiece, which is what a game's own key config screen reads to learn
     /// *which* button was pressed rather than what it means. Hooked and **called through**: what the game
     /// found stands, and [`Game::add_pad_buttons`] adds the pads orb read for itself.
@@ -738,6 +766,33 @@ pub trait Game {
     /// ends with: a stage's data names two songs and the game plays the second for that
     /// fight alone.
     fn music_identity(&self) -> Option<u32>;
+
+    /// **What the game's own refill is about to feed the music buffer**, as a line: where in the track's file
+    /// the chunk it is going to read starts, where in the buffer it goes, and how much of the track is left
+    /// before the loop is taken.
+    ///
+    /// `None` where the stream's numbers cannot be read, and for a game whose refill has not been read at all
+    /// — see [`Hooks::tops_up_the_music`], which is where this is called from and the whole of why it exists.
+    ///
+    /// # Safety
+    /// Runs on the game's *streaming* thread, from the hook over that refill and before the original: what it
+    /// may do is read the stream it was handed and nothing else.
+    unsafe fn the_refill_is_about_to(&self, stream: usize) -> Option<String> {
+        let _ = stream;
+        None
+    }
+
+    /// And what that track is *called*, where the game keeps the name of the one it is streaming.
+    ///
+    /// **`None` is not a game with no music**, it is a game that does not keep the name: th06 builds the
+    /// `.wav` and `.pos` paths of a track in stack buffers at `Supervisor::PlayAudio`, hands them to
+    /// `SoundPlayer::LoadBGM`, and keeps the mmio handle, the length and the loop points of what it opened —
+    /// so there is nothing in its memory to read the name off. See `docs/th06/asm.md`. What a line about its
+    /// music has instead is [`music_identity`](Game::music_identity), which tells one track from another
+    /// without naming either.
+    fn the_track_heard(&self) -> Option<String> {
+        None
+    }
 
     /// Whether the song playing is the one the stage's data names for the fight it ends
     /// with, where the game says which of its two songs is on directly.

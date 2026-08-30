@@ -264,6 +264,7 @@ dependencies = [
  "orb-config",
  "orb-core",
  "orb-sim",
+ "rmpv",
 ]
 
 [[package]]

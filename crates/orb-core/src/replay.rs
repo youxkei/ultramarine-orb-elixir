@@ -114,6 +114,13 @@ pub struct Chapter {
     pub at: u32,
     /// Where the song was when it began, for a playback to put the music back the way a retry of it does.
     pub song: Option<i32>,
+    /// And which track that position is in — see [`crate::resume::Kept::song_identity`], which is the same
+    /// reading kept for the same reason: the file the game streams holds every track, so a position put into a
+    /// stream playing another one is bytes of whatever lies there.
+    pub song_identity: Option<u32>,
+    /// And whether it was coming out, `None` for a file that does not say — see
+    /// [`crate::resume::Kept::song_sounding`].
+    pub song_sounding: Option<bool>,
     /// What [`crate::game::Reproduction`] said on that frame, so that a playback which reached it can be
     /// held against the run that recorded it.
     pub landing: String,
@@ -471,6 +478,8 @@ fn the_stage_a_chapter_is_in(saved: &Kept) -> Stage {
             name: saved.name.clone(),
             at: saved.at,
             song: saved.song,
+            song_identity: saved.song_identity,
+            song_sounding: saved.song_sounding,
             landing: saved.landing.clone(),
             lost: Vec::new(),
         }],
@@ -575,15 +584,7 @@ pub unsafe fn stage_begun(game: &dyn Game) {
 ///
 /// # Safety
 /// Must run on the game's main thread, on the frame the chapter began on.
-pub unsafe fn chapter(
-    dir: &Path,
-    game: &dyn Game,
-    number: u32,
-    name: &str,
-    at: u32,
-    song: Option<i32>,
-    landing: String,
-) {
+pub unsafe fn chapter(dir: &Path, game: &dyn Game, saved: &crate::resume::Kept) {
     if !KEEPING.load(Ordering::Relaxed) {
         return;
     }
@@ -594,24 +595,28 @@ pub unsafe fn chapter(
     if let Some(already) = stage
         .chapters
         .iter_mut()
-        .find(|chapter| chapter.number == number)
+        .find(|chapter| chapter.number == saved.chapter)
     {
-        if already.at == at {
+        if already.at == saved.at {
             return;
         }
-        already.at = at;
-        already.name = name.to_owned();
-        already.song = song;
-        already.landing = landing;
+        already.at = saved.at;
+        already.name = saved.name.clone();
+        already.song = saved.song;
+        already.song_identity = saved.song_identity;
+        already.song_sounding = saved.song_sounding;
+        already.landing = saved.landing.clone();
         stage.chapters.sort_by_key(|chapter| chapter.at);
         return unsafe { written_down(dir, game) };
     }
     stage.chapters.push(Chapter {
-        number,
-        name: name.to_owned(),
-        at,
-        song,
-        landing,
+        number: saved.chapter,
+        name: saved.name.clone(),
+        at: saved.at,
+        song: saved.song,
+        song_identity: saved.song_identity,
+        song_sounding: saved.song_sounding,
+        landing: saved.landing.clone(),
         lost: Vec::new(),
     });
     // By the frame each began on, which is the order the stage plays them: a chapter whose boundary landed
@@ -896,6 +901,8 @@ fn encode(game: &dyn Game, replay: &Replay) -> Vec<u8> {
                         frame: chapter.at,
                         name: chapter.name.clone(),
                         song: chapter.song,
+                        song_identity: chapter.song_identity,
+                        song_sounding: chapter.song_sounding,
                         landing: chapter.landing.clone(),
                         lost: chapter
                             .lost
@@ -951,6 +958,8 @@ fn decode(game: &dyn Game, bytes: &[u8]) -> Option<Replay> {
                 name: chapter.name,
                 at: chapter.frame,
                 song: chapter.song,
+                song_identity: chapter.song_identity,
+                song_sounding: chapter.song_sounding,
                 landing: chapter.landing,
                 lost: chapter
                     .lost
@@ -1051,6 +1060,13 @@ struct WrittenChapter {
     frame: u32,
     name: String,
     song: Option<i32>,
+    /// Which track that position is in, `null` where the stream would not say — see
+    /// [`crate::resume::Kept::song_identity`].
+    song_identity: Option<u32>,
+    /// And whether any of it was coming out, `null` for a file that does not say — see
+    /// [`crate::resume::Kept::song_sounding`].
+    #[serde(default)]
+    song_sounding: Option<bool>,
     landing: String,
     /// The attempts that were rewound away, in the order they were made.
     lost: Vec<WrittenAttempt>,

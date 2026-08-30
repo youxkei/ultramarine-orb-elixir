@@ -388,3 +388,166 @@ fn the_stream_of_th07_comes_back_going_round() {
         );
     });
 }
+
+/// The buffer the game has made by the time the chapter is put back, which is not the one it was taken with.
+///
+/// An address and not an object, the same as the texture handles in `the_handles_a_restore_leaves_alone.rs`:
+/// orb hands a buffer to DirectSound and reads no word through it, so what this has to be is a number that can
+/// be told from the one the chapter had.
+const BUFFER_MADE_SINCE: usize = 0x0700_0000;
+
+/// **The buffer the game is playing through is not put back from a snapshot.**
+///
+/// DirectSound made it and nothing in the game's own memory holds it but the one word at `[[stream+0x4]]` — so
+/// a restore that writes that word back from a chapter names whatever object was there *then*, and the game
+/// released that one when it made the buffer it is playing through now. What orb reads through it is refused,
+/// and so is every call the game's own streaming thread makes: the buffer that is actually playing is never fed
+/// again, so it goes round its own contents and the game's own next track never reaches it.
+///
+/// **Which is what a th07 session was heard as** — a few seconds of stage 5's boss repeating after a chapter
+/// retry, and the same few seconds still playing at the title — and what its log said, one frame after the
+/// restore and every reading after it: `status 0x0 (asked -2147024809)`, `E_INVALIDARG` off `GetStatus`, with
+/// the countdown and the next write frozen at the values that chapter had.
+#[test]
+fn the_buffer_a_stream_of_th07_names_is_not_put_back_from_a_snapshot() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-buffer-a-restore-leaves",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(HEARD_AT);
+        game.in_a_pointdevice_run();
+
+        // A chapter of the fight the stage ends with, whose sound a restore leaves alone — the arm where
+        // nothing else about the stream is put back either.
+        game.frames(A_STRETCH);
+        game.the_stages_own_boss_arrives();
+        game.frames_until("the fight's own chapter", A_STRETCH, || {
+            log.lines()
+                .iter()
+                .any(|line| line.contains("chapter 2 at frame") && line.contains("music=keep"))
+        });
+
+        // What the chapter was taken with, and then the buffer the game has made since: a track change deletes
+        // the one that was playing and makes another somewhere else, so by the time this chapter comes back the
+        // word holds an object the chapter knew nothing about — and the one it did know has been released.
+        assert_eq!(
+            game.image().the_buffer_its_stream_names(),
+            orb_sim::Sound::the_buffer(),
+            "the chapter was not taken with the buffer this test thinks it was",
+        );
+        game.image().its_stream_names_the_buffer(BUFFER_MADE_SINCE);
+
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 2"));
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        assert_eq!(
+            game.image().the_buffer_its_stream_names(),
+            BUFFER_MADE_SINCE,
+            "the restore put back a buffer the game had released:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
+/// How long a stretch of a fight is here, which is only the frames a chapter of one needs.
+const A_STRETCH: u32 = 60;
+
+// **A chapter left playing has its stream left alone, and there was a test here that asked the opposite.**
+//
+// It laid the game's own next write inside the chunk the device is writing out of — read off th07's 0x45db60 as
+// the geometry that refuses a refill — and asked that a restore rebuild the stream there. The state it laid out
+// is the *ordinary* one: measured over a run of retries on the real game, the next write sits exactly one chunk
+// behind that cursor at every reading and the thread goes on feeding the stream. So the test passed while the
+// repair it was about rebuilt the stream on every retry, each from an offset seconds further on than the last.
+//
+// **What it could not have caught is the half a laid-out game does not have**: no streaming thread, so nothing
+// here can say whether the game's own goes on feeding a stream. That is `audio::read_the_stream_back`'s, on the
+// real game, and it is what said this.
+
+/// **And the music of a run whose chapter was asked for from the game's own pause menu carries on**, that
+/// menu's 「最初からやり直す」 being the one way out of it that sends no un-pause of its own.
+///
+/// The manager pauses the music on the frame the menu goes up (0x42d9b1), and every way out of it that leaves
+/// the run standing sends the un-pause back (0x403496). This item sends none: what it asks for is the scene
+/// that gives the run up and begins it again, which would build the run and its music from nothing. orb answers
+/// that ask with a question of its own and leaves the scene where it is — so the un-pause is orb's, and a th07
+/// session is what its absence cost: from a chapter retried at stage 5's boss to the end of the run, silence,
+/// with the song back only after the title and つづきから.
+#[test]
+fn the_music_of_th07_carries_on_where_the_pause_menu_asked_the_run_to_start_over() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-music-asked-to-start-over",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(HEARD_AT);
+        game.in_a_pointdevice_run();
+        assert!(
+            game.stream_now().playing,
+            "the song was not playing to start with",
+        );
+
+        // The menu button, the way somebody playing opens that menu — and the music paused with it, which is
+        // the state its own items are chosen in.
+        game.press(keys::ESCAPE);
+        assert!(
+            game.state().paused,
+            "the menu button did not put the menu up",
+        );
+        assert!(
+            !game.stream_now().playing,
+            "the game's own menu did not pause the music, so there is nothing here to carry on",
+        );
+
+        // 最初からやり直す: the menu down and the scene asked for, with nothing sent to the music.
+        game.image().the_pause_menu_asks_to_start_over();
+        game.one_frame();
+        assert!(
+            log.said("retry: the run was asked to start over in chapter 1"),
+            "the ask was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And the music playing again where orb's question stands: the run carries on where it was, and its own
+        // music with it.
+        assert!(
+            game.stream_now().playing,
+            "the rest of the run is played out in silence:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            log.said("retry: the music un-paused"),
+            "orb did not say it had un-paused the music:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // **And the stream built again rather than only started**, which is what the mixer having run on while
+        // nothing fed it needs: the buffer filled from where the song is audible, and the game's own next write
+        // at that buffer's start — the one relation its refill carries on from.
+        assert!(
+            log.said("sound: the song built again from"),
+            "the stream was left as the un-pause found it:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().next_write_offset(),
+            0,
+            "the game's own next write is not where a filled buffer puts it",
+        );
+        assert_eq!(
+            game.stream_now().position,
+            HEARD_AT + STREAM_BUFFER as i32,
+            "the file is not a buffer's worth past where the song is audible",
+        );
+    });
+}

@@ -357,6 +357,76 @@ impl RetryMenu {
         }
     }
 
+    /// **The item a recipe asked for outright, taken the way a decide on it would take it** — see
+    /// [`crate::runtime::answer_the_question`], and `orb_bot`'s own `Step::Answer`.
+    ///
+    /// **Which list the number is in is the one being shown**: the ways on while they are listed, the chapters
+    /// behind while that list is up, and はい/いいえ while a choice is being confirmed. A recipe naming an item
+    /// at the confirmation is answering *that* question and not the one behind it, which is what a number has
+    /// to mean where two questions are up one after another.
+    ///
+    /// **And the ways on are the ways this menu is offering**, not the four there can be: the one that lists
+    /// what is behind the chapter is left out where nothing is, so the stage is the second item at a stage's
+    /// own first chapter and the third anywhere else — a recipe naming a place in the list gets the item that
+    /// is *in* that place. What no number reaches is [`Way::Further`] itself, that being a list rather than a
+    /// choice: a run wanting one of the chapters behind names it once the list is up.
+    ///
+    /// **Written for a launch that plays itself**: a check of some stage's own first chapter is a run asked to
+    /// start over and sent back to that stage, which no press can reach — the cursor starts on the chapter
+    /// that was lost and a bot's tap of decide takes it. Without this the way to that chapter was the whole
+    /// run played again, half an hour of autoplay for a file the next launch overwrites.
+    pub fn answered_outright(&mut self, item: usize) -> Option<Choice> {
+        match self.showing {
+            Showing::Listing(Listing::Ways) => match self.ways.get(item).copied() {
+                Some(Way::Chapter) => self.decided(Choice::Chapter),
+                Some(Way::Stage) => self.decided(Choice::Stage),
+                Some(Way::Quit) => self.decided(Choice::Quit),
+                Some(Way::Further) => {
+                    log!(
+                        "retry: item {item} is the chapters behind this one, which is a list and not \
+                         an answer"
+                    );
+                    None
+                }
+                None => {
+                    log!(
+                        "retry: item {item} is past the {} way(s) on",
+                        self.ways.len()
+                    );
+                    None
+                }
+            },
+            Showing::Listing(Listing::Chapters) => match self.chapters.get(item) {
+                Some(chapter) => {
+                    let chosen = if chapter.stage_start {
+                        Choice::Stage
+                    } else {
+                        Choice::Further(chapter.at)
+                    };
+                    self.decided(chosen)
+                }
+                None => {
+                    log!(
+                        "retry: item {item} is past the {} chapter(s) behind this one",
+                        self.chapters.len(),
+                    );
+                    None
+                }
+            },
+            Showing::Confirming(choice, from) => match ANSWERS.get(item).copied() {
+                Some(true) => Some(choice),
+                Some(false) => {
+                    self.back_to_items(choice, from, "answered no");
+                    None
+                }
+                None => {
+                    log!("retry: item {item} is past the {} answer(s)", ANSWERS.len());
+                    None
+                }
+            },
+        }
+    }
+
     /// Acts on the choice, or puts up the question it asks first.
     fn decided(&mut self, chosen: Choice) -> Option<Choice> {
         if self.asking(chosen).is_none() {

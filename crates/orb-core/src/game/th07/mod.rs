@@ -262,8 +262,40 @@ const STREAM_BYTES: usize = 0x78;
 const STREAM_BUFFER: usize = 0x04;
 const STREAM_BUFFER_BYTES: usize = 0x08;
 const STREAM_SOURCE: usize = 0x0c;
+/// How many buffers that array is of, at `+0x10` of the stream: the game's own take-down walks
+/// `i < [stream+0x10]`, reads `[[stream+0x4] + i*4]` and calls `IDirectSoundBuffer::Stop` through it (0x45d860,
+/// slot 18 of the vtable), and the play command's first phase is that same call at 0x44cc23.
+const STREAM_BUFFER_COUNT: usize = 0x10;
+/// And how many of them a hole may be made for, which is a bound and not a reading: the count is a word of the
+/// game's own, and a restore asking for the array while that word is halfway put back is a length no read can
+/// vouch for. A stream this game makes owns one buffer — [`PLAY_BGM`] hands 0x45c8e0 one — so anything past a
+/// handful is not a count.
+const STREAM_BUFFERS_AT_MOST: u32 = 8;
 const STREAM_WRITE_AT: usize = 0x64;
 const STREAM_CHUNK: usize = 0x6c;
+
+/// `th07::StreamingSound::ServiceBuffer`, `__thiscall` on the stream with one argument on the stack: one chunk
+/// of the track's file into the buffer at the offset the stream keeps. The music thread at 0x44d200 waits on
+/// its event and calls this each time it is woken, and its own prologue tests `[this+0x4]` and `[this+0xc]` —
+/// the buffer array and the source — answering `0x800401f0` where either is null.
+///
+/// **Hooked so that a log can say what is being fed**, which nothing read from the frame can: see
+/// [`crate::game::Hooks::tops_up_the_music`].
+const TOPS_UP_THE_MUSIC: usize = 0x0045db60;
+/// `push ebp; mov ebp,esp; sub esp,0x34; push ebx` — position-independent, 7 bytes, read out of the exe at
+/// that address. th06's own refill begins with the same seven but for the frame it makes.
+const TOPS_UP_THE_MUSIC_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x34, 0x53];
+
+/// `th07::StreamingSound::Stop`, `__thiscall` on the stream and taking nothing: it clears the playing flag at
+/// `+0x30` and calls `IDirectSoundBuffer::Stop` through the buffer at `+0x4`, answering `0x800401f0` where
+/// there is no buffer array. **This is where the music of this game goes quiet** — the pause the manager sends
+/// with kind 6 reaches it at 0x44d00e, and so does every other ask that stops the stream.
+///
+/// **And not [`SEND_A_SOUND_COMMAND`]**, which is the queue those asks are put in: every sound effect the game
+/// plays goes through it too, so a line per call of it is hundreds a second and none of them about the music.
+const STOPS_THE_MUSIC: usize = 0x0045d910;
+/// `push ebp; mov ebp,esp; sub esp,0x8` — position-independent, 6 bytes, read out of the exe at that address.
+const STOPS_THE_MUSIC_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x08];
 
 /// The source those bytes are read out of, and how much of it there is: 0x94 bytes, allocated at 0x45c933 and
 /// built by 0x45e020.
@@ -420,6 +452,13 @@ const BUTTON_SHOT: u16 = 0x001;
 const BUTTON_BOMB: u16 = 0x002;
 const BUTTON_FOCUS: u16 = 0x004;
 const BUTTON_SKIP: u16 = 0x100;
+/// **And the one that is not a run's**: the pause button, the mapping's fourth entry, which the manager takes
+/// the edge of to put its own menu up — see [`GAME_MENU_UP`], where the two addresses that read it are.
+///
+/// Outside [`RUN_INPUT`] for that reason, and a name a recipe can press for the same one: what it reaches is
+/// the game's own menu rather than the run, and everything that menu leads to — the item that asks orb where
+/// to start over among it — is a road no other button goes down.
+const BUTTON_MENU: u16 = 0x008;
 
 /// The device set up: called once it exists and after every reset, before anything is presented.
 ///
@@ -1427,8 +1466,9 @@ const G_RANDOM: usize = 0x0049fe20;
 /// word at 0x4b9e54 — this frame's input against last frame's. 0x8 is the menu button in the same
 /// numbering [`PAD_MAPPING`]'s fourth entry names, which is how the two readings meet.
 ///
-/// What raises the first is not read yet. Both are here because `State::paused` is the pair: a run that is
-/// not being updated is one nothing of orb's should act on, whichever menu is up. **And what stops the run
+/// The first is the continue menu's, raised at 0x441161 by the death that finds no lives left — the branch
+/// taken where `[[0x626278]+0x5c]`, the lives as a float, is nothing. Both are here because `State::paused` is
+/// the pair: a run that is not being updated is one nothing of orb's should act on, whichever menu is up. **And what stops the run
 /// under them is the answer that update gives** — see [`STAGE_FRAMES`], where the same 3 that stops the chain
 /// walk skips both clocks.
 ///
@@ -1938,6 +1978,32 @@ const PLAY_BGM: usize = 0x0044c020;
 ///
 /// The game's own string rather than one of orb's, so that what it is handed is what the game hands it.
 const MUSIC_FILE: usize = 0x00496fac;
+
+/// `SoundPlayer::SendCommand` (0x44d2f0), `__thiscall` on the player taking a kind, an argument and a name:
+/// what [`STOP_MUSIC`] and the game's own play reach on backend 1, and the only way anything is asked of the
+/// music thread. What it does is write the kind into the queue at [`SOUND_COMMANDS`] and return, so a command
+/// sent here is one [`PLAY_SOUNDS`] has still to carry out.
+///
+/// **Kinds 6 and 7 are the music paused and un-paused, which no other call of orb's reaches.** 0x44d00e takes
+/// the player's stream and calls 0x45d910 on it — the stream's `+0x30` cleared and `IDirectSoundBuffer::Stop`
+/// on the buffer it owns — and 0x44d057 calls 0x45d960, which sets that field and plays the buffer again. Both
+/// answer nothing on the other backend (`[0x575a87] != 1`), and both leave the command in the queue where the
+/// stream's `+0x74` is set.
+const SEND_A_SOUND_COMMAND: usize = 0x0044d2f0;
+/// The kind the game's own menu pauses the music with, which orb sends never: the manager sends it at 0x42d9b1
+/// on the frame the pause menu goes up.
+///
+/// **Only a laid-out game needs it**, which is why it is behind that gate: what orb does with the kind is
+/// nothing, and what a laid-out game does with it is pause its own music the way that menu does — see
+/// `Image::the_manager_pauses_the_music`, which is what makes an un-paused one something to be wrong about.
+#[cfg(any(test, feature = "sim"))]
+const PAUSE_THE_MUSIC: u32 = 6;
+/// And the kind that undoes it, which the game's own ways out of that menu send at 0x403496 and 0x4044b0 — and
+/// [`Th07::the_music_carries_on`] in the one orb takes over.
+const UNPAUSE_THE_MUSIC: u32 = 7;
+/// The name that call is handed with the kind, `UnPause` at 0x498a38: the game's own string rather than one of
+/// orb's, for [`MUSIC_FILE`]'s reason.
+const UNPAUSE_NAME: usize = 0x00498a38;
 /// And the thread the music is streamed on, its handle, and the event it waits on — all three made by
 /// [`PLAY_BGM`] and closed by the take-down at 0x44cebd, and all three carried in the player's own memory. So
 /// all three come back with a chapter, naming handles the take-down has closed.
@@ -2060,6 +2126,12 @@ handed_over!(
     play_sounds_call,
     set_play_sounds,
     PLAY_SOUNDS
+);
+handed_over!(
+    SEND_A_SOUND_COMMAND_AT,
+    send_a_sound_command_call,
+    set_send_a_sound_command,
+    SEND_A_SOUND_COMMAND
 );
 handed_over!(
     READ_SCORE_FILE_AT,
@@ -2598,6 +2670,79 @@ impl Th07 {
             "music: the player's own queue is still not empty; leaving it to the frame's own sound"
         );
     }
+
+    /// The music un-paused, which every way out of the game's own pause menu does and the one orb takes over
+    /// cannot.
+    ///
+    /// **That menu pauses the music as it opens**: 0x42d9b1 sends [`PAUSE_THE_MUSIC`] on the frame the manager
+    /// sees the button's edge, and 0x403496 sends [`UNPAUSE_THE_MUSIC`] where the menu is left for the run.
+    /// 「最初からやり直す」 sends nothing — it asks for [`SCENE_START_OVER`] at 0x403908, and the scene it asks
+    /// for builds the run and its music again. So the ask orb answers with a question of its own is the one ask
+    /// that leaves the music paused with nothing coming to start it, and a th07 session heard exactly that:
+    /// silence from stage 5's boss to the end of the run, and the song back only after the title and つづきから.
+    ///
+    /// **Sent unguarded, where both of the game's own sites ask first whether the stage is 6 and the first word
+    /// of the object at 0x49fbf0 is under 300.** What that word counts is not established here; what makes it
+    /// not matter is what the command does where nothing was paused, which is `Play` on a buffer already
+    /// playing.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn the_music_carries_on() {
+        // **What the pause left, read before the ask is made**: a stream already out of step when the resume
+        // reaches it is a different fault from one the resume puts out of step, and from either number alone the
+        // two cannot be told apart. Said at the level a run is ordinarily logged at, this happening once per ask
+        // rather than once per retry — and it is what a session whose music came back wrong has to be read from.
+        let before = unsafe { Th07.music().map(|music| music.how_it_stands()) };
+        // Where the sound now audible begins, read while the buffer is still stopped — which is what makes the
+        // three numbers it comes out of hold still. The repair below is what wants it.
+        let audible = unsafe { Th07.music().and_then(|music| music.audible_offset()) };
+        let send: unsafe extern "thiscall" fn(usize, u32, u32, usize) =
+            unsafe { std::mem::transmute(send_a_sound_command_call()) };
+        unsafe { send(G_SOUND_PLAYER, UNPAUSE_THE_MUSIC, 0, UNPAUSE_NAME) };
+        // Carried out here rather than left for the frame, for the reason `runs_the_sound_commands` gives: what
+        // this is answering is a menu, and the frame orb's question goes up on is one the game's own sound has
+        // already run in.
+        unsafe { Self::runs_the_sound_commands() };
+        log!("retry: the music un-paused, the game's own menu having paused it");
+        if let Some(before) = before {
+            log!("sound: the pause had left it {before}");
+        }
+        // **And the stream built again from where it is audible, the command above being only the mixer
+        // started.** A launch of th07 answering this very ask heard the boss's song come back and then go round
+        // a few seconds of itself: the mixer plays on, and what feeds it does not. The game's own refill refuses
+        // outright where its next write has fallen inside the chunk the device is playing out of — `Stream
+        // Skip`, 0x45db60 — and a stream refused once is fed behind the mixer from then on, so what a Play
+        // leaves is the mixer running over a buffer nothing tops up.
+        //
+        // **And that is what the pause leaves, measured.** Four of these asks on the real game came back with
+        // the stream stopped — `status 0x0`, the device's write cursor sitting on the play cursor as a stopped
+        // buffer's does — and the game's own next write 12352, 29988, 17644 and 12352 bytes *behind* that
+        // cursor, every one of them inside the 44100-byte chunk. So the geometry a Play resumes into is the
+        // refused one every time, and this is not a repair for a case that might arise.
+        //
+        // **Where it is audible and not where a chapter had it**, because the chapter this ask puts back may
+        // hold no music at all to be put anywhere: every chapter a resume's playback takes is one, the sound's
+        // own queue being walked by the frame's own sound and a playback running no frames of the game's. So
+        // what there is to seek to is the song now playing, which is the number a resume's landing seeks its own
+        // song to.
+        //
+        // **And after the command rather than instead of it**, the two doing different halves: `Music::play_from`
+        // starts the buffer but writes nothing into the stream's own playing field, and the game's streaming
+        // thread refills nothing while that field is clear (0x44d270).
+        let Some(music) = Th07.music() else {
+            return;
+        };
+        match audible {
+            Some(offset) if unsafe { music.play_from(offset) } => log!(
+                "sound: the song built again from {offset} in the track's own file, and left {}",
+                unsafe { music.how_it_stands() }
+            ),
+            _ => log!("sound: the resume left it {}", unsafe {
+                music.how_it_stands()
+            }),
+        }
+    }
 }
 
 impl Game for Th07 {
@@ -2707,6 +2852,18 @@ impl Game for Th07 {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
             })),
+            // The refill its music thread calls, so that what is being fed to the buffer is in the log —
+            // see [`TOPS_UP_THE_MUSIC`].
+            tops_up_the_music: Some(Patch {
+                target: TOPS_UP_THE_MUSIC,
+                prologue: TOPS_UP_THE_MUSIC_PROLOGUE,
+            }),
+            // And the stream's own stop, which is where this game's music goes quiet — see
+            // [`STOPS_THE_MUSIC`].
+            stops_the_music: Some(Patch {
+                target: STOPS_THE_MUSIC,
+                prologue: STOPS_THE_MUSIC_PROLOGUE,
+            }),
             // And the read its key config screen makes, which is the one hook here orb calls through:
             // without it a pad orb supplies is a pad that plays the game and cannot be configured in it.
             pad_buttons: Some(Patch {
@@ -2859,6 +3016,30 @@ impl Game for Th07 {
     /// Which track that is, out of the record the source is reading — see [`RECORD_AT`] for why those three
     /// numbers, and th06's own answer for why they are mixed this way: what a chapter asks is whether the
     /// track has changed, so what this has to be is different for different tracks rather than meaningful.
+    /// **The stream's own numbers and nothing else**, this being the game's streaming thread: how much goes
+    /// in, where in the buffer it goes, and how much of the track is left before the loop — the countdown at
+    /// `+0x8` of the source, which the read takes every byte it hands over off.
+    ///
+    /// **That countdown is what says a section loop.** Fed the ordinary way it climbs down to nothing once per
+    /// pass over the song; a stream going round a few seconds of itself has it turning over a narrow range
+    /// instead, which no reading from the frame can tell from music playing normally.
+    unsafe fn the_refill_is_about_to(&self, stream: usize) -> Option<String> {
+        let source = mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)?;
+        let left = mem::read_committed::<u32>(source + SOURCE_LEFT)?;
+        let write = mem::read_committed::<u32>(stream + STREAM_WRITE_AT)?;
+        let chunk = mem::read_committed::<u32>(stream + STREAM_CHUNK)?;
+        Some(format!(
+            "puts {chunk} byte(s) in at {write}, {left} byte(s) of the track left before it loops",
+        ))
+    }
+
+    /// The name on the record the stream is reading, which is the file's own name for that track — see
+    /// [`Th07::the_track_playing`].
+    fn the_track_heard(&self) -> Option<String> {
+        let name = Self::the_track_playing()?;
+        Some(String::from_utf8_lossy(&name).into_owned())
+    }
+
     fn music_identity(&self) -> Option<u32> {
         let stream = Self::the_stream()?;
         let source = mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)?;
@@ -2998,12 +3179,23 @@ impl Game for Th07 {
         true
     }
 
-    /// The three objects the sound system is, which a restore has to leave alone: the player itself, the
-    /// stream it holds and the source that stream reads the file through — see [`SOUND_PLAYER_BYTES`],
-    /// [`STREAM_BYTES`] and [`SOURCE_BYTES`] for where each extent comes from.
+    /// The objects the sound system is, which a restore has to leave alone: the player itself, the stream it
+    /// holds, the array of buffers that stream owns, and the source it reads the file through — see
+    /// [`SOUND_PLAYER_BYTES`], [`STREAM_BYTES`], [`STREAM_BUFFERS_AT_MOST`] and [`SOURCE_BYTES`] for where each
+    /// extent comes from.
     ///
-    /// The player is always there, being a static; the other two are objects a playing track has and nothing
-    /// else does, so a launch with no music answers the one range.
+    /// The player is always there, being a static; the rest are an object a playing track has and nothing else
+    /// does, so a launch with no music answers the one range.
+    ///
+    /// **The array is here because what DirectSound made lives nowhere else.** Its one word is the buffer, and a
+    /// track change deletes that buffer and makes another somewhere else — so a restore that wrote the word back
+    /// from a chapter would name an object the game has released, and every call about the sound would be refused
+    /// from then on: orb's reads and, worse, the game's own streaming thread's, which then feeds nothing at all.
+    /// What that was heard as on the real game is a few seconds of the boss's song repeating and the same few
+    /// seconds still playing at the title — the buffer that *is* playing going round its own contents while the
+    /// game's own next track never reaches it — and what its log said, one frame after the restore and at every
+    /// reading after it, was `status 0x0 (asked -2147024809)`: `E_INVALIDARG` off `GetStatus`, with the countdown
+    /// and the next write frozen at the values the chapter had.
     fn audio_state(&self) -> Vec<Range<usize>> {
         // `once` rather than `vec!` of the one range, which is the lint `live_handles` answers the same way.
         let mut ranges: Vec<Range<usize>> =
@@ -3011,6 +3203,16 @@ impl Game for Th07 {
         let stream = mem::read_committed::<usize>(G_SOUND_PLAYER + STREAM).filter(|it| *it != 0);
         if let Some(stream) = stream {
             ranges.push(stream..stream + STREAM_BYTES);
+            let array = mem::read_committed::<usize>(stream + STREAM_BUFFER).filter(|it| *it != 0);
+            if let Some(array) = array {
+                // **Bounded rather than believed**, the count being a word of the game's own that a restore may
+                // be in the middle of putting back: a length read off memory and handed to a hole is a range
+                // this could hold back megabytes of somebody else's with.
+                let buffers = mem::read_committed::<u32>(stream + STREAM_BUFFER_COUNT)
+                    .unwrap_or(1)
+                    .clamp(1, STREAM_BUFFERS_AT_MOST) as usize;
+                ranges.push(array..array + buffers * size_of::<usize>());
+            }
             if let Some(source) =
                 mem::read_committed::<usize>(stream + STREAM_SOURCE).filter(|it| *it != 0)
             {
@@ -3644,8 +3846,15 @@ impl Game for Th07 {
         // The scene the game is *in*, which is what asking for no change is: the pause menu has already closed
         // itself by the frame this is answered in — it clears its own phase before it asks (0x4038fb) — so the
         // run carries on where it was, with orb's own question in front of it.
+        let asked = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED) };
         let scene = unsafe { mem::read::<i32>(G_SUPERVISOR + SUPERVISOR_SCENE) };
         unsafe { mem::write::<i32>(G_SUPERVISOR + SUPERVISOR_WANTED, scene) };
+        // **And the music with it, where it is that menu this is answering.** Asked for by a recipe instead —
+        // `runtime::start_the_run_over`, which reaches this same call — no menu was opened and nothing paused
+        // the music, and the ask the scene carries is what tells the two apart.
+        if asked == SCENE_START_OVER {
+            unsafe { Self::the_music_carries_on() };
+        }
     }
 
     unsafe fn notice_the_time(&self) {
@@ -6291,11 +6500,11 @@ mod tests {
         }
     }
 
-    /// The three objects the sound system is, which a restore has to hold still while it copies: the player, the
-    /// stream it holds and the source that stream reads the file through.
+    /// The objects the sound system is, which a restore has to hold still while it copies: the player, the
+    /// stream it holds, the array of buffers that stream owns, and the source it reads the file through.
     ///
-    /// The player is always there, being a static; the other two are objects a playing track has and nothing else
-    /// does, so a launch with no music answers the one range — and a stream naming no source answers two.
+    /// The player is always there, being a static; the rest are an object a playing track has and nothing else
+    /// does, so a launch with no music answers the one range — and a stream naming no source answers three.
     #[test]
     fn the_sound_systems_own_memory_is_what_a_restore_leaves_alone() {
         let image = Image::laid_out_seeded(0);

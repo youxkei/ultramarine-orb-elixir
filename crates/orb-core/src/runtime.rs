@@ -291,6 +291,9 @@ pub struct Runtime {
     /// at is the name that run's own replay would have been saved under, and a second place to type one is a
     /// second answer to keep in step with the first.
     name: String,
+    /// What the last line about the music coming out said it was: which track, and whether its buffer was
+    /// playing — see [`notice_the_track`], which says a line where this changes and nothing where it does not.
+    heard: Option<(Option<u32>, bool)>,
     /// The flash now running — its numbers and the drawn frames of it left — and the
     /// boundary it was started for.
     flash: Option<(Flash, u32)>,
@@ -494,6 +497,12 @@ pub static GET_CONTROLLER_INPUT: AtomicUsize = AtomicUsize::new(0);
 /// And the game's own read of the pad's buttons by number, which [`pad_buttons`] *does* call through — see
 /// [`Hooks::pad_buttons`].
 pub static PAD_BUTTONS: AtomicUsize = AtomicUsize::new(0);
+/// And the game's own refill of the music buffer, which [`tops_up_the_music`] calls through — see
+/// [`Hooks::tops_up_the_music`].
+pub static TOPS_UP_THE_MUSIC: AtomicUsize = AtomicUsize::new(0);
+/// And the game's own stop of it, which [`stops_the_music`] calls through — see
+/// [`Hooks::stops_the_music`].
+pub static STOPS_THE_MUSIC: AtomicUsize = AtomicUsize::new(0);
 /// Whether the one hook [`attach`] installs **conditionally** is to act.
 ///
 /// In a real launch the installation is the gate: no `block_replay_save` and the save is not hooked at all.
@@ -909,6 +918,12 @@ pub struct Originals {
     /// the device exists — so a laid-out game that wrote its device before orb was attached would leave this
     /// unreachable. See `Fake::attach_before_its_device`.
     pub init_d3d_device: extern "C" fn(),
+    /// And its own refill of the music buffer, which [`tops_up_the_music`] says what is being fed through and
+    /// then calls: `__thiscall` on the stream with the one argument both games' own threads pass it.
+    pub tops_up_the_music: unsafe extern "thiscall" fn(usize, i32) -> i32,
+    /// And its own stop of that music, which [`stops_the_music`] says is happening and then calls:
+    /// `__thiscall` on the stream for th07 and on the sound player for th06, neither taking an argument.
+    pub stops_the_music: unsafe extern "thiscall" fn(usize) -> i32,
 }
 
 /// Attaches orb to a game that is not a real process: `originals` in place of the trampolines, and
@@ -973,6 +988,8 @@ pub unsafe fn attach_to(
         (&SAVE_REPLAY, originals.save_replay as usize),
         (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
         (&PAD_BUTTONS, originals.pad_buttons as usize),
+        (&TOPS_UP_THE_MUSIC, originals.tops_up_the_music as usize),
+        (&STOPS_THE_MUSIC, originals.stops_the_music as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -1038,6 +1055,9 @@ pub unsafe fn attach_to(
     unsafe { *PACING.get() = None };
     unsafe { pacing() }.configure();
     unsafe { pacing() }.pin_compose(config.compose_us);
+    // And the frames asked for sooner than the game's own rate where the launch asked — see
+    // [`frame::Pacing::paces_faster`], which is what a walk to some stage of a run is spent on.
+    unsafe { pacing() }.paces_faster(config.pace);
     unsafe { attached(game, config, data) };
 }
 
@@ -1171,6 +1191,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             margin_best: u32::MAX,
             margin_trace: 0,
             name,
+            heard: None,
             flash: None,
             flashed: None,
             stream: (0, None),
@@ -1994,6 +2015,65 @@ fn the_first_read_of(frame: Option<u32>) -> bool {
     HANDED_OVER_FOR.swap(i64::from(frame), Ordering::Relaxed) != i64::from(frame)
 }
 
+/// Runs where the game's own streaming thread is about to put one chunk of the track's file into the music
+/// buffer, and says what that chunk is: where in the file it starts, where in the buffer it goes, and how much
+/// of the track is left before the loop.
+///
+/// **This is the one place a sound becomes audible, which is why the line is said here and not from the
+/// frame.** A track looping over a section of itself changes nothing a reading from outside can see — the same
+/// track is playing, its buffer is being fed, and the position is wherever the last refill left it — so a log
+/// written from the frame says a run's music is fine while a few seconds of the song go round and round. Read
+/// here, that is the offsets going round a bounded range instead of climbing, and a launch can be held to it.
+///
+/// At the verbose level: a refill is a chunk of a second, so this is tens of lines a second while music plays.
+///
+/// **Not the frame's thread**, which is the whole of what this may do: it reads the stream it was handed
+/// through [`Game::the_refill_is_about_to`] and says a line. Nothing of `Runtime` is touched — the frame is
+/// running beside it — and the log takes lines from any thread, counting what they cost per thread.
+pub extern "thiscall" fn tops_up_the_music(stream: usize, argument: i32) -> i32 {
+    let original: unsafe extern "thiscall" fn(usize, i32) -> i32 =
+        unsafe { std::mem::transmute(TOPS_UP_THE_MUSIC.load(Ordering::Relaxed)) };
+    // **The level is asked before the stream is read**, which `detail!` on its own would leave until after:
+    // every field of that reading is a `VirtualQuery` — see `orb_api::mem::read_committed` — and the line is
+    // an allocation, on a thread woken tens of times a second. Asked first, a launch that is not being read
+    // pays an atomic load and the call below.
+    if crate::log::wanted(crate::log::VERBOSE)
+        && let Some(game) = unsafe { chosen() }
+        && let Some(about_to) = unsafe { game.the_refill_is_about_to(stream) }
+    {
+        detail!("sound: the refill {about_to}");
+    }
+    unsafe { original(stream, argument) }
+}
+
+/// Runs where the game's own stop of the music is about to happen, and says what is being stopped.
+///
+/// **The other half of where a sound is made**, the refill being the first: a stop is what makes a stream that
+/// was being fed silent, and it leaves nothing behind for a reading from the frame to find — the buffer is
+/// simply stopped by the time anything asks, with no when and no whose ask. Three different asks silenced a
+/// launch this session and none of them said so: the pause menu's, a frame that was being fed a playback's
+/// buttons, and a restore.
+///
+/// **Whoever asked for it, orb included.** Its own calls of the game's stop come through here as well — the
+/// take-down a restore makes, and `Game::stop_music` — and what tells those apart from the game's own is orb's
+/// line beside this one. A stop with nothing beside it is the game's.
+///
+/// At the level every line is written at: a run stops its music a handful of times, and this is the line that
+/// says which of them the silence began at.
+///
+/// # Safety
+/// Only ever called from the hook over the game's own stop, on the thread the game calls it from.
+pub extern "thiscall" fn stops_the_music(this: usize) -> i32 {
+    let original: unsafe extern "thiscall" fn(usize) -> i32 =
+        unsafe { std::mem::transmute(STOPS_THE_MUSIC.load(Ordering::Relaxed)) };
+    if let Some(game) = unsafe { chosen() } {
+        log!("sound: stopped through the game — {}", unsafe {
+            crate::audio::what_is_heard(game)
+        });
+    }
+    unsafe { original(this) }
+}
+
 /// Runs after `th06::GameManager::AddedCallback`, where the game has just put a stage's numbers in
 /// place and that stage has not been updated yet.
 ///
@@ -2419,6 +2499,11 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // the moment it matters. The name entry is two screens in front of the question about keeping a replay, and
     // the screen it is on is gone by the time that file is sealed.
     unsafe { notice_the_name(runtime) };
+    // And what the music coming out is, which is the one thing about the sound no other line says.
+    unsafe { notice_the_track(runtime) };
+    // And what became of a stream a restore has been through, over the frames after it — nothing while none
+    // is being watched, which is every frame but the few after a chapter came back.
+    unsafe { crate::audio::read_the_stream_back(runtime.game) };
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.
@@ -2440,9 +2525,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // **Or the answer a recipe asked for**, which is the last item of this menu and the one nothing can
         // press its way to — see [`give_the_run_up_at_the_retry`]. Asked before the keys are read, because a
         // bot that has asked presses nothing while it waits.
-        let answered = match asked_to_give_the_run_up() {
-            true => Some((Choice::Quit, By::Recipe)),
-            false => menu.update(&runtime.keyboard, pad),
+        // And the item a recipe named, which is any of them: what a press can reach is the cursor's own item,
+        // so a launch playing itself could take the chapter it lost and nothing else — see
+        // [`retry_ui::RetryMenu::answered_outright`].
+        let answered = if asked_to_give_the_run_up() {
+            Some((Choice::Quit, By::Recipe))
+        } else if let Some(item) = asked_outright() {
+            menu.answered_outright(item)
+                .map(|choice| (choice, By::Recipe))
+        } else {
+            menu.update(&runtime.keyboard, pad)
         };
         if let Some((choice, by)) = answered {
             log!("retry: {} on the {by}", choice.label());
@@ -3519,6 +3611,8 @@ unsafe fn watch_an_attempt(
         // while the attempt is watched: what it was when the attempt was made.
         retries: 0,
         song: chapter.song,
+        song_identity: chapter.song_identity,
+        song_sounding: chapter.song_sounding,
         landing: chapter.landing.clone(),
         // **The path that reaches the attempt and then the attempt itself, as one list of frames.** The
         // playback reads its buttons out of exactly this, so the frames past the landing are the attempt's
@@ -4169,6 +4263,16 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
 ///
 /// # Safety
 /// Only ever called from the frame hook, on the game's main thread.
+/// A track as a line says it, out of what [`Game::music_identity`] answers for it: a number its own record
+/// makes, and nothing where the stream would not say — which a file written before the identity was kept has
+/// as well.
+fn the_track(identity: Option<u32>) -> String {
+    match identity {
+        Some(identity) => format!("{identity:#010x}"),
+        None => "one the stream would not name".to_owned(),
+    }
+}
+
 unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State, i32) {
     // **The music stopped for as long as this takes.** The stage's own song was started by the build a moment
     // ago and the buffer plays on its own thread, so the seconds of wall clock these updates take are seconds of
@@ -4354,11 +4458,54 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // attempt is worse than the jump in it. Which chapters those are is the same question the retry
     // asks, asked the same way — of the song playing and not of the chapter's kind, a midboss being a
     // fight the stage's song plays through.
+    // **And only into the track that position was read from.** The file the game streams holds every track, so
+    // the number written down points at the sound it was taken from and at nothing else once another track is
+    // on the stream — which is what a stage's first chapter is picked up into: it falls frames into the stage,
+    // the build has loaded the stage's two slots and its script has asked for neither, so the record under the
+    // stream is still the front end's. A th07 session picked stage 6's first chapter up that way and heard the
+    // fifth stage's boss theme, its file holding `song: 242508064` and the stream a track ending 16 MB in.
+    let playing = runtime.game.music_identity();
+    let its_own_track = landing.song_identity.is_some() && landing.song_identity == playing;
+    // **And a chapter whose sound was nothing comes back to that nothing.** The position of a stopped stream
+    // is where its sound *would* start, so putting it back and playing it makes a silence audible: a launch
+    // picked stage 6's first chapter up — taken frames into the stage, the scene before it taken down and the
+    // stage's own song not yet asked for — and heard the title screen's theme for the five seconds until that
+    // script started its own. Which is the same thing the restore holds a chapter to, see `Saved::was_playing`.
     if runtime.chapters.stage_song_playing(runtime.game, &reached) {
         let moved = landing
             .song
             .zip(runtime.game.music())
             .is_some_and(|(song, music)| {
+                // **A file that says nothing is put back the way the launch that wrote it put it back**,
+                // which is every th06 file written before a chapter carried either of these: those runs have
+                // had their midstage music picked up where it was left since orb shipped, and a guard that
+                // refused what it cannot vouch for would take that away from every one of them on a disk.
+                // What a file cannot say, orb cannot know better than the build that wrote it.
+                //
+                // So the two below hold a chapter that *does* say, and nothing else.
+                let says = landing.song_sounding.is_some() || landing.song_identity.is_some();
+                if !says {
+                    log!(
+                        "resume: the song at {song} is being put back with nothing said about its track or \
+                         whether it was coming out, this file being from before either was kept"
+                    );
+                }
+                if landing.song_sounding == Some(false) {
+                    log!(
+                        "resume: the song was left alone at {song}: nothing was coming out of it when the \
+                         chapter was taken"
+                    );
+                    return false;
+                }
+                if says && !its_own_track {
+                    log!(
+                        "resume: the song was left alone at {song}: the track playing is {} and that \
+                         position was read from {}",
+                        the_track(playing),
+                        the_track(landing.song_identity),
+                    );
+                    return false;
+                }
                 let moved = unsafe { music.play_from(song) };
                 log!(
                     "resume: the song {} at {song} in the track's own file",
@@ -4502,17 +4649,7 @@ unsafe fn the_replay_reaches(runtime: &Runtime, written: Option<&resume::Kept>) 
     let Some(saved) = written else {
         return;
     };
-    unsafe {
-        replay::chapter(
-            &runtime.config.base_dir,
-            runtime.game,
-            saved.chapter,
-            &saved.name,
-            saved.at,
-            saved.song,
-            saved.landing.clone(),
-        )
-    };
+    unsafe { replay::chapter(&runtime.config.base_dir, runtime.game, saved) };
 }
 
 /// **Writes the stage's own start down, before its first chapter has been announced.**
@@ -4730,6 +4867,37 @@ unsafe fn notice_the_name(runtime: &mut Runtime) {
             runtime.name
         );
     }
+}
+
+/// **What is coming out of the speakers, said once per change of it**: which track, whether its buffer is
+/// playing, and where in the file the sound audible now begins.
+///
+/// **Which track is sounding is what no line about the music said.** Every one of them was a position, a
+/// cursor or a countdown, so a launch that put one track's position into a stream playing another said so in
+/// numbers indistinguishable from the right ones — a th07 session picked stage 6's first chapter up, heard the
+/// fifth stage's boss theme, and its log had `music: the track loops at 16545584, so 0 byte(s) left from
+/// 242508064` and nothing else. A track named, or told apart by its identity, is what makes that a line a
+/// reader can hold the sound to.
+///
+/// **At `normal`, because a recipe is checked against it**: an autoplay launch that walks a run into the
+/// stage after a pick-up is only worth running if what it heard is in the log, and `verbose` is where the
+/// per-frame sound lines already are. One line per change of the track is a handful of lines a stage.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn notice_the_track(runtime: &mut Runtime) {
+    let identity = runtime.game.music_identity();
+    let music = runtime.game.music();
+    let sounding = music
+        .as_ref()
+        .is_some_and(|music| unsafe { music.sounding() });
+    if runtime.heard == Some((identity, sounding)) {
+        return;
+    }
+    runtime.heard = Some((identity, sounding));
+    log!("sound: {}", unsafe {
+        crate::audio::what_is_heard(runtime.game)
+    });
 }
 
 /// Watches the streaming margin, which is what a listener hears as the music

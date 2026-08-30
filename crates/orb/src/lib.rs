@@ -52,11 +52,11 @@ use orb_core::runtime::{
     CARD_RECORDS_READ, CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT,
     INIT_D3D_DEVICE, PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN,
     RUN_CALC_CHAIN_TARGET, RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN,
-    STAGE_BUILDING, STOP_RECORDING, UNLOCKS_READ, attached, card_records_read, create_game_window,
-    get_controller_input, get_controller_input_in_ecx, get_input, init_d3d_device, pacing,
-    pad_buttons, ranking_read, ranking_read_in_ecx, render, run_calc_chain, run_draw_chain,
-    save_replay, stage_begun, stage_begun_in_ecx, stage_building, stop_recording, unlocks_read,
-    unlocks_read_in_ecx,
+    STAGE_BUILDING, STOP_RECORDING, STOPS_THE_MUSIC, TOPS_UP_THE_MUSIC, UNLOCKS_READ, attached,
+    card_records_read, create_game_window, get_controller_input, get_controller_input_in_ecx,
+    get_input, init_d3d_device, pacing, pad_buttons, ranking_read, ranking_read_in_ecx, render,
+    run_calc_chain, run_draw_chain, save_replay, stage_begun, stage_begun_in_ecx, stage_building,
+    stop_recording, stops_the_music, tops_up_the_music, unlocks_read, unlocks_read_in_ecx,
 };
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
@@ -100,6 +100,18 @@ pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_v
     TRUE
 }
 
+/// **The commit this was built from, which is what tells one build of a version from another.**
+///
+/// The version cannot: `0.11.0-dev` is what every build between two releases says, so two launches of two
+/// builds open their logs with the same line. A pick-up driven against an exe deployed hours before a fix
+/// read a file the way the build *without* that fix reads it and said so, and nothing in the log named the
+/// build — the run that followed then wrote over the file the measurement was about.
+///
+/// `cargo xtask` puts it in the environment as it builds — see that crate's `built_from`, for what the id is
+/// and why it is read from the working copy — and `option_env!` is what a build made some other way comes
+/// through: it names no commit rather than a wrong one.
+const BUILT_FROM: Option<&str> = option_env!("ORB_BUILT_FROM");
+
 /// Runs with the game still suspended and the loader lock held: no loader
 /// calls, no game code, just patching bytes and allocating our own memory.
 fn attach() {
@@ -108,9 +120,13 @@ fn attach() {
     crash::install();
 
     log!(
-        "orb {} attached to pid {}",
+        "orb {} attached to pid {}, {}",
         env!("CARGO_PKG_VERSION"),
-        unsafe { GetCurrentProcessId() }
+        unsafe { GetCurrentProcessId() },
+        BUILT_FROM.map_or_else(
+            || "built outside cargo xtask, so no commit is named".to_owned(),
+            |commit| format!("built from {commit}"),
+        ),
     );
 
     let exe = unsafe { GetModuleHandleW(std::ptr::null()) } as usize;
@@ -156,38 +172,21 @@ fn attach() {
         Ok(options) => config.apply(&options),
         Err(error) => return log!("arguments: {error}; orb is doing nothing this run"),
     }
-    log!(
-        "config: game_dir={} log_level={} pacing_log={} compose_us={} self_check={} chapter_tuning={} \
-         block_replay_save={} save_replays={} player_name={:?} skip_ending={} screen={} during_replay={} \
-         fast_clear={} speed={} stress_restore_frames={} chapters={} resume={} sent_keys={} \
-         track_memory={} frame_hooks={} own_frame_loop={}",
-        config.game_dir.display(),
-        config.log_level,
-        config.pacing_log,
-        config.compose_us,
-        config.self_check,
-        config.chapter_tuning,
-        config.block_replay_save,
-        config.save_replays,
-        config.player_name,
-        config.skip_ending,
-        config.screen,
-        config.during_replay,
-        config.fast_clear,
-        config.speed,
-        config.stress_restore_frames,
-        config.chapters,
-        config.resume,
-        config.sent_keys,
-        config.track_memory,
-        config.frame_hooks,
-        config.own_frame_loop,
-    );
+    // **The whole of it and not a line naming its fields**, which is what this was: every field appeared
+    // twice — once in the format and once in the arguments — so a knob added to the config was a knob missing
+    // from the line until somebody remembered both. `--pace` was added and left out, and the launch that ran
+    // without it had nothing in its log to say so. Derived, the line cannot fall behind the struct.
+    log!("config: {config:?}");
     // Set after the line that says what it is, so the log always states the level it
     // is then written at.
     log::set_level(config.log_level);
     log::set_pacing(config.pacing_log);
     unsafe { pacing() }.pin_compose(config.compose_us);
+    // And the frames asked for sooner than the game's own rate where the launch asked — see
+    // `frame::Pacing::paces_faster`, which is what walking a run to some stage is spent on. Here beside the
+    // rest of the pacing's own setup, and not in `attach_to`: that one is the seam a laid-out game attaches
+    // through, so a launch of the real game never runs a line of it.
+    unsafe { pacing() }.paces_faster(config.pace);
 
     if config.track_memory {
         match unsafe { memtrack::install(exe) } {
@@ -309,6 +308,27 @@ fn attach() {
             ));
         }
         _ => {}
+    }
+    // **Installed whatever the launch is for**, unlike the two above: what it says is what the game is
+    // feeding its music buffer, which is as much a question of a launch with no chapters in it — and the
+    // lines are at the verbose level, so a launch that is not being read pays a comparison per refill.
+    if let Some(patch) = patches.tops_up_the_music {
+        hooks.push((
+            "music refill",
+            patch,
+            hook::address(tops_up_the_music as _),
+            &TOPS_UP_THE_MUSIC,
+        ));
+    }
+    // And the stop that ends it, for the same reason and at every launch: what a log has to be able to say is
+    // where a silence began, and this is the one call that makes one.
+    if let Some(patch) = patches.stops_the_music {
+        hooks.push((
+            "music stop",
+            patch,
+            hook::address(stops_the_music as _),
+            &STOPS_THE_MUSIC,
+        ));
     }
     // Loud rather than fatal: what it costs is the frame paying for the read again, which is
     // what every run before this did.

@@ -306,8 +306,21 @@ impl Snapshot {
             })
             .collect();
         let (music, preserve) = match audio.policy {
-            Music::Rewind(stream) => (stream, Vec::new()),
-            Music::KeepPlaying => (None, audio_state),
+            // A stream that was read is a stream to hand back, and the memory it lives in is put back with
+            // it: what the two say about each other has to agree, and both are this chapter's.
+            Music::Rewind(Some(stream)) => (Some(stream), Vec::new()),
+            // **And a chapter that read no stream leaves that memory where it stands.** What it holds of the
+            // sound is not a description of the sound now playing: the case it most often is is a snapshot
+            // taken while the game's own sound had an ask outstanding, where the player's stream field names
+            // the object the take-down before that ask deleted — see `Chapters::audio_for`. Bytes naming a
+            // released COM object are not bytes to put into a live player, and a restore that put them back
+            // is what took th07 down on the real game: `0xc0000005` reading null at `th07.exe+0x5dc04` with
+            // `ecx` zero, on the game's own sound thread, one frame after a chapter retry — 40 retries into a
+            // chapter a resume had landed in, every one of them restoring over the live sound.
+            //
+            // The chapter itself is kept either way, its own frame being where a retry has to land. What is
+            // left out of it is the sound, and the music then comes from the ask rather than from the bytes.
+            Music::Rewind(None) | Music::KeepPlaying => (None, audio_state),
         };
         self.identity = audio.identity;
         self.preserve = preserve;
@@ -443,13 +456,22 @@ impl Snapshot {
             return detail!("sound: nothing is playing for this chapter to be put back into");
         };
         detail!(
-            "sound: left playing — {} byte(s) left, next write at {:?}, track {:?}, \
-             {} range(s) held back",
-            mem::read_committed::<u32>(live.bytes_left).unwrap_or_default(),
-            live.token(),
+            "sound: left playing — {}, track {:?}, {} range(s) held back",
+            unsafe { live.how_it_stands() },
             game.music_identity(),
             self.preserve.len(),
         );
+        // **And nothing done to it, which a repair that stood here for one launch is the reason to say out
+        // loud.** It rebuilt the stream wherever the game's own refill would have refused the next write it
+        // held — read off th07's 0x45db60 as the geometry a copy's own suspension leaves behind — and what the
+        // frames after it then measured is that the refill *refuses in the ordinary way of things*: the thread
+        // wakes at every notify point and writes only where it is safe to, so its steady state is the next
+        // write exactly one chunk behind the device's write cursor, which is a refusal and is not a fault.
+        //
+        // A run of that repair rebuilt the stream on every retry, each from an offset 2.7 seconds further on
+        // than the last. Whatever is wrong with the sound after a chapter of a resumed run comes back, this is
+        // not it — and a repair that fires where nothing is broken is worse than the fault it was aimed at.
+        // What the frames after a restore say instead is [`audio::read_the_stream_back`]'s.
     }
 
     fn music_still_playing(&self, game: &dyn crate::game::Game) -> bool {
@@ -554,8 +576,6 @@ impl Snapshot {
         // Sorted here rather than while writing: the write loop runs with threads
         // suspended and must not allocate or do anything it can avoid.
         //
-        // Nothing is held back when the sound has been taken down: there is no
-        // longer anything live in those ranges to protect.
         // **The ranges the sound is in *now*, and not the ones this snapshot wrote down.** A chapter whose music
         // is left playing is one whose sound the restore must not touch — and which objects that is, is a
         // question about the sound the game is playing through at this moment, not the one it was playing
@@ -568,7 +588,12 @@ impl Snapshot {
         //
         // What the snapshot's own list still decides is *whether* the sound is held back at all, which is the
         // chapter's own policy — see `Chapters::audio_for`.
-        let mut holes = if same_track && !self.preserve.is_empty() {
+        //
+        // **And not whether the track is still the one it was taken under, which is a question this could not
+        // answer.** A snapshot carrying ranges to hold back is one that captured no stream — both of the
+        // policies that fill them leave `self.music` empty — and `music_still_playing` answers true for exactly
+        // that, so asking it here decided nothing while reading as though it decided this.
+        let mut holes = if !self.preserve.is_empty() {
             game.audio_state()
                 .iter()
                 .map(|range| Region {
@@ -583,9 +608,19 @@ impl Snapshot {
         holes.sort_unstable_by_key(|hole| hole.base);
         if !holes.is_empty() {
             let covered: usize = holes.iter().map(|hole| hole.len).sum();
+            // **Named and not only counted**, the way the snapshot names the ones it left alone: a count says
+            // that something was held back and not *what*, and which of them a restore skipped is the
+            // question a session about the sound going wrong asks first. Read off the real game as
+            // `skipping 1 range(s), 1056 bytes` where four were wanted, it took a second launch to learn
+            // which three were missing.
             log!(
-                "restore: skipping {} range(s), {covered} bytes",
-                holes.len()
+                "restore: skipping {} range(s), {covered} bytes: {}",
+                holes.len(),
+                holes
+                    .iter()
+                    .map(|hole| format!("{:#010x}+{:#x}", hole.base, hole.len))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             );
         }
         {
@@ -597,6 +632,10 @@ impl Snapshot {
             }
         }
         crash::doing(crash::Doing::PuttingTheSoundBack, 0, 0);
+        // **And the frames after it watched, whichever arm below runs.** What a restore leaves the sound as is
+        // read on the frame it happens; whether the game's own thread goes on *feeding* it is a question only
+        // the frames after it answer, and only on the real game — see [`audio::watch_what_becomes_of_the_stream`].
+        audio::watch_what_becomes_of_the_stream();
         // After the memory copy, so the streaming bookkeeping this has to agree
         // with is already back in place.
         match &self.music {
@@ -1000,5 +1039,69 @@ mod tests {
         unsafe { snapshot.restore(&Th06) };
 
         assert!(space.read_bytes(DATA, LEN).iter().all(|byte| *byte == 0xb2));
+    }
+
+    /// **A chapter that read no stream leaves the sound's own memory where it stands**, whatever else it puts
+    /// back.
+    ///
+    /// What such a chapter holds of that memory is not a description of the sound now playing: the case it is
+    /// most often is a snapshot taken while the game's own sound had an ask outstanding, where the player's
+    /// stream field names the object the take-down before that ask deleted — see `Chapters::audio_for`. Bytes
+    /// naming a released COM object are not bytes to put back into a live player, and a restore that put them
+    /// back is what took th07 down on the real game: `0xc0000005` reading null at `th07.exe+0x5dc04` with
+    /// `ecx` zero, on the game's own sound thread, one frame after a chapter retry. The chapter itself is kept
+    /// — its own frame is where a retry has to land — and what is left out of it is the sound.
+    ///
+    /// **And left out whether or not the track is the one it was taken under**, which is where this differs
+    /// from a chapter that keeps its music playing: that one is holding a stream it read and can hand back,
+    /// and this one has nothing to hand back at all.
+    #[test]
+    fn the_sound_of_a_chapter_that_read_no_stream_is_left_where_it_stands() {
+        let sim = laid_out();
+        let _installed = sim.enter();
+        let space = sim.space();
+        // Where the sound's own memory is, which is the game's to say — and mapped here, an unmapped range
+        // being one the copy would leave out for a different reason.
+        let sound = crate::game::Game::audio_state(&Th06)
+            .first()
+            .cloned()
+            .expect("the game says where its sound player is");
+        space.map(sound.start, sound.len(), Kind::Private);
+        space.fill_bytes(DATA, 0xa1, LEN);
+        space.fill_bytes(sound.start, 0xa1, sound.len());
+        let mut regions = regions();
+        regions.push(Region {
+            base: sound.start,
+            len: sound.len(),
+        });
+
+        // A track named, so that the restore below is the harder case: the game answers with no track at all,
+        // so this is a chapter whose own track is not the one playing.
+        let audio = Audio {
+            policy: Music::Rewind(None),
+            identity: Some(7),
+            state: vec![sound.clone()],
+            thread: None,
+        };
+        let snapshot = unsafe { Snapshot::capture(&regions, audio, &[], false) };
+
+        // The run goes on: the game's own data moves, and so does the sound's — the stream it plays through
+        // now is not the one that was there when the chapter was taken.
+        space.write::<u32>(DATA + 0x40, 0xdead_beef);
+        space.fill_bytes(sound.start, 0xc3, sound.len());
+
+        unsafe { snapshot.restore(&Th06) };
+
+        assert!(
+            space.read_bytes(DATA, LEN).iter().all(|byte| *byte == 0xa1),
+            "the game's own memory did not come back",
+        );
+        assert!(
+            space
+                .read_bytes(sound.start, sound.len())
+                .iter()
+                .all(|byte| *byte == 0xc3),
+            "the sound's own memory was written back out of a chapter that read no stream",
+        );
     }
 }

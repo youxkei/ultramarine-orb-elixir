@@ -1000,7 +1000,7 @@ impl Fake {
         // stopped and started again through `StopBGM` and `PlayAudio`.
         image.hands_over_chain_cut(chain_cut as *const () as usize);
         image.hands_over_the_music_calls(
-            stop_bgm as *const () as usize,
+            orb_core::runtime::stops_the_music as *const () as usize,
             play_audio as *const () as usize,
         );
         // And its own text drawing, which is what a chapter put back inside a spell card bakes that
@@ -1138,6 +1138,8 @@ impl Fake {
                     pad_buttons,
                     save_replay,
                     init_d3d_device,
+                    tops_up_the_music,
+                    stops_the_music: stop_bgm,
                 },
             )
         };
@@ -1164,10 +1166,22 @@ impl Fake {
     /// a stage being played is a load and a draw rather than another question about the cadence, which is
     /// what `work` stands for.
     pub fn attach_watching_the_pacing(display: Display, name: &str, work: Work) -> Box<Self> {
+        Self::attach_watching_the_pacing_at(display, name, work, 1)
+    }
+
+    /// And the same with the frames asked for `pace` times the game's own rate — see
+    /// `orb_core::frame::Pacing::paces_faster`, and `Config::pace` for what a launch says.
+    pub fn attach_watching_the_pacing_at(
+        display: Display,
+        name: &str,
+        work: Work,
+        pace: u32,
+    ) -> Box<Self> {
         let game = Self::attach_to_display(display, name, the_run(), |config| {
             // Said here rather than taken from the default it is also on by, so that a launch which
             // wanted the pacing off would not quietly leave these e2e tests with nothing to read.
             config.pacing_log = true;
+            config.pace = pace;
         });
         game.frame_takes(work);
         game
@@ -1614,7 +1628,14 @@ impl Fake {
     /// Where the read came up short, which is the end of the track's sound: taking the loop there is the
     /// game's own answer and no e2e test here needs one, so an e2e test that has run its stream that far
     /// has run further than it meant to.
+    /// **Through orb's hook over it**, the way every other call of the game's own goes through the hook that
+    /// stands in front of it: what that hook says is what the refill is about to feed the buffer, and a test
+    /// that called the body instead would be a test of a launch with the hook left out.
     pub fn services_the_buffer(&self) {
+        orb_core::runtime::tops_up_the_music(self.the_stream_it_names(), 1);
+    }
+
+    fn the_refill_itself(&self) {
         let at = self.image.next_write_offset();
         let (read, size) =
             self.with_the_sound(|sound| (sound.tops_the_buffer_up(at), sound.buffer_size()));
@@ -3816,10 +3837,15 @@ unsafe extern "fastcall" fn no_card_record_parse(_image: usize, _records: usize)
     unreachable!("th06 lays no file's records over the ones in memory")
 }
 
-unsafe extern "fastcall" fn stop_bgm(_player: usize) {
+/// **`__thiscall` and handed over as the original**, where what orb is given to call is the hook over this —
+/// see the `hands_over_the_music_calls` below. Which is a real launch's own shape: the address orb holds is
+/// the patched `StopBGM`, so its own stop goes through that hook as much as the game's does. One argument in
+/// `ecx` either way, `fastcall` and `__thiscall` agreeing where nothing is on the stack.
+unsafe extern "thiscall" fn stop_bgm(_player: usize) -> i32 {
     let fake = running();
     fake.image.takes_the_music_down();
     fake.music_stops.set(fake.music_stops.get() + 1);
+    0
 }
 
 /// `Supervisor::PlayAudio` (0x424b5d): the path's extension swapped for `.wav`, the file loaded, and the
@@ -3882,6 +3908,13 @@ extern "C" fn stop_recording() {
 
 extern "C" fn stage_building(_stage: i32) -> i32 {
     running().stage_built();
+    0
+}
+
+/// The game's own refill, which [`Fake::services_the_buffer`] reaches through orb's hook over it — see
+/// `Th06`'s own `TOPS_UP_THE_MUSIC`, and `orb_core::runtime::tops_up_the_music` for what the hook says.
+extern "thiscall" fn tops_up_the_music(_stream: usize, _argument: i32) -> i32 {
+    running().the_refill_itself();
     0
 }
 

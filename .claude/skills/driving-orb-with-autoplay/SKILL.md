@@ -17,6 +17,20 @@ overwrites them. The copy needs the game's own files and wants none of the `repl
 Then `cargo xtask build --release` and `bash scripts/deploy.sh <copy>`. Deploy keeps that copy's `orb.yaml`,
 so settings put there survive a redeploy.
 
+**And again after the fix the run is meant to check.** The exe in the copy is whatever was deployed last: a
+pick-up driven against an exe deployed four hours earlier read the file the way the build *without* the fix
+reads it, said so, and the run it then started wrote over the file the measurement was about.
+
+**What says which build a launch is, is the commit in its first line**:
+
+    orb 0.11.0-dev attached to pid 45320, built from 90b82bc364b3
+
+`cargo xtask` puts the working copy's own commit there as it builds, so the id moves with the tree and
+answers *is this the build with the fix* — hold it against `jj log -r @ -T commit_id.short(12)` before
+reading anything else off the run. The version alone answers nothing: `0.11.0-dev` is every build between two
+releases. A launch saying `built outside cargo xtask, so no commit is named` was built some other way and
+there is nothing to hold it against.
+
 ## One game, and one monitor
 
 **Nothing in a Touhou game stops a second copy of itself starting, and two of them fight over the same files.** So
@@ -102,11 +116,50 @@ Run it in the background: it does not return until the run is over, and the laun
 **And close the monitor of a run that is over** — `TaskStop` — before starting the next. Two monitors on one
 log both fire, and the older one's filter was written for the launch before this one.
 
+## Every launch says `--log=verbose`
+
+**A launch is verbose, whether it is a recipe's or somebody's own game** — `./orb.exe --log=verbose`, and for
+the script above, `./orb.exe "--autoplay=$recipe" --log=verbose`. What `normal` leaves out is the per-frame
+lines, and those are the ones that say what orb did *to* the run: the word handed to the read each frame, the
+frames a pick-up plays its buttons back in, the chapters `take_hits` passed over, and the sound's geometry
+either side of a restore.
+
+**The reason is that a symptom is not something to be reproduced on request.** A run of th07 picked up and
+played to stage 6 was seen to move on its own after one chapter retry, as if another replay were playing;
+the launch had been left at `normal`, and what its log could then answer was only which explanations were
+*not* it — no `replay` or `demo` in the frame lines' flags, so not the game's own playback, and no `resume:`
+line after the retry, so not orb starting one. What was left needed the frame lines, the run was over, and
+the route to it is twenty-five minutes of play.
+
+**And the cost of verbose is the log's size and nothing else.** It is written beside the exe, a run of a few
+minutes is megabytes rather than hundreds of kilobytes, and `orb.log` is one file the next launch appends to
+— so a measurement worth keeping is copied out to the scratchpad while the game is still up, which
+`## Measuring across launches` says anyway.
+
 ## Watching it: every 30 seconds, and what to say
 
 Watch with `Monitor` over the copy's `orb.log`, and **say the state every 30 seconds** rather than only when
 something changes: a run whose chapter has not changed for two minutes is either a long spellcard or a run
-that is stuck, and the two are indistinguishable while nothing is said. What is worth one line:
+that is stuck, and the two are indistinguishable while nothing is said.
+
+**That monitor is armed with the launch and not when somebody asks for it**, and a monitor that only greps
+for the lines a measurement is about is not it: a run reported on every thirty seconds is one whose stall,
+whose deaths and whose recipe step are all visible while it happens, where an event filter says nothing for
+minutes and nothing is what a stuck run says too. Both together is fine — the filter for the lines the
+measurement turns on, the poll for the state — but the poll is the one that cannot be left out.
+
+**And a filter whose last stage is `cut` or `head` delivers nothing**: only `grep --line-buffered` flushes per
+line, so a `... | grep --line-buffered <pattern> | cut -c1-170` sits in `cut`'s buffer and the monitor stays
+silent through the very lines it was armed for. Trim inside the loop with `sed`'s own substitution, or put the
+`cut` before the grep, or leave the lines untrimmed.
+
+**Nor does `tail -f` on this log fire at all.** It is on a Windows drive through the interop, where inotify
+gets nothing, so `tail -n 0 -f "$log" | grep --line-buffered …` reports not one line however much is
+appended — measured on a hand-played run whose log grew by 2,590 lines with that monitor armed and silent
+throughout. The poll above is the only thing that sees a Windows-side file grow: `wc -c` each tick, and
+`tail -n +"$from"` for what is new.
+
+What is worth one line:
 
 - how many hits and how many deaths the run has had
 - which recipe step it is on — `autoplay: step N of M …`
@@ -213,6 +266,22 @@ to be up, answers it, and is over once it has gone, so one that never comes up e
 **Which is what reaches the questions a press cannot.** A pointdevice replay is chosen out of four lists of
 twelve items and there is no other way into one; and the mode question, raised by the press at the title's own
 item, is answered on the frame a tap toward it lets go — item nought, whatever was meant.
+
+**`menu` is the game's own pause menu, and it is a press like any other.** The button both games call the menu
+button, held for a few frames and let go — the manager takes its *edge*, so a word held for ever opens one menu
+and closes none:
+
+    - press: [menu]
+      frames: 4
+
+What is behind it is that menu's own items, and 「最初からやり直す」 is what asks orb where to start over — the
+one road into that question, and the only way to reach what the pause did to the music on the way. **Its items
+are the game's own sprites and its cursor is the game's**, so they are pressed down blind: `answer` is what
+orb's own questions have instead, and a menu of the game's has no such thing. Nothing waits for it either —
+`until` has no state for a menu of the game's — so what a step after it has is frames.
+
+**And the word it lands in is the one the game's own read left**, not the word a run is written down as: that
+is what the manager watches, and it is why a resume feeding a run's frames back opens no menu.
 
 **And an attempt watched to its end puts that same list back up**, on the attempt just watched, a second after
 the front end comes back — so a recipe watching several attempts of one chapter is one `answer` step per
@@ -374,3 +443,15 @@ Every open of one goes to the mode's own file except the front end's unlocks rea
 `score: card N now A attempt(s) and C capture(s) …, where the file had a and c` can hold the two files'
 numbers at once. `--no-chapters` leaves one file and is what makes such a line readable; without it, what
 settles a number is the pair of launches rather than the line.
+
+**A file the *released* orb wrote is one only a hand-played run produces, so keep the one it produces.**
+Nothing here can drive that build: v0.10.0 answers `--autoplay` with `error: unexpected argument`, the bot
+having come after it. And a file this build wrote with two keys edited out of it is a file no orb ever wrote,
+which is the one thing a compatibility measurement must not be built on — so what makes one is somebody
+playing the released exe for the forty seconds a stage's midsection takes.
+
+**Copy it out of `pointdevice_resume/` before any launch is driven at that slot.** A launch whose question
+that file does not answer starts a run of its own in the same slot and writes over it within a second of the
+stage starting, which is how the first one was lost and a second play had to be asked for. `resume-fixtures/`
+beside the copy is where the kept ones live, and one of them is worth more than the run it came from: every
+later measurement of what a released file does is that file read again.

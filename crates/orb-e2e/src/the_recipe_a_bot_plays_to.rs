@@ -946,3 +946,48 @@ fn a_recipe_that_cannot_be_read_is_refused() {
         );
     });
 }
+
+/// **And `menu` is a word a recipe can press**, which is the one road it could not take.
+///
+/// What is behind that button is the game's own pause menu — 「最初からやり直す」 and everything that item
+/// leads to: orb's question about where to start over, and what the pause did to the music on the way. A
+/// recipe that cannot press it cannot reach any of that, so a session at the keyboard was the only way to try
+/// one.
+///
+/// **What this asks is which word it lands in.** The manager reads that button off the word the game's own
+/// *read* left, as an edge against the frame before — so a press that did not reach *that* word is a press no
+/// menu ever sees, and it is the half a recipe's own machinery could get wrong: the word a recipe presses is
+/// handed to the game inside its own input hook, and everything about a run is written down off it.
+///
+/// The run's own word carries the button too, the game's own copy of the read being the whole word — what
+/// `RUN_INPUT` keeps it out of is a run *written down*, so that a resume feeding its frames back does not open
+/// a menu instead of playing. What the menu then does with the press is the game's, and
+/// `the_word_a_run_of_th07_is_written_down_as.rs` is where both of those are held to.
+#[test]
+fn the_menu_button_a_recipe_presses_reaches_the_word_the_read_leaves() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-recipe-opening-the-menu",
+            Work::wandering(WORK_US),
+            |config| {
+                // Held for a moment and let go: the manager takes the button's edge, so a word held for ever
+                // opens the menu once and a recipe that never released it could not close one either.
+                config.autoplay = Some("- press: [menu]\n  frames: 4\n".to_owned());
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        game.streams_its_song(0);
+        game.frame();
+
+        assert_eq!(
+            game.image().the_word_the_read_left() & MENU,
+            MENU,
+            "the pause button a recipe pressed is in no word the game read:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// th07's pause button, as `Th07`'s own `BUTTON_MENU` has it — the mapping's fourth entry.
+const MENU: u16 = 0x008;

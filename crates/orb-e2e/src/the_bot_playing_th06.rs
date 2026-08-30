@@ -63,6 +63,52 @@ fn in_a_stage(name: &str) -> Box<Fake> {
     game
 }
 
+/// **A recipe that names the item to answer the retry question with gets to answer it.**
+///
+/// What a press reaches at that menu is the item the cursor is on, which is the chapter that was lost — so a
+/// launch playing itself could take that one and nothing else, and the stage's own start was the whole run
+/// played again to reach. See `retry_ui::RetryMenu::answered_outright`.
+///
+/// **The item is the stage's place in the list as the list stands**: a run at a stage's own first chapter has
+/// nothing behind that chapter, so the item that lists what is behind it is left out and the stage is the
+/// second.
+///
+/// **And the front end pressed through by the recipe's own first step**, which is what a launch playing to one
+/// does: the bot answers every read of the game's own keyboard, so the presses the walk-in wants have to be
+/// the bot's — a step that waits presses nothing, and the walk-in then waits for a decide nobody makes.
+#[test]
+fn a_recipe_of_th06_answers_the_retry_question_with_the_item_it_names() {
+    in_its_own_process(|| {
+        let game = Fake::attach("th06-the-bot-answers-the-retry", the_run(), |config| {
+            config.autoplay = Some(
+                "- press: [decide]\n  frames: 2\n  until: { stage: 1, chapter: 1 }\n  \
+                 give_up_after: 1800\n\
+                 - start_over: true\n\
+                 - answer: { question: retry, item: 1 }\n"
+                    .to_owned(),
+            );
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        game.in_a_pointdevice_run();
+        game.frames_until("the question the start-over raises", 600, || {
+            log.said("where from is the question")
+        });
+        // **The stage taken outright and not asked about**, which is what the run being at that stage's own
+        // first chapter makes of it: the confirmation is for a choice that loses something, and a stage whose
+        // start is the chapter being played loses nothing.
+        game.frames_until("the stage taken", 600, || {
+            log.said("retry: the stage again")
+        });
+        assert!(
+            !log.said("retry: the chapter again"),
+            "the retry was answered with the chapter the run was in, which is the item the recipe said it \
+             did not want:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **The shot is held on every frame of a stage**, which says the frame reached the rules at all: off a stage
 /// they press nothing, so a word with the shot in it is a stage the reading found.
 #[test]

@@ -77,6 +77,21 @@ pub struct Options {
     )]
     speed: Option<u32>,
 
+    /// game frames a sixtieth of a second is paced to hold, so that walking a run to some stage
+    /// takes minutes rather than half an hour. **Everything orb does per frame is what it does in
+    /// an ordinary launch** — this shortens the wait between frames and nothing else, which is what
+    /// makes it different from --speed. The clock paces it, no display having a blank per frame to
+    /// give at four times sixty, and the music plays at its own speed while the stage goes by
+    /// quicker: a check of the sound is a launch of this at 1
+    #[arg(
+        long,
+        require_equals = true,
+        value_name = "N",
+        value_parser = clap::value_parser!(u32).range(1..),
+        help_heading = TABLE,
+    )]
+    pace: Option<u32>,
+
     /// nothing can hit the player and the run goes at 64 updates a drawn frame, so half an
     /// hour of playing well is a minute of holding the shot key. It leaves no record: no score
     /// file is written, in the game's ranking or in orb's, no replay, and no chapter for a
@@ -237,6 +252,9 @@ impl Config {
             // frame N` then reports about a file this run had no business writing.
             self.resume = false;
             pass_speed = Some(CLEAR_SPEED);
+        }
+        if let Some(pace) = options.pace {
+            self.pace = pace;
         }
         if let Some(speed) = options.speed.or(pass_speed) {
             self.speed = speed;

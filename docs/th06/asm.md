@@ -223,6 +223,25 @@ unlike th07's.
 Which is why orb reads the field rather than asking for a name of its own — see
 `Game::the_name_its_own_entry_holds`.
 
+## The name of the track being streamed is nowhere in memory
+
+`Supervisor::PlayAudio` is `0x424b5d` and takes the path the stage's data names its track by. It copies that
+path into two of its **own stack buffers** — `[ebp-0x208]` and `[ebp-0x108]`, a byte at a time at `0x424bf1`
+and `0x424c51` — finds the last dot in each with `strrchr` at `0x45ca20`, and writes `wav` over the extension
+of the first and `pos` over the second's. Then it hands `[ebp-0x208]` to `SoundPlayer::LoadBGM` at `0x430a50`
+and `[ebp-0x108]` to `0x430e10`, both with `ecx = 0x6d3f50`, the sound player.
+
+`0x430a50` opens what it was given through a **stream object of its own on the stack**, `[ebp-0xac]`,
+constructed at `0x43b9b0` and destroyed at `0x43ba10` before it returns — the open is `0x43ba60` at
+`0x430b47` and the path is used once more at `0x430b5b`, to be printed in the failure it reports through
+`0x41e940`. What outlives the call is the mmio handle, the length and the loop points, which is what
+`wave_file`'s own offsets in `game/th06/mod.rs` read.
+
+So **a launch cannot say which track is streaming by name**: the path is a local of a call that has returned.
+What tells one track from another is `Th06::music_identity`, out of the wave file's length and its two loop
+points, and that is what a line about the sound carries for this game — see `Game::the_track_heard`, which
+answers nothing here. th07's own record does carry a name, so its line has one.
+
 ## What is not established
 
 - Which of the five bullet states is which kind. That nought is an empty slot and 5 is one that has just hit is

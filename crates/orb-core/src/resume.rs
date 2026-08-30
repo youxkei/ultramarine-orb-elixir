@@ -112,11 +112,39 @@ pub struct Kept {
     /// What that chapter is called, which nothing could work out again without playing the stage.
     pub name: String,
     pub retries: u32,
-    /// Where the song was when that chapter began, as a position in the track's own file — the one
+    /// Where the song was when that chapter began, as a position in the file the game streams from — the one
     /// thing about the sound that means anything in another process, the buffer and its object being
     /// this one's. `None` where the stream would not say, and then a resume leaves the music as the
     /// stage started it.
     pub song: Option<i32>,
+    /// **And which track that position is in**, since the file holds every one of them: the position means the
+    /// sound it points at only while the track playing is the one it was read from, and a stage's first chapter
+    /// is picked up into the front end's own song — the build has loaded the stage's slots and its script has
+    /// asked for neither. `None` where the stream would not say, and for a file written before this was kept;
+    /// either way a resume leaves the music alone rather than seeking a stream it cannot vouch for.
+    ///
+    /// [`Game::music_identity`] and not a name, which is what the restore holds a chapter's sound to as well —
+    /// and it is a number the track's own record makes, so the same track answers with it in any process.
+    pub song_identity: Option<u32>,
+    /// **And whether that sound was coming out**, which the position does not say: a stream sitting at an
+    /// offset with its buffer stopped is silence, and a chapter taken in that is a chapter whose sound was
+    /// nothing.
+    ///
+    /// Which is what a stage's own first chapter is taken in: it falls frames into the stage, where the song
+    /// of the scene before it has been taken down and the stage's own has not been asked for — so a resume
+    /// that put the position back *and played it* made a silence audible. A launch picked stage 6's first
+    /// chapter up and heard the title screen's own theme for the five seconds before that stage's script
+    /// started its song.
+    ///
+    /// The restore holds a chapter to the same thing — see [`crate::audio::Saved::was_playing`] — and this is
+    /// that reading kept in a file, so that a resume owes what a retry owes.
+    ///
+    /// **`None` is a file that does not say**, which is every th06 file written before this was kept — that
+    /// game's own file is read both with the field and without it, see `game::th06::resume`. Not the same as
+    /// `Some(false)`: one is a chapter whose sound was nothing and the other is a chapter nothing is known
+    /// about, and a line saying the first of a file holding the second would be orb saying what it was never
+    /// told. Either leaves the music alone.
+    pub song_sounding: Option<bool>,
     /// What [`crate::game::Reproduction`] said at that frame, as it says it. Held against the same
     /// line when the playback lands: if the numbers the game reads at a stage's start are not all
     /// written down, this is the first thing that says so, and which field it was.
@@ -197,6 +225,10 @@ pub struct Landing {
     pub retries: u32,
     /// Where the song was, for the music to be put back to.
     pub song: Option<i32>,
+    /// And which track that position is in — see [`Kept::song_identity`].
+    pub song_identity: Option<u32>,
+    /// And whether it was coming out, `None` for a file that does not say — see [`Kept::song_sounding`].
+    pub song_sounding: Option<bool>,
     /// The reproduction line written down for that frame.
     pub reproduction: String,
 }
@@ -349,6 +381,18 @@ impl Record {
         Some(word)
     }
 
+    /// Gives up the playback and keeps everything the run is written down as: the bound it fed to and the
+    /// three things held about how it went, none of which means anything to the playback after it.
+    ///
+    /// **Not [`Record::stop`]**, which is for a run that has ended and throws its buttons away with the rest.
+    /// A playback is given up under a run that goes on being played and written down.
+    fn the_playback_is_over(&mut self) {
+        self.until = None;
+        self.fed = None;
+        self.skipped = false;
+        self.parted = None;
+    }
+
     fn stop(&mut self) {
         self.stage = None;
         self.played.clear();
@@ -493,6 +537,8 @@ pub unsafe fn stage_begun(game: &dyn Game) {
             name: saved.name,
             retries: saved.retries,
             song: saved.song,
+            song_identity: saved.song_identity,
+            song_sounding: saved.song_sounding,
             reproduction: saved.landing,
         });
         // Both halves of every frame, which is what the playback is held to: the buttons to feed and the
@@ -522,8 +568,20 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     record.stage = Some(state.stage);
     record.start = unsafe { game.run_state() };
     record.played.clear();
-    record.parted = None;
     record.feeding = None;
+    // **And the playback of the stage before this one given up.** Its bound is a frame of *that* stage and
+    // this one starts counting again from nothing, so a bound left standing is one every frame of this stage
+    // is below — and the buttons of those frames are written down as they are played, which makes a frame the
+    // game reads twice one the playback has an answer for by its second read. A th07 session picked a run up
+    // in stage 5 and walked into stage 6, whose frame 1 the playback was asked for straight after frame 17863;
+    // the music was then held quiet on every frame it answered for, and the chapter retried there handed the
+    // run the stretch somebody had already played through, which looked like a replay of something else.
+    //
+    // **The frame the playback runs out on is not where this belongs**, though it is where the playback
+    // *ends*: nothing inside the stage it fed reaches a frame below the bound, the landing chapter's snapshot
+    // being taken again at the landing frame and being the only one there is — so the retry menu of a run just
+    // picked up offers that chapter alone, with no item behind it.
+    record.the_playback_is_over();
     // **And the generator as the build leaves it**, which is the one point of the three a parting needs that
     // nothing was saying. A stage picked up is seeded at [`stage_building`] with the word the run recorded and
     // reaches its first frame drawing the same *count* of numbers as the run did and landing on a different one:
@@ -780,6 +838,15 @@ pub unsafe fn write(
         song: game
             .music()
             .and_then(|music| unsafe { music.audible_offset() }),
+        // And the track it is a position in, read on the same frame: the two are one reading, and a position
+        // held without it is one nothing can be seeked by.
+        song_identity: game.music_identity(),
+        // And whether any of it was audible, which is the third part of that one reading: a position and a
+        // track say where the sound was and not that there was one.
+        song_sounding: Some(
+            game.music()
+                .is_some_and(|music| unsafe { music.sounding() }),
+        ),
         landing: unsafe { game.reproduction() },
         buttons: record.played[..at as usize]
             .iter()
@@ -1142,6 +1209,8 @@ mod tests {
             name: String::new(),
             retries: 0,
             song: None,
+            song_identity: None,
+            song_sounding: None,
             reproduction: String::new(),
         });
         // Where the feeding stops, which for a run being picked up is the chapter it is going to.

@@ -162,6 +162,8 @@ pub fn encode(saved: &Kept) -> Vec<u8> {
             retries: saved.retries,
             name: saved.name.clone(),
             song: saved.song,
+            song_identity: saved.song_identity,
+            song_sounding: saved.song_sounding,
         },
         start: WrittenStart {
             score: numbers.score,
@@ -249,6 +251,8 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
         name: written.chapter.name,
         retries: written.chapter.retries,
         song: written.chapter.song,
+        song_identity: written.chapter.song_identity,
+        song_sounding: written.chapter.song_sounding,
         landing: written.landing,
         buttons: dense(&changes, at),
         generators: written.generators,
@@ -314,9 +318,20 @@ struct WrittenChapter {
     frame: u32,
     retries: u32,
     name: String,
-    /// Where the song was in the track's own file, and `null` where the stream would not say — which is a
-    /// resume that leaves the music as the stage started it.
+    /// Where the song was in the file the game streams from, and `null` where the stream would not say —
+    /// which is a resume that leaves the music as the stage started it.
     song: Option<i32>,
+    /// And which track of that file the position is in — see [`crate::resume::Kept::song_identity`]. `null`
+    /// where the stream would not say, and a file without the key at all is refused with everything else this
+    /// reader cannot vouch for: a position with no track to hold it to is one nothing can seek a stream by.
+    song_identity: Option<u32>,
+    /// And whether any of it was coming out — see [`crate::resume::Kept::song_sounding`]. A chapter taken with
+    /// its buffer stopped is a chapter whose sound was nothing, and a position put back and played would make
+    /// that silence audible.
+    ///
+    /// **Not optional in this game's own file**, unlike th06's: what a launch of this build writes it always
+    /// says, and a file from before it is refused with the rest of what this reader cannot vouch for.
+    song_sounding: Option<bool>,
 }
 
 /// The numbers a stage of *this* game starts with, and none of another game's.
@@ -449,6 +464,8 @@ mod tests {
             name: "BOSS SPELL 6".to_owned(),
             retries: 13,
             song: Some(269_385_428),
+            song_identity: Some(0x0089_abcd),
+            song_sounding: Some(true),
             landing: "replay_frame=24119 input=0x0014 randoms=0 rng=0x3274".to_owned(),
             buttons: vec![0, 0, 1, 1, 1, 0x45, 0x45, 0, 0, 0, 0x105, 0x105],
             // One per frame like the buttons, and every one different: what the file has to carry through is

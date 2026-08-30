@@ -17,6 +17,56 @@ use crate::{detail, log};
 const SEEK_SET: i32 = 0;
 const SEEK_CUR: i32 = 1;
 
+/// **Frames left before a stream a restore has been through is read back**, and the marks it is read at.
+///
+/// **What no e2e test can answer.** A laid-out game has no streaming thread — `Snapshot::update` says so of
+/// the capture's own loop — so whether the game's own thread goes on feeding a stream after a restore is a
+/// question the real game alone answers, and what answers it is the next write *moving*. One reading says
+/// nothing about that, so there are two.
+///
+/// A static because the restore and the frames after it are the same thread's and the snapshot is gone by
+/// then, which is [`crate::snapshot`]'s own reason for the note it leaves.
+static WATCHING: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const WATCH_FOR: u32 = 90;
+const READ_BACK_AT: [u32; 2] = [60, 0];
+
+/// Watches the stream over the frames after a restore, whatever that restore did about the sound.
+pub fn watch_what_becomes_of_the_stream() {
+    WATCHING.store(WATCH_FOR, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// And the reading itself, once per frame while a restore is being watched.
+///
+/// **At `verbose` and not at the level a run is ordinarily logged at.** A chapter being ground is a restore
+/// every few seconds and two lines apiece, which is a session's log spent on a question already answered: what
+/// these readings were for is what a restore leaves the sound as, and they answered it — the buffer the game is
+/// playing through was being put back from a snapshot, and holding that word back is
+/// `Th07::audio_state`'s now. So they stay for the next such question and cost a launch nothing until it is
+/// asked.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn read_the_stream_back(game: &dyn crate::game::Game) {
+    let left = WATCHING.load(std::sync::atomic::Ordering::Relaxed);
+    if left == 0 {
+        return;
+    }
+    let left = left - 1;
+    WATCHING.store(left, std::sync::atomic::Ordering::Relaxed);
+    if !READ_BACK_AT.contains(&left) {
+        return;
+    }
+    let Some(live) = game.music() else {
+        return detail!(
+            "sound: {} frame(s) on, nothing is playing",
+            WATCH_FOR - left
+        );
+    };
+    detail!("sound: {} frame(s) on — {}", WATCH_FOR - left, unsafe {
+        live.how_it_stands()
+    },);
+}
+
 /// The game's own copy, which is the one to ask: a second one loaded here would answer about a
 /// file this process opened rather than the one the game is streaming from.
 const WINMM: &str = "winmm.dll";
@@ -138,7 +188,45 @@ impl Saved {
     }
 }
 
+/// **What is coming out of the speakers, as one line**: which track, whether its buffer is playing, and where
+/// in the file the sound audible now begins.
+///
+/// One function, so that every line about the music says it the same way and a log can be read for the track
+/// alone. The track is named where the game keeps the name — see [`crate::game::Game::the_track_heard`] — and
+/// stands as its identity where it does not, which tells one track from another without naming either.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn what_is_heard(game: &dyn crate::game::Game) -> String {
+    let Some(identity) = game.music_identity() else {
+        return "no track is streaming".to_owned();
+    };
+    let named = game
+        .the_track_heard()
+        .unwrap_or_else(|| format!("{identity:#010x}"));
+    let music = game.music();
+    let sounding = music
+        .as_ref()
+        .is_some_and(|music| unsafe { music.sounding() });
+    let standing = if sounding { "playing" } else { "stopped" };
+    match music.and_then(|music| unsafe { music.audible_offset() }) {
+        Some(at) => format!("{named} is {standing} at {at} in the file"),
+        None => format!("{named} is {standing}, its position not to be had"),
+    }
+}
+
 impl Music {
+    /// **Whether the buffer is playing**, which is the half of what a listener gets that no position answers:
+    /// a stream sitting at the right offset with its buffer stopped is silence, and the two look the same in
+    /// every other line about the sound.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    pub unsafe fn sounding(&self) -> bool {
+        let (asked, status) = dsound::get_status(self.buffer);
+        asked >= 0 && status & DSBSTATUS_PLAYING != 0
+    }
+
     /// Where the stream is up to. Comparing this before and after tells whether
     /// the streaming thread has run in between.
     pub fn token(&self) -> Option<u32> {
@@ -280,6 +368,34 @@ impl Music {
             behind: (play + self.buffer_size - write) % self.buffer_size,
             notify_size: self.notify_size,
         })
+    }
+
+    /// **Where the mixer and the game's own next write stand**, as a log line says it.
+    ///
+    /// The game's own thread refills the buffer at its next write when the mixer passes a chunk boundary, and
+    /// th07's refill (0x45db60) refuses — `Stream Skip` — where that offset lies inside the chunk the device is
+    /// writing out of. **Which is the ordinary way of things and not a fault**, measured on the real game:
+    /// through a run of retries the next write sat exactly one chunk behind that cursor at every reading, and
+    /// the thread went on feeding the stream. A repair built on reading that state as broken rebuilt the stream
+    /// on every retry, each from an offset seconds further on than the last.
+    ///
+    /// So none of these four numbers is a verdict. What they are for is being read against each other over the
+    /// frames after a restore — see [`read_the_stream_back`] — where the next write *moving* is what says the
+    /// thread is feeding it, and none of them is in memory a snapshot holds.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    pub unsafe fn how_it_stands(&self) -> String {
+        let (asked, status) = dsound::get_status(self.buffer);
+        let (_, play, write) = dsound::get_current_position(self.buffer);
+        format!(
+            "cursor {play}, the device writing at {write}, next write at {:?}, {} byte(s) left, \
+             chunk {} of a {}-byte buffer, status {status:#x} (asked {asked})",
+            self.token(),
+            orb_api::mem::read_committed::<u32>(self.bytes_left).unwrap_or_default(),
+            self.notify_size,
+            self.buffer_size,
+        )
     }
 
     /// Whether the game's memory, as copied into a snapshot, still describes the

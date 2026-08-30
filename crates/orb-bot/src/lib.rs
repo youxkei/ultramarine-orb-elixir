@@ -150,9 +150,27 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *playing = None;
     unsafe { runtime::plays_the_run(None) };
+    let Some(read) = read_the_recipe(recipe, game) else {
+        return;
+    };
+    *playing = Some(read);
+    unsafe { runtime::plays_the_run(Some(word_to_press)) };
+}
+
+/// **The recipe read into what a bot plays to**, or `None` — said in the log — for one it cannot read.
+///
+/// **Apart from the static it goes in**, which is what lets a test hold one of its own: the bot's own is one
+/// per process because the read hook reaches it with nothing to hand it, and two tests in one process sharing
+/// it are two tests whose order decides what either reads. Which is what happened —
+/// `a_tap_ends_when_the_cursor_reaches_the_item_it_names` failed in a suite that passes it alone, the other
+/// test having installed its own recipe over this one's in between.
+fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
     let written = match recipe::read(recipe) {
         Ok(written) => written,
-        Err(why) => return log!("autoplay: the recipe cannot be read: {why}"),
+        Err(why) => {
+            log!("autoplay: the recipe cannot be read: {why}");
+            return None;
+        }
     };
     let mut steps = Vec::with_capacity(written.len());
     for (index, step) in written.into_iter().enumerate() {
@@ -167,15 +185,16 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                 let mut word = 0;
                 for name in &buttons {
                     let Some(bit) = game.button_bit(name) else {
-                        return log!(
+                        log!(
                             "autoplay: the recipe cannot be read: step {at} presses a button this \
                              game has not, {name}"
                         );
+                        return None;
                     };
                     word |= bit;
                 }
                 let until = match until.map(|until| waiting(until, at)) {
-                    Some(None) => return,
+                    Some(None) => return None,
                     held => held.flatten(),
                 };
                 Step::Press {
@@ -188,22 +207,16 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
             recipe::Step::Play {
                 until,
                 give_up_after,
-            } => match waiting(until, at) {
-                Some(until) => Step::Play {
-                    until,
-                    give_up_after,
-                },
-                None => return,
+            } => Step::Play {
+                until: waiting(until, at)?,
+                give_up_after,
             },
             recipe::Step::Wait {
                 until,
                 give_up_after,
-            } => match waiting(until, at) {
-                Some(until) => Step::Wait {
-                    until,
-                    give_up_after,
-                },
-                None => return,
+            } => Step::Wait {
+                until: waiting(until, at)?,
+                give_up_after,
             },
             recipe::Step::Leave => Step::Leave,
             recipe::Step::Quit => Step::Quit,
@@ -222,13 +235,10 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
                 question,
                 item,
                 give_up_after,
-            } => match named_question(&question, at) {
-                Some(question) => Step::Answer {
-                    question,
-                    item,
-                    give_up_after,
-                },
-                None => return,
+            } => Step::Answer {
+                question: named_question(&question, at)?,
+                item,
+                give_up_after,
             },
         };
         steps.push(step);
@@ -237,14 +247,13 @@ pub unsafe fn install(recipe: &str, game: &dyn Game) {
         "autoplay: orb is playing this run itself, to {} step(s)",
         steps.len()
     );
-    *playing = Some(Playing {
+    Some(Playing {
         steps,
         at: 0,
         frames: 0,
         hits: hits::TakingHits::default(),
         asked: false,
-    });
-    unsafe { runtime::plays_the_run(Some(word_to_press)) };
+    })
 }
 
 /// One `until` with its question resolved, or `None` — said in the log — for a name orb does not put up.
@@ -284,12 +293,38 @@ fn named_question(name: &str, at: usize) -> Option<Question> {
     })
 }
 
+/// **Whether the step now being carried out is one that answers orb's retry question itself**, which is what
+/// makes the block below stand aside.
+///
+/// The retry is taken wherever it comes up because a death lands in the middle of a step, and what takes it is
+/// a tap of decide — which is the item the cursor is on, the first of them. So a recipe naming any other item
+/// was answered `retry: the chapter again on the pad` before its own step saw the question, and the step then
+/// sat out its bound: a run asked to start over could be sent back to the chapter it was in and nowhere else,
+/// which is what put a check of a stage's own first chapter half an hour of autoplay away.
+fn a_step_answers_the_retry(playing: &Playing) -> bool {
+    matches!(
+        playing.steps.get(playing.at),
+        Some(Step::Answer {
+            question: Question::Retry,
+            ..
+        })
+    )
+}
+
 /// The word the bot presses this frame, which is what the slot in `orb_core::runtime` is filled with.
+///
+/// **The lock and nothing else**, the run being played standing in a static because the read hook reaches this
+/// with nothing to hand it. What it is played *to* is [`the_word`], which takes that run as an argument — so a
+/// test holds one of its own rather than the one the last test installed.
 fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     let mut held = PLAYING
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let playing = held.as_mut()?;
+    the_word(held.as_mut()?, game, reached)
+}
+
+/// What a bot playing `playing` presses this frame.
+fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // **What the rules are to do about being hit, asked before anything else this frame.** It is the chapter
     // the run is in that decides, and every frame of one has to be counted for that: the blocks below hand a
     // frame back without reaching the rules — orb's own offer to retry is one, and that offer going down is
@@ -299,7 +334,7 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
     // rather than held, a menu answering the frame a button goes down.
-    if reached.question == Some(Question::Retry) {
+    if reached.question == Some(Question::Retry) && !a_step_answers_the_retry(playing) {
         playing.frames += 1;
         // **And nothing pressed at an offer already answered.** Where the chapter was drawn to be given up
         // at, the answer is asked for outright rather than pressed for — and a press that lands after the
@@ -532,12 +567,22 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{A_TAP, install, word_to_press};
+    use super::{A_TAP, Playing, read_the_recipe, the_word};
     use orb_core::game::{Game, Question, Reached, th07::Th07};
 
     /// The game these are read against, which is th07 for the reason every recipe test uses it: what a button
     /// name *is* is the game's, and this is the game whose bot the recipes were written for.
     const GAME: &Th07 = &Th07;
+
+    /// **A run of this recipe's own, apart from the static a launch keeps its bot in.** Two tests in one
+    /// process installing into that static are two tests whose order decides what either reads, and a suite
+    /// that passed each of these alone failed one of them beside the other.
+    ///
+    /// # Panics
+    /// Where the recipe cannot be read, which is a test whose own recipe is wrong.
+    fn playing_to(recipe: &str) -> Playing {
+        read_the_recipe(recipe, GAME).expect("a recipe this test wrote")
+    }
 
     /// Where the run has got to, with a question of orb's own up or none.
     fn reached(question: Option<Question>) -> Reached {
@@ -562,12 +607,7 @@ mod tests {
     /// somebody else's unlocks.
     #[test]
     fn a_tap_ends_when_the_cursor_reaches_the_item_it_names() {
-        unsafe {
-            install(
-                "- press: [down]\n  frames: 1\n  until: { cursor: 2 }\n",
-                GAME,
-            )
-        };
+        let mut playing = playing_to("- press: [down]\n  frames: 1\n  until: { cursor: 2 }\n");
         let down = GAME.button_bit("down").expect("th07 moves a cursor down");
 
         let mut on = Reached {
@@ -575,7 +615,7 @@ mod tests {
             ..reached(None)
         };
         assert_eq!(
-            word_to_press(GAME, on),
+            the_word(&mut playing, GAME, on),
             Some(down),
             "the step did not tap towards the item it names",
         );
@@ -585,7 +625,7 @@ mod tests {
         // that nothing is being pressed towards the item any more.
         on.cursor = Some(2);
         assert_eq!(
-            word_to_press(GAME, on).unwrap_or(0) & down,
+            the_word(&mut playing, GAME, on).unwrap_or(0) & down,
             0,
             "the step went on tapping past the item it names",
         );
@@ -602,14 +642,14 @@ mod tests {
     #[test]
     fn orbs_own_offer_to_retry_is_taken_wherever_it_comes_up() {
         // A recipe of no steps, so that nothing but the offer decides what is pressed.
-        unsafe { install("[]", GAME) };
+        let mut playing = playing_to("[]");
         let decide = GAME
             .button_bit("decide")
             .expect("th07 decides with something");
 
         let mut pressed = Vec::new();
         for _ in 0..A_TAP * 2 {
-            pressed.push(word_to_press(GAME, reached(Some(Question::Retry))));
+            pressed.push(the_word(&mut playing, GAME, reached(Some(Question::Retry))));
         }
         assert_eq!(
             pressed,

@@ -24,6 +24,10 @@ pub use keys::VirtualKey;
 
 pub const FILE_NAME: &str = "orb.yaml";
 
+/// **Derived, so that what a launch says about itself cannot fall behind what it holds.** The line orb writes
+/// is this whole struct, and a field added to it appears there by construction — where a line naming its
+/// fields by hand is a second place to edit per field, and `--pace` was added and left out of it.
+#[derive(Debug)]
 pub struct Config {
     /// Directory `orb.yaml` is looked for in, which for the DLL is also what it writes its log
     /// and its tuning table beside.
@@ -105,6 +109,18 @@ pub struct Config {
     /// with `fast_clear`, so a pass or a clear over a full run takes a minute rather
     /// than half an hour.
     pub speed: u32,
+    /// **Game frames a sixtieth of a second is paced to hold**, one in an ordinary launch: what a launch
+    /// spends walking a run to some stage is wall clock, and this shortens the wait between one frame and
+    /// the next.
+    ///
+    /// **Everything orb does per frame is what it does in an ordinary launch**, which is the whole of the
+    /// difference from [`Config::speed`] — that one runs several updates to a drawn frame, so a frame of
+    /// orb's does something it does not ordinarily do. Here the frames are the same frames and only sooner.
+    ///
+    /// The clock paces them, no display having a blank per frame to give at four times sixty, and the
+    /// music's own thread stays real time: a check of the sound is a launch of this at one. See
+    /// [`crate::_frame_pacing`] — or rather `orb_core::frame::Pacing::paces_faster`, where it is divided in.
+    pub pace: u32,
     /// Nothing can hit the player, and a run someone is playing runs at `speed`.
     ///
     /// For reaching the ending, which nothing else can reach: the game enters one only
@@ -463,6 +479,7 @@ impl Config {
             during_replay: false,
             stress_restore_frames: 0,
             speed: 1,
+            pace: 1,
             fast_clear: false,
             chapter_stepping: false,
             block_replay_save: false,

@@ -186,7 +186,7 @@ fn plain<const B: usize, const A: usize>(
     after: [&str; A],
     args: Vec<String>,
 ) -> ExitCode {
-    let mut command = Command::new(cargo_bin());
+    let mut command = cargo_command();
     command
         .args(before)
         .args(["--target", target])
@@ -224,7 +224,7 @@ fn plain<const B: usize, const A: usize>(
 /// setting was in this function as an environment variable first and did nothing at all — sixteen threads and
 /// thirty-two processes every run — which is the whole reason this note is here.
 fn test(args: Vec<String>) -> ExitCode {
-    let mut command = Command::new(cargo_bin());
+    let mut command = cargo_command();
     command.args(["test", "--target", TARGET]).args(&args);
     if !args.iter().any(|arg| arg.starts_with("--test-threads")) {
         let threads =
@@ -250,7 +250,7 @@ fn test(args: Vec<String>) -> ExitCode {
 /// not carry, and there is nothing to run at the end of it. The two packages in one invocation because
 /// what fails is a name and not a link, so the first error is the answer wherever it is.
 fn seam(args: Vec<String>) -> ExitCode {
-    let mut command = Command::new(cargo_bin());
+    let mut command = cargo_command();
     command
         .arg("check")
         .args(ABOVE_THE_SEAM.iter().flat_map(|package| ["-p", package]))
@@ -340,9 +340,57 @@ fn cargo_bin() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
 }
 
+/// The environment variable the commit goes in, which `orb` reads with `option_env!` as it compiles.
+const BUILT_FROM: &str = "ORB_BUILT_FROM";
+
+/// That cargo with the commit the build is being made from in its environment — see [`built_from`].
+fn cargo_command() -> Command {
+    let mut cargo = Command::new(cargo_bin());
+    if let Some(commit) = built_from() {
+        cargo.env(BUILT_FROM, commit);
+    }
+    cargo
+}
+
+/// **Which commit a build is being made from, so that a launch can say which build it is.**
+///
+/// The version cannot: `0.11.0-dev` is what every build between two releases says, and a launch driven
+/// against an exe deployed before a fix said exactly the same line as one driven against the exe with it —
+/// which is a measurement of the build nobody meant to measure, and there was nothing in the log to tell the
+/// two apart.
+///
+/// **jj's working-copy commit, whose id changes with the tree.** `@` *is* the working copy here, so its id
+/// covers work that is not committed anywhere: two trees that differ by an edit are two commits, and the id
+/// therefore answers "is this the build with the fix" rather than "which release is this". Colocated with
+/// git, so what it prints is the git hash of that commit.
+///
+/// **The read snapshots the working copy**, which is what makes the answer the tree being built rather than
+/// the tree as of somebody's last jj command. That is a side effect of asking, and asking is what a build is
+/// allowed to do: `--ignore-working-copy` would answer faster and stale, which is the failure this exists to
+/// stop.
+///
+/// `None` where jj cannot answer — a tree with no repository around it, or no jj on the machine — and a
+/// launch of such a build says so rather than naming a commit it cannot vouch for.
+fn built_from() -> Option<String> {
+    let asked = Command::new("jj")
+        .args(["log", "-r", "@", "--no-graph", "-T", "commit_id.short(12)"])
+        .output()
+        .ok()?;
+    asked.status.success().then_some(())?;
+    the_commit_in(&asked.stdout)
+}
+
+/// The commit out of what `jj log` printed, or `None` for anything that is not one.
+fn the_commit_in(printed: &[u8]) -> Option<String> {
+    let text = String::from_utf8(printed.to_vec()).ok()?;
+    let commit = text.trim();
+    let hexadecimal = !commit.is_empty() && commit.chars().all(|digit| digit.is_ascii_hexdigit());
+    hexadecimal.then(|| commit.to_owned())
+}
+
 /// `cargo`, with what the coverage build needs that no config file can carry.
 fn cargo(clang: &Path) -> Command {
-    let mut cargo = Command::new(cargo_bin());
+    let mut cargo = cargo_command();
     cargo.env("CARGO_TARGET_I686_PC_WINDOWS_GNULLVM_LINKER", clang);
     if let Some(wslenv) = wslenv() {
         cargo.env("WSLENV", wslenv);
@@ -406,5 +454,43 @@ fn status(mut command: Command, what: &str) -> bool {
             eprintln!("xtask: {what} could not be run: {error}");
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::the_commit_in;
+
+    /// The commit is taken out of what jj printed, and anything that is not one leaves the build unstamped.
+    ///
+    /// **Unstamped rather than stamped with whatever came back**, which is the point of reading it at all: a
+    /// launch that names a commit is a launch somebody will hold a tree against, so a line that names an
+    /// error message or half a hash is worse than a line saying there is no commit to name.
+    #[test]
+    fn the_commit_is_what_jj_printed_and_nothing_else_is() {
+        assert_eq!(
+            the_commit_in(b"7c4f1a2b3c4d\n").as_deref(),
+            Some("7c4f1a2b3c4d"),
+        );
+        // What `--no-graph` leaves is the template's own output, which carries no newline of its own where
+        // the template does not add one.
+        assert_eq!(
+            the_commit_in(b"7c4f1a2b3c4d").as_deref(),
+            Some("7c4f1a2b3c4d")
+        );
+        assert_eq!(
+            the_commit_in(b"  7c4f1a2b3c4d \n").as_deref(),
+            Some("7c4f1a2b3c4d")
+        );
+        assert_eq!(the_commit_in(b"").as_deref(), None);
+        assert_eq!(the_commit_in(b"\n").as_deref(), None);
+        // A message where a hash was asked for: jj says what it cannot do on stdout as readily as on stderr,
+        // and `Error: ...` is not a commit.
+        assert_eq!(
+            the_commit_in(b"Error: There is no jj repo in \".\"\n").as_deref(),
+            None
+        );
+        // And bytes that are not text at all, which is what a pipe carrying something else looks like.
+        assert_eq!(the_commit_in(&[0xff, 0xfe, 0x00]).as_deref(), None);
     }
 }

@@ -2577,6 +2577,54 @@ fn in_a_chapter(name: &str, recipe: &str) -> Box<Fake> {
 /// itself being read where the numbers are.
 const EVERY_CHAPTER: &str = "- take_hits: { chance: 1.0 }\n";
 
+/// **A recipe that names the item to answer the retry question with gets to answer it.**
+///
+/// orb's own offer to retry is taken wherever it comes up, a death landing in the middle of a step — and what
+/// takes it is a tap of decide, which is the item the cursor is on. That is the first of them, so a recipe
+/// naming any other was answered before its own step saw the question and then sat out its bound: a run asked
+/// to start over could be sent back to the chapter it was in and nowhere else.
+///
+/// **Which is what a check of a stage's own first chapter needs**, the stage being one of the items: that
+/// chapter is then a launch of a minute away, where a walk to it is the whole run played again — half an hour
+/// of autoplay for a file the next launch overwrites.
+///
+/// **The item is the stage's place in the list as the list stands**, and what stands in it depends on the
+/// chapter: a run at a stage's own first chapter has nothing behind that chapter, so the item that lists what
+/// is behind it is left out and the stage is the second. A recipe naming the third here asks for the title.
+///
+/// **And the front end pressed through by the recipe's own first step**, which is what the copies driven by
+/// these recipes do: a launch playing to one answers every read of the game's own keyboard, so the presses the
+/// walk-in wants have to be the bot's — a step that waits presses nothing, and the walk-in then waits for a
+/// decide nobody makes.
+#[test]
+fn a_recipe_of_th07_answers_the_retry_question_with_the_item_it_names() {
+    in_its_own_process(|| {
+        let game = in_a_chapter(
+            "th07-the-bot-answers-the-retry",
+            "- press: [decide]\n  frames: 10\n  until: { stage: 1, chapter: 1 }\n  \
+             give_up_after: 1800\n\
+             - start_over: true\n\
+             - answer: { question: retry, item: 1 }\n",
+        );
+        let log = game.log();
+        game.frames_until("the question the start-over raises", 600, || {
+            log.said("where from is the question")
+        });
+        // **The stage taken outright and not asked about**, which is what the run being at that stage's own
+        // first chapter makes of it: the confirmation is for a choice that loses something, and a stage whose
+        // start is the chapter being played loses nothing.
+        game.frames_until("the stage taken", 600, || {
+            log.said("retry: the stage again")
+        });
+        assert!(
+            !log.said("retry: the chapter again"),
+            "the retry was answered with the chapter the run was in, which is the item the recipe said it \
+             did not want:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
 /// **A chapter drawn to be hit in is not dodged in**: the move is the one towards where the rules want to be
 /// and the hazards decide none of it, which is what somebody who has stopped paying attention plays like.
 ///

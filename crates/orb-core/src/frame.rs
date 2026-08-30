@@ -81,6 +81,10 @@ pub struct Pacing {
     /// known. A rate that does not divide into 60 is still paced by them — see `IDEAL_NEXT`.
     blank_paced: bool,
 
+    /// How many game frames a sixtieth of a second is being asked to hold, which is one in an ordinary
+    /// launch — see [`Pacing::paces_faster`], and `frame_ticks` for where it is divided in.
+    faster: i64,
+
     /// Where the sixtieth-of-a-second grid has got to, as a moment rather than a count of
     /// refreshes, because on most displays it does not land on refreshes.
     ///
@@ -413,6 +417,7 @@ impl Pacing {
             frequency,
             blanks_per_frame: 0,
             blank_paced: false,
+            faster: 1,
             ideal_next: 0,
             aimed_refreshes: 0,
             phase: 0,
@@ -511,9 +516,38 @@ impl Pacing {
         micros * self.frequency / 1_000_000
     }
 
-    /// One sixtieth of a second, the rate the game's own timers assume.
+    /// One sixtieth of a second, the rate the game's own timers assume — divided by what
+    /// [`Pacing::paces_faster`] was told, where a launch asked for the frames to come sooner than that.
     fn frame_ticks(&self) -> i64 {
-        self.frequency / i64::from(LOGIC_HZ)
+        (self.frequency / i64::from(LOGIC_HZ) / self.faster).max(1)
+    }
+
+    /// **Paces the game at `times` its own rate, and leaves everything orb does per frame alone.**
+    ///
+    /// What a launch spends walking a run to some stage is wall clock and nothing else. The frame's own work
+    /// — the read, the update, the chapters a boundary takes, the draw — is what it is in an ordinary launch,
+    /// and what this shortens is the wait between one frame and the next. Which is the whole of the
+    /// difference from `Config::speed`, whose updates run several to a drawn frame: there a frame of orb's
+    /// does something it does not ordinarily do, and here it does not.
+    ///
+    /// **The blanks stop pacing where this is more than one.** No display has a blank per frame to give at
+    /// four times sixty, so the clock paces instead — which is the fallback a display of an unknown rate
+    /// already takes, and the reason it is a fallback and not a fault.
+    ///
+    /// **And the sound stays where it is**, the music's own thread being real time: a run paced faster is a
+    /// run whose music plays at its own speed while the stage goes by quicker. So this is a way of *reaching*
+    /// a place in a run and not a way of measuring the sound at one — a check of the music is a launch of
+    /// this at one.
+    pub fn paces_faster(&mut self, times: u32) {
+        self.faster = i64::from(times.max(1));
+        if self.faster > 1 {
+            log!(
+                "frame: paced at {}Hz, {} time(s) the game's own rate — the clock pacing it, no display \
+                 having a blank per frame to give",
+                LOGIC_HZ * times,
+                times,
+            );
+        }
     }
 
     /// Holds the compositor's drawing time at what the command line said, instead of letting it
@@ -646,7 +680,7 @@ impl Pacing {
     /// rather than settled here. Only a display whose rate is not known at all falls back to the
     /// clock.
     fn adopt(&mut self, hz: Option<u32>, measured: Option<i64>) {
-        let (blanks, period) = match hz {
+        let (mut blanks, period) = match hz {
             // The measured spacing where there is one, and the nominal multiple's where there is not:
             // for a rate that reports short the nominal is the nearer of the two, a 119.88Hz refresh
             // being 8341µs, which 120 puts at 8333 and 119 at 8403.
@@ -675,8 +709,16 @@ impl Pacing {
         // sixth for two, every second of the run. A display under 60Hz is outside what orb paces at
         // all, so what it gets here is the game's own speed on a clock that lands anywhere, and not an
         // even speed traded for uneven frames.
-        self.blank_paced =
-            blanks > 0 || (measured.is_some() && hz.is_some_and(|hz| hz >= LOGIC_HZ));
+        // **And no blanks at all where the frames are being asked for faster than the display has them** —
+        // see [`Pacing::paces_faster`]: a frame per blank at four times sixty is a display that would have
+        // to refresh at 240Hz. Which is a count of nought and not only a pacing left to the clock: the wait
+        // aims at `period * blanks` wherever there are blanks to aim at, and that is a sixtieth of a second
+        // however short the frame has been asked to be.
+        if self.faster > 1 {
+            blanks = 0;
+        }
+        self.blank_paced = self.faster == 1
+            && (blanks > 0 || (measured.is_some() && hz.is_some_and(|hz| hz >= LOGIC_HZ)));
         // A compose time shown to be short is shown so of the display it was measured on. The window
         // moving to another monitor, or the mode changing under it, makes it a claim about
         // something else — and since it only ever ratchets upward, carrying it over would hold

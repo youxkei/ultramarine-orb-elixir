@@ -187,12 +187,49 @@ the normal start at `0x459e9a` inside it. Each title item writes its own first s
 The title screen's own handler is `0x4555dd` and dispatches on `[front+0x8]`: phase 0 at `0x455621`, which is
 the block the item dispatch at `0x455cdd` lives in, and 1, 2 and 3 at `0x45599d`, `0x45612e` and `0x456184`.
 
-## The pause menu
+## The pause menu and the continue menu
 
-`0x403b60`, a `__thiscall` on an object of five items of `0x24c` bytes each — fields at `+0x1c0` and
-`+0x1ce`, a state at `+0x0` and a timer at `+0x4`. It plays `0xa` through the sound player at `0x4ba0d8` as
-the cursor moves and asks for scene 6 at `0x404204` once that timer reaches `0x14`. The continue path
-`0x4042e0` is inside the same function, so this is the pause menu with a continue on it.
+Two functions with an object apiece — fields at `+0x1c0` and `+0x1ce`, a state at `+0x0` and a timer at
+`+0x4` — and which is which is settled by the flag each clears, the pair `game::th07`'s `GAME_MENU_UP` reads:
+`[gm+0x93dc]` is `0x62f64c` and `[gm+0x93dd]` is `0x62f64d`.
+
+**The pause menu ends at `0x4039e4`** and its object has `0xa` items. `0x42d958` raises its flag, on the edge
+of the menu button, and this clears it three times: `0x40342c` on the way back to the run, `0x40387a` before
+it asks for scene 1, and `0x403901` before it asks for scene `0xa`. Both asks wait for the timer to reach
+`0x14` first (`0x403868`, `0x4038ef`).
+
+**The continue menu is `0x403b60`** and its object has five. `0x441161` raises its flag: the branch a death
+takes where `[[0x626278]+0x5c]`, the lives as a float, is nothing left. It clears it at `0x403b75`, `0x403bb1`,
+`0x403bf7`, `0x4041fd` and `0x404297`, asks for scene 6 at `0x404204` once its own timer reaches `0x14`, and
+plays `0xa` through the sound player at `0x4ba0d8` as its cursor moves. The continue itself is `0x4042e0`,
+inside it.
+
+## The music paused under a menu
+
+`0x44d2f0` is `SoundPlayer::SendCommand`, `__thiscall (kind, argument, name)`, which writes the kind into the
+player's queue at `+0x73c` and returns; `0x44c9c0`'s table at `0x44d1d9` is where a kind goes, and kinds 6 and
+7 go to `0x44d00e` and `0x44d057`. Both branch on the backend byte `[0x575a87]` being 1, leave the command in
+the queue where the stream's `+0x74` is set, and otherwise call `0x45d910` or `0x45d960` on `[player+0x39bc]`:
+the first clears the stream's `+0x30` and calls `IDirectSoundBuffer::Stop`, the second sets it and calls `Play`
+with the stream's own `+0x20` and `+0x24`. The name each site hands is a string of the exe's, `Pause` at
+`0x498a40` and `UnPause` at `0x498a38`.
+
+| where | kind | what |
+| --- | --- | --- |
+| `0x42d9b1` | 6 | the manager, on the frame it raises the pause menu's flag |
+| `0x403496` | 7 | the pause menu, on the way back to the run |
+| `0x403c4c` | 6 | the continue menu, on its own first frame |
+| `0x4044b0` | 7 | the continue menu, on the way back to the run |
+
+**So every way out of either menu that leaves the run standing sends the 7, and the ways out that ask for a
+scene send nothing** — the scene each asks for builds the run and its music again. Which is what makes
+「最初からやり直す」 the one item a run can carry on from with its music still paused, and orb answers that item
+itself.
+
+The manager's 6 and the pause menu's 7 both ask first whether `[0x62f85c]` is 6 and `[0x49fbf0]` is under
+`0x12c` (`0x42d99c`, `0x403481`); the continue menu's pair ask nothing. What the first word of the object at
+`0x49fbf0` counts is not established — it is a global some fifty `__thiscall`s are made on, and these two
+comparisons are the only places anything is held against it.
 
 ## The score file's own phases
 
@@ -474,6 +511,8 @@ rather than asking for a name of its own — see `Game::the_name_its_own_entry_h
   during a run is established — a pair of launches read `0x20` against `0x10` — and so is the route, the
   dispatcher at `0x40ecf1`; which `.ecl` opcode takes that route is not.
 - What the 54 bytes of `[0x626274]` nothing reads are for.
+- What the first word of the object at `0x49fbf0` counts, which two of the four sound sites above hold against
+  `0x12c` on the sixth stage — see *The music paused under a menu*.
 - What the rest of a replay's header is. The shot, the score and the per-stage scores the slot's own stage list
   draws are all in there and none of them is placed; **and whether anything in it says the run was cleared is
   not read either**, which is the question it was opened for — the two Phantasm replays on the machine it was

@@ -461,6 +461,12 @@ const PLAY_SOUNDS: usize = 0x00431270;
 /// free is the one its allocator agrees with. Its prologue reads `backgroundMusic` at
 /// +0x62c, which is what identifies it.
 const STOP_BGM: usize = 0x00430f80;
+/// `push ebp; mov ebp,esp; sub esp,0x10` — position-independent, 6 bytes, read out of the exe at that address.
+///
+/// **Hooked as well as called**, which is what makes a silence of this game's music something a log can date:
+/// every stop of it is this function, orb's own [`Th06::stop_music`] included — see
+/// [`crate::game::Hooks::stops_the_music`].
+const STOP_BGM_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x10];
 /// `th06::Supervisor::PlayAudio`, `__thiscall`, taking the path the stage names its
 /// track by. It swaps the extension for `.wav` and `.pos` itself, loads them, and
 /// plays looping or not depending on whether the `.pos` was there — and takes the
@@ -1166,10 +1172,32 @@ mod streaming_sound {
     pub const BUFFER_SIZE: usize = 0x08;
     pub const WAVE_FILE: usize = 0x0c;
     pub const BUFFER_COUNT: usize = 0x10;
+    /// How many of those buffers a hole may be made for, which is a bound and not a reading: the count above
+    /// is a word of the game's own, and a restore asking for the array while that word is halfway put back is
+    /// a length no read can vouch for. A stream this game makes owns one buffer — `Th06::music` answers
+    /// nothing for any other count — so anything past a handful is not a count.
+    pub const BUFFERS_AT_MOST: u32 = 8;
     pub const NOTIFY_SIZE: usize = 0x28;
     pub const NEXT_WRITE_OFFSET: usize = 0x2c;
     pub const SIZE: usize = 0x34;
 }
+
+/// `CStreamingSound::ServiceBuffer`, `__thiscall` on the stream with one argument on the stack: one chunk of
+/// the wav into the buffer at the offset the stream keeps.
+///
+/// **Read off the music thread that calls it.** `SoundPlayer::LoadBGM` starts that thread at 0x430cb4 —
+/// `push 0x431370; call ds:0x46a07c` — and 0x431370 waits on the player's two handles at `0x6d4580` with a
+/// 191 ms timeout; where the wait answers the first of them and the stream at `[0x6d457c]` is there, it calls
+/// this with the stream in `ecx` and 1 on the stack. Its own prologue then tests `[this+0x4]` and `[this+0xc]`
+/// — the buffer array and the wave file — answering `0x800401f0` where either is null, which is the pair
+/// [`streaming_sound`]'s own offsets name.
+///
+/// **Hooked so that a log can say what is being fed**, which nothing read from the frame can: see
+/// [`crate::game::Hooks::tops_up_the_music`].
+const TOPS_UP_THE_MUSIC: usize = 0x0043b560;
+/// `push ebp; mov ebp,esp; sub esp,0x2c; push ebx` — position-independent, 7 bytes, read out of the exe at
+/// that address. th07's own refill begins with the same seven but for the frame it makes.
+const TOPS_UP_THE_MUSIC_PROLOGUE: &[u8] = &[0x55, 0x8b, 0xec, 0x83, 0xec, 0x2c, 0x53];
 
 mod wave_file {
     pub const MMIO: usize = 0x04;
@@ -1426,6 +1454,18 @@ impl Game for Th06 {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
             })),
+            // The refill its music thread calls, so that what is being fed to the buffer is in the log —
+            // see [`TOPS_UP_THE_MUSIC`].
+            tops_up_the_music: Some(Patch {
+                target: TOPS_UP_THE_MUSIC,
+                prologue: TOPS_UP_THE_MUSIC_PROLOGUE,
+            }),
+            // And its own take-down of the track, which is where this game's music goes quiet — see
+            // [`STOP_BGM`].
+            stops_the_music: Some(Patch {
+                target: STOP_BGM,
+                prologue: STOP_BGM_PROLOGUE,
+            }),
             // No screen of th06's reads a pad by button number: what its buttons are is `custom.exe`'s
             // to write into `東方紅魔郷.cfg`, and the game reads that mapping and never the pad's own
             // numbering. So there is no such read to get in front of.
@@ -1555,6 +1595,24 @@ impl Game for Th06 {
         })
     }
 
+    /// **The stream's own numbers and nothing else**, this being the game's music thread: how much goes in,
+    /// where in the buffer it goes, and how much of the wav is left before the loop — the countdown at `+0xc`
+    /// of the wave file, which the read takes every byte it hands over off.
+    ///
+    /// **That countdown is what says a section loop.** Fed the ordinary way it climbs down to nothing once per
+    /// pass over the song; a stream going round a few seconds of itself has it turning over a narrow range
+    /// instead, which no reading from the frame can tell from music playing normally.
+    unsafe fn the_refill_is_about_to(&self, stream: usize) -> Option<String> {
+        let wave_file = mem::read_committed::<usize>(stream + streaming_sound::WAVE_FILE)
+            .filter(|it| *it != 0)?;
+        let left = mem::read_committed::<u32>(wave_file + wave_file::BYTES_LEFT)?;
+        let write = mem::read_committed::<u32>(stream + streaming_sound::NEXT_WRITE_OFFSET)?;
+        let chunk = mem::read_committed::<u32>(stream + streaming_sound::NOTIFY_SIZE)?;
+        Some(format!(
+            "puts {chunk} byte(s) in at {write}, {left} byte(s) of the track left before it loops",
+        ))
+    }
+
     /// The track's length and loop points together, which differ between tracks
     /// and stay put while one is playing.
     fn music_identity(&self) -> Option<u32> {
@@ -1600,11 +1658,35 @@ impl Game for Th06 {
         true
     }
 
+    /// **The array of buffers the stream owns is among them**, because what DirectSound made lives nowhere else
+    /// in the game's own memory: its one word is the buffer, and a track change deletes that buffer and makes
+    /// another somewhere else — so a restore that wrote the word back from a chapter would name an object the
+    /// game has released, and every call about the sound would be refused from then on: orb's reads and, worse,
+    /// the game's own streaming thread's, which then feeds nothing at all.
+    ///
+    /// **Measured on th07, whose stream has the same shape.** A chapter of a resumed run retried there came
+    /// back with `GetStatus` answering `E_INVALIDARG` at every reading and the countdown frozen at the values
+    /// the chapter had, and what it was heard as is a few seconds of the boss's song repeating and the same few
+    /// seconds still playing at the title. This game keeps its buffers in an array off the streaming sound
+    /// exactly as that one does — see [`streaming_sound::BUFFERS`] and its count beside it.
     fn audio_state(&self) -> Vec<Range<usize>> {
         let mut ranges = Vec::new();
         ranges.push(G_SOUND_PLAYER..G_SOUND_PLAYER + sound_player::SIZE);
         if let Some(streaming) = self.streaming_sound() {
             ranges.push(streaming..streaming + streaming_sound::SIZE);
+            let array = mem::read_committed::<usize>(streaming + streaming_sound::BUFFERS)
+                .filter(|it| *it != 0);
+            if let Some(array) = array {
+                // **Bounded rather than believed**, the count being a word of the game's own that a restore may
+                // be in the middle of putting back: a length read off memory and handed to a hole is a range
+                // this could hold back megabytes of somebody else's with. A stream this game makes owns one
+                // buffer, so anything past a handful is not a count.
+                let buffers = mem::read_committed::<u32>(streaming + streaming_sound::BUFFER_COUNT)
+                    .unwrap_or(1)
+                    .clamp(1, streaming_sound::BUFFERS_AT_MOST)
+                    as usize;
+                ranges.push(array..array + buffers * size_of::<usize>());
+            }
         }
         if let Some(wave_file) = self.wave_file() {
             ranges.push(wave_file..wave_file + wave_file::SIZE);

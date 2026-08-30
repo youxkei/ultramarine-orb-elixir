@@ -853,3 +853,68 @@ fn a_stream_whose_buffer_has_been_freed_leaves_the_chapters_without_sound() {
         );
     });
 }
+
+/// The buffer the game has made by the time the chapter is put back, which is not the one it was taken with.
+///
+/// An address and not an object, the same as the texture handles in `the_handles_a_restore_leaves_alone.rs`:
+/// orb hands a buffer to DirectSound and reads no word through it, so what this has to be is a number that can
+/// be told from the one the chapter had.
+const BUFFER_MADE_SINCE: usize = 0x0700_0000;
+
+/// **The buffer the game is playing through is not put back from a snapshot.**
+///
+/// DirectSound made it and nothing in the game's own memory holds it but the one word at
+/// `[[streaming + 0x4]]` — so a restore that writes that word back from a chapter names whatever object was
+/// there *then*, and the game released that one when it made the buffer it is playing through now. What orb
+/// reads through it is refused, and so is every call the game's own streaming thread makes: the buffer that is
+/// actually playing is never fed again, so it goes round its own contents and the game's own next track never
+/// reaches it.
+///
+/// **Measured on th07, whose stream has the same shape** — a few seconds of stage 5's boss repeating after a
+/// chapter retry, and the same few seconds still playing at the title, with `status 0x0 (asked -2147024809)`
+/// off `GetStatus` at every reading after the restore. This game keeps its buffers in an array off the stream
+/// exactly as that one does, and `Th06::audio_state` held that array back no more than `Th07`'s did.
+///
+/// **A chapter of the fight the stage ends with is where it shows**: its own theme is left playing, so nothing
+/// else about the stream is put back either and the word is all there is to get wrong.
+#[test]
+fn the_buffer_a_stream_names_is_not_put_back_from_a_snapshot() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-buffer-a-restore-leaves", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        // The stream laid out, and the stage's own two songs named: the fight the stage ends with brings the
+        // second of them, which is what makes its chapters the ones whose music is left playing.
+        game.streams_its_song(SONG);
+        game.plays_its_songs();
+        game.in_a_pointdevice_run();
+        game.frames_until("a chapter of the fight the stage ends with", 3000, || {
+            log.said(KEEP)
+        });
+
+        // What the chapter was taken with, and then the buffer the game has made since: a track change deletes
+        // the one that was playing and makes another somewhere else, so by the time this chapter comes back the
+        // word holds an object the chapter knew nothing about — and the one it did know has been released.
+        assert_eq!(
+            game.image().the_buffer_its_stream_names(),
+            orb_sim::Sound::the_buffer(),
+            "the chapter was not taken with the buffer this test thinks it was",
+        );
+        game.image().its_stream_names_the_buffer(BUFFER_MADE_SINCE);
+
+        // The hit and チャプターをやり直す.
+        game.dies();
+        game.frame();
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        assert_eq!(
+            game.image().the_buffer_its_stream_names(),
+            BUFFER_MADE_SINCE,
+            "the restore put back a buffer the game had released:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}

@@ -19,8 +19,8 @@ use orb_api::mem;
 use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
 
 use super::{
-    BUTTON_BOMB, BUTTON_DOWN, BUTTON_FOCUS, BUTTON_LEFT, BUTTON_RIGHT, BUTTON_SHOOT, BUTTON_SKIP,
-    BUTTON_UP, G_BULLET_MANAGER, G_CUR_FRAME_INPUT, G_ENEMY_MANAGER, G_GAME_MANAGER,
+    BUTTON_BOMB, BUTTON_DOWN, BUTTON_FOCUS, BUTTON_LEFT, BUTTON_MENU, BUTTON_RIGHT, BUTTON_SHOOT,
+    BUTTON_SKIP, BUTTON_UP, G_BULLET_MANAGER, G_CUR_FRAME_INPUT, G_ENEMY_MANAGER, G_GAME_MANAGER,
     G_ITEM_MANAGER, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, MENU_CANCEL, MENU_DECIDE, PLAYER_DEAD,
     PLAYER_NORMAL, POWER_FULL, STATE_GAMEMANAGER, Th06, bullet_manager, enemy, enemy_manager,
     game_manager, item, player, supervisor,
@@ -43,6 +43,13 @@ pub fn bit(name: &str) -> Option<u16> {
         // The two masks every screen of this game is driven with — see [`super::MENU_DECIDE`].
         "decide" => MENU_DECIDE,
         "cancel" => MENU_CANCEL,
+        // **And the button that opens the game's own pause menu**, which is the one road a recipe otherwise
+        // cannot take — the same name th07 answers, and the same reason: what is behind it is that menu's own
+        // items and everything they lead to.
+        //
+        // Its items are the game's own and its cursor is the game's, so a recipe presses down them blind:
+        // `answer` is what orb's own questions have instead, and a menu of the game's has no such thing.
+        "menu" => BUTTON_MENU,
         _ => return None,
     })
 }

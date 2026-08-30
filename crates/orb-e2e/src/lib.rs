@@ -124,6 +124,10 @@ mod the_count_a_run_of_th07_carries;
 #[cfg(test)]
 mod the_dpad_moving_the_player;
 #[cfg(test)]
+mod the_end_of_a_playback;
+#[cfg(test)]
+mod the_end_of_a_playback_of_th07;
+#[cfg(test)]
 mod the_ending;
 #[cfg(test)]
 mod the_ending_of_th07;
@@ -208,7 +212,13 @@ mod the_snapshot_held_against_itself;
 #[cfg(test)]
 mod the_snapshot_of_th07_held_against_itself;
 #[cfg(test)]
+mod the_song_a_resume_of_th07_puts_back;
+#[cfg(test)]
 mod the_step_th07s_awards_have_climbed;
+#[cfg(test)]
+mod the_track_heard;
+#[cfg(test)]
+mod the_track_heard_of_th07;
 #[cfg(test)]
 mod the_updates_a_resume_of_th07_takes;
 #[cfg(test)]

@@ -62,8 +62,10 @@ fn a_texture_handle_is_not_put_back_from_a_snapshot_and_the_rest_of_the_manager_
         game.press_until(keys::Z, "the retry menu answered", || {
             log.said("retry: the chapter again on the keyboard")
         });
+        // Named among them by its own length, and not by how many ranges there were: what else a restore
+        // holds back is that chapter's sound, which is a question about the sound and not about the handles.
         assert!(
-            log.said(&format!("restore: skipping 1 range(s), {HANDLES} bytes")),
+            log.said(&format!("+{HANDLES:#x}")),
             "the restore named no range of handles to leave alone:\n  {}",
             log.lines().join("\n  ")
         );

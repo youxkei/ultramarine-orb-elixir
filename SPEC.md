@@ -196,6 +196,17 @@ the same call, out of the copy the game itself made in that card's record — th
 that is memory, and one a restore already carries across for the counts beside it. Nothing where no
 card is up, and nothing for a record the game has not named, whose bytes are the generator's.
 
+**And the buffer the game is playing through is never put back from a snapshot.** DirectSound made it, and
+nothing in the game's own memory holds it but the one word of the array the stream keeps its buffers in — so a
+restore that wrote that word back from a chapter would name an object the game released when it made the buffer
+it is playing through now. Every call about the sound is then refused: orb's own reads, and the game's own
+streaming thread's, which feeds nothing from then on — so the buffer that *is* playing goes round its own
+contents and the game's own next track never reaches it. Heard on the real game as a few seconds of stage 5's
+boss repeating after a chapter retry, and the same few seconds still playing at the title; read in the log as
+`GetStatus` answering `E_INVALIDARG` at every reading after that restore, with the countdown and the next write
+frozen at the values the chapter had. Both games keep their buffers that way, so both hold that array back with
+the rest of the sound's own memory.
+
 **A track change is handled by the game, not by the copy.** Restoring a snapshot taken under
 another track — the stage's start, once a boss has brought its own music — cannot put that
 track back: the game freed its stream and released its sound buffer, and no memory copy brings a
@@ -243,6 +254,17 @@ tests it. So the sound is stopped through the buffer rather than through the gam
 the stream down with it: what has to be left standing is the stream, and what has to go is only the sound the
 making of it started.
 
+**And a chapter taken while the game's own sound still has an ask outstanding keeps no music at all, its
+restore leaving the live sound exactly where it stands.** What the player's stream field names then is not a
+stream: a restore takes the music down, asks for the track the chapter it puts back had, and copies the
+memory — so the field comes back naming the object that take-down deleted, and the ask that would replace it
+is a command in the game's own queue, which nothing walks while a pass steps between chapters. Bytes naming a
+released COM object are not bytes to put into a live sound player, and putting them back is what took th07
+down on the real game: `0xc0000005` reading null on the game's own sound thread, one frame after a chapter
+retry, forty retries into a chapter a resume had landed in — every one of them restoring over the sound. So
+the sound's own memory is held back for such a chapter, the same way a chapter of a boss's own theme holds it
+back, and what the music then comes from is the ask rather than the bytes.
+
 **The chapters of the stage are kept from its start up to the one being played**, since every one of
 them is a place the retry menu offers to go back to. Eight of them at once, which reaches back across a
 fight — th06's bosses have eight or nine attacks, so the chapter a fight began at is usually still
@@ -281,6 +303,44 @@ game is frozen underneath it — `RunCalcChain` returning `CHAIN_BREAK` with the
 on — so the frame the player died on stays on the screen behind the menu, and the play field's
 viewport has to be set by orb because the game's own frame setup is part of the update being held
 back.
+
+**And the same menu is what the game's own pause menu's 「最初からやり直す」 opens**, which is the only way to
+reach a chapter again without dying for it. In a mode whose runs are rewound that item has nowhere to land:
+nothing here is lost, so giving the run up and beginning it again is the one way to throw a stage's chapters
+away. So the ask is taken off, the run left standing where it was, and the question put up in front of it —
+which already holds every answer the item could have meant. Answering it costs a retry like any other, that
+being the game's own field for リトライ回数 and nothing else filling it in this mode.
+
+**The music is un-paused with it, and the stream built again from where it is audible.** th07 pauses the music
+as that menu goes up and sends the un-pause back on every way out of it that leaves the run standing; the item
+that asks for the run to start over sends none, the scene it asks for being one that builds the run and its
+music from nothing. So orb sends it where it takes that ask off. Without it a th07 session was played out in
+silence from the chapter it asked for at stage 5's boss to the end of the run, the song coming back only at the
+title and the run picked up again from there.
+
+**And a chapter that holds no music has its stream left alone — including where the game's own refill would
+refuse the next write it holds.** That refusal is the ordinary way of things: the streaming thread wakes at
+every notify point and writes only where it is safe to, so its steady state is the next write exactly one chunk
+behind the device's write cursor, which is a refusal and is not a fault. Measured over a run of retries on the
+real game, that is the state at every reading and the thread goes on feeding the stream. A repair that read it
+as broken rebuilt the stream on every retry, each from an offset seconds further on than the last, and was
+taken out again.
+
+**What a restore leaves the sound as is therefore read rather than judged**, over the frames after it: the next
+write *moving* is what says the thread is feeding a stream, and one reading cannot say it. Which is a question
+only the real game answers — a laid-out game has no streaming thread at all.
+
+**The command is only the mixer started, though, and a launch that sent it heard the song come back and then go
+round a few seconds of itself.** What feeds a streaming buffer is the game's own thread, and its refill refuses
+outright where the next write it holds has fallen inside the chunk the device is playing out of — so a buffer
+stopped and started again behind the game's back is a mixer running over a buffer nothing tops up. **Which is
+what a pause leaves every time**: four of these asks on the real game came back with the buffer stopped and
+the next write between 12352 and 29988 bytes behind the play cursor, all of them inside one chunk. The buffer is
+therefore filled again from where the song is audible, the file seeked to match and the countdown the track's
+loop is taken on written to match the file: the same repair a resume's landing makes, for the same reason, and
+the same three numbers. **Where it is audible rather than where the chapter had it**, because the chapter this
+ask puts back may hold no music at all to be put anywhere — every chapter a resume's playback takes is one, the
+sound's own queue being walked by a frame of the game's and a playback running none.
 
 Four ways on, and the chapter is the first of them — each in whichever language orb's screens are in;
 see *The language orb writes its screens in*:
@@ -583,6 +643,14 @@ frame the chapter began on — the ending skip's mechanism aimed at a chapter. A
 microseconds and a stage is thousands of them. Every update is observed, so the run lands with the
 stage divided into the same chapters and with the chapter's own snapshot to be sent back to, and
 the retry count carries on from what the run had already spent.
+
+**And the playback is given up where the next stage is registered, rather than left as a bound to
+compare against.** The frame it feeds to is a frame of a *stage*, and the stage the run walks into
+starts counting again from nothing: left standing, that bound is one every frame of the new stage is
+below, and the buttons of those frames are written down as they are played. A frame the game reads
+twice is then one the playback still holds an answer for, so the music is held quiet on it and a
+chapter retried there hands the run the stretch somebody has already played through — fed back a
+frame at a time with nothing pressing anything, which is a replay of something else being watched.
 
 **A chapter the stage's own song plays through lands with that song where the chapter had it**, which
 is what a retry of one does to the music — and a resume is the same chapter arrived at another way, so

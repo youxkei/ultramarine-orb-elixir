@@ -558,6 +558,8 @@ impl Fake {
                     pad_buttons,
                     save_replay,
                     init_d3d_device,
+                    tops_up_the_music,
+                    stops_the_music: orb_core::game::th07::image::stops_the_stream,
                 },
             )
         };
@@ -896,7 +898,17 @@ impl Fake {
     /// An e2e test saying the streaming thread ran, the way it says the player was hit: that thread is a
     /// thread, and what it would have done over a few seconds of a track is not something an e2e test can wait
     /// for.
+    /// **Through orb's hook over it**, the way every other call of the game's own goes through the hook that
+    /// stands in front of it: what that hook says is what the refill is about to feed the buffer, and a test
+    /// that called the body instead would be a test of a launch with the hook left out.
     pub fn services_the_buffer(&self) {
+        let (stream, _) = self
+            .the_stream_its_player_names()
+            .expect("a stream this e2e test asked for");
+        orb_core::runtime::tops_up_the_music(stream, 1);
+    }
+
+    fn the_refill_itself(&self) {
         let at = self.image.next_write_offset();
         let read = self.with_the_sound(|sound| sound.tops_the_buffer_up(at));
         assert_eq!(
@@ -906,6 +918,12 @@ impl Fake {
         self.image
             .set_next_write_offset((at + read) % STREAM_BUFFER as u32);
         self.image.set_bytes_left(self.image.bytes_left() - read);
+    }
+
+    /// What the stream's own countdown before the loop stands at, which is the number the game's read takes
+    /// every byte it hands over off — see `Th07`'s `SOURCE_LEFT`.
+    pub fn the_countdown(&self) -> u32 {
+        self.image.bytes_left()
     }
 
     /// And the mixer playing what is in the buffer: the play cursor moved on by `bytes`.
@@ -1197,6 +1215,19 @@ impl Fake {
     /// asks the build for: the numbers a stage starts with are read where that stage starts, so a run put back
     /// with a *second* stage's is a run whose file was written in one.
     pub fn picks_the_run_up_at(&self, stage: i32) {
+        self.picks_the_run_up_holding(stage, None);
+    }
+
+    /// And the same pick-up landing with **the front end's own song on the stream**, which is the state a
+    /// stage's first chapter is really picked up into: that chapter falls frames into the stage, the build has
+    /// loaded the stage's two slots and its script has asked for neither, so what the stream holds is the
+    /// record of the track the front end was playing — the file's first. A chapter written down while the
+    /// stage's own song played holds a position in *that* track, and the two are not the same wav.
+    pub fn picks_the_run_up_with_the_front_ends_song_on(&self, stage: i32) {
+        self.picks_the_run_up_holding(stage, Some(TITLE_TRACK));
+    }
+
+    fn picks_the_run_up_holding(&self, stage: i32, track: Option<Track>) {
         let log = self.log();
         let from = log.written();
         self.at_the_shot_select();
@@ -1222,8 +1253,14 @@ impl Fake {
         // than in the build itself, because a stage is also built for a chapter that was taken before its song
         // began — see [`Fake::took_down_the_song_it_came_in_with`] — and this is the launch where the song is
         // what a run comes back to.
-        if self.sound.borrow().is_some() {
+        if let Some(sound) = self.sound.borrow().as_ref() {
             self.image.names_the_stream_it_had();
+            // **The record left as the run left it where this is the stage's own song**, and written where it
+            // is another track's: what `names_the_stream_it_had` puts back is the word naming the stream, and
+            // the record under it is still the one the stage was playing through.
+            if let Some(track) = track {
+                self.image.streams_it_again(sound, track, track.bytes);
+            }
             orb_sim::Sound::started_again();
         }
         // **And what was audible on the way**, which is the whole of what somebody waiting for a run to come
@@ -1732,6 +1769,10 @@ impl Fake {
     /// puts the menu up is the button's own edge — and what the flag then does is stop the run's update, which
     /// is why the clocks below stand still while it is up.
     ///
+    /// **And the music paused with it and started again on the way out**, the manager sending the one (0x42d9b1)
+    /// and the menu the other (0x403496): a game that paused nothing could not tell orb's own un-pause from
+    /// nothing at all — see `Image::the_manager_pauses_the_music`.
+    ///
     /// **Here because it is what makes a run's own buttons dangerous to feed back.** th07's replay never
     /// reaches this: the recorder writes a watched replay's entry into the word the *run* acts on, and the word
     /// the read left keeps whatever the keyboard did. A resume of orb's goes in through the read instead, so
@@ -1759,9 +1800,11 @@ impl Fake {
         if self.image.is_it_paused() {
             if word & MENU_DECIDE != 0 && read_before & MENU_DECIDE == 0 {
                 self.image.is_not_paused();
+                self.image.the_menu_un_pauses_the_music();
             }
         } else if word & MENU_BUTTON != 0 && read_before & MENU_BUTTON == 0 {
             self.image.is_paused();
+            self.image.the_manager_pauses_the_music();
         }
     }
 
@@ -2049,6 +2092,13 @@ extern "C" fn stage_building(_stage: i32) -> i32 {
 /// **Which is what makes a run's counts the file's plus that run's**, and the whole reason it is laid out: a
 /// laid-out build that left the records alone would leave them holding this run's counts alone, and a fix that
 /// adds them to the file's could not be told from one that puts them back.
+/// The game's own refill, which [`Fake::services_the_buffer`] reaches through orb's hook over it — see
+/// `Th07`'s own `TOPS_UP_THE_MUSIC`, and `orb_core::runtime::tops_up_the_music` for what the hook says.
+extern "thiscall" fn tops_up_the_music(_stream: usize, _argument: i32) -> i32 {
+    running().the_refill_itself();
+    0
+}
+
 extern "C" fn stage_begun(_manager: *mut c_void) -> i32 {
     let fake = running();
     // Every one of the three opens the file, so every one of them asks orb's own fork which file that is: a

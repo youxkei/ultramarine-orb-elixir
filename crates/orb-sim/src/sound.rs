@@ -160,6 +160,15 @@ impl Sound {
         sound
     }
 
+    /// **The one buffer the seam answers for**, as the address a game keeps it by: what a laid-out game writes
+    /// into the word its stream holds one at, and what an e2e test about that word holds it against.
+    ///
+    /// An associated function for the reason the two below are: the address is the seam's and not any one
+    /// sound's, and a test may want it before it has laid a sound out at all.
+    pub fn the_buffer() -> usize {
+        BUFFER.0
+    }
+
     /// The buffer released, as a game taking its music down releases it: a handle every call now refuses, and
     /// nothing in the game's own memory saying so — see [`RELEASED`].
     ///

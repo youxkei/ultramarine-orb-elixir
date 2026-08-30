@@ -29,3 +29,7 @@ orb-config = { workspace = true }
 # a run into — and the seam's install point with it.
 orb-core = { workspace = true, features = ["sim"] }
 orb-sim = { workspace = true }
+# For the one e2e test that has to hand a launch the file a *released* orb wrote: the run writes its own
+# chapter and the test takes the two fields this build added out of those bytes, which no writer of ours can
+# be asked to leave out. See `the_track_heard.rs`.
+rmpv = "1.3"
