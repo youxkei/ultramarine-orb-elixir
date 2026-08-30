@@ -289,13 +289,13 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
 
         // And that thread runs below the game's, which is the other half of costing the frame nothing: a
         // sample a millisecond old costs nobody anything and a late frame costs the thing orb was written
-        // for. One thread and not this one — the frame's own is what it is being put below.
+        // for. Every thread of orb's own says so of itself — the log's writer is another — and none of them
+        // is this one: the frame's own is what they are being put below.
         let below = game.sim().threads_below_normal();
-        assert_eq!(below.len(), 1, "{below:?} put themselves below the game's");
-        assert_ne!(
-            below[0],
-            orb_api::thread::current_id(),
-            "the thread the game's frames run on put itself below the game's own priority",
+        assert!(!below.is_empty(), "no thread put itself below the game's");
+        assert!(
+            !below.contains(&orb_api::thread::current_id()),
+            "the thread the game's frames run on put itself below the game's own priority: {below:?}",
         );
 
         // The question up, and nothing to answer it with: a menu of orb's reads the sample, and there is

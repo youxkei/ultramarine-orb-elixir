@@ -891,12 +891,13 @@ impl Pacing {
             };
         }
 
-        // Everything the run has said since the last frame goes to the log here, on the far
-        // side of the flush. What is left of the turn is slack — the work needs the last
-        // couple of milliseconds of it and nothing needs the rest — so a write that takes a
-        // millisecond takes it out of nothing. On the near side of the flush the same write
-        // costs a refresh.
-        crate::log::drain();
+        // And the log told that this is the frame's own thread, which is what takes its writing off it:
+        // from here every line the run says is handed to a thread of orb's own — see `log::off_the_frame`,
+        // and `log`'s own note for the three quarters of a second one write took on the real game.
+        //
+        // Here rather than in `attach`, because `DllMain` is where that would be and a thread made there
+        // waits on the loader lock its own caller holds.
+        crate::log::off_the_frame();
         // And the numbers orb paints beside the game, which cost milliseconds of GDI for the same
         // couple of microseconds' worth of slack. Safe here for the reason the drain is: this runs on
         // the game's own frame, which is the thread that owns the window, and before the scene.
@@ -1193,10 +1194,9 @@ impl Pacing {
             target += cadence;
         }
         self.next_present = target + cadence;
-        // Here too, and for the same reason: the target is a moment on the clock, so a write
-        // before the wait only shortens the wait. A frame paced this way still has a whole
-        // turn of slack, and lines held for a drain that never comes are lines lost.
-        crate::log::drain();
+        // Here too, this being the other way round the loop: a launch that never reaches the flush above
+        // is one whose thread would otherwise never be claimed, and every line of it written in the frame.
+        crate::log::off_the_frame();
         // The paint too, and for that same last reason: a display paced this way is one the numbers
         // would otherwise never reach, there being no flush on this path to reach them on.
         unsafe { crate::window::paint_held() };
@@ -1597,6 +1597,10 @@ impl Pacing {
         log!(
             "frame: the host cannot create a high-resolution timer, which every wait is made on; stopping"
         );
+        // The line put in the file before the process ends, the log being written by a thread of orb's own:
+        // a line handed over and then exited out from under is a launch that stopped saying nothing about
+        // why. See `log::stop`, which is what waits for it.
+        crate::log::stop();
         window::message_box(NO_TIMER_TITLE, NO_TIMER_TEXT);
         process::exit(NO_TIMER_CODE);
     }

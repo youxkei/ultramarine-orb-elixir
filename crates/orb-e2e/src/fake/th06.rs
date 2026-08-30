@@ -918,6 +918,10 @@ impl Fake {
         // [`scratch`](super::scratch).
         let image = Image::laid_out_seeded(display.seed);
         let installed = image.enter();
+        // What the log says is read after what has been said is written, orb handing its lines to a thread
+        // of its own — see `orb_core::log` and `orb_sim::Log::waits_first`. Every assertion in this suite
+        // about a line goes through that reader, so this is the one place it has to be asked for.
+        image.sim().log().waits_first(orb_core::log::written_out);
         // Before the attach, that being where orb settles which language its screens are in: a machine
         // declared after it is one nothing asked.
         image.sim().set_ui_language(ui_language);

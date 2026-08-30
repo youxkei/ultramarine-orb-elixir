@@ -27,6 +27,8 @@ pub struct Log {
     /// What the file already held when the run began, for a test about the size at which the log is
     /// started over rather than appended to.
     existing_bytes: Mutex<u64>,
+    /// What to do before answering what orb said — see [`Log::waits_first`].
+    waits: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl Log {
@@ -68,8 +70,31 @@ impl Log {
         self.state.lock().unwrap().closed = true;
     }
 
+    /// **What to do before answering any of the questions below**, which is how a reader waits for what has
+    /// been *said* to have been written.
+    ///
+    /// orb hands its lines to a thread of its own rather than writing them where they are said — see
+    /// `orb_core::log`, and the three quarters of a second one write took on the real game — so a test that
+    /// pressed a key and asked what the log said would otherwise be asking before the line it waits for had
+    /// arrived. Installed by whoever drives orb, this crate being the one that must not know about it: a
+    /// simulated Windows has no business calling into the thing it is simulating for.
+    pub fn waits_first(&self, wait: impl Fn() + Send + Sync + 'static) {
+        *self.waits.lock().unwrap() = Some(Box::new(wait));
+    }
+
+    /// Everything said so far written, where a reader asked for that — see [`Log::waits_first`].
+    fn waited(&self) {
+        // Not while the lock is held: what the wait is for is a thread that writes, and writing takes the
+        // state's own lock.
+        let waits = self.waits.lock().unwrap();
+        if let Some(wait) = waits.as_ref() {
+            wait();
+        }
+    }
+
     /// Every line orb has written, in the order it wrote them.
     pub fn lines(&self) -> Vec<String> {
+        self.waited();
         self.state.lock().unwrap().lines.clone()
     }
 
@@ -81,6 +106,7 @@ impl Log {
     /// How many lines orb has written, which is where an e2e test marks its place before walking something
     /// it has walked once already.
     pub fn written(&self) -> usize {
+        self.waited();
         self.state.lock().unwrap().lines.len()
     }
 

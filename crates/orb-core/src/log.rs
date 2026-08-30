@@ -8,15 +8,26 @@
 //! anything of `std::fs`: the first lines are emitted from `DllMain` while the loader lock is
 //! held, so the write must not be one that might take a lock of its own on the way.
 //!
-//! **A line the frame's own thread says is not written where it is said.** A `WriteFile` takes what it
-//! takes, and one that lands in the millisecond a frame has to reach `DwmFlush` in costs that frame a
-//! refresh — a run stuttering because it was being watched. So [`defer`] holds those until [`drain`],
-//! which the frame loop calls where what is left of the turn is slack. [`line`] is the other way in,
-//! for what a log that stops mid-run has to have: startup, the faults, and the panic hook and the
-//! crash filter, none of which has a frame to wait for.
+//! **A line the frame's own thread says is written by another thread.** A `WriteFile` takes what a disk,
+//! an antivirus reading every write or a folder being synced decides, and a frame that waits for one waits
+//! that long: measured on th07, one write took **751621µs** with that frame's own work under a
+//! millisecond, and two more took 230ms and 178ms — three of the stutters somebody watching the run
+//! noticed. So the frame's thread formats the line and hands it over, and [`writing`] puts it on the disk,
+//! the way [`crate::writer`] already does for the files orb keeps of its own.
+//!
+//! **Holding the line for the frame's own slack was the answer before this**, and it is not one: the slack
+//! is what is left of one frame's turn, so a write of three quarters of a second put there misses the next
+//! frame's blank instead of this one's — the same stutter, one frame later. `writer`'s own module note
+//! makes that argument about a chapter's file; this is the same argument about a line.
+//!
+//! **The writing waits for a thread there is**, which is why [`off_the_frame`] starts it rather than
+//! [`line`]: the first lines are said from `DllMain` with the loader lock held, and a thread made there is
+//! a thread whose own `DLL_THREAD_ATTACH` waits for that lock. So until the frame loop has been round
+//! once, every line is written where it stands — which is also what a launch whose thread cannot be made
+//! falls back to, a log written in the frame being better than no log.
 
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex};
 
 use orb_api::LogFile;
 use orb_api::{clock, logfile, thread};
@@ -57,37 +68,49 @@ static SPENT: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
 static WRITES: [AtomicI64; 2] = [AtomicI64::new(0), AtomicI64::new(0)];
 static FREQUENCY: AtomicI64 = AtomicI64::new(0);
 
-/// The thread the frame loop runs on, claimed by the first `drain`. Zero until then,
-/// which no thread's id is, so everything before it is written where it is asked for.
+/// The thread the frame loop runs on, claimed by [`off_the_frame`]. Zero until then, which no thread's id
+/// is, so every write before it is counted as some other thread's.
 ///
-/// What it decides is whether a line waits: one written from the frame's own thread can be held for
-/// the slack after the flush, and one from anywhere else has no frame to wait for.
+/// What it decides is which side of the accounting above a write falls on, and nothing else: where a line
+/// is written is [`handed_over`]'s answer, which is the same for every thread.
 static FRAME_THREAD: AtomicU32 = AtomicU32::new(0);
 
-thread_local! {
-    /// Lines held back until the frame loop reaches a moment where writing one costs nothing.
+/// How long [`stop`] waits for the thread to finish what it holds, in milliseconds.
+///
+/// The same wait [`crate::writer::stop`] takes and for the same reason: long enough for a write that is
+/// slow — which is what this whole arrangement is about — and not long enough to hold a game that is
+/// closing behind a disk that has stopped answering. What is still waiting after it is written here.
+const STOP_WAIT_MS: u64 = 2_000;
+
+/// The lines waiting for the thread that writes them, and whether that thread is still to stop.
+///
+/// A queue and not one waiting line, which is where this differs from [`crate::writer`]'s single slot per
+/// file: what a file holds is where the run is *now*, so a write the next one overtakes is a write nothing
+/// wants — where a log is the sequence itself, and a line dropped is a line nobody can ask about again.
+struct Waiting {
+    lines: Vec<String>,
+    /// How many lines have been handed over, and how many of those are in the file.
     ///
-    /// The moments between handing a frame over and the blank it is shown at are the ones a
-    /// write must stay out of: the next frame has about a millisecond to reach `DwmFlush`,
-    /// and one that arrives after the blank has gone waits out another refresh and is shown
-    /// late. On the far side of that flush there are fourteen milliseconds of slack doing
-    /// nothing, so that is where these go.
-    ///
-    /// **What is held is everything a level or a switch can turn off** — `summary!`, `detail!`
-    /// and `pacing!` — which is what a run says while it is being watched, and what is read
-    /// afterwards out of a file that got there. `log!` is written where it stands: it is what
-    /// every level keeps, and a run that ends in a crash or a hang has to have its last lines
-    /// in the file rather than in here.
-    ///
-    /// Per thread rather than in a `MainThread`, which is what it was. In the game there is one
-    /// frame thread and the two are the same thing; in a test binary there are as many as there
-    /// are e2e tests running at once, each of them the frame's thread for its own run, and a
-    /// single buffer between them is two `&mut` to one `Vec`. The cost is a thread-local lookup
-    /// twice a frame.
-    static HELD: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Two counts and not the queue's own length, because the queue is empty for as long as a write is in
+    /// flight: the thread takes what it holds out before it writes it, so a reader waiting for an empty
+    /// queue would be waiting for nothing — see [`written_out`].
+    said: u64,
+    written: u64,
+    stopping: bool,
+    stopped: bool,
 }
-/// Where holding lines back stops being worth it, being far more than a frame makes.
-const HELD_MAX: usize = 64;
+
+static WAITING: Mutex<Waiting> = Mutex::new(Waiting {
+    lines: Vec::new(),
+    said: 0,
+    written: 0,
+    stopping: false,
+    stopped: false,
+});
+static CHANGED: Condvar = Condvar::new();
+/// Whether there is a thread writing. Cleared by [`stop`], so that a launch after one that was taken out
+/// writes its own lines rather than handing them to a thread that has gone.
+static WRITING: AtomicBool = AtomicBool::new(false);
 
 pub fn set_level(level: LogLevel) {
     LEVEL.store(
@@ -120,27 +143,22 @@ macro_rules! log {
 }
 
 /// How a run is going: a line a second, or a line per scene. Off at `quiet`.
-///
-/// Held for the frame loop's slack, this being written from inside the frame's own work.
 #[macro_export]
 macro_rules! summary {
     ($($arg:tt)*) => {
         if $crate::log::wanted($crate::log::NORMAL) {
-            $crate::log::defer(&format!($($arg)*))
+            $crate::log::line(&format!($($arg)*))
         }
     };
 }
 
 /// Per-frame detail, for finding out why one frame in a hundred was late. Only at
 /// `verbose`, because it is written faster than it can be read.
-///
-/// Held for the frame loop's slack, and the one that most has to be: a line every frame written
-/// where it is worked out is a run whose frames are late because they are being watched.
 #[macro_export]
 macro_rules! detail {
     ($($arg:tt)*) => {
         if $crate::log::wanted($crate::log::VERBOSE) {
-            $crate::log::defer(&format!($($arg)*))
+            $crate::log::line(&format!($($arg)*))
         }
     };
 }
@@ -152,13 +170,11 @@ macro_rules! detail {
 /// what a run spends its frames on is worth writing whether or not that is. `quiet` with it on
 /// is a file holding the startup lines and these and nothing else, which is what a sweep is read
 /// off.
-///
-/// Held for the frame loop's slack like the two above it.
 #[macro_export]
 macro_rules! pacing {
     ($($arg:tt)*) => {
         if $crate::log::pacing_wanted() {
-            $crate::log::defer(&format!($($arg)*))
+            $crate::log::line(&format!($($arg)*))
         }
     };
 }
@@ -201,26 +217,40 @@ fn held() -> bool {
 }
 
 pub fn close() {
-    // What is held goes in first: this is the last moment there is, and the crash filter reaches it
-    // on the thread that faulted — which for a fault inside a frame is the one whose held lines say
-    // what the run was doing when it happened.
-    flush();
+    // What is waiting goes in first: this is the last moment there is, and the crash filter reaches it on
+    // the thread that faulted — which for a fault inside a frame is the one whose lines say what the run
+    // was doing when it happened. Every one of those lines was handed over rather than written.
+    stop();
     let file = FILE.swap(0, Ordering::AcqRel);
     if file != 0 {
         logfile::close(LogFile(file));
     }
 }
 
-/// Writes a line where the caller stands, whatever the frame loop is doing.
+/// Says a line: stamped where it is said, and handed to the thread that writes it — or written here where
+/// there is no such thread yet.
+///
+/// **The stamp is taken here and not where the line reaches the disk**, because what a reader takes a
+/// line's time for is when the thing it says happened. A run read after the fact is read by those stamps.
 pub fn line(message: &str) {
     let file = FILE.load(Ordering::Acquire);
     if file == 0 {
         return;
     }
-    // From here rather than from around the write alone: the frame pays for the formatting as
-    // much as for the write, and what is wanted is what having written the line cost it.
-    let started = clock::counter();
     let line = format!("[{:>8}ms] {message}\r\n", clock::ticks());
+    if !handed_over(&line) {
+        write_where_it_stands(file, &line);
+    }
+}
+
+/// The write itself, counted against the thread that made it.
+///
+/// **Writes and not lines said**, which is what makes the count the instrument it is: the frame's thread
+/// hands its lines over, so what it reports is nothing at all — and a launch whose lines it *is* writing,
+/// before the loop's first turn or where no thread could be made, reports them. See [`spent`], and the
+/// `log Nus in M writes here` of the frame loop's own line.
+fn write_where_it_stands(file: usize, line: &str) {
+    let started = clock::counter();
     logfile::write(LogFile(file), line.as_bytes());
     let side = usize::from(thread::current_id() != FRAME_THREAD.load(Ordering::Relaxed));
     SPENT[side].fetch_add(clock::counter() - started, Ordering::Relaxed);
@@ -255,53 +285,144 @@ pub fn spent() -> Cost {
     }
 }
 
-/// Holds a line back until the frame loop has slack to write it in.
+/// **Claims the calling thread as the frame's and starts the thread that writes the log**, which is what
+/// takes every line after this off the frame's own.
 ///
-/// Safe from any thread: only the frame's own thread has anything held for it, and every
-/// other writes where it stands. A line from elsewhere would be no better off waiting
-/// for a frame it is not part of.
-pub fn defer(message: &str) {
-    if thread::current_id() != FRAME_THREAD.load(Ordering::Relaxed) {
-        return line(message);
+/// Called from the frame loop, which is the one place that knows both things: which thread the frame runs
+/// on — the split the accounting above is read by — and that `DllMain` is behind us, a thread made in
+/// there being one whose own `DLL_THREAD_ATTACH` waits for the loader lock the caller holds.
+///
+/// Idempotent, and cheap enough to call every frame: a load, a compare, and nothing else once the thread
+/// is up.
+pub fn off_the_frame() {
+    FRAME_THREAD.store(thread::current_id(), Ordering::Relaxed);
+    if WRITING
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+        && orb_api::thread::spawn(writing).is_err()
+    {
+        WRITING.store(false, Ordering::Relaxed);
+        line("log: cannot start a thread; the log is written in the frame");
     }
-    // Taken out of the buffer before anything is written, because `line` is reached below and a
-    // borrow still held across it would be a second borrow of the same cell.
-    let overflowed = HELD.with(|held| {
-        let mut held = held.borrow_mut();
-        if held.len() < HELD_MAX {
-            held.push(message.to_string());
-            return None;
-        }
-        Some(std::mem::take(&mut *held))
-    });
-    let Some(overflowed) = overflowed else { return };
-    // A drain happens twice per frame's turn, so this many held means the frame loop has stopped
-    // running and no better moment is coming. Written where they stand rather than lost, which for a
-    // run that ended in a fault is the difference between having the last frames and not.
-    line("log: the frame loop has stopped draining; writing what is held where it stands");
-    for held in overflowed {
-        line(&held);
-    }
-    line(message);
 }
 
-/// Writes what has been held back, and claims the calling thread as the frame's.
+/// Hands a line to that thread, and says whether it took it.
 ///
-/// To be called from the frame loop at a point where a write costs nothing: after the
-/// wait for the blank, not before it.
-pub fn drain() {
-    let thread = thread::current_id();
-    if FRAME_THREAD.swap(thread, Ordering::Relaxed) != thread {
-        // The first drain, or the frame moved threads. Nothing is held for this one yet.
+/// `false` where there is no thread to take it — before the frame loop's first turn, after [`stop`], and
+/// in a launch whose thread could not be made — and then the caller writes it where it stands.
+fn handed_over(line: &str) -> bool {
+    if !WRITING.load(Ordering::Relaxed) {
+        return false;
+    }
+    let Ok(mut waiting) = WAITING.lock() else {
+        // The thread left the queue locked, which is a panic inside it: nothing more can be handed over,
+        // and the caller writing where it stands is what keeps the log going.
+        WRITING.store(false, Ordering::Relaxed);
+        return false;
+    };
+    waiting.lines.push(line.to_owned());
+    waiting.said += 1;
+    CHANGED.notify_all();
+    true
+}
+
+/// The thread's own body: whatever is waiting, in the order it was said, until [`stop`] says otherwise.
+fn writing() {
+    // Below the game's, which is what every thread of orb's own says of itself: what it does here is wait
+    // and write, and neither is worth a core the frame wants. It is also what keeps this thread out of the
+    // clock a pacing e2e test reads — a simulated counter moves by what a read costs, and reads from here
+    // would move the frames' own moments by however this machine happened to schedule them.
+    orb_api::thread::below_normal();
+    loop {
+        let Ok(mut waiting) = WAITING.lock() else {
+            return;
+        };
+        while waiting.lines.is_empty() && !waiting.stopping {
+            let Ok(next) = CHANGED.wait(waiting) else {
+                return;
+            };
+            waiting = next;
+        }
+        let lines = std::mem::take(&mut waiting.lines);
+        let stopping = waiting.stopping;
+        // Not while the queue is held: a write takes what it takes, and the frame's thread hands its next
+        // line over in the middle of it.
+        drop(waiting);
+        let file = FILE.load(Ordering::Acquire);
+        let written = lines.len() as u64;
+        for line in lines {
+            if file != 0 {
+                write_where_it_stands(file, &line);
+            }
+        }
+        // Said to be written, for whoever is waiting to read them — see [`written_out`].
+        if let Ok(mut waiting) = WAITING.lock() {
+            waiting.written += written;
+            CHANGED.notify_all();
+        }
+        if stopping {
+            if let Ok(mut waiting) = WAITING.lock() {
+                waiting.stopped = true;
+                CHANGED.notify_all();
+            }
+            return;
+        }
+    }
+}
+
+/// Waits until everything said so far is in the file.
+///
+/// **For whoever reads the log while the run is still going**, which is a test: orb hands its lines to a
+/// thread, so a test that pressed a key and asked what the log said would be asking before the line it is
+/// waiting for had been written. The run itself never waits — that is what the thread is for — and nothing
+/// in a shipped launch calls this.
+///
+/// Bounded by [`STOP_WAIT_MS`] for the reason [`stop`] is: a disk that has stopped answering is not
+/// something to hold a caller behind for ever.
+pub fn written_out() {
+    if !WRITING.load(Ordering::Relaxed) {
         return;
     }
-    flush();
+    let Ok(waiting) = WAITING.lock() else { return };
+    let _ = CHANGED.wait_timeout_while(
+        waiting,
+        std::time::Duration::from_millis(STOP_WAIT_MS),
+        |waiting| waiting.written < waiting.said,
+    );
 }
 
-/// Writes what the calling thread is holding, wherever it stands.
-fn flush() {
-    for message in HELD.with(|held| std::mem::take(&mut *held.borrow_mut())) {
-        line(&message);
+/// Stops that thread and writes what it still holds, on the calling thread.
+///
+/// **What is waiting goes in first, wherever this is called from**: that is the last moment there is, and
+/// the crash filter reaches it on the thread that faulted — whose own lines are the ones saying what the
+/// run was doing when it happened.
+pub fn stop() {
+    if !WRITING.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let Ok(mut waiting) = WAITING.lock() else {
+        return;
+    };
+    waiting.stopping = true;
+    CHANGED.notify_all();
+    let waited = CHANGED.wait_timeout_while(
+        waiting,
+        std::time::Duration::from_millis(STOP_WAIT_MS),
+        |waiting| !waiting.stopped,
+    );
+    // And whatever it did not get to, written here: a thread stuck in a slow write is what the wait above
+    // is bounded for, and the lines behind that write are still worth having.
+    if let Ok((mut waiting, _)) = waited {
+        let lines = std::mem::take(&mut waiting.lines);
+        waiting.stopping = false;
+        waiting.stopped = false;
+        drop(waiting);
+        let file = FILE.load(Ordering::Acquire);
+        for line in lines {
+            if file != 0 {
+                write_where_it_stands(file, &line);
+            }
+        }
     }
 }
 

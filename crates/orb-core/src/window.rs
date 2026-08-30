@@ -443,9 +443,10 @@ fn report_letterbox_failure(result: Hresult) {
 /// ones that painted. Measured on th06: two per cent of frames a refresh late, and a budget of 4.1 to
 /// 7.5ms against a game whose own work is 2.9.
 ///
-/// Which is [`log::defer`] and [`log::drain`] again, for the same reason and in the same shape — see the
-/// note beside the drain in `frame::Pacing::wait_for_slot` for what the slack is and why a millisecond
-/// spent there is spent out of nothing.
+/// Which is what the log did with its lines until they went to a thread of their own — see [`log`], whose
+/// note has the write that made a thread of it. A paint cannot follow them there: GDI on this window is the
+/// frame's own thread's to call, so the slack is the whole of what there is for it, and a paint every
+/// thirtieth frame fits in one where a write of unknown length does not.
 static HELD: MainThread<Option<Vec<String>>> = MainThread::new(None);
 
 /// Holds a stack of lines for the slack, replacing whatever was waiting.

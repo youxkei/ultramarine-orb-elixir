@@ -112,9 +112,9 @@ fn a_chapter_put_back_inside_a_card_has_that_cards_name_on_the_plate() {
             CARD_NAME,
             "the plate kept the name of a card the run is no longer fighting",
         );
-        // Said out loud, which takes a frame to reach the file: what orb writes at this level is held
-        // for a frame's own slack — see `log_held_for_the_slack`. One more frame is inside the chapter
-        // either way, the card having been declared on the frame the restore put back.
+        // One more frame, the card having been declared on the frame the restore put back rather than on
+        // the one waited for — see `Launched::one_frame_to_drain_the_log`, and it is inside the chapter
+        // either way.
         game.one_frame_to_drain_the_log();
         assert!(
             log.said_since(

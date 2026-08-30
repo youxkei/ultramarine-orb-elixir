@@ -694,12 +694,15 @@ pub trait Launched {
         );
     }
 
-    /// One frame more, which is where orb writes what the frame before it said.
+    /// One frame more, for a line the frame after the one being waited for is the one to say.
     ///
-    /// What an e2e test runs before asking about a line the last frame worked out: a line the frame's
-    /// own thread says waits for the slack on the far side of the next flush — see
-    /// `orb_core::log::defer` — so a [`frames_until`](Launched::frames_until) that stopped on the frame
-    /// which said it returns with the line still held.
+    /// A [`frames_until`](Launched::frames_until) stops on the frame that said what it was waiting for, and
+    /// what a test asks next is sometimes worked out by the frame after that — a card's name declared on the
+    /// frame a restore put back, say. So this is a frame and nothing else.
+    ///
+    /// **Not for the writing**, which is what it was for: a line used to wait for the frame's own slack, and
+    /// now it is handed to a thread and this suite's reader waits for that thread — see
+    /// `orb_core::log::written_out` and `orb_sim::Log::waits_first`.
     fn one_frame_to_drain_the_log(&self) {
         self.frame();
     }

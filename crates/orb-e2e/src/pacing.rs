@@ -562,28 +562,6 @@ fn allowance_us(lines: &[String]) -> i64 {
         .allowance_us
 }
 
-/// The millisecond orb stamped a line with, which is the moment the line was *written* — not the moment
-/// what it says was worked out. The two are a frame apart for everything the frame loop holds back.
-///
-/// # Panics
-/// On a line with no stamp on it, every line orb writes having one.
-fn stamped_at(line: &str) -> i64 {
-    let stamp = line
-        .split_once("ms] ")
-        .unwrap_or_else(|| panic!("no timestamp in {line:?}"))
-        .0
-        .trim_start_matches('[')
-        .trim();
-    stamp
-        .parse()
-        .unwrap_or_else(|_| panic!("{stamp:?} is not a millisecond in {line:?}"))
-}
-
-/// What millisecond a moment of the run is, so that a hand-over can be put beside the stamp on a line.
-fn millis_at(us: i64) -> i64 {
-    us / 1_000
-}
-
 /// How many of orb's own lines about the pacing a failure carries.
 const SAID_LINES: usize = 3;
 
@@ -3029,22 +3007,22 @@ mod frame_loop {
     }
 }
 
-/// Lines the frame loop holds back until writing one costs nothing.
+/// What a run's frames spend on the log, which is nothing.
 ///
-/// The moments between handing a frame over and the blank it is shown at are the ones a write must stay
-/// out of: the next frame has about a millisecond to reach `DwmFlush`, and one that arrives after the
-/// blank has gone waits out another refresh and is shown late. So every line a level or a switch can
-/// turn off is held, and written on the far side of that flush, where what is left of the turn is
-/// slack. The pacing's own lines are the ones read here, being what a game driving this can ask for.
+/// A `WriteFile` takes what a disk, an antivirus reading every write or a folder being synced decides, and
+/// a frame that waits for one waits that long: measured on th07, one took **751621µs** while that frame's
+/// own work was under a millisecond. Holding the line for the frame's own slack — which is what the loop
+/// used to do, and what this section used to be about — only puts such a write in the next frame's turn.
+/// So every line is handed to a thread of orb's own, and what is asserted here is the frame's side of it:
+/// over a whole period of frames, the loop reports having written none of them.
 ///
-/// **Which is a claim about where the real loop drains**, and that is why this is driven by a game whose
-/// own loop calls `render`: a harness that deferred and drained in an order of its own would be saying
-/// where *it* drains. The two lines below are read off the log — the moment orb stamped the line with,
-/// against the moments the game was handed its frames over at.
+/// **Which is a claim about the real loop**, and that is why this is driven by a game whose own loop calls
+/// `render`: the count is the frame loop's own — the `log Nus in M writes here` of its per-frame line — so a
+/// launch that went back to writing where the line is said would say so here.
 ///
-/// What covers the writing itself is `log_writes.rs` in `orb-sim`, and which macro is held rather than
-/// written where it stands is `log_held_for_the_slack.rs` beside it.
-mod log_deferral {
+/// What covers the mechanism itself is `log_written_off_the_frame.rs` in `orb-sim`, and where the file goes
+/// is `log_writes.rs` beside it.
+mod what_the_log_costs_a_frame {
     use super::*;
     use crate::fake::{Display, Launched, Work, in_its_own_process, th06::Fake};
     use orb_core::profile;
@@ -3053,59 +3031,44 @@ mod log_deferral {
     /// eight of them.
     const HZ: u32 = 60;
 
-    /// What the game's own work takes. Far larger than any other pacing e2e test asks for, and that is the
-    /// point: the stamps here are milliseconds, so the moment the loop drains and the moment it does the
-    /// frame's work have to be milliseconds apart for the log to say which of them the line was written in.
+    /// What the game's own work takes. Far larger than any other pacing e2e test asks for, and left that way
+    /// from when this section was about *where* in the turn a line was written: a frame with room in it is
+    /// one where a write would have been visible in the stamps.
     const WORK_US: i64 = 8_000;
-    const WORK_MS: i64 = WORK_US / 1_000;
 
     #[test]
-    fn what_the_frame_loop_defers_is_written_on_the_far_side_of_the_next_flush() {
+    fn a_period_of_frames_reports_having_written_none_of_the_log() {
         in_its_own_process(|| {
             let game = Fake::attach_watching_the_pacing(
                 Display::agreed(HZ),
-                "log-deferral",
+                "log-off-the-frame",
                 Work::flat(WORK_US),
             );
-            // Up to and including the frame whose own update works the pacing's account of the period out.
-            game.frames(profile::INTERVAL);
-            let over = millis_at(*game.handovers_us().last().expect("a frame handed over"));
+            // A whole period of them and the one after it, which is the frame whose own update works the
+            // pacing's account of the period out — the frame with the most to say of any.
+            game.frames(profile::INTERVAL + 1);
 
-            // Held back, not written: writing it where it was worked out is what would cost the next frame
-            // its blank, and that frame is the one the account is about.
-            assert!(
-                reports(&game.log().lines()).is_empty(),
-                "written where it was worked out:\n  {}",
-                game.log().lines().join("\n  ")
-            );
-
-            // One more frame, which is the one with the slack in it.
-            game.frame();
-            let next = millis_at(*game.handovers_us().last().expect("a frame handed over"));
+            // **Not one write on the frame's own thread**, over every frame that said anything. The count is
+            // the loop's own, out of the line it writes about itself; a launch whose lines went to the file
+            // where they were said would report them here.
             let lines = game.log().lines();
-            let written = lines
+            let wrote: Vec<&String> = lines
                 .iter()
-                .find(|line| line.contains(A_REPORT))
-                .unwrap_or_else(|| panic!("nothing was drained:\n  {}", lines.join("\n  ")));
-            let held = stamped_at(written);
-
-            // After the frame it is about was handed over, which is the holding back.
+                .filter(|line| line.contains("writes here") && !line.contains("in 0 writes here"))
+                .collect();
             assert!(
-                held > over,
-                "stamped {held}ms, and the frame it is about went out at {over}ms — {written}"
-            );
-            // And before that next frame did its own work, which is where the slack is: the flush returned,
-            // the line was written, and the turn's remaining fourteen milliseconds were still ahead. A line
-            // written beside the work instead would be inside the millisecond the frame after it has to reach
-            // the flush in.
-            assert!(
-                next - held >= WORK_MS,
-                "stamped {held}ms against a frame handed over at {next}ms, which is inside its own \
-                 {WORK_MS}ms of work — {written}"
+                wrote.is_empty(),
+                "the frame's own thread wrote the log:\n  {}",
+                wrote
+                    .iter()
+                    .map(|line| line.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n  ")
             );
 
-            // And the three lines of a period are written in the order they were deferred, so that a run
-            // reads as a sequence of frames rather than as whatever came out of the buffer first.
+            // And the period's three lines are in the file, in the order they were said: a log is read as a
+            // sequence of moments, so a queue that came out in another order would be a run that reads as one
+            // that did not happen.
             let at = |needle: &str| {
                 lines
                     .iter()

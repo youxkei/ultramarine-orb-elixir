@@ -415,9 +415,10 @@ that being the number this arrangement is about — and where the write took lon
 at the level a run is ordinarily logged at, since a machine whose disk does that is one nobody knew to
 ask `verbose` of.
 
-**Not held for the frame's slack**, which is what the log does with its own lines: that is the answer for
-a hundred bytes, and the slack is what is left of one frame's turn. A write of about a second put there
-misses the next frame's blank instead of this one's, which is the same stutter a frame later.
+**Not held for the frame's slack**, which is what the log used to do with its own lines: the slack is what
+is left of one frame's turn, so a write of about a second put there misses the next frame's blank instead of
+this one's — the same stutter a frame later. The log is written by a thread of its own now for that very
+reason, three quarters of a second of one having been measured on th07.
 
 The thread is stopped where orb is taken out of a launch, having written what it holds: a line written
 after the log is closed would go into whatever log the process opens next. **A real launch does not come
@@ -1415,20 +1416,25 @@ beyond a whole turn are counted apart and left out of the worst: the frame after
 is that late through no fault of the compositor, and one of those would otherwise be the
 whole of the worst.
 
-**What a run says while it is being watched is not written where it was worked out.** A
-`WriteFile` takes what it takes, and one in the millisecond before a handover costs that frame a
-refresh — a run stuttering because it was being watched. So everything a level or a switch can
-turn off is held and written on the far side of the flush, where what is left of the turn is
-slack: the pacing's own lines, the summary a second brings and the per-frame detail alike. What
-is written where it stands is what every level keeps — startup, the faults, and where a run got
-to — because a run that ends in a crash or a hang has to have its last lines in the file, and
-the crash filter closing the log writes out whatever the faulting thread was still holding.
+**What a run says, the frame's thread does not write.** A `WriteFile` takes what a disk, an
+antivirus reading every write or a folder being synced decides: measured on th07, one took three
+quarters of a second while that frame's own work was under a millisecond, and two more took 230ms
+and 178ms — three stutters somebody watching the run noticed. So every line is stamped where it is
+said and handed to a thread of orb's own, which is what the files orb keeps already do. Holding the
+line for the frame's own slack was the answer before that, and it is not one: the slack is what is
+left of one frame's turn, so a write of that length put there misses the next frame's blank instead
+of this one's.
+
+**What has to be in the file even where the run ends is written before it does.** The first lines
+are said from `DllMain`, where a thread cannot be made — the loader lock is held — so until the
+frame loop has been round once every line is written where it stands; a launch whose thread cannot
+be made keeps writing that way. And every way out flushes what is waiting: the crash filter, the
+panic hook, the game closed deliberately, and the launch stopped because the host has no timer.
 
 **The log is an instrument and is weighed as one all the same.** What writing it cost is written
 down beside what it is reporting, per frame and per period, the frame's own thread and orb's kept
-apart: the appends serialise on one handle, so a line from orb's own thread can still hold up the
-frame's slack write, and a run whose stutters line up with what was written cannot say so unless
-what the writing cost is written down too.
+apart — so `log 0us in 0 writes here` is the frame saying it paid nothing, and a launch that went
+back to writing where a line is said would say so in the same place.
 
 ## Input
 

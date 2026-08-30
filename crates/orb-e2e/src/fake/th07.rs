@@ -422,6 +422,9 @@ impl Fake {
         // seam — the same order th06's has, and for the same reason.
         let image = Image::laid_out_seeded(display.seed);
         let installed = image.enter();
+        // What the log says is read after what has been said is written — see th06's own attach, and
+        // `orb_sim::Log::waits_first`.
+        image.sim().log().waits_first(orb_core::log::written_out);
         // Before the attach, that being where orb settles which language its screens are in: a machine declared
         // after it is one nothing asked.
         if let Some(ui_language) = ui_language {

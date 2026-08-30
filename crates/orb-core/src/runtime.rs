@@ -539,6 +539,10 @@ struct Playing {
 /// owns the process's own life — and through the seam, which is what a laid-out host answers instead of
 /// ending a test binary.
 pub fn close_the_game() {
+    // Whatever the run has said put in the file first: the log is written by a thread of orb's own, so a
+    // line handed over and then exited out from under is a line lost — and the last lines of a run are the
+    // ones somebody closing it deliberately still wants. See `log::stop`.
+    log::stop();
     orb_api::process::exit(0);
 }
 

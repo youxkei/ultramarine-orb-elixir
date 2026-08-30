@@ -11,6 +11,9 @@
 //! Writable at all only because the dialog and the giving up are behind the seam: an e2e test that
 //! raised a real `MessageBoxW` would wait for a click that is never coming, and one that really
 //! exited would take the harness's child with it.
+//!
+//! One test to a file — see `log_writes.rs`, and `pacing_no_timer_stops.rs`, which is the other half of
+//! this one and was a second test here until orb's log gained a thread of its own to write it on.
 
 use orb_api::Hwnd;
 use orb_core::frame::Pacing;
@@ -20,13 +23,6 @@ use std::sync::Arc;
 const WINDOW: Hwnd = Hwnd(0x1234);
 const HZ: u32 = 120;
 
-/// One turn of the game's logic, which is what a frame waits out and what a frame that gave up does
-/// not.
-const TURN_US: i64 = 1_000_000 / frame_hz();
-const fn frame_hz() -> i64 {
-    orb_core::frame::LOGIC_HZ as i64
-}
-
 #[test]
 fn a_host_that_cannot_make_the_timer_is_told_so_and_the_launch_ends() {
     let sim = Arc::new(Sim::new());
@@ -35,6 +31,9 @@ fn a_host_that_cannot_make_the_timer_is_told_so_and_the_launch_ends() {
     sim.clock().refuse_the_timer();
 
     orb_core::log::open();
+    // What the log says is read after what has been said is written: the frame loop hands its lines to a
+    // thread of orb's own — see `orb_core::log` — and the loop here is driven a turn at a time.
+    sim.log().waits_first(orb_core::log::written_out);
     let mut pacing = Pacing::new();
     pacing.configure();
     pacing.wait_for_slot(WINDOW);
@@ -62,28 +61,4 @@ fn a_host_that_cannot_make_the_timer_is_told_so_and_the_launch_ends() {
         Some(1),
         "the process is ended, and not with a code that reads as a run that finished"
     );
-}
-
-/// The other half of decision 3: it stops rather than pacing on.
-///
-/// Paced by the clock, which is the path with no flush in it, so the only thing that could move the
-/// counter by a turn is the wait itself.
-#[test]
-fn the_frames_turn_is_not_waited_out_after_that() {
-    let sim = Arc::new(Sim::new());
-    let _installed = sim.enter();
-    sim.clock().refuse_the_timer();
-
-    orb_core::log::open();
-    let mut pacing = Pacing::new();
-    pacing.configure();
-    let before = sim.clock().peek();
-    pacing.wait_for_slot(WINDOW);
-    let waited = orb_sim::Clock::micros_for_ticks(sim.clock().peek() - before);
-
-    assert!(
-        waited < TURN_US / 2,
-        "{waited}us of a {TURN_US}us turn was waited out on a host that cannot wait"
-    );
-    assert_eq!(sim.exited(), Some(1), "{:?}", sim.log().lines());
 }

@@ -96,8 +96,9 @@ const LLVM_MINGW: &str = "LLVM_MINGW";
 ///
 /// That package holds the e2e tests, and what one of those covers is the question — a line only a unit
 /// test reaches is a line no e2e test stands behind. Which is why it is not `orb-sim`: what is left in
-/// that package's `tests/` is the four no game drives — `log_writes`, `log_overflow`, `log_off_thread`
-/// and `pacing_no_timer` — so a run there answers a question about four tests. `orb-launcher` is left
+/// that package's `tests/` is the handful no game drives — `log_writes`, `log_off_thread`,
+/// `log_written_off_the_frame`, `log_refused` and the two `pacing_no_timer` halves — so a run there answers
+/// a question about those. `orb-launcher` is left
 /// out for a harder reason: its artifact dependency pins `orb`'s cdylib to `i686-pc-windows-gnu`, which
 /// has no profiler runtime, so a run that includes it does not compile.
 ///
