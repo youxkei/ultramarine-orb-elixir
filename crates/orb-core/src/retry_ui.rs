@@ -313,10 +313,7 @@ impl RetryMenu {
                 match self.ways[self.way] {
                     Way::Chapter => self.decided(Choice::Chapter),
                     Way::Further => {
-                        self.showing = Showing::Listing(Listing::Chapters);
-                        self.chapter = 0;
-                        self.keys.hold(CONFIRM_GRACE_FRAMES);
-                        log!("retry: asking which chapter further back");
+                        self.lists_the_chapters_behind();
                         None
                     }
                     Way::Stage => self.decided(Choice::Stage),
@@ -368,8 +365,9 @@ impl RetryMenu {
     /// **And the ways on are the ways this menu is offering**, not the four there can be: the one that lists
     /// what is behind the chapter is left out where nothing is, so the stage is the second item at a stage's
     /// own first chapter and the third anywhere else — a recipe naming a place in the list gets the item that
-    /// is *in* that place. What no number reaches is [`Way::Further`] itself, that being a list rather than a
-    /// choice: a run wanting one of the chapters behind names it once the list is up.
+    /// is *in* that place. [`Way::Further`] decides nothing, here as under a press: naming it puts the
+    /// chapters behind up, and the chapter is named in the answer after — which is the one road to one of
+    /// them for a launch playing itself, that item being as unreachable to a press as any other.
     ///
     /// **Written for a launch that plays itself**: a check of some stage's own first chapter is a run asked to
     /// start over and sent back to that stage, which no press can reach — the cursor starts on the chapter
@@ -382,10 +380,7 @@ impl RetryMenu {
                 Some(Way::Stage) => self.decided(Choice::Stage),
                 Some(Way::Quit) => self.decided(Choice::Quit),
                 Some(Way::Further) => {
-                    log!(
-                        "retry: item {item} is the chapters behind this one, which is a list and not \
-                         an answer"
-                    );
+                    self.lists_the_chapters_behind();
                     None
                 }
                 None => {
@@ -425,6 +420,15 @@ impl RetryMenu {
                 }
             },
         }
+    }
+
+    /// The chapters behind the one that was lost put up, on the nearest of them, which is what the way on
+    /// that decides nothing does — whether a press or a recipe took that item.
+    fn lists_the_chapters_behind(&mut self) {
+        self.showing = Showing::Listing(Listing::Chapters);
+        self.chapter = 0;
+        self.keys.hold(CONFIRM_GRACE_FRAMES);
+        log!("retry: asking which chapter further back");
     }
 
     /// Acts on the choice, or puts up the question it asks first.
@@ -734,6 +738,26 @@ mod tests {
         read_it(&mut menu);
         assert_eq!(menu.step(&down()), None);
         assert_eq!(menu.step(&decide()), Some(Choice::Further(1)));
+    }
+
+    /// **And a recipe reaches those chapters by naming that item too**, which puts the list up rather than
+    /// deciding anything: the number in the answer after it is a place in the list, and the one after that
+    /// is はい.
+    ///
+    /// Which is the only road to a chapter behind for a launch that plays itself. Nothing of this cursor
+    /// reaches a bot, so a press takes the item it came up on — the chapter that was lost — and the item
+    /// that lists what is behind it is as unreachable to a press as the stage and giving up are.
+    #[test]
+    fn a_recipe_names_that_item_for_the_list_and_a_chapter_out_of_it() {
+        let mut menu = open();
+        assert_eq!(menu.answered_outright(1), None, "it decided something");
+        assert!(matches!(menu.showing, Showing::Listing(Listing::Chapters)));
+        assert_eq!(
+            menu.chapter, 0,
+            "on the chapter nearest the one that was lost"
+        );
+        assert_eq!(menu.answered_outright(0), None, "it acted without asking");
+        assert_eq!(menu.answered_outright(0), Some(Choice::Further(2)));
     }
 
     /// What every question that goes back says under itself: the chapters after the one put back go

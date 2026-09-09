@@ -1,0 +1,47 @@
+# A run whose first attempt at every chapter is hit on purpose and whose second is played clean, so that the
+# retry question comes up and is answered by the rules with the chapter again — the whole content of the mode,
+# which a run that dodges everything never reaches.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **A window of frames for the one death this case is about.** A chance of one per chapter is a death in every
+# chapter that has something to be hit by, and which chapters those are is the stage's own bullets: the real
+# game died in its first chapter 320 frames into this step and again in its second 2,400 frames in, where a
+# laid-out stage fires in the chapters its waves put enemies in and in no others — its own death was in the
+# second chapter, 240 frames in, and its next one inside the six hundredth. So a run played to the third
+# chapter raised this question twice there and once here, and this window is wide enough for the later of the
+# two first deaths and narrower than the earlier of the two second ones.
+#
+# **And a chapter is not the bound, which is what the th07 case has**: the chapter the death falls in is not the
+# same chapter on the two games, so a step ending at the chapter after it would end on the wrong side of the
+# real game's own death.
+#
+# **And the question itself cannot be waited for**: the rules answer the offer to retry the frame it comes up,
+# so a `play_until: { question: retry }` never sees one — written that way, the step ran to its whole bound
+# while the run died in thirty-two chapters in a row.
+- play_until: { frames: 400 }
+# **And then the chapter after the one it died in, with no chance of being hit on the way.** What the death has
+# to be answered by for this case is the chapter *again* and the run carrying on out of it, and the window
+# above ends inside the chapter the retry put back on a game whose chapters are thousands of frames long: the
+# real game was still in its first chapter when the window ran out, where a laid-out one had reached its third.
+# The chance is nought from here, so the chapters this crosses are none of them drawn to be hit in.
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 36000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

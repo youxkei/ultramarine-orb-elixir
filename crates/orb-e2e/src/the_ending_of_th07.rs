@@ -30,6 +30,13 @@ const ENDING_UPDATES: i32 = 12_000;
 /// loop stops rather than about how much it can spend.
 const UPDATES_BEFORE_THE_SCENE_GOES: i32 = 20;
 
+/// And how many the roll's own script runs before the ending's scene is left: a number this file chooses too,
+/// long enough that a rate read off its frames is a rate and short enough that a suite plays it in seconds.
+const ROLL_UPDATES: i32 = 240;
+
+/// The rate orb paces every frame at, in microseconds apart, which is the rate the roll has to be played at.
+const A_FRAME_APART_US: i64 = 1_000_000 / orb_core::frame::LOGIC_HZ as i64;
+
 /// A launch with an ending running, taken to the frame orb runs it out in.
 fn into_an_ending(name: &str) -> Box<Fake> {
     Fake::attach_configured(
@@ -103,6 +110,86 @@ fn an_ending_of_th07_is_run_out_in_one_frame_and_stops_where_its_staff_roll_begi
             game.state().in_ending,
             "the roll is not inside the ending as far as the game is concerned: {}",
             game.state(),
+        );
+    });
+}
+
+/// The roll plays on its own afterwards, at the rate everything else is paced at, with nothing of orb's taken out
+/// of it.
+///
+/// The roll is played out an update a frame — the run-out does not start again over it, the flag staying set
+/// and the scene staying the ending's through both — and the rate is what the loop paces every other frame at.
+/// **No ranking is asked for over an ending**, which is what leaves the roll every frame of its own script: a
+/// run of this game that ended asks for no ranking at all, the game's own save carrying what it counted — see
+/// `th07.rs`'s `no_ranking_is_built_for_a_run_of_th07_that_ended`.
+///
+/// Which scene the roll hands over to is not read off this exe, so what says it is over here is the ending's
+/// scene being left — see `Fake::the_roll_lasts`.
+#[test]
+fn the_staff_roll_of_th07_plays_at_sixty_and_the_scene_after_it_follows() {
+    in_its_own_process(|| {
+        let game = into_an_ending("th07-the-ending-the-roll");
+        let log = game.log();
+        game.streams_its_song(0);
+        game.the_roll_lasts(ROLL_UPDATES);
+        game.an_ending_is_running(ENDING_UPDATES);
+        game.one_frame();
+        assert!(
+            log.said("ending run out in"),
+            "the ending was not run out on the frame it began on:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // The roll played out, a frame of the loop at a time: as many frames as the roll's own script has
+        // updates, and the ending's scene left on the last of them.
+        let handovers_before = game.handovers_us().len();
+        let after = log.written();
+        game.frames_until("the roll played out", ROLL_UPDATES as u32 + 60, || {
+            !game.state().in_ending
+        });
+        let handovers = game.handovers_us();
+        let rolled = &handovers[handovers_before..];
+        assert_eq!(
+            rolled.len(),
+            ROLL_UPDATES as usize,
+            "the roll was drawn in a count of frames that is not its own script's",
+        );
+        assert!(
+            !log.said_since(after, "ending run out in")
+                && !log.said_since(after, "ending skipped,"),
+            "the staff roll was run out as well:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            !log.said("score: the ranking is up"),
+            "a ranking was asked for over the roll:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().the_scene_now(),
+            game.image().scene_of_the_front_end(),
+            "the scene after the roll is not the one the roll left for",
+        );
+
+        // At the rate everything else is paced at: the frames it was drawn in, a frame apart. The mean rather
+        // than each turn — the host wakes a waiting thread when it gets round to it — with the count orb itself
+        // reported shown late as the other half of the reading.
+        let spent = rolled.last().expect("a frame of the roll") - rolled[0];
+        let apart = spent / (rolled.len() - 1) as i64;
+        assert!(
+            (apart - A_FRAME_APART_US).abs() * 100 < A_FRAME_APART_US,
+            "the roll's frames were {apart}us apart against {A_FRAME_APART_US}us",
+        );
+        let late: Vec<String> = log
+            .lines()
+            .iter()
+            .filter(|line| line.contains(" shown late") && !line.contains("0 shown late"))
+            .cloned()
+            .collect();
+        assert!(
+            late.is_empty(),
+            "frames of the roll were shown late:\n  {}",
+            late.join("\n  ")
         );
     });
 }

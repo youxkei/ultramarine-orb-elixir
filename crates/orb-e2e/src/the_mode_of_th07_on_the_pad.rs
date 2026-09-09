@@ -33,6 +33,12 @@ const PAD_TRAVEL: (u32, u32) = (0, 65535);
 const SHOOT_BUTTON: u32 = 0;
 const BOMB_BUTTON: u32 = 1;
 
+/// Whether the pad orb last sampled has exactly these buttons down, which is the reading orb's own menus are
+/// answered out of — see `orb_core::joystick::reading`.
+fn sampled(buttons: u32) -> bool {
+    orb_core::joystick::reading().is_some_and(|reading| reading.buttons == buttons)
+}
+
 fn centred() -> u32 {
     (PAD_TRAVEL.0 + PAD_TRAVEL.1) / 2
 }
@@ -136,7 +142,15 @@ fn the_stick_and_the_hat_both_move_th07s_mode_question() {
         // And the hat the other way, on the question the next press puts up: the cursor starts where the last
         // answer left it, so up is back to the mode with chapters.
         game.sim().joystick().pushes(0, centred());
+        // The title menu again, with the cursor back on a run. The press orb handed on for the first answer
+        // lands on the read after the answer and is one this game's title acts on, so a frame goes first for it
+        // to land in — the front end walking to the difficulty select — and the title is put back after it; then
+        // a frame with the cursor there before the press, for the reason `Fake::answers_the_mode` gives.
+        game.frame();
+        game.image().the_front_end_is_up();
+        game.image().the_title_menu_points_at_a_run();
         game.image().the_screen_has_been_up_for(60);
+        game.frame();
         let from = log.written();
         game.press_until(keys::Z, "the question again", || {
             log.said_since(from, "menu: Run is under the cursor, asking which mode")
@@ -206,6 +220,69 @@ fn the_pad_answers_th07s_retry_menu() {
             game.state(),
             at_the_chapter,
             "the chapter the pad asked for is not where the run came back to",
+        );
+    });
+}
+
+/// A pad button held from before the question went up is not a press when the frames it reads nothing over run
+/// out. The pad is read every frame, those frames included, which is what makes the edge come out right — the
+/// shot button is what chose the item this is asked over.
+///
+/// **In this game the pad's shot button and the keyboard's shot key are one bit of one word**, the pad half
+/// being added to the keys' — see `the_pad_half_of_th07s_input_read.rs` — so the pad's push is itself the press
+/// that puts the question up, where th06's e2e test has the keyboard put it up over a pad already held. What is
+/// the same in both is what follows: the push held on from there is the press that opened the question, spent,
+/// and not an answer however long it is held.
+#[test]
+fn a_button_held_from_before_th07s_question_does_not_answer_it() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-pad-held",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.sim()
+            .joystick()
+            .attach(PAD_BUTTONS, PAD_TRAVEL.0, PAD_TRAVEL.1);
+        game.frames_until("an overlay", 8, || log.said("overlay: ready"));
+        game.frames_until_a_thread("the pad named", || log.said("joystick: winmm 0 is"));
+        game.image().the_front_end_is_up();
+        game.image().the_title_menu_points_at_a_run();
+        game.image().the_screen_has_been_up_for(60);
+        // A frame with the cursor there before the push, for the reason `Fake::answers_the_mode` gives.
+        game.frame();
+
+        // Pushed and never let go: the push is the edge the question goes up on, and the push held on from there
+        // is the press that opened it — spent, and not an answer however long it is held.
+        game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
+        game.frames_until_a_thread("the question", || {
+            log.said("menu: Run is under the cursor, asking which mode")
+        });
+        for _ in 0..READS_KEYS_AFTER + 60 {
+            game.frame();
+            assert_eq!(
+                outcomes(&game),
+                0,
+                "a pad button held from before the question answered it:\n  {}",
+                log.lines().join("\n  ")
+            );
+        }
+
+        // Let it go and push it again, which is what somebody actually does.
+        //
+        // **Waited for on the sample orb's own menus read**, and not on the word the game is handed: while a
+        // question is up the game is handed nothing at all, so the word cannot say whether the thread has read
+        // the release yet.
+        game.sim().joystick().pushes(0, centred());
+        game.frames_until_a_thread("the button let go of", || sampled(0));
+        game.sim().joystick().pushes(1 << SHOOT_BUTTON, centred());
+        game.frames_until("the pad's answer", 60, || outcomes(&game) == 1);
+        assert!(
+            log.said("mode: answered on the pad"),
+            "the press made after the hold was not the pad's answer:\n  {}",
+            log.lines().join("\n  ")
         );
     });
 }

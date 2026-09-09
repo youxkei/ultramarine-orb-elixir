@@ -182,6 +182,32 @@ impl Files {
         })
     }
 
+    /// Adds to the end of a file, making it where it is not there — refused, and refused for a directory that
+    /// is not there, the way [`write`](Files::write) is. Which thread it came from is not kept: the one file
+    /// written this way is a sequence a check reads afterwards, and no test asks where its writes happen.
+    pub fn append(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if refuses(&state, path, Refuses::Write) {
+            return Err(refusal(path));
+        }
+        let parent = path.parent().map(Path::to_path_buf);
+        if let Some(parent) = parent
+            && !parent.as_os_str().is_empty()
+            && !state.directories.contains(&parent)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} is not there", parent.display()),
+            ));
+        }
+        state
+            .files
+            .entry(path.to_path_buf())
+            .or_default()
+            .extend_from_slice(bytes);
+        Ok(())
+    }
+
     pub fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
         if refuses(&state, path, Refuses::Write) {

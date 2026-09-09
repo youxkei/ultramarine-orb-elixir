@@ -1,0 +1,33 @@
+# はじめから: the run the case before left is offered again and declined for a run of this launch's own,
+# which is the answer that writes the file over — and the last moment the replay of that run can be kept, so
+# orb asks about it there and this recipe says はい.
+#
+# Both are items no press can walk to: the cursor comes up on つづきから and on はい, so each is named.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml. The run offered is the one
+# left at that difficulty.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 30
+  until: { question: resume }
+  give_up_after: 1800
+- answer: { question: resume, item: 1 }
+  give_up_after: 600
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 900
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

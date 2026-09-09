@@ -4720,21 +4720,13 @@ impl Game for Th07 {
     /// Nothing where the chain has no such screen on it, which is every frame of a run: the walk is bounded and
     /// each step of it is asked of the memory map, so a frame with no front end answers nothing rather than a
     /// number off whatever the pointer led to.
+    /// Which id each screen is and where each item sits in it is not read off the exe — [`SCREEN_TITLE`] and
+    /// [`SCREEN_SHOT_SELECT`] are the two that are — so it is read off a launch's own `front end:` lines
+    /// instead, which `what_is_reached` writes: the cursor is one field whatever screen is up, so a step
+    /// waiting for a number cannot tell Practice Start's own list from the title's.
     unsafe fn front_end_cursor(&self) -> Option<i32> {
         let front = unsafe { Self::chain_argument(FRONT_END_UPDATE) }?;
-        let cursor = mem::read_committed::<i32>(front + FRONT_END_CURSOR)?;
-        // **Said whenever either changes**, which is what a recipe naming an item by where it sits has to be
-        // written against: the cursor is one field whatever screen is up, so a step waiting for a number cannot
-        // tell Practice Start's own list from the title's. Which id each screen is and where each item sits in it
-        // is not read off the exe — [`SCREEN_TITLE`] and [`SCREEN_SHOT_SELECT`] are the two that are — so it is
-        // read off a launch instead, and this is the line it is read from.
-        let screen = mem::read_committed::<i32>(front + FRONT_END_SCREEN).unwrap_or(-1);
-        static LAST: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
-        let both = i64::from(screen) << 32 | i64::from(cursor) & 0xffff_ffff;
-        if LAST.swap(both, Ordering::Relaxed) != both {
-            crate::detail!("front end: screen {screen}, cursor on item {cursor}");
-        }
-        Some(cursor)
+        mem::read_committed::<i32>(front + FRONT_END_CURSOR)
     }
 
     /// Which screen of the front end is up, out of the same object: `+0xd0f8`, which is [`SCREEN_TITLE`] on the

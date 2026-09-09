@@ -10,6 +10,20 @@
 //! the game keeps them. Every record a played run leaves is left, the score file and the ranking included —
 //! a run written down differently is not the thing a resume is measured against.
 //!
+//! **So a screen of the game's own is pressed at and never written past**, which is where the imitation ends
+//! and what [`Step::Answer`] is the one exception to: a question orb puts up keeps a cursor of its own that
+//! nothing of it reaches, so an item of one of those is named rather than walked to — and the game's own
+//! screens, whose cursors the game keeps, are walked. The high score's name entry, the stats screen after it,
+//! the difficulty and shot selects and the game's own pause menu are all pressed through by a `press` and a
+//! count of frames, however long that takes; orb has a state to write past two of them and a recipe does not
+//! reach for it, because a launch that skipped a screen would be a launch that never showed the screen could
+//! be walked.
+//!
+//! **And what plays the game for the player is not this.** `--clear` makes nothing able to hit the player and
+//! `--sent-keys` has another program press the keys; either is a launch somebody is looking at rather than a
+//! run being played, so a measurement of what a run leaves behind cannot lean on one — see
+//! `orb_real`'s own doc, where the cases are.
+//!
 //! **Its own crate so that none of it is in the logic that ships.** `orb_core::runtime::plays_the_run` is a
 //! slot, `orb` fills it where `--autoplay` names a recipe, and a launch nobody asked to play itself reaches
 //! none of this. The same shape every other seam in this tree has — `window::install_over`,
@@ -87,6 +101,11 @@ struct Playing {
     /// is the question it named being *gone*, and a question that was never up is one to wait for. Without
     /// this the two are the same frame, and a step whose question never came up read as done.
     asked: bool,
+    /// Whether the step now being carried out has seen the run under way, for a [`Step::Play`]: what ends one
+    /// early is the run being *over*, and a run that has not started yet is not that. The frame a resume's
+    /// answer lands on has the run wanted and no run built — th07 spends one such frame between the answer and
+    /// the build — and a `play` step starting there read the run as over and gave up before it began.
+    in_run_seen: bool,
 }
 
 /// One step, with its buttons already turned into the word they are and its question already resolved.
@@ -253,6 +272,7 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         frames: 0,
         hits: hits::TakingHits::default(),
         asked: false,
+        in_run_seen: false,
     })
 }
 
@@ -498,6 +518,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     // **And a `play` gives up the moment the run is over**, whatever its bound: there is nothing left to play,
     // the game is on its own screen for it, and the rules press nothing there — so a step waiting for a stage
     // would sit out its whole bound. An attempt that failed ends and lets the next one start.
+    playing.in_run_seen |= !reached.over;
     let gave_up = !over
         && match step {
             // An `answer` waits for its question the way a `wait_until` for one does, so it takes a bound the
@@ -508,7 +529,8 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             Step::Play { give_up_after, .. } => {
-                reached.over || give_up_after.is_some_and(|bound| playing.frames >= bound)
+                reached.over && playing.in_run_seen
+                    || give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             // None of these can wait for something that will not happen, so none has a bound to reach: each is
             // an ask — the run ended, the process closed, a frame written out, the run started over, the rules
@@ -523,6 +545,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         playing.at += 1;
         playing.frames = 0;
         playing.asked = false;
+        playing.in_run_seen = false;
         log!(
             "autoplay: step {} of {} {}",
             playing.at,

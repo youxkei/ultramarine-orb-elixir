@@ -1,0 +1,35 @@
+# The run played out of its first stage and into the next, and a chapter of that one taken again: a stage a
+# run walks into is built from the stage before it rather than from the front end, so the numbers it starts
+# with are the ones the run carried and the chapters are its own.
+#
+# The one case that plays a whole stage, which is what reaching the second costs.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# A stage of play, and the deaths a clean run takes on the way are retried by the rules themselves — which
+# is why this waits far longer than a stage lasts.
+- play_until: { stage: 2, chapter: 1 }
+  give_up_after: 36000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 2, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

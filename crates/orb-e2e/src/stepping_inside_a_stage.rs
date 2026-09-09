@@ -18,7 +18,7 @@
 use crate::fake::th06::{ATTACK_CHANGES, BOSS_ARRIVES, CARD_STARTS, Fake, the_run};
 use crate::fake::{Launched, in_its_own_process};
 use orb_config::LogLevel;
-use orb_core::game::th06::image::Scene;
+use orb_core::game::th06::image::{Playing, Scene};
 
 /// The keys a pass steps with: the numbers, orb's own names for them being its own.
 const HOLD: u8 = orb_config::keys::SPACE.0;
@@ -265,6 +265,69 @@ fn a_boundary_judged_out_of_the_table_is_stepped_over() {
             steps(&game, BACK),
             THE_STAGES_OWN_START,
             "a step back over the boundary that was judged out",
+        );
+    });
+}
+
+/// Where the stop a run forward used to have fell, and a frame of the stage past it: ten minutes of game
+/// time, written down as longer than any stage.
+const PAST_THE_OLD_STOP: u32 = 60 * 60 * 10 + 100;
+
+/// The script frame the detector proposes a boundary at past that: this game's waves are two hundred frames
+/// on and two hundred off from the stage's start, so the gap the jump lands in front of has its proposal
+/// where [`PROPOSED_AT`] sits in the stage's own first four hundred.
+const PROPOSED_PAST_THE_STOP: u32 = 60 * 60 * 10 + PROPOSED_AT;
+
+/// **A step back over a stage longer than ten minutes lands on the boundary and not on the stop that bounds
+/// the run forward.**
+///
+/// A step back restores the stage's start and runs forward to the frame asked for, and that run has a stop on
+/// it for a target it can never reach. The stop was ten minutes of game time, written down as longer than any
+/// stage — and th07's Extra is not: a replay of it fought its boss to frame 42127, so every step back to a
+/// chapter past the ten minutes ran out the stop and held the game wherever that fell, which read as a step
+/// that worked. The stop is the stepping's own and not either game's, so the same step is asked of this game:
+/// a chapter proposed past the ten minutes, and a step back onto it.
+///
+/// The stage is not played to that frame — the clocks are moved there, which is the one thing a laid-out
+/// game can do that a real one cannot: what a step back replays from the stage's start is the buttons, and
+/// what it has to reach is the frame.
+#[test]
+fn a_step_back_over_a_stage_longer_than_the_stop_lands_on_the_chapter_it_asks_for() {
+    in_its_own_process(|| {
+        // The table being built as well as stepped through, because of what the boundary has to be: with the
+        // fight this game arranges for frame 400 jumped over, what a chapter past the ten minutes can begin at
+        // is a gap in the waves, and the detector proposes one only while it is tuning.
+        let game = stepping("stepping-a-long-stage", true);
+        let log = game.log();
+
+        // Past the stop the run forward used to have, without playing the frames: both of the stage's clocks,
+        // the boundary being judged on the script's and the landing read off the stage's.
+        let run = game.image().playing_now();
+        game.image().playing(Playing {
+            frames: PAST_THE_OLD_STOP,
+            script_frames: PAST_THE_OLD_STOP as i32,
+            ..run
+        });
+        game.frames_until("the boundary the gap is", 600, || {
+            log.said(&format!(
+                "stage 1 chapter 2 at frame {PROPOSED_PAST_THE_STOP}"
+            ))
+        });
+        // And the game past the old stop with it, which is what makes the step below one that stop would
+        // have cut short.
+        assert!(
+            game.state().stage_frames > 60 * 60 * 10,
+            "the game is inside the old stop, so this proves nothing: {}",
+            game.state().stage_frames,
+        );
+        game.frames(30);
+        game.press(HOLD);
+
+        assert_eq!(
+            steps(&game, BACK),
+            PROPOSED_PAST_THE_STOP,
+            "the step back stopped short of the chapter it asked for:\n  {}",
+            log.lines().join("\n  ")
         );
     });
 }

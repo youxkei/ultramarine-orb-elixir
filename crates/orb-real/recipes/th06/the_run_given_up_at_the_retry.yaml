@@ -1,0 +1,34 @@
+# タイトルに戻る: the run asked to start over and then given up at the question that ask raises, which is
+# the other way a session is interrupted — the item asks before it acts, so はい is a second answer of its
+# own, and what it leaves behind is the chapter the run was in.
+#
+# The last of the ways on, which is the fourth of them here: the one that lists the chapters behind is
+# offered wherever anything is behind the chapter that was lost.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 3 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# The game's own half of leaving, which is a scene it changes on its own time.
+- wait_until: { frames: 300 }
+- quit: true

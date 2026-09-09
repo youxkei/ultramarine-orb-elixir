@@ -918,3 +918,57 @@ fn the_buffer_a_stream_names_is_not_put_back_from_a_snapshot() {
         );
     });
 }
+
+/// **The stream a chapter puts back comes back going round**, whatever way the buffer was playing when the
+/// chapter was taken.
+///
+/// A streaming buffer is a ring the game's own thread writes into, so a play without `DSBPLAY_LOOPING` is heard
+/// as the music stopping wherever the buffer's end falls — with that thread still filling a buffer nobody is
+/// playing. Which is what a chapter of a resumed run of th07 was measured coming back as, the buffer having been
+/// captured mid-play with the ring bit clear: `status 0x1 (asked 0)`. The flag is the mixer's and not the
+/// game's, so no read of the memory a snapshot holds says which way it stood — and this game streams through the
+/// same kind of buffer, so what a restore of one of its chapters plays is asked here as well.
+#[test]
+fn the_stream_comes_back_going_round() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-looping", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        game.streams_its_song(SONG);
+        // The buffer playing with the ring bit clear **before the chapter is taken**, which is what that
+        // launch's was taken in: what a restore puts back is the state the capture found.
+        game.plays_without_looping();
+        game.in_a_pointdevice_run();
+        assert!(
+            log.said("music: true"),
+            "the stage's first chapter was taken with no music read:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(!game.stream_now().looping, "the sound was left going round");
+
+        // The hit and チャプターをやり直す.
+        game.dies();
+        game.frame();
+        assert!(
+            log.said("died in chapter 1"),
+            "the death was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+
+        let stream = game.stream_now();
+        assert!(
+            stream.playing && stream.looping,
+            "the stream came back {}, so the music stops where the buffer ends:\n  {}",
+            if stream.playing {
+                "playing once"
+            } else {
+                "silent"
+            },
+            log.lines().join("\n  ")
+        );
+    });
+}

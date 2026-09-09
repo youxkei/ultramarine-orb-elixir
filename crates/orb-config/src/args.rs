@@ -156,6 +156,20 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "RECIPE", help_heading = FAULT)]
     autoplay: Option<PathBuf>,
 
+    /// write down what every frame held — the run's state as the game's memory has it, the word it
+    /// was played with, which question of orb's own was up, and the log's lines — as MessagePack
+    /// records to this file, beside the game where the path names no directory, for a check to read
+    /// after the run. The file is started over each launch
+    #[arg(long, require_equals = true, value_name = "FILE", help_heading = FAULT)]
+    trace: Option<PathBuf>,
+
+    /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
+    /// remembers, and a trace naming no directory — under this directory rather than beside the
+    /// game. For a launch that is a test: what an earlier session left beside the game then
+    /// answers none of this launch's questions, and nothing there has to be moved to make room
+    #[arg(long, require_equals = true, value_name = "DIR", help_heading = FAULT)]
+    keep_in: Option<PathBuf>,
+
     /// do not write down what a run pressed, so no chapter can be picked up in a later launch.
     /// Takes the game's input read and the moment a stage's numbers are put in place out of
     /// orb's hands, and leaves pointdevice_resume/ alone
@@ -302,6 +316,14 @@ impl Config {
             // be remembered beside it.
             self.log_level = LogLevel::Verbose;
         }
+        if let Some(path) = &options.trace {
+            self.trace = Some(path.clone());
+        }
+        // The settings themselves were read from beside the game already, and stay the game's: what moves
+        // is where this launch *writes*, which is every path derived from the base directory.
+        if let Some(dir) = &options.keep_in {
+            self.base_dir = dir.clone();
+        }
         if options.no_frame_loop {
             self.own_frame_loop = false;
         }
@@ -348,6 +370,27 @@ mod tests {
         let judge = with("--judge");
         assert!(judge.chapter_tuning && judge.during_replay && judge.chapter_stepping);
         assert_eq!(judge.speed, 1);
+    }
+
+    /// **A launch being checked says where its trace goes and where its files are kept**, and neither is
+    /// anything a launch nobody asked has: a settings file cannot name them.
+    #[test]
+    fn a_trace_and_a_directory_to_keep_files_in_are_only_ever_asked_for() {
+        let plain = with("");
+        assert_eq!(plain.trace, None);
+        assert_eq!(plain.base_dir, std::path::Path::new("/opt/orb"));
+
+        let checked = with(r"--trace=cases\one\trace.msgpack --keep-in=C:\copy\orb-real\1\base");
+        assert_eq!(
+            checked.trace.as_deref(),
+            Some(std::path::Path::new(r"cases\one\trace.msgpack"))
+        );
+        assert_eq!(
+            checked.base_dir,
+            std::path::Path::new(r"C:\copy\orb-real\1\base")
+        );
+        // What was read stays read from beside the game: only where this launch writes has moved.
+        assert_eq!(checked.game_dir, std::path::Path::new("/opt/orb"));
     }
 
     /// Asking for both passes at once is a mistake rather than the later one winning: they are

@@ -37,7 +37,7 @@ use orb_api::d3d8;
 use crate::chapter::{Cause, Chapters, Judgement};
 use crate::{
     detail, frame, game, joystick, log, pacing, profile, replay, replay_ui, resume, resume_ui,
-    score, summary, writer,
+    score, summary, trace, writer,
 };
 
 /// The frame loop's state, made on the first ask.
@@ -540,6 +540,15 @@ struct Playing {
     reached: Reached,
     /// What it is pressing this frame, asked for once where the frame begins — see [`what_is_reached`].
     pressing: Option<u16>,
+    /// The screen and the item the front end was last said to be on, so that the line saying so is written
+    /// where either changes rather than every frame.
+    ///
+    /// **Held by the launch and not in a static of the game's**, which is what it was: a static outlives an
+    /// attach, and `orb-e2e` attaches to sixteen laid-out games in one process where the real game is one
+    /// attach per process — so the second launch onwards said nothing of the screen it came up on, its
+    /// number being the one the launch before had left behind. What that cost is the one thing holding a
+    /// laid-out launch against a real one is for: the first place every case walks read as a difference.
+    said: Option<(i32, i32)>,
 }
 
 /// The game closed, for whatever is playing the run having finished with it.
@@ -552,6 +561,9 @@ pub fn close_the_game() {
     // line handed over and then exited out from under is a line lost — and the last lines of a run are the
     // ones somebody closing it deliberately still wants. See `log::stop`.
     log::stop();
+    // And the trace's last chunk, for the same reason: a recipe ends with `quit`, and the frames before it
+    // are the ones its check is about.
+    trace::close();
     orb_api::process::exit(0);
 }
 
@@ -682,6 +694,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             card_name: false,
         },
         pressing: None,
+        said: None,
     });
 }
 /// The game's chain functions, which orb has hooked, so calling them from its own
@@ -1077,6 +1090,8 @@ pub unsafe fn detached() {
     // whatever log this process opens next. See `writer::stop` for why waiting for it is this path's to
     // do and not `DllMain`'s.
     writer::stop();
+    // And the trace after the writer, so that the writer's own lines are in its last chunk.
+    trace::close();
     // And the log, which a real launch closes from `DllMain`'s `DLL_PROCESS_DETACH` and which this is
     // the whole of the way out of for anything else. Left open it is a handle onto a game that has
     // gone: the next `log::line` writes through it, and where the next thing along is another game in
@@ -1167,6 +1182,12 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             Some(_) => "which is what orb.yaml asks for",
         }
     );
+
+    // Where a launch being checked writes down what every frame held — see [`trace`]. Beside the game, as
+    // every file orb keeps is, where the path names no directory of its own.
+    if let Some(path) = &config.trace {
+        trace::open(&config.base_dir.join(path));
+    }
 
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
@@ -1309,7 +1330,29 @@ unsafe fn what_is_reached(runtime: &Runtime) {
     playing.reached.chapter = runtime.chapters.number();
     playing.reached.cursor = unsafe { runtime.game.front_end_cursor() };
     playing.reached.screen = unsafe { runtime.game.front_end_screen() };
-    playing.reached.question = if runtime.asking.is_some() {
+    // **Which screen is up and which item its cursor is on, said whenever either changes.** That is what a
+    // recipe naming an item by where it sits is written against: the cursor is one field whatever screen is
+    // up, so a step waiting for a number cannot tell the title's fourth item from a difficulty select's, and
+    // which screen is which number is read off these lines rather than off either exe.
+    //
+    // A screen from a game that answers none is said as -1, which is the number those lines have always
+    // carried for it: th07 reads the field behind the same walk as the cursor and answers nothing where the
+    // walk ends short.
+    if let Some(cursor) = playing.reached.cursor {
+        let screen = playing.reached.screen.unwrap_or(-1);
+        if playing.said != Some((screen, cursor)) {
+            playing.said = Some((screen, cursor));
+            detail!("front end: screen {screen}, cursor on item {cursor}");
+        }
+    }
+    playing.reached.question = question_up(runtime);
+    playing.pressing = (playing.word)(runtime.game, playing.reached);
+}
+
+/// Which of orb's own questions is up, if one is: what a recipe's step waits for, and what a trace records
+/// the frame under.
+fn question_up(runtime: &Runtime) -> Option<Question> {
+    if runtime.asking.is_some() {
         Some(Question::Mode)
     } else if runtime.asking_resume.is_some() {
         Some(Question::Resume)
@@ -1321,8 +1364,7 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         Some(Question::ChooseReplay)
     } else {
         None
-    };
-    playing.pressing = (playing.word)(runtime.game, playing.reached);
+    }
 }
 
 /// What the bot is pressing this frame, or nothing where no launch is playing itself.
@@ -1984,6 +2026,7 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
 /// # Safety
 /// Only ever called from the input hook, on the game's main thread.
 unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
+    trace::the_word(buttons);
     if let Some(frame) = frame {
         let word = buttons & game.run_input();
         let generator = unsafe { game.generator() };
@@ -2491,6 +2534,15 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
     unsafe { what_is_reached(runtime) };
+    // Here, at the top, for the reason `trace::Record` gives: this update leaves by several doors, and a
+    // record taken before any of them is one record however the frame went.
+    trace::frame(
+        runtime.frames,
+        runtime.previous,
+        runtime.chapters.number(),
+        runtime.chapters.retries(),
+        question_up(runtime),
+    );
     // Before anything that can return early, because what this watches is the game's own counting of time and
     // the frames it counts on include the ones orb holds the chain back for — the mode question among them, which
     // is exactly the screen where nobody has chosen yet whose time it is.

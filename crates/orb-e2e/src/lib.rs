@@ -44,6 +44,8 @@ mod a_chapter_of_a_fight_of_th07;
 #[cfg(test)]
 mod a_chapter_of_the_stages_own_boss;
 #[cfg(test)]
+mod a_chapter_out_of_th07s_table;
+#[cfg(test)]
 mod a_chapter_out_of_the_table;
 #[cfg(test)]
 mod a_chapter_table_collected;
@@ -108,6 +110,8 @@ mod th07;
 #[cfg(test)]
 mod th07s_window_going_behind;
 #[cfg(test)]
+mod the_address_space_a_chapter_needs;
+#[cfg(test)]
 mod the_address_space_a_chapter_of_th07_needs;
 #[cfg(test)]
 mod the_bot_playing_th06;
@@ -120,9 +124,13 @@ mod the_card_name_across_a_restore_of_th07;
 #[cfg(test)]
 mod the_cards_a_run_of_th07_counted;
 #[cfg(test)]
+mod the_cases_the_real_game_is_tested_with;
+#[cfg(test)]
 mod the_count_a_run_of_th07_carries;
 #[cfg(test)]
 mod the_dpad_moving_the_player;
+#[cfg(test)]
+mod the_dpad_moving_the_player_of_th07;
 #[cfg(test)]
 mod the_end_of_a_playback;
 #[cfg(test)]
@@ -138,11 +146,17 @@ mod the_frame_a_scene_is_built_on;
 #[cfg(test)]
 mod the_frame_a_scene_of_th07_is_built_on;
 #[cfg(test)]
+mod the_front_end_of_th07_walked;
+#[cfg(test)]
+mod the_front_end_walked;
+#[cfg(test)]
 mod the_handles_a_restore_leaves_alone;
 #[cfg(test)]
 mod the_handles_a_restore_leaves_alone_of_th07;
 #[cfg(test)]
 mod the_launch_before_its_device;
+#[cfg(test)]
+mod the_launch_of_th07_before_its_device;
 #[cfg(test)]
 mod the_letterbox_presented_into;
 #[cfg(test)]
@@ -168,6 +182,8 @@ mod the_numbers_a_run_of_th07_was_made_with;
 #[cfg(test)]
 mod the_pacing_of_th07;
 #[cfg(test)]
+mod the_pad_half_of_th07s_input_read;
+#[cfg(test)]
 mod the_pad_half_of_the_input_read;
 #[cfg(test)]
 mod the_pad_seen_on_both_winmm_and_xinput;
@@ -180,11 +196,19 @@ mod the_process_orb_woke_up_in;
 #[cfg(test)]
 mod the_recipe_a_bot_plays_to;
 #[cfg(test)]
+mod the_recipe_a_bot_plays_to_of_th07;
+#[cfg(test)]
 mod the_replay_a_run_leaves_behind;
+#[cfg(test)]
+mod the_replay_a_run_of_th07_leaves_behind;
 #[cfg(test)]
 mod the_replay_offered;
 #[cfg(test)]
+mod the_replay_offered_of_th07;
+#[cfg(test)]
 mod the_run_a_retried_chapter_of_th07_writes_down;
+#[cfg(test)]
+mod the_run_a_retried_chapter_writes_down;
 #[cfg(test)]
 mod the_run_left_behind;
 #[cfg(test)]
@@ -216,6 +240,10 @@ mod the_song_a_resume_of_th07_puts_back;
 #[cfg(test)]
 mod the_step_th07s_awards_have_climbed;
 #[cfg(test)]
+mod the_title_menu_of_th07_walked;
+#[cfg(test)]
+mod the_title_menu_walked;
+#[cfg(test)]
 mod the_track_heard;
 #[cfg(test)]
 mod the_track_heard_of_th07;
@@ -225,6 +253,8 @@ mod the_updates_a_resume_of_th07_takes;
 mod the_window;
 #[cfg(test)]
 mod the_window_a_bot_plays_in;
+#[cfg(test)]
+mod the_window_a_bot_plays_in_of_th07;
 #[cfg(test)]
 mod the_window_going_behind;
 #[cfg(test)]

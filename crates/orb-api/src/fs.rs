@@ -51,6 +51,19 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     host::write(path, bytes)
 }
 
+/// Adds bytes to the end of a file, making it where it is not there.
+///
+/// For the one file orb writes as a *sequence* rather than as a state — the trace of a launch being checked,
+/// which grows for as long as the run does. Everything else orb keeps is replaced whole, which [`write`] is;
+/// a trace written that way would be the whole run rewritten every few seconds.
+pub fn append(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.append_file(path, bytes);
+    }
+    host::append(path, bytes)
+}
+
 /// Makes a directory and every directory above it, and answers `Ok` for one that is already there.
 pub fn create_dir_all(path: &Path) -> io::Result<()> {
     #[cfg(feature = "sim")]
@@ -102,6 +115,15 @@ mod host {
 
     pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         std::fs::write(path, bytes)
+    }
+
+    pub fn append(path: &Path, bytes: &[u8]) -> io::Result<()> {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)?
+            .write_all(bytes)
     }
 
     pub fn create_dir_all(path: &Path) -> io::Result<()> {

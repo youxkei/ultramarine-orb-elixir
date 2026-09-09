@@ -77,6 +77,10 @@ pub struct Config {
     /// its buttons are that game's — and a text carried here is one an e2e test can hand over without a file
     /// to put it in. `--autoplay` is where the path is turned into this.
     pub autoplay: Option<String>,
+    /// **Where to write down what every frame held, and nothing unless `--trace` names a file.** The same
+    /// reason as [`Config::autoplay`]: a launch somebody plays is not one being checked, and a settings file
+    /// cannot ask for the file a check reads. Relative to the game's own directory where it names no other.
+    pub trace: Option<PathBuf>,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
@@ -471,6 +475,7 @@ impl Config {
             resume: true,
             sent_keys: false,
             autoplay: None,
+            trace: None,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,

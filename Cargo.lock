@@ -263,6 +263,7 @@ dependencies = [
  "orb-bot",
  "orb-config",
  "orb-core",
+ "orb-real",
  "orb-sim",
  "rmpv",
 ]
@@ -278,6 +279,13 @@ dependencies = [
  "orb-config",
  "orb-core",
  "windows-sys",
+]
+
+[[package]]
+name = "orb-real"
+version = "0.11.0-dev"
+dependencies = [
+ "orb-core",
 ]
 
 [[package]]

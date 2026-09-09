@@ -201,3 +201,45 @@ fn a_finished_legacy_run_walks_its_own_screen_out_and_that_screen_writes() {
         );
     });
 }
+
+/// And the run's own end is what takes the file it was written down in away, which is the other half of a
+/// run *finishing*: a chapter to come back to is what a run given up leaves, and there is none here.
+///
+/// A run somebody plays and not a `--clear`, which keeps nothing to take away: what has to be written down
+/// first is a chapter of a run that could have been picked up, so that the file going is the run's end and
+/// not a file that was never there.
+#[test]
+fn a_finished_run_leaves_no_chapter_to_pick_up() {
+    in_its_own_process(|| {
+        let game = Fake::attach(
+            "the-screen-a-finished-run-ends-at-file",
+            the_run(),
+            |config| {
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.stages_last(STAGE_FRAMES);
+        game.in_a_pointdevice_run();
+        // The chapter the stage's own start is, written down: what a run that *finished* has to leave behind
+        // is nothing, and a file that was never there says nothing about that.
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said("chapter 1 (MIDSTAGE 1) at frame")
+        });
+        assert!(
+            !orb_core::resume::left(game.dir()).is_empty(),
+            "nothing of the run was written down, so nothing says the file went:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And the run finishing takes it away: the screen it finished at is the one thing that tells a run
+        // over from a run given up, which leaves its chapter where it is. Six stages and the ending, with
+        // nothing on the field to die to.
+        game.frames_until("the result screen", A_WHOLE_RUN, || {
+            game.image().scene() == Scene::Result
+        });
+        game.frames_until_a_thread("the file taken away", || {
+            orb_core::resume::left(game.dir()).is_empty()
+        });
+    });
+}

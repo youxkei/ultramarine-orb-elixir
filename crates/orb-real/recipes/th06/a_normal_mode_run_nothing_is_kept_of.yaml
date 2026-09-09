@@ -1,0 +1,28 @@
+# レガシーモード, which is the other answer to the question orb puts over the title menu: the same game with
+# none of orb's own work happening in it — no chapter counted, nothing written down, and no offer to retry
+# where the player is hit.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it, and the item is the second of
+# the two: the cursor comes up on the mode this launch is already in, so a press would answer 完全無欠モード.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+# The screens that are left, tapped through by a count of frames rather than to a chapter: a run of this mode
+# reaches none, so there is nothing of the kind for a step to wait for. The taps that land after the stage is
+# up are the shot key, which is what the rules hold there anyway.
+- press: [decide]
+  frames: 6
+  until: { frames: 600 }
+- play_until: { frames: 1800 }
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -161,10 +161,41 @@ throughout. The poll above is the only thing that sees a Windows-side file grow:
 
 What is worth one line:
 
-- how many hits and how many deaths the run has had
+- **the game's own state, which is the newest `f<N> scene=A->B stage=S frames=F … deaths=D lives=L` line** —
+  the scene, the stage, both clocks, the deaths and the flags, all of it read off the game rather than
+  inferred. This is the one thing that cannot be left out: see below.
 - which recipe step it is on — `autoplay: step N of M …`
-- where the run is — the newest `stage S chapter C at frame F` line
-- and, on a pickup, the landing: `resume: the landing is …`
+- and the newest thing that *happened*: `run ended after N retries`, `ending run out in N update(s)` or
+  `ending skipped`, `died in chapter N`, `retry: …`, `replay: kept`, `front end: screen N`.
+
+**A step number is not a state, and reading one as the other is how a stall was reported as progress.** A
+launch playing a run to its clear had its run *end* at stage 5 — th06's Easy has no sixth stage — and the
+step waiting for `{ stage: 6, chapter: 1 }` gave up the moment the run was over, as a `play` step does. The
+step after it then sat at the game's own name entry for its whole bound, and the watch, which was reporting
+`autoplay: step 7 of 10 is still waiting, 13200 frame(s) in` beside the newest chapter line, was read as a
+run still being played in its last stage. The log had said `run ended after 0 retries` and
+`ending skipped, 7993 frames run, scene 10 -> 7` a hundred seconds earlier, and the state line says the same
+thing every frame: no run, scene 7, the clocks standing still.
+
+So the poll's line carries the state line verbatim, and a watch that reports which step a recipe is on
+without it is a watch that cannot tell a run from a screen the run has left.
+
+The poll that says all three, one line a tick:
+
+```sh
+recent=$(tail -c 2000000 "$log")          # the newest lines, which is what a state is read off
+state=$(printf '%s\n' "$recent" | grep -aE "^\[[0-9]+ms\] f[0-9]+ scene=" | tail -1 \
+  | sed -E 's/^\[[0-9]+ms\] //; s/ seed=[^ ]*//' | cut -c1-120)
+step=$(printf '%s\n' "$recent" | grep -a "autoplay: step" | tail -1 | sed -E 's/^.*autoplay: //' | cut -c1-48)
+event=$(printf '%s\n' "$recent" | grep -aE \
+  "run ended|ending (skipped|run out)|died in chapter|retry: |replay: (kept|declined)|front end: screen" \
+  | tail -1 | sed -E 's/^\[[0-9]+ms\] //' | cut -c1-90)
+echo "${step:-no step} | ${state:-no state yet} | ${event:-nothing yet}"
+```
+
+**A bounded `tail -c` and not a grep over the file**: a verbose launch of twenty minutes is hundreds of
+megabytes, and a tick that reads all of it is a tick that costs more than the interval it is polled at. Two
+megabytes is seconds of frames at a few hundred bytes each, which is what a state is.
 
 **Cut the log to the launch.** `orb.log` is one file across launches and is sometimes rotated, so the newest
 launch is what follows the last `---- new run ----` and no offset written down beforehand can be trusted:
@@ -194,8 +225,19 @@ but nothing bounds a game that has gone quiet.
 
 ## The recipes
 
-A recipe is a list of steps read by the game's own process, so it lives **beside that copy's exe** and not in
-this repository. `orb-config`'s `recipe` module is the grammar and `Until` is what a step can wait for.
+A recipe is a list of steps read by the game's own process, so one written for a measurement of the day lives
+**beside that copy's exe** and not in this repository. `orb-config`'s `recipe` module is the grammar and
+`Until` is what a step can wait for.
+
+**The recipes that are tests live in the repository**, under `crates/orb-real/recipes/<game>/`, each with a
+check over the trace its launch writes — `--trace=<file>` writes one MessagePack record per frame: the game's
+state, the word the run was played with, the question of orb's own that was up, and the log's lines. `cargo
+xtask real <copy>` plays them all in order and checks each, keeping orb's own files for the session under
+`<copy>/orb-real/<stamp>/` through `--keep-in=<dir>` so nothing already in the copy is touched or answers a
+question — measured: without it, three runs an earlier session had left beside the game were offered on the
+first case's launch, and a pad answered the offer before the recipe reached it. A case there is
+also played against the laid-out games by `orb-e2e`'s `the_cases_the_real_game_is_tested_with`, which is
+where a step that reaches nothing is found first.
 
 **The front end is walked by pressing toward orb's own question, not by tapping through screens.** A screen
 and an item — `{ screen: 8, cursor: 1 }` — are numbers that depend on where the score file left the cursors

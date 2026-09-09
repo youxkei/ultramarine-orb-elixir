@@ -459,6 +459,8 @@ pub trait Win: Send + Sync + 'static {
     fn read_file(&self, path: &Path) -> std::io::Result<Vec<u8>>;
     fn read_file_to_string(&self, path: &Path) -> std::io::Result<String>;
     fn write_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
+    /// Adds bytes to the end of a file, making it where it is not there. See [`crate::fs::append`].
+    fn append_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
     fn create_dir_all(&self, path: &Path) -> std::io::Result<()>;
     fn remove_file(&self, path: &Path) -> std::io::Result<()>;
     /// The files directly inside a directory, as their whole paths. See [`crate::fs::files_in`] for why

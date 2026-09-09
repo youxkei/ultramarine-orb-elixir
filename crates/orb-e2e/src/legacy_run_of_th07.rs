@@ -66,6 +66,9 @@ fn the_mode_question_over_th07_answered_the_other_way_is_read_off_the_screen() {
         game.image().the_front_end_is_up();
         game.image().the_title_menu_points_at_a_run();
         game.image().the_screen_has_been_up_for(60);
+        // A frame with the cursor there before the press, orb deciding whether to hold a press back at the end
+        // of an update and acting on it in the next: a press on this frame is one the game's own title acts on.
+        game.frame();
         game.press_until(keys::Z, "the mode question", || {
             log.said("menu: Run is under the cursor, asking which mode")
         });

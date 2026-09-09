@@ -1,0 +1,27 @@
+# The run a_run_left_in_its_second_chapter left, offered as the run starts and taken up from where it stopped,
+# then played on into the chapter after. The mode question comes first, the run being started the same way;
+# the resume question comes up as the run is built.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml. The run picked up is the one
+# left at that difficulty, and a pick-up at another would be a run of its own.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 30
+  until: { question: resume }
+  give_up_after: 1800
+- answer: { question: resume, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

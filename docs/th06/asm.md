@@ -242,6 +242,23 @@ What tells one track from another is `Th06::music_identity`, out of the wave fil
 points, and that is what a line about the sound carries for this game — see `Game::the_track_heard`, which
 answers nothing here. th07's own record does carry a name, so its line has one.
 
+## The plate a spell card's name is shown on
+
+The panel keeps the name in an `AnmVm` at `impl+0x20f4` (`GuiImpl::enemySpellcardName`) and the plate behind it
+in the one at `impl+0x1ed4`, the vms being 0x110 bytes apart (`0x1ed4`, `0x1fe4`, `0x20f4`, `0x2204`, … at
+`0x41b3ca` onwards, one `AnmVm` constructor call each). `Gui::SetSpellcardName` (`0x417bfd`) picks the plate's
+sprite into the first (`0x417c0c`) and bakes the name into the second (`0x417cb4`, then `DrawStringFormat` at
+`0x417cc0`).
+
+**Whether the plate is on the screen is one bit.** The panel's draw reads `[impl+0x2174] & 1` at `0x41b078` — the
+name vm's flags word at `+0x80`, whose lowest bit is `AnmVmFlags::isVisible` — and where it is clear jumps past
+both the plate (`0x1ed4`, positioned from the name's own position at `0x2184` and drawn) and the name
+(`0x20f4`, drawn at `0x41b11b`). `AnmManager::Draw` (`0x432ad0`) asks the same bit of any vm handed to it
+(`0x432adc`) and answers `-1` without drawing where it is clear. The bit is the ANM script's to set and clear:
+the card's script is started on the vm as the card is shown, and the card's end sends the interrupt that hides
+it (`Gui.cpp:35` and `:430` of the decompilation). So `[impl+0x20f4+0x80] & 1` is what `Th06` answers
+`a_cards_name_is_shown` with.
+
 ## What is not established
 
 - Which of the five bullet states is which kind. That nought is an empty slot and 5 is one that has just hit is

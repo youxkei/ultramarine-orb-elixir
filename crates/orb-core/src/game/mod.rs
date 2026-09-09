@@ -2158,9 +2158,23 @@ pub enum Question {
     ChooseReplay,
 }
 
+impl Question {
+    /// The name a recipe writes this question as, which is also the name a trace records it under — one
+    /// table, so that a check over a trace and a step in a recipe are read against the same words.
+    pub fn name(self) -> &'static str {
+        match self {
+            Question::Mode => "mode",
+            Question::Resume => "resume",
+            Question::Retry => "retry",
+            Question::KeepReplay => "keep_replay",
+            Question::ChooseReplay => "choose_replay",
+        }
+    }
+}
+
 /// The game's state for one frame, read all at once so that everything in it
 /// describes the same instant.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct State {
     /// The game's own scene identifier. Only for the log and for noticing that
     /// the scene changed.

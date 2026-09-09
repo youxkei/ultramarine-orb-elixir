@@ -17,9 +17,17 @@ use crate::fake::th07::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};
 use orb_config::LogLevel;
 use orb_core::game::th07::Th07;
+use orb_sim::keys;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
 const WORK_US: i64 = 700;
+
+/// The number the front end is on when the game is back at its title, which is th07's own 0.
+const SCREEN_TITLE: i32 = 0;
+
+/// How many taps a walk off that screen may make before it says the screen took none: each of the screens it
+/// is holds its own presses off for its own frames, and a tap is two of them.
+const TAPS: u32 = 300;
 
 /// How long the name entry is held up for: long enough that a launch writing into it would have done so, and
 /// short enough that a suite waiting for it twice over is not something anybody notices.
@@ -90,6 +98,56 @@ fn the_name_entry_a_finished_run_of_th07_arrives_on_stands_and_the_replay_offer_
         assert!(
             game.says("Save Replay").is_empty() && game.says("リプレイ").is_empty(),
             "a frame of the offer reached the screen",
+        );
+    });
+}
+
+/// **And the screens it is are walked by the presses whoever finished the run makes**, which is how the game
+/// gets back to its title: the entry takes a decide on to the offer and the offer takes one to the way out,
+/// after which the game puts the scene back itself.
+///
+/// **A run of the other mode, whose offer nothing of orb's writes past**: a run with chapters has that write
+/// take the screen the rest of the way down, so a laid-out game that moved nothing itself still reached the
+/// title on one — which is what this e2e test was about before it was about a legacy run.
+///
+/// Measured on the case that plays a whole game: the real th07 read `front end: screen 0, cursor on item 0`
+/// after the run ended and the recipe's own tap was what got it there, where a laid-out game that took no
+/// press at that screen sat on it until the case's whole bound ran out — the step aiming at the title gave up
+/// and every step after it had nothing to press at.
+#[test]
+fn and_a_decide_walks_it_off_to_the_title() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-screen-a-run-ends-at-walked",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_legacy_run();
+        game.the_run_ends_at_its_own_screen();
+        // From the offer rather than from the entry, which is where the roll of a cleared run hands this
+        // screen over: what the case that plays a whole game taps at is a screen already past its entry.
+        game.the_screen_offers_a_replay();
+        // Tapped the way the recipe taps, which is what a screen of the game's own takes: its presses are
+        // edges, so a word held across the screens between the entry and the offer takes one of them.
+        for _ in 0..TAPS {
+            if game.image().the_scene_now() == game.image().scene_of_the_front_end() {
+                break;
+            }
+            game.press(keys::Z);
+        }
+        assert_eq!(
+            game.image().the_scene_now(),
+            game.image().scene_of_the_front_end(),
+            "the screen a run ended at was still up after {TAPS} tap(s):\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.image().the_screen_the_front_end_is_on(),
+            SCREEN_TITLE,
+            "the front end came back somewhere other than its title",
         );
     });
 }
@@ -175,6 +233,82 @@ fn a_replay_of_th07_is_named_by_the_games_own_entry() {
             TYPED,
             "the replay of {slot} is not named by the game's own entry:\n  {}",
             log.lines().join("\n  ")
+        );
+    });
+}
+
+/// And a finished legacy run's, whose offer nothing writes past: the screen walks all of itself out, and the
+/// file it writes on the way down is the game's own.
+///
+/// The mode makes two differences and this is where both are visible. Nothing of orb's is in the way of that
+/// screen at all — no chapters, so no offer to take off and no question of orb's over it — and the file the
+/// screen's own write lands in is `score.dat` rather than the mode's own beside it.
+#[test]
+fn a_finished_legacy_run_of_th07_walks_its_own_screen_out_and_that_screen_writes() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-screen-a-finished-legacy-run",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        game.in_a_legacy_run();
+        game.frames(STANDS_FOR);
+        assert!(
+            !log.said("chapter 1"),
+            "a legacy run took a chapter:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // The run over, and the screen its own end arrives on, in the phase a run somebody played arrives on.
+        let from = log.written();
+        game.the_run_ends_at_its_own_screen();
+        let arrived_in = game.image().phase_of_a_screen_from_a_run();
+        for _ in 0..STANDS_FOR {
+            game.one_frame();
+            assert_eq!(
+                game.image().the_phase_the_screen_is_in(),
+                arrived_in,
+                "the screen a legacy run ended at was moved on while its name entry was up",
+            );
+        }
+
+        // The offer itself, and nothing of orb's written over it: a run in this mode has a replay worth
+        // saving, so the offer stands for the game's own walk to answer.
+        game.the_screen_offers_a_replay();
+        let offering = game.image().the_phase_the_screen_is_in();
+        assert_ne!(
+            offering,
+            game.image().phase_of_a_screen_leaving(),
+            "the screen's own walk did not reach the offer",
+        );
+        for _ in 0..STANDS_FOR {
+            game.one_frame();
+            assert_eq!(
+                game.image().the_phase_the_screen_is_in(),
+                offering,
+                "the offer to save a replay was written past in a run with no chapters",
+            );
+        }
+        assert!(
+            !log.said_since(from, "replay: the offer to save one was taken off"),
+            "orb took the game's own offer off a legacy run's screen:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            !log.said_since(from, "asking whether to keep it"),
+            "orb asked about a replay of its own for a run it kept none of:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And what the screen writes on the way down lands in the game's own file: a legacy run is one
+        // anybody could have played, so its score belongs in the ranking the game keeps.
+        assert_eq!(
+            game.opens_its_score_file(true),
+            "score.dat",
+            "the write of a finished legacy run's screen did not land in the game's own file",
         );
     });
 }

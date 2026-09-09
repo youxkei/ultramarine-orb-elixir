@@ -3092,7 +3092,8 @@ game's entry point and the memory hooks see the first allocation.
 | `crates/orb-core` | everything that decides what happens to a run — the frame loop, the input, the chapters and their snapshots, the screens orb draws, the fork of the score file, the log — over that seam and with no `windows-sys` anywhere in it, 32-bit x86 all the same, since `Th06` calls the game's own code by its own conventions. `cargo xtask seam` holds it to that |
 | `crates/orb-sim` | the simulated Windows every test runs against: the memory, the clock, the display, the keyboard, the mouse, the pads, the sound, the device orb draws through and the strings it bakes |
 | `crates/orb-e2e` | the launches: a game playing the game's part, compiled once, with every e2e test a `#[cfg(test)]` module beside it |
-| `crates/xtask` | the tasks that name the target, there being no `[build] target` to name it for them: `build`, `test`, `clippy`, `seam` and `coverage` |
+| `crates/orb-real` | the cases the real game is tested with: a recipe `--autoplay` plays a launch to, and a check over the trace `--trace` writes of it, one record per frame. Played against the laid-out games in `orb-e2e` first, and against a copy of the install by `cargo xtask real` |
+| `crates/xtask` | the tasks that name the target, there being no `[build] target` to name it for them: `build`, `test`, `clippy`, `seam`, `coverage` and `real` |
 
 Only `th06` implements `Game`. Porting to another Touhou game means supplying its addresses
 and offsets.

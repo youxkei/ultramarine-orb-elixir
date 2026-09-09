@@ -1,0 +1,20 @@
+[package]
+name = "orb-real"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# **The cases the real game is tested with, and the check each one's trace has to pass.** An e2e test drives
+# orb through a game laid out by hand, and what it cannot say is that the layout is the game's — a constant
+# wrong on both sides passes. What can say so is the real game played to the same point, which
+# `--autoplay` does without anybody at the keyboard and `--trace` writes down frame by frame. Each case here
+# is a recipe for one such launch and a check over the trace it leaves, and `cargo xtask real` is what runs
+# them against a copy of the install.
+#
+# **A library as well as a binary**, because the same cases are played against the laid-out games in
+# `orb-e2e`: a recipe that cannot reach its point on the fake, or a check that fails there, is found in the
+# suite rather than after six minutes of the real game.
+[dependencies]
+# For `trace::Record` and `game::State`, which are what a check reads. No feature: nothing here lays a game
+# out, it only reads what a launch wrote.
+orb-core = { workspace = true }

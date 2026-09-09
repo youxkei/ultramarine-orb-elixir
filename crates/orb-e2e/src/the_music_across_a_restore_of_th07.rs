@@ -14,6 +14,8 @@
 use crate::fake::th07::{Fake, STREAM_BUFFER, STREAM_NOTIFY, TRACK};
 use crate::fake::{Display, Launched, PRESENT, SOUND, Work, in_its_own_process};
 use orb_config::LogLevel;
+use orb_core::game::Game;
+use orb_core::game::th07::Th07;
 use orb_sim::keys;
 
 /// What the game's own frame is declared to take, as every other e2e test over this game declares it.
@@ -22,6 +24,68 @@ const WORK_US: i64 = 700;
 /// How far into the track the sound now audible begins when the chapter is taken: part way in, so that a
 /// position put back to the beginning of the file is a different number from the one that was there.
 const HEARD_AT: i32 = 0x100;
+
+/// **A stream whose buffer is no longer a live object is a stage whose chapters hold no sound.**
+///
+/// The word at the buffer's head is the whole of what orb has to tell a live COM object from the stale pointer
+/// a released one left behind, and it looks at it because the alternative is calling through that pointer: the
+/// game releases the buffer the moment it changes track, and a snapshot that copied the object back would be
+/// putting a freed one under the streaming thread.
+///
+/// So `Th07::music` answers nothing, and the whole of what follows is that: the stage waits out the whole of the
+/// wait for a track that will never be readable, takes its first chapter without sound, and plays on. Which is
+/// worth holding orb to because the run is still a run — the chapters rewind, the retry menu works, and only
+/// the music is gone.
+#[test]
+fn a_stream_of_th07_whose_buffer_has_been_freed_leaves_the_chapters_without_sound() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-music-freed",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        // A real buffer first, so that what the next line does is take a live one away rather than never lay
+        // one out: a stage with no stream at all is a different launch.
+        game.streams_its_song(HEARD_AT);
+        assert!(
+            Game::music(&Th07).is_some(),
+            "the stream was not readable before this e2e test freed its buffer",
+        );
+        game.image().frees_the_stream_buffer();
+        assert!(
+            Game::music(&Th07).is_none(),
+            "orb still reads a stream whose buffer is not a live object",
+        );
+
+        // The run goes as it always does, and its first chapter is taken with no sound in it.
+        game.in_a_pointdevice_run();
+        assert_eq!(
+            log.lines()
+                .iter()
+                .filter(|line| line.contains("chapter 1 (stage start)")
+                    && line.contains("music: false"))
+                .count(),
+            1,
+            "the stage's first chapter reports sound it cannot have read:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And the run is still a run: the hit, チャプターをやり直す, and the chapter comes back.
+        let at_the_chapter = game.state();
+        game.dies();
+        game.frames_until("the death seen", 8, || log.said("died in chapter 1"));
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+        assert_eq!(
+            game.state(),
+            at_the_chapter,
+            "a chapter with no sound in it did not come back",
+        );
+    });
+}
 
 #[test]
 fn a_chapter_of_th07_is_put_back_with_the_stream_the_music_was_at() {

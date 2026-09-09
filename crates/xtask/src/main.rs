@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod real;
+
 /// What everything but this crate is built for. The game is a 32-bit process, so both halves target it.
 const TARGET: &str = "i686-pc-windows-gnu";
 
@@ -146,6 +148,7 @@ fn main() -> ExitCode {
         Some("build") => plain(["build"], TARGET, [], rest),
         Some("seam") => seam(rest),
         Some("coverage") => coverage(rest),
+        Some("real") => real::real(rest),
         Some(task) => {
             eprintln!("xtask: no task called {task}");
             usage()
@@ -167,6 +170,8 @@ fn usage() -> ExitCode {
          coverage  runs {COVERED}'s tests instrumented and reports what they cover;\n\
          \x20         --missing lists the line ranges nothing ran, which is what a\n\
          \x20         worklist is read off, and --html writes the browsable report\n\
+         real      the real game in a copy of the install played to orb-real's cases, one\n\
+         \x20         launch each, and every trace checked: `real <copy> [<case>...]`\n\
          \n\
          `cargo fmt --check` is not a task here: it needs no target.\n\
          \n\

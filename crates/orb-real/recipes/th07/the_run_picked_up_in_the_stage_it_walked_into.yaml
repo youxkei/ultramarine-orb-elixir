@@ -1,0 +1,29 @@
+# The run the case before left in the stage it walked into, picked up there: the file holds a chapter of a
+# stage no front end starts one at, so what a resume points the build at is that stage rather than the run's
+# first — and the numbers it puts back are the ones the run carried through the transition.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml. The run picked up is the one
+# left at that difficulty.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 4, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 30
+  until: { question: resume }
+  give_up_after: 1800
+- answer: { question: resume, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 2, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

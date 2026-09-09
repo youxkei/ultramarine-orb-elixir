@@ -344,6 +344,55 @@ fn the_strips_are_painted_with_the_games_own_panel_tile_where_there_is_one() {
     });
 }
 
+/// How much panel there is either side of the row the lives are counted in that the game draws nothing else
+/// in: 8 pixels, the nearer of the row's two neighbours — the y's the panel's own rows are drawn from sit at
+/// 58, 82, 122, 146, 186, 206 and 226, so with rows 16 tall there are 24 free above this one and 8 below.
+///
+/// Written out rather than read off `Th06::room_around_the_lives_row`, for the reason every other number an
+/// e2e test holds is: a test that took its expected numbers from the code under test would agree with it
+/// whatever either said.
+const ROOM: f32 = 8.0;
+
+/// **Nothing of the mark reaches the rows either side of the count's own.**
+///
+/// A stroke is not the shape of a row, so it is drawn taller than one where there is room — and where there is
+/// not, a mark reaching past the row paints over a neighbour the game repaints no oftener than this row.
+/// Watched on th07, whose panel has no room at all: the stroke's own box hung 7 pixels into the bombs' row
+/// and took the tops of their stars with it. This game leaves [`ROOM`] either side, which the stroke's box
+/// fits inside — so what is asked here is that everything drawn for the mark stays inside the row and that
+/// room, the strips it paints its panel tile across included.
+#[test]
+fn nothing_of_the_mark_reaches_the_rows_either_side_of_it() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-mark-inside-its-room", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.in_a_pointdevice_run();
+        game.one_frame();
+        // The mark on, first, because the assertion below is a negative one: a frame with nothing drawn on
+        // it would pass it and mean nothing.
+        assert!(
+            !game.says("DISABLE").is_empty(),
+            "the mark was never on the panel:\n  {}",
+            game.log().lines().join("\n  ")
+        );
+
+        let row = lives_row();
+        let outside: Vec<_> = game
+            .drawn()
+            .quads
+            .into_iter()
+            .filter(|quad| {
+                quad.y < row.y - ROOM || quad.y + quad.height > row.y + row.height + ROOM
+            })
+            .collect();
+        assert!(
+            outside.is_empty(),
+            "the mark reached the panel rows either side of the count's own: {outside:?}",
+        );
+    });
+}
+
 /// The sheet `data/front.anm` is loaded into, as an address.
 ///
 /// A number and not an object: orb binds it and draws with it — the simulated device writes down which

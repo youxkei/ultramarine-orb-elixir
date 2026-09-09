@@ -233,6 +233,10 @@ pub fn close() {
 /// **The stamp is taken here and not where the line reaches the disk**, because what a reader takes a
 /// line's time for is when the thing it says happened. A run read after the fact is read by those stamps.
 pub fn line(message: &str) {
+    // Into the trace first, and whether or not the log is open: a trace is asked for by a launch that is being
+    // checked, and what a check reads a line for is where it stands among that frame's fields — see
+    // [`crate::trace`]. Before the lock below, since the trace takes one of its own.
+    crate::trace::said(message);
     let file = FILE.load(Ordering::Acquire);
     if file == 0 {
         return;

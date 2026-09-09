@@ -1,0 +1,74 @@
+# **A run of the other mode played to its clear, which is the one thing that unlocks the Extra.** The read
+# the front end lights its items from is the game's own score file and a pointdevice run's records go to the
+# mode's own fork — see `score`'s own doc — so a run cleared in pointdevice mode leaves `score.dat` as it
+# found it, and the Extra with it. The case after this one is the Extra, and this is what puts the record
+# there.
+#
+# **And nothing puts a death back here**: the mode keeps no chapters, so what clears the game is the rules
+# playing it out on the lives the game gives them.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+# **Normal, and not the Easy a_run_played_to_its_clear.yaml plays**: a game cleared on Easy unlocks no Extra,
+# which is the whole point of this case — measured on the copy this was first played in, where a cleared Easy
+# run left the title with Practice Start where the case after this one pressed for Extra Start, and that case
+# played a practice run at Normal instead.
+#
+# **Easy is aimed for and then one tap moves off it**, because the item an `until` aims at is not the item a
+# tap lands on: the taps of six frames the other cases here use overshoot by one every time — this step
+# written as they write it came up at Hard, `diff=2`, on the launch that measured it — and they are written to
+# tolerate that, where a run of this mode has no rewind and Hard is a run that would not be cleared. A tap of
+# thirty frames aiming at the first item landed on it exactly, which is what a_run_played_to_its_clear.yaml
+# has been played to a clear on, and a single tap of six frames is one edge and so one item.
+#
+# **And the key is let go between the two**, which is what makes the second an edge at all: the menu moves on
+# one, and a step that presses the same direction as the step before it hands the game a key that was already
+# down. Written without this wait the run came up at Easy, `diff=0`, the tap having moved nothing.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 30
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 600
+- wait_until: { frames: 20 }
+- press: [down]
+  frames: 6
+- wait_until: { frames: 30 }
+# The screens that are left, tapped through by a count of frames rather than to a chapter: a run of this mode
+# reaches none, so there is nothing of the kind for a step to wait for.
+#
+# **Only as long as those screens take, which is what tells this from the case that plays a stretch of such a
+# run.** A tap hands the game its own word and the rules get no frame of it, so a player stands still under
+# whatever the stage is firing: six hundred frames of that cost a laid-out run all three of its lives, and
+# the step after — which plays the run — then waited for a run that was already over.
+- press: [decide]
+  frames: 6
+  until: { frames: 240 }
+# **The whole run in one step**, which ends where the run does — see a_run_played_to_its_clear.yaml.
+- play_until: { frames: 216000 }
+# And the screens a finished run arrives on, walked by the same tap: the name entry, the stats, and this
+# game's own offer to save a replay, which orb writes past only for a run with chapters. No question of
+# orb's own is behind them — a run of this mode has no replay it keeps.
+# **The screens a finished run arrives on, walked until the title is up and no further** — see the same step
+# under th07, where a tap of a count of frames walked past them into a run of its own.
+- press: [decide]
+  frames: 6
+  until: { screen: 2, cursor: 0 }
+  give_up_after: 3600
+# **And the game left through the item on its own title that ends it**, which is how a player leaves one —
+# see the same step under th07 for what the clear is registered by instead, and for why nothing may press
+# before the tap below. Measured here too: the step that stood here to confirm the cursor moved it instead,
+# item 0 to 7 on its own edge and 7 to 6 on its hold's repeat, and the decide then opened screen 3. The last
+# item is one tap up from the first, so no index for it is named here; the `quit` below stays as the way out
+# of a game that did not take the press.
+- wait_until: { frames: 20 }
+- press: [up]
+  frames: 6
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { frames: 300 }
+- wait_until: { frames: 600 }
+- quit: true

@@ -28,6 +28,9 @@ orb-config = { workspace = true }
 # `sim` is what carries `game::th06::image` — the game laid out by hand, which is what the fake writes
 # a run into — and the seam's install point with it.
 orb-core = { workspace = true, features = ["sim"] }
+# The cases the real game is tested with, played here against the laid-out games first — see
+# `the_cases_the_real_game_is_tested_with.rs`.
+orb-real = { path = "../orb-real" }
 orb-sim = { workspace = true }
 # For the one e2e test that has to hand a launch the file a *released* orb wrote: the run writes its own
 # chapter and the test takes the two fields this build added out of those bytes, which no writer of ours can

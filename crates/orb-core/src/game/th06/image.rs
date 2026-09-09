@@ -342,6 +342,17 @@ pub struct Reproducing {
     pub player: (f32, f32),
 }
 
+/// A bullet as one of the manager's slots holds it, read back for a game that fires its own — see
+/// [`Image::bullet_now`]: where it is, what it moves by every frame, the size the hit test is given, and
+/// whether it is in a state that test is reached from.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Bullet {
+    pub at: (f32, f32),
+    pub velocity: (f32, f32),
+    pub size: (f32, f32),
+    pub hitting: bool,
+}
+
 /// What a controller reports, in the terms the game's own read of one takes it in: which of its
 /// buttons are down, where the stick's Y axis is in the ±1000 the game gave every axis, and which way
 /// the hat points in hundredths of a degree.
@@ -1326,6 +1337,18 @@ impl Image {
             super::G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE,
             i32::from(card.is_some()),
         );
+        // And the plate the card's name is on shown for as long as the card runs, which is what the card's
+        // own ANM script does to the vm's flags: set as the card is shown, cleared by the interrupt its end
+        // sends. Here rather than where the name is baked, because a card that ends takes the plate down and
+        // bakes nothing.
+        space.write::<u32>(
+            self.card_name_vm() + super::gui::VM_FLAGS,
+            if card.is_some() {
+                super::gui::VM_IS_VISIBLE
+            } else {
+                0
+            },
+        );
         if let Some(card) = card {
             space.write::<u32>(
                 super::G_ENEMY_MANAGER + enemy_manager::SPELLCARD_IDX,
@@ -1698,6 +1721,15 @@ impl Image {
             .write::<i32>(super::G_PLAYER + super::player::RESPAWN_TIMER, frames);
     }
 
+    /// Which line of a boss's conversation is up, which is the panel's own `currentMsgIdx` — see
+    /// [`gui::IMPL_CURRENT_MSG_IDX`](super::gui::IMPL_CURRENT_MSG_IDX). `-1` is no conversation at all,
+    /// which is what the image is laid out with; any other line is one on the screen, this game having no
+    /// line of its own for handing the screen over.
+    pub fn the_dialogue_is_at_line(&self, line: i32) {
+        self.space()
+            .write::<i32>(GUI_IMPL.start + super::gui::IMPL_CURRENT_MSG_IDX, line);
+    }
+
     /// Where the player is, which is what every rule of a bot's is read against.
     pub fn the_player_is_at(&self, x: f32, y: f32) {
         self.writes_a_position(super::G_PLAYER + super::player::POSITION_CENTER, x, y);
@@ -1760,6 +1792,31 @@ impl Image {
         self.writes_a_position(bullet + manager::BULLET_POSITION, x, y);
         self.writes_a_position(bullet + manager::BULLET_VELOCITY, velocity.0, velocity.1);
         self.writes_a_position(bullet + manager::BULLET_SIZE, size.0, size.1);
+    }
+
+    /// The bullet in one of those slots as the memory holds it now, or none where the slot holds nothing.
+    ///
+    /// Read back rather than kept beside the memory, for the reason [`boss_now`](Self::boss_now) is: a game
+    /// firing its own bullets out of this image has them rewound with the chapter a restore puts back, and a
+    /// list of its own would be a second answer to where every bullet is.
+    pub fn bullet_now(&self, slot: usize) -> Option<Bullet> {
+        use super::bullet_manager as manager;
+        let bullet = super::G_BULLET_MANAGER + manager::BULLETS + slot * manager::BULLET_BYTES;
+        let state: u16 = self.space().read(bullet + manager::BULLET_STATE);
+        (state != 0).then(|| Bullet {
+            at: self.reads_a_position(bullet + manager::BULLET_POSITION),
+            velocity: self.reads_a_position(bullet + manager::BULLET_VELOCITY),
+            size: self.reads_a_position(bullet + manager::BULLET_SIZE),
+            hitting: state != manager::BULLET_SPENT,
+        })
+    }
+
+    /// And the same bullet moved, which is the one thing its own update does to it every frame — 0x415986 —
+    /// with its state and everything else about it left as they are.
+    pub fn the_bullet_moves_to(&self, slot: usize, x: f32, y: f32) {
+        use super::bullet_manager as manager;
+        let bullet = super::G_BULLET_MANAGER + manager::BULLETS + slot * manager::BULLET_BYTES;
+        self.writes_a_position(bullet + manager::BULLET_POSITION, x, y);
     }
 
     /// And a bullet the player has already been hit by, which is the one live state the game's own test is
@@ -1936,6 +1993,11 @@ impl Image {
         let space = self.space();
         space.write::<f32>(at, x);
         space.write::<f32>(at + size_of::<f32>(), y);
+    }
+
+    fn reads_a_position(&self, at: usize) -> (f32, f32) {
+        let space = self.space();
+        (space.read(at), space.read(at + size_of::<f32>()))
     }
 
     /// `Gui::RegisterChain`: the static element `g_Gui`'s draw job is, linked into the chain's draw

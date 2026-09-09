@@ -1,27 +1,27 @@
-//! **Where the window goes while orb is playing the game itself**: small, in the monitor's bottom-left
-//! corner, and framed as a dialog.
+//! **Where the window goes while orb is playing th06 itself**: small, in the monitor's bottom-left corner,
+//! and framed as a dialog.
 //!
-//! A run orb plays is a run nobody is watching, and it is played on the machine somebody is working on. The
-//! settings say where a window a player asked for goes — fullscreen, or a size of their own — and none of that
-//! is what a bot's window is for, so `--autoplay` decides this one itself whatever the file says.
+//! What `the_window_a_bot_plays_in_of_th07.rs` asks of th07, asked of this game: the decision is orb's and
+//! not either game's — `--autoplay` is a run nobody is watching, played on the machine somebody is working
+//! on, so the window is decided whatever the settings say — and what this game brings to it is the one
+//! number the client is half of, its own 640x480.
 //!
 //! **The dialog frame and the corner are the same instruction**: keep out of the way. The frame is what
 //! `WS_EX_DLGMODALFRAME` makes of it, and `WS_EX_TOOLWINDOW` beside it is what keeps it off the taskbar and
 //! out of alt-tab — which is the half the *reason* picks rather than the word, and the half to take out if a
 //! window nobody can alt-tab to turns out to be worse than one in the way.
+//!
+//! The window is asked for through `GameWindow::Create`, which is where this game's own window is decided
+//! inside — see `the_window.rs`, whose other answers about the same call these sit beside.
 
-use crate::fake::th07::Fake;
-use crate::fake::{Display, Launched, Work, in_its_own_process};
+use crate::fake::{Launched, Panel, in_its_own_process, th06::Fake, th06::the_run};
 use orb_config::{LogLevel, Screen};
 
-/// What the game's own frame is declared to take, as every other e2e test over this game declares it.
-const WORK_US: i64 = 700;
-
-/// The monitor this is played on, as the laid-out host declares it in real pixels — the same one
-/// `the_window_of_th07` measures against.
+/// The monitor this is played on, as the declared panel reads once the process says it is DPI aware — the
+/// same one `the_window.rs` measures against.
 const MONITOR: (i32, i32) = (3840, 2160);
-/// And the client the bot's window is given inside its frame: half of th07's own 640x480, which is small
-/// enough to sit in a corner and big enough to see what the bot is doing to the run.
+/// And the client the bot's window is given inside its frame: half of this game's own 640x480, which is
+/// small enough to sit in a corner and big enough to see what the bot is doing to the run.
 const BOT_CLIENT: (i32, i32) = (320, 240);
 
 /// `WS_EX_DLGMODALFRAME` and `WS_EX_TOOLWINDOW`, written out the way `orb_core::window`'s own styles are.
@@ -45,14 +45,14 @@ fn the_only_window(game: &Fake) -> orb_sim::Made {
 }
 
 #[test]
-fn a_bots_window_is_small_in_the_corner_and_framed_as_a_dialog() {
+fn a_bots_window_over_th06_is_small_in_the_corner_and_framed_as_a_dialog() {
     in_its_own_process(|| {
         // Fullscreen asked for in the settings, which is what says the bot's window is not the settings':
         // a window this test finds in a corner is one `--autoplay` put there.
-        let game = Fake::attach_configured(
-            Display::agreed(120),
-            "th07-the-bots-window",
-            Work::wandering(WORK_US),
+        let game = Fake::attach_to_a_panel(
+            Panel::scaled(),
+            "th06-the-bots-window",
+            the_run(),
             |config| {
                 config.autoplay = Some("[]".to_owned());
                 config.screen = Screen::Fullscreen;
@@ -65,14 +65,16 @@ fn a_bots_window_is_small_in_the_corner_and_framed_as_a_dialog() {
         assert_eq!(
             (made.client.width(), made.client.height()),
             BOT_CLIENT,
-            "the bot was given a window the size the settings asked for",
+            "the bot was given a window the size the settings asked for:\n  {}",
+            game.log().lines().join("\n  "),
         );
         // The corner, and the frame counted in: what is asked for is the whole window, so it is its own
         // left and bottom that sit against the monitor's.
         assert_eq!(
             (made.asked.left, made.asked.bottom),
             (0, MONITOR.1),
-            "the bot's window is not in the monitor's bottom-left corner",
+            "the bot's window is not in the monitor's bottom-left corner:\n  {}",
+            game.log().lines().join("\n  "),
         );
         assert_eq!(
             made.ex_style & (DIALOG | TOOL),
@@ -85,12 +87,12 @@ fn a_bots_window_is_small_in_the_corner_and_framed_as_a_dialog() {
 /// And nothing of that where nobody asked orb to play: a launch that is somebody's own gets the window the
 /// settings ask for.
 #[test]
-fn a_window_somebody_plays_in_is_the_settings_own() {
+fn a_window_somebody_plays_th06_in_is_the_settings_own() {
     in_its_own_process(|| {
-        let game = Fake::attach_configured(
-            Display::agreed(120),
-            "th07-not-the-bots-window",
-            Work::wandering(WORK_US),
+        let game = Fake::attach_to_a_panel(
+            Panel::scaled(),
+            "th06-not-the-bots-window",
+            the_run(),
             |config| {
                 config.screen = Screen::Fullscreen;
                 config.log_level = LogLevel::Verbose;
@@ -102,7 +104,8 @@ fn a_window_somebody_plays_in_is_the_settings_own() {
         assert_eq!(
             (made.asked.width(), made.asked.height()),
             MONITOR,
-            "a launch nobody asked to play itself did not get the fullscreen it asked for",
+            "a launch nobody asked to play itself did not get the fullscreen it asked for:\n  {}",
+            game.log().lines().join("\n  "),
         );
         assert_eq!(
             made.ex_style & (DIALOG | TOOL),

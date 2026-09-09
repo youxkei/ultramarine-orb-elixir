@@ -18,7 +18,7 @@ pub mod resume;
 mod sight;
 
 use std::ops::Range;
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use orb_api::Hwnd;
 
@@ -1032,6 +1032,13 @@ mod gui {
     /// it, whose sprite the same function picks — and that one is memory a snapshot puts back, where
     /// what is baked into this one is a texture and is not.
     pub const IMPL_CARD_NAME_VM: usize = 0x20f4;
+    /// Inside that vm, the word of `AnmVmFlags`, whose lowest bit is `isVisible` — and that bit is the
+    /// whole of whether the plate is on the screen: the panel's draw at 0x41b078 reads
+    /// `[impl+0x2174] & 1` and skips both the plate and the name where it is clear, and `AnmManager::Draw`
+    /// at 0x432adc asks the same bit of every vm handed to it. The card's own ANM script sets it as the card
+    /// is shown and the interrupt the card's end sends clears it. See `docs/th06/asm.md`.
+    pub const VM_FLAGS: usize = 0x80;
+    pub const VM_IS_VISIBLE: u32 = 1;
 }
 
 /// `th06::ChainElem`, 0x20 bytes: the priority and the heap flag, then the three
@@ -2052,6 +2059,18 @@ impl Game for Th06 {
         unsafe { dialogue_msg_idx() >= 0 }
     }
 
+    unsafe fn a_cards_name_is_shown(&self) -> bool {
+        // The panel's own block, or nothing before the game has built one — a launch at its title has no
+        // plate to be shown.
+        let Some(implementation) =
+            mem::read_committed::<usize>(G_GUI + gui::IMPL).filter(|it| *it != 0)
+        else {
+            return false;
+        };
+        mem::read_committed::<u32>(implementation + gui::IMPL_CARD_NAME_VM + gui::VM_FLAGS)
+            .is_some_and(|flags| flags & gui::VM_IS_VISIBLE != 0)
+    }
+
     fn button_bit(&self, name: &str) -> Option<u16> {
         sight::bit(name)
     }
@@ -2631,18 +2650,11 @@ impl Game for Th06 {
     /// items rather than count presses. `None` off the front end: `g_MainMenu` is a static and keeps whatever
     /// the last screen left in it, so the supervisor is what says the number means anything.
     ///
-    /// **Said whenever either it or the screen changes**, the way th07's own is: the cursor is one field
-    /// whatever screen is up, so a step waiting for a number cannot tell the title's fourth item from the
-    /// difficulty select's, and which screen is which number is read off a launch's own lines. Only
-    /// [`MENU_STATE_TITLE`] and [`MENU_STATE_SHOT_TYPE`] are read off the exe.
+    /// Which screen a number means anything on is read off a launch's own `front end:` lines — only
+    /// [`MENU_STATE_TITLE`] and [`MENU_STATE_SHOT_TYPE`] are read off the exe — and saying so is
+    /// `what_is_reached`'s, the launch being what the line is about.
     unsafe fn front_end_cursor(&self) -> Option<i32> {
-        let (screen, cursor) = unsafe { self.front_end() }?;
-        static LAST: AtomicI64 = AtomicI64::new(i64::MIN);
-        let both = i64::from(screen) << 32 | i64::from(cursor) & 0xffff_ffff;
-        if LAST.swap(both, Ordering::Relaxed) != both {
-            detail!("front end: screen {screen}, cursor on item {cursor}");
-        }
-        Some(cursor)
+        Some(unsafe { self.front_end() }?.1)
     }
 
     /// Which of the front end's screens is up, out of the same struct and behind the same gate.

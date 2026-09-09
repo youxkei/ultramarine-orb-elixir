@@ -250,3 +250,166 @@ fn a_judging_pass_over_th07_steps_onto_the_boundary_and_puts_it_out_of_the_table
         );
     });
 }
+
+/// The key that puts a boundary in by hand, at the frame the game is held on.
+const ADD: u8 = orb_config::keys::A.0;
+
+/// And what one sitting decided is what the next one finds, which is the whole of what `tuning.txt` is for.
+///
+/// The verdicts travel: a boundary judged out stays out — nothing proposes it again, which is why a refusal is
+/// remembered rather than deleted — and one placed by hand is still there and still says which hand put it there.
+#[test]
+fn what_a_sitting_over_th07_decided_is_read_back_by_the_one_after_it() {
+    in_its_own_process(|| {
+        // A sitting that judged the proposal out and put one of its own in, written down and then closed.
+        let (state, proposed_at, by_hand_at) = {
+            let game = passing("th07-collect-first", true);
+            let log = game.log();
+            game.image().enemies_alive(A_WAVE);
+            game.frames(THE_WAVE_LASTS);
+            let wave_ended_at = game.state().script_frames;
+            game.image().enemies_alive(0);
+            let proposed_at = wave_ended_at + A_SECOND_IN;
+            game.frames_until("the boundary the gap is", 600, || {
+                log.said(&format!("(script {proposed_at}): tl {proposed_at}"))
+            });
+            game.frames(A_SECOND_IN as u32);
+            game.press(BACK);
+            game.press(DROP);
+            game.press(DROP);
+            assert!(
+                log.said(&format!("tuning: tl {proposed_at} ADJUST -> DROP")),
+                "the boundary was not judged out:\n  {}",
+                log.lines().join("\n  ")
+            );
+            // Let go, on a little, held again, and a boundary put in by hand where the game is held.
+            game.press(HOLD);
+            game.frames(THE_GAP_LASTS / 4);
+            game.press(HOLD);
+            let by_hand_at = game.state().script_frames;
+            game.press(ADD);
+            assert!(
+                log.said(&format!("tuning: added tl {by_hand_at} by hand")),
+                "the key put no boundary at the frame the game was held on:\n  {}",
+                log.lines().join("\n  ")
+            );
+            (read(&game, STATE), proposed_at, by_hand_at)
+        };
+
+        // And the sitting after it, which finds that file where the first left it.
+        let game = Fake::attach_finding(
+            Display::agreed(120),
+            "th07-collect-again",
+            &[(STATE, &state)],
+            Work::wandering(WORK_US),
+            |config| {
+                config.chapter_tuning = true;
+                config.during_replay = true;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        assert!(
+            log.said("tuning: read 2 boundary(s) from"),
+            "the pass did not read back what the sitting before it wrote:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // A stage that ends, which is what writes the table of a pass that has decided nothing: both files go
+        // out on every decision and at every stage's start, and this sitting only looked.
+        game.streams_its_song(0);
+        game.image().a_replay_covers_the_stage(0);
+        game.image().a_replay_covers_the_stage(1);
+        game.watches_a_replay();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+        let from = log.written();
+        game.moves_on_to_the_stage(1);
+        game.frames_until("the table written", 600, || {
+            log.said_since(
+                from,
+                &format!("tuning: wrote {}", game.dir().join(TABLE).display()),
+            )
+        });
+        let table = read(&game, TABLE);
+        assert!(
+            !table.contains(&format!("({proposed_at})")),
+            "the boundary the sitting before judged out was proposed again:\n{table}",
+        );
+        assert!(
+            table.contains(&format!("hand({by_hand_at})")),
+            "the boundary the sitting before placed by hand did not come back:\n{table}",
+        );
+    });
+}
+
+/// A state file somebody has edited by hand is read line by line, and the lines that will not read say so and
+/// cost nothing else.
+///
+/// **The file invites hand-editing** — it is what a sitting is picked up from, and its own header says to edit
+/// it while nothing is running — so a line nobody can read has to be a line named in the log rather than a pass
+/// that starts over. Two of the ways one can be wrong are here: a field that will not parse, and a stage number
+/// the table has no row for — this game's table having eight, which 99 is past.
+#[test]
+fn a_hand_edited_state_file_for_th07_is_read_line_by_line_and_names_the_lines_it_cannot() {
+    in_its_own_process(|| {
+        // A comment, a blank line, two boundaries that read, and two that do not.
+        let left = "\
+# stage  script frame  keep|adjust|drop  proposed|hand
+
+1 900 keep hand
+1 nonsense keep hand
+99 900 keep hand
+1 1200 adjust proposed
+";
+        let game = Fake::attach_finding(
+            Display::agreed(120),
+            "th07-collect-hand-edited",
+            &[(STATE, left)],
+            Work::wandering(WORK_US),
+            |config| {
+                config.chapter_tuning = true;
+                config.during_replay = true;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let at = game.dir().join(STATE);
+        let log = game.log();
+        assert!(
+            log.said(&format!("tuning: read 2 boundary(s) from {}", at.display())),
+            "the two lines that read were not both read:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            log.said(&format!(
+                "tuning: {}:4: cannot read `1 nonsense keep hand`",
+                at.display()
+            )),
+            "the line with a frame that is not a number was not named:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            log.said(&format!("tuning: {}:5: no stage 99", at.display())),
+            "the line naming a stage the table has no row for was not named:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // And what did read is in the table, which is what says the two that did not cost nothing else. Written
+        // where a pass writes it — the stage beginning — rather than on a key.
+        game.streams_its_song(0);
+        game.image().a_replay_covers_the_stage(0);
+        game.watches_a_replay();
+        game.frames_until("the pass writing what it read back", 600, || {
+            log.said(&format!(
+                "tuning: wrote {}",
+                game.dir().join(TABLE).display()
+            ))
+        });
+        let table = read(&game, TABLE);
+        assert!(
+            table.contains("hand(900)") && table.contains("proposed(1200) /* adjust */"),
+            "the lines that read did not come back as the boundaries they name:\n{table}",
+        );
+    });
+}

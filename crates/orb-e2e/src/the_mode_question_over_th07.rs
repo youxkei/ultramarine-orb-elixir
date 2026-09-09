@@ -48,6 +48,10 @@ fn game(name: &str) -> Box<Fake> {
 /// the cursor is on an item it asks about is a frame whose press goes to the game, and what an e2e test about the
 /// question wants is the frame after that.
 fn at_the_title_menu(game: &Fake) {
+    // A frame before the title is put up, where a question was answered before this: the press orb handed on
+    // for that answer lands on the read after it, and this game's title acts on one — Start's flow walked. Landing
+    // on the frame before the title is put back, it walks nothing.
+    game.frame();
     game.image().the_front_end_is_up();
     game.image().the_title_menu_points_at_a_run();
     game.image().the_screen_has_been_up_for(60);

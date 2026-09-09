@@ -720,6 +720,10 @@ impl Win for Sim {
         self.files.write(path, bytes)
     }
 
+    fn append_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.files.append(path, bytes)
+    }
+
     fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
         self.files.create_dir_all(path)
     }

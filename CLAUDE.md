@@ -14,8 +14,14 @@ download that exe from the latest release, so what a release is built with is wr
 nowhere else.
 
 Everything that has to name a target goes through `cargo xtask` — `build`, `test`, `clippy`,
-`seam`, `coverage` — because there is no `[build] target` naming it for them; `cargo xtask` with no
-task lists them, and `.cargo/config.toml` says why there is no such key. A bare `cargo check`
+`seam`, `coverage`, `real` — because there is no `[build] target` naming it for them; `cargo xtask` with no
+task lists them, and `.cargo/config.toml` says why there is no such key.
+
+**`cargo xtask real <copy of the install>` is the test on the real game**: it copies the release `orb.exe`
+into that copy, plays each case of `crates/orb-real` there — a recipe under `--autoplay`, every frame written
+down by `--trace` — and checks each trace. The copy is never the install somebody plays in, and the cases are
+played against the laid-out games by `orb-e2e` first, so a recipe or a check is wrong in the suite before it
+costs a run of the game. A bare `cargo check`
 therefore builds for the host and fails on `windows-sys`, so **point the editor at the target
 instead**: rust-analyzer's setting is `rust-analyzer.cargo.target`, and the target is
 `i686-pc-windows-gnu`.

@@ -1,0 +1,51 @@
+# **A run played from the title to its clear**, which is what the mode is for: every stage by the rules,
+# every death answered with the chapter again, and the ending at the end of it. The one case that plays a
+# whole game, and the only thing that reaches what a run's own end leaves behind — the ending, the screen the
+# run ends at, and the question about keeping the replay of a run nobody will add to again.
+#
+# **`--clear` is not this.** It makes nothing able to hit the player, refuses the replay write and turns the
+# resume off, so the ending it reaches is not the end of a run anybody played and the records that end leaves
+# are the ones it suppresses.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# **Easy, which is what the rules can carry six stages of.** Which item the difficulty select comes up on is
+# whatever the copy's own score file remembered — measured at Lunatic on the copy these cases were played in
+# — and its cursor goes round, so `down` reaches the first item from wherever it starts. A tap that overshoots
+# by one lands on Normal, which is a harder run rather than a broken one. Screen 7 is th06's difficulty
+# select.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 30
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# **The whole run in one step**, which is what a `play_until` is: it gives up the moment the run is over, so
+# this is every stage, the last fight and the clear, and the count of frames is the wall clock worth spending
+# rather than anything about the run.
+#
+# **How many stages a run has is the game's and is not named here.** A step written for `{ stage: 6, chapter:
+# 1 }` waited for a stage that does not exist: th06's Easy ends after the fifth, and the run ended there with
+# the step still waiting — which it then gave up on, the run being over, leaving the step after it to sit at
+# the game's own name entry for its whole bound.
+- play_until: { frames: 216000 }
+# Then the screens a finished run arrives on, which are the game's own and take a press apiece: the name
+# entry for the high score and the stats after it. A tap walks them, and orb's own question about the replay
+# comes up behind them — the second of the two moments it is asked, this being a run nobody will add to.
+#
+# **A tap that waits for a question can answer it**, the cursor starting on はい, which is the answer this
+# case wants; the step after takes the item where the tap has not.
+- press: [decide]
+  frames: 6
+  until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

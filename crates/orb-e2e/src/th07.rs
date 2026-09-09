@@ -22,7 +22,9 @@
 //! constants `Th07` reads, so a wrong one is wrong on both sides at once. Only the real image says.
 
 use crate::fake::th07::Fake;
-use crate::fake::{DRAW, Display, Launched, PRESENT, SOUND, UPDATE, Work, in_its_own_process};
+use crate::fake::{
+    DRAW, Display, Launched, PRESENT, Presented, SOUND, UPDATE, Work, in_its_own_process,
+};
 use orb_config::LogLevel;
 use orb_config::Screen;
 use orb_core::frame;
@@ -413,6 +415,77 @@ fn the_frames_reach_the_device_inside_a_letterbox_of_the_games_own_shape() {
         // particular — four nulls at 0x4345df — so what orb has to keep is that: a part of the surface
         // scaled into a rectangle worked out for the whole of it would be the wrong part, wrongly.
         assert_eq!(presents[0].source, None);
+    });
+}
+
+/// And a driver that will not stretch: the game's own call again, said once, and the run still presented.
+///
+/// The fallback is orb's and not a game's, and `the_letterbox_presented_into.rs` is where it is asked of th06.
+/// What asking it of this game adds is the ask th07 makes on the way back — four nulls at 0x4345df, so the call
+/// that goes through is one with neither rectangle in it, where th06's e2e tests hand over a source to see kept.
+#[test]
+fn a_driver_that_refuses_to_stretch_is_fallen_back_from_over_th07_and_said_once() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-letterbox-refused",
+            Work::wandering(WORK_US),
+            |config| {
+                config.screen = WIDER_THAN_THE_GAME;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.creates_its_window();
+        game.finds_its_device();
+        let letterbox = unsafe { letterbox() }.expect("a launch whose window orb has measured");
+        game.refuses_to_stretch_on_a_present();
+
+        game.forget_presents();
+        game.frame();
+        // Two presents for the one frame: the letterbox, which the driver refused, and the game's own ask
+        // again — its whole back buffer over the whole client, which is what every launch before orb had.
+        assert_eq!(
+            game.presented(),
+            vec![
+                Presented {
+                    source: None,
+                    destination: Some(letterbox),
+                },
+                Presented {
+                    source: None,
+                    destination: None,
+                },
+            ],
+            "the refusal was not fallen back from with the ask the game made",
+        );
+        assert!(
+            log.said("screen: Present into a letterbox failed"),
+            "orb did not say the driver refused:\n  {}",
+            log.lines().join("\n  ")
+        );
+
+        // Said once and not once a frame: a run at sixty frames a second would otherwise write a line for
+        // every one of them, which is a log nobody can read the rest of.
+        let said = || {
+            log.lines()
+                .iter()
+                .filter(|line| line.contains("Present into a letterbox failed"))
+                .count()
+        };
+        assert_eq!(said(), 1);
+        game.frames(30);
+        assert_eq!(
+            said(),
+            1,
+            "orb said the driver refused once a frame rather than once",
+        );
+
+        // And every one of those frames still reached the device, which is the whole point of falling back.
+        assert!(
+            game.presented().len() > 30,
+            "frames stopped being presented once the driver refused",
+        );
     });
 }
 

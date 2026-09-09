@@ -1,0 +1,29 @@
+# A run of the rewindable mode started from the title, played into its second chapter, and left for the title
+# — which is what leaves a run for the_run_picked_up_where_it_was_left to pick up.
+#
+# The front end is walked by pressing toward orb's own question rather than by counting screens, and the
+# press is held for thirty frames because the question is answered on an edge — see `orb-config`'s `recipe`
+# module for the grammar and `.claude/skills/driving-orb-with-autoplay` for why each step is shaped so.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor rather than counted to: which item the difficulty select comes up on is
+# whatever the copy's own score file remembered, and a copy left on Lunatic played these cases there. Screen 7
+# is th06's difficulty select, and Hard, the item after Normal, is harmless where a tap overshoots by one.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

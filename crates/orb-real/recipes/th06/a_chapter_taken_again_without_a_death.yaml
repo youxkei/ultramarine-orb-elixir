@@ -1,0 +1,33 @@
+# The run asked to start over — the game's own pause menu item, which orb turns into its question of where to
+# start again — and that question answered with the chapter the run is in. Which is the one way to a retry
+# that costs no death, and so the one way a recipe can ask for the chapter again where nothing has been hit.
+#
+# The front end is walked as a_run_left_in_its_second_chapter.yaml walks it.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 600
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- start_over: true
+# チャプターをやり直す, the item the question comes up on — named rather than pressed for, a press at a
+# question of orb's taking whichever item its own cursor is on.
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

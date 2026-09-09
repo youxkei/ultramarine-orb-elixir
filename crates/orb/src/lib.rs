@@ -44,7 +44,7 @@ use orb_config::Config;
 // `log` carries both the module and the macro of that name — they are in different namespaces —
 // which is why every call site can say `use crate::{detail, log}` whether it lives here or in
 // `orb-core`, and go on saying it as it moves between them.
-pub(crate) use orb_core::{game, log};
+pub(crate) use orb_core::{game, log, trace};
 // What a hook *does* is `orb-core`'s, and so are the statics the install lists below fill: this crate
 // installs them and calls none of them itself — see
 // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
@@ -94,7 +94,17 @@ fn command_line() -> String {
 pub extern "system" fn DllMain(_module: HANDLE, reason: u32, _reserved: *mut c_void) -> BOOL {
     match reason {
         DLL_PROCESS_ATTACH => attach(),
-        DLL_PROCESS_DETACH => log::close(),
+        // **The trace's last chunk written here as well as the log's**, and before it: a launch the *game*
+        // ended — the title's own last item, which is how somebody leaves one — is a launch orb was never
+        // asked to close, so `close_the_game`'s own pair of closes never runs and the chunk in memory goes
+        // with the process. Measured on `a_normal_mode_run_played_to_its_clear`, whose recipe walks to that
+        // item: the trace ended ten frames past `step 12 of 16 done` and neither of the two steps after it
+        // was in the file, where the log had this line to keep its own tail. And the trace first, because a
+        // chunk that cannot be written says so through the log.
+        DLL_PROCESS_DETACH => {
+            trace::close();
+            log::close();
+        }
         _ => {}
     }
     TRUE

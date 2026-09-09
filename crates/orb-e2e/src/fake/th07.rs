@@ -83,6 +83,126 @@ const MAP: [(u8, u16); 7] = [
 /// being 続ける.
 const MENU_BUTTON: u16 = 0x8;
 const MENU_DECIDE: u16 = 0x1;
+/// And what its front end reads as *back* — the bomb and the menu button, which is `Th07`'s `MENU_CANCEL` —
+/// and the four directions, as the word's own bits.
+const MENU_CANCEL: u16 = 0x2 | MENU_BUTTON;
+const BUTTON_BOMB: u16 = 0x2;
+const BUTTON_UP: u16 = 0x10;
+const BUTTON_DOWN: u16 = 0x20;
+const BUTTON_LEFT: u16 = 0x40;
+const BUTTON_RIGHT: u16 = 0x80;
+
+/// How many frames a launch left to itself spends before its title menu is up: the real game reads its
+/// archives and makes its window first, and a recipe's first press finds the title a moment later.
+const TITLE_COMES_UP_AFTER: u32 = 60;
+
+/// The four screens Start's own flow walks, by the ids `Th07` reads at `+0xd0f8`: the title, and then the three
+/// the table at 0x4555ce dispatches 4, 5 and 6 to — a difficulty select, a character select and a shot select.
+/// Extra Start's flow — 12, 13, 14 — is not walked here.
+const SCREEN_TITLE: i32 = 0;
+const SCREEN_DIFFICULTY: i32 = 4;
+const SCREEN_CHARACTER: i32 = 5;
+const SCREEN_SHOT_SELECT: i32 = 6;
+
+/// **And Practice Start's own flow, which is the same three screens**: that table sends 8, 9 and 10 to the
+/// indices 4, 5 and 6 go to, so what tells the two walks apart is the screen the title item wrote — Start 4 at
+/// 0x455d20 and Practice Start 8 at 0x455dc7. Behind them is the select the stage is chosen at, screen 11,
+/// whose handler at 0x45a583 is the one the flow does not share and the other place the practice bit is set.
+const SCREEN_PRACTICE_DIFFICULTY: i32 = 8;
+const SCREEN_PRACTICE_CHARACTER: i32 = 9;
+const SCREEN_PRACTICE_SHOT_SELECT: i32 = 10;
+const SCREEN_PRACTICE_STAGE: i32 = 11;
+
+/// **And Extra Start's, which is the third triple through those same handlers**: 12, 13 and 14, the first of
+/// them written by that item at 0x455e77.
+const SCREEN_EXTRA_DIFFICULTY: i32 = 12;
+const SCREEN_EXTRA_CHARACTER: i32 = 13;
+const SCREEN_EXTRA_SHOT_SELECT: i32 = 14;
+
+/// The difficulty the Extra is and the stage it is played in, neither of which any select decides: the fifth
+/// of the six this game keeps a record per, and the stage after the six a run plays.
+const DIFFICULTY_EXTRA: i32 = 4;
+const THE_EXTRAS_STAGE: i32 = STAGES_A_RUN_PLAYS;
+
+/// How many items each of those screens has a cursor over, and which of the title's items are Start and
+/// Practice Start: the eight th07's title menu lists, the four difficulties a whole run offers, the three
+/// characters and their two shots apiece, and the stages the practice select lists — that last being this
+/// laid-out game's own, what a walk needs of it being a cursor with an item under it.
+const TITLE_ITEMS: i32 = 8;
+const DIFFICULTIES_OFFERED: i32 = 4;
+const CHARACTERS: i32 = 3;
+const SHOTS: i32 = 2;
+const STAGES_TO_PRACTISE: i32 = 6;
+const TITLE_ITEM_START: i32 = 0;
+const TITLE_ITEM_EXTRA: i32 = 1;
+const TITLE_ITEM_PRACTICE: i32 = 2;
+
+/// The two phases a screen of the front end is in, as `Th07` reads them: the one its build runs in and the one
+/// its items are read in — and how long each screen is up before it moves to the second. The title's gate is the
+/// count itself against ten (0x4557b6, `SETTLED_FRAMES`) and the shot select's is the phase written at thirty
+/// (0x459bbb) — see `Th07::menu_takes_a_press`.
+const PHASE_BUILDING: i32 = 0;
+const PHASE_ITEMS: i32 = 1;
+const TITLE_TAKES_A_PRESS_AFTER: i32 = 10;
+const A_SCREEN_TAKES_A_PRESS_AFTER: i32 = 30;
+
+/// **The script of a stage this game plays on its own**, which is a stage a run started from its own front end
+/// gets and a stage an e2e test placed does not: the frames of the stage its midboss arrives on, puts its card
+/// up on, moves on to its next attack on and goes down on. The same shape th06's laid-out stage has, since what
+/// a recipe's `play_until: { stage: 1, chapter: 2 }` needs is a second chapter arriving on its own.
+///
+/// Public because an e2e test about such a run holds what it reads against them.
+pub const MIDBOSS_ARRIVES: u32 = 400;
+pub const CARD_STARTS: u32 = 500;
+pub const ATTACK_CHANGES: u32 = 700;
+pub const MIDBOSS_BEATEN: u32 = 900;
+/// The card that midboss puts up, by its own record, and the name the game puts on the plate for it.
+const SCRIPTED_CARD: usize = 96;
+const SCRIPTED_CARD_NAME: &str = "幽夢「猫の見た夢」";
+
+/// The field such a stage is played in and where its player starts, in the game's own units — th07's 384x448
+/// field, with the player low in the middle of it — and what one frame of holding a direction moves them by,
+/// straight and then diagonally. The same numbers `the_bot_playing_th07.rs` lays its stages out with.
+const FIELD: (f32, f32, f32, f32) = (0.0, 0.0, 384.0, 448.0);
+const PLAYER_STARTS_AT: (f32, f32) = (192.0, 384.0);
+const A_STEP: f32 = 4.0;
+/// Half of the box the game's own hit test gives the player, on each axis.
+const PLAYER_HALF: f32 = 4.0;
+
+/// **And what that stage shoots**: a bullet aimed at where the player is, from the top of the field, every so
+/// many frames from the first — with a size of its own, and slow enough that a player who steps aside is
+/// missed and one who does not is hit. A stage that shot nothing is a stage no `take_hits` could die in.
+const FIRST_BULLET_AT: u32 = 60;
+const A_BULLET_EVERY: u32 = 120;
+const BULLETS_FROM: (f32, f32) = (192.0, 0.0);
+const BULLET_SPEED: f32 = 3.0;
+const BULLET_SIZE: f32 = 8.0;
+/// How many of the bullet manager's slots this stage uses, from the first.
+const BULLET_SLOTS_USED: usize = 16;
+
+/// How many updates a hit stands before it is a death, which is the window th07 counts down at 0x440cf0 with the
+/// state at 2 and a bomb pressed inside it a deathbomb — and how long a bomb that went off is going off for.
+const A_BOMB_IS_TAKEN_FOR: i32 = 8;
+const A_BOMB_LASTS: u32 = 60;
+
+/// One bullet of that stage's own: which slot it is written down in, where it is and what it moves by a frame.
+#[derive(Clone, Copy)]
+struct Bullet {
+    slot: usize,
+    at: (f32, f32),
+    step: (f32, f32),
+}
+
+/// **How many stages a run plays through before its ending**, which is the six this game's own runs have:
+/// `Th07`'s own `STAGES` is eight, the two past these being the Extra and the Phantasm, and a run walks into
+/// neither.
+const STAGES_A_RUN_PLAYS: i32 = 6;
+
+/// And how many updates the ending's own script and the staff roll after it run for, where a run is played to
+/// its clear. This laid-out game's own numbers: the lengths are the game's, and what a case that has just
+/// played six stages needs of them is that they end.
+const ENDING_UPDATES: i32 = 10;
+const ROLL_UPDATES: i32 = 10;
 
 /// Which update of a run this game does not advance it on, where it is slowing itself down: 0x42e186 divides
 /// the manager's own count by five and skips the one that leaves nothing over — see
@@ -313,6 +433,59 @@ pub struct Fake {
     /// rather than hand over to the roll — see [`Fake::an_ending_is_running`].
     ending_updates: Cell<i32>,
     ending_leaves: Cell<bool>,
+    /// And how many updates the roll's own script has left once the ending has handed over to it, where an
+    /// e2e test says — see [`Fake::the_roll_lasts`].
+    roll_updates: Cell<Option<i32>>,
+    /// Whether the driver behind this game's device refuses to stretch a present — see
+    /// [`Fake::refuses_to_stretch_on_a_present`].
+    refuses_to_stretch: Cell<bool>,
+    /// How many frames this launch has run, for the title menu that comes up on its own — see
+    /// [`Fake::comes_up_at_its_title`].
+    frames_since_launch: Cell<u32>,
+    /// **Whether the run being played is one this game's own front end started**, which is the run that gets
+    /// the stage's own script, its bullets and a player the word moves — see [`Fake::plays_its_own_stage`]. A
+    /// run an e2e test placed with the helpers gets none of that, every such test driving its stage itself.
+    on_its_own: Cell<bool>,
+    /// Whether the shot select decided a run on this very update, which is the one frame a run has been chosen
+    /// and not built — see [`Fake::the_run_is_chosen`] for why that frame is one of its own.
+    just_chose: Cell<bool>,
+    /// **Whether the front end got where it is by walking**, from Start on its own title: the shot select's
+    /// decide starts a run only then. A shot select an e2e test placed is one that test drives — it chooses the
+    /// run and builds the stage itself — and a game that started one under it would build the same stage twice.
+    walking: Cell<bool>,
+    /// Whether a decide at the shot select starts a run wherever that screen came from — see
+    /// [`Fake::its_shot_select_starts_a_run_however_it_came_up`].
+    starts_a_run_it_did_not_walk_to: Cell<bool>,
+    /// Whether the ending now running is one a run cleared its way into, which is what the staff roll after
+    /// it hands over to the screen a run's own end arrives on — see [`Fake::enters_the_ending`]. An ending an
+    /// e2e test laid out itself hands over to the front end, that test being about the roll and not about
+    /// what a run leaves behind.
+    cleared: Cell<bool>,
+    /// Whether the game's own records hold a clear, which is what its title offers `Extra Start` out of —
+    /// see [`its_records_hold_no_clear`](Fake::its_records_hold_no_clear).
+    clear_in_its_records: Cell<bool>,
+    /// **Which item the title menu was last left on**, which is the item the front end comes back on when the
+    /// run behind it is over — and, where that item practises a stage, the flow it comes back through. See
+    /// `the_front_end_of_th07_walked`.
+    ///
+    /// Kept here because the cursor is one field for every screen of this front end,
+    /// `FRONT_END_CURSOR`, and every screen between an item and a run writes its own list's item into it: the
+    /// item the title was left on is gone by the time a run ends, and the real game reads it again there.
+    left_the_title_on: Cell<i32>,
+    /// And whether the front end is still walking back into the practice flow, which takes a screen a frame —
+    /// see [`Fake::walks_back_into_the_practice_flow`].
+    coming_back_through_the_practice_screens: Cell<bool>,
+    /// The difficulty a stage is built on and the character the front end settled: [`DIFFICULTY`] and
+    /// [`CHARACTER`] for a run an e2e test placed, and whatever the difficulty and character selects were left on
+    /// for one the front end walked to.
+    difficulty: Cell<i32>,
+    character_chosen: Cell<u8>,
+    /// The stage frame the script last acted on, the bullets that stage has out, the frames a hit has left before
+    /// it is a death, and the frames a bomb has left to go off for — see [`Fake::plays_its_own_stage`].
+    last_stage_frame: Cell<u32>,
+    bullets: RefCell<Vec<Bullet>>,
+    hit_window: Cell<i32>,
+    bomb_left: Cell<u32>,
     /// And whether it stands in front of the read that screen makes — see [`Fake::reads_the_pad_buttons`].
     reads_the_pad_by_number: bool,
     word: Cell<u16>,
@@ -382,7 +555,7 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, true, name, work, settings)
+        Self::attach_declaring(display, None, true, true, name, &[], work, settings)
     }
 
     /// And on a machine whose own windows are in the language `ui_language` names — `orb_sim::langid` — with
@@ -394,7 +567,16 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, Some(ui_language), true, name, work, settings)
+        Self::attach_declaring(
+            display,
+            Some(ui_language),
+            true,
+            true,
+            name,
+            &[],
+            work,
+            settings,
+        )
     }
 
     /// And on a machine that will not say where its panel is, which is a host with nothing for orb to lay a
@@ -406,14 +588,45 @@ impl Fake {
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
-        Self::attach_declaring(display, None, false, name, work, settings)
+        Self::attach_declaring(display, None, false, true, name, &[], work, settings)
     }
 
+    /// And laid out with **no device**, which is what a process is before its Direct3D setup has run: orb
+    /// attaches there in a real launch and finds the device afterwards, through its hook over
+    /// `GameWindow::InitD3dDevice` at 0x4356a0. A game that had one already is a game that hook is never
+    /// reached in — see [`finds_its_device`](Fake::finds_its_device), which is the other half of this.
+    pub fn attach_before_its_device(
+        display: Display,
+        name: &str,
+        work: Work,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(display, None, true, false, name, &[], work, settings)
+    }
+
+    /// And with files already beside the exe when orb is attached, which is what a sitting after another one
+    /// finds: `left` is each file's name under the game's directory and what it holds.
+    pub fn attach_finding(
+        display: Display,
+        name: &str,
+        left: &[(&str, &str)],
+        work: Work,
+        settings: impl FnOnce(&mut Config),
+    ) -> Box<Self> {
+        Self::attach_declaring(display, None, true, true, name, left, work, settings)
+    }
+
+    /// Every host fact a launch is declared with, in one place: the wrappers above are what an e2e test calls,
+    /// each naming the one it is about and passing the rest as what an ordinary launch has. So the argument
+    /// count is the number of things a launch can be declared to be, which is what the lint is about.
+    #[allow(clippy::too_many_arguments)]
     fn attach_declaring(
         display: Display,
         ui_language: Option<u16>,
         monitor: bool,
+        device: bool,
         name: &str,
+        left: &[(&str, &str)],
         work: Work,
         settings: impl FnOnce(&mut Config),
     ) -> Box<Self> {
@@ -431,6 +644,9 @@ impl Fake {
             image.sim().set_ui_language(ui_language);
         }
         image.sim().files().make(&dir);
+        for (file, contents) in left {
+            image.sim().files().put(dir.join(file), contents);
+        }
         let mut config =
             Config::load_beside(&dir.join(EXE)).expect("a directory with no orb.yaml in it");
         // The memory hooks patch an import table there is none of.
@@ -452,7 +668,16 @@ impl Fake {
             super::orbs_own_loop(&config, the_game_this_is()),
         );
         image.sim().text().remove_font(&font);
-        image.shows_through(launch.device(), WINDOW);
+        // The device where the launch has one already, and a null where it is attached before the game's own
+        // setup has made one — which is every real launch, and the state `finds_its_device` is the way out of.
+        image.shows_through(
+            if device {
+                launch.device()
+            } else {
+                orb_api::Device::NULL
+            },
+            WINDOW,
+        );
         // The three calls orb's frame makes into this game, which is what a game laid out by hand has to
         // hand over: code is the one thing an address space cannot hold.
         image.hands_over_the_frames_own_calls(
@@ -526,6 +751,26 @@ impl Fake {
             fight_won_at: Cell::new(None),
             ending_updates: Cell::new(0),
             ending_leaves: Cell::new(false),
+            roll_updates: Cell::new(None),
+            refuses_to_stretch: Cell::new(false),
+            frames_since_launch: Cell::new(0),
+            on_its_own: Cell::new(false),
+            just_chose: Cell::new(false),
+            walking: Cell::new(false),
+            starts_a_run_it_did_not_walk_to: Cell::new(false),
+            cleared: Cell::new(false),
+            clear_in_its_records: Cell::new(true),
+            // The item that starts a run, which is where a launch of the real game reads the cursor before
+            // anything has been left: `front end: screen 0, cursor on item 0` on the first frame of every
+            // case's trace.
+            left_the_title_on: Cell::new(TITLE_ITEM_START),
+            coming_back_through_the_practice_screens: Cell::new(false),
+            difficulty: Cell::new(DIFFICULTY),
+            character_chosen: Cell::new(CHARACTER),
+            last_stage_frame: Cell::new(0),
+            bullets: RefCell::new(Vec::new()),
+            hit_window: Cell::new(0),
+            bomb_left: Cell::new(0),
             sound: RefCell::new(None),
             panel_tile: Cell::new(true),
             boss: Cell::new(false),
@@ -638,7 +883,9 @@ impl Fake {
     /// The device object and its vtable are laid out here because orb reaches through them:
     /// `window::hook_device` reads the object for its vtable and swaps the slot, so a device that was only
     /// a pointer is a read of an address nothing has mapped. Which is also why this is a step of its own —
-    /// the launch is attached before the game has a device, as a real one is.
+    /// the launch is attached before the game has a device, as a real one is — and for a launch that said it
+    /// had none to begin with, see [`attach_before_its_device`](Fake::attach_before_its_device), this is where
+    /// the pointer orb reads goes in as well.
     pub fn finds_its_device(&self) {
         let device = self.launch.device();
         let vtable = self.launch.vtable();
@@ -670,6 +917,17 @@ impl Fake {
 
     pub fn forget_presents(&self) {
         self.presents.borrow_mut().clear();
+    }
+
+    /// Has this device's driver refuse to stretch on a present, which some do: the call that asks for a
+    /// destination rectangle answers a failure and the one that asks for none is answered.
+    ///
+    /// An e2e test saying so, the way th06's does. What it is for is what orb does about it — the game's own
+    /// call again, which leaves the run playable and stretched — since a run that stopped being presented at
+    /// all would be a black window. The fallback is orb's and not a game's, so what asking it of this game adds
+    /// is the ask th07 makes: four nulls, where th06's e2e tests hand over a source rectangle to see dropped.
+    pub fn refuses_to_stretch_on_a_present(&self) {
+        self.refuses_to_stretch.set(true);
     }
 
     /// How many frames have taken the fog off to the device, which is not the same as how many put the
@@ -1146,6 +1404,11 @@ impl Fake {
         let from = log.written();
         self.image.the_title_menu_points_at_a_run();
         self.image.the_screen_has_been_up_for(SETTLED);
+        // A frame with the cursor there before the press: whether orb holds a press back for a question is
+        // decided in the frame hook and read by the input hook on the frame *after*, so a press on the frame the
+        // cursor arrives on is one the game acts on itself — and this game's title menu now acts on it, which
+        // is Start's flow walked and no title left to ask over.
+        self.frame();
         self.press_until(keys::Z, "the mode question", || {
             log.said_since(from, "menu: Run is under the cursor, asking which mode")
         });
@@ -1308,6 +1571,11 @@ impl Fake {
             shot,
         );
         self.image.the_screen_has_been_up_for(SETTLED);
+        // A screen an e2e test placed rather than one this game walked to: its decide is the test's to act on —
+        // see [`Fake::walks_its_front_end`] — and a frame with the run under the cursor goes before any press,
+        // orb deciding what to hold back at the end of an update and acting on it in the next.
+        self.walking.set(false);
+        self.frame();
     }
 
     /// A launch taken as far as a run gets before the press that starts one: the mode answered at the title
@@ -1470,13 +1738,13 @@ impl Fake {
         self.the_stages_numbers_are_in_place();
         self.image.the_read_left_the_word(0);
         self.image.the_run_acts_on_the_word(0);
-        self.image.is_playing(stage, DIFFICULTY);
+        self.image.is_playing(stage, self.difficulty.get());
     }
 
     /// What both of those write, which is the stage's own and nothing of the run's: the scene, the stage, its two
     /// clocks at nothing, a player playing, no fight, and the panel over them.
     fn lays_the_stage_out(&self, stage: i32) {
-        self.image.is_playing(stage, DIFFICULTY);
+        self.image.is_playing(stage, self.difficulty.get());
         self.the_stages_own_fields();
     }
 
@@ -1557,6 +1825,17 @@ impl Fake {
         self.an_ending_is_running(updates);
     }
 
+    /// And how many updates the roll's own script runs once the ending has handed over to it, after which the
+    /// ending's scene is left for the front end's.
+    ///
+    /// Nothing by default, which is a roll that plays for ever: every e2e test about the handover wants that,
+    /// and one about the roll being *played* says how long it is. **Which scene th07's roll hands over to is
+    /// not read here** — what such a test is about is the frames of the roll and that they are the game's to
+    /// play, and the scene after them is the one signal an e2e test has that the roll is over.
+    pub fn the_roll_lasts(&self, updates: i32) {
+        self.roll_updates.set(Some(updates));
+    }
+
     /// The scene a run is played in entered with nothing of a run built in it, which is what a stage the game
     /// cannot load looks like from outside: the frame a run was chosen is over, so nothing is asking for one
     /// any more, and no stage ever arrives for a resume to be put back into.
@@ -1614,6 +1893,31 @@ impl Fake {
         self.run_goes_on.set(true);
     }
 
+    /// **A decide at the shot select starts a run whatever brought that screen up**, which is what the real
+    /// screen does: the title's Start walks to it, and orb puts it back up on a run's own shot to ask the
+    /// front end for one — see `Th07::front_end_starts_a_run`, which is how the attempt out of a replay gets
+    /// a run to be watched in.
+    ///
+    /// Asked for rather than always done, the way the stage's own fire is: every other e2e test that places
+    /// that screen drives it itself — it chooses the run and builds the stage — and a game that started one
+    /// under it would build the same stage twice.
+    /// **The game's own records holding no clear**, which is what a copy whose records were taken aside has:
+    /// the title menu stops resting its cursor on `Extra Start`, the item it is not offering.
+    ///
+    /// A flag and not a record, this game keeping no `clrd` of its own — what its front end's own callback
+    /// does here is make the read, the file it lands in being what an e2e test about that read asks about.
+    ///
+    /// **Settable rather than the default**, which is a game that has been cleared: every e2e test that
+    /// walks to the Extra needs one, and what needs this is `the_cases_the_real_game_is_tested_with`, whose
+    /// launches start from records `cargo xtask real` has taken aside.
+    pub fn its_records_hold_no_clear(&self) {
+        self.clear_in_its_records.set(false);
+    }
+
+    pub fn its_shot_select_starts_a_run_however_it_came_up(&self) {
+        self.starts_a_run_it_did_not_walk_to.set(true);
+    }
+
     /// **And this game slowing its own run down, which is what makes an update of it not a frame of it.**
     /// 0x42e186 divides the manager's own count of them by five and, where nothing is left over, sets the byte
     /// at `G_GAME_MANAGER + 0xd` and answers 3 — the same 3 that skips both clocks — so one update in
@@ -1660,6 +1964,7 @@ impl Fake {
     /// see — and inventing one would be this game claiming to know something the exe has not been read
     /// for.
     fn update(&self) {
+        self.comes_up_at_its_title();
         // The read the game's own update makes for a frame's buttons, which orb stands in front of: the whole
         // read, whose own tail call is the pad half — so what a frame asks for once is the keys and the pads
         // together, the way th07's 0x430b50 asks.
@@ -1682,6 +1987,8 @@ impl Fake {
         let read_before = self.image.the_word_the_read_left();
         self.image.the_read_left_the_word(self.word.get());
         self.follows_its_manager(read_before);
+        self.walks_its_front_end(read_before);
+        self.walks_the_screen_a_run_ends_at(read_before);
         // **And the word the run acts on written where this game writes it, which is not here.** The read is
         // the supervisor's own job at chain priority 0; what copies it into the run's word is the recorder, at
         // priority 0x10 (0x443b9a) — and the player's own job is priority 8 (0x442ab6), which reads that word
@@ -1726,7 +2033,13 @@ impl Fake {
             self.the_boss_is_beaten();
         }
         if state.in_run && Some(state.stage_frames) == self.stage_frames.get() {
-            self.moves_on_to_the_stage(state.stage + 1);
+            // **And the last stage a run plays hands over to the ending rather than to a seventh**, which is
+            // what clearing the game is — see [`STAGES_A_RUN_PLAYS`].
+            if state.stage + 1 < STAGES_A_RUN_PLAYS {
+                self.moves_on_to_the_stage(state.stage + 1);
+            } else {
+                self.enters_the_ending();
+            }
         } else if self.run_goes_on.get() && state.in_run && advances {
             // Not while the game's own menu is up, which is what that flag *is*: the manager returns before any
             // job of the run runs — see `Th07`'s `GAME_MENU_UP` — so neither clock moves and the frame the game
@@ -1743,6 +2056,11 @@ impl Fake {
                     state.boss_attack_frames.unwrap_or(0).saturating_add(1),
                 );
             }
+            // And the stage's own script, bullets and player, where the run is one this game's front end
+            // started — see [`Fake::plays_its_own_stage`].
+            if self.on_its_own.get() {
+                self.plays_its_own_stage();
+            }
         }
         // And the ending's own script one update further on, where one is running: the updates an ending takes
         // are the game's own, and what says a part of it has ended is the next file read over the one it was
@@ -1757,6 +2075,24 @@ impl Fake {
                     self.image.the_ending_reads_the_script(ROLLS_SCRIPT);
                     if self.sound.borrow().is_some() {
                         self.plays_another_song();
+                    }
+                }
+            }
+        } else if state.in_ending && !self.ending_leaves.get() {
+            // And the roll's own updates after the handover, where an e2e test said how long it is: the
+            // ending's scene left when they run out — see [`Fake::the_roll_lasts`].
+            if let Some(left) = self.roll_updates.get().filter(|left| *left > 0) {
+                self.roll_updates.set(Some(left - 1));
+                if left == 1 {
+                    // **A cleared run's roll hands over to the screen its own end arrives on**, which is
+                    // where the offer to save a replay of it is and so where orb asks about its own — see
+                    // [`Fake::enters_the_ending`]. A roll an e2e test laid out goes to the front end, that
+                    // test being about the roll rather than about what a run leaves behind.
+                    if self.cleared.replace(false) {
+                        self.the_run_ends_at_its_own_screen();
+                        self.the_screen_offers_a_replay();
+                    } else {
+                        self.image.the_front_end_is_up();
                     }
                 }
             }
@@ -1808,6 +2144,35 @@ impl Fake {
         }
     }
 
+    /// **The screen a run's own end arrives on, walked by the presses whoever finished the run makes**: the
+    /// name entry on to the offer of a replay, and that offer to the phase it leaves in — after which the game
+    /// puts the scene back itself, which is [`Fake::the_front_end_comes_back`].
+    ///
+    /// Measured on the case that plays a whole game: the real th07 read `front end: screen 0, cursor on item
+    /// 0` after the run ended, and the recipe's own tap is what got it there — where a laid-out game that took
+    /// no press at that screen sat on it for the whole of the case's bound, the step aiming at the title
+    /// giving up and every step after it pressing at nothing.
+    ///
+    /// **The two phases this screen is read by and not every phase it has.** The entry's own walk goes through
+    /// 0x10 and 0x11 on the way to the offer — 0x44808d — and nothing above the game reads either, so a decide
+    /// at the entry arrives at the offer here. What orb does about the offer is its own business: a run with
+    /// chapters has it written past the frame it comes up, which is the rest of the way down.
+    fn walks_the_screen_a_run_ends_at(&self, read_before: u16) {
+        if self.image.the_scene_now() != self.image.scene_of_a_run_over() {
+            return;
+        }
+        let word = self.word.get();
+        if word & MENU_DECIDE == 0 || read_before & MENU_DECIDE != 0 {
+            return;
+        }
+        let phase = self.image.the_phase_the_screen_is_in();
+        if phase == self.image.phase_of_a_screen_from_a_run() {
+            self.image.the_screen_a_run_ends_at_offers_a_replay();
+        } else if phase == self.image.phase_of_a_screen_offering_a_replay() {
+            self.image.the_screen_a_run_ends_at_leaves();
+        }
+    }
+
     /// The half of a scene change that is the game's: orb asks for the ranking after a run has ended by writing
     /// the supervisor's own `wanted` — see `Th07::show_ranking` — and it is the game that builds that screen,
     /// and the screen that puts the scene back where it has been told to leave.
@@ -1822,13 +2187,22 @@ impl Fake {
     fn follows_its_supervisor(&self) {
         let front_end = self.image.scene_of_the_front_end();
         if self.image.the_screen_a_run_ends_at_is_leaving() {
-            self.image.the_front_end_is_up_again();
-            return self.the_front_end_reads_the_file_for_its_menus();
+            return self.the_front_end_comes_back();
         }
         if self.image.the_scene_now() == self.image.the_scene_wanted() {
             return;
         }
         let wanted = self.image.the_scene_wanted();
+        // **The run this game's own shot select asked for, built** — on the update after the one it was asked
+        // on, that being the one frame a run has been chosen and not built (see [`Fake::the_run_is_chosen`]) and
+        // the frame a resume points the build at a stage on. Out of the stage word as the build reads it, which
+        // is what that resume writes.
+        if wanted == self.image.scene_of_a_run() && self.image.the_scene_now() == front_end {
+            if self.on_its_own.get() && !self.just_chose.replace(false) {
+                self.starts_its_own_stage(self.image.the_games_stage_word());
+            }
+            return;
+        }
         if wanted == self.image.scene_of_the_ranking() {
             self.image.the_screen_a_run_ends_at_is_up();
             self.image.is_in_scene(wanted, wanted);
@@ -1843,12 +2217,515 @@ impl Fake {
             self.the_screen_a_run_ends_at_reads_the_file();
             self.image.is_in_scene(wanted, front_end);
         } else if wanted == front_end {
-            self.image.the_front_end_is_up_again();
-            // And its own added callback with it, which is where that screen reads the score file — its records
-            // over the ones in memory included. **A run given up walks through here before orb's own save**, so a
-            // laid-out game that left it out would be one no e2e test could ask what a read between the two costs.
-            self.the_front_end_reads_the_file_for_its_menus();
+            if self.on_its_own.get() {
+                self.leaves_its_own_run();
+            }
+            self.the_front_end_comes_back();
         }
+    }
+}
+
+impl Fake {
+    /// **The front end up again on the item the title was left on**, which is where the real game leaves a
+    /// run that is over: `front end: screen 0, cursor on item 1` after a run started from `Extra Start`, and
+    /// `item 0` after one started from `Start`.
+    ///
+    /// **And in the practice flow rather than at the title where that item practises a stage**, which is the
+    /// select whoever left the run is offered another stage at: the real game read `screen 8, cursor on item
+    /// 2` on the frame a left practice run came back — the item the title was left on, still in the one
+    /// cursor this front end has — and screens 9, 10 and 11 on the three frames after it. See
+    /// [`walks_back_into_the_practice_flow`](Fake::walks_back_into_the_practice_flow) for those three.
+    ///
+    /// The read of the score file goes with it, which is where that screen reads what its menus offer — its
+    /// records over the ones in memory included. **A run given up walks through here before orb's own save**,
+    /// so a laid-out game that left it out would be one no e2e test could ask what a read between the two
+    /// costs.
+    fn the_front_end_comes_back(&self) {
+        self.image.the_front_end_is_up_again();
+        let item = self.left_the_title_on.get();
+        self.image.the_title_menu_points_at(item);
+        if item == TITLE_ITEM_PRACTICE {
+            self.enters_the_screen(SCREEN_PRACTICE_DIFFICULTY, item);
+            self.coming_back_through_the_practice_screens.set(true);
+        }
+        self.the_front_end_reads_the_file_for_its_menus();
+    }
+
+    /// And the rest of that flow walked, one screen a frame: the character, the shot and the stage, each on
+    /// its own first item, which is what the real game's three frames after it read.
+    ///
+    /// A walk of the game's own and not one a press makes, so it happens before the gate a press is taken on:
+    /// nothing is pressed on those frames and the screens come up all the same.
+    fn walks_back_into_the_practice_flow(&self, screen: i32) {
+        match screen {
+            SCREEN_PRACTICE_DIFFICULTY => {
+                self.enters_the_screen(SCREEN_PRACTICE_CHARACTER, i32::from(CHARACTER));
+            }
+            SCREEN_PRACTICE_CHARACTER => {
+                self.enters_the_screen(SCREEN_PRACTICE_SHOT_SELECT, i32::from(SHOT));
+            }
+            SCREEN_PRACTICE_SHOT_SELECT => {
+                self.enters_the_screen(SCREEN_PRACTICE_STAGE, FIRST_STAGE);
+                self.coming_back_through_the_practice_screens.set(false);
+            }
+            _ => self.coming_back_through_the_practice_screens.set(false),
+        }
+    }
+
+    /// **The title menu up on its own**, [`TITLE_COMES_UP_AFTER`] frames into a launch nothing else has placed a
+    /// scene in: the real game comes up at its title, and a recipe's first press is made at it.
+    ///
+    /// Only where no e2e test has laid a scene out — the supervisor still at the pair a fresh process has, which
+    /// is neither the front end's nor a run's — so a test that places the game itself is left with what it placed.
+    /// The count of frames the screen has been up starts from nothing, the game's own gate on a press being that
+    /// count against ten.
+    fn comes_up_at_its_title(&self) {
+        let frames = self.frames_since_launch.get() + 1;
+        self.frames_since_launch.set(frames);
+        if frames == TITLE_COMES_UP_AFTER
+            && self.image.the_scene_now() == 0
+            && self.image.the_scene_wanted() == 0
+        {
+            self.image.the_front_end_is_up();
+            self.image.the_screen_has_been_up_for(0);
+        }
+    }
+
+    /// **The front end walked by the word the read left**, the way the game's own screens walk on it: the count
+    /// of frames the screen has been up moved on, the cursor moved on a direction's edge, and a decide or a cancel
+    /// on the screen's own gate taking it to the screen after or the one before — Start's flow of three and the
+    /// run it ends in. See [`SCREEN_DIFFICULTY`] for which screens those are.
+    ///
+    /// **Edges and not holds**, which is what the game's own reads are: a button still down from the screen before
+    /// is a press already spent, and the frame of input lag between the read and the run does not apply here, the
+    /// front end reading the word the read left directly.
+    fn walks_its_front_end(&self, read_before: u16) {
+        let front_end = self.image.scene_of_the_front_end();
+        if self.image.the_scene_now() != front_end || self.image.the_scene_wanted() != front_end {
+            return;
+        }
+        let up_for = self.image.frames_the_screen_has_been_up().saturating_add(1);
+        self.image.the_screen_has_been_up_for(up_for);
+        let screen = self.image.the_screen_the_front_end_is_on();
+        if self.coming_back_through_the_practice_screens.get() {
+            return self.walks_back_into_the_practice_flow(screen);
+        }
+        let items = match screen {
+            SCREEN_TITLE => TITLE_ITEMS,
+            SCREEN_DIFFICULTY | SCREEN_PRACTICE_DIFFICULTY | SCREEN_EXTRA_DIFFICULTY => {
+                DIFFICULTIES_OFFERED
+            }
+            SCREEN_CHARACTER | SCREEN_PRACTICE_CHARACTER | SCREEN_EXTRA_CHARACTER => CHARACTERS,
+            SCREEN_SHOT_SELECT | SCREEN_PRACTICE_SHOT_SELECT | SCREEN_EXTRA_SHOT_SELECT => SHOTS,
+            SCREEN_PRACTICE_STAGE => STAGES_TO_PRACTISE,
+            _ => return,
+        };
+        // The gate: the title's is the count itself, and every other screen's is the phase it moves to once it
+        // has been up for thirty — see [`A_SCREEN_TAKES_A_PRESS_AFTER`].
+        let takes_a_press = if screen == SCREEN_TITLE {
+            up_for >= TITLE_TAKES_A_PRESS_AFTER
+        } else {
+            if up_for == A_SCREEN_TAKES_A_PRESS_AFTER {
+                self.image.the_screen_is_in_phase(PHASE_ITEMS);
+            }
+            up_for >= A_SCREEN_TAKES_A_PRESS_AFTER
+        };
+        if !takes_a_press {
+            return;
+        }
+        let word = self.word.get();
+        let pressed = |bit: u16| word & bit != 0 && read_before & bit == 0;
+        // The cursor, which goes round: th07's title menu wraps from its first item to its last, which is what a
+        // stray up at it costs — see `Th07`'s `sight::in_a_stage`.
+        let cursor = self.image.the_item_the_title_menu_points_at();
+        let step = i32::from(pressed(BUTTON_DOWN)) - i32::from(pressed(BUTTON_UP));
+        let moved = (cursor + step).rem_euclid(items);
+        // **And the title steps over the item it is not offering**, which is the Extra's where the records hold
+        // no clear: measured on a copy whose score file had none, the cursor going 0 to 2 pressing down and 0 to
+        // 7 pressing up — see [`its_records_hold_no_clear`](Fake::its_records_hold_no_clear). The title is the
+        // only screen with such an item, so what is stepped over is that item's own number.
+        let locked =
+            screen == SCREEN_TITLE && !self.clear_in_its_records.get() && moved == TITLE_ITEM_EXTRA;
+        let moved = match locked {
+            true => (moved + step).rem_euclid(items),
+            false => moved,
+        };
+        if moved != cursor {
+            self.image.the_title_menu_points_at(moved);
+        }
+        if pressed(MENU_DECIDE) {
+            // **The item the title is left on is what the front end comes back on**, and it is remembered
+            // here because every screen between an item and a run writes its own list's item into the one
+            // cursor this front end has. The real game read `cursor on item 1` where the run before it was
+            // started from `Extra Start` and `item 0` where one was started from `Start` — see
+            // `the_front_end_of_th07_walked`.
+            if screen == SCREEN_TITLE {
+                self.left_the_title_on.set(moved);
+            }
+            match screen {
+                SCREEN_TITLE if moved == TITLE_ITEM_START => {
+                    self.walking.set(true);
+                    self.enters_the_screen(SCREEN_DIFFICULTY, DIFFICULTY);
+                }
+                // **And the item that practises one stage, which is a run as much as Start's is**: its own
+                // three screens, and the bit this item sets — the select behind them sets it again, which is
+                // what 0x45a583 does and what makes the shot select's own write in between harmless.
+                SCREEN_TITLE if moved == TITLE_ITEM_PRACTICE => {
+                    self.walking.set(true);
+                    self.image.is_practising();
+                    self.enters_the_screen(SCREEN_PRACTICE_DIFFICULTY, DIFFICULTY);
+                }
+                // **And the item that starts the Extra**, whose own three screens are the third triple
+                // through the same handlers: what it decides is written by the item and by the select behind
+                // it rather than chosen anywhere — the difficulty is the Extra's and so is the stage.
+                // **The item that ends the game, which is this menu's last**: the way somebody leaves one,
+                // and what the case that clears the game walks to — the real game's trace stops a few frames
+                // past the step before the decide made there, the process gone with it. The host's own call
+                // rather than orb's `close_the_game`: what ends the process here is the game, and a laid-out
+                // host answers the call and returns instead of ending a test binary.
+                SCREEN_TITLE if moved == TITLE_ITEMS - 1 => orb_api::process::exit(0),
+                SCREEN_TITLE if moved == TITLE_ITEM_EXTRA => {
+                    self.walking.set(true);
+                    // On its own first item, which is what the real one came up on: `front end: screen 12,
+                    // cursor on item 0`, and no reading of that screen on any other item. The difficulty is
+                    // the Extra's and the item wrote it — a cursor put on that difficulty here is a number
+                    // this select has no row for, `DIFFICULTIES_OFFERED` being four.
+                    self.enters_the_screen(SCREEN_EXTRA_DIFFICULTY, 0);
+                }
+                SCREEN_DIFFICULTY | SCREEN_PRACTICE_DIFFICULTY => {
+                    self.difficulty.set(moved);
+                    self.enters_the_screen(
+                        match screen {
+                            SCREEN_DIFFICULTY => SCREEN_CHARACTER,
+                            _ => SCREEN_PRACTICE_CHARACTER,
+                        },
+                        i32::from(CHARACTER),
+                    );
+                }
+                // The Extra's own first screen, whose cursor decides nothing: its difficulty is the Extra
+                // and no item of that select is another.
+                SCREEN_EXTRA_DIFFICULTY => {
+                    self.difficulty.set(DIFFICULTY_EXTRA);
+                    self.enters_the_screen(SCREEN_EXTRA_CHARACTER, i32::from(CHARACTER));
+                }
+                SCREEN_CHARACTER | SCREEN_PRACTICE_CHARACTER | SCREEN_EXTRA_CHARACTER => {
+                    let character = u8::try_from(moved).expect("a cursor over the characters");
+                    self.character_chosen.set(character);
+                    // The two bytes the screens before wrote and the shot under the cursor, which is what
+                    // `Th07::run_pointed_at` reads a run left unfinished's mark off — and the phase the build
+                    // runs in, thirty frames before the screen takes a press. The shot select of whichever
+                    // flow this walk is in, the three sharing that screen's handler.
+                    self.image.the_shot_select_points_at(
+                        match screen {
+                            SCREEN_CHARACTER => SCREEN_SHOT_SELECT,
+                            SCREEN_EXTRA_CHARACTER => SCREEN_EXTRA_SHOT_SELECT,
+                            _ => SCREEN_PRACTICE_SHOT_SELECT,
+                        },
+                        u8::try_from(self.difficulty.get())
+                            .expect("a difficulty of the game's own"),
+                        character,
+                        SHOT,
+                    );
+                    self.image.the_screen_is_in_phase(PHASE_BUILDING);
+                    self.image.the_screen_has_been_up_for(0);
+                }
+                // The run started: the three numbers written where the run keeps them, the stage word at the
+                // first stage, and the run scene asked for — which the supervisor acts on next update. Only
+                // where this game walked here itself, or where a test says this screen starts a run whatever
+                // brought it up — see [`Fake::walking`] and
+                // [`Fake::its_shot_select_starts_a_run_however_it_came_up`].
+                SCREEN_SHOT_SELECT
+                    if self.walking.get() || self.starts_a_run_it_did_not_walk_to.get() =>
+                {
+                    let shot = u8::try_from(moved).expect("a cursor over the shots");
+                    self.image.the_shot_select_decided(
+                        self.difficulty.get(),
+                        self.character_chosen.get(),
+                        shot,
+                    );
+                    self.image.the_games_stage_word_is(FIRST_STAGE);
+                    self.on_its_own.set(true);
+                    self.just_chose.set(true);
+                    self.image.a_run_has_been_chosen();
+                }
+                // And the Extra's, which is a run starting like Start's own — with the difficulty and the
+                // stage the item decided rather than any select.
+                SCREEN_EXTRA_SHOT_SELECT if self.walking.get() => {
+                    let shot = u8::try_from(moved).expect("a cursor over the shots");
+                    self.image.the_shot_select_decided(
+                        DIFFICULTY_EXTRA,
+                        self.character_chosen.get(),
+                        shot,
+                    );
+                    self.image.the_games_stage_word_is(THE_EXTRAS_STAGE);
+                    self.on_its_own.set(true);
+                    self.just_chose.set(true);
+                    self.image.a_run_has_been_chosen();
+                }
+                // The practice flow's own way out of that screen, which is not a run starting: the stage it
+                // is played in is asked for at the select behind it.
+                SCREEN_PRACTICE_SHOT_SELECT if self.walking.get() => {
+                    let shot = u8::try_from(moved).expect("a cursor over the shots");
+                    self.image.the_shot_select_decided(
+                        self.difficulty.get(),
+                        self.character_chosen.get(),
+                        shot,
+                    );
+                    self.enters_the_screen(SCREEN_PRACTICE_STAGE, FIRST_STAGE);
+                }
+                // And the stage under the cursor practised, which is the last answer a practice run needs:
+                // the bit that select's own handler sets, the stage word the build reads, and the run scene
+                // asked for.
+                SCREEN_PRACTICE_STAGE if self.walking.get() => {
+                    self.image.is_practising();
+                    self.image.the_games_stage_word_is(moved);
+                    self.on_its_own.set(true);
+                    self.just_chose.set(true);
+                    self.image.a_run_has_been_chosen();
+                }
+                _ => {}
+            }
+        } else if pressed(MENU_CANCEL) {
+            match screen {
+                // **A cancel at the title puts the cursor on its last item**, which is the one that ends the
+                // game: measured on the real game, where the six-frame cancel a recipe presses to take orb's
+                // own question away read `front end: screen 0, cursor on item 7` on the frame it went in —
+                // and every walk the recipes make afterwards starts from there. th06 does the same.
+                SCREEN_TITLE => self.image.the_title_menu_points_at(TITLE_ITEMS - 1),
+                SCREEN_DIFFICULTY => self.enters_the_screen(SCREEN_TITLE, TITLE_ITEM_START),
+                SCREEN_CHARACTER => {
+                    self.enters_the_screen(SCREEN_DIFFICULTY, self.difficulty.get())
+                }
+                SCREEN_SHOT_SELECT => {
+                    self.enters_the_screen(
+                        SCREEN_CHARACTER,
+                        i32::from(self.character_chosen.get()),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// One of the front end's screens brought up with its cursor on `cursor`: in the phase its build runs in and
+    /// up for no frames yet, which is the state a press there is not taken in — the title excepted, whose gate is
+    /// the count alone.
+    fn enters_the_screen(&self, screen: i32, cursor: i32) {
+        self.image.the_front_end_is_on_the_screen(screen);
+        self.image.the_title_menu_points_at(cursor);
+        self.image
+            .the_screen_is_in_phase(if screen == SCREEN_TITLE {
+                PHASE_ITEMS
+            } else {
+                PHASE_BUILDING
+            });
+        self.image.the_screen_has_been_up_for(0);
+    }
+
+    /// The stage a run of this game's own starting asked for, built and laid out to be played: the build every
+    /// stage gets, and then the field, the player's box and step and where they start — which is what the rules a
+    /// bot plays by read — with nothing of a stage before it left over.
+    ///
+    /// And the song the run comes back to, where an e2e test laid one out: a run given up took its stream down,
+    /// and the build of the next one starts it again.
+    fn starts_its_own_stage(&self, stage: i32) {
+        self.builds_the_stage(stage);
+        self.image
+            .the_play_field_is(FIELD.0, FIELD.1, FIELD.2, FIELD.3);
+        self.image.the_players_box_is((PLAYER_HALF, PLAYER_HALF));
+        self.image
+            .the_player_steps_by(A_STEP, A_STEP / 2.0_f32.sqrt());
+        self.image
+            .the_player_is_at(PLAYER_STARTS_AT.0, PLAYER_STARTS_AT.1);
+        self.bullets.borrow_mut().clear();
+        self.writes_the_bullets_down();
+        self.last_stage_frame.set(0);
+        self.hit_window.set(0);
+        self.bomb_left.set(0);
+        if self.sound.borrow().is_some() {
+            self.image.names_the_stream_it_had();
+            orb_sim::Sound::started_again();
+        }
+    }
+
+    /// **The ending a cleared run hands over to**: the run torn down the way leaving one tears it down, the
+    /// ending's own script running in its place, and the staff roll behind that — with which of the two
+    /// lengths is which left to [`Fake::update`], where the updates are counted down.
+    ///
+    /// The run is what asks for this rather than an e2e test, because clearing the game is what a case that
+    /// plays one through measures: `an_ending_is_running` is the same arrangement made from outside, for a
+    /// test about the ending alone.
+    fn enters_the_ending(&self) {
+        self.leaves_its_own_run();
+        self.cleared.set(true);
+        self.an_ending_is_running(ENDING_UPDATES);
+        self.the_roll_lasts(ROLL_UPDATES);
+    }
+
+    /// And that run left for the title, which is what orb's own give-up asks the supervisor for: the stream the
+    /// run was playing through deleted, as the teardown at 0x44cebd does — see [`Fake::gives_the_run_up`] — and
+    /// the bullets gone with the stage.
+    fn leaves_its_own_run(&self) {
+        self.on_its_own.set(false);
+        self.bullets.borrow_mut().clear();
+        self.writes_the_bullets_down();
+        if self.sound.borrow().is_some() {
+            self.image.plays_no_track();
+            orb_sim::Sound::taken_down();
+        }
+    }
+
+    /// **One update of a stage this game plays on its own**: the script's events for the frame the stage has
+    /// reached, a bullet aimed at the player where the schedule says, every bullet moved on, the player moved by
+    /// the word their job read, and the hit test — with th07's own window between a hit and the death, which a
+    /// bomb pressed inside is a deathbomb.
+    ///
+    /// **A stage put back is a stage whose bullets are gone**: the frames this stage has run going backwards is a
+    /// chapter restored, the memory then holding what the chapter had, and what this game kept beside that memory
+    /// — its bullets, a hit's window — is what the restore could not put back, so it is dropped to agree.
+    fn plays_its_own_stage(&self) {
+        let state = self.state();
+        let now = state.stage_frames;
+        let last = self.last_stage_frame.get();
+        if now < last {
+            self.bullets.borrow_mut().clear();
+            self.hit_window.set(0);
+            self.bomb_left.set(0);
+        } else {
+            let reached = |at: u32| last < at && at <= now;
+            if reached(MIDBOSS_ARRIVES) {
+                self.the_boss_arrives();
+            }
+            if reached(CARD_STARTS) {
+                self.a_card_starts(SCRIPTED_CARD, SCRIPTED_CARD_NAME);
+            }
+            if reached(ATTACK_CHANGES) {
+                self.the_card_is_over();
+                self.the_attack_changes();
+            }
+            if reached(MIDBOSS_BEATEN) {
+                self.the_boss_is_beaten();
+            }
+            if now > last
+                && now >= FIRST_BULLET_AT
+                && (now - FIRST_BULLET_AT).is_multiple_of(A_BULLET_EVERY)
+            {
+                self.shoots_at_the_player();
+            }
+        }
+        self.last_stage_frame.set(now);
+
+        let word = self.the_player_read.get();
+        self.moves_the_player(word);
+        let player = self.image.where_the_player_is();
+        {
+            let mut bullets = self.bullets.borrow_mut();
+            for bullet in bullets.iter_mut() {
+                bullet.at = (bullet.at.0 + bullet.step.0, bullet.at.1 + bullet.step.1);
+            }
+            bullets.retain(|bullet| {
+                bullet.at.0 >= FIELD.0 - BULLET_SIZE
+                    && bullet.at.0 <= FIELD.0 + FIELD.2 + BULLET_SIZE
+                    && bullet.at.1 >= FIELD.1 - BULLET_SIZE
+                    && bullet.at.1 <= FIELD.1 + FIELD.3 + BULLET_SIZE
+            });
+        }
+        match self.image.the_players_state() {
+            // Playing, and so something a bullet can hit: the one whose box reaches the player's puts them into
+            // the state the hit test leaves at 0x43ee0e, and is spent doing it.
+            0 => {
+                let reach = PLAYER_HALF + BULLET_SIZE / 2.0;
+                let hit = self.bullets.borrow().iter().position(|bullet| {
+                    (bullet.at.0 - player.0).abs() <= reach
+                        && (bullet.at.1 - player.1).abs() <= reach
+                });
+                if let Some(hit) = hit {
+                    self.bullets.borrow_mut().remove(hit);
+                    self.image.the_player_has_been_hit();
+                    self.hit_window.set(A_BOMB_IS_TAKEN_FOR);
+                }
+            }
+            // Hit, inside the window: a bomb pressed takes the hit back, and the window running out is the death.
+            2 => {
+                if word & BUTTON_BOMB != 0 && state.bombs > 0 {
+                    self.a_bomb_goes_off();
+                    self.image.the_player_is_playing();
+                    self.bomb_left.set(A_BOMB_LASTS);
+                    self.hit_window.set(0);
+                } else {
+                    let left = self.hit_window.get() - 1;
+                    self.hit_window.set(left);
+                    if left <= 0 {
+                        self.dies();
+                    }
+                }
+            }
+            _ => {}
+        }
+        if self.bomb_left.get() > 0 {
+            self.bomb_left.set(self.bomb_left.get() - 1);
+            if self.bomb_left.get() == 0 {
+                self.the_bomb_is_over();
+            }
+        }
+        self.writes_the_bullets_down();
+    }
+
+    /// A bullet from the top of the field aimed at where the player is now, in the lowest slot nothing is in.
+    fn shoots_at_the_player(&self) {
+        let player = self.image.where_the_player_is();
+        let (dx, dy) = (player.0 - BULLETS_FROM.0, player.1 - BULLETS_FROM.1);
+        let length = (dx * dx + dy * dy).sqrt().max(1.0);
+        let mut bullets = self.bullets.borrow_mut();
+        let Some(slot) =
+            (0..BULLET_SLOTS_USED).find(|slot| bullets.iter().all(|bullet| bullet.slot != *slot))
+        else {
+            return;
+        };
+        bullets.push(Bullet {
+            slot,
+            at: BULLETS_FROM,
+            step: (dx / length * BULLET_SPEED, dy / length * BULLET_SPEED),
+        });
+    }
+
+    /// The player moved by the directions in the word, by the step a frame moves them, and held inside the field.
+    fn moves_the_player(&self, word: u16) {
+        let across = i32::from(word & BUTTON_RIGHT != 0) - i32::from(word & BUTTON_LEFT != 0);
+        let down = i32::from(word & BUTTON_DOWN != 0) - i32::from(word & BUTTON_UP != 0);
+        if across == 0 && down == 0 {
+            return;
+        }
+        let step = if across != 0 && down != 0 {
+            A_STEP / 2.0_f32.sqrt()
+        } else {
+            A_STEP
+        };
+        let (x, y) = self.image.where_the_player_is();
+        self.image.the_player_is_at(
+            (x + across as f32 * step).clamp(FIELD.0, FIELD.0 + FIELD.2),
+            (y + down as f32 * step).clamp(FIELD.1, FIELD.1 + FIELD.3),
+        );
+    }
+
+    /// Every slot this stage uses written as it stands: the bullets that are out, alive with their position, step
+    /// and size, and every other slot empty — and the count their manager keeps.
+    fn writes_the_bullets_down(&self) {
+        let bullets = self.bullets.borrow();
+        for slot in 0..BULLET_SLOTS_USED {
+            match bullets.iter().find(|bullet| bullet.slot == slot) {
+                Some(bullet) => self.image.a_bullet_of_size_is_at(
+                    slot,
+                    bullet.at.0,
+                    bullet.at.1,
+                    bullet.step,
+                    (BULLET_SIZE, BULLET_SIZE),
+                ),
+                None => self.image.the_bullet_is_gone(slot),
+            }
+        }
+        self.image
+            .bullets_alive(i32::try_from(bullets.len()).expect("a handful of bullets"));
     }
 }
 
@@ -1983,10 +2860,8 @@ type DevicePresent = unsafe extern "system" fn(
 ) -> orb_api::Hresult;
 
 /// What is in that slot until orb redirects it, and what an e2e test reads the redirection back through:
-/// the two rectangles the ask carried.
-///
-/// `S_OK` always. What a driver that refuses to stretch does is th06's e2e tests' subject — the fallback is
-/// orb's and not a game's, so one game asking it is enough.
+/// the two rectangles the ask carried, and whichever answer an e2e test declared — `S_OK`, or the refusal a
+/// driver that will not stretch gives.
 unsafe extern "system" fn device_present(
     _device: *mut c_void,
     source: *const orb_api::Rect,
@@ -2000,8 +2875,19 @@ unsafe extern "system" fn device_present(
         source: read(source),
         destination: read(destination),
     });
-    0
+    // Only the present that asks for one: what such a driver refuses is the *stretch*, so the game's own
+    // call with no destination in it is one it answers.
+    if fake.refuses_to_stretch.get() && !destination.is_null() {
+        return STRETCH_REFUSED;
+    }
+    S_OK
 }
+
+/// What a present that worked answers, and what a driver that will not stretch on one answers instead:
+/// `D3DERR_DRIVERINTERNALERROR`, which is what such a refusal really comes back as — orb reads the sign and
+/// nothing else.
+const S_OK: orb_api::Hresult = 0;
+const STRETCH_REFUSED: orb_api::Hresult = 0x8876_0827u32 as i32;
 
 /// `Chain::RunDrawChain` at 0x42fe20: one quad queued, which is what drawing anything in th07 is.
 ///

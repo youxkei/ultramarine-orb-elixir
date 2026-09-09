@@ -1,0 +1,82 @@
+# **A run of the other mode played to its clear, which is the one thing that unlocks the Extra.** The read
+# the front end lights its items from is the game's own score file and a pointdevice run's records go to the
+# mode's own fork — see `score`'s own doc — so a run cleared in pointdevice mode leaves the game's own file
+# as it found it, and the Extra with it. The case after this one is the Extra, and this is what puts the
+# record there.
+#
+# **And nothing puts a death back here**: the mode keeps no chapters, so what clears the game is the rules
+# playing it out on the lives the game gives them.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+# **Normal, and not the Easy a_run_played_to_its_clear.yaml plays**: a game cleared on Easy unlocks no Extra,
+# which is the whole point of this case. Easy is aimed for and then one tap moves off it, rather than Normal
+# being aimed for — see the same step under th06, where both were measured.
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 30
+  until: { screen: 4, cursor: 0 }
+  give_up_after: 600
+- wait_until: { frames: 20 }
+- press: [down]
+  frames: 6
+- wait_until: { frames: 30 }
+# The screens that are left, tapped through by a count of frames rather than to a chapter: a run of this mode
+# reaches none, so there is nothing of the kind for a step to wait for.
+#
+# **Only as long as those screens take** — see a_normal_mode_run_played_to_its_clear.yaml under th06, where
+# six hundred frames of tapping cost a laid-out run all three of its lives before the step that plays it
+# began.
+- press: [decide]
+  frames: 6
+  until: { frames: 240 }
+# **The whole run in one step**, which ends where the run does — see a_run_played_to_its_clear.yaml.
+- play_until: { frames: 216000 }
+# And the screens a finished run arrives on, walked by the same tap: the name entry, the stats, and this
+# game's own offer to save a replay, which orb writes past only for a run with chapters. No question of
+# orb's own is behind them — a run of this mode has no replay it keeps.
+# **The screens a finished run arrives on, walked until the title is up and no further.** Written as a tap of
+# a count of frames this step walked past them into a run of its own — `stage=0 frames=376 lives=2` after the
+# clear — and the steps below, which want the title, then had a run in front of them.
+#
+# **And what it mostly waits through is the staff roll, which is why it is given ten minutes.** A clear at
+# Normal hands its ending over to one and orb's skip stops where it begins, keeping it on purpose — see
+# `runtime`'s own comment and the line it logs, `ending run out in 33477 update(s), where its staff roll
+# begins` — so the roll plays out at the game's own rate with this step tapping at it. Measured on the launch
+# that gave this step sixty seconds: the ending's scene was still up 5,460 frames later, at the last frame the
+# case wrote, so the step gave up inside the roll and the `quit` below ended the process there — th07 writes
+# its records as it shuts itself down, and the case after this one then found the Extra locked, its walk
+# giving up and a run starting at difficulty 1. How long the roll runs was not measured, which is what the
+# bound is generous rather than fitted for. **None of this is th06's**, whose ending is run out whole —
+# `ending skipped, 25101 frames run, scene 10 -> 7` — with no roll for the skip to stop at.
+- press: [decide]
+  frames: 6
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 36000
+# **And the game left through the item on its own title that ends it**, which is how a player leaves one:
+# `quit` below is `runtime::close_the_game`, a `process::exit` that gives the game no shutdown of its own.
+#
+# **What registers the clear is the screens above rather than this walk.** Measured on the sweep this walk was
+# wrong in: the decide landed on the item before the last, the game sat on the screen that item opens until
+# `quit` ended the process there, and the case after this one still found the Extra on the title — so the
+# records were on disk by the time the title came up.
+#
+# **The last item is one tap up from the first**, which is how it is reached without naming an index: how many
+# items the title has depends on what the score file says is unlocked. **And nothing may press before that
+# tap.** A press step whose `until` is already true presses anyway, so the step that stood here to confirm the
+# cursor was on item 0 — `press: [up]` held for thirty frames — moved it instead: item 0 to 7 on its own edge
+# two frames after the title came up, 7 to 6 on its hold's repeat twenty-one frames later, and the decide then
+# opened screen 2. The step above already ends with the title up and its cursor on item 0, so all that is left
+# is the grace frames and one tap.
+- wait_until: { frames: 20 }
+- press: [up]
+  frames: 6
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { frames: 300 }
+- wait_until: { frames: 600 }
+- quit: true

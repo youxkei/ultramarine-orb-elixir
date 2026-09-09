@@ -215,6 +215,71 @@ fn a_controller_that_has_been_lost_is_acquired_again_and_reads_nothing_that_fram
     });
 }
 
+/// And the button the game reads as back cancels it, which is the answer that starts no run at all.
+///
+/// The bomb button of the game's own mapping, which is what `Th06::menu_cancel` reads a pad's back off: a
+/// cancel and a legacy run are not the same thing, the press that would have started a run having been held
+/// back, so the screen underneath is where it was.
+#[test]
+fn the_pads_back_button_cancels_the_question() {
+    in_its_own_process(|| {
+        let game = asking("pad-cancels");
+        game.push(Pushed::button(MAPPING.bomb));
+        game.frames_until("the pad's cancel", 8, || outcomes(&game) == 1);
+        assert!(
+            game.log()
+                .said(&format!("mode: not chosen on the {}", By::Pad)),
+            "the pad's back button did not cancel: {:?}",
+            game.log().lines(),
+        );
+        assert!(
+            !game.state().in_run,
+            "a run was started by a question the pad cancelled",
+        );
+        assert_eq!(
+            game.image().front_end_now().screen,
+            Screen::Title,
+            "the screen underneath moved on a cancel",
+        );
+    });
+}
+
+/// And the retry menu a death offers, which is the menu a pad has to reach most: answered on the pad, with
+/// the chapter put back.
+///
+/// The game is frozen on these frames, so its own read of the controller is not running: what answers is
+/// orb asking the game what the pad is doing — the poll, the read and the mapping — out of the device the
+/// game keeps, on a frame the game itself is given none of.
+#[test]
+fn the_pad_answers_the_retry_menu() {
+    in_its_own_process(|| {
+        let game = Fake::attach("pad-retries", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        let log = game.log();
+        game.in_a_pointdevice_run();
+        let at_the_chapter = game.state();
+
+        game.dies();
+        game.frame();
+        assert!(
+            log.said("died in chapter 1"),
+            "the death was not noticed: {:?}",
+            log.lines(),
+        );
+        game.frames(READS_KEYS_AFTER);
+        game.push(Pushed::button(MAPPING.shoot));
+        game.frames_until("the retry menu answered on the pad", 8, || {
+            log.said(&format!("retry: the chapter again on the {}", By::Pad))
+        });
+        assert_eq!(
+            game.state(),
+            at_the_chapter,
+            "the chapter the pad asked for is not where the run came back to",
+        );
+    });
+}
+
 /// Which mode the question would answer with now — the one drawn in `SELECTED`.
 fn under_the_cursor(game: &Fake) -> Mode {
     game.one_frame();

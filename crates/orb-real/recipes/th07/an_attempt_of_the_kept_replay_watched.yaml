@@ -1,0 +1,59 @@
+# The replay the case before kept, watched: the title menu's own replay item, the question orb asks over it
+# answered for 完全無欠モード — the game's own list holds nothing of a run of this mode — and then the
+# stage, the chapter and the attempt chosen out of the lists behind it.
+#
+# **The title menu is not up when a launch starts, and the way to it is a decide** — see
+# an_attempt_of_the_kept_replay_watched.yaml under th06, where the screen that game comes up on was measured
+# answering nothing else: a launch that pressed nothing sat on it for 60s, ones that tapped directions waited
+# 39s and 124s, and a decide reaches the menu 4.0s after orb attaches.
+- press: [decide]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 1800
+# **And that same press is a press at the menu underneath**, which orb holds back to ask which mode the run
+# it would start is to be played in — so the question is taken away again with a cancel, which is the answer
+# that starts nothing and leaves the menu's own cursor where it was. The frames either side of it are the
+# question's own grace and the frames it takes to go.
+- wait_until: { question: mode }
+  give_up_after: 300
+- wait_until: { frames: 30 }
+- press: [cancel]
+  frames: 6
+- wait_until: { frames: 30 }
+# Then the cursor is walked to that item, from the top where it did not come up there: which item the menu
+# comes up on is whatever the game's own score file last remembered. Screen 0 is th07's title menu, and the
+# item after the replays is Score, which is nothing to be afraid of where a tap overshoots by one.
+#
+# Taps of thirty frames, which is what stops on the item they are aimed at without going past it.
+- press: [up]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 30
+  until: { screen: 0, cursor: 3 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# The four lists, each answered with its first item: the replay, its stage, its first chapter and the first
+# attempt at that chapter. One step apiece — the four are one question under one name, so a step that waited
+# for it to go would sit out its bound with the next list already up.
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+# The attempt itself, which plays itself out of the file: a step that handed these frames to the rules would
+# be a step pressing the bomb, which is a cancel to the game's own menus and stops a watch. What says it is
+# over is the list coming back up on the attempt just watched, so that is what is waited for rather than a
+# count of frames nobody can write down — how long an attempt at a chapter lasts is the run's.
+- wait_until: { question: choose_replay }
+  give_up_after: 3600
+- quit: true

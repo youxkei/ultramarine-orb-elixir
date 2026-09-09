@@ -77,9 +77,12 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
         game.image().the_front_end_is_up();
         game.image().the_title_menu_points_at_a_run();
         game.image().the_screen_has_been_up_for(60);
-        // Pressed again and again rather than once, which is what somebody at the keyboard does: orb decides
-        // whether to hold a press back at the end of an update and acts on it in the next, so the first frame
-        // the cursor is somewhere orb asks about is a frame whose press goes to the game.
+        // A frame with the cursor there before the press: orb decides whether to hold a press back at the end
+        // of an update and acts on it in the next, so the first frame the cursor is somewhere orb asks about is
+        // a frame whose press goes to the game — and this game's title acts on one, which is Start's flow
+        // walked and no title left to ask over. Then pressed again and again rather than once, which is what
+        // somebody at the keyboard does.
+        game.frame();
         for _ in 0..4 {
             game.press(keys::Z);
         }

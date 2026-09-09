@@ -23,7 +23,7 @@
 //! over a death would be a second answer to what the next stage begins with.
 
 use crate::fake::th06::{
-    ATTACK_CHANGES, FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, Open, PLAYER_AREA_SIZE,
+    ATTACK_CHANGES, BOSS_ARRIVES, FRESH, Fake, INVULNERABLE_AFTER_SPAWNING, Open, PLAYER_AREA_SIZE,
     PLAYER_AREA_TOP_LEFT, RANK_AT_A_RUNS_START, SHAKE_FRAMES, the_run,
 };
 use crate::fake::{Launched, in_its_own_process};
@@ -408,6 +408,169 @@ fn the_start_of_a_stage_after_a_transition_is_not_washed() {
         assert!(
             washed.is_empty(),
             "the field was washed over the start of a stage: {washed:#010x?}",
+        );
+    });
+}
+
+/// The stage the run moves on to, counted from zero the way everything above `Game` counts.
+const NEXT: i32 = 1;
+
+/// A Pointdevice mode run over stages of [`STAGE_FRAMES`], stopped at its first chapter — which is what the
+/// three below are about, a transition being one a run *with chapters* has to survive.
+fn a_pointdevice_run(name: &str, stage_frames: u32) -> Box<Fake> {
+    let game = launched(name);
+    game.stages_last(stage_frames);
+    game.in_a_pointdevice_run();
+    game
+}
+
+/// **A stage is written down as it begins, and not only once its first chapter has been announced.**
+///
+/// A stage's first chapter waits for the stage to settle and for the music — see `Chapters::due` — and that
+/// wait is a second of a run in which nothing is written down at all. A session interrupted there is picked up
+/// at the stage *before*, which is a whole stage of a run thrown away, and where the stage before ends on a
+/// chapter of its own it is worse than that: **the run can never get past the boundary.** Two launches of th07
+/// measured it — see `a_stage_transition_of_th07.rs` — and the wait is this game's too, 248 frames of it.
+///
+/// **Nothing here is a guess about what the chapter model will say.** A stage's start is its first chapter at
+/// frame 0 with no frames to play back, whatever the stage holds — the same answer, written before the settle
+/// rather than after it.
+#[test]
+fn a_stage_is_written_down_as_it_begins() {
+    in_its_own_process(|| {
+        let game = a_pointdevice_run("a-stage-transition-written-down-as-it-begins", STAGE_FRAMES);
+        let log = game.log();
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        let from = log.written();
+        game.frames_until("the stage after the first", STAGE_FRAMES + 60, || {
+            game.state().stage == NEXT
+        });
+        game.frames_until_a_thread("the next stage written down", || {
+            log.said_since(from, "stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+        // **Before its first chapter was announced**, which is the whole of it: the window a session is
+        // interrupted in is the one between the stage beginning and that announcement, and a file written after
+        // it is a file that window has nothing in.
+        assert!(
+            !log.said_since(from, "stage 2 chapter 1 (stage start)"),
+            "the stage's own start was written down only once its first chapter had begun:\n  {}",
+            log.lines().join("\n  ")
+        );
+    });
+}
+
+/// **A chapter inside a stage the run walked into is written down like any other.**
+///
+/// Which is what a session interrupted at a later stage's boss is picked up from, and the whole of what the
+/// file is for: the furthest chapter reached, not the stage it is in. A rule that wrote a stage's start in
+/// place of its chapters was built once and taken out again — it made every interrupted stage cost the run
+/// that whole stage, which is the thing orb exists to stop.
+#[test]
+fn a_chapter_inside_a_stage_the_run_walked_into_is_written_down() {
+    in_its_own_process(|| {
+        // Stages long enough to hold the fight, whose arrival is the chapter inside the second one.
+        let game = a_pointdevice_run(
+            "a-stage-transition-a-chapter-of-a-walked-into-stage",
+            ATTACK_CHANGES + 60,
+        );
+        let log = game.log();
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        let from = log.written();
+        game.frames_until("the stage after the first", ATTACK_CHANGES + 120, || {
+            game.state().stage == NEXT
+        });
+        game.frames_until_a_thread("the stage's own start written down", || {
+            log.said_since(from, "stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // And a chapter inside it, which is the point the run would come back to: the midboss arriving.
+        game.frames_until("the midboss's chapter", BOSS_ARRIVES + 400, || {
+            log.said_since(from, &format!("stage 2 chapter 2 at frame {BOSS_ARRIVES}"))
+        });
+        game.frames_until_a_thread("the chapter written down", || {
+            log.said_since(
+                from,
+                &format!("stage 2 chapter 2 (MIDBOSS NONSPELL 1) at frame {BOSS_ARRIVES}"),
+            )
+        });
+    });
+}
+
+/// And the run is the same run on the far side: the chapters, the retries it has spent and the file it is
+/// written down in all follow it into the next stage.
+///
+/// A transition is **not** the run ending, and it is not a frame outside a run either: this game rebuilds its
+/// manager in a scene of its own for one frame, and `Th06::read_state` counts that scene as the run. The line a
+/// run ending writes is the one that counts its retries, so that line not being written is what says so.
+#[test]
+fn a_transition_is_not_the_run_ending() {
+    in_its_own_process(|| {
+        let game = a_pointdevice_run("a-stage-transition-carries-on", STAGE_FRAMES);
+        let log = game.log();
+
+        // A retry spent in the first stage, so that what the second stage's own menu says about it is a
+        // number this run carried rather than one it started with. The first chapter is taken past the frames
+        // a stage's own start cannot be killed in, so the hit lands.
+        game.dies();
+        game.frame();
+        assert!(
+            log.said("died in chapter 1"),
+            "the death was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.press_until(keys::Z, "the retry menu answered", || {
+            log.said("retry: the chapter again on the keyboard")
+        });
+        game.frames_until_a_thread("the first stage written down", || {
+            log.said("stage 1 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        let from = log.written();
+        game.frames_until(
+            "the next stage's own first chapter",
+            STAGE_FRAMES + 400,
+            || log.said_since(from, "stage 2 chapter 1 (stage start)"),
+        );
+        // Nothing said the run ended, which is the whole of what a transition must not look like.
+        assert!(
+            !log.said_since(from, "run ended after"),
+            "a stage transition was taken for the run ending:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // The file follows the run into the stage it moved on to, which is what a session closed here picks up.
+        game.frames_until_a_thread("the next stage written down", || {
+            log.said_since(from, "stage 2 chapter 1 (MIDSTAGE 1) at frame")
+        });
+
+        // And the retry the first stage cost is still spent: the run is one run, so the menu over the second
+        // stage counts from where the first left off.
+        game.dies();
+        game.frame();
+        assert!(
+            log.said_since(from, "died in chapter 1"),
+            "the death in the second stage was not noticed:\n  {}",
+            log.lines().join("\n  ")
+        );
+        game.forget();
+        game.frame();
+        assert_eq!(
+            game.says("RETRY 1").len(),
+            1,
+            "the retries the run has spent were forgotten with the stage they were spent in",
+        );
+        // The numbers a run starts with are not what a stage of it starts with either — the retry put the
+        // life back, so what the second stage carries is a run's own numbers and a chapter's retry.
+        let state = game.state();
+        assert_eq!(
+            (state.lives, state.bombs, state.power),
+            FRESH,
+            "the second stage was handed numbers that are not the run's own",
         );
     });
 }

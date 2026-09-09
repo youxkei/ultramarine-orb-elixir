@@ -1,0 +1,62 @@
+# A practice run: one stage played on its own, which orb rewinds like any other run and writes nothing down
+# for — a run of this kind has no name, so there is no file for the chapter it is in and nothing to offer the
+# next time the same stage is practised.
+#
+# The title's own practice item is walked to and the question orb asks over it is answered the same way: all
+# three of the items that start a run are runs, and the question over them is the one question.
+#
+# **A decide is the way to the title menu, and it raises a question that is cancelled again** — see
+# an_attempt_of_the_kept_replay_watched.yaml under th06, where the screen that game comes up on was measured
+# answering nothing else.
+- press: [decide]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 1800
+- wait_until: { question: mode }
+  give_up_after: 300
+- wait_until: { frames: 30 }
+- press: [cancel]
+  frames: 6
+- wait_until: { frames: 30 }
+# Then the cursor is walked to that item, from the top where it did not come up there: which item the menu
+# comes up on is whatever the game's own score file last remembered. Screen 0 is th07's title menu, and the
+# item after Practice Start is Replay, which starts nothing where a tap overshoots by one.
+#
+# Taps of thirty frames, which is what stops on the item they are aimed at without going past it.
+- press: [up]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 900
+- press: [down]
+  frames: 30
+  until: { screen: 0, cursor: 2 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# The screens that are left — the difficulty, the character, the shot and the stage this practises — tapped
+# through to the run's own first chapter, where the rules take over. The stage that select comes up on is its
+# first, the game's own records having been taken aside for this case, so the run is stage 1 whichever stage the
+# file last remembered.
+#
+# **And tapped to the chapter rather than for a count of frames, because a tap inside a stage is a player
+# standing still**: a step hands the game its own word, so the rules steer nothing while one runs. Tapped for
+# 600 frames, the laid-out game died twice in its first chapter — a laid-out stage aims a bullet at where the
+# player is every 120 frames — where the real game's own bullets at the start of a stage hit nobody standing
+# there, and the two traces parted on the two offers to retry that came of it.
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { frames: 600 }
+# And it is rewound like any other run, which is the half of this that the chapters make true.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 600 }
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

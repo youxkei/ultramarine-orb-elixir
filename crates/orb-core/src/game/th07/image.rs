@@ -565,6 +565,24 @@ impl Image {
     /// Beside [`is_playing`](Image::is_playing) rather than inside it because the two say different things:
     /// that one takes the stage orb counts and this one takes the game's, so a test can ask what orb answers
     /// for a word the game really holds.
+    /// And that word read back, for a laid-out game whose build reads it the way the real one's does: 0-based
+    /// until the build adds one, so what a front end or a resume left there is the stage to build.
+    pub fn the_games_stage_word(&self) -> i32 {
+        self.space().read::<i32>(super::G_STAGE)
+    }
+
+    /// The three numbers the shot select's own decide writes for the run it starts, and the combined byte every
+    /// table of either is indexed by — with the kind of run cleared of its bits, this being a run of somebody's
+    /// own. What `Th07::run_start` reads a run's name out of.
+    pub fn the_shot_select_decided(&self, difficulty: i32, character: u8, shot: u8) {
+        let space = self.space();
+        space.write::<i32>(super::G_GAME_MANAGER + super::DIFFICULTY, difficulty);
+        space.write::<u8>(super::G_GAME_MANAGER + super::CHARACTER, character);
+        space.write::<u8>(super::G_GAME_MANAGER + super::SHOT_TYPE, shot);
+        space.write::<u8>(super::G_SHOT_COMBINED, character * 2 + shot);
+        space.write::<u32>(super::G_RUN_KIND, 0);
+    }
+
     pub fn the_games_stage_word_is(&self, word: i32) {
         self.space().write::<i32>(super::G_STAGE, word);
     }
@@ -1388,6 +1406,28 @@ impl Image {
             .write::<i32>(FRONT_END.start + super::FRONT_END_SCREEN, 3);
     }
 
+    /// And the screen numbered `screen` up, for a laid-out front end walking its own flow of three: the id is
+    /// the game's own — see `Th07`'s `SCREEN_SHOT_SELECT` for the table they come out of.
+    pub fn the_front_end_is_on_the_screen(&self, screen: i32) {
+        self.space()
+            .write::<i32>(FRONT_END.start + super::FRONT_END_SCREEN, screen);
+    }
+
+    /// How long the screen that is up has been up, read back: the count a laid-out game moves on itself.
+    pub fn frames_the_screen_has_been_up(&self) -> i32 {
+        self.space()
+            .read::<i32>(FRONT_END.start + super::FRONT_END_SETTLED)
+    }
+
+    /// Where the player is, read back out of the field a laid-out game moves them through.
+    pub fn where_the_player_is(&self) -> (f32, f32) {
+        let space = self.space();
+        (
+            space.read::<f32>(super::G_PLAYER + super::PLAYER_POSITION),
+            space.read::<f32>(super::G_PLAYER + super::PLAYER_POSITION + size_of::<f32>()),
+        )
+    }
+
     /// A replay whose record covers one stage, laid out the way its own header is: the manager's pointer, the
     /// header behind it, and a record in that stage's slot.
     pub fn a_replay_covers_the_stage(&self, stage: i32) {
@@ -2144,6 +2184,13 @@ impl Image {
         self.the_screen_was_brought_up_by(*super::RESULT_OFFERING_A_REPLAY.start());
     }
 
+    /// And that screen told to leave, which is the phase its own menu writes on the way out — 0x44631e and
+    /// 0x447463 — and the one orb's write past the offer leaves it in. What follows is the game's own: the
+    /// scene goes back to the front end's.
+    pub fn the_screen_a_run_ends_at_leaves(&self) {
+        self.the_screen_was_brought_up_by(RESULT_LEAVING);
+    }
+
     /// The phase that screen is in, read back, and the two an e2e test holds it against: the one a whole run's
     /// own end brings it up in, and the one its leaving runs in.
     pub fn the_phase_the_screen_is_in(&self) -> i32 {
@@ -2152,6 +2199,13 @@ impl Image {
 
     pub fn phase_of_a_screen_from_a_run(&self) -> i32 {
         RESULT_FROM_A_RUN
+    }
+
+    /// And the first of the phases it offers to save a replay in, which is the one that offer is *reached*
+    /// in: a laid-out game's own walk off this screen writes it, and orb's write past the offer is held
+    /// against it.
+    pub fn phase_of_a_screen_offering_a_replay(&self) -> i32 {
+        *super::RESULT_OFFERING_A_REPLAY.start()
     }
 
     pub fn phase_of_a_screen_leaving(&self) -> i32 {

@@ -1,0 +1,60 @@
+# **The Extra, which the case before unlocked by clearing the game in the other mode**: a run with a name of
+# its own — `Game::run_slot` answers one for it where a practice run gets none — and whose chapters come out
+# of the last row of the midstage table rather than out of a fight.
+#
+# **Its item is on the title menu only where the game's own score file says the game has been cleared**, and
+# that file is the copy's: a pointdevice clear writes its record into the mode's own fork, so what put the
+# record where the front end reads it is the case before this one.
+#
+# The title menu is reached and its cursor walked as an_attempt_of_the_kept_replay_watched.yaml does it: a
+# decide gets past the screen the launch comes up on, that same press raises orb's question about which mode,
+# and a cancel takes the question away again without starting anything.
+- press: [decide]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 1800
+- wait_until: { question: mode }
+  give_up_after: 300
+- wait_until: { frames: 30 }
+- press: [cancel]
+  frames: 6
+- wait_until: { frames: 30 }
+- press: [up]
+  frames: 30
+  until: { screen: 0, cursor: 0 }
+  give_up_after: 900
+# **Extra Start, which is the item after the one a full run is started from.**
+#
+# **This step gives up where the Extra is still locked**, which is not this recipe's business to work around:
+# th07's title menu will not rest the cursor on an item it is not offering, so the walk sees every item but
+# that one — measured on a copy whose score file held no clear, the cursor going 0 -> 2 pressing down and
+# 0 -> 7 pressing up — and the decide after it then starts whatever it did land on. What puts item 1 on the
+# menu is the case before this one, a_normal_mode_run_played_to_its_clear.yaml, and the clear it leaves in the
+# game's own score file.
+- press: [down]
+  frames: 30
+  until: { screen: 0, cursor: 1 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# The character and the shot, which is all the Extra asks for: its difficulty is one of its own, written by
+# the item rather than chosen at a select.
+- press: [decide]
+  frames: 6
+  until: { stage: 7, chapter: 1 }
+  give_up_after: 3600
+- play_until: { stage: 7, chapter: 3 }
+  give_up_after: 36000
+# And a chapter of it taken again, which is what says the Extra is rewound like any other run.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 7, chapter: 4 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

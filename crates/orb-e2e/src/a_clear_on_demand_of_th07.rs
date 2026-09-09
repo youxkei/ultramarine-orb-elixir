@@ -170,3 +170,98 @@ fn a_cleared_run_of_th07_leaves_the_border_where_the_game_put_it() {
         }
     });
 }
+
+/// No replay of the game's own is offered for the run, and the offer is written past rather than answered.
+///
+/// A run with chapters has nothing to put in the game's replay: its record of inputs lives in the heap a
+/// snapshot covers, so what the game would save is the path that survived. In th07 the offer is a phase of the
+/// screen a run ends at — `Th07`'s `RESULT_OFFERING_A_REPLAY` — and what orb writes is the phase that screen
+/// leaves in, inside the frame the offer went up on. The screens before it, which are whoever finished the
+/// run's, are `the_screen_a_finished_run_of_th07_ends_at.rs`'s subject.
+#[test]
+fn a_cleared_run_of_th07_is_not_offered_the_screen_that_saves_a_replay() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-a-clear-no-replay-offered",
+            Work::wandering(WORK_US),
+            |config| {
+                config.fast_clear = true;
+                config.block_replay_save = true;
+                config.log_level = LogLevel::Verbose;
+            },
+        );
+        let log = game.log();
+        game.streams_its_song(0);
+        // The front end up before the run, as every launch has it: the screen a run ends at asks for the title
+        // on its way out, and the front end it goes back to is an object the game had before the run began.
+        game.image().the_front_end_is_up();
+        game.builds_a_stage();
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+
+        // The run over, the screen its own end arrives on, and that screen's walk reaching the offer.
+        game.the_run_ends_at_its_own_screen();
+        game.the_screen_offers_a_replay();
+        game.frames_until("the offer written past", 8, || {
+            log.said("replay: the offer to save one was taken off the screen a run ended on")
+        });
+        // Skipped rather than answered: the phase orb writes is the one the game's own way out of that screen
+        // is, and the screen puts the scene back itself from there.
+        assert_eq!(
+            game.image().the_phase_the_screen_is_in(),
+            game.image().phase_of_a_screen_leaving(),
+            "the offer was answered rather than written past",
+        );
+    });
+}
+
+/// Nothing is written to any score file, and the game's own teardown still runs.
+///
+/// th07 saves its file from the added callback every stage's build ends with (0x42e646), so the refusal is met
+/// on the way *in* to every stage of the run and not only on the way out: the open with `GENERIC_WRITE` is
+/// answered with no handle, the read beside it goes through, and the build carries on — which is the game
+/// checking its open and dropping what its write returned, the same shape th06's `WriteDataToFile` has.
+#[test]
+fn a_cleared_run_of_th07_writes_no_score_and_leaves_the_games_teardown_in_the_path() {
+    in_its_own_process(|| {
+        let game = clearing("th07-a-clear-writes-no-score");
+        let log = game.log();
+        assert!(
+            log.said("score: no file is written this run"),
+            "the launch did not say it writes no file:\n  {}",
+            log.lines().join("\n  ")
+        );
+        // The build's own save was refused on the way into the stage: said as the refusal it is, and not sent
+        // to either file.
+        assert!(
+            log.said("score: nothing written, this run had nothing able to hit the player"),
+            "the write on the way into the stage was not refused:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert!(
+            game.tries_to_open_its_score_file(true).is_none(),
+            "an open of the score file for writing was answered in a run nothing could hit",
+        );
+        // Reads are left alone, so the session still shows what it had: the front end's own read lands in a
+        // file as it always does.
+        assert_eq!(
+            game.reads_what_its_menus_offer(),
+            "score.dat",
+            "a read of the score file was refused along with the writes",
+        );
+
+        // And the game carried on past the refusal: the stage it was building came up and is being played.
+        game.frames_until("the stage's own first chapter", 600, || {
+            log.said("stage 1 chapter 1 (stage start)")
+        });
+        let from = game.state().stage_frames;
+        game.frames(30);
+        assert_eq!(
+            game.state().stage_frames,
+            from + 30,
+            "the game stopped being played over a file it could not write",
+        );
+    });
+}

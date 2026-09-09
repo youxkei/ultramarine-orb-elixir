@@ -46,6 +46,7 @@ pub mod score;
 pub mod shot;
 pub mod snapshot;
 pub mod sync;
+pub mod trace;
 pub mod tuning;
 pub mod window;
 pub mod writer;
