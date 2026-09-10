@@ -145,9 +145,7 @@ What settles a wording is this section and the words the code itself uses for th
 | `README.md` | one sentence saying what orb is, where to download it, and which games it runs — and nothing else. **Not a feature list**: the window, the frame pacing and the frame of input lag are not in it, and the table of games says supported or not supported and nothing more. Nor is how any of it works — no build, no target, no linker, no file format. Nor is there a section pointing at any of the documents below: the only link out is to the other language. Whoever is going to play knows 完全無欠モード already, is installing one file, and reads past everything that is neither of those two things |
 | `README.ja.md` | the same in Japanese, and the two are edited together. The game and everything orb puts on the screen are Japanese, so it is the language most of the people it is for read. Each names the games and the mode in its own language — 東方紺珠伝's 完全無欠モード here, Legacy of Lunatic Kingdom's Pointdevice mode in `README.md`, where a Japanese title is a title the reader cannot read |
 | `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
-| the repository's issues | what is left, with what is already known about each: one issue per piece of work, and none of it in the tree. There is no `TODO.md` — a worklist in the tree is one every branch carries its own copy of, and what is left to do is not a fact about a commit |
-| `docs/todo/` | one file per piece of work too long to sit in an issue as a paragraph: what was measured, how to measure it again, and the order the work is worth doing in. A file belongs here rather than in an issue when the measurement behind it has to be repeatable — the recipe goes in the tree it is run against, since a worklist nobody can re-derive is one nobody can tell is still true |
-| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in an issue when it is settled rather than pending |
+| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in an empty change's description when it is settled rather than pending |
 | `docs/<game>/asm.md` | what one game does, read off its own exe: the build's md5, the commands to read it again, the functions and every address in them, and a list at the end of what is *not* established. One file per game, since an address means nothing about another game or another build. A reading belongs here rather than beside a constant when it spans dozens of addresses no one constant is about — a whole path through the exe — and the code beside the constant still carries the measurement that constant is the number it is because of |
 
 The status is the first thing because a reader knows from it which document this is: `accepted, not
@@ -158,21 +156,35 @@ either end. A
 decision nobody took is not a file here: an alternative that was weighed and rejected is recorded
 inside the decision that rejected it, beside what was chosen instead.
 
-**A file in `docs/todo/` is deleted when its work is done**, and that deletion is the last step of the work
-rather than tidying afterwards. It is one piece of work and not a permanent document, and a worklist with
-nothing left on it costs whoever finds it a read to learn that.
-
-It is not a plain `rm`, though. Everything in the file that has to survive goes first, and where each thing
-goes is what the rules below already say — the reason an e2e test or a check *cannot* be written to a comment
-beside the code that would otherwise tempt somebody to write it, the recipe for a measurement to the code
-that implements it, a decision still to be taken to `docs/adr/`. **Not back into the issue**, which is going
-the other way: what is in one belongs in files here, one per piece of work, and moving anything back into it
-is work to undo later. What needs no home at all is the measurement itself, wherever the recipe it went with
-can be run again — a number in a document is stale the moment the tree moves, and the command that produces
-it is not.
-
 Reasons an alternative was rejected go in a comment beside the code that would otherwise tempt
 someone back to it, not into `SPEC.md`.
+
+## What is left
+
+**What is left to do is not a document, and none of it is in the tree.** A problem found while working
+becomes an empty change, one per piece of work, inserted into the line of work with
+`jj new --no-edit -A @ -m "TODO: ..."`. Its description starts with `TODO: `, so that `jj log` tells a
+change still to be worked from one that is done at a glance, and carries the problem, everything already
+known about it, what was measured and the order the work is worth doing in. The work will be done in that
+change, so the description written now is the start of the message it will carry, and `jj log` shows what is
+left beside what is done. There is no `TODO.md` — a worklist in the tree is one every branch carries its own copy of,
+and what is left to do is not a fact about a commit.
+
+The one thing a description cannot hold is a measurement that has to be repeatable: the recipe for that
+goes into the tree beside the code it is run against, as a script or a test, since a worklist nobody can
+re-derive is one nobody can tell is still true.
+
+**The description is rewritten into the commit message when its work is done**, the `TODO: ` going with
+it, and that rewrite is the last step of the work rather than tidying afterwards: the change is no longer
+empty, and a message still saying what was left to do is wrong about the commit it now sits on.
+
+Not everything in it belongs in a commit message, though. Everything that has to survive goes first, and
+where each thing goes is what the rules below already say — the reason an e2e test or a check *cannot* be
+written to a comment beside the code that would otherwise tempt somebody to write it, the recipe for a
+measurement to the code that implements it, a decision still to be taken to `docs/adr/`. What needs no home
+at all is the measurement itself, wherever the recipe it went with can be run again — a number in a message
+is stale the moment the tree moves, and the command that produces it is not. What stays is what the
+commit-message rules above ask for: the problem, with the numbers and addresses that made it real.
 
 ## Code
 
@@ -228,12 +240,13 @@ that is:**
 - **It is why a constant is the number it is** — beside that constant, with how it was found, so that
   whoever changes the number reads what it was measured against first.
 - **It confirmed the code works on the real game** — an e2e test asserting the same thing, and **nothing
-  says it was confirmed**. What did not work on the real game is an issue, so what is not an issue works:
+  says it was confirmed**. What did not work on the real game is an empty change inserted for it, so what
+  has no change waiting works:
   a comment saying something *was* run there says what the whole tree already says, and says it in a place
   that goes stale without anybody noticing. So no comment beside the code says it was run on the game, which
   session it was, or what the log said at the time.
-- **It is ahead of all three** — the issue for that work, named and carried in it. A measurement still
-  waiting for a constant or an e2e test to stand beside belongs there.
+- **It is ahead of all three** — the description of the empty change inserted for that work, named and
+  carried in it. A measurement still waiting for a constant or an e2e test to stand beside belongs there.
 
 **A claim beside the thing it is about moves when that thing moves**, which is what the list above is
 for: the measurement goes where the reader of that thing is already standing, and a document collecting
