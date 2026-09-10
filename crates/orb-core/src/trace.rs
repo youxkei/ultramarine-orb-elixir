@@ -34,7 +34,7 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use orb_api::{clock, fs};
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,87 @@ pub struct Record {
     /// Every line the log said since the last record, without its stamp: the message as `log!` was given
     /// it.
     pub lines: Vec<String>,
+    /// **The frame as it was drawn, where one was taken on it** — a BMP, the bytes `crate::shot` makes.
+    ///
+    /// Which is what the fields cannot say: a hit whose dump names nothing near it is answered by what was
+    /// on the screen, and a run played out over twenty minutes is answered by a picture every so often
+    /// rather than by reading every frame's numbers. `Config::shot_every` is what asks for those, and a
+    /// trace of a launch that asked for none carries nothing here.
+    ///
+    /// **Defaulted, so that a trace written before this field reads back**: what a check does with a trace
+    /// is read it, and a reader that refuses last week's file is no reader.
+    #[serde(default)]
+    pub picture: Option<Vec<u8>>,
+    /// **What stood over the player on the frame a hit was seen, where one was** — see [`OverAHit`].
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub over_a_hit: Option<OverAHit>,
+    /// **Every bullet on the field, on a frame of the card a launch asked for** — see [`TheField`].
+    ///
+    /// Defaulted for the reason [`Record::picture`] is.
+    #[serde(default)]
+    pub the_field: Option<TheField>,
+}
+
+/// **Every bullet on the field on one frame of the card a launch named**, with the player beside them — which
+/// is what a card is measured by before a way of dodging it is written: where its bullets come out, when they
+/// turn to the kind that kills and where the gaps stand as they do. `Config::trace_the_field_in` names the card,
+/// and a game that reads its bullets fills this; nothing here for one that does not.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TheField {
+    /// The card it was read in, by its number.
+    pub card: u32,
+    /// Where the player was.
+    pub at: (f32, f32),
+    /// How far into the card the frame is, as the game counts it.
+    pub card_frames: i32,
+    pub bullets: Vec<ABulletOverAHit>,
+}
+
+/// **Every enemy and every bullet within reach of the player on the frame a hit is seen**, with the words the
+/// game's own tests of the player are gated on — which a hit dump cannot say, holding only what the model
+/// held: a hit that came with nothing in the model is answered by what was there.
+///
+/// **The words are the game's own**, as its own walks read them, and each field says which of the game's
+/// words it is where the game has one. Filled by a game that reads them; nothing here for one that does not.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct OverAHit {
+    /// Where the player was.
+    pub at: (f32, f32),
+    pub enemies: Vec<AnEnemyOverAHit>,
+    pub bullets: Vec<ABulletOverAHit>,
+}
+
+/// One enemy of [`OverAHit`].
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AnEnemyOverAHit {
+    pub slot: u32,
+    pub at: (f32, f32),
+    /// Its size whole, as the game keeps it.
+    pub size: (f32, f32),
+    /// The word the enemy walk's gates read.
+    pub flags: u32,
+    /// The word that says whether it is a familiar, nought where it is not.
+    pub familiar: u32,
+    /// What its script runs each frame, where it has a script.
+    pub behaviour: Option<u32>,
+    /// The vector a beam of its script is laid from, where it has a script.
+    pub anchor: Option<(f32, f32)>,
+    pub angle: f32,
+}
+
+/// One bullet of [`OverAHit`] or of [`TheField`].
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ABulletOverAHit {
+    pub slot: u32,
+    pub at: (f32, f32),
+    /// Its size whole, as the game keeps it.
+    pub size: (f32, f32),
+    /// Which of the game's kinds it is in.
+    pub kind: u16,
+    /// The byte that takes it out of the player's tests while its script hides it.
+    pub hidden: u8,
 }
 
 /// How many encoded bytes are held before they are appended to the file: about a few seconds of frames.
@@ -79,7 +160,17 @@ struct Tracing {
     encoded: Vec<u8>,
     lines: Vec<String>,
     word: u16,
+    /// The picture taken since the last record, where one was — see [`picture`].
+    picture: Option<Vec<u8>>,
+    /// What stood over a hit seen since the last record, where one was — see [`over_a_hit`].
+    over_a_hit: Option<OverAHit>,
+    /// The field read since the last record, where the card a launch named was up — see [`the_field`].
+    the_field: Option<TheField>,
 }
+
+/// **The card a launch wants the field of**, `Config::trace_the_field_in`, and -1 for none — set once as the
+/// trace opens, and read on every frame a bot sees, which is why it is not behind [`TRACING`]'s lock.
+static THE_FIELD_IN: AtomicI64 = AtomicI64::new(-1);
 
 static TRACING: Mutex<Option<Tracing>> = Mutex::new(None);
 /// Whether a trace is being written, for the two places on a frame's path that would otherwise take the
@@ -121,6 +212,9 @@ pub fn open(path: &Path) {
         encoded: Vec::new(),
         lines: Vec::new(),
         word: 0,
+        picture: None,
+        over_a_hit: None,
+        the_field: None,
     });
     ON.store(true, Ordering::Release);
     crate::log!("trace: every frame written to {}", path.display());
@@ -143,6 +237,54 @@ pub fn said(message: &str) {
 }
 
 /// The word the input read handed the run, kept for the next record.
+/// **Keeps the frame just drawn for the record the next frame writes**, and drops it where no trace is
+/// being written.
+///
+/// The record it lands in is the one *after* the frame the picture is of, which is the same offset
+/// [`Record`]'s own doc gives for the state: a record is taken at the top of an update and holds the frame
+/// before it as the game left it. So the picture and the numbers beside it are of one frame.
+pub fn picture(bytes: &[u8]) {
+    if !on() {
+        return;
+    }
+    let mut held = tracing();
+    if let Some(tracing) = held.as_mut() {
+        tracing.picture = Some(bytes.to_vec());
+    }
+}
+
+/// **Keeps what stood over a hit for the next record** — see [`OverAHit`] — and drops it where no trace is
+/// being written, the way [`picture`] does.
+pub fn over_a_hit(what: OverAHit) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.over_a_hit = Some(what);
+    }
+}
+
+/// Says which card's frames want the whole field, `None` for none — see [`TheField`].
+pub fn wants_the_field_in(card: Option<u32>) {
+    THE_FIELD_IN.store(card.map_or(-1, i64::from), Ordering::Relaxed);
+}
+
+/// **Whether the field is wanted on a frame `card` is up on**, which is what a game asks before it walks its
+/// bullets for it: nothing is wanted where no trace is being written.
+pub fn the_field_is_wanted_in(card: Option<u32>) -> bool {
+    on() && card.is_some_and(|card| i64::from(card) == THE_FIELD_IN.load(Ordering::Relaxed))
+}
+
+/// **Keeps the field for the next record** — see [`TheField`] — and drops it where no trace is being written.
+pub fn the_field(what: TheField) {
+    if !on() {
+        return;
+    }
+    if let Some(tracing) = tracing().as_mut() {
+        tracing.the_field = Some(what);
+    }
+}
+
 pub fn the_word(word: u16) {
     if !on() {
         return;
@@ -177,6 +319,9 @@ pub fn frame(
             question: question.map(|question| question.name().to_owned()),
             word: tracing.word,
             lines: std::mem::take(&mut tracing.lines),
+            picture: tracing.picture.take(),
+            over_a_hit: tracing.over_a_hit.take(),
+            the_field: tracing.the_field.take(),
         };
         // Named, so that any MessagePack reader prints a record back without being told the shape —
         // the same choice `resume` made for the file a run is left in.
@@ -264,6 +409,9 @@ mod tests {
             question: Some("retry".to_owned()),
             word: 0x0011,
             lines: vec![format!("frame {frame} said this")],
+            picture: None,
+            over_a_hit: None,
+            the_field: None,
         }
     }
 
@@ -292,5 +440,38 @@ mod tests {
     #[test]
     fn an_empty_trace_is_no_records() {
         assert_eq!(read(&[]).unwrap(), Vec::<Record>::new());
+    }
+
+    /// **The frame's own picture goes in and comes back out**, bytes for bytes: what a check does with a
+    /// trace is read it, and a picture nothing can read back is a picture nobody took.
+    #[test]
+    fn the_picture_a_frame_was_drawn_as_is_read_back_whole() {
+        let mut record = a_record(4);
+        record.picture = Some(vec![0x42, 0x4d, 0, 1, 2, 3]);
+        let bytes = rmp_serde::to_vec_named(&record).unwrap();
+        assert_eq!(read(&bytes).unwrap(), vec![record]);
+    }
+
+    /// **And a trace written before there was a picture to hold reads back with none**, which is what the
+    /// field's own default is for: a reader that refuses last week's file is no reader. The record here is
+    /// a map with every field of one but that, which is what those traces hold.
+    #[test]
+    fn a_trace_from_before_the_picture_reads_back_with_none() {
+        let without = a_record(5);
+        use rmpv::Value;
+        let written = rmp_serde::to_vec_named(&without).unwrap();
+        let fields = match rmpv::decode::read_value(&mut written.as_slice()).expect("a map") {
+            Value::Map(fields) => fields,
+            other => panic!("a record is a map and this is {other}"),
+        };
+        let was = fields.len();
+        let fields: Vec<_> = fields
+            .into_iter()
+            .filter(|(name, _)| name.as_str() != Some("picture"))
+            .collect();
+        assert_eq!(fields.len() + 1, was, "the field was not written");
+        let mut bytes = Vec::new();
+        rmpv::encode::write_value(&mut bytes, &Value::Map(fields)).expect("written");
+        assert_eq!(read(&bytes).unwrap(), vec![without]);
     }
 }

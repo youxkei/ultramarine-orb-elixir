@@ -42,3 +42,11 @@ pub fn install(win: &Arc<dyn Win>) -> Installed {
 pub fn installed() -> Option<Arc<dyn Win>> {
     INSTALLED.with(|installed| installed.borrow().clone())
 }
+
+/// **`ask` answered by the simulated Windows this thread reads through**, lent rather than handed out.
+///
+/// For the reads of one value, which are most of what orb asks of a laid-out game: [`installed`]'s own
+/// `Arc` is a count taken and given back on every one of them.
+pub(crate) fn asking_the_installed<R>(ask: impl FnOnce(&dyn Win) -> R) -> Option<R> {
+    INSTALLED.with(|installed| installed.borrow().as_deref().map(ask))
+}

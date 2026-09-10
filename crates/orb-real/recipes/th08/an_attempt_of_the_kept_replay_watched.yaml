@@ -1,0 +1,39 @@
+# The replay `the_run_started_over_and_its_replay_kept` kept, found through the title's fifth item — the
+# replays — where orb's own list stands in the game's screen's place for the rewindable mode, and one
+# attempt of it watched: the list is answered down through the replay, the stage and the chapter to the
+# attempt, and the attempt plays out until the list is back.
+#
+# **The attempt a death rewound the run from**: the replay is `a_death_answered_by_the_chapter_again`'s,
+# whose first hit is in stage 1's second chapter, so that chapter holds two attempts and the first of them is
+# the one that ended in the death — the stretch of a run nothing but orb's own replay keeps.
+#
+# **Item 4, aimed at by its own number**: this game's title draws Extra Start and Practice Start only once
+# its records hold a clear, so a count of taps lands on another item on a copy that has none. The press
+# that would open the game's own list — screen 7 — is held back for orb's question, and item 0 of it is
+# orb's own replays.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [down]
+  frames: 30
+  until: { cursor: 4 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# The replay, and its first stage.
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+# **Item 1 of the chapters**, the stage's second, and the first of its attempts.
+- answer: { question: choose_replay, item: 1 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- wait_until: { question: choose_replay }
+  give_up_after: 3600
+- quit: true

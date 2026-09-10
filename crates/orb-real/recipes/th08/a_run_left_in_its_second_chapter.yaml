@@ -1,0 +1,48 @@
+# **A run of th08 left for the title in the second chapter of its first stage**, which is what a resume is
+# offered out of: the chapter a run stops in is kept as it goes, and giving the run up is the interruption
+# somebody playing makes.
+#
+# **The second chapter of this game's first stage begins at script 790**, the first boundary of that
+# stage's midstage table, which is well before the midboss this game cut it at while the table had no row.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses — with orb's own mode
+# question over the title's first item, answered with the pointdevice mode: a chapter is only kept where
+# the mode is settled.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **The run played into that chapter and no further**, which is where it is left: five minutes of frames is
+# the bound, the midboss of this game's first stage arriving some two thousand into the stage.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+# **And given up for the title**, which `quit` cannot be: closing the process leaves a run nobody left,
+# where this is the interruption a resume is for.
+- leave: true
+# **Nothing pressed after it**, orb's own question of where to start again standing over the front end the
+# give-up lands on — every press here would be read as its answer. What that question offers is the
+# chapter this case has just left, which is the case beside this one's business. The press the game's own
+# way out waits for is orb's to make — see `Game::a_run_given_up_waits_for_a_press`.
+- wait_until: { frames: 300 }
+- quit: true

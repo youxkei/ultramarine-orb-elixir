@@ -1,0 +1,55 @@
+# **One stage of th08 practised on its own, rewound like any other run and written down for like none** — the
+# title's fourth item, Practice Start, which a copy that has cleared nothing draws: its cursor went 0, 3, 4
+# … 8, the two items between being the Extra and the spell practice.
+#
+# **Its walk is screens 8, 9 and 0xb**: the difficulty select's handler, the team select's, and the stage
+# select the team's decide puts up in place of a run (0x46ab98 through 0x46abb9), whose own decide asks for
+# the run with the stage under its cursor (0x46b0af). The team select and the stage select both come up over
+# eight updates before they read a press, so each is pressed twice. **Stage 1, because it is the one the
+# select offers a copy with no stage passed** — it steps its cursor over a stage whose bit the records'
+# `+0x16` word does not hold, and a word of nought offers the first (0x46afd6).
+#
+# **With orb's own mode question over the item, answered with the pointdevice mode**, which is what makes
+# the chapter taken again below a chapter orb put back.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [down]
+  frames: 30
+  until: { cursor: 3 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 8 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 9 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 30
+  until: { screen: 11 }
+  give_up_after: 900
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **Played into the stage's second chapter**, the midstage table's first boundary at script 790, and the chapter
+# asked to be taken again there.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

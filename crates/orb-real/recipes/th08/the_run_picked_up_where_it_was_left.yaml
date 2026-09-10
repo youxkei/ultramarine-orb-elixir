@@ -1,0 +1,37 @@
+# The run a_run_left_in_its_second_chapter left, offered as the run starts and taken up where it stopped,
+# and then played on into the chapter after.
+#
+# **The walk is that case's, and the resume question comes after it**: orb asks it as the run is built,
+# which is the team select's second press — a launch that answered it straight after the mode question
+# read `autoplay: step 5 of 9 gave up` with `resume: 1 run(s) left unfinished` in the same log, and
+# played a fresh run instead.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- answer: { question: resume, item: 0 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

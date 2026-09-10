@@ -1,0 +1,68 @@
+# **The Extra, played out by the rules with the bomb allowed in 完全無欠モード, after the two runs that lit it** —
+# a death answered by the chapter again, so that what the rules have to get through is each attack once and
+# not the stage on its lives.
+#
+# **Item 1 of the title, the Extra, which the title steps over on records with no Kaguya clear in them**
+# (0x46799c) — a copy that had cleared nothing read the cursor going 0, 3, 4 … 8 — and the records that
+# light it are the case before this one's, in the same directory.
+#
+# **Its walk is screens 0xc and 0xd**, the difficulty select's handler and then the team select's on the
+# Extra's own numbers: the first settles `cursor + 4` (0x46a48d) and the second makes the stage the Extra's
+# out of that (0x46ac08), its press read once it has come up — the same shape as a Normal run's 4 and 5.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [down]
+  frames: 30
+  until: { cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 12 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 13 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **Mokou's `滅罪「正直者の死」` got through the way it is meant to be**: each of its lasers is drawn off to
+# one side of the run and turned onto where the run stood when it appeared, and goes live there and sweeps on
+# — so the run steps the short way across it towards the side it came from before it goes live, and is behind
+# it for the sweep. See `orb_bot::steer::BEHIND_THE_LASER_BY`; the rules' own dodging ran ahead of it and
+# lost the card 70 times in one session.
+- dodge: { with: behind_the_laser, spell: 198 }
+# **And her `「パゼストバイフェニックス」` gone round**: she leaves the field as a spirit that follows the run and
+# fires from where it is, so the rules waiting under her were waiting where her fire comes from, and one Extra
+# was hit there nine times. The strategy wiki's way through each of its four phases is round the whole field
+# (`画面全体を大回転`).
+- dodge: { with: round_the_field, spell: 201 }
+# **And her `「蓬莱人形」` gone round a small square under her**: its familiars stay on the run and fire from where
+# they are, so a run standing still, or moving at the focused half step, is standing where they fire — three hits
+# of one Extra came with nothing in the model and those familiars seven to fourteen units off. The strategy
+# wiki's way through it is `妹紅の前で小さく時計回りにちょん避け(四角く→↓←↑)`. See
+# `orb_bot::steer::round_a_small_square`.
+- dodge: { with: round_a_small_square, spell: 202 }
+# **And her Last Spell `「インペリシャブルシューティング」` dodged by its own schedule**, a pattern the same every
+# launch: its eight waves come at the same frames of the card each time, and the wiki's way through the last
+# is from the bottom-right or bottom-left corner. See `orb_bot::cards`.
+- dodge: { with: imperishable_shooting, spell: 204 }
+# **The whole Extra in one step**, with every attempt at a chapter after the first waiting somewhere of its
+# own — see `orb_bot::steer::aside_on`, which is what the eight attempts at Mokou's `滅罪「正直者の死」`
+# that died at the same three places wanted.
+- play_until: { frames: 400000 }
+  give_up_after: 420000
+- press: [decide]
+  frames: 6
+  until: { screen: 0 }
+  give_up_after: 120000
+- wait_until: { frames: 300 }
+- quit: true

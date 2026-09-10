@@ -1,0 +1,58 @@
+# **A chapter of th08 taken again without dying for it**, which is the one way into the mode's own
+# question that is not a hit: the game's own pause menu item 「最初からやり直す」, which orb takes off and
+# puts its question of where to start again in front of.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses. `orb-core`'s
+# `game/th08/asm.md` has where each was read.
+#
+# **And orb's own mode question stands over the title's first item**, answered with the pointdevice mode
+# here: what this case is about is the mode, and the question is what `Th08::rewinds` answering true puts
+# up.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **Ten seconds of the stage played before the ask**, so that the chapter the run is in is one it has been
+# in for a while: what the check holds is that the run came back in the chapter it was asked from, with
+# the deaths it had when it asked.
+- play_until: { frames: 600 }
+  give_up_after: 7200
+# **The ask itself**, which is the pause menu's own item and not a hit — `start_over` presses it, and orb
+# answers with its own question rather than the game's own start over.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And the run playing on from that chapter into the next**, which is what says the retry landed rather than
+# merely being answered — and what the check holds it to. The ask comes in stage 1's first chapter or its
+# second, the midstage table's first boundary at script 790 falling near where the six hundred frames above
+# end, and stage 1's third chapter is past the next of them whichever it is: the midboss's arrival at 2935
+# on the real game, the table's 4086 on the laid-out one. Nine hundred frames of play, which this step was,
+# reached neither.
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+# The run left where it stands, the way every case of this shape ends: the run given up for the title and
+# then the game closed.
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

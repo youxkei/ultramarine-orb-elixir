@@ -1,0 +1,54 @@
+# **A run of th08 whose first attempt at its chapter is hit on purpose and answered with the chapter
+# again**, which is the whole content of the mode over this game and what a run that dodges everything
+# never reaches.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses. `orb-core`'s
+# `game/th08/asm.md` has where each was read.
+#
+# **And orb's own mode question stands over the title's first item**, which is what `Th08::rewinds`
+# answering true turns on: without the answer below the menu stands behind a question nobody answers and
+# screen 4 never comes.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **Into the stage's second chapter first**, the midstage table's boundary at script 790, so that the chapter
+# the first hit falls in is the same one on every game this is played on: sessions 12 and 13 of the real game
+# were first hit in it at frame 1122 with nothing asked of them, where the laid-out stage's first bullet, at
+# 480, is one the rules come near inside the first. **And it is the second chapter's two attempts that
+# `an_attempt_of_the_kept_replay_watched` chooses the first of**, the one this run was rewound from.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 3600
+# **A chance of one per chapter, and none of it again after a retry.** The hit falls in the chapter the run
+# is in when the rules next come near a bullet, drawn for the chapter this step is reached in, and the retry
+# is that chapter again; the chance going to nothing for the attempt after it is what leaves the run playing
+# rather than dying in the same place for ever.
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **Six thousand frames**, which is a minute and a half of stage: a launch of this walk died 2,000 frames
+# in and played on for 2,000 more after the chapter came back.
+- play_until: { frames: 6000 }
+# And the run left where it stands, with nothing played after that bound.
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

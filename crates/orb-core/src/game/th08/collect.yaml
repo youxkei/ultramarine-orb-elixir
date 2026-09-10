@@ -1,0 +1,33 @@
+# **The walk to the game's own replay for the pass `chapters.rs` is read off** — the title's item 4 and the
+# list it opens, screen 7, with four decides a wait apart: the first opens the list, the replay is asked for
+# its run by the third, and the fourth lands on a run that reads nothing of it. The list's first entry is the
+# one replay the copy holds, `replay/th8_01.rpy`, a Normal run through Kaguya's stage.
+#
+# **Driven as `--autoplay=collect.yaml --collect --log=verbose --keep-in=<an empty directory>`**: `--collect`
+# asks no mode question, so the decide on item 4 goes to the game, and the directory is where the pass writes
+# `chapters.rs` and `tuning.txt` at each stage's end — an empty one, so that a pass made earlier is not read
+# back into this one. The replay's 190,000 frames took each of the four passes made with this about twenty
+# minutes, and the title coming back is the replay over.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [down]
+  frames: 30
+  until: { cursor: 4 }
+  give_up_after: 1800
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 240 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 240 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 240 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 600 }
+- wait_until: { screen: 0 }
+  give_up_after: 400000
+- wait_until: { frames: 120 }
+- quit: true

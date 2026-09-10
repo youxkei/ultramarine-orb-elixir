@@ -71,6 +71,12 @@ impl Push {
 /// there, which as an `i16` is negative and names no button; the directions usually are, a stick
 /// being how a pad is pushed.
 ///
+/// **th08 reads its own the same way**, which a reading of that exe settled rather than assumed:
+/// 0x4477b1 loads `th08.cfg` whole into `0x17ce870`, and the fold at 0x43d170 hands the word at
+/// `+0x0` to the shot's bit, `+0x2` to the bomb's, `+0x4` to the focus's and `+0x6` to the menu's —
+/// see that game's own `asm.md`. The copy of the install this was read on holds `02 00 05 00 04 00
+/// 00 00`, so the decide below is button 2 and the cancels are 5 and 0.
+///
 /// **Shoot decides; bomb and menu cancel**, which is what the game's own menus do — its
 /// `TH_BUTTON_RETURNMENU` is `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so either of the two is back there.
 /// The same decision as orb's in-game menus make, and it has to be: a button that answers a

@@ -175,6 +175,10 @@ Where a piece of writing goes:
 
 - Establish a claim about the game's behaviour by measurement. Establish where a thing is written
   plainly by a grep over the disassembly, and that a field never changes by watching it.
+- Watch and measure a launch of the real game through its trace — `scripts/watch-a-run.sh` as the
+  monitor, `orb-real show` and the trace's own records afterwards — and never through `orb.log`. Read the
+  `driving-orb-with-autoplay` skill's file before arming a monitor, and not a summary of it: a session
+  continued from a summary watched `orb.log` again after being told this more than once.
 - Keep each measurement beside the thing it is about, chosen by what the measurement did:
   - it decided how the code is shaped → the `//!` of the crate or module it shaped
   - it is why a constant is the number it is → beside that constant, with how it was found

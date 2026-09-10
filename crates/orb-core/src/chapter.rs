@@ -377,6 +377,11 @@ pub enum Cause {
     /// all, since the stage is over and a chapter whose first act is that the fight is
     /// already won has nothing to retry.
     StageAfterMidboss,
+    /// **The stage's waves again, its own boss having left with the stage going on** — the fight the stage
+    /// ends with fought in two halves and a stretch of waves between them, which is what
+    /// [`Game::the_stages_boss_comes_back`] says of a stage. The first half's end hands the stage back the
+    /// way a midboss's defeat does, and is not the stage won: the fight it ends with has a half still to come.
+    StageAfterTheBossLeft,
     BossNonspell,
     BossSpell,
     /// A midstage boundary of the table, at this script frame.
@@ -392,6 +397,7 @@ impl fmt::Display for Cause {
             Self::MidbossNonspell => f.write_str("a midboss nonspell"),
             Self::MidbossSpell => f.write_str("a midboss spellcard"),
             Self::StageAfterMidboss => f.write_str("the midboss was beaten"),
+            Self::StageAfterTheBossLeft => f.write_str("the stage's own boss left"),
             Self::BossNonspell => f.write_str("a boss nonspell"),
             Self::BossSpell => f.write_str("a boss spellcard"),
             Self::Boundary(frame) => write!(f, "tl {frame}"),
@@ -410,6 +416,7 @@ impl Cause {
             Self::MidbossNonspell => "MIDBOSS_NONSPELL",
             Self::MidbossSpell => "MIDBOSS_SPELL",
             Self::StageAfterMidboss => "STAGE_AFTER_MIDBOSS",
+            Self::StageAfterTheBossLeft => "STAGE_AFTER_THE_BOSS_LEFT",
             Self::BossNonspell => "BOSS_NONSPELL",
             Self::BossSpell => "BOSS_SPELL",
             Self::Boundary(_) => "TABLE",
@@ -421,7 +428,10 @@ impl Cause {
         match self {
             Self::MidbossNonspell | Self::MidbossSpell => Some(Fight::Midboss),
             Self::BossNonspell | Self::BossSpell => Some(Fight::Stage),
-            Self::StageStart | Self::StageAfterMidboss | Self::Boundary(_) => None,
+            Self::StageStart
+            | Self::StageAfterMidboss
+            | Self::StageAfterTheBossLeft
+            | Self::Boundary(_) => None,
         }
     }
 }
@@ -447,7 +457,10 @@ enum Kind {
 impl Kind {
     fn of(cause: Cause) -> Self {
         match cause {
-            Cause::StageStart | Cause::StageAfterMidboss | Cause::Boundary(_) => Self::Midstage,
+            Cause::StageStart
+            | Cause::StageAfterMidboss
+            | Cause::StageAfterTheBossLeft
+            | Cause::Boundary(_) => Self::Midstage,
             Cause::MidbossNonspell => Self::MidbossNonspell,
             Cause::MidbossSpell => Self::MidbossSpell,
             Cause::BossNonspell => Self::BossNonspell,
@@ -1187,7 +1200,19 @@ impl Chapters {
         // retry. It carved two chapters a second long out of the teardown as well.
         let beaten = !current.boss_present && self.seen.boss_present;
         let midboss_beaten = beaten && self.fighting == Some(Fight::Midboss);
-        self.won |= beaten && self.fighting == Some(Fight::Stage);
+        // **And the stage's own boss leaving with a half of her fight still to come**, which is the first
+        // time she goes in a stage whose boss comes back — see [`Game::the_stages_boss_comes_back`]. Read
+        // off the chapters this stage recorded up to the frame, so that a retry into either half answers
+        // the same: the frames past that chapter are ones it was not there for.
+        let the_boss_left = beaten
+            && self.fighting == Some(Fight::Stage)
+            && self
+                .stage
+                .is_some_and(|stage| game.the_stages_boss_comes_back(stage))
+            && !self.starts.iter().any(|(at, cause)| {
+                *at <= state.stage_frames && *cause == Cause::StageAfterTheBossLeft
+            });
+        self.won |= beaten && self.fighting == Some(Fight::Stage) && !the_boss_left;
         if !current.boss_present {
             self.fighting = None;
         }
@@ -1295,6 +1320,9 @@ impl Chapters {
         }
         if midboss_beaten {
             return Due::Yes(Cause::StageAfterMidboss);
+        }
+        if the_boss_left {
+            return Due::Yes(Cause::StageAfterTheBossLeft);
         }
         // A boss arriving is its first attack starting, so it is named as one. A spellcard
         // beginning is the attack changing — the timer resets for both — and which of the

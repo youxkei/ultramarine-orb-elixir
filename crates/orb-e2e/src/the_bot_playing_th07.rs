@@ -2535,14 +2535,15 @@ fn the_thick_of_it_is_crossed_for_a_big_power_item_and_not_for_a_point() {
             game.image()
                 .a_bullet_is_at(slot, FIELD.0 + 30.0, LOW - 40.0, (0.0, 0.0));
         }
-        // And a pile in each of the three between it and the rightmost, so that the rightmost is the only box
+        // And a pile in each of the other boxes but the one right of the middle, so that it is the only box
         // left to wait in — which is what makes the two halves of this tell apart by the way the bot goes, and
         // it has to be the only one: the box the player stands in is as good as any other that is no fuller,
-        // and standing still tells them apart from nothing.
+        // and standing still tells them apart from nothing. Not the rightmost, an edge being counted no
+        // emptier than the box beside it.
         for slot in 30..48 {
             game.image().a_bullet_is_at(
                 slot,
-                FIELD.0 + FIELD.2 * [0.25, 0.45, 0.65][slot % 3],
+                FIELD.0 + FIELD.2 * [0.25, 0.45, 0.9][slot % 3],
                 LOW - 40.0,
                 (0.0, 0.0),
             );

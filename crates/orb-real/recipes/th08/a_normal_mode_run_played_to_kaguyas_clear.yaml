@@ -1,0 +1,53 @@
+# **The Normal run after that clear, played to Kaguya's clear in the game's own mode** — the second of the two
+# runs the Extra's own item is lit by, in the directory the first left its records in.
+#
+# **Kaguya's, because the records now route a run to her.** The chooser sends stage word 5 on to 7 where
+# 0x439856 finds Eirin's stage passed in the run's `CLRD` record (0x433b47), which the case before this one
+# wrote; and Kaguya's ending is the one clear that writes the bit the title lights Extra Start out of —
+# `0x4000`, where the stage word is 7 (0x429a00 through 0x429c07). Nothing of her fight is measured, so
+# nothing of it is told: the ways are the stages before hers, as the first run had them.
+#
+# **The same walk as that run's**, orb's mode question answered with the game's own mode, item 1.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# The cards before hers the no-bomb clear has a way for — see `a_run_played_to_its_clear_without_a_bomb.yaml`.
+- dodge: { with: in_the_middle, spell: 94 }
+- dodge: { with: out_of_the_following_laser, spell: 97 }
+- dodge: { with: visionary_tuning, spell: 105 }
+- dodge: { with: focused, spell: 113 }
+# **And card 152, Kaguya's own `難題「龍の頸の玉　-五色の弾丸-」`**, whose lasers are aimed at the run with fire
+# strewn between them: the rules told nothing were carried to a wall by dodging each laser the same way as the
+# last, and every one of nine clears was hit on it, eight within 47 of a wall. The strategy wiki has it
+# `まともに避けようとすると詰む事もある`, and its way through is side to side between the lasers.
+- dodge: { with: side_to_side, spell: 152 }
+- play_until: { frames: 250000 }
+  give_up_after: 300000
+# **And the ending pressed through to the title**, which is what writes Kaguya's clear into the records.
+- press: [decide]
+  frames: 6
+  until: { screen: 0 }
+  give_up_after: 120000
+- wait_until: { frames: 300 }
+- quit: true

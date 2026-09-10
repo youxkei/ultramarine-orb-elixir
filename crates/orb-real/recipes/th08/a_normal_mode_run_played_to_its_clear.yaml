@@ -1,0 +1,61 @@
+# **A Normal run of th08 in the game's own mode, played to its clear by the rules with the bomb allowed and
+# its ending pressed through to the title** — the first of the two runs the Extra's own item is lit by.
+#
+# **The game's own mode, because the title lights its items out of the game's own file.** `orb_core::score`
+# forks the score file while the pointdevice mode is settled, so no pointdevice run writes `score.dat`; and
+# this game lights Extra Start only out of Kaguya's clear (0x43c1e9, `asm.md`'s *What a clear writes into a
+# `CLRD` record*), whose route is open only where the records hold Eirin's stage passed. So this run clears
+# Final A, which is where a first run goes, and the case after it clears Final B.
+#
+# **And the ending pressed through, because that is what writes the clear**: a launch that stopped short of
+# the title left `score.dat` written and the Extra still not offered. `--clear` is no way round the run
+# either, that flag writing no score file at all.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, whose press is read once it has come up — with
+# orb's own mode question over the title's first item, answered with the game's own mode, item 1.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **The seven cards the no-bomb clear has a way for**, which a run with the bomb allowed loses fewer lives on
+# as well: see `a_run_played_to_its_clear_without_a_bomb.yaml` for why each card wants its way.
+- dodge: { with: in_the_middle, spell: 94 }
+- dodge: { with: out_of_the_following_laser, spell: 97 }
+- dodge: { with: visionary_tuning, spell: 105 }
+- dodge: { with: focused, spell: 113 }
+- dodge: { with: left_of_the_middle, spell: 120 }
+- dodge: { with: right_of_the_middle, spell: 128 }
+- dodge: { with: without_the_items, spell: 144 }
+# **The whole run in one step**, which a `play` ends the frame the run is over: the launch of this game that
+# cleared Final A in its own mode took 137,000 frames of its own play step.
+- play_until: { frames: 250000 }
+  give_up_after: 300000
+# **And the ending pressed through to the title**, a decide every six frames, blind: none of the ending's
+# screens is one this grammar can see for this game.
+- press: [decide]
+  frames: 6
+  until: { screen: 0 }
+  give_up_after: 120000
+- wait_until: { frames: 300 }
+- quit: true

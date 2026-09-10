@@ -37,8 +37,12 @@
 # **And the name the ranking is registered under, typed rather than pressed for** — see `Step::Name`: a tap
 # at that entry writes whichever character its cursor is on and moves along the name, so what every clear
 # this case played was ranked as is eight of one letter.
+#
+# **Waited for through the staff roll**, which orb's run-out of the ending leaves to play at the game's own
+# speed: both th07 clears of one session came to the name entry 5,944 frames after the ending was run out,
+# where 3,600 gave the step up first and the tap after it walked the entry.
 - name: ORB
-  give_up_after: 3600
+  give_up_after: 9000
 # Then the screens a finished run arrives on, which are the game's own and take a press apiece: the name
 # entry for the high score and the stats after it. A tap walks them, and orb's own question about the replay
 # comes up behind them — the second of the two moments it is asked, this being a run nobody will add to.

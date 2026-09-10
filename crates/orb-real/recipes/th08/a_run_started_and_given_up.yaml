@@ -1,0 +1,50 @@
+# **A run of th08 started by a recipe and handed back to the game's own title**, which is what
+# `Th08::leave_run` writes and what the first attempt at it faulted on.
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the
+# front end's `+0x14428`: 0 is the title menu — item 0 starts a run — 4 is the difficulty, which comes up
+# on Normal, and 5 the team select, 「人と妖怪の選択の刻」. `orb-core`'s `game/th08/asm.md` has where each
+# was read.
+#
+# **Two presses at the team select and not one**: a launch that pressed once left the game on that screen
+# with the scene still the front end's.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+# **And orb's own question over that item, answered with the pointdevice mode** — item 0, the default.
+# `Th08::rewinds` answers true, so the title's first item is asked about before the flow behind it runs:
+# without this step the menu stands behind a question nobody answers and screen 4 never comes. The mode
+# is orb's own here because what this case is about is the way *out* of a run, which is the same write
+# either way.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+# **Long enough for there to be something to take down**, which is what the fault was about: the element
+# the game adds at priority 1 is registered once at startup and never taken off.
+- wait_until: { frames: 600 }
+- leave: true
+# **And nothing pressed for the hand-over**, which waits for a press — 0x439f3c wants the two bits of
+# `menu_decide` down and changed since last frame before it gives the supervisor the scene the run asked
+# for — and gets it from orb: see `Game::a_run_given_up_waits_for_a_press`. A decide of the recipe's own
+# here would still be down as the title came up.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- quit: true

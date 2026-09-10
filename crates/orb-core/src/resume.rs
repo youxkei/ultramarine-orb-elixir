@@ -52,6 +52,11 @@
 //! there is no moment a session ends at — the window closed, the game killed and a crash all leave nothing
 //! to write from.
 //!
+//! **And the buttons are one entry per *read* rather than per frame**, because a frame of the clock and an
+//! update of the run are not the same thing: th08's dialogue holds the clock on one number while the run
+//! plays on, so a conversation is a hundred reads of one frame — see [`Again`], which is where they go and
+//! which has the launch that measured it.
+//!
 //! **And on the frame the retry menu sends the run back to a chapter behind the one it was in**, which is
 //! the same thing said the other way: what the file holds is where the run is standing, and a run sent back
 //! to a chapter is standing there. Read on that frame and not the one after it, because the song position
@@ -336,6 +341,11 @@ const EXTENSION: &str = "msgpack";
 /// file can ask to be allocated for, and on the frame number a record will write down at all.
 pub(crate) const MAX_STAGE_FRAMES: u32 = 60 * 60 * 30;
 
+/// **How many reads of one frame are kept**, beside its last: ten seconds of updates, against the 103 a
+/// conversation of th08 was measured at — see [`Again`] and [`Record::note`], whose doc has the paused game
+/// this is the bound for.
+const A_FRAMES_OWN_READS: usize = 600;
+
 /// Whether a run's inputs are being kept at all.
 ///
 /// An atomic because the two hooks that ask — the game's input read and the moment a stage's
@@ -402,7 +412,8 @@ pub struct Kept {
     /// line when the playback lands: if the numbers the game reads at a stage's start are not all
     /// written down, this is the first thing that says so, and which field it was.
     pub landing: String,
-    /// One entry per stage frame, `0..at`.
+    /// One entry per stage frame, `0..at`: the **last** read of that frame, the reads before it being
+    /// [`Kept::again`].
     pub buttons: Vec<u16>,
     /// And the generator's own state on each of those frames, which is what says whether a playback is still
     /// reproducing the run — see [`Record::feed`]. One entry per frame like the buttons, and no shorter, with
@@ -415,6 +426,36 @@ pub struct Kept {
     /// forward. One such file made every file after it as blind as itself, and a th07 session was played
     /// through with the only check that names a parting frame switched off.
     pub generators: Vec<Option<u16>>,
+    /// **And every read of a frame before its last**, in the order the run made them — see [`Again`],
+    /// whose doc has the launch that measured a frame read 103 times.
+    ///
+    /// Empty for a game whose own file does not carry them and for every file written before they were
+    /// kept, which is a playback fed a frame's last read for every update it spends on that frame — the
+    /// behaviour those files were written under.
+    pub again: Vec<Again>,
+}
+
+/// **A read of a frame before its last**, which is a frame of a run that the clock it is keyed by did not
+/// count.
+///
+/// **th08 is the game this exists for.** Its run clock is skipped by 1,800 and then stands still while a
+/// line of dialogue is up — see `game::th08`'s `STAGE_FRAMES` — and what the run does over those frames is
+/// not standing still with it: a launch of stage 1 read **103** reads against frame 7,179, the player
+/// walking from `293,368` to `253,352`, four items collected, the score climbing and the midboss walking in
+/// from off the field over the whole of it. Keyed by the clock and kept one entry a frame, all but the last
+/// of those reads is thrown away, and a playback fed that one word cannot reproduce any of it: the launch
+/// parted at the first such frame, `the generator is 0x1710 where the run had 0x0e20` — **104** draws apart,
+/// which is those reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Again {
+    /// Which frame of the stage the read was for, so that these are one list rather than a list per frame.
+    pub frame: u32,
+    /// What the update acted on, as [`Kept::buttons`] holds a frame's last read.
+    pub buttons: u16,
+    /// And the generator as it did. Not optional where [`Kept::generators`] is: a file that has any of
+    /// these was written by an orb that writes them both, so there is no file with a read in it and no
+    /// generator beside it.
+    pub generator: u16,
 }
 
 impl Kept {
@@ -446,7 +487,7 @@ impl fmt::Display for Kept {
         // for why, and `Game::say_run_state` for the words.
         write!(
             f,
-            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons {}, diff={} char={}-{}",
+            "stage {} chapter {} ({}) at frame {}, {} frame(s) of buttons {}{}, diff={} char={}-{}",
             self.run.stage + 1,
             self.chapter,
             self.name,
@@ -458,6 +499,13 @@ impl fmt::Display for Kept {
                 "and no generator for any of them".to_owned()
             } else {
                 format!("and the generator on {with_a_word} of them")
+            },
+            // **And the reads before a frame's last**, which on th08's dialogue are a hundred updates of a
+            // run against one number — see [`Again`]. Said only where there are some, a game whose clock
+            // counts every update having none and owing no words about it.
+            match self.again.len() {
+                0 => String::new(),
+                reads => format!(", and {reads} more read(s) of frames read more than once"),
             },
             self.run.difficulty,
             self.run.character,
@@ -510,14 +558,31 @@ struct Record {
     /// The run's numbers as that stage began, read where the game itself puts them in place — the game's own
     /// bytes, and empty while nothing is being kept.
     start: Vec<u8>,
-    /// One entry per stage frame — see [`Played`].
+    /// One entry per stage frame, holding that frame's **last** read — see [`Played`].
     played: Vec<Played>,
+    /// And the reads before a frame's last, in the order the run made them, which is ascending by frame
+    /// within one pass over the stage — see [`Again`] and [`Record::note`], which is where a retry going
+    /// back over them takes them off again.
+    again: Vec<Again>,
+    /// The frame the last read was written down against, which is what says whether the next one is that
+    /// frame again. `None` before the first read of a stage.
+    noting: Option<u32>,
+    /// And how many reads of that frame have gone into [`Record::again`], which is what
+    /// [`A_FRAMES_OWN_READS`] bounds.
+    noted_again: usize,
     /// The frame a playback was first found to have parted from the run it is reproducing, so that it is said
     /// once rather than for every frame after it.
     parted: Option<u32>,
     /// The last frame a playback was asked for buttons for, and whether the frames it has been asked for went
     /// in order — see [`Record::feed`], which is where a gap in them is said.
     fed: Option<u32>,
+    /// How many times the frame in [`Record::fed`] has been fed, so that a frame the run read more than once
+    /// is played back read by read — see [`Record::feed`].
+    nth: usize,
+    /// Whether the last read of the frame being fed has been handed over, the playback standing on a frame
+    /// the run left after that many updates — see [`out_of_reads`], which is what the dialogue's own give-up
+    /// waits for.
+    spent: bool,
     skipped: bool,
     /// Set while a saved run is being played in, and taken when it arrives.
     feeding: Option<Landing>,
@@ -549,8 +614,13 @@ impl Record {
             stage: None,
             start: Vec::new(),
             played: Vec::new(),
+            again: Vec::new(),
+            noting: None,
+            noted_again: 0,
             parted: None,
             fed: None,
+            nth: 0,
+            spent: false,
             skipped: false,
             feeding: None,
             until: None,
@@ -560,10 +630,33 @@ impl Record {
         }
     }
 
-    /// Writes down what the update of `frame` is about to act on. The same frame reached twice —
-    /// a chapter retried, a frame the game spent with a menu up, or one th07's own slowdown decided
-    /// not to advance the run on — is one entry, the last write winning, which is the one that update
-    /// sees.
+    /// Writes down what the update of `frame` is about to act on: the frame's **last** read in
+    /// [`Record::played`] and the reads before it in [`Record::again`], so that a frame the run read more
+    /// than once is a frame the playback can be given read by read.
+    ///
+    /// **The last one stays where a frame is looked up, which is what makes a file without the rest read
+    /// as it always did.** A game whose own file carries no [`Again`] — th06's, th06c's, th06nc's, th07's —
+    /// hands a frame's last read over for every update a playback spends on it, and that is the behaviour
+    /// those files were written under: th07 reads a frame twice where its own slowdown did not advance the
+    /// run, and the word its update acted on is the second. Keeping the *first* there instead broke exactly
+    /// that — `a_run_of_th07_that_was_paused_is_put_back_at_its_chapter`.
+    ///
+    /// **It kept the last read alone, and what that costs is a hundred frames of a run.** A frame reached
+    /// twice was one entry — a chapter retried, a frame the game spent with a menu up, one th07's own
+    /// slowdown did not advance the run on — and on th08 it is a frame the dialogue's own gate holds the
+    /// clock on for as long as a line is up, 103 updates on one launch with the run playing on through all
+    /// of them. See [`Again`].
+    ///
+    /// **A retry is what takes the reads off again**, and it is told from the ordinary case by the frame
+    /// going *back*: what the run reads from there replaces what it read there before, where a frame that
+    /// simply jumps forward — which th08's clock does by 1,800 at a conversation — leaves the reads below it
+    /// alone.
+    ///
+    /// **And a frame's reads are bounded**, because one thing that reads a frame over and over is not a run
+    /// at all: a game left **paused** reads the frame it was paused on for as long as it stands there, and a
+    /// list that grew with it would grow for as long as somebody was away from the keyboard. Past
+    /// [`A_FRAMES_OWN_READS`] the reads are dropped, which leaves that frame's last kept read to be fed for
+    /// every update past it — the behaviour every frame had before any of this.
     fn note(&mut self, frame: u32, buttons: u16, generator: u16) {
         if self.stage.is_none() || frame >= MAX_STAGE_FRAMES {
             return;
@@ -572,10 +665,51 @@ impl Record {
         if self.played.len() <= at {
             self.played.resize(at + 1, Played::default());
         }
+        if self.noting == Some(frame) {
+            // The read this one replaces, kept where the order it was made in is kept. Its generator is
+            // always written down, [`Record::note`] being the only writer of an entry this reaches.
+            if let Some(generator) = self.played[at].generator
+                && self.noted_again < A_FRAMES_OWN_READS
+            {
+                self.noted_again += 1;
+                self.again.push(Again {
+                    frame,
+                    buttons: self.played[at].buttons,
+                    generator,
+                });
+            }
+            self.played[at] = Played {
+                buttons,
+                generator: Some(generator),
+            };
+            return;
+        }
+        self.noted_again = 0;
+        if self.noting.is_some_and(|was| was > frame) {
+            let from = self.again.partition_point(|again| again.frame < frame);
+            self.again.truncate(from);
+        }
+        self.noting = Some(frame);
         self.played[at] = Played {
             buttons,
             generator: Some(generator),
         };
+    }
+
+    /// **The frames a clock was put past on the update of `last_read`, written down as the nothing they
+    /// are**, up to the frame `to` the clock landed on.
+    ///
+    /// Only where that read is the one written down last: a clock further on than the frame after the last
+    /// read noted is either a clock that jumped on that update, or reads that went unnoted — and only the
+    /// first has the record whole. The frame the next read is noted against fills the same entries with the
+    /// same nothing; this is that fill made on the frame the chapter begins on, which is before that read.
+    fn stepped_over(&mut self, last_read: u32, to: u32) {
+        if self.stage.is_none() || self.noting != Some(last_read) || to >= MAX_STAGE_FRAMES {
+            return;
+        }
+        if self.played.len() < to as usize {
+            self.played.resize(to as usize, Played::default());
+        }
     }
 
     /// What the update of `frame` is to act on while a run is being played in, and `None` once the
@@ -613,8 +747,12 @@ impl Record {
                  the next frame of the run"
             );
         }
+        self.nth = match self.fed == Some(frame) {
+            true => self.nth + 1,
+            false => 0,
+        };
         self.fed = Some(frame);
-        let played = self.played.get(frame as usize).copied()?;
+        let played = self.the_nth_read_of(frame)?;
         let word = played.buttons;
         // **Not written down as this playback's where the run has none.** A fed frame is one nothing reads the
         // keyboard for, so [`Record::note`] never sees it again and a word put here would be carried into every
@@ -634,6 +772,38 @@ impl Record {
         Some(word)
     }
 
+    /// The read of `frame` that [`Record::nth`] is on: the reads before the last in the order the run made
+    /// them, and then the last for as long as the playback stands there.
+    ///
+    /// **Clamped rather than answered `None`**, because the two ends of a frame are not the same question:
+    /// a playback that has spent this frame's reads is one whose own update count has got past the run's,
+    /// and what the game is owed then is a word rather than the keyboard — the run's last read of that
+    /// frame is what its own next update acted on. [`Record::spent`] is what says it happened, and
+    /// [`out_of_reads`] is who asks.
+    fn the_nth_read_of(&mut self, frame: u32) -> Option<Played> {
+        let last = self.played.get(frame as usize).copied()?;
+        // A record with none of them at all, which is every game's file but th08's: the frame's last read
+        // for every update, and nothing to search.
+        if self.again.is_empty() {
+            self.spent = self.nth > 0;
+            return Some(last);
+        }
+        let from = self.again.partition_point(|again| again.frame < frame);
+        let reads = self.again[from..]
+            .iter()
+            .take_while(|again| again.frame == frame)
+            .count();
+        self.spent = self.nth > reads;
+        if self.nth < reads {
+            let again = self.again[from + self.nth];
+            return Some(Played {
+                buttons: again.buttons,
+                generator: Some(again.generator),
+            });
+        }
+        Some(last)
+    }
+
     /// Gives up the playback and keeps everything the run is written down as: the bound it fed to and the
     /// three things held about how it went, none of which means anything to the playback after it.
     ///
@@ -642,6 +812,8 @@ impl Record {
     fn the_playback_is_over(&mut self) {
         self.until = None;
         self.fed = None;
+        self.nth = 0;
+        self.spent = false;
         self.skipped = false;
         self.parted = None;
     }
@@ -649,8 +821,13 @@ impl Record {
     fn stop(&mut self) {
         self.stage = None;
         self.played.clear();
+        self.again.clear();
+        self.noting = None;
+        self.noted_again = 0;
         self.parted = None;
         self.fed = None;
+        self.nth = 0;
+        self.spent = false;
         self.skipped = false;
         self.feeding = None;
         self.until = None;
@@ -693,6 +870,29 @@ pub unsafe fn fed(frame: u32, generator: u16) -> Option<u16> {
 /// Must run on the game's main thread.
 pub unsafe fn noted(frame: u32, buttons: u16, generator: u16) {
     unsafe { RECORD.get() }.note(frame, buttons, generator);
+}
+
+/// **A clock that went past frames on the update of `last_read`**, which th08's does by 1,800 as a boss's card
+/// ends, the boss's next attack beginning on the frame it lands on — see [`Record::stepped_over`].
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn stepped_over(last_read: u32, to: u32) {
+    unsafe { RECORD.get() }.stepped_over(last_read, to);
+}
+
+/// **Whether the playback has spent the reads the run made of the frame it is on**, which is what says a
+/// frame it is standing on is one the run left and it has not.
+///
+/// What asks is the dialogue's own give-up: a line of dialogue holds th08's clock still while the run plays
+/// on, so a playback standing on such a frame is doing what the run did — for as many updates as the run
+/// spent there, and no longer. Asked rather than counted in frames, which is what it was: 60 updates, where
+/// the run's own count is what the file says and was 103 on one launch.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn out_of_reads() -> bool {
+    unsafe { RECORD.get() }.spent
 }
 
 /// Where a stage is about to be built and nothing of it has been drawn from the generator yet: the
@@ -806,6 +1006,14 @@ pub unsafe fn stage_begun(game: &dyn Game) {
                 generator: saved.generators.get(frame).copied().flatten(),
             })
             .collect();
+        // **And the reads past each frame's first**, which is the rest of what the run pressed — see
+        // [`Again`]. Sorted by frame, which is what [`Record::the_nth_read_of`] searches them by: the
+        // run made them in that order and the file keeps that order, and a file that had them out of it
+        // would answer a frame with another frame's word.
+        record.again = saved.again;
+        record.again.sort_by_key(|again| again.frame);
+        record.noting = None;
+        record.noted_again = 0;
         return;
     }
     if !keeping {
@@ -821,6 +1029,9 @@ pub unsafe fn stage_begun(game: &dyn Game) {
     record.stage = Some(state.stage);
     record.start = unsafe { game.run_state() };
     record.played.clear();
+    record.again.clear();
+    record.noting = None;
+    record.noted_again = 0;
     record.feeding = None;
     // **And the playback of the stage before this one given up.** Its bound is a frame of *that* stage and
     // this one starts counting again from nothing, so a bound left standing is one every frame of this stage
@@ -899,6 +1110,21 @@ const THE_FIRST_FRAME_A_FILE_HOLDS: usize = 1;
 /// Must run on the game's main thread.
 pub unsafe fn landed() -> Option<Landing> {
     unsafe { RECORD.get() }.feeding.take()
+}
+
+/// **Gives the playback up where it stopped short of its chapter**, keeping what the run is written down as.
+///
+/// **The bound goes with it here, where [`landed`] leaves it standing** for the frames a watched attempt is
+/// fed past its chapter. A playback that stops short leaves behind it the chapters taken on the way in, and a
+/// retry into one of them is a frame under the bound: the record fed its buttons again from there, and the run
+/// was hit where it had been. A launch of the Extra picked up at its fifth boss card parted at frame 539, was hit
+/// at 569 and went back to chapter 1 forty times, each attempt `rewound away after 321 frame(s)` with the player
+/// standing at `188,360` whatever the rules pressed.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn stopped_short() {
+    unsafe { RECORD.get() }.the_playback_is_over();
 }
 
 /// What the game's record of captured spell cards was before a run's buttons were played back into
@@ -1156,6 +1382,15 @@ pub unsafe fn write(
             .iter()
             .map(|played| played.generator)
             .collect(),
+        // And every read before a frame's last, for the frames under the chapter — see [`Again`]. Cut by
+        // the same bound the two lists above are: a read of a frame the chapter does not reach is a read
+        // nothing will ever ask for, and a file carrying them would grow with every chapter of the stage.
+        again: record
+            .again
+            .iter()
+            .copied()
+            .filter(|again| again.frame < at)
+            .collect(),
     };
     // The game's own file, asked for here where the game is at hand: the thread that writes it has none.
     writer::hand_over(writer::Handed {
@@ -1333,6 +1568,117 @@ mod tests {
         let pressed: Vec<u16> = record.played.iter().map(|played| played.buttons).collect();
         assert_eq!(pressed[..4], [0x001; 4]);
         assert_eq!(pressed[4..], [0x041; 6]);
+    }
+
+    /// **A clock put past frames on the update read last leaves the record whole up to where it landed**, the
+    /// frames between them nothing — which is th08's conversation, and the chapter a boss's fight opens with.
+    #[test]
+    fn a_record_whose_clock_jumped_on_its_last_read_reaches_the_frame_it_landed_on() {
+        let mut record = Record::new();
+        record.stage = Some(0);
+        for frame in 0..790 {
+            record.note(frame, 0x001, frame as u16);
+        }
+        record.stepped_over(789, 2589);
+        assert_eq!(record.played.len(), 2589);
+        assert!(
+            record.played[790..]
+                .iter()
+                .all(|played| played.buttons == 0 && played.generator.is_none())
+        );
+        assert_eq!(record.played[789].generator, Some(789));
+    }
+
+    /// And a clock past reads nothing wrote down leaves it short, which is a record that missed frames.
+    #[test]
+    fn a_record_behind_the_read_made_last_is_left_short() {
+        let mut record = Record::new();
+        record.stage = Some(0);
+        for frame in 0..790 {
+            record.note(frame, 0x001, frame as u16);
+        }
+        record.stepped_over(1200, 2589);
+        assert_eq!(record.played.len(), 790);
+    }
+
+    /// **Every read of a frame is kept, in the order the run made them**: the frame's last where a
+    /// reader looks a frame up, and the ones before it in [`Record::again`]. Which is what a conversation
+    /// of th08 is made of — the clock stands on one number for as long as a line is up while the run plays
+    /// on.
+    #[test]
+    fn every_read_of_a_frame_is_kept_in_the_order_the_run_made_them() {
+        let mut record = Record::new();
+        record.stage = Some(3);
+        record.note(7, 0x001, 0x1000);
+        record.note(8, 0x011, 0x1001);
+        // The clock standing on 8 while the run plays on, which is a line of dialogue.
+        record.note(8, 0x041, 0x1002);
+        record.note(8, 0x101, 0x1003);
+        record.note(9, 0x111, 0x1004);
+        let pressed: Vec<u16> = record.played.iter().map(|played| played.buttons).collect();
+        assert_eq!(pressed[7..], [0x001, 0x101, 0x111]);
+        assert_eq!(
+            record
+                .again
+                .iter()
+                .map(|again| (again.frame, again.buttons, again.generator))
+                .collect::<Vec<_>>(),
+            [(8, 0x011, 0x1001), (8, 0x041, 0x1002)],
+        );
+    }
+
+    /// And they are fed back one per update of the playback, in that same order, with the run's last read
+    /// of the frame handed over for as long as the playback stands there — which is what says the playback
+    /// has got past the run's own count of updates on it.
+    #[test]
+    fn a_frame_read_again_is_fed_read_by_read_and_then_its_last() {
+        let mut record = Record::new();
+        record.stage = Some(3);
+        for frame in 0..8 {
+            record.note(frame, 0x001, 0x1000 + frame as u16);
+        }
+        record.note(8, 0x011, 0x2000);
+        record.note(8, 0x041, 0x2001);
+        record.note(8, 0x101, 0x2002);
+        record.until = Some(9);
+        // The frame before it, which has one read and is fed once.
+        assert_eq!(record.feed(7, 0x1007), Some(0x001));
+        assert!(!record.spent);
+        // And the three reads of frame 8 in the order the run made them, the generator of each held
+        // against what the game is on — which is why each is fed the word that read went with.
+        assert_eq!(record.feed(8, 0x2000), Some(0x011));
+        assert_eq!(record.feed(8, 0x2001), Some(0x041));
+        assert_eq!(record.feed(8, 0x2002), Some(0x101));
+        assert!(!record.spent);
+        assert_eq!(record.parted, None);
+        // A fourth update on that frame is one the run did not spend there: the last read again, and said.
+        assert_eq!(record.feed(8, 0x2002), Some(0x101));
+        assert!(record.spent);
+    }
+
+    /// A chapter played again drops the reads the attempt before it made, the same way it writes over the
+    /// buttons: what the file holds is the attempt that survived.
+    #[test]
+    fn an_attempt_played_again_drops_the_reads_it_had_made() {
+        let mut record = Record::new();
+        record.stage = Some(3);
+        for frame in 0..10 {
+            record.note(frame, 0x001, frame as u16);
+            record.note(frame, 0x041, frame as u16);
+        }
+        assert_eq!(record.again.len(), 10);
+        // Back to the chapter's own frame, and played with nothing read twice from there.
+        for frame in 4..10 {
+            record.note(frame, 0x011, frame as u16);
+        }
+        assert_eq!(
+            record
+                .again
+                .iter()
+                .map(|again| again.frame)
+                .collect::<Vec<_>>(),
+            [0, 1, 2, 3],
+        );
     }
 
     /// Nothing is kept while nothing is being played, so a session spent in the menus does not

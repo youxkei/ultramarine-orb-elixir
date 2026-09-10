@@ -266,6 +266,19 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "FILE", help_heading = FAULT)]
     trace: Option<PathBuf>,
 
+    /// put a picture of the frame into that trace this often, in seconds of the host's own clock —
+    /// which is what a long run wants: the fields of one frame in a thousand say nothing about what a
+    /// screen looked like, and a picture every ten seconds of a launch is a run somebody can look
+    /// through afterwards. Nothing without `--trace`, the trace being where they go
+    #[arg(long, require_equals = true, value_name = "SECONDS", help_heading = FAULT)]
+    shot_every: Option<u32>,
+
+    /// put every bullet on the field into that trace, frame by frame, for as long as this spell card is
+    /// up — where each is, its size, its kind and whether its script is hiding it — which is what a card
+    /// is measured by before a way of dodging it is written. Nothing without `--trace`
+    #[arg(long, require_equals = true, value_name = "CARD", help_heading = FAULT)]
+    trace_the_field_in: Option<u32>,
+
     /// keep the files orb writes of its own — the run left unfinished, its replay, the name it
     /// remembers, and a trace naming no directory — under this directory rather than beside the
     /// game. For a launch that is a test: what an earlier session left beside the game then
@@ -472,6 +485,12 @@ impl Config {
             // the harness is asking for what the harness sees, so the level comes with it rather than having to
             // be remembered beside it.
             self.log_level = LogLevel::Verbose;
+        }
+        if let Some(seconds) = options.shot_every {
+            self.shot_every = seconds;
+        }
+        if let Some(card) = options.trace_the_field_in {
+            self.trace_the_field_in = Some(card);
         }
         if let Some(path) = &options.trace {
             self.trace = Some(path.clone());

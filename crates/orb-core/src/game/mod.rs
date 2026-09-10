@@ -87,6 +87,8 @@ macro_rules! handed_over {
 // `__thiscall`s do not exist as an ABI anywhere else — where th06c is a 64-bit process of its own. A build
 // of orb carries the games it could attach to and no others, which is also what [`KNOWN`] then lists.
 #[cfg(target_arch = "x86")]
+mod song;
+#[cfg(target_arch = "x86")]
 pub mod th06;
 #[cfg(target_arch = "x86_64")]
 pub mod th06c;
@@ -94,6 +96,8 @@ pub mod th06c;
 pub mod th06nc;
 #[cfg(target_arch = "x86")]
 pub mod th07;
+#[cfg(target_arch = "x86")]
+pub mod th08;
 
 use std::ffi::c_void;
 use std::fmt;
@@ -194,6 +198,18 @@ pub const KNOWN: &[Known] = &[
             version: "the build of md5 0126afce",
         }],
         game: &th07::Th07,
+    },
+    // The third: [`th08::Th08`] answers `rewinds` with `true` as well, so a launch here gets what one of
+    // th07 does. Pinned by the md5 alone for the reason th07's build is, and what of it is still not read
+    // is at the end of `th08/asm.md`.
+    Known {
+        exe: "th08.exe",
+        cfg: "th08.cfg",
+        builds: &[Build {
+            md5: "77b6785e04a3406e50be68714a193650",
+            version: "the build of md5 77b6785e",
+        }],
+        game: &th08::Th08,
     },
 ];
 
@@ -1275,6 +1291,19 @@ pub trait Game {
         None
     }
 
+    /// **Whether the fight stage `stage` ends with is fought in two halves**, its boss leaving for a stretch
+    /// of the stage's waves after the first and coming back for the second — so that her going the first
+    /// time is a chapter of its own and not the stage won. See `chapter::Cause::StageAfterTheBossLeft`.
+    ///
+    /// **A reading of the stage and not of the fight**, because nothing on the frame she leaves says which
+    /// of her two goings it is: the stage's own end comes some frames after the second, and on the frame
+    /// itself both are a boss that was up and is not. False for every stage of a game where none has been
+    /// read.
+    fn the_stages_boss_comes_back(&self, stage: i32) -> bool {
+        let _ = stage;
+        false
+    }
+
     /// The family the game draws its own text in, where it ships no font and asks the host for
     /// one by name — so that orb's own screens are in the same face as the game's text.
     ///
@@ -1896,6 +1925,16 @@ pub trait Game {
     /// Must run on the game's main thread, between frames, with a run in progress.
     unsafe fn leave_run(&self) -> bool;
 
+    /// **Whether a run given up waits for a press before it goes**, which is the game's own way out asking
+    /// for one: somebody answering orb's retry menu makes it, and a give-up nobody presses for — a recipe's
+    /// `leave`, a watched attempt's own end — is a run that plays on under the hand-over it asked for. orb
+    /// presses for it then, in the read it answers; see `runtime`'s `the_press_a_hand_over_waits_for`.
+    ///
+    /// False, which is every game whose way out is the scene written.
+    fn a_run_given_up_waits_for_a_press(&self) -> bool {
+        false
+    }
+
     /// Leaves the game's own idea of the buttons so that the frame it carries on into has no new
     /// press on it, whatever is being held.
     ///
@@ -2127,6 +2166,23 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread, before the update whose word is about to be composed.
     unsafe fn forgets_when_it_read(&self) {}
+
+    /// **Tells the game the line of dialogue up is over**, which is what a playback needs and nothing else
+    /// does.
+    ///
+    /// **What it is for, measured.** A conversation inside a stage stops th08's run entirely: a playback
+    /// held at one ran 76,000 updates with `script=4962 seed=0x12c5` — the stage's own script clock and the
+    /// generator both standing — so no press it fed could reach anything, the run's own update being the
+    /// thing that is not running. What advances a line is outside the calc chain a playback drives, and the
+    /// line's own field is what says it is done.
+    ///
+    /// Nothing from a game whose playback has never been held at one, which is every other: th06's and
+    /// th07's conversations are frames of the run like any other.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, and only from a playback — a run somebody is playing has its own
+    /// frames to carry a line with.
+    unsafe fn give_up_on_a_line_of_dialogue(&self) {}
 
     /// **Starts whatever a stage's own first frame started in the game's player** — so that a resumed
     /// stage carries on from where the run's did rather than from where its build left it.
@@ -2414,6 +2470,21 @@ pub trait Game {
         None
     }
 
+    /// **What the game's own list of jobs holds**, said where a frame leaves on its walk answering an exit,
+    /// and `None` from a game whose list nobody has read.
+    ///
+    /// **Because the walk's own answer cannot tell an empty list from a job that asked to stop.** th08's
+    /// walk answers the count of jobs it ran, and its switch leaves that walk with nought both for a list
+    /// nothing was reached in and for one job answering *stop this frame* — so a launch that ends on
+    /// `the game's own walk answered 0` has three readings and no way to choose between them. The list
+    /// itself has: a frame with jobs on it and a frame with none are not the same frame.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between frames.
+    unsafe fn the_jobs_a_frame_has(&self) -> Option<String> {
+        None
+    }
+
     /// **The bytes a run's own numbers are held in, said as themselves**, and `None` from a game nobody has read
     /// them off. Said once at a stage's start, where the numbers have just been put in place.
     ///
@@ -2511,6 +2582,42 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn mid_build(&self) -> bool;
+
+    /// **Whether a stage's numbers have come into place since the frame before, off the main thread** —
+    /// for a game whose build is a loader thread the main thread sits out, where no function of the
+    /// game's returns on the main thread with the numbers in place and the stage not yet updated. The
+    /// frame this first answers `true` on is what [`Hooks::stage_begun`] is for a game with such a
+    /// function, and the runtime does the same two things on it: the run written down or put back, and
+    /// the replay's own record begun.
+    ///
+    /// `false` from a game with the patch, which says the same thing on the thread the build runs on, and
+    /// from a game nothing of this has been read of.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, once a frame.
+    unsafe fn a_stage_has_just_been_built(&self) -> bool {
+        false
+    }
+
+    /// **An update of a frame the stage is still being built on, run in place of the walk**, for a game whose
+    /// loader thread puts a stage's jobs on the chain part way through and goes on building after: the walk on
+    /// such a frame runs that stage against a build still going on, with nothing of orb's put back yet. **So
+    /// the runtime walks only the job the build leans on**, which is what this runs, and hands on what it
+    /// answers as the walk would. `None` where the frame is no such frame, which the runtime walks as ever.
+    ///
+    /// Asked off the same look as the built frame is — and on an update after the one a build was asked on,
+    /// off the build being under way now — so that the frame orb reads the build as over is the first frame
+    /// anything of the stage runs on, whatever moment the thread finishes at.
+    ///
+    /// `None` from a game whose build is the function [`Hooks::stage_begun`] stands over, whose numbers go
+    /// in at its return and before any update of the stage.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, after [`Game::a_stage_has_just_been_built`] this frame, where the
+    /// walk would run.
+    unsafe fn walks_a_frame_of_its_build(&self) -> Option<i32> {
+        None
+    }
 
     /// Midstage chapter boundaries per stage.
     fn midstage_table(&self) -> &'static [&'static [Boundary]];
@@ -2632,6 +2739,74 @@ pub struct Frame {
     pub bombs: i8,
     /// Whether a line of dialogue is up, which is a thing to press past.
     pub dialogue: bool,
+    /// **Whether a bullet out of its hitting state is nothing to keep away from at all**, which is a game's
+    /// own answer and not a rule: what it says is that such a bullet cannot take a life *and* that standing
+    /// where one comes out is not how a run dies either.
+    ///
+    /// `true` from th08, measured off its own walk: the one box test that takes a life has a single caller
+    /// and it is the hitting kind's, the kinds a bullet comes out in asking only whether it is inside one of
+    /// the circles of the player's own that erase a bullet — and a bullet erased as it comes out is left in
+    /// the kind whose branch asks nothing, harmless for the rest of its life. See `Th08::BULLET_HITS`, and
+    /// what it cost to have this wrong: the rules read a mesh
+    /// of 747 spawning bullets as solid, had `nowhere open to it` in every box, and died in the corner they
+    /// had backed into — where a person plays that card by standing in the mesh.
+    ///
+    /// `false` from every other game, where a bullet out of that state is left as dangerous as any other: what
+    /// th06 calls spent and th07 calls not yet hitting are their own readings, and whether either game hands a
+    /// run the same mercy is unmeasured.
+    pub a_bullet_not_hitting_is_harmless: bool,
+    /// **Whether a boss is to be shot unfocused**, which is a game's own answer about what its shot earns
+    /// and not about how it dodges: the rules hold the focus key on a calm frame of a fight because a focused
+    /// shot concentrates the damage, and on a game where the shot's mode is also what a hit is *worth*, that
+    /// is the wrong trade.
+    ///
+    /// `true` from th08, whose human–youkai gauge at `[run+0x22]` is moved every frame one way or the other by
+    /// the byte the player's own update reads for the shot's mode (0x44beb6), and whose time orbs come out of
+    /// the gauge's two ends: an enemy killed there drops one (0x42da41, behind 0x406d10 and 0x406d70), and
+    /// the strategy wiki's own list has the one that pays under a boss — `人間逢魔が時にショットを敵に当てる`, a
+    /// shot hitting an enemy with the gauge at its human end, which `高速状態なら人へ、低速状態なら妖へ傾く`
+    /// says is the unfocused one's. A run that holds the key on calm frames and lets it go to dodge keeps the
+    /// gauge in the middle, where neither pays — and the time orbs are the whole of what a stage's Last Spell
+    /// is decided by. See `Th08`'s `TIME_ORBS` and `GAUGE`.
+    ///
+    /// **And only until the stage's norm is met**, which th08 answers every frame off the count and the norm
+    /// its panel draws: past it the orbs have bought the Last Spell and a fight wants the focused shot's
+    /// damage back, and a miss that takes the count back under it is the unfocused shot again.
+    ///
+    /// `false` from every other game, whose shot's mode changes its damage and nothing else that is read.
+    pub shoots_a_boss_unfocused: bool,
+    /// **Whether the gauge a hit is worth a time orb by is at its human end**, for a game that has one — which
+    /// is where `shoots_a_boss_unfocused` means it to be.
+    ///
+    /// **And what says a card's fire holds it short of there, which the unfocused shot alone does not.** th08
+    /// moves its gauge `100` towards the youkai end for every graze (0x44aa81) against the unfocused player's
+    /// own lean the other way every frame (0x44bedf), so a card grazed thickly enough holds it in the middle,
+    /// where neither end pays. Six runs of stage 2 played from its start said so outright: three were at the
+    /// human end on `34` to `51%` of card 22 and took `441` to `611` time orbs through it, and three never
+    /// reached it, took `27` to `38`, and each ended short of the norm — the other three meeting it. The rules
+    /// play the rest of such a card focused, which the grazes and the player then lean the same way — see
+    /// `orb_bot::steer`'s `HELD_OFF_THE_HUMAN_END_FOR`.
+    ///
+    /// `None` from every other game.
+    pub at_the_gauges_human_end: Option<bool>,
+    /// **Whether the familiars out are worth more left alive than shot at**, which has the rules hold their fire
+    /// while it is so — the shot being the one thing of the player's that kills them.
+    ///
+    /// `true` from th08 through the last 180 frames of a card, with a familiar alive and the stage's norm not
+    /// met, because its familiars pay for being alive when the boss they belong to ends her attack: 0x42adb0
+    /// pays twice `[body+0x3380]` in time orbs — a count of her familiars alive, stepped up as each is linked
+    /// to her (0x41b0de) and down as each dies (0x42d63a) — and then each familiar still on her chain up to 26
+    /// more, `2N + 10` for a chain of `N`; and pays nothing at all where the chain is empty. One launch's boss
+    /// ended her second non-spell with 37 counted and none on the chain and was paid nothing, and her card 26
+    /// with 157 and 15 and was paid 704. **The last 180 frames and not the whole attack**, because a hit on
+    /// anything at the gauge's human end pays too, and the unfocused shot's hits are most of what a stage's
+    /// count is made of: held focused through every attack with a familiar out, the three runs a stage 2 was
+    /// played over from its start ended card 26 on `4680` to `5366` where they had ended it on `6086` to
+    /// `6738`. And 180 because that is where the card's own payout reaches its floor of 100 — see `Th08`'s
+    /// `CARD_TIME_ORBS` — so a card taken there by shooting pays no more than one run out.
+    ///
+    /// `false` from every other game.
+    pub familiars_are_worth_sparing: bool,
     /// Where the boss is, for a fight that has one up.
     pub boss: Option<(f32, f32)>,
     pub hazards: Vec<Hazard>,
@@ -2645,6 +2820,22 @@ pub struct Hazard {
     /// Which slot of its own array it is in, which is what makes it the same thing as last frame's: a hazard
     /// with no step of its own can only be read by the difference from where it was, and that needs an identity.
     pub slot: usize,
+    /// **How many frames the game says the thing in this slot has been there**, which is what says it is that
+    /// same thing and not the next one the slot was given — the reason `Beam::frames` gives, for a hazard.
+    ///
+    /// **Because a slot is an identity only while nothing has been taken out of it.** A game that frees a slot
+    /// and fills it the frame after holds something whose place has nothing to do with the last one's, and a
+    /// body credited with the distance between the two is feared over everything it could have reached from
+    /// there: th08's `蘇活「生命遊戯」` stands a grid of cells up and kills and bears them every few frames, and
+    /// five hits of one Normal run read `nearest was an enemy ... half of it 2408.0,4164.9` on a field 384 by
+    /// 448, every one of the nine moves `hit first on 0` with `-2367.7 of room`. Those halves are the read
+    /// `8.0` grown by `(12.0, 20.8)` a frame for forty frames, and `(12.0, 20.8)` is `24 * (cos 60°, sin 60°)`
+    /// — one step of that grid's own lattice, which is the distance between two of its cells and not the
+    /// motion of either.
+    ///
+    /// `None` where nothing on the thing is such a count, which leaves the slot to say it: every game but
+    /// th08, whose enemy carries a timer of its own — see `Th08::ENEMY_FRAMES`.
+    pub frames: Option<i32>,
     pub at: (f32, f32),
     /// Its step, where the game keeps one on it, and `None` where nothing on it is a step — a body a script
     /// moves, or a place something has already been. The difference between the two is not a judgement: it is
@@ -2672,6 +2863,17 @@ pub enum Kind {
     /// nothing will move it: only its ends come and go.
     Trail,
 }
+
+/// **What [`Beam::fires_in`] is for a beam a game has aimed and says nothing more about**, which is every
+/// frame the rules will ever look at.
+///
+/// **Because the two things a countdown says come apart in th08.** That game's beam is a script's, and the
+/// field that turns it live turns on the frame the box first tests the player — so what says one is coming
+/// is the anchor its script wrote hundreds of frames earlier, and that says *where* and never *when*. A
+/// lane read live for as long as it is armed is four lanes at once in stage 4's fight, which is a field
+/// with nothing open in it; one read as a warning is ground to be off before it fires and ground that may
+/// be crossed to get out of something that already is.
+pub const FIRES_WHEN_NOTHING_SAYS: i32 = i32::MAX;
 
 /// **A beam**, which is a line rather than a box and so is not a [`Hazard`] at all.
 #[derive(Clone, Copy)]
@@ -2702,6 +2904,10 @@ pub struct Beam {
     pub half_across: f32,
     /// How many frames until the game starts testing the player against it, which is nought or less for one
     /// already firing. Before that it is drawn and hits nothing.
+    ///
+    /// **And [`FIRES_WHEN_NOTHING_SAYS`] where the game has one aimed and no field of its says which frame
+    /// it goes live on**, which is not the same as a beam far off: the rules may cross it, and they get no
+    /// frame to leave it once it fires.
     pub fires_in: i32,
     /// Whether it is on its way out. It goes on hitting while it fades, and what the fading takes down is a
     /// game's own business — th06c's takes the length and not the width, which is why the ends handed over are
@@ -2776,6 +2982,12 @@ pub struct Reached {
     /// **Whether the game's own name entry is up**, which is what a step that types one has to be running
     /// while — see [`Game::typing_a_name`], and `recipe::Until::Name`.
     pub typing_a_name: bool,
+    /// **Which card is running, by its number**, and nothing between cards — see `recipe::Until::Spell`.
+    pub spell: Option<u32>,
+    /// **How many frames that card has run**, off the boss's own attack clock — `State::boss_attack_frames` —
+    /// and nothing between cards or on a game that keeps no such clock. What a way of dodging one card by its
+    /// own schedule reads.
+    pub card_frames: Option<i32>,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.
@@ -2872,6 +3084,8 @@ pub struct State {
     pub lives: i8,
     pub bombs: i8,
     pub power: u16,
+    /// **The enemies there are to shoot at**, which is what the tuning pass's gap between waves is: a game
+    /// whose stage script keeps an enemy alive that nothing can shoot counts it out, th08 being one.
     pub enemy_count: i32,
     pub bullet_count: i32,
     pub laser_count: i32,

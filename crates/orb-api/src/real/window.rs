@@ -10,10 +10,11 @@ use windows_sys::Win32::Graphics::Gdi::{
     SRCCOPY, SelectObject, SetBkMode, SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRect, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
-    GetWindowRect, IsWindowVisible, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_SYSTEMMODAL,
-    MessageBoxW, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SetProcessDPIAware, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    AdjustWindowRect, DispatchMessageW, GWL_EXSTYLE, GetClientRect, GetForegroundWindow,
+    GetWindowLongPtrW, GetWindowRect, IsWindowVisible, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
+    MB_SYSTEMMODAL, MSG, MessageBoxW, PM_REMOVE, PeekMessageW, SW_SHOW, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetProcessDPIAware, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, TranslateMessage, WM_QUIT,
 };
 
 use crate::real::gdi;
@@ -134,6 +135,29 @@ pub fn show(window: Hwnd) -> bool {
 
 pub fn is_visible(window: Hwnd) -> bool {
     unsafe { IsWindowVisible(window.0 as _) != 0 }
+}
+
+/// `PeekMessageW` with `PM_REMOVE` until the queue is empty, each message translated and dispatched the
+/// way a window's own loop does it, and `true` where a `WM_QUIT` was among them.
+pub fn pump() -> bool {
+    let mut quit = false;
+    let mut message = MSG {
+        hwnd: std::ptr::null_mut(),
+        message: 0,
+        wParam: 0,
+        lParam: 0,
+        time: 0,
+        pt: POINT { x: 0, y: 0 },
+    };
+    while unsafe { PeekMessageW(&raw mut message, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
+        if message.message == WM_QUIT {
+            quit = true;
+            continue;
+        }
+        unsafe { TranslateMessage(&raw const message) };
+        unsafe { DispatchMessageW(&raw const message) };
+    }
+    quit
 }
 
 pub fn ex_style(window: Hwnd) -> u32 {

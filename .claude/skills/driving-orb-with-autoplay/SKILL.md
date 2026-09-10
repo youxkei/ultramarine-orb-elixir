@@ -54,9 +54,69 @@ launch of one is driven and watched.
     up. A launch is a measurement of what the game did frame by frame, and a compile taking the machine's
     cores is a launch whose pacing is the build's as much as orb's. Do the reading and the editing while a
     run plays, and leave the checks until `scripts/game.sh gone` answers.
-- Give every launch `--log=verbose`: the per-frame lines are the ones that say what orb did to the run.
+- **Every launch of a game gets a trace, and the scripts see to it**: `drive-a-run.sh` and `scripts/run.sh`
+  add `--trace=` under the copy's `traces/` — named by the time and the recipe, and printed as `trace: …` —
+  wherever the call names none, and `cargo xtask real` writes each case's into its session. A launch
+  started any other way is given one by hand. The user asked for this outright, after a session had gone
+  back to watching `orb.log`.
+- **Read a trace with `orb-real show <file> [<needle>]`**, which is the
+  cheap record: one msgpack frame apiece with the whole `State`, the word the run was played with, orb's
+  own question and the lines the log said that frame, written in chunks every few seconds — and nothing
+  at all while the flag is off. `show` prints the frames that said something, state and lines together,
+  so what a verbose log was read for is read as fields. The reader is
+  `target/i686-pc-windows-gnu/release/orb-real.exe`, which `cargo xtask real` builds and
+  `cargo xtask build --release` builds with everything else. Write the trace to a file of its own beside
+  the copy, the game being the process that opens it.
+  - **So a trace is the log, one frame at a time, and that is what to read once a launch is over.** Every
+    line `log!` said is in the record of the frame it was said on, so `orb-real show <file> "autoplay:"`
+    is the recipe's own steps *with* the state each landed on — which is what grepping `orb.log` for them
+    cannot give. A second log file per subject would be the same lines again with the frame thrown away.
+  - **And a launch is watched by `orb-real watching <trace>`**, which prints the three a tick wants out of
+    that file: the newest frame's whole state, the newest `autoplay: step`, and the newest of the things
+    that happen to a run, with the frame each was said on. Better than three greps of the log, whose state
+    line is said once every so many frames — the newest record *is* the newest frame — and one command
+    instead of five. A chunk is whole records, so the file is never read mid-record; what it is, is the
+    launch as of a few seconds ago, which is what a 30-second tick wants anyway.
+  - **And the path it is given is the one Windows spells**, `orb-real.exe` being a Windows program: a
+    `/mnt/<drive>/...` handed to it comes back `アクセスが拒否されました (os error 5)`, which reads as a file
+    somebody else has open and is a path it could not resolve. Write `<drive>:\...\<trace>.msgpack`, the
+    same spelling `--trace` itself takes.
+  - **What a trace cannot answer is whether the process is alive at all**: `scripts/game.sh running`
+    answers that.
+    - **And one zero from it is not a game that has gone.** A monitor armed to stop on the first `0`
+      stopped on a launch that was in stage 1's boss fight and went on to play for another twenty
+      minutes. Take two in a row before saying so.
+  - **And a playback takes a record per update of its own**, which is what a resume is read by: the whole
+    playback runs inside *one* frame of the host, so every one of those records carries that frame's
+    number and it is `ms` and the state that tell them apart. `orb-real watching` shows the newest, so a
+    launch answering `つづきから` at a chapter deep in a run reads as the run being put back, frame by
+    frame.
+- **And `--shot-every=<seconds>` puts a picture of the frame into the trace that often**, which is how a
+  launch is looked through afterwards: `orb-real watching` counts them and the records hold the bytes as a
+  BMP. Nothing without `--trace`. Ten seconds over a run of twenty minutes is 120 of them.
+- **Put what a measurement needs into the trace, and not into the log.** A new instrument is a field of
+  `orb_core::trace::Record` — a struct of the game's own words, handed over the way `trace::picture` and
+  `trace::over_a_hit` are and kept for the next record — read back with `orb-real show` and asserted on in
+  an e2e test through `orb_core::trace::read`. **Not a `log!` or a `detail!` line**: a line is written for a
+  person and a check against one is a check against its wording, and somebody watching said so twice when
+  an instrument went into the log, the second time with the log about to be switched off for it.
+  `trace::OverAHit` is the example, what stood over the player on the frame a hit is seen, which
+  `orb-real show <trace> "over a hit"` prints.
+- **And `--log=verbose` where its own lines are the measurement, knowing what it costs.** The per-frame
+  `resume:` line is a read per bullet slot plus the world's fingerprint, every frame a run is playing:
+  measured on th08, `reproduction=26343us/frame` of a `frame=52144us` — half the frame, and it grows with
+  the fire, 5,270us early in a stage against 26,343us in the thick of one. So a long run is driven at
+  `--log=normal` with a trace, and verbose is for the launch whose question is what the rules *wanted*
+  (the hit dumps) or what a resume parted on.
+  - **And `update=` in the `perf:` line is orb's own per-frame work and not the game's update**, which
+    is the trap `profile::Phase::Ahead`'s own doc was written for: `Update` is recorded twice a frame —
+    the span before the game's update and the span after it — so the figure is per *frame* over two
+    calls, and `ahead=` is the first span alone. On that th08 launch `update=27534us` was
+    `reproduction` plus `state` and the game's own chain was the rest of the frame.
 - Give a launch of a whole run `--pace=8`, which is a Normal run in a few minutes of wall clock with the
-  same frames played. `orb_config::args` says what `--pace` does.
+  same frames played. `orb_config::args` says what `--pace` does. **What it cannot do is beat the cost of
+  a frame**: at eight it asks for eight updates a drawn frame and gets as many as the frame's own
+  microseconds allow — two, on the launch above.
 - **Use `--clear` as little as possible, and not to save time.** The user wants the real cases played as
   somebody playing them would, so a long run is played and a question about what `--clear` itself does is
   answered by reading `runtime` rather than by driving it. Two launches of it went out in one session on
@@ -68,50 +128,45 @@ launch of one is driven and watched.
 
 ## Watching
 
-- Watch the copy's `orb.log` with a poll, and **say the state every 30 seconds** — every 2 seconds, with
-  the state line every 15th tick, while a screen that stands for seconds is what is being watched.
-- Poll between tool calls with short commands (`wc -c` on the log, the newest `run:` line). A monitor's
-  events arrive between calls, so do other work while the run plays instead of blocking on the launch.
-- Read the log with `tail -c 2000000` and `tail -n +"$from"`: `tail -f` sees nothing grow on a Windows
-  drive through the interop, and a grep over the whole of a verbose log costs more than the interval.
-- Cut the log to the launch first, since `orb.log` is one file across launches:
-
-      from=$(grep -an "new run ----" "$log" | tail -1 | cut -d: -f1)
-
-  and match a monitor's end condition inside that cut too.
-- End a filter in `grep --line-buffered`, or trim inside `sed`'s substitution; a `cut` or `head` as the
-  last stage buffers the lines the monitor was armed for.
-- Arm the poll with the launch, and add a filter for the lines the measurement turns on beside it.
+- **Watch the launch's trace and not `orb.log`**, and **say the state every 30 seconds**:
+  `bash scripts/watch-a-run.sh <the copy, or a session's directory> <game-exe>` as a monitor, which reads
+  the newest `.msgpack` under the directory through `orb-real watching` and says `stuck:` where the
+  recipe's step, the scene, the run's `frames=` and its `script=` have not moved over two looks. `orb.log`
+  is one file across launches and the next launch starts it over, so what it said of a launch is gone the
+  moment the next comes up — which is how a session's watched attempt was left with nothing to read.
+- A monitor's events arrive between calls, so do other work while the run plays instead of blocking on the
+  launch. Close the monitor of a run that is over (`TaskStop`) before starting the next launch.
 
 Say three things a tick, and carry the state line verbatim — a step number says which step a recipe is on
-and the state line says whether a run is on at all:
+and the state line says whether a run is on at all. `orb-real watching` prints all three:
 
-```sh
-recent=$(tail -c 2000000 "$log")
-state=$(printf '%s\n' "$recent" | grep -aE "^\[[0-9]+ms\] f[0-9]+ scene=" | tail -1 \
-  | sed -E 's/^\[[0-9]+ms\] //; s/ seed=[^ ]*//' | cut -c1-120)
-step=$(printf '%s\n' "$recent" | grep -a "autoplay: step" | tail -1 | sed -E 's/^.*autoplay: //' | cut -c1-48)
-event=$(printf '%s\n' "$recent" | grep -aE \
-  "run ended|ending (skipped|run out)|died in chapter|retry: |replay: (kept|declined)|front end: screen" \
-  | tail -1 | sed -E 's/^\[[0-9]+ms\] //' | cut -c1-90)
-echo "${step:-no step} | ${state:-no state yet} | ${event:-nothing yet}"
-```
-
-- the state: the newest `f<N> scene=A->B stage=S frames=F … deaths=D lives=L` line
+- the state: the newest frame's `f<N> <ms> scene=A->B stage=S frames=F … deaths=D lives=L`
 - the step: the newest `autoplay: step N of M …`
-- the event: the newest of `run ended after N retries`, `ending run out in N update(s)`,
-  `ending skipped`, `died in chapter N`, `retry: …`, `replay: kept`, `front end: screen N`
+- the event: the newest of `died in chapter N`, `autoplay: hit at`, a chapter's own line, `run ended`,
+  `retry: …` and `front end: screen N`
 
-Close the monitor of a run that is over (`TaskStop`) before starting the next launch.
+A look can land on a chunk being written — `record 1 cannot be read` — and the next one reads it whole.
 
 ## When to close a run
 
-Read the newest state line and the log's size, and close the game — `scripts/game.sh close` — saying what
-the log said before it, in these two states:
+Read the trace's newest frame and how many it holds, and close the game — `scripts/game.sh close` — saying
+what the trace said before it, in these two states:
 
-- **stalled**: `wc -c` on the log has not moved for several ticks
+- **stalled**: the trace's frame count has not grown for several ticks, or `watch-a-run.sh` says `stuck:`
 - **game over**: `lives=0` with a `play` step still waiting — the game's continue prompt is up and the
   log keeps growing
+- **the same attempt over again**: two `died in chapter N` at the *same* `frames=` and the same `seed=`,
+  with a `retry chapter N (retry M)` between them. A restore puts the game's memory and its generator
+  back, and nothing of `orb-bot` is random, so a chapter can be lost the same way every retry — and a
+  launch waiting for that to come out differently waits for nothing. **The test is the numbers
+  repeating and not the fact of a retry**: a retry does sometimes land somewhere else, so read two
+  deaths before calling it. Both halves are measured on th08's stage 1 — the change's own message has
+  the frames.
+  **And the frames are that launch's own**: a game that seeds itself from the clock at startup plays a
+  different stage every launch, so two launches of one recipe are two different runs and a frame number
+  from yesterday names nothing today. What holds one fight still is a resume — `pointdevice_resume/`
+  keeps the stage's own seed — so a change measured against a fight is measured by picking that chapter
+  up, not by starting the run again
 
 Leave it playing in these:
 
@@ -126,6 +181,12 @@ Leave it playing in these:
   as a game that stands still in stage 1's boss fight — `script=5093` with `frames=` climbing — and the
   boss's life had stopped on the very frame `step 31 of 33 done` was written, `chose=0x0000` on 5,404 of
   the frames after it. The same flag with a recipe that asks the run *past* her took it into stage 2.
+- **a fight whose game holds its stage script for the whole of it** rather than for each attack, where
+  `script=` then freezes on one number from the frame the boss arrives and the tick's three fields cannot
+  show the fight advancing at all. **What says it is going is `spell=`**, the state line's field for the
+  card that is up: a launch closed on ten thousand frames of one `script=` had gone two cards further on
+  inside them. So put `spell=` in the tick and read it before calling a fight stuck — th08 is the game
+  this was measured on, and `game/th08/asm.md` says which of its clocks does what.
 
 ## Pictures
 
@@ -135,6 +196,10 @@ Leave it playing in these:
   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/skills/driving-orb-with-autoplay/scripts/shot.ps1 -Exe th06c.exe -Out <C:\path\to.png>`
   (`-Exe th06nc.exe` for the other),
   with the recipe holding that screen for longer than one poll interval.
+- **`--shot-every=<seconds>` keeps the back buffer in the trace as the launch runs**, and
+  `orb-real picture <trace> <out.bmp> [<frame>]` writes one of them out — the newest, or the first taken on
+  or after a frame — so that a screen kept can actually be looked at. A 32-bit BMP, which reads as an image.
+  The count alone (`orb-real watching`) says a screen was kept and nothing about what was on it.
 
 ## When the game dies and says nothing
 
@@ -149,9 +214,18 @@ pid=$(grep -a "attached to pid" <copy>/orb.log | tail -1 | sed -E 's/.*pid ([0-9
   -logo '<copy as Windows spells it>\cdb.log' -c "g; .lastevent; .exr -1; r; kb; q"
 ```
 
+- **And the debugger has to be the game's own width.** `x64/cdb.exe` on a 32-bit game answers
+  `Cannot debug pid N, Win32 error 0n87` and nothing else — th06, th07 and th08 are 32-bit, so theirs is
+  `Debuggers/x86/cdb.exe`, and the `x64` above is th06c's and th06nc's.
+
 - The `-c` list runs at the attach's own breakpoint: `g` runs the target, and when it stops the rest
   prints the last event, the exception record, the registers and a stack, and `q` ends it — so the launch
   is not left held by a debugger waiting for input.
+- **`q` takes the game down with it, so a read of a live run ends in `qd`.** A run in play is the thing the
+  question is about, and reading one field of it is not a reason to end it: a `db`/`dd` of an address
+  followed by `q` answered which card th08's stage 4 fight was on and closed the launch that was in it. A
+  read across a game somebody is watching is theirs to allow either way — see the rule above about not
+  disturbing a run.
 - Write the log to the copy's own directory as a **new** file and read it from WSL afterwards; cdb is a
   Windows process, so the path is a Windows one.
 - Attach as soon as the pid is up rather than at the moment of the fault: attaching costs the game a
@@ -192,6 +266,16 @@ and a disassembly can look up. That is what turned th06nc's stage 2 from a span 
   second launch appends to or rotates `orb.log`.
 - Chain the stages where several have to be measured: each launch picks the run up, plays on to the next
   stage's fight and leaves it there.
+- **Measure a change to one card by picking the run up at the chapter before it, and not by playing the run
+  to it again.** A whole-run case is three quarters of an hour to reach the Extra's fifth card; a pick-up
+  plays that stage's own frames back in and is at the card in a minute. Somebody watching asked why every
+  launch started from the first stage, and there was no reason: `pointdevice_resume/` holds only the chapter
+  a launch ended in, so run
+  `bash .claude/skills/driving-orb-with-autoplay/scripts/keep-every-chapter.sh <session or copy dir> <dir beside the copy> <copy>/orb.log`
+  in the background beside every session, and each chapter written is kept as it is written. Pick one up
+  with a `--keep-in=` of its own holding the file in its `pointdevice_resume/`, so the kept one is never
+  written over, and a recipe that walks to the run's own team select and answers `question: resume`.
+  The whole-run cases are for the end, with the build that is handed over.
 - Keep a file the **released** orb wrote — one a person played the released exe to produce — in
   `resume-fixtures/` beside the copy, and copy it out of `pointdevice_resume/` before driving any launch
   at that slot.

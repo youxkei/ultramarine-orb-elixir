@@ -26,19 +26,17 @@
 //! an array of those. That is what the game's structures are made of, and it is what lets the same
 //! call be answered out of bytes when a simulated Windows is in front.
 
-/// Reinterprets what a seam read came back with.
+/// Reinterprets what a seam read puts into a `T`'s bytes, where `read` says it put them.
 ///
 /// Sound for what this seam carries, which is what the game's structures are made of: integers,
 /// floats, pointers, and arrays of those. Nothing with a destructor, nothing holding a
 /// reference, nothing whose bit patterns are not all values of the type.
 #[cfg(feature = "sim")]
-fn from_bytes<T: Copy>(bytes: &[u8]) -> T {
-    assert_eq!(bytes.len(), size_of::<T>());
-    let mut value = std::mem::MaybeUninit::<T>::uninit();
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), value.as_mut_ptr().cast::<u8>(), bytes.len());
-        value.assume_init()
-    }
+fn read_with<T: Copy>(read: impl FnOnce(&mut [u8]) -> bool) -> Option<T> {
+    let mut value = std::mem::MaybeUninit::<T>::zeroed();
+    let bytes =
+        unsafe { std::slice::from_raw_parts_mut(value.as_mut_ptr().cast::<u8>(), size_of::<T>()) };
+    read(bytes).then(|| unsafe { value.assume_init() })
 }
 
 #[cfg(feature = "sim")]
@@ -50,8 +48,13 @@ fn as_bytes<T: Copy>(value: &T) -> &[u8] {
 /// As the module's, for a read of `T`.
 pub unsafe fn read<T: Copy>(address: usize) -> T {
     #[cfg(feature = "sim")]
-    if let Some(win) = crate::installed() {
-        return from_bytes(&win.read_bytes(address, size_of::<T>()));
+    if let Some(value) = crate::install::asking_the_installed(|win| {
+        read_with(|into| {
+            win.read_into(address, into);
+            true
+        })
+    }) {
+        return value.expect("a read that always answers");
     }
     unsafe { host::read(address) }
 }
@@ -279,10 +282,10 @@ pub fn read_committed<T: Copy>(address: usize) -> Option<T> {
         return None;
     }
     #[cfg(feature = "sim")]
-    if let Some(win) = crate::installed() {
-        return win
-            .read_committed_bytes(address, size_of::<T>())
-            .map(|bytes| from_bytes(&bytes));
+    if let Some(value) = crate::install::asking_the_installed(|win| {
+        read_with(|into| win.read_committed_into(address, into))
+    }) {
+        return value;
     }
     host::read_committed(address)
 }

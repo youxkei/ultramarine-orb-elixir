@@ -120,6 +120,25 @@ pub fn is_visible(window: Hwnd) -> bool {
     host::is_visible(window)
 }
 
+/// **Takes what is waiting in this thread's message queue and gives it to the window it is for**, and
+/// answers whether a quit was among them.
+///
+/// **What it is for is a stretch orb spends inside one frame**, which is a stretch the game's own loop is
+/// not pumping in: a playback of a chapter deep in a run is a minute of updates inside one frame, and a
+/// window that has not answered a message in a minute is one Windows draws a ghost of and offers to
+/// close. A launch put back at stage 4's chapter ended on the game's own `exit()` with no exception at
+/// all — `Exit process, code 0` under `mainCRTStartup` — which is what a close reaching a window looks
+/// like from the inside.
+///
+/// Everything waiting rather than a chosen few, the game's own loop making no such choice either.
+pub fn pump() -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.pump();
+    }
+    host::pump()
+}
+
 /// What the game draws into, which is what the letterbox and the bar beside it are worked out from.
 pub fn client_rect(window: Hwnd) -> Option<Rect> {
     #[cfg(feature = "sim")]
@@ -198,6 +217,9 @@ mod host {
     }
     pub fn is_visible(_window: Hwnd) -> bool {
         no_windows("window::is_visible")
+    }
+    pub fn pump() -> bool {
+        no_windows("window::pump")
     }
     pub fn ex_style(_window: Hwnd) -> u32 {
         no_windows("window::ex_style")

@@ -62,6 +62,8 @@ use orb_core::game::{Game, Question, Reached};
 use orb_core::log;
 use orb_core::runtime;
 
+/// **Ways of dodging one card of one game**, each named for its card.
+mod cards;
 /// **Being hit on purpose**, which is what a `take_hits` step asks for.
 mod hits;
 /// The rules a stage is played by, which is what a recipe falls through to.
@@ -109,6 +111,36 @@ struct Playing {
     /// answer lands on has the run wanted and no run built — th07 spends one such frame between the answer and
     /// the build — and a `play` step starting there read the run as over and gave up before it began.
     in_run_seen: bool,
+    /// **The place a [`Step::StandAt`] written without a card told the rules**, which stands until another
+    /// one says otherwise.
+    standing: Option<steer::Standing>,
+    /// **And the places written for a card**, each standing while its own card runs and in place of the one
+    /// above — see [`Playing::the_place_told`].
+    for_cards: Vec<(u32, steer::Standing)>,
+    /// What the rules were last handed of the two, so that a card's place taking over or lapsing is said
+    /// the once.
+    told: Option<steer::Standing>,
+    /// **The ways named for a card**, each taken up while its own card runs — see [`recipe::Step::Dodge`].
+    dodges: Vec<(u32, recipe::Dodge)>,
+    /// And the one the rules were last handed, for the same reason as [`Playing::told`].
+    dodging: Option<recipe::Dodge>,
+    /// And the attempt they were last handed — see [`hands_the_rules_their_attempt`].
+    attempt: u32,
+}
+
+impl Playing {
+    /// **Where the rules are to stand this frame**: the place written for the card that is up where there is
+    /// one, and the place written without a card otherwise.
+    fn the_place_told(&self, spell: Option<u32>) -> Option<steer::Standing> {
+        spell
+            .and_then(|up| {
+                self.for_cards
+                    .iter()
+                    .find(|(card, _)| *card == up)
+                    .map(|(_, place)| *place)
+            })
+            .or(self.standing)
+    }
 }
 
 /// One step, with its buttons already turned into the word they are and its question already resolved.
@@ -138,6 +170,17 @@ enum Step {
     TakeHits(hits::Told),
     /// Whether the rules may bomb from here on — see [`recipe::Step::Bombs`].
     Bombs(bool),
+    /// Where the rules are told to stand from here on, or freed of it — or, with a card's number, where they
+    /// stand while that card runs. See [`recipe::Step::StandAt`].
+    StandAt {
+        standing: Option<steer::Standing>,
+        spell: Option<u32>,
+    },
+    /// The way the rules dodge one card while it runs — see [`recipe::Step::Dodge`].
+    Dodge {
+        with: recipe::Dodge,
+        spell: u32,
+    },
     Answer {
         question: Question,
         item: usize,
@@ -162,6 +205,7 @@ enum Wait {
     CardName,
     Name,
     Frames(u32),
+    Spell(u32),
 }
 
 /// **Reads the recipe and installs the bot**, or leaves the run to whoever is at the keyboard.
@@ -263,6 +307,26 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
                 gives_up,
             }),
             recipe::Step::Bombs { allowed } => Step::Bombs(allowed),
+            recipe::Step::StandAt {
+                x,
+                y,
+                away_from_the_boss,
+                spell,
+            } => {
+                let across = match (x, away_from_the_boss) {
+                    (Some(x), _) => Some(steer::Across::At(x)),
+                    (None, Some(distance)) => Some(steer::Across::AwayFromTheBoss(distance)),
+                    (None, None) => None,
+                };
+                Step::StandAt {
+                    standing: match (across, y) {
+                        (None, None) => None,
+                        (across, y) => Some(steer::Standing { across, y }),
+                    },
+                    spell,
+                }
+            }
+            recipe::Step::Dodge { with, spell } => Step::Dodge { with, spell },
             recipe::Step::Answer {
                 question,
                 item,
@@ -294,6 +358,12 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         bombs: true,
         asked: false,
         in_run_seen: false,
+        standing: None,
+        for_cards: Vec::new(),
+        told: None,
+        dodges: Vec::new(),
+        dodging: None,
+        attempt: 0,
     })
 }
 
@@ -310,6 +380,7 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::CardName => Wait::CardName,
         Until::Name => Wait::Name,
         Until::Frames(frames) => Wait::Frames(frames),
+        Until::Spell(spell) => Wait::Spell(spell),
         Until::Question(name) => Wait::Question(named_question(&name, at)?),
     })
 }
@@ -366,6 +437,88 @@ fn word_to_press(game: &'static dyn Game, reached: Reached) -> Option<u16> {
     the_word(held.as_mut()?, game, reached)
 }
 
+/// **The place the rules are to stand this frame, handed to them where it is not the one they have** — and
+/// said as a card's own place takes over or lapses, which is a thing a recipe wrote once and the log would
+/// otherwise never show happening.
+fn hands_the_rules_their_place(playing: &mut Playing, spell: Option<u32>) {
+    let told = playing.the_place_told(spell);
+    if told == playing.told {
+        return;
+    }
+    steer::stand_at(told);
+    let a_cards = spell.filter(|up| playing.for_cards.iter().any(|(card, _)| card == up));
+    match (a_cards, told) {
+        (Some(card), Some(place)) => log!(
+            "autoplay: card {card} is up, and the rules stand {} through it",
+            where_they_stand(place)
+        ),
+        (_, Some(place)) => log!("autoplay: the rules stand {}", where_they_stand(place)),
+        (_, None) => log!("autoplay: the rules stand where their own errands take them"),
+    }
+    playing.told = told;
+}
+
+/// **The way the rules are to dodge the card that is up, handed to them where it is not the one they have** —
+/// and said as it is taken up or put down, the way a card's own place is.
+fn hands_the_rules_their_dodge(playing: &mut Playing, spell: Option<u32>) {
+    let dodging = spell.and_then(|up| {
+        playing
+            .dodges
+            .iter()
+            .find(|(card, _)| *card == up)
+            .map(|(_, with)| *with)
+    });
+    if dodging == playing.dodging {
+        return;
+    }
+    steer::dodge_with(dodging);
+    match (spell, dodging) {
+        (Some(card), Some(with)) => {
+            log!(
+                "autoplay: card {card} is up, and the rules dodge it {}",
+                with.name()
+            )
+        }
+        _ => log!("autoplay: the rules dodge the way their own rules do"),
+    }
+    playing.dodging = dodging;
+}
+
+/// **The attempt at its chapter the run is on, handed to the rules where it is not the one they have** — and
+/// said where it is a retry, the wait moving being a thing the log would otherwise never show.
+fn hands_the_rules_their_attempt(playing: &mut Playing) {
+    let attempt = playing.hits.attempt();
+    if attempt == playing.attempt {
+        return;
+    }
+    steer::this_attempt(attempt);
+    if attempt > 0 {
+        log!(
+            "autoplay: retry {attempt} of this chapter, and the rules wait {:+.1} to the side of the \
+             boss, the middle and the place the card's own dodge puts it",
+            steer::aside_on(attempt),
+        );
+    }
+    playing.attempt = attempt;
+}
+
+/// A told place in the words the log says it in.
+fn where_they_stand(place: steer::Standing) -> String {
+    let steer::Standing { across, y } = place;
+    format!(
+        "{}{}",
+        match across {
+            Some(steer::Across::At(x)) => format!("at x = {x}"),
+            Some(steer::Across::AwayFromTheBoss(it)) => format!("{it} away from the boss"),
+            None => "where they were going".to_owned(),
+        },
+        match y {
+            Some(y) => format!(", at y = {y}"),
+            None => String::new(),
+        },
+    )
+}
+
 /// What a bot playing `playing` presses this frame.
 fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) -> Option<u16> {
     // **What the rules are to do about being hit, asked before anything else this frame.** It is the chapter
@@ -373,6 +526,15 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
     // frame back without reaching the rules — orb's own offer to retry is one, and that offer going down is
     // the very thing that says a chapter is being played again.
     let hazards = playing.hits.this_frame(reached);
+    // **And which attempt at it this is**, counted by the same offer going down.
+    hands_the_rules_their_attempt(playing);
+    // **And where to stand, which is the card that is up's to say where a recipe gave it a place** — asked
+    // every frame for the same reason, a card beginning and ending in the middle of whatever step is on.
+    hands_the_rules_their_place(playing, reached.spell);
+    // **And how to dodge it, which is the card's to say where a recipe named it a way** — for the same reason.
+    hands_the_rules_their_dodge(playing, reached.spell);
+    // **And how far into the card they are**, which a way of dodging one card by its own schedule reads.
+    steer::the_card_has_run(reached.card_frames);
     // **orb's own offer to retry is taken wherever it comes up**, whatever step the recipe is on: Pointdevice mode
     // is a mode whose whole content is that a death is retried, and a death lands in the middle of a step — so
     // no recipe can say when, and a bot that waited for one to say so would stop at its first death. Tapped
@@ -517,6 +679,65 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 true,
             )
         }
+        // **The rules told where to stand, or freed of it, and the step over with the telling** — on the same
+        // terms as a `bombs`: it stands until another says otherwise. A card's place is kept beside the others
+        // for the frames that card runs, which the hand-over at the top of this function looks after.
+        Step::StandAt { standing, spell } => {
+            let (standing, spell) = (*standing, *spell);
+            match (spell, standing) {
+                (Some(card), Some(place)) => {
+                    playing.for_cards.retain(|(it, _)| *it != card);
+                    playing.for_cards.push((card, place));
+                }
+                _ => playing.standing = standing,
+            }
+            log!(
+                "autoplay: step {} of {} {}{}",
+                playing.at + 1,
+                playing.steps.len(),
+                match standing {
+                    Some(place) => format!("tells the rules to stand {}", where_they_stand(place)),
+                    None => "frees the rules of the place they were told to stand".to_owned(),
+                },
+                match spell {
+                    Some(card) => format!(" while card {card} runs"),
+                    None => String::new(),
+                },
+            );
+            // Handed over on this frame and not the next, the step's own line having said what it is.
+            let told = playing.the_place_told(reached.spell);
+            steer::stand_at(told);
+            playing.told = told;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **A way named for a card, and the step over with the naming** — kept for the frames that card runs,
+        // which the hand-over at the top of this function looks after the way it does a card's own place.
+        Step::Dodge { with, spell } => {
+            let (with, spell) = (*with, *spell);
+            playing.dodges.retain(|(card, _)| *card != spell);
+            playing.dodges.push((spell, with));
+            log!(
+                "autoplay: step {} of {} has the rules dodge card {spell} {}",
+                playing.at + 1,
+                playing.steps.len(),
+                with.name(),
+            );
+            // Handed over on this frame and not the next, the step's own line having said what it is.
+            let dodging = reached
+                .spell
+                .filter(|up| *up == spell)
+                .map(|_| with)
+                .or(playing.dodging);
+            steer::dodge_with(dodging);
+            playing.dodging = dodging;
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
         // **The run asked to start over, and the step over with the asking.** What raises the question is the
         // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
         // wait for — the step after it presses at the question.
@@ -626,7 +847,9 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             | Step::Screenshot { .. }
             | Step::StartOver
             | Step::TakeHits(..)
-            | Step::Bombs(..) => false,
+            | Step::Bombs(..)
+            | Step::StandAt { .. }
+            | Step::Dodge { .. } => false,
         };
     if over || gave_up {
         playing.at += 1;
@@ -675,12 +898,13 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         Wait::CardName => reached.card_name,
         Wait::Name => reached.typing_a_name,
         Wait::Frames(wanted) => frames >= *wanted,
+        Wait::Spell(spell) => reached.spell == Some(*spell),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{A_TAP, Playing, read_the_recipe, the_word};
+    use super::{A_TAP, Playing, read_the_recipe, steer, the_word};
     use orb_core::game::{Game, Question, Reached, th07::Th07};
 
     /// The game these are read against, which is th07 for the reason every recipe test uses it: what a button
@@ -711,7 +935,55 @@ mod tests {
             card: false,
             card_name: false,
             typing_a_name: false,
+            spell: None,
+            card_frames: None,
         }
+    }
+
+    /// **A card's own place stands while that card runs and the place written without one stands otherwise** —
+    /// through another card too, which is what makes a place told for one card no place of any other's.
+    #[test]
+    fn a_cards_place_stands_through_that_card_alone() {
+        let mut playing = playing_to("- quit: true\n");
+        let everywhere = steer::Standing {
+            across: Some(steer::Across::At(40.0)),
+            y: None,
+        };
+        let through_the_card = steer::Standing {
+            across: Some(steer::Across::At(192.0)),
+            y: Some(260.0),
+        };
+        playing.standing = Some(everywhere);
+        playing.for_cards.push((105, through_the_card));
+
+        assert_eq!(playing.the_place_told(None), Some(everywhere));
+        assert_eq!(playing.the_place_told(Some(105)), Some(through_the_card));
+        assert_eq!(playing.the_place_told(Some(94)), Some(everywhere));
+        playing.standing = None;
+        assert_eq!(playing.the_place_told(Some(94)), None);
+    }
+
+    /// **A step waiting for a card by its number waits through every other card**, and ends the frame that one
+    /// is up — which is what makes a told place bracketed by it the card's and nobody else's. A `wait_until`
+    /// and not a `play_until`, the two reading the condition alike and only the second asking the rules for
+    /// a word about a game this test has not laid out.
+    #[test]
+    fn a_step_for_a_card_by_its_number_waits_through_the_others() {
+        let mut playing = playing_to("- wait_until: { spell: 94 }\n- quit: true\n");
+        let another = Reached {
+            card: true,
+            spell: Some(90),
+            ..reached(None)
+        };
+        the_word(&mut playing, GAME, another);
+        assert_eq!(playing.at, 0, "the step ended on a card it does not name");
+        let named = Reached {
+            card: true,
+            spell: Some(94),
+            ..reached(None)
+        };
+        the_word(&mut playing, GAME, named);
+        assert_eq!(playing.at, 1, "the step did not end on the card it names");
     }
 
     /// **A tap goes on until the game's own cursor is on the item the step names**, and stops the frame it is.

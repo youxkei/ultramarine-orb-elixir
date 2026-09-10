@@ -241,7 +241,10 @@ impl Space {
     /// does is not readable. A real read there takes the process down, so a test reaching one
     /// has a wrong address in it and saying which is the whole of the help there is to give.
     pub fn read<T: Copy>(&self, address: usize) -> T {
-        reinterpret(&self.bytes(address, size_of::<T>()))
+        let regions = self.regions.lock().unwrap();
+        let region = Self::find(&regions, address, size_of::<T>());
+        let at = address - region.base;
+        reinterpret(&region.bytes[at..at + size_of::<T>()])
     }
 
     /// # Panics
@@ -275,6 +278,32 @@ impl Space {
         }
         let at = address - region.base;
         Some(region.bytes[at..at + len].to_vec())
+    }
+
+    /// [`read_bytes`](Self::read_bytes) and [`read_committed_bytes`](Self::read_committed_bytes) into
+    /// the caller's own bytes — see `Win::read_into`, whose reason this is.
+    pub fn read_into(&self, address: usize, into: &mut [u8]) {
+        let regions = self.regions.lock().unwrap();
+        let region = Self::find(&regions, address, into.len());
+        let at = address - region.base;
+        into.copy_from_slice(&region.bytes[at..at + into.len()]);
+    }
+
+    pub fn read_committed_into(&self, address: usize, into: &mut [u8]) -> bool {
+        self.asked.fetch_add(1, Ordering::Relaxed);
+        let regions = self.regions.lock().unwrap();
+        let Some(region) = regions
+            .iter()
+            .find(|region| region.holds(address, into.len()))
+        else {
+            return false;
+        };
+        if region.access != Access::Open {
+            return false;
+        }
+        let at = address - region.base;
+        into.copy_from_slice(&region.bytes[at..at + into.len()]);
+        true
     }
 
     pub fn vtable_in_image(&self, address: usize) -> bool {
@@ -355,6 +384,27 @@ impl Space {
         let region = Self::find_mut(&mut regions, address, len);
         let at = address - region.base;
         region.bytes[at..at + len].fill(byte);
+    }
+
+    /// **`address..address + len` handed to `edit` as one slice**, for a laid-out game whose own update
+    /// goes over every slot of an array.
+    ///
+    /// **Rather than a [`read`](Self::read) and a [`write`](Self::write) a slot**, which is a lock and a
+    /// search of the map apiece: th08's enemies and bullets aged that way were 0x7e0 reads of the map a
+    /// frame, about 0.3ms of an e2e frame whose whole was 1.7ms.
+    ///
+    /// # Panics
+    /// As [`write`](Self::write).
+    pub fn edit_bytes<R>(
+        &self,
+        address: usize,
+        len: usize,
+        edit: impl FnOnce(&mut [u8]) -> R,
+    ) -> R {
+        let mut regions = self.regions.lock().unwrap();
+        let region = Self::find_mut(&mut regions, address, len);
+        let at = address - region.base;
+        edit(&mut region.bytes[at..at + len])
     }
 
     fn bytes(&self, address: usize, len: usize) -> Vec<u8> {

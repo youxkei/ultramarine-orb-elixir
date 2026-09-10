@@ -39,8 +39,9 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
+use orb_config::recipe::Dodge;
 use orb_core::detail;
-use orb_core::game::{Beam, Frame, Game, Hazard, Kind, Worth};
+use orb_core::game::{Beam, FIRES_WHEN_NOTHING_SAYS, Frame, Game, Hazard, Kind, Worth};
 
 use crate::hits::Hazards;
 
@@ -274,6 +275,13 @@ enum Settled {
     /// **And the nearest thing that can hit the player**, which is a chapter drawn to be hit in and not hit
     /// yet — see [`crate::hits::Hazards::GoneTo`].
     SomethingThatCanHitIt,
+    /// The x a recipe told the rules to stand at — see [`TOLD_TO_STAND_AT`].
+    ThePlaceItWasTold,
+    /// The place the way a recipe named for the card that is up puts the rules — see [`DODGE`].
+    TheWayItWasToldToDodge,
+    /// **The nearest way out of a beam the run is standing in**, which is the one errand that outranks
+    /// every other — see [`the_way_out_of_a_beam`].
+    OutOfABeam,
 }
 
 impl Settled {
@@ -291,6 +299,9 @@ impl Settled {
             Self::TheMiddle => "the middle",
             Self::TheEmptiestBox => "the emptiest box",
             Self::SomethingThatCanHitIt => "something that can hit it",
+            Self::ThePlaceItWasTold => "the place it was told to stand",
+            Self::TheWayItWasToldToDodge => "the place the card's own dodge puts it",
+            Self::OutOfABeam => "the way out of the beam it is in",
         }
     }
 }
@@ -313,6 +324,22 @@ struct Counted {
     /// hazard out — with the nearest of them to the player, and how far that was, for a hit to name.
     no_body: u32,
     no_body_at: Option<((f32, f32), f32)>,
+    /// **And the widest body a frame held, as its slot and its own half** — which is what a hit with a
+    /// room of `-1448.7` wants said: a box that size is a reading and not an enemy, and the slot is what
+    /// a debugger needs to go and look at the one that was handed over. A card that stands a grid of cells up
+    /// put one of `2408.0,2502.2` on the field, ten times the field across, and the rules had nowhere open
+    /// for as long as it stood there.
+    widest_body: Option<(usize, (f32, f32))>,
+    /// **And how many body slots hold an enemy other than the one they held last frame**, which is the
+    /// number that tells a wide box handed over apart from a wide box the model made of two enemies —
+    /// see `game::Hazard::frames`. The same card's cells are born and killed every few frames, and the
+    /// half a hit named was `8.0` grown over one lattice step of the grid rather than anything the game
+    /// put on the field.
+    refilled: u32,
+    /// And the same for the bullet slots, whose own count is read off `Th08::BULLET_FRAMES`: a bullet is
+    /// differenced against its slot as well, the rules reading one that moved otherwise than its step says
+    /// as one a script is moving and fearing the box it swept.
+    refilled_bullets: u32,
     lasers: u32,
     /// Of those, how many had not started hitting yet — a warning line, judged for where its beam will be.
     warnings: u32,
@@ -341,10 +368,21 @@ struct Counted {
     /// And the fire each box across the field was counted as holding, which is what the place to wait was chosen
     /// by — see [`the_fire_in_each_box`].
     fire: [f32; BOXES_ACROSS],
+    /// And whether that fire was counted under a boss overhead, which is what it was counted by — see
+    /// [`the_boss_is_overhead`].
+    overhead: bool,
     /// **And the frame a beam will be lying across the band in each of those boxes on**, which the fire count
     /// has no shape for — [`THE_FRAMES_AHEAD`] for a box none of them reaches inside the window. See the loop
     /// in [`steer`] that answers it.
     closes: [u32; BOXES_ACROSS],
+    /// **And the nearest beam's own box, as the slot, how far outside it the player is standing and how far
+    /// along it that is.** Nought or less says the run was inside a beam the model was holding, which is a
+    /// dodge the rules did not make rather than a reading they did not have; a large one says the beams had
+    /// no part in the hit. The same job the nearest bodiless enemy does for the enemies.
+    ///
+    /// **And whether that beam was firing**, since a box the player is inside takes nothing where the lane
+    /// has not gone live.
+    beam_at: Option<(usize, f32, f32, bool)>,
 }
 
 /// **One bullet's disagreement between what it moved and what its step said** — see [`Counted::out_by`], which
@@ -371,6 +409,15 @@ struct Nearest {
     at: (f32, f32),
     step: (f32, f32),
     half: (f32, f32),
+    /// **And the half the frame it came nearest on was judged against, where the two differ** — which is the
+    /// box feared rather than the box read, for a hazard a script is moving: see the `grows` argument of the
+    /// judging closure in [`steer`].
+    ///
+    /// **Because the two read alike on one line and one of them is the game's.** Five hits of one th08 Normal
+    /// run named `an enemy ... half of it 2408.0,4164.9` while the same dump's widest *read* body was
+    /// `16.0,10.7`, and a box ten times the field is a thing to go and look for in a debugger where a box
+    /// feared out to ten times the field is a thing to fix in the fear.
+    feared: Option<(f32, f32)>,
 }
 
 /// **What the model was holding within reach of the player on the frame it chose**, kept so that a hit can be
@@ -722,17 +769,21 @@ static LAST_FRAME: Mutex<Option<Steered>> = Mutex::new(None);
 /// with nothing to remember to call.
 #[derive(Default)]
 struct Remembered {
-    /// Where each bullet was, and the step it claimed.
-    bullets: Vec<Option<Stood>>,
-    /// Where each body was, and how it was moving.
-    bodies: Vec<Option<Stood>>,
+    /// Where each bullet was, the step it claimed, and the count that says the bullet in that slot now is
+    /// the same one — see [`Stayed`].
+    bullets: Vec<Option<Stayed>>,
+    /// Where each body was, how it was moving, and the count that says the body in that slot now is the
+    /// same one — see [`Stayed`].
+    bodies: Vec<Option<Stayed>>,
     /// Where each beam was fired from, the angle it pointed at, and how many frames it had been in its
     /// phase — see [`Aimed`].
     beams: Vec<Option<Aimed>>,
 }
 
-/// What one slot held: where its thing stood, and the step or the motion it had there.
-type Stood = ((f32, f32), (f32, f32));
+/// **What one slot held**: where its thing stood, the step or the motion it had there, and how many frames the
+/// game said it had been there — the third being what says the thing there now is that same thing, for the
+/// reason `game::Hazard::frames` gives.
+type Stayed = ((f32, f32), (f32, f32), Option<i32>);
 
 /// **What one beam slot held**: where the beam was fired from, which way it pointed, and how many frames it
 /// had been in its phase — the third being what says the beam there now is that same beam, for the reason
@@ -810,7 +861,7 @@ fn a_tick_read_again(frame: &Frame) -> Option<Steered> {
         if !matches!(hazard.kind, Kind::Bullet { .. }) {
             continue;
         }
-        let Some((stood, step)) = what_a_slot_held(&last.bullets, hazard.slot) else {
+        let Some((stood, step, _)) = what_a_slot_held(&last.bullets, hazard.slot) else {
             continue;
         };
         if step == (0.0, 0.0) {
@@ -835,6 +886,22 @@ fn note<T: Copy>(row: &mut Vec<Option<T>>, slot: usize, now: T) {
         row.resize(slot + 1, None);
     }
     row[slot] = Some(now);
+}
+
+/// **Whether the count a slot carried last frame and the count it carries now are one thing's and not two**,
+/// which is what a difference across the two frames may be taken as motion on the strength of — see
+/// `game::Hazard::frames`. The frame after is one further on, and nothing else is the same thing.
+///
+/// `true` where the game keeps no such count on either, which leaves the slot to say it: that is every game
+/// but th08, and what it costs is in `game::Hazard::frames`.
+fn the_same_thing(frames: Option<i32>, was: Option<i32>) -> bool {
+    match (frames, was) {
+        (Some(frames), Some(was)) => frames == was + 1,
+        (None, None) => true,
+        // A count on one frame and none on the next is one game answering the same question two ways, which
+        // no sight does — and taken as the same thing it would be the reading above trusted for nothing.
+        _ => false,
+    }
 }
 
 /// How far a beam turned since last frame, and nothing for one that was not there then.
@@ -955,6 +1022,30 @@ const SHUT_IN_FOR: u32 = 60;
 /// How many there have been in a row, counted from the last bomb — see [`SHUT_IN_FOR`].
 static SHUT_IN: AtomicU32 = AtomicU32::new(0);
 
+/// **How many of a card's frames the gauge may stay short of its human end with the shot unfocused before the
+/// rest of the card is played focused** — see `Frame::at_the_gauges_human_end`.
+///
+/// **Four hundred, which is past every stretch a card that pays at that end had.** Six runs of stage 2 read off
+/// their traces: the three that were at the human end on a third to a half of card 22 were short of it for
+/// `188`, `264` and `704` frames running at most, and every other card of all six for no more than `328`;
+/// the three that never reached it through card 22 were short of it from its third frame to its last,
+/// `1524` to `1596` of them. So a card is taken for one grazed off its human end some four hundred frames in,
+/// and one of the six besides — the `704` — in the last three hundred frames of its own card 22.
+///
+/// **Focused and not the rest of it thrown away**: focused, the grazes and the player lean the gauge the same
+/// way, to the youkai end, where a graze pays a time orb of its own (0x44aab3 through 0x44aac9) — and played
+/// focused from its first frame, card 22 carried two of those three runs over the norm and the third to
+/// within `139` of it, while two of the three that had reached the human end fell short of it that way.
+/// **Given over only once held off, five of the six met the norm** where three had: the three that reached the
+/// human end met it as they had, the one whose card 22 was given over in its last frames with `7758` against
+/// `8295`, and two of the three that never did met it with `7525` and `8097`, the third ending on `6756` against
+/// the `6567` it had.
+const HELD_OFF_THE_HUMAN_END_FOR: i32 = 400;
+
+/// The card frame the gauge last went short of its human end on, the card frame last seen, and whether the
+/// card up has been given over to the focused shot — see [`HELD_OFF_THE_HUMAN_END_FOR`].
+static HELD_OFF: Mutex<(Option<i32>, i32, bool)> = Mutex::new((None, 0, false));
+
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
 // still is one of the [`WAYS`] and the one a tie goes to, so the frame the player is there is a frame nothing
 // is pressed for.
@@ -983,6 +1074,18 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     if !unsafe { game.what_a_bot_sees(frame) } {
         return 0;
     }
+    // **And the hazards ignored while `「幻視調律」`'s lattice is where none of it can hit** — see
+    // `crate::cards::visionary_tunings_lattice_cannot_hit`, which is the climb the rules dodging it never make.
+    // All of them for those frames, and not the hidden bullets taken out of what the rules see: `th08::sight`
+    // hands those over as hitting for the card it measured that on, with nothing on them to say they are
+    // hidden, and this card's schedule says when none of its bullets can hit without asking which.
+    let hazards = match hazards == Hazards::Dodged
+        && the_dodge() == Some(Dodge::VisionaryTuning)
+        && the_cards_frames().is_some_and(crate::cards::visionary_tunings_lattice_cannot_hit)
+    {
+        true => Hazards::Ignored,
+        false => hazards,
+    };
     let keys = Keys::of(game);
     // **The shot held, and let go for one frame in every [`SHOT_LET_GO_EVERY`].** A stage's own clear screen
     // goes on to the next stage the frame the shot goes *down* and otherwise waits out its own timer, and a run
@@ -995,7 +1098,11 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     } else {
         SHOT_LET_GO_EVERY
     };
-    let mut word = if count.is_multiple_of(let_go_every) {
+    // **And held altogether while the familiars out are worth more alive** — see
+    // `Frame::familiars_are_worth_sparing`. The fire and not the focus, the focused shot's hits being worth
+    // nothing where the unfocused one's are.
+    let spares_them = hazards == Hazards::Dodged && frame.familiars_are_worth_sparing;
+    let mut word = if count.is_multiple_of(let_go_every) || spares_them {
         0
     } else {
         keys.shot
@@ -1020,12 +1127,31 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     if frame.dialogue {
         word |= keys.skip;
     }
+    // **Focused from the first pass, for a card dodged [`Dodge::Focused`]**, and not the whole step with the
+    // fine one asked only where nothing is open: one card of the kind — rings out of a boss at the top of the
+    // middle, hidden and shown again — was lost at the one place `14.0,423.5` on six attempts running, every
+    // one of them `the focus key not held` — and a path at the whole step crosses twice the ground the fine
+    // step's does, which is the fine pass below's own reason. **The norm was met through all of it**, so what
+    // kept the key up was not `Frame::shoots_a_boss_unfocused`: it is [`holds_the_focus`] asking for a frame
+    // with nothing to dodge, which a screen of rings hardly ever is — the key was down on 993 of that card's
+    // 5,878 frames, and the fine pass below is asked only where nothing at the whole step is open.
+    //
+    // **Not for [`Dodge::BehindTheLaser`], which was tried.** Its card's rice is `チョン避け` by the strategy
+    // wiki's own words and the run is pushed to the floor at the whole step, so the fine one looked like the
+    // answer; a pick-up of that card's chapter played it focused took four hits and a death where the whole
+    // step's took two and none, at the floor on 47% of its wanted lines against 40%.
+    //
+    // **And for the rest of a card whose grazes have held the gauge short of its human end** — see
+    // [`HELD_OFF_THE_HUMAN_END_FOR`].
+    let held_off = held_off_the_human_end(frame);
+    let focused_through =
+        hazards == Hazards::Dodged && (the_dodge() == Some(Dodge::Focused) || held_off);
     let steered = match a_tick_read_again(frame) {
         Some(again) => {
             AGAIN.fetch_add(1, Ordering::Relaxed);
             again
         }
-        None => steer(frame, &keys, hazards, false, THE_FRAMES_OWN),
+        None => steer(frame, &keys, hazards, focused_through, THE_FRAMES_OWN),
     };
     // **And the choice made again with the step the focus key it is about to press will take**, which is the
     // circle between the two closed rather than left open: the bit is decided from what steering answered —
@@ -1037,8 +1163,11 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     // longer says the frame is one to hold the key on, the frame is played at the whole step it was found
     // clear at: that is the answer both passes agree about, where taking the focused one would be pressing a
     // key its own projection says not to.
-    let (mut steered, mut focused) = (steered, false);
-    if holds_the_focus(frame, hazards, &steered) {
+    let (mut steered, mut focused) = (steered, focused_through);
+    // **And never the calm frame's focus for a card gone round a small square**, whose whole point is being gone
+    // from where the familiars fire: see [`round_a_small_square`], whose three hits came with the key down.
+    let the_whole_step_through = the_dodge() == Some(Dodge::RoundASmallSquare);
+    if !focused && !the_whole_step_through && holds_the_focus(frame, hazards, &steered) {
         let held = steer(frame, &keys, hazards, true, ASKED_AGAIN);
         if holds_the_focus(frame, hazards, &held) {
             steered = held;
@@ -1137,9 +1266,14 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
     //
     // **And nothing in a chapter drawn to be hit in**, the same as the deathbomb: that drawing is the whole
     // of what a retry measurement is for.
-    let shut_in = match steered.room {
-        None => SHUT_IN.fetch_add(1, Ordering::Relaxed) + 1,
-        Some(_) => {
+    //
+    // **And a stretch counted only over frames the hazards were dodged on.** A move chosen with them ignored
+    // is the one nearest where the rules want to be, so the frames of a climb through a lattice that cannot
+    // hit are all of them shut by the model's lights — and carried over, the climb's end would be a stretch a
+    // second long on its first frame of dodging.
+    let shut_in = match (hazards, steered.room) {
+        (Hazards::Dodged, None) => SHUT_IN.fetch_add(1, Ordering::Relaxed) + 1,
+        _ => {
             SHUT_IN.store(0, Ordering::Relaxed);
             0
         }
@@ -1168,7 +1302,13 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
         // to `96` with `0 of the nine clear` on every frame of it, was recorded as
         // `60 frame(s) running with nothing open` at `8.0,121.8` — and with nothing spent on it went on
         // crawling to be hit at `12.0,95.7`, two lives and a bomb in hand.
-        let for_the_place = !steered.hit_at_once && frame.bombs > 0 && bombs;
+        //
+        // **And not under `「幻視調律」`, whose lattice reads that way on most of its frames and is got
+        // through all the same** — see `crate::cards::visionary_tunings_lattice_cannot_hit`. Two clears of
+        // one session spent a bomb twice apiece on such stretches of it, after `60` to `89` frames, and the
+        // no-bomb clear of the session after went through about 2,450 frames of the card with no hit.
+        let got_through = the_dodge() == Some(Dodge::VisionaryTuning);
+        let for_the_place = !steered.hit_at_once && frame.bombs > 0 && bombs && !got_through;
         if for_the_place {
             word |= keys.bomb;
         }
@@ -1181,6 +1321,10 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
             (_, true) => detail!(
                 "autoplay: a bomb spent after {shut_in} frame(s) running with nothing open, which is \
                  a place to be out of"
+            ),
+            _ if got_through => detail!(
+                "autoplay: {shut_in} frame(s) running with nothing open under a lattice that reads \
+                 so and is got through, and no bomb spent on it"
             ),
             _ => detail!(
                 "autoplay: {shut_in} frame(s) running with nothing open and no bomb to spend on it, \
@@ -1250,6 +1394,46 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u
             .count() as u32,
         fire: steered.counted.fire,
     });
+    // **And the same three said every frame where a launch asked for them**, which is the one instrument a
+    // question about a whole fight has: the record above is kept for the seconds before a hit, and what a
+    // fight's own damage wants is the *share* of its frames — how often the wanting was the boss, how often
+    // the rules were in her column, and how many of the nine were clear when they were not.
+    //
+    // **Because the payout th08's Last Spells are due on turns on exactly that share.** A card there pays a
+    // thousand time orbs where it is taken inside a seventh of its own time and nothing where it is not, and
+    // a run's stage 1 read `2,094` of the `2,500` its norm wants with no payout in it at all; the frames of
+    // that boss's fight have the rules within 16 of her column on **42%** of them. Which of the two that is —
+    // a wanting that is not hers, or a wanting of hers the nine outrank — is what this line answers, and no
+    // dump does: a dump is a frame and this is a fight.
+    //
+    // **And the boxes the wanting was chosen by**, which is what a walk to an edge is decided on and what no
+    // dump of a fight without a hit carries: one run spent **3,400** of a survival card's 7,360 frames in the
+    // leftmost box, wanting the emptiest box on 4,269 of them, and nothing it said could tell a box counted
+    // full from a ring not read as one.
+    detail!(
+        "autoplay: wanted {} at {:.0},{:.0} from {:.0},{:.0} with {} of the nine clear, the boxes {}{}",
+        steered.settled.said(),
+        steered.wanted.0,
+        steered.wanted.1,
+        steered.at.0,
+        steered.at.1,
+        steered
+            .judgements
+            .iter()
+            .filter(|judged| judged.clear())
+            .count(),
+        steered
+            .counted
+            .fire
+            .iter()
+            .map(|fire| format!("{fire:.0}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        match steered.counted.overhead {
+            true => " under a boss overhead",
+            false => "",
+        },
+    );
     *LAST_FRAME
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(steered);
@@ -1306,11 +1490,21 @@ fn holds_the_focus(frame: &Frame, hazards: Hazards, steered: &Steered) -> bool {
     // chosen, the key goes down on it. `the_bot_shoots_a_boss_slowed_down` is that frame: a bullet `12` to
     // the side with no step of its own is a frame to hold the key on, and the same bullet `24` above and
     // closing `4` a frame is not, where both leave the sideways moves clear by the width of the field.
+    //
+    // **And not on a game whose boss is worth more shot unfocused**, which is a game saying what its shot
+    // earns rather than how its player dodges: see `Frame::shoots_a_boss_unfocused`. th08's shots drop a
+    // time orb with its gauge at the human end, which the unfocused shot leans it to, and a key held on calm
+    // frames and let go to dodge holds the gauge in the middle — over two launches of its stage 1, 4,152
+    // frames of the boss's fight were shot focused in her column and the stage ended at 1,447 and 1,626 time
+    // orbs of a norm of 2,500, where the Last Spell wants the norm met. Only until it is met, which is the
+    // game's own answer every frame. The fine step below is left alone: that is a dodge, and a dodge is not
+    // what the key is held for here.
     hazards == Hazards::Dodged
         && !steered.dodging
         && !steered.for_an_item
         && steered.judgements[0].room > ROOM_TO_SPARE + step
         && frame.boss.is_some()
+        && !frame.shoots_a_boss_unfocused
 }
 
 /// Whether the focus key was held on the frame just decided, and whether the step that frame's projection was
@@ -1446,13 +1640,15 @@ fn said_what_the_frame_held(game: &dyn Game, was: &Steered, took: &str) {
         },
     );
     detail!(
-        "autoplay: the model had {} bullet(s), {} of them in another state; {} enem(ies), with {} \
-         left out for having no body; {} laser(s), {} of them still only a warning and {} of them \
-         fading{}{}",
+        "autoplay: the model had {} bullet(s), {} of them in another state and {} in a slot another one \
+         had last frame; {} enem(ies), with {} left out for having no body and {} in a slot another one \
+         had last frame; {} laser(s), {} of them still only a warning and {} of them fading{}{}{}{}",
         of.bullets,
         of.another_state,
+        of.refilled_bullets,
         of.enemies,
         of.no_body,
+        of.refilled,
         of.lasers,
         of.warnings,
         of.fading,
@@ -1467,6 +1663,25 @@ fn said_what_the_frame_held(game: &dyn Game, was: &Steered, took: &str) {
             }
             None => String::new(),
         },
+        match of.widest_body {
+            Some((slot, (x, y))) => {
+                format!(", the widest body slot {slot}, half of it {x:.1},{y:.1}")
+            }
+            None => String::new(),
+        },
+        match of.beam_at {
+            // **And whether that one was firing**, which a run inside a beam's box cannot be read without:
+            // th08 arms four enemies with a lane apiece and fires them in turn, so a box the player stands
+            // in says a life was taken only where the lane it belongs to was live.
+            Some((slot, outside, along, firing)) => format!(
+                ", the nearest beam slot {slot}, {outside:.1} outside its box and {along:.1} along it, {}",
+                match firing {
+                    true => "firing",
+                    false => "not fired yet",
+                },
+            ),
+            None => String::new(),
+        },
         if THE_STEP_WAS_STALE.load(Ordering::Relaxed) {
             "; the focus bit changed on that frame, so the step was the one before's"
         } else {
@@ -1475,7 +1690,7 @@ fn said_what_the_frame_held(game: &dyn Game, was: &Steered, took: &str) {
     );
     match was.nearest {
         Some(near) => detail!(
-            "autoplay: nearest was {} at {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}",
+            "autoplay: nearest was {} at {:.1},{:.1} stepping {:.1},{:.1}, half of it {:.1},{:.1}{}",
             near.what,
             near.at.0,
             near.at.1,
@@ -1483,6 +1698,11 @@ fn said_what_the_frame_held(game: &dyn Game, was: &Steered, took: &str) {
             near.step.1,
             near.half.0,
             near.half.1,
+            match near.feared {
+                Some((x, y)) =>
+                    format!(", feared out to {x:.1},{y:.1} by the frame it was nearest on"),
+                None => String::new(),
+            },
         ),
         None => detail!("autoplay: nothing was near it at all"),
     }
@@ -1618,9 +1838,285 @@ const THE_FRAMES_OWN: bool = true;
 /// And a call asked again inside the same frame, which leaves the row where the frame's own call left it.
 const ASKED_AGAIN: bool = false;
 
+/// **Where a recipe tells the rules to stand** — see `recipe::Step::StandAt`. Either axis on its own or
+/// both: the one left out stays the rules' own errand, so a `y` alone is a height to play an attack from
+/// with where along it left to them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Standing {
+    pub across: Option<Across>,
+    pub y: Option<f32>,
+}
+
+/// **And which way a told x is said**, there being two.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Across {
+    /// An x across the field.
+    At(f32),
+    /// At least this far from the boss's own x, on the side of her the run is on where the whole distance
+    /// fits inside the field and the other side where it does not. With no boss on the screen the rules
+    /// run their own errands.
+    AwayFromTheBoss(f32),
+}
+
+/// **The way a recipe named for the card that is up**, or nothing — see `recipe::Step::Dodge`. A static for
+/// the reason [`TOLD_TO_STAND_AT`] is one.
+static DODGE: Mutex<Option<Dodge>> = Mutex::new(None);
+
+/// Tells the rules which way to dodge the card that is up, or none.
+pub fn dodge_with(dodge: Option<Dodge>) {
+    *DODGE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = dodge;
+}
+
+/// The way the rules were told to dodge the card that is up.
+fn the_dodge() -> Option<Dodge> {
+    *DODGE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// **How many frames the card that is up has run**, or nothing — see `Reached::card_frames`. A static for the
+/// reason [`DODGE`] is one.
+static CARD_FRAMES: Mutex<Option<i32>> = Mutex::new(None);
+
+/// Tells the rules how far into the card that is up they are.
+pub fn the_card_has_run(frames: Option<i32>) {
+    *CARD_FRAMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = frames;
+}
+
+/// How far into the card that is up the rules are.
+fn the_cards_frames() -> Option<i32> {
+    *CARD_FRAMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// **Whether the card that is up is one the rules play focused for the rest of**, the gauge having stayed short
+/// of its human end for [`HELD_OFF_THE_HUMAN_END_FOR`] of its frames running while the stage's norm was unmet —
+/// and nothing between cards, or past the norm, or on a game with no such gauge. Said as the card is given over.
+fn held_off_the_human_end(frame: &Frame) -> bool {
+    let mut held = HELD_OFF
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (since, last, given_over) = &mut *held;
+    let Some(frames) = the_cards_frames() else {
+        *held = (None, 0, false);
+        return false;
+    };
+    // A card's clock going back is the next card.
+    if frames < *last {
+        (*since, *given_over) = (None, false);
+    }
+    *last = frames;
+    if *given_over {
+        return true;
+    }
+    match (frame.shoots_a_boss_unfocused, frame.at_the_gauges_human_end) {
+        (true, Some(false)) => {
+            let began = *since.get_or_insert(frames);
+            if frames - began >= HELD_OFF_THE_HUMAN_END_FOR {
+                *given_over = true;
+                detail!(
+                    "autoplay: the gauge has been short of its human end for {} frame(s) of this card, \
+                     and the rest of it is played focused",
+                    frames - began
+                );
+            }
+        }
+        _ => *since = None,
+    }
+    *given_over
+}
+
+/// **How far behind the lane a turning laser goes live in [`Dodge::BehindTheLaser`] stands**, square to it and
+/// on the player's own row.
+///
+/// **Because that is how a laser turned onto the run while it is still drawn is got through, and the rules'
+/// own dodging is how it is lost.** One card of the kind, read every frame of three attempts: each laser
+/// appears `60` frames before it goes live — its first phase `60` long and live at `60` — pointing
+/// `60 × π/400` to one side of the player, and turns `π/400` a frame onto where the player stood when it
+/// appeared. It goes live there and turns on past for the `120` frames of its second phase, `54°` of sweep.
+/// So the one thing a laser still being drawn says is the lane it goes live in, and the side of that lane it
+/// has come from is the side it is turning away from: a short step towards the side it appears on is the way
+/// through. The rules instead walked away from the laser being drawn at them, the way it looks to be coming,
+/// and were ahead of it when it went live: one session lost that card `70` times over.
+///
+/// **Twelve**, which is the lane's own quarter-width of `4` and the player's half, and the rest a step and a
+/// half of the rules' unfocused `4.0` — room to stand still in while the laser is drawn across the place and
+/// passes on. The pick-up that took the card first time stood `9.6` to `22.7` behind each of its five lasers.
+const BEHIND_THE_LASER_BY: f32 = 12.0;
+
+/// **How wide [`Dodge::OutOfTheFollowingLaser`] keeps the run of a beam aimed and not yet firing**, half of it:
+/// the width the beam fires at, where nothing else says how wide it will be.
+///
+/// **Because the width a beam is read at before it fires is the narrowest it could be, and this one is not
+/// that.** One card of the kind, read every frame off the enemies from outside: the beam is aimed where the
+/// player stood when it appeared and held there for `118` frames of warning, then fires `240` wide — its
+/// behaviour's own width — and turns `0.0036` rad a frame onto the player until it points at them. The run
+/// stood `83.7` off its middle, clear of the `80` it was read at while it warned and inside the `120` it hit
+/// at, and was hit the frame it fired.
+const A_FOLLOWING_LASERS_HALF_ACROSS: f32 = 120.0;
+
+/// **How far left of the middle [`Dodge::LeftOfTheMiddle`] waits** — `115` on a field whose middle is `192`,
+/// which is the second fifth of it — at the low line, the height being the rules' own.
+///
+/// **The emptier side, read off the fire itself.** One card of the kind sends its bullets out in rings that fill
+/// the field, and fourteen attempts at it told nothing died at exactly `376.0,432.0`, the bottom-right corner,
+/// with `0 of the nine clear` for the sixty frames before each hit — the errand's own `the emptiest box` having
+/// walked them along the floor to the right wall. The five boxes across read `57.0, 76.9, 56.7, 60.8, 150.0`,
+/// `62.0, 71.2, 117.0, 83.6, 161.0`, `54, 50, 125, 95, 174` and `49, 56, 96, 65, 166` on the hits: the rightmost
+/// fifth carries the most on every one of them and the two on the left the least.
+///
+/// **No height of its own**, a told one being held no lower than the low line: the `380` the recipes told this
+/// card and the one below with the x was the low line's `368` on every frame of the no-bomb clear that passed
+/// both, `wanted the place it was told to stand at 115,368` on 1,576 of them.
+const LEFT_OF_THE_MIDDLE_BY: f32 = 77.0;
+
+/// **How far right of the middle [`Dodge::RightOfTheMiddle`] waits** — `288` on a field whose middle is `192` —
+/// at the low line, for the reason [`LEFT_OF_THE_MIDDLE_BY`] is.
+///
+/// **The emptier side, read off the fire itself**, the way that one is. One card of the kind lays its bullets
+/// across the field and fires them, and told nothing died fifty-five times along the floor, seven of them at
+/// `63.0,432.0` with over a thousand bullets up. Eight of the hits through it read the five boxes across as `9.0,
+/// 143.7, 33.3, 0.0, 0.0`, `451.2, 220.2, 155.7, 140.8, 104.0`, `661.5, 986.8, 307.4, 114.5, 155.5`, `60.8,
+/// 142.5, 84.4, 0.0, 0.0` and more of the same: the two on the left carry the most on every one of them and the
+/// two on the right the least, twice nothing at all. Told the middle the run died seven times at `202.6,432.0`,
+/// and told `96` eight times at `127.3,432.0` and `103.7,428.0`, the densest fifth.
+const RIGHT_OF_THE_MIDDLE_BY: f32 = 96.0;
+
+/// **The place a way of dodging waits at**, for the ways that are one — and nothing for the ways that are not,
+/// whose place is the rules' own errand.
+///
+/// **[`Dodge::InTheMiddle`] is the field's own middle, with the height left to the rules**: one card of the kind
+/// lays lasers up the field from its floor with aimed fire between them, four of them `53` apart and `8`
+/// across. Told nothing the rules walked the whole field across it, `77` to `227.3,366.6`, and died there with
+/// 202 bullets up and `nowhere open to it` fourteen attempts running; told `40` a launch died eleven times at
+/// `42.8,362.2`, and told `96` fourteen times at `90.4,379.0`, the boxes reading `16.0, 44.6, 8.1, 9.5, 5.0` on
+/// every one of those — the fifth the run stood in carrying five times what the three to its right did. So both
+/// sides have been tried and each ended at the place told, and the middle is the one place with room either
+/// side of it.
+///
+/// **[`Dodge::BehindTheLaser`] waits in the middle too, between its lasers** — the place behind one being
+/// wanted while it is drawn, see [`where_to_be`]. The lasers come from either side by turns and the side one
+/// comes from is the side the run steps to: the strategy wiki's `奇数回目のレーザーは右から … 偶数回目のレーザー
+/// は左から`, with `レーザーが来る方向に余裕を持っていれば大丈夫` beside it. The rules' own errand put the run at a
+/// wall instead — one Extra wanted `the emptiest box at 56` on 2,726 of the card's frames and was hit at `x = 8`
+/// five times and at `376` three, the place behind each laser clamped to the wall it came in from; and an Extra
+/// that wanted the middle through the rule under a boss overhead flipped between it and the boxes beside it and
+/// was pushed to the walls all the same. So the middle is a place the way holds, and not the boxes' answer.
+fn the_place_it_holds(dodge: Dodge, field: (f32, f32, f32, f32)) -> Option<Standing> {
+    let middle = field.0 + field.2 / 2.0;
+    let (x, y) = match dodge {
+        Dodge::BehindTheLaser => (middle, None),
+        Dodge::OutOfTheFollowingLaser
+        | Dodge::RoundTheField
+        | Dodge::RoundASmallSquare
+        | Dodge::SideToSide
+        | Dodge::WithoutTheItems
+        | Dodge::Focused
+        | Dodge::ImperishableShooting => return None,
+        Dodge::InTheMiddle => (middle, None),
+        Dodge::VisionaryTuning => (
+            middle,
+            Some(field.1 + field.3 - crate::cards::VISIONARY_TUNING_ABOVE_THE_FLOOR),
+        ),
+        Dodge::LeftOfTheMiddle => (middle - LEFT_OF_THE_MIDDLE_BY, None),
+        Dodge::RightOfTheMiddle => (middle + RIGHT_OF_THE_MIDDLE_BY, None),
+    };
+    Some(Standing {
+        across: Some(Across::At(x)),
+        y,
+    })
+}
+
+/// **How wide a beam is to be kept out of**: its own half-width, save for one aimed and not yet firing while
+/// the rules dodge by keeping out of a following laser — see [`A_FOLLOWING_LASERS_HALF_ACROSS`].
+fn the_half_across(beam: &Beam) -> f32 {
+    match the_dodge() == Some(Dodge::OutOfTheFollowingLaser)
+        && beam.fires_in == FIRES_WHEN_NOTHING_SAYS
+    {
+        true => beam.half_across.max(A_FOLLOWING_LASERS_HALF_ACROSS),
+        false => beam.half_across,
+    }
+}
+
+/// **The lane a turning laser still drawing its warning goes live in**, and which way it is turning — what
+/// [`Dodge::BehindTheLaser`] stands behind.
+#[derive(Clone, Copy, Debug)]
+struct GoesLive {
+    origin: (f32, f32),
+    angle: f32,
+    turn: f32,
+    fires_in: i32,
+}
+
+impl GoesLive {
+    /// **The x on the row at `y` that is `distance` behind the lane**, measured square to it, or nothing
+    /// where the lane does not cross that row ahead of its origin.
+    fn behind(self, y: f32, distance: f32) -> Option<f32> {
+        let (sin, cos) = self.angle.sin_cos();
+        let down = y - self.origin.1;
+        let along = down / sin;
+        if !along.is_finite() || along <= 0.0 {
+            return None;
+        }
+        let leaving = self.turn.signum() * down.signum();
+        Some(self.origin.0 + along * cos + leaving * distance / sin.abs())
+    }
+}
+
+/// **Where a recipe told the rules to stand**, or nothing. Read by [`where_to_be`], which puts it in place
+/// of every errand of the rules' own while it is set, the dodging left as it is. A static and not a field
+/// of the frame, because it is a recipe's telling and not a reading of the game, and it stands across
+/// frames the way the bomb's allowance does.
+static TOLD_TO_STAND_AT: Mutex<Option<Standing>> = Mutex::new(None);
+
+/// Tells the rules where to stand, or frees them of it — a recipe's `stand_at`.
+pub fn stand_at(standing: Option<Standing>) {
+    *TOLD_TO_STAND_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = standing;
+}
+
+/// **How many times the chapter in flight has been retried**, which moves where the rules wait — see
+/// [`aside_on`].
+static ATTEMPT: AtomicU32 = AtomicU32::new(0);
+
+/// Tells the rules which attempt at its chapter the run is on, nought for the one that reached it.
+pub fn this_attempt(attempt: u32) {
+    ATTEMPT.store(attempt, Ordering::Relaxed);
+}
+
+/// **How far to the side of the boss and of the middle the rules wait on an attempt**: nothing on the
+/// first, and a draw of up to [`ASIDE_AT_MOST`] either way on each retry of it.
+///
+/// **Because a retry is otherwise the attempt before it over again.** The chapter's snapshot puts the game
+/// back as it was, and the rules are a function of what they read off it, so an attempt at a chapter the
+/// rules lose is lost the same way: one card was lost eight attempts running at the same three hits,
+/// `136.6,421.2`, `203.6,421.9` and `39.3,429.2`, where the card runs 4,200 frames and an attempt
+/// lasted 1,230. Where they wait is what is moved, and not how they dodge — the dodge is what keeps an
+/// attempt alive at all, and a place a recipe told them is somebody's judgement and not theirs to vary. The
+/// place a way of dodging a card holds is theirs, and moves with the boss and the middle.
+///
+/// **A draw and not a launch's own number**, for the reason the hits are one: the same recipe plays the
+/// same run every launch — see `hits::drawn`.
+pub fn aside_on(attempt: u32) -> f32 {
+    if attempt == 0 {
+        return 0.0;
+    }
+    (crate::hits::drawn((0, 0), attempt, crate::hits::WAITING_ASIDE) * 2.0 - 1.0) * ASIDE_AT_MOST
+}
+
+/// **A quarter of the field either way**, which on a field 384 wide keeps a boss at its middle — where that
+/// card is fired from — inside [`IN_FROM_THE_SIDE`] of both edges, the wait moved and never clamped.
+const ASIDE_AT_MOST: f32 = 96.0;
+
 fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers: bool) -> Steered {
-    let at = frame.at;
     let field = frame.field;
+    let at = frame.at;
     // **The step the frame this chooses for will actually take**, which is the pair for the focus key as
     // *this* answer will leave it and not as the last one did — see `Frame::focused_straight`, and
     // [`word_to_press`], which asks twice to close the circle between the two.
@@ -1698,6 +2194,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
     // [`THE_FRAMES_AHEAD`] for a box none of them reaches inside the window — see the beam loop below,
     // which is where the motion it takes to answer that is already worked out.
     let mut closes = [THE_FRAMES_AHEAD as u32; BOXES_ACROSS];
+    // **And the turning warning that goes live soonest**, for [`Dodge::BehindTheLaser`].
+    let mut goes_live = None::<GoesLive>;
+    let behind_a_turning_laser = the_dodge() == Some(Dodge::BehindTheLaser);
     let mut kept = REMEMBERED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1711,7 +2210,13 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                        (sx, sy): (f32, f32),
                        (wx, wy): (f32, f32),
                        grows: (f32, f32),
-                       (tx, ty): (f32, f32)| {
+                       (tx, ty): (f32, f32),
+                       // **Whether what this box is takes a life yet**, which is a warning where it does
+                       // not: a move is not shut by it, and a place to wait is not chosen inside it. See
+                       // the harmless bullet's own arm — a mesh a game turns solid is ground to cross and
+                       // no ground to stand on, and a run that stood on one died eleven times at
+                       // `207.6,384.9` with `a bullet at 208.0,384.0 stepping 0.0,0.0` under it.
+                       warning: bool| {
         // Held before it is judged, and by where it is rather than by where it is projected: what a hit is read
         // against is what the model had, and a projection is the thing being called into question.
         if (hx - at.0).abs() < NEAR_ENOUGH_TO_BE_IT + wx
@@ -1731,6 +2236,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
             for (step, (x, y)) in path.iter().enumerate() {
                 let ahead = (step + 1) as f32;
+                let read = (wx, wy);
                 let (wx, wy) = (wx + grows.0 * ahead, wy + grows.1 * ahead);
                 // **And the step's own change carried with it, which a straight line is wrong by the whole
                 // of.** A hazard whose step is the same every frame is where its step says it will be; one
@@ -1760,13 +2266,14 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // th06c was hit at `138.5,381.1` on a move judged to have `2.2 of room`: bullet 461 stood at
                 // `141.9,384.6` claiming `-1.0,3.0` a frame, did not move at all, and the run stepped `2.0`
                 // right into where the projection had it leaving.
-                let room = match step {
-                    0 => {
+                // **On the move's own first landing.**
+                let room = match step == 0 {
+                    true => {
                         let still =
                             ((x - hx).abs() - (mine_x + wx)).max((y - hy).abs() - (mine_y + wy));
                         room.min(still)
                     }
-                    _ => room,
+                    false => room,
                 };
                 if room < judged.room {
                     judged.room = room;
@@ -1774,7 +2281,11 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                         what,
                         at: (hx, hy),
                         step: (sx, sy),
-                        half: (wx, wy),
+                        half: read,
+                        feared: match (wx, wy) == read {
+                            true => None,
+                            false => Some((wx, wy)),
+                        },
                     });
                 }
                 if step == 0 {
@@ -1783,7 +2294,10 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // **[`ROOM_TO_SPARE`] and not nought**: a frame the move only just clears is a frame it is
                 // treated as losing, which is what keeps it out of the choice as well as out of the test.
                 if room < ROOM_TO_SPARE {
-                    judged.hit(step);
+                    match warning {
+                        true => judged.warn(step),
+                        false => judged.hit(step),
+                    }
                 }
             }
         }
@@ -1792,11 +2306,41 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         let Hazard {
             kind,
             slot,
+            frames,
             at: place,
             step,
             half,
         } = *hazard;
         match kind {
+            // **And one out of its hitting state left out where the game says it is harmless** — see
+            // `Frame::a_bullet_not_hitting_is_harmless`, which is th08 and no other game: there a bullet
+            // coming out cannot take a life and one that comes out over the run is turned harmless for
+            // good, so a mesh of them is ground to stand in rather than a wall. Kept as a hazard
+            // everywhere else, a bullet that will hit in a moment being one to be gone from.
+            Kind::Bullet { hitting: false, .. } if frame.a_bullet_not_hitting_is_harmless => {
+                counted.another_state += 1;
+                note(
+                    &mut now.bullets,
+                    slot,
+                    (place, step.unwrap_or((0.0, 0.0)), frames),
+                );
+                // **Judged as a warning and not left out**, which is the whole of the difference between
+                // ground to cross and ground to stand on: such a bullet takes no life this frame and
+                // will take one the frame the game turns it solid, so a move may go through it and a
+                // place to wait may not be inside it. **A run that treated them as nothing stood in one
+                // and died eleven times at `207.6,384.9`**, the dump naming `a bullet at 208.0,384.0
+                // stepping 0.0,0.0` — a bullet the card had placed there and then made solid.
+                against(
+                    "a bullet not hitting yet",
+                    slot,
+                    place,
+                    step.unwrap_or((0.0, 0.0)),
+                    half,
+                    (0.0, 0.0),
+                    (0.0, 0.0),
+                    true,
+                );
+            }
             Kind::Bullet { hitting, state } => {
                 if !hitting {
                     counted.another_state += 1;
@@ -1806,15 +2350,26 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                 // time is where it is plus as many steps as there are frames to look.
                 let step = step.unwrap_or((0.0, 0.0));
                 let (moved, turn) = match what_a_slot_held(&last.bullets, slot) {
-                    // **The step it claims for a bullet that was not there last frame**, so that one just made
-                    // is not read as having crossed the field in a frame.
-                    None => (step, (0.0, 0.0)),
-                    Some((place_was, step_was)) => (
+                    Some((place_was, step_was, was)) if the_same_thing(frames, was) => (
                         (place.0 - place_was.0, place.1 - place_was.1),
                         (step.0 - step_was.0, step.1 - step_was.1),
                     ),
+                    // **The step it claims for a bullet the slot was not holding last frame**, so that one
+                    // just made is not read as having crossed the field in a frame — whether the slot was
+                    // free then or held another bullet, which is what [`the_same_thing`] tells apart. A
+                    // difference across two of them is the distance between them, and the fear below spreads
+                    // a box over the whole of that on every frame looked at: a card that lays a lattice of
+                    // bullets and cancels it again and again had a hit inside one read
+                    // `a bullet at 383.4,296.9 stepping 0.0,0.0, feared out to 385.4,2.0` — the width of the
+                    // field, laid across the row the run was standing in.
+                    held => {
+                        if held.is_some() {
+                            counted.refilled_bullets += 1;
+                        }
+                        (step, (0.0, 0.0))
+                    }
                 };
-                note(&mut now.bullets, slot, (place, step));
+                note(&mut now.bullets, slot, (place, step, frames));
                 let scripted = (moved.0 - step.0).abs() > A_STEP_OF_ITS_OWN
                     || (moved.1 - step.1).abs() > A_STEP_OF_ITS_OWN
                     || turn.0.abs() > A_STEP_OF_ITS_OWN
@@ -1849,6 +2404,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     // **And the turn it is carrying, where its own step is what moves it.** A scripted one is
                     // feared over the box above instead, there being nothing to carry.
                     if scripted { (0.0, 0.0) } else { turn },
+                    false,
                 );
             }
             // **And the bodies, which are as solid as a bullet.** Which is what a run on its way to an item
@@ -1875,34 +2431,55 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             }
             Kind::Body { solid: true } => {
                 counted.enemies += 1;
+                // **The widest of them kept for the hit line** — see [`Counted::widest_body`]: a body
+                // wider than the field is the model and not the game, and its slot is the only thing a
+                // reader can take to a debugger.
+                if counted.widest_body.is_none_or(|(_, (was, _))| half.0 > was) {
+                    counted.widest_body = Some((slot, half));
+                }
                 // **And feared rather than projected where a script is swinging it.** Stage 6's turning beam is a
                 // line of these, and a straight line from last frame's motion is wrong by the whole of the
                 // sweep — so the test is whether that motion is itself changing, and what is kept away from is
                 // everywhere it could reach.
+                //
+                // **And nothing at all where the slot has been given to another enemy since** — see
+                // [`the_same_thing`] and `game::Hazard::frames`: the difference is then the distance between
+                // two enemies, which the fear below spreads a box over on every frame looked at.
                 let (went, swung) = match what_a_slot_held(&last.bodies, slot) {
-                    None => ((0.0, 0.0), (0.0, 0.0)),
-                    Some((place_was, went_was)) => {
+                    Some((place_was, went_was, was)) if the_same_thing(frames, was) => {
                         let went = (place.0 - place_was.0, place.1 - place_was.1);
                         (went, (went.0 - went_was.0, went.1 - went_was.1))
                     }
+                    held => {
+                        if held.is_some() {
+                            counted.refilled += 1;
+                        }
+                        ((0.0, 0.0), (0.0, 0.0))
+                    }
                 };
-                note(&mut now.bodies, slot, (place, went));
-                let scripted =
-                    swung.0.abs() > A_STEP_OF_ITS_OWN || swung.1.abs() > A_STEP_OF_ITS_OWN;
+                note(&mut now.bodies, slot, (place, went, frames));
+                // **Projected along its own motion with the change in that motion carried, and feared over
+                // the change and not over the motion.** All three are measured on a body — where it went
+                // last frame, and by how much that differed from the frame before — so where it will be is
+                // the first two and what is not known about that is the third.
+                //
+                // **Feared over how fast it is going, a body that is going anywhere shuts every move.** The
+                // box was spread by `went` for each of the forty frames wherever `swung` cleared
+                // [`A_STEP_OF_ITS_OWN`], which is a sixth of a unit — so an enemy moving `8.0,9.9` a frame
+                // and turning at all reached the rules as a box `320.2,393.0` across, on a field 384 by 448.
+                // A box that size holds all nine landings at once and holds them on the same frame, so the
+                // ranking has nothing to choose between them and the run stands where it is: eight attempts
+                // at one last stage's card died at `8.0,362.3`, the left wall, every one of them pressing
+                // down into it with `nowhere open to it`.
                 against(
                     "an enemy",
                     slot,
                     place,
-                    if scripted { (0.0, 0.0) } else { went },
+                    went,
                     half,
-                    if scripted {
-                        (went.0.abs(), went.1.abs())
-                    } else {
-                        (0.0, 0.0)
-                    },
-                    // And the change in how it is moving, which is what a body's own motion is read as — see
-                    // the bullet above, and `swung`, which is that change.
-                    if scripted { (0.0, 0.0) } else { swung },
+                    (swung.0.abs(), swung.1.abs()),
+                    swung,
+                    false,
                 );
             }
             // **And every place a body has been, each its own box, with [`CLEAR_OF_A_BEAM`] kept round it.** A
@@ -1923,6 +2500,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     (half.0 + CLEAR_OF_A_BEAM, half.1 + CLEAR_OF_A_BEAM),
                     (0.0, 0.0),
                     (0.0, 0.0),
+                    false,
                 );
             }
         }
@@ -1949,12 +2527,28 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
             near,
             far,
             grows,
-            half_across: across,
+            half_across: _,
             fires_in,
             fading,
             frames,
         } = *beam;
+        let across = the_half_across(beam);
         counted.lasers += 1;
+        // **And how far outside the nearest beam's own box the player is standing**, which is the number a
+        // hit that names nothing near enough to be it wants: nought or less is a run inside a beam the
+        // model was holding, and a large one is a hit the beams had no part in. Measured where the player
+        // is and where the beam is now, the projection below being about the nine moves instead.
+        {
+            let (sin, cos) = angle.sin_cos();
+            let (dx, dy) = (frame.at.0 - ox, frame.at.1 - oy);
+            let along = dx * cos + dy * sin;
+            let outside = ((-dx * sin + dy * cos).abs() - across)
+                .max(near - along)
+                .max(along - far);
+            if counted.beam_at.is_none_or(|(_, was, ..)| outside < was) {
+                counted.beam_at = Some((slot, outside, along, fires_in <= 0));
+            }
+        }
         if let Some(room) = kept_beams.iter_mut().find(|kept| kept.is_none()) {
             *room = Some(*beam);
         }
@@ -1969,6 +2563,16 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         let was = what_a_slot_held(&last.beams, slot).filter(|(.., then)| then + 1 == frames);
         let turn = turned(was.map(|(_, angle, _)| angle), angle);
         let went = moved(was.map(|(origin, ..)| origin), (ox, oy));
+        let counted_down = fires_in > 0 && fires_in != FIRES_WHEN_NOTHING_SAYS;
+        if counted_down && turn != 0.0 && goes_live.is_none_or(|it| fires_in < it.fires_in) {
+            let by = fires_in as f32;
+            goes_live = Some(GoesLive {
+                origin: (ox + went.0 * by, oy + went.1 * by),
+                angle: angle + turn * by,
+                turn,
+                fires_in,
+            });
+        }
         // **And the lane laid the frame before this one, where a boss is laying a row of them** — see
         // [`the_lane_laid_before`], which is what says another is coming and how far on it will be.
         let before = the_lane_laid_before(frame, beam).map(|it| (it.origin, it.angle.sin_cos()));
@@ -2097,6 +2701,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                         at: (ox + on * cos, oy + on * sin),
                         step: went,
                         half: (across, across),
+                        // A beam's width is the game's on every frame looked at: what grows on one is its far
+                        // end, which is in `far` above and not in the box.
+                        feared: None,
                     });
                 }
                 // And the beam's own room on that frame, for the same reason a bullet's is kept — save
@@ -2109,9 +2716,15 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
                     // **Live by then or still only drawn.** The game's own gate is the countdown running out, so
                     // a frame this many ahead is one the beam can hit on only once it has — before that the lane
                     // is a place to be out of rather than a frame lost.
+                    //
+                    // **And a turning one is not even that while the rules dodge by stepping behind it**,
+                    // which is the whole of what that takes: the place is on the far side of the lane the
+                    // laser is drawn in, and a warning on it shut every move that crosses to it — leaving the
+                    // moves that run ahead of the laser, away from where it is drawn, as the ones clear. See
+                    // [`BEHIND_THE_LASER_BY`].
                     if (step + 1) as i32 >= fires_in {
                         judged.hit(step);
-                    } else {
+                    } else if !(behind_a_turning_laser && counted_down && turn != 0.0) {
                         judged.warn(step);
                     }
                 }
@@ -2148,6 +2761,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
     counted.swept = swept;
     counted.sweeping = sweeping;
     counted.fire = the_fire_in_each_box(frame);
+    counted.overhead = the_boss_is_overhead(frame);
     counted.closes = closes;
     // **Or the nearest thing that can hit the player, where the chapter is one to be hit in and has not been.**
     // The nearest to the move of standing still is that thing: it is the one whose box came closest to where the
@@ -2159,7 +2773,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
     // held inside them is a walk that stops short of what it is for.
     let (wanted, settled) = match (hazards, nearest[0]) {
         (Hazards::GoneTo, Some(near)) => (near.at, Settled::SomethingThatCanHitIt),
-        _ => where_to_be(frame, sweeping),
+        _ => where_to_be(frame, sweeping, goes_live),
     };
     let mut best: Option<(usize, Judged, f32, f32)> = None;
     for ((judged, land), which) in judged.into_iter().zip(lands).zip(0..) {
@@ -2449,7 +3063,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         word: keys.way(WAYS[chosen]),
         dodging: !judged[0].clear(),
         room: judged_it.clear().then_some(judged_it.room),
-        for_an_item: the_item_worth_going_for(frame).is_some(),
+        for_an_item: the_item_gone_for(frame).is_some(),
         // **Nothing open at all *and* the best of the nine short of the slack on its own next frame**,
         // which is the difference between a corner and thirteen frames of pessimism — see
         // [`Steered::hit_at_once`].
@@ -2468,6 +3082,339 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers:
         judgements: judged,
     }
 }
+
+/// **The nearest place outside a beam the run is standing inside**, or nothing where it is in none.
+///
+/// **Which the nine moves cannot answer.** A move is judged by whether it is hit over
+/// [`THE_FRAMES_AHEAD`], and a beam 160 across is 80 units from its middle to its edge — twenty frames of
+/// a whole step. So every one of the nine is hit, the judgement has nothing to choose between them, and a
+/// run four units inside one stands there: `nowhere open to it` with `the nearest beam slot 2, -4.2
+/// outside its box`, which is th08's stage 4 boss taking a life through a beam the model was holding.
+///
+/// The way out is across the beam and not along it, so the place wanted is the run's own, moved
+/// perpendicular to the beam far enough to clear its edge and [`A_STEP_OUT_OF_A_BEAM`] more. The side is
+/// whichever is nearer, and the other where the nearer one is off the field — a run pushed against an edge
+/// has the long way out and no other.
+///
+/// **The beam still only drawn is left alone**, its own frames being what a warning is for: a lane that
+/// has not fired is ground to be off before it does, which the moves can see.
+///
+/// **Save the one nothing says the frame of** — [`FIRES_WHEN_NOTHING_SAYS`] — which the moves cannot get
+/// off on their own: they are judged over [`THE_FRAMES_AHEAD`], a lane 160 across takes twenty frames of
+/// stepping to leave, and a beam that may fire on any of them warns every one of the nine alike. So the
+/// nine have nothing to choose between and the place to wait is the whole of the answer: th08 arms four
+/// enemies at once in stage 4's fight, and a run that read their lanes as ground stood in one until it
+/// fired.
+fn the_way_out_of_a_beam(frame: &Frame) -> Option<(f32, f32)> {
+    let field = frame.field;
+    let (left, right) = (field.0, field.0 + field.2);
+    let (top, bottom) = (field.1, field.1 + field.3);
+    let at = frame.at;
+    // The deepest one it is inside, that being the one it has least time to get out of — and a lane
+    // already firing before any depth of one only armed, a beam testing the player now being the one that
+    // takes the life if neither is left.
+    let mut deepest = None::<(bool, f32, (f32, f32))>;
+    for beam in &frame.beams {
+        let firing = beam.fires_in <= 0;
+        if !firing && beam.fires_in != FIRES_WHEN_NOTHING_SAYS {
+            continue;
+        }
+        let (sin, cos) = beam.angle.sin_cos();
+        let (dx, dy) = (at.0 - beam.origin.0, at.1 - beam.origin.1);
+        let along = dx * cos + dy * sin;
+        if along < beam.near || along > beam.far {
+            continue;
+        }
+        let off = -dx * sin + dy * cos;
+        let half_across = the_half_across(beam);
+        let inside = half_across - off.abs();
+        if inside <= 0.0 {
+            continue;
+        }
+        // Across the beam, the way it is already leaning, or the other way — and the two walks are not the
+        // same length where the run is off the middle of the lane. **Which is a place inside the beam
+        // where the far walk was the near one's distance the other way**: a run 34 off the middle of a
+        // 160-wide lane is 46 from one edge and 114 from the other, and told the 50 of the nearer one
+        // leftwards it stops 30 short of leaving — `nowhere open to it` at `91.4,432.0`, the same frame of
+        // the same chapter 95 times over.
+        let away = match off < 0.0 {
+            true => -1.0,
+            false => 1.0,
+        };
+        let (nx, ny) = (-sin, cos);
+        let out = inside + A_STEP_OUT_OF_A_BEAM;
+        let across = half_across + off.abs() + A_STEP_OUT_OF_A_BEAM;
+        let nearer = (at.0 + nx * away * out, at.1 + ny * away * out);
+        let other = (at.0 - nx * away * across, at.1 - ny * away * across);
+        let fits = |(x, y): (f32, f32)| x >= left && x <= right && y >= top && y <= bottom;
+        // **And where both sides fit, the one towards the middle of the field.** The near side is the
+        // shorter walk and the corner is where it leads: a run 8 units inside a beam at the field's own
+        // right edge was put *to* that edge, and died there with 147 bullets and `nowhere open to it` —
+        // which is what [`IN_FROM_THE_SIDE`] keeps the rules off for every other errand. The longer walk
+        // across a beam is the one with somewhere to go when it is over.
+        let middle = field.0 + field.2 / 2.0;
+        let towards_the_middle = match (fits(nearer), fits(other)) {
+            (true, false) => nearer,
+            (false, true) => other,
+            _ => match (nearer.0 - middle).abs() <= (other.0 - middle).abs() {
+                true => nearer,
+                false => other,
+            },
+        };
+        let to = towards_the_middle;
+        if deepest.is_none_or(|(was_firing, was, _)| (firing, inside) > (was_firing, was)) {
+            deepest = Some((firing, inside, to));
+        }
+    }
+    deepest.map(|(.., to)| (to.0.clamp(left, right), to.1.clamp(top, bottom)))
+}
+
+/// **The next corner round the field away from a following laser**, and the nearer upper corner where none is
+/// firing — what [`Dodge::OutOfTheFollowingLaser`] walks to once it is out of the beam.
+///
+/// **Round and not across**, because the laser turns after the run about its own origin and never catches it
+/// while the run has angle left to take: `0.0036` rad a frame is about a unit a frame at the low line's
+/// distance from the boss, against the `4.0` of a whole step. What runs out is the field. Out of the beam
+/// the short way and then along the floor, one run of such a card was put against the left wall and up it
+/// on one wave and into the bottom-left corner on the next, with `0 of the nine clear` for the forty frames
+/// before it was hit there. So the corners are waypoints — the two at the low line and the two
+/// [`UP_THE_SIDE_ABOVE_THE_FLOOR`] up, each [`IN_FROM_THE_SIDE`] in — taken in the order their angle from
+/// the laser's origin goes, the way the run is already going from the laser: up a side, down it, along the
+/// floor and up the other, which is the strategy wiki's own `左上、左下、右上、左下` for leading it.
+///
+/// **The laser nearest the run's own angle** where several are firing, that being the one closing on it.
+///
+/// **And an upper corner to be aimed at while none is firing**, the nearer of the two: the laser is aimed
+/// where the run stands when it appears, so where the run waits between waves is where the next one starts
+/// from, and from an upper corner the whole of the walk round is ahead of it. Out of the beam the short way
+/// and round from wherever the wave found it, one run of such a card had half the walk at most, and the
+/// laser outlasted it: it went on past the corner `200` up the right side and was hit at `376.0,16.0`, the
+/// field's own top-right corner, still wanting `328,200`.
+fn ahead_of_a_following_laser(frame: &Frame) -> Option<(f32, f32)> {
+    let field = frame.field;
+    let at = frame.at;
+    let (inside, outside) = (
+        field.0 + IN_FROM_THE_SIDE,
+        field.0 + field.2 - IN_FROM_THE_SIDE,
+    );
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    let up = field.1 + field.3 - UP_THE_SIDE_ABOVE_THE_FLOOR;
+    let around = |(x, y): (f32, f32), origin: (f32, f32)| (y - origin.1).atan2(x - origin.0);
+    let apart = |a: f32, b: f32| {
+        let d = (a - b).rem_euclid(std::f32::consts::TAU);
+        if d > std::f32::consts::PI {
+            d - std::f32::consts::TAU
+        } else {
+            d
+        }
+    };
+    let firing = frame
+        .beams
+        .iter()
+        .filter(|beam| beam.fires_in <= 0)
+        .min_by(|a, b| {
+            let off = |beam: &Beam| apart(around(at, beam.origin), beam.angle).abs();
+            off(a).total_cmp(&off(b))
+        });
+    // **Beam or none**: between two waves the enemies that lay them are gone and nothing is aimed, and a run
+    // that went back to its own errand then — `a boss at 79` to `115` on one Final B clear — was where the next
+    // laser was aimed, `226,382`, and was pushed along the floor into the bottom-left corner and hit there.
+    let Some(beam) = firing else {
+        let nearer = match (at.0 - inside).abs() <= (at.0 - outside).abs() {
+            true => inside,
+            false => outside,
+        };
+        return Some((nearer, up));
+    };
+    let from = around(at, beam.origin);
+    let way = apart(from, beam.angle).signum();
+    if way == 0.0 {
+        return None;
+    }
+    let corners = [(inside, up), (inside, low), (outside, low), (outside, up)];
+    let ahead = |corner: (f32, f32)| apart(around(corner, beam.origin), from) * way;
+    corners
+        .into_iter()
+        .filter(|corner| ahead(*corner) > A_CORNER_PASSED_AT)
+        .min_by(|a, b| ahead(*a).total_cmp(&ahead(*b)))
+        .or_else(|| {
+            corners
+                .into_iter()
+                .max_by(|a, b| ahead(*a).total_cmp(&ahead(*b)))
+        })
+}
+
+/// **The next corner clockwise round the field from where the run is** — what [`Dodge::RoundTheField`] walks
+/// to, the same four corners [`ahead_of_a_following_laser`] takes, measured about their own middle.
+///
+/// **Because a boss that follows the run is under it wherever it waits.** One card of the kind takes the boss
+/// off the field as a spirit that tracks the run and fires from where it is: the rules' errand was `a boss at
+/// 101,368` from `103,366`, the boss's own x being the run's, so they stood still where her fire comes from and
+/// were hit there with `122.0 of room` on the moves — nine hits on one Extra's attempts. The strategy wiki's
+/// way through each of its phases is round the whole field (`画面全体を大回転`), and that is a place that moves
+/// on.
+fn round_the_field(frame: &Frame) -> (f32, f32) {
+    let field = frame.field;
+    let at = frame.at;
+    let (inside, outside) = (
+        field.0 + IN_FROM_THE_SIDE,
+        field.0 + field.2 - IN_FROM_THE_SIDE,
+    );
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    let up = field.1 + field.3 - UP_THE_SIDE_ABOVE_THE_FLOOR;
+    the_next_corner_clockwise(at, (inside, up), (outside, low))
+}
+
+/// **The next corner clockwise round a box from where the run is**, measured about the box's own middle — the
+/// walk [`round_the_field`] and [`round_a_small_square`] both take, from the top-left corner to the bottom-right.
+fn the_next_corner_clockwise(
+    at: (f32, f32),
+    (left, top): (f32, f32),
+    (right, bottom): (f32, f32),
+) -> (f32, f32) {
+    let middle = ((left + right) / 2.0, (top + bottom) / 2.0);
+    let around = |(x, y): (f32, f32)| (y - middle.1).atan2(x - middle.0);
+    let from = around(at);
+    let ahead = |corner: (f32, f32)| {
+        let d = (around(corner) - from).rem_euclid(std::f32::consts::TAU);
+        let reached = (corner.0 - at.0).hypot(corner.1 - at.1) <= A_CORNER_REACHED_WITHIN;
+        if d <= A_CORNER_PASSED_AT || reached {
+            d + std::f32::consts::TAU
+        } else {
+            d
+        }
+    };
+    [(left, top), (right, top), (right, bottom), (left, bottom)]
+        .into_iter()
+        .min_by(|a, b| ahead(*a).total_cmp(&ahead(*b)))
+        .unwrap_or(middle)
+}
+
+/// **The next corner of a small square under the boss, clockwise** — what [`Dodge::RoundASmallSquare`] walks to,
+/// its bottom edge on the low line under the boss's own x, or the field's middle where there is no boss.
+///
+/// **Because the familiars of that kind of card stay on the run and fire from where they are.** One Extra's
+/// `「蓬莱人形」` hit a run three times with `inf of room` on all nine moves, and what stood over each hit, read
+/// out of the trace, was the same: eight familiars stacked seven to fourteen units off the run, and a ring of
+/// eight bullets `24` across about them, every one in kind 5 by the frame the hit was seen — a kind nothing is
+/// tested in, so what hit the run is gone or turned by then, and those rings, laid within reach of it, are what
+/// was there. The focus key was down on all three, the run moving `2` a frame. The strategy wiki's way through
+/// that card is `妹紅の前で小さく時計回りにちょん避け(四角く→↓←↑)` — never still, so that where the familiars fire
+/// from is where the run was.
+///
+/// **And moved aside on a retry, the way every other way's place is** — see [`aside_on`]. A square that does not
+/// move is an attempt played the way the one before it was: that Extra's four attempts were each hit at the same
+/// place, `2,916` or `2,917` frames in.
+fn round_a_small_square(frame: &Frame) -> (f32, f32) {
+    let field = frame.field;
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    let aside = aside_on(ATTEMPT.load(Ordering::Relaxed));
+    let x = (frame.boss.map_or(field.0 + field.2 / 2.0, |(x, _)| x) + aside).clamp(
+        field.0 + IN_FROM_THE_SIDE + A_SMALL_SQUARES_HALF,
+        field.0 + field.2 - IN_FROM_THE_SIDE - A_SMALL_SQUARES_HALF,
+    );
+    the_next_corner_clockwise(
+        frame.at,
+        (x - A_SMALL_SQUARES_HALF, low - 2.0 * A_SMALL_SQUARES_HALF),
+        (x + A_SMALL_SQUARES_HALF, low),
+    )
+}
+
+/// **Half a side of the square [`round_a_small_square`] walks**: six of the run's whole steps across, which is
+/// `48` — the bullets its card fires from on the run being `24` across, so a side is two of them.
+const A_SMALL_SQUARES_HALF: f32 = 24.0;
+
+/// **The end of the low line the run is going to** — what [`Dodge::SideToSide`] walks to: from as far in as a
+/// way's place is held on one side to as far in on the other, and back once there.
+///
+/// **Because a laser aimed at the run is aimed at where it stands.** th08's `難題「龍の頸の玉　-五色の弾丸-」` fires
+/// lasers at the run with fire strewn between them, and the rules dodging each one stepped the same way as the
+/// last until there was no more field that way: nine Kaguya clears in nine were hit on it, eight of them
+/// within `47` of a wall, five 355 frames into the card at about `45,369` with a laser `6` off standing still
+/// that the moves read `2.2` to `3.6` of room from — and the ninth at `8.0,391.8` wanting the middle, the box it
+/// was in no longer an edge it had chosen. The strategy wiki has it `自機狙いレーザー+放物線軌道の弾のばら撒き`
+/// and `まともに避けようとすると詰む事もある`, and its way through is from side to side between the lasers: a run
+/// that is always going somewhere is not where the next one is aimed, and one that turns before the wall has
+/// the field the other way to go on into.
+///
+/// **Which way the run is going kept, and not read off where it is.** Walked as a loop 24 high round the low line
+/// by [`the_next_corner_clockwise`], the way on was the angle about the loop's middle — and a run the dodging had
+/// taken outside the loop past a corner was still short of it by that angle: Kaguya's clear wanted `56,368` from
+/// `x = 8` to `64` at the left wall for the card's last 1,100 frames, and stood there.
+fn side_to_side(frame: &Frame) -> (f32, f32) {
+    let field = frame.field;
+    let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
+    let (inside, outside) = (
+        field.0 + IN_FROM_THE_SIDE,
+        field.0 + field.2 - IN_FROM_THE_SIDE,
+    );
+    let at = frame.at.0;
+    let now = the_cards_frames().unwrap_or(0);
+    let mut going = SIDE_TO_SIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (going_left, from, since) = *going;
+    let (from, since) = match (at - from).abs() < A_STEP_TAKEN && now >= since {
+        true => (from, since),
+        false => (at, now),
+    };
+    let stood = now - since >= SIDE_TO_SIDE_TURNS_AFTER;
+    let turned = match going_left {
+        true => at > inside + A_CORNER_REACHED_WITHIN,
+        false => at >= outside - A_CORNER_REACHED_WITHIN,
+    } != stood;
+    *going = match stood {
+        true => (turned, at, now),
+        false => (turned, from, since),
+    };
+    match turned {
+        true => (inside, low),
+        false => (outside, low),
+    }
+}
+
+/// **Which end of the low line [`side_to_side`] is going to** — the right one to start with — **and where the run
+/// has stood since which of the card's frames.** By the card's frames and not by the calls, the rules being asked
+/// where to be more than once a frame.
+///
+/// **And turned back where it has stood for [`SIDE_TO_SIDE_TURNS_AFTER`]**, which is the way on being shut rather
+/// than the run being there: the two hits a Kaguya clear took on the card with the ends alone to turn at were
+/// each at a place it had stood `91` and `109` frames at, wanting the far end with no step towards it open and
+/// pressing the shot alone — still in front of lasers aimed at it, which is what the way is for never being.
+static SIDE_TO_SIDE: Mutex<(bool, f32, i32)> = Mutex::new((false, 0.0, 0));
+
+/// **How many of its frames [`side_to_side`] stands still before it turns back**: a third of a second, well inside
+/// the ninety-one the first of those hits stood.
+const SIDE_TO_SIDE_TURNS_AFTER: i32 = 20;
+
+/// **Less than this across between two calls is standing still** — half of th08's focused step, so that a focused
+/// step taken towards the end is going somewhere.
+const A_STEP_TAKEN: f32 = 1.0;
+
+/// **How far up the side [`ahead_of_a_following_laser`] takes the run** — `200` on a field whose floor is
+/// `432`, about half way up it.
+///
+/// Up because that is angle the laser has to turn through: from a boss at `161,103`, the corner at the low line
+/// is `0.56` rad round from straight down and this one `1.05`, `134` frames more of the laser's turn. And not
+/// higher, where the run is beside the boss's own fire as it leaves her.
+const UP_THE_SIDE_ABOVE_THE_FLOOR: f32 = 232.0;
+
+/// **How near in angle a corner has to come before the run is past it**: a twentieth of a radian, which at the
+/// low line's distance from the boss is a dozen units — three steps.
+const A_CORNER_PASSED_AT: f32 = 0.05;
+
+/// **And how near in distance**, which is a whole unfocused step of th08's: a corner no step brings the run any
+/// nearer to is one it has reached, whatever the angle says. **Not the angle alone**, which is a twentieth of a
+/// radian about the box's own middle and so shrinks with the box: [`round_a_small_square`]'s corners are `34`
+/// from theirs, where it is `1.7` — less than any step. One Extra's `「蓬莱人形」` stood at `70.8,321.4` wanting
+/// the corner at `72,320` for the last `63` frames of each of four attempts running, every step open to it
+/// landing further from the corner than standing did, and was hit there each time.
+const A_CORNER_REACHED_WITHIN: f32 = 4.0;
+
+/// How far past a beam's own edge the way out aims, so that a run leaving one does not stop on the line.
+/// A whole unfocused step of th08's, which is the widest of the games' — a place a step short of clear is
+/// a place the next frame's judgement puts back inside.
+const A_STEP_OUT_OF_A_BEAM: f32 = 4.0;
 
 /// **A beam a script is sweeping**, as the x it is spread about — or nothing where the bullets no step explains
 /// are too few to be one.
@@ -2518,19 +3465,130 @@ fn a_sweep(swept: u32, swept_x: f32) -> Option<f32> {
 // swept about x …`.
 
 /// Where the rules want the player: the x whatever is worth being under has, and the y always low.
-fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
+fn where_to_be(
+    frame: &Frame,
+    sweep: Option<f32>,
+    goes_live: Option<GoesLive>,
+) -> ((f32, f32), Settled) {
     let field = frame.field;
     let at = frame.at;
     let low = field.1 + field.3 - ABOVE_THE_BOTTOM;
     // The item worth going for, at the place it is; under a boss with nothing to collect the boss's own x with
     // the y low, a fight being a thing to stand under rather than to reach; and with neither the middle, low,
     // which is the shortest way to wherever the next item falls.
-    let going_for = the_item_worth_going_for(frame);
+    // **Or the place a recipe told the rules to stand**, which is the whole errand while it is told: the
+    // items, the boss, the middle and the three arms below that leave a box are the rules' own judgement,
+    // and what a `stand_at` says is that somebody's is better here — an attack the rules cannot read, a
+    // beam laid down the field, is dodged by standing where it is not. The dodging itself goes on from
+    // that place as from any other.
+    let (left, right) = (field.0, field.0 + field.2);
+    // **Or behind a laser the card that is up is dodged by stepping behind**, which outranks a told place
+    // for the frames it is drawn — see [`BEHIND_THE_LASER_BY`]. On the row the run is on, and not the low
+    // one every told place is on: the step the card wants is short and sideways, and a lane leaning off the
+    // upright crosses a row `64` higher a dozen units further along — the whole of the distance being kept
+    // behind it.
+    if the_dodge() == Some(Dodge::BehindTheLaser)
+        && let Some(x) = goes_live.and_then(|it| it.behind(at.1, BEHIND_THE_LASER_BY))
+    {
+        return (
+            (x.clamp(left, right), at.1),
+            Settled::TheWayItWasToldToDodge,
+        );
+    }
+    // **Or the place the way the card is dodged is**, where the recipe told the rules no place of its own.
+    let told = *TOLD_TO_STAND_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (told, settled_there) = match told {
+        Some(told) => (Some(told), Settled::ThePlaceItWasTold),
+        None => (
+            the_dodge().and_then(|it| the_place_it_holds(it, field)),
+            Settled::TheWayItWasToldToDodge,
+        ),
+    };
+    let told_y = told.and_then(|it| it.y);
+    // **A way's own place moved on a retry, where a recipe's is not**: a place a recipe told is somebody's
+    // judgement and not the rules' to vary, but a way's is the rules' own measurement, and held still it
+    // makes a retry the attempt before it over again — one Extra was hit at `198.3,428.0` attempt after
+    // attempt with the way's middle held through each. See [`aside_on`].
+    let aside = match settled_there {
+        Settled::TheWayItWasToldToDodge => aside_on(ATTEMPT.load(Ordering::Relaxed)),
+        _ => 0.0,
+    };
+    let told_x = match told.and_then(|it| it.across) {
+        Some(Across::At(x)) => Some(x + aside),
+        // **The side of the boss the run is already on**, so that the run is not sent across her to
+        // reach the other — crossing a boss is crossing what she fires — unless the distance does not
+        // fit on this side, where the other side is the only place that far from her.
+        Some(Across::AwayFromTheBoss(distance)) => frame.boss.map(|(boss_x, _)| {
+            let fits_left = boss_x - distance >= left;
+            let fits_right = boss_x + distance <= right;
+            let to_the_left = match (fits_left, fits_right) {
+                (true, false) => true,
+                (false, true) => false,
+                _ => at.0 < boss_x,
+            };
+            if to_the_left {
+                boss_x - distance
+            } else {
+                boss_x + distance
+            }
+        }),
+        None => None,
+    };
+    if let Some(x) = told_x {
+        // Held inside the field and not [`IN_FROM_THE_SIDE`] of it: a recipe that names the edge means
+        // the edge, that being where a beam down the middle is not.
+        return (
+            (
+                x.clamp(left, right),
+                told_y.unwrap_or(low).clamp(field.1, low),
+            ),
+            settled_there,
+        );
+    }
+    // **Or out of a beam the run is standing in, which outranks every errand below.** A beam's box is
+    // wider than the frames the moves are looked over: inside one, all nine are hit whichever way they
+    // go, so the nine say nothing and the run stays where it is — `nowhere open to it` with the dump's
+    // own `the nearest beam slot 2, -4.2 outside its box`, four units in and dead there. What gets a
+    // person out is walking the short way across it over as many frames as it takes, and that is an
+    // errand and not a move.
+    if let Some(out) = the_way_out_of_a_beam(frame) {
+        return (out, Settled::OutOfABeam);
+    }
+    // **Or on round the field ahead of a following laser**, for a card dodged that way — see
+    // [`ahead_of_a_following_laser`].
+    if the_dodge() == Some(Dodge::OutOfTheFollowingLaser)
+        && let Some(ahead) = ahead_of_a_following_laser(frame)
+    {
+        return (ahead, Settled::TheWayItWasToldToDodge);
+    }
+    // **Or on round the field whatever is up**, for a card dodged that way — see [`round_the_field`].
+    if the_dodge() == Some(Dodge::RoundTheField) {
+        return (round_the_field(frame), Settled::TheWayItWasToldToDodge);
+    }
+    // **Or on round a small square under the boss** — see [`round_a_small_square`].
+    if the_dodge() == Some(Dodge::RoundASmallSquare) {
+        return (round_a_small_square(frame), Settled::TheWayItWasToldToDodge);
+    }
+    // **Or on from one side of the low line to the other** — see [`side_to_side`].
+    if the_dodge() == Some(Dodge::SideToSide) {
+        return (side_to_side(frame), Settled::TheWayItWasToldToDodge);
+    }
+    // **Or where one card's own schedule has the run at this frame of it** — see `crate::cards`.
+    if the_dodge() == Some(Dodge::ImperishableShooting)
+        && let Some(frames) = the_cards_frames()
+        && let Some(there) = crate::cards::imperishable_shooting(frame, frames)
+    {
+        return (there, Settled::TheWayItWasToldToDodge);
+    }
+    let going_for = the_item_gone_for(frame);
+    let aside = aside_on(ATTEMPT.load(Ordering::Relaxed));
     let (settled, (x, y)) = match going_for {
         Some((worth, at)) => (Settled::AnItem(worth), at),
         None => match frame.boss {
-            Some((x, _)) => (Settled::ABoss, (x, low)),
-            None => (Settled::TheMiddle, (field.0 + field.2 / 2.0, low)),
+            Some((x, _)) => (Settled::ABoss, (x + aside, low)),
+            None => (Settled::TheMiddle, (field.0 + field.2 / 2.0 + aside, low)),
         },
     };
     // **And out of a box of the field the fire is clearly piled into**, whichever of them that x is in.
@@ -2564,8 +3622,17 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
     // **And out of the one it is standing in where that one is badly worse**, which takes more than not walking
     // into a pile does: see [`MUCH_MORE_THAN_A_HANDFUL`].
     let badly = clearly_fuller(&fire, mine, MUCH_MORE_THAN_A_HANDFUL);
+    // **The nearest to the middle and not to the run, under a boss overhead**, which is where her fire opens
+    // round the run rather than carrying it out: under a ring out of her the rules stood in the rightmost box
+    // for 2,284 of a card's 3,060 frames, the middle the emptiest box on the count and the box they wanted
+    // the one beside the edge they stood at — the next one in from where they were, and the dodging of each
+    // ring going out past them taking them back to the edge.
+    let near = match the_boss_is_overhead(frame) {
+        true => BOXES_ACROSS / 2,
+        false => mine,
+    };
     let elsewhere = || {
-        let empty = the_emptiest_box(&fire, mine, swept);
+        let empty = the_emptiest_box(&fire, near, swept);
         field.0 + field.2 * (empty as f32 + 0.5) / BOXES_ACROSS as f32
     };
     // **And waiting out of a box a beam will be lying across the band in was written and taken out again,
@@ -2589,7 +3656,7 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
     //
     // **The measure is kept for what it says and not for what it chose**, which is the dump line beside the
     // fire counts: see `Counted::closes`.
-    let (settled, x) = match the_thickest_box(&fire) {
+    let (settled, x) = match () {
         // **And the ground behind a row of lanes being laid was wanted here and is not any more.** That row
         // cannot be outrun and what it has laid goes out behind it, so past its back lane is the one place
         // it leaves — and from *ahead* of the front, which is where the frames that need it are, that place
@@ -2601,7 +3668,45 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
             (Settled::TheEmptiestBox, elsewhere())
         }
         _ if badly => (Settled::TheEmptiestBox, elsewhere()),
-        Some(thick) if !worth_the_crossing && thick == heading => {
+        // **And exempting the box it is already standing in from this arm was tried and taken out
+        // again**, which is the narrower thing th08's own dump suggests: [`MUCH_MORE_THAN_A_HANDFUL`] says
+        // what it takes to leave the box the player is in, *because leaving that one costs the damage it
+        // is there for*, and this arm asks the lower [`MORE_THAN_A_HANDFUL`] of that same box whenever the
+        // errand happens to be inside it — which under a boss is most of a fight.
+        //
+        // **What the one launch of it did was lose the stage earlier.** With `heading != mine` added, a
+        // pointdevice run of th08's stage 1 never reached the boss it had reached without it: it died in
+        // the stage's own midsection twice, at frames 1712 and 1453, both times crossing for a big power
+        // item — which this arm never rules on, `worth_the_crossing` being ahead of it. So the run
+        // diverged from the first frame the exemption fired and the comparison says nothing about the
+        // fight it was made for.
+        //
+        // **What a fair measurement of it would be** is the boss's own chapter played from the same
+        // snapshot with and without, which wants a run that reaches it either way, and the hit counts of
+        // the four other games' cases beside it: this is a rule all five share.
+        // **And what this arm costs a fight is measured now, which is what that fair measurement wants
+        // first.** The per-frame line at the end of [`word_to_press`] says what the rules wanted on every
+        // frame of one, and over th08's stage 1 — 10,364 frames — they wanted **a boss on 3,381 of them, the
+        // emptiest box on 2,837, a power item on 2,558**, the middle on 679, a point item on 467 and a big
+        // power item on 315. So this arm is what displaces the boss a *quarter* of a fight, `going_for`
+        // being `None` there and `worth_the_crossing` false with it — and the rules are within 16 units of
+        // that boss's own column on 42% of the frames of her fight, which is what every card payout scaling
+        // to nothing is made of.
+        //
+        // **And exempting a boss from it was tried and is not measurable yet.** With `frame.boss.is_none()`
+        // added, that stage's own time orbs read `1,986` and the boss was wanted on 3,680 frames against
+        // 3,381 — but the five launches of that stage measured over this change read **2,094, 1,986, 1,977,
+        // 1,872 and 1,262**, and each drew a stage seed of its own. The spread is wider than the effect, so
+        // one launch a candidate settles nothing and the exemption is out until the fixture below exists.
+        //
+        // **And the fixture exists now, and the exemption measured nothing through it either.** A pick-up of a
+        // kept chapter of stage 2 plays the same fight every launch, so the same five chapters ahead of that
+        // boss were played with and without a boss exempted while the stage's norm was unmet: card 26 — the
+        // last before the norm is asked — ended on `6918`, `6239`, `7442`, `6752` and `6513` without it and on
+        // `6766`, `7345`, `6824`, `6448` and `6945` with it, the Last Spell up on three of the five against four,
+        // and no hit in any of the ten. A mean `93` up against a chapter's own swing of `-618` to `+1106` is one
+        // fight's chaos and not a lever, so the arm is left as it was.
+        _ if !worth_the_crossing && the_fire_is_piled_into(&fire, heading) => {
             (Settled::TheEmptiestBox, elsewhere())
         }
         _ => (settled, x),
@@ -2625,8 +3730,26 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
     // of five without, and its own pair is the highest of every build measured — `6` and `7` hits where the
     // spread of one build is `4` to `7`. Which has a mechanism as plausible as the one it was written for: a
     // place kept is a place crossed to through fire that arrived while the crossing was being made, and
-    // nothing measured bounds how long it is worth keeping. So the errand is asked afresh each frame, and
-    // what the flip costs is still unmeasured.
+    // nothing measured bounds how long it is worth keeping. So the errand is asked afresh each frame.
+    //
+    // **And what the flip costs has one measurement now, off th08's stage 1 boss.** A pointdevice run with
+    // the bomb forbidden lost that fight three times running, and the dump of the hit — one sample in six
+    // frames over the 175 before it, the wanted x alone — reads:
+    //
+    //     192 192 192 192 192 269 269 269 269  48  48 192 192 192 192  48  48  48  48  48  48  48  48 192
+    //     192 192 192 192 192  48
+    //
+    // Fifteen samples of `a boss at 192` against fifteen of `the emptiest box`, at 269 and then 48, on a
+    // field 384 wide. The run's own x follows them across the whole of it — 191, 195, 206, 218, back to
+    // 194, then 182, 170, 152, 138, 118, 102, 86, 74 — and the hit lands at `79,417` with **3** of the nine
+    // boxes clear, where the first hundred frames of that walk had nine. Which is this comment's own
+    // mechanism costing a fight: the errand is 136 to 221 units away and changes before the run has
+    // covered a third of it.
+    //
+    // **Which is not on its own a reason to put the hold back**, the two attempts that measured the hold
+    // having made th07's Extra worse — but it is the first number on this side of the trade, and that
+    // chapter is reproducible to measure a change against: the same run retried it three times and died at
+    // frame 9397 with `seed=0xea6a` every one of them.
     // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
     // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
     // field, moving only sideways, with the dodge it wanted to make upwards pulled straight back. Waiting low is
@@ -2654,7 +3777,28 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
             } else {
                 field.0 + field.2 / 2.0
             },
-            if y >= the_band(field) { y } else { low },
+            // **And no lower than the low line**, whatever is below it: an item there is a frame or two from
+            // leaving the field, and a run that follows it down is a run at the bottom edge with half its
+            // moves gone. Four of th08's stage 1 deaths were that, at `115,432`, `81.7,432`, `75.5,423.8` and
+            // `103,391` on a field 448 deep, the last of them `wanting a power item at 214,441` — and the
+            // one at `81.7,432` seventeen times over, `nowhere open to it`.
+            // **Or the y a recipe told them**, with the x left to the errand: an attack whose ground is a
+            // height and not a place wants that — a mesh coming out is stood in from above the band, and
+            // where along it is the rules' own business.
+            //
+            // **Down to the floor for a 1up or a bomb, though**, which is what a run is worth the bottom
+            // edge for: a boss that drops one mid-stage drops it onto the player, and one below the low line
+            // is one the rules would stand above and watch fall out of the field. A Normal clear wanted
+            // `a 1up at 192,368` from `191,368` — the low line itself, a frame's step from the item's x — for
+            // 270 frames of one stage and never took it.
+            match told_y {
+                Some(told) => told.clamp(field.1, low),
+                None if y >= the_band(field) => match settled {
+                    Settled::AnItem(Worth::Life | Worth::Bomb) => y.min(field.1 + field.3),
+                    _ => y.min(low),
+                },
+                None => low,
+            },
         ),
         settled,
     )
@@ -2738,6 +3882,40 @@ const IN_THE_MIDDLE_ANYWAY: f32 = 0.9;
 /// distance from the middle rather than stopping where a box does. Raised with the one above, from nine tenths.
 const BESIDE_THE_MIDDLE_ANYWAY: f32 = 0.95;
 
+/// **And the middle's count under a boss overhead**, in place of the two above — see
+/// [`the_boss_is_overhead`].
+///
+/// **Because fire leaving a boss overhead, counted as it stands, reads the middle as the pile it is not.** A
+/// ring goes out at evenly spaced angles, so where it comes down into the band is spaced by the angle each box
+/// subtends from her: from the middle of the top at about `y = 100`, over the top of the counted band at
+/// `y = 179` of a field 384 wide, the middle box takes `51°` of it, each box beside it `30°` and each edge box
+/// `12°`. So a ring alone reads about **4.2 times** as full in the middle and **2.4** beside it as at an edge,
+/// and the discount above, a tenth and a twentieth, left the edge box the emptiest: the rules walked out to the
+/// edge of the field under every ring, where the next one closes the corner. **A fifth and two fifths** is a
+/// little under what cancels that shape out, so that the middle — where somebody who plays this game waits for
+/// a ring to open round them, and asked for the rules to — is the box chosen.
+///
+/// **Under any fire leaving her and not a ring's alone**, which a ring's own reading was tried as and what
+/// it missed says why not: a survival card whose fire leaves the boss in every direction and at every speed
+/// at once — random, a winder, aimed three-ways, crossing — was read as a ring on **none** of its 7,592
+/// frames in one run, the boxes averaged `36, 49, 156, 50, 37` and the rules stood in the leftmost box for
+/// 3,600 of them. What shapes the count is where she is and not which pattern she fires.
+const IN_THE_MIDDLE_UNDER_HER: f32 = 0.2;
+const BESIDE_THE_MIDDLE_UNDER_HER: f32 = 0.4;
+
+/// **Whether the boss is overhead**: in the middle box of the field, which is where the fire she sends out comes
+/// into the band converging on the middle — see [`IN_THE_MIDDLE_UNDER_HER`].
+///
+/// **At any height**, which is what somebody watching the rules asked for once the top third alone was tried:
+/// a boss lower down sends her fire into the band from nearer, steeper and so more converging on the middle
+/// still, and the rules went to an edge under a ring out of a boss in the middle with the rule in.
+fn the_boss_is_overhead(frame: &Frame) -> bool {
+    let field = frame.field;
+    frame
+        .boss
+        .is_some_and(|(boss_x, _)| which_box(field, boss_x) == BOXES_ACROSS / 2)
+}
+
 /// Which of the [`BOXES_ACROSS`] a place across the field is in.
 fn which_box(field: (f32, f32, f32, f32), x: f32) -> usize {
     let across = ((x - field.0) / field.2 * BOXES_ACROSS as f32).floor();
@@ -2802,11 +3980,32 @@ fn the_fire_in_each_box(frame: &Frame) -> [f32; BOXES_ACROSS] {
     // So what a beam wants is an answer of its own rather than a share of this one, whose thresholds are
     // the bullets' — and `steer`'s own worklist is where that is written down.
     // **The middle discounted, and the two beside it discounted less.** The converging a pattern does is a thing
-    // of the middle of the field, and it falls off either side of it rather than stopping at a box's edge.
+    // of the middle of the field, and it falls off either side of it rather than stopping at a box's edge —
+    // and much more of it under a boss overhead, see [`IN_THE_MIDDLE_UNDER_HER`].
+    let overhead = the_boss_is_overhead(frame);
+    let (in_the_middle, beside_it) = match overhead {
+        true => (IN_THE_MIDDLE_UNDER_HER, BESIDE_THE_MIDDLE_UNDER_HER),
+        false => (IN_THE_MIDDLE_ANYWAY, BESIDE_THE_MIDDLE_ANYWAY),
+    };
     let middle = BOXES_ACROSS / 2;
-    fire[middle] *= IN_THE_MIDDLE_ANYWAY;
-    fire[middle - 1] *= BESIDE_THE_MIDDLE_ANYWAY;
-    fire[middle + 1] *= BESIDE_THE_MIDDLE_ANYWAY;
+    fire[middle] *= in_the_middle;
+    fire[middle - 1] *= beside_it;
+    fire[middle + 1] *= beside_it;
+    // **And an edge no emptier than the box beside it**, the discount alone not reaching the frames a boss's
+    // fire is densest on. Fire leaving a boss comes to an edge box last, it being the furthest from her, so
+    // over the forty frames counted the edge reads empty where what is on its way to it has simply not
+    // arrived — and the edge is the place with one way out. A survival card read `7, 81, 212, 85, 7` on the
+    // frame a run left for `x = 56`, which the discount makes `7, 32, 42, 34, 7` and still an edge; and th08's
+    // card 152 read `0, 11, 10, 9, 0` 175 frames before a hit at `23.1,383.1` with nowhere open, the fire
+    // having piled into the box beside the edge by then.
+    //
+    // **Under her or not**, which is where this rule began and what the same card said was too narrow: five
+    // Kaguya clears were hit on card 152 355 frames into it at `x = 44.6` to `47.3`, each after wanting the
+    // emptiest box at `56` with the boss at `x = 80` — the box beside the edge, so not overhead — one of them
+    // off `0, 6, 0, 4, 2`, where the edge and the middle both read empty, stood equally near, and the edge
+    // came first.
+    fire[0] = fire[0].max(fire[1]);
+    fire[BOXES_ACROSS - 1] = fire[BOXES_ACROSS - 1].max(fire[BOXES_ACROSS - 2]);
     fire
 }
 
@@ -2845,7 +4044,7 @@ fn where_it_comes_into(
     })
 }
 
-/// **The box of the field the fire is clearly piled into**, or nothing where none of them is.
+/// **Whether the fire is clearly piled into one box of the field.**
 ///
 /// **Measured against the emptiest of them and not against the screen.** Asking whether one box holds
 /// more than half of everything is asking the wrong question: a run was hit in the middle with the left
@@ -2855,8 +4054,13 @@ fn where_it_comes_into(
 /// Clearly, and said in two numbers rather than a taste: **twice the emptiest**, which is a factor and so means
 /// the same at thirty bullets as at three hundred; and **more of a difference than there are moves to weave
 /// between**, so that a handful is not a pile. An ordinary imbalance is not a reason to leave a fight.
-fn the_thickest_box(fire: &[f32; BOXES_ACROSS]) -> Option<usize> {
-    (0..BOXES_ACROSS).find(|box_| clearly_fuller(fire, *box_, MORE_THAN_A_HANDFUL))
+///
+/// **Asked of the box itself, and not answered as the first box of the five that is piled.** An edge is counted
+/// no emptier than the box beside it — see [`the_fire_in_each_box`] — so wherever the box beside an edge is piled
+/// the edge is too, and comes first: asked which box is the thick one, the answer was the edge, and a run heading
+/// for a boss in the box beside it was left heading into the pile.
+fn the_fire_is_piled_into(fire: &[f32; BOXES_ACROSS], box_: usize) -> bool {
+    clearly_fuller(fire, box_, MORE_THAN_A_HANDFUL)
 }
 
 /// **How much more than the emptiest box a box has to hold to be one worth leaving**, in [`A_SMALL_ONE`]s.
@@ -2921,18 +4125,39 @@ fn clearly_fuller(fire: &[f32; BOXES_ACROSS], box_: usize, enough: f32) -> bool 
 /// arrives on, so that a box an arm reaches in thirty-nine frames beats one it reaches in three, two Extra
 /// attempts took `10` hits outside [`the_band`] or at the clamp of twenty-one against `12` of twenty-six
 /// without it, which is the same attempt twice over. What the measure is kept for is the dump line.
-fn the_emptiest_box(fire: &[f32; BOXES_ACROSS], mine: usize, swept: Option<usize>) -> usize {
-    let piled = |box_: usize| clearly_fuller(fire, box_, MORE_THAN_A_HANDFUL);
+///
+/// **And *as empty as the emptiest* is twice it, not [`TIMES_THE_EMPTIEST`].** That factor is tuned for
+/// *leaving*, where a quarter over the emptiest is a reason to go; measured here it made every box between
+/// the run and one empty box at the far edge count as piled, and the nearest box that was not piled was
+/// that far one. th08's stage 1 boss is where that read as a walk across the whole field: the boxes
+/// `7, 48, 28, 36, 14` with the run in the fourth wanted the first, 234 units away, past the fifth at 14 —
+/// twice the emptiest, and no pile. A box holding under twice what the emptiest holds is a place to wait
+/// beside, and the nearest such box is the one to cross to.
+///
+/// **Measured on the one fight, from one file.** The rules picked that boss's chapter up out of
+/// `pointdevice_resume/` and lost it seven times over at one hit with the boss at 5335; with the far box
+/// no longer outranking the near one the same pick-up beat that attack and lost the spell card after it
+/// with the boss at 1125. `the_thick_of_it_is_crossed_for_a_big_power_item_and_not_for_a_point` is the
+/// other side of the line: six over nothing, two boxes off, is still a box to leave for.
+fn the_emptiest_box(fire: &[f32; BOXES_ACROSS], near: usize, swept: Option<usize>) -> usize {
+    let empty = fire.iter().copied().fold(f32::INFINITY, f32::min);
+    let piled = |box_: usize| {
+        fire[box_] > empty * TWICE_THE_EMPTIEST && fire[box_] - empty > MORE_THAN_A_HANDFUL
+    };
     (0..BOXES_ACROSS)
         .filter(|box_| Some(*box_) != swept)
         .min_by(|a, b| {
             piled(*a)
                 .cmp(&piled(*b))
-                .then_with(|| a.abs_diff(mine).cmp(&b.abs_diff(mine)))
+                .then_with(|| a.abs_diff(near).cmp(&b.abs_diff(near)))
                 .then_with(|| fire[*a].total_cmp(&fire[*b]))
         })
-        .unwrap_or(mine)
+        .unwrap_or(near)
 }
+
+/// How many times the emptiest box a box has to hold before it is no longer a place as good as the emptiest
+/// to wait in — see [`the_emptiest_box`], which has why this is not [`TIMES_THE_EMPTIEST`].
+const TWICE_THE_EMPTIEST: f32 = 2.0;
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.
 fn the_band(field: (f32, f32, f32, f32)) -> f32 {
@@ -2967,9 +4192,9 @@ fn the_counted_band(field: (f32, f32, f32, f32)) -> f32 {
 /// one, the point item, the cherry, and last anything the six of them do not name.
 ///
 /// Which is th07's own worth of them and near enough every game's: a life is a life, a bomb is a life this
-/// bot's deathbomb will spend, and a big power item is eight steps of power against a small one's one. **Nothing
-/// scores zero**, so no item on the screen is walked past — a kind with no place of its own is still worth the
-/// step it costs.
+/// bot's deathbomb will spend, and a big power item is eight steps of power against a small one's one. **A kind
+/// with no place of its own scores nothing**, and [`the_item_worth_going_for`] goes for one only where it costs
+/// nothing — a step or two — rather than as an errand.
 const fn worth(kind: Worth) -> u8 {
     match kind {
         Worth::Life => 6,
@@ -2979,6 +4204,21 @@ const fn worth(kind: Worth) -> u8 {
         Worth::Point => 2,
         Worth::Cherry => 1,
         Worth::Other => 0,
+    }
+}
+
+/// **The item the rules go for**: [`the_item_worth_going_for`], and none at all through a card dodged
+/// [`Dodge::WithoutTheItems`], whose boss lets them fall down the column her fire is thickest in.
+///
+/// th08's `禁薬「蓬莱の薬」` was hit on eighteen of the twenty-three whole runs that reached it, seventeen of them in
+/// its last stretch and sixteen at the floor between `x = 143` and `212`; a Normal clear through that stretch wanted
+/// a point item on 22% of its frames, `1,048` of the `1,114` at Eirin's own `x = 192`, falling from `y = 288`. Two
+/// practices of the card, the rules otherwise the same, wanted one on 7% and were hit on neither — the boxes' own
+/// `118`, `192` and `266` being where they waited instead.
+fn the_item_gone_for(frame: &Frame) -> Option<(Worth, (f32, f32))> {
+    match the_dodge() == Some(Dodge::WithoutTheItems) {
+        true => None,
+        false => the_item_worth_going_for(frame),
     }
 }
 
@@ -2993,9 +4233,32 @@ const fn worth(kind: Worth) -> u8 {
 /// the field for one crossed it for nothing and dodged nothing on the way.
 fn the_item_worth_going_for(frame: &Frame) -> Option<(Worth, (f32, f32))> {
     let (at_x, at_y) = frame.at;
+    // **And under a boss, a kind worth nothing only where it costs nothing**: within a couple of steps on
+    // both axes, which is a pickup made on the way rather than an errand. th08's graze scraps and the three
+    // an erased bullet leaves are that kind, and a spell card is where they fall thickest — a run there
+    // wanted `an item of no place of its own at 335,384` from `234,387` under 390 bullets, and died crossing
+    // to it thirteen times running, `nowhere open to it`. **Under a boss and not everywhere**, because a
+    // stage with nothing else on the screen is where such a kind is worth the walk it always was —
+    // `the_bot_takes_the_items_in_their_own_order` is that walk — and a fight is where the walk is paid for
+    // twice, in the crossing and in the damage not done under the boss.
+    let (reach_x, reach_y) = (2.0 * frame.straight.0, 2.0 * frame.straight.1);
+    // **And sweeping a field a captured card has cleared was tried for th08's own norm and taken out again.**
+    // Those items are that game's **time orbs** — a card taken there cancels the screen and leaves one per
+    // bullet cancelled — and the count a stage's Last Spell is due on is counted in them, which is what the
+    // route to its own last stage turns on. One clear's stage 1 read **2,094 of the 2,500** its norm wants
+    // with the count climbing in steps of 21 to 25 and no card payout in any of them, so the orbs looked like
+    // the half to buy. Told to go for such an item wherever nothing was inside 96 units — twenty-four frames
+    // of a bullet's own step — the same stage read **1,872**, and told the field's middle through that boss's
+    // whole fight it read **1,977**: both *below* the run that was told nothing. What the sweep costs is the
+    // damage not done while the shot is off the boss, which is the payout the norm is really short of.
     frame
         .items
         .iter()
+        .filter(|item| {
+            worth(item.worth) > 0
+                || frame.boss.is_none()
+                || ((item.at.0 - at_x).abs() <= reach_x && (item.at.1 - at_y).abs() <= reach_y)
+        })
         .filter(|item| !frame.full_power || !matches!(item.worth, Worth::Power | Worth::BigPower))
         .map(|item| {
             (

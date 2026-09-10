@@ -183,7 +183,8 @@ fn usage() -> ExitCode {
          test      the suite, {TARGET}, and {also} first, which is where the game\n\
          \x20         built for it has its own tests; one test at a time while Steam\n\
          \x20         is up and half the machine's threads while it is not, which\n\
-         \x20         `-- --test-threads=N` overrules\n\
+         \x20         `-- --test-threads=N` overrules; `-- <name>...` runs only the\n\
+         \x20         tests those names match, as many names as are given\n\
          build     {TARGET} — `build --release` is what installs\n\
          seam      {above_the_seam} checked for {SEAM_TARGET}, a host with no Windows\n\
          \x20         on it, which is what says nothing above the seam reaches past it\n\

@@ -41,9 +41,19 @@ const AT_MOST: usize = 20;
 static WANTED: Mutex<Option<String>> = Mutex::new(None);
 static TAKEN: AtomicUsize = AtomicUsize::new(0);
 
+/// **The label a picture asked for by the clock is taken under**, which is the one label whose picture goes
+/// into the trace and nowhere else — see [`taken`].
+pub const INTO_THE_TRACE: &str = "trace";
+
 /// Ask for the frame being drawn to be written out, named after what asked for it.
+///
+/// **And [`AT_MOST`] is a bound on the files and not on the trace**: a picture asked for under
+/// [`INTO_THE_TRACE`] is written into the trace and nowhere else, so what the bound is there to stop —
+/// a directory of megabytes nobody asked for — cannot happen to it. A launch that took the bound as its
+/// own kept the first twenty and then stopped: `--shot-every=10` over a half-hour run left every picture
+/// inside the first two stages, and the screens a reader wants are the ones late in it.
 pub fn wanted(label: &str) {
-    if TAKEN.load(Ordering::Relaxed) >= AT_MOST {
+    if label != INTO_THE_TRACE && TAKEN.load(Ordering::Relaxed) >= AT_MOST {
         return;
     }
     *WANTED
@@ -73,6 +83,17 @@ pub unsafe fn taken(device: Device) {
     let Some(bytes) = taken else {
         return;
     };
+    // **And into the trace where one is being written**, which is where a picture belongs: a trace already
+    // holds the state, the word and every line the log said on the frame it was said on, so a frame's
+    // picture beside those is the whole of what that frame looked like in the one file a check reads. See
+    // [`crate::trace::picture`], and [`INTO_THE_TRACE`] for the label a periodic one is asked for under —
+    // that one is not written beside the exe at all, a run's worth of them being a directory nobody asked
+    // for.
+    crate::trace::picture(&bytes);
+    if label == INTO_THE_TRACE {
+        return;
+    }
+    // Counted here and not above, [`AT_MOST`] being the bound on the files — see [`wanted`].
     TAKEN.fetch_add(1, Ordering::Relaxed);
     let Some(exe) = module::host_exe() else {
         return;

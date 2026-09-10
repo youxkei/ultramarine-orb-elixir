@@ -1,0 +1,48 @@
+# **A chapter of th08's second stage taken again and played past**, which is what says the mode's chapters
+# are the stage's own and not the run's: a snapshot taken in stage 2 puts the run back into stage 2, with
+# the stage's own clock and its generator where that chapter began.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses — with orb's own mode
+# question over the title's first item, answered with the pointdevice mode: the chapters are the mode's.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **The run played into the second stage**, which is ten minutes of frames at this game's own rate: the
+# first stage of a run by the rules has measured `frames=18218` on its own.
+- play_until: { stage: 2, chapter: 1 }
+  give_up_after: 60000
+# **And that chapter asked for again through the game's own pause menu item**, which costs no death: orb
+# takes the item off and answers with its own question, whose first item is the chapter the run is in.
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And played past it, which the boss arriving is**: a chapter is cut where she does, so a run that
+# reaches her from the chapter it was put back into has crossed the boundary the check looks for. The
+# midsection of a stage of this game is some two thousand frames.
+- play_until: { boss: true }
+  give_up_after: 36000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -108,8 +108,12 @@ impl Log {
     }
 
     /// Whether any line holds `needle`, which is how an e2e test asserts on what orb reported.
+    ///
+    /// **Looked for where the lines are rather than in a copy of them**: an e2e test asks this once a
+    /// frame, and a verbose log is a line a frame too — a copy apiece was 0.2ms of each frame 1,100 frames
+    /// into th08's stage, and more every frame after.
     pub fn said(&self, needle: &str) -> bool {
-        self.lines().iter().any(|line| line.contains(needle))
+        self.said_since(0, needle)
     }
 
     /// How many lines orb has written, which is where an e2e test marks its place before walking something
@@ -123,7 +127,11 @@ impl Log {
     /// *ever* written, so an e2e test waiting on one for the second time is answered yes by the first — and
     /// waits out nothing at all.
     pub fn said_since(&self, from: usize, needle: &str) -> bool {
-        self.lines()
+        self.waited();
+        self.state
+            .lock()
+            .unwrap()
+            .lines
             .iter()
             .skip(from)
             .any(|line| line.contains(needle))

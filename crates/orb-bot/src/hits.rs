@@ -81,12 +81,27 @@ pub struct TakingHits {
     /// And whether the chapter is to be drawn for again on the next frame of one, which taking that offer
     /// makes true.
     again: bool,
+    /// Whether the attempt in flight is still to be drawn for, which a chapter starting and a `take_hits` step
+    /// being reached both make true.
+    undrawn: bool,
 }
 
 impl TakingHits {
-    /// What a `take_hits` step says, from the step it is written at onwards.
+    /// What a `take_hits` step says, from the step it is written at onwards — **the attempt in flight included**,
+    /// which is drawn for again on its next frame.
+    ///
+    /// **Not only at a chapter's start**, which is where the draw was before every attempt was counted: an
+    /// attempt is now counted from the first frame of its chapter whether or not a step asked for hits, so a
+    /// draw made only there is made before a step written inside the chapter is reached — th06c's own run
+    /// asked for hits in its stage's first chapter and was drawn for in its second, and took none.
     pub fn told(&mut self, told: Told) {
         self.told = Some(told);
+        self.undrawn = true;
+    }
+
+    /// How many times the chapter in flight has been retried: nought on the attempt that reached it.
+    pub fn attempt(&self) -> u32 {
+        self.retried
     }
 
     /// **What the rules do about the hazards this frame**, with the draw for a chapter made as it starts.
@@ -99,14 +114,13 @@ impl TakingHits {
         if self.was_offered && !offered {
             self.again = true;
         }
-        let Some(told) = self.told else {
-            self.was_offered = offered;
-            return Hazards::Dodged;
-        };
         // **And the offer coming up is where a run is given up rather than carried on**, which is the other
         // thing somebody who has just died does — and the one that leaves the run in a file for the next
         // launch to pick up. Drawn on the frame it comes up, so that one offer is one draw.
-        if offered && !self.was_offered {
+        if let Some(told) = self.told
+            && offered
+            && !self.was_offered
+        {
             let chance = told.gives_up;
             let at = self.at.unwrap_or_default();
             if drawn(at, self.retried, GIVING_UP ^ a_launchs_own()) < chance {
@@ -132,6 +146,8 @@ impl TakingHits {
             return Hazards::Dodged;
         }
         let at = (reached.stage, reached.chapter);
+        // **The attempt is counted whether or not a recipe asked for hits**, the rules waiting somewhere
+        // else on each one — see `steer::this_attempt`.
         if self.at != Some(at) || self.again {
             self.retried = match self.at {
                 Some(was) if was == at && self.again => self.retried.saturating_add(1),
@@ -140,7 +156,15 @@ impl TakingHits {
             };
             self.again = false;
             self.at = Some(at);
+            self.undrawn = true;
+        }
+        if self.undrawn {
+            self.undrawn = false;
             self.frames = 0;
+            self.drawn = false;
+            let Some(told) = self.told else {
+                return Hazards::Dodged;
+            };
             let chance = told.chance * told.times_each_retry.powi(self.retried as i32);
             self.drawn = drawn(at, self.retried, BEING_HIT_IN) < chance;
             let (stage, chapter) = at;
@@ -177,9 +201,11 @@ impl TakingHits {
     }
 }
 
-/// The two things an attempt is drawn for, which are two draws and not one — see [`drawn`].
+/// The three things an attempt is drawn for, which are three draws and not one — see [`drawn`].
 const BEING_HIT_IN: u64 = 0;
 const GIVING_UP: u64 = 1;
+/// Where the rules wait — see `steer::aside_on`.
+pub(crate) const WAITING_ASIDE: u64 = 2;
 
 /// **A number of this launch's own, which the giving up is drawn with and the being hit in is not.**
 ///
@@ -222,7 +248,7 @@ fn a_launchs_own() -> u64 {
 ///
 /// `about` is which question is being asked of that attempt, so that the two draws an attempt takes are
 /// unrelated: at one salt a chapter drawn to be hit in would be a chapter drawn to be given up at.
-fn drawn((stage, chapter): (i32, u32), retried: u32, about: u64) -> f32 {
+pub(crate) fn drawn((stage, chapter): (i32, u32), retried: u32, about: u64) -> f32 {
     let mut mixed =
         ((stage as u32 as u64) << 48) | ((chapter as u64) << 32) | ((retried as u64) << 8) | about;
     mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -234,7 +260,86 @@ fn drawn((stage, chapter): (i32, u32), retried: u32, about: u64) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{BEING_HIT_IN, GIVING_UP, drawn};
+    use orb_core::game::{Question, Reached};
+
+    use super::{BEING_HIT_IN, GIVING_UP, Hazards, TakingHits, Told, drawn};
+    use crate::steer::aside_on;
+
+    /// A frame of stage 1's chapter, with orb's offer to retry up or not.
+    fn in_chapter(chapter: u32, offered: bool) -> Reached {
+        Reached {
+            stage: 1,
+            chapter,
+            question: offered.then_some(Question::Retry),
+            cursor: None,
+            screen: None,
+            over: false,
+            boss: false,
+            dialogue: false,
+            card: false,
+            card_name: false,
+            typing_a_name: false,
+            spell: None,
+            card_frames: None,
+        }
+    }
+
+    /// **A chapter taken again is its next attempt and a chapter reached is its first**, with no `take_hits`
+    /// written — the attempt being what the rules wait somewhere else on, whether or not they are hit.
+    #[test]
+    fn each_retry_of_a_chapter_is_its_next_attempt_and_the_chapter_after_it_starts_at_the_first() {
+        let mut hits = TakingHits::default();
+        hits.this_frame(in_chapter(3, false));
+        assert_eq!(hits.attempt(), 0);
+        for retry in 1..=2 {
+            hits.this_frame(in_chapter(3, true));
+            hits.this_frame(in_chapter(3, false));
+            assert_eq!(hits.attempt(), retry);
+        }
+        hits.this_frame(in_chapter(4, false));
+        assert_eq!(hits.attempt(), 0);
+    }
+
+    /// **A `take_hits` step reached inside a chapter is drawn for in that chapter**, and not in the next one:
+    /// the attempt was counted from the chapter's first frame with nothing told, and a hit asked for there is
+    /// asked for there.
+    #[test]
+    fn a_take_hits_step_reached_inside_a_chapter_is_drawn_for_in_that_chapter() {
+        let mut hits = TakingHits::default();
+        assert!(hits.this_frame(in_chapter(1, false)) == Hazards::Dodged);
+        hits.told(Told {
+            chance: 1.0,
+            times_each_retry: 0.0,
+            gives_up: 0.0,
+        });
+        assert!(
+            hits.this_frame(in_chapter(1, false)) == Hazards::Ignored,
+            "the chapter in flight was not drawn to be hit in",
+        );
+        assert_eq!(hits.attempt(), 0, "being told is no retry");
+    }
+
+    /// **The first attempt waits where the rules always have and each retry somewhere of its own**, no
+    /// further than a quarter of the field either way.
+    #[test]
+    fn the_first_attempt_waits_where_it_always_has_and_each_retry_somewhere_else() {
+        assert_eq!(aside_on(0), 0.0);
+        let asides: Vec<f32> = (1..=8).map(aside_on).collect();
+        assert!(
+            asides.iter().all(|aside| (-96.0..=96.0).contains(aside)),
+            "{asides:?} strays past a quarter of the field",
+        );
+        assert!(
+            asides
+                .windows(2)
+                .all(|pair| (pair[0] - pair[1]).abs() > 1.0),
+            "{asides:?} has two retries in a row waiting in the same place",
+        );
+        assert!(
+            asides.iter().any(|aside| *aside < 0.0) && asides.iter().any(|aside| *aside > 0.0),
+            "{asides:?} waits on one side of the boss alone",
+        );
+    }
 
     /// **Every attempt draws its own number, and the same one every time it is asked.** Which is what the run
     /// being repeatable rests on: the chapters a launch dies in are the chapters the next launch of the same

@@ -1,0 +1,51 @@
+# **A Normal run of th08 played out by the rules with the bomb forbidden**, which is the launch that says
+# the arrays a bot of this game is told of are the arrays: the enemies with the third of their size that
+# kills, the bullets with the step their own kind takes of their velocity, the lasers, the items with what
+# picking each one up does, and the boss the fight is with.
+#
+# **The front end is walked by this game's own screen numbers** — see the case beside this one, which
+# walks the same three.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+# **And orb's own question over that item, answered with the normal mode** — item 1. `Th08::rewinds`
+# answers true, so a launch of this game starts in Pointdevice mode and the title's first item is asked
+# about: without this step the menu stands behind a question nobody answers and screen 4 never comes,
+# which is what th06nc's own case says in the same place. The mode is the other one because **this case
+# is about the run the rules play**, and a pointdevice run's deaths are answered by a chapter rather than
+# by the life going — which is the opposite of what `bombs: false` below is measuring.
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **No bomb from here**, which is what the run is measured by: the hit stands and takes the life.
+- bombs: false
+# **The run played into its third stage and no further**, which is two bosses and the stage between them
+# against every array the rules are told of — and inside the twenty minutes a case of this game is given at
+# the game's own speed. The whole run is `a_run_played_to_its_clear_without_a_bomb`'s, whose recipe carries
+# the places the later stages' cards want. `stage: 3` is the stage word 2, a `stage` a recipe names being
+# counted from one, and a `play` ends the moment the run is over, so a run lost before it stops here too.
+- play_until: { stage: 3, chapter: 0 }
+  give_up_after: 60000
+- screenshot: the-third-stage-reached
+  frames: 12
+# **`quit` and not `leave`**, which is the one difference from the case beside this: what this case is
+# about is the run played, and what is left of it has nothing to hand back.
+- quit: true

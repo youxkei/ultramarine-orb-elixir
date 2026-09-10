@@ -176,6 +176,9 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
         landing: written.landing,
         buttons: dense(&changes, at),
         generators: written.generators,
+        // Nothing: this game's file carries no read of a frame before its last, for the reason
+        // `th07::resume`'s own line gives.
+        again: Vec::new(),
     })
 }
 
@@ -351,6 +354,8 @@ mod tests {
                 Some(0x100a),
                 Some(0x100b),
             ],
+            // None: this game's file carries no read of a frame before its last — see [`decode`].
+            again: Vec::new(),
         }
     }
 

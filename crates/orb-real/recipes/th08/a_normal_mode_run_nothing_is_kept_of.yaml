@@ -1,0 +1,36 @@
+# **A run of th08 in the other mode, which is the game as it comes**: orb's own question over the title's
+# first item answered with the normal mode, a run played for twenty seconds, and nothing of it kept — no
+# chapter counted, no retry, and nothing written down for a later launch to pick up.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+- play_until: { frames: 1200 }
+  give_up_after: 7200
+# The run left for the title, which a run of this mode leaves nothing behind for.
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

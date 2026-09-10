@@ -419,6 +419,14 @@ impl Win for Sim {
         self.space.read_committed_bytes(address, len)
     }
 
+    fn read_into(&self, address: usize, into: &mut [u8]) {
+        self.space.read_into(address, into);
+    }
+
+    fn read_committed_into(&self, address: usize, into: &mut [u8]) -> bool {
+        self.space.read_committed_into(address, into)
+    }
+
     /// Out of the laid-out space, with nothing to unprotect: what a page's protection is is the real
     /// host's business, and a space that modelled one would be refusing writes an e2e test asked for.
     ///

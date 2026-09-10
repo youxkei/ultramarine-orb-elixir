@@ -1,0 +1,50 @@
+# **The run the case before left, started over from the beginning with its replay kept** — which is the
+# other half of what orb's own question at the title offers: `つづきから` picks the chapter up and
+# `はじめから` throws it away, and a fresh run would write over the replay the run before it was writing,
+# so orb keeps that one first.
+#
+# **This case continues the one before it**, so the chapter and the replay it answers about are that run's
+# — see `Case::continues`, and the recipe beside this one that leaves them.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+# **はじめから**, which is what this case is about: the chapter the run before left is thrown away and the
+# run starts at its own beginning. **After the team select and not after the mode question**, orb asking
+# it as the run is built: a laid-out launch that answered it up there gave up both answers' bounds and
+# then stood under the question when it came.
+- answer: { question: resume, item: 1 }
+  give_up_after: 1800
+# **And no question about the replay**, which the fresh run would otherwise write over: asked as the run is
+# built, orb keeps it without asking — the laid-out launch read `it is kept without asking` on the frame
+# はじめから was answered, where the games whose shot select orb asks over put a question of its own up.
+- wait_until: { frames: 300 }
+# **And the fresh run played into its second chapter**, which is what says it is a run and not a playback:
+# the chapter it reaches is stage 1's midstage table's first boundary, at script 790.
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

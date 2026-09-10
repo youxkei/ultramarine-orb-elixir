@@ -1,0 +1,36 @@
+# The run a_chapter_of_the_stage_after_the_first left in stage 2's fight, offered as the run starts and
+# taken up where it stopped — in stage 2 and not at a run's first — and then played on.
+#
+# **The walk and the resume question are the_run_picked_up_where_it_was_left's**, the question coming as
+# the team select's second press builds the run. What is played on for is a chapter of stage 2 after the
+# one landed in, which inside the fight is its next attack.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- answer: { question: resume, item: 0 }
+  give_up_after: 1800
+- play_until: { frames: 3600 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

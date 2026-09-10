@@ -3200,7 +3200,7 @@ static SAVING_INTO: Mutex<Option<String>> = Mutex::new(None);
 fn slot_holds(slot: u32) -> Option<Vec<u8>> {
     let at = super::G_SOUND_PLAYER + SLOT_NAMES + slot as usize * SLOT_NAME_BYTES;
     let name = super::name_at(at, SLOT_NAME_BYTES)?;
-    Some(super::file_name(&name).to_vec())
+    Some(crate::game::song::file_name(&name).to_vec())
 }
 
 /// Which of the file's records a name is: the array walked from the player's own pointer field until an empty

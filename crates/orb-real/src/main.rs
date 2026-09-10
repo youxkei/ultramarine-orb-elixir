@@ -38,10 +38,38 @@ fn main() -> ExitCode {
     let Some(session) = args.next() else {
         eprintln!(
             "usage: orb-real <session-dir> [th06|th07]\n       orb-real list\n       \
-             orb-real show <trace> [<needle>]"
+             orb-real show <trace> [<needle>]\n       orb-real watching <trace>\n       \
+             orb-real picture <trace> <out.bmp> [<frame>]"
         );
         return ExitCode::FAILURE;
     };
+    if session == "watching" {
+        let Some(path) = args.next() else {
+            eprintln!("usage: orb-real watching <trace>");
+            return ExitCode::FAILURE;
+        };
+        return match watching(&path) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if session == "picture" {
+        let (Some(path), Some(out)) = (args.next(), args.next()) else {
+            eprintln!("usage: orb-real picture <trace> <out.bmp> [<frame>]");
+            return ExitCode::FAILURE;
+        };
+        let at: Option<u32> = args.next().and_then(|it| it.parse().ok());
+        return match picture(&path, &out, at) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("orb-real: {why}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if session == "show" {
         let Some(path) = args.next() else {
             eprintln!("usage: orb-real show <trace> [<needle>]");
@@ -153,13 +181,149 @@ fn main() -> ExitCode {
 /// **The frames that said nothing are left out**, a trace holding one record per frame and a launch running
 /// to hundreds of thousands of them: what a reader is after is a line, and the state is worth printing where
 /// it says what the game was doing as that line was written.
+/// **What a launch being watched is asked every so often, out of its own trace**: the newest frame's state,
+/// the recipe's newest step, and the newest of the things that happen to a run.
+///
+/// **Which is the same three a monitor reads the log for, and better from here.** A state line in the log
+/// is said once every so many frames, so a monitor's `tail` finds whichever one is nearest; a record is
+/// every frame, so the newest is the newest. And the step and the event come from the frames they were said
+/// on, so what is printed is one moment of the launch rather than three greps of a file that may have
+/// moved between them.
+///
+/// **The trace is seconds behind and that is what it is for**: records are held until a chunk of them is
+/// worth a write — see `orb_core::trace`'s own `FLUSH_AT` — so this is the launch as of a moment ago and
+/// never mid-record, whole records being what a chunk is made of.
+fn watching(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+    let trace = Trace::read(&bytes)?;
+    let Some(newest) = trace.records.last() else {
+        return Err(format!("{path} holds no frame yet"));
+    };
+    let said = |among: &[&str]| {
+        trace
+            .records
+            .iter()
+            .rev()
+            .flat_map(|record| record.lines.iter().rev().map(move |line| (record, line)))
+            .find(|(_, line)| among.iter().any(|it| line.contains(it)))
+            .map(|(record, line)| format!("f{} {line}", record.frame))
+    };
+    let step = said(&["autoplay: step"]);
+    // **Each needle as long as it has to be to match one line and not another.** `chapter` alone finds
+    // the `chaptering=` of every `perf:` line, which is said once every 600 frames and so is always the
+    // newest of anything: the trailing space is what tells a boundary's own line from that field.
+    let event = said(&[
+        "died in chapter",
+        "autoplay: hit at",
+        "chapter ",
+        "run ended",
+        "retry: ",
+        "front end: screen",
+    ]);
+    let pictures = trace
+        .records
+        .iter()
+        .filter(|record| record.picture.is_some())
+        .count();
+    match &newest.state {
+        Some(state) => println!("f{} {}ms {state}", newest.frame, newest.ms),
+        None => println!("f{} {}ms nothing read yet", newest.frame, newest.ms),
+    }
+    println!("  step: {}", step.as_deref().unwrap_or("no step said yet"));
+    println!("  event: {}", event.as_deref().unwrap_or("nothing yet"));
+    println!("  {} frame(s), {pictures} picture(s)", trace.records.len());
+    Ok(())
+}
+
+/// **One of a trace's own pictures written out where it can be looked at**, the newest by default and
+/// otherwise the first taken on or after the frame asked for.
+///
+/// **Because a picture in a trace is a picture nobody can see.** `--shot-every` puts the back buffer into
+/// the trace every so many seconds and `orb-real watching` says how many are in there, which answers *that*
+/// a screen was kept and nothing about what was on it — and what a run is asked about is usually the screen:
+/// whether orb's own drawing is still up, which attack the boss is on, where the player stood.
+///
+/// A 32-bit bottom-up BMP, which is what `orb_core::shot` keeps — see its own doc for why nothing encodes
+/// anything on the frame's own thread.
+fn picture(path: &str, out: &str, at: Option<u32>) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
+    let trace = Trace::read(&bytes)?;
+    let mut kept = trace
+        .records
+        .iter()
+        .filter(|record| record.picture.is_some());
+    let found = match at {
+        Some(at) => kept.find(|record| record.frame >= at),
+        None => kept.next_back(),
+    };
+    let record = found.ok_or_else(|| match at {
+        Some(at) => format!("{path} holds no picture taken on frame {at} or after it"),
+        None => format!("{path} holds no picture"),
+    })?;
+    let picture = record.picture.as_ref().expect("filtered to the kept ones");
+    std::fs::write(out, picture).map_err(|why| format!("{out} cannot be written: {why}"))?;
+    println!(
+        "f{} {}ms: {} byte(s) written to {out}",
+        record.frame,
+        record.ms,
+        picture.len(),
+    );
+    if let Some(state) = &record.state {
+        println!("  {state}");
+    }
+    Ok(())
+}
+
+/// What stood over a hit, a line an enemy or a bullet, every one of them beginning `over a hit at` so that a
+/// `show` can be asked for them alone.
+fn over_a_hit(over: &orb_core::trace::OverAHit) -> Vec<String> {
+    let at = format!("over a hit at {:.1},{:.1}:", over.at.0, over.at.1);
+    let enemies = over.enemies.iter().map(|enemy| {
+        format!(
+            "{at} enemy slot {} at {:.1},{:.1} size {:.1},{:.1} flags {:#010x} familiar {:#x} behaviour {} \
+             anchor {} angle {:.3}",
+            enemy.slot,
+            enemy.at.0,
+            enemy.at.1,
+            enemy.size.0,
+            enemy.size.1,
+            enemy.flags,
+            enemy.familiar,
+            enemy
+                .behaviour
+                .map_or_else(|| "none".to_owned(), |it| format!("{it:#x}")),
+            enemy
+                .anchor
+                .map_or_else(|| "none".to_owned(), |(x, y)| format!("{x:.1},{y:.1}")),
+            enemy.angle,
+        )
+    });
+    let bullets = over.bullets.iter().map(|bullet| {
+        format!(
+            "{at} bullet slot {} at {:.1},{:.1} size {:.1},{:.1} kind {} hidden {}",
+            bullet.slot,
+            bullet.at.0,
+            bullet.at.1,
+            bullet.size.0,
+            bullet.size.1,
+            bullet.kind,
+            bullet.hidden,
+        )
+    });
+    enemies.chain(bullets).collect()
+}
+
 fn shown(path: &str, needle: Option<&str>) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|why| format!("{path} cannot be read: {why}"))?;
     let trace = Trace::read(&bytes)?;
     for record in &trace.records {
+        // **And what stood over a hit, as lines of their own** beside the log's — see
+        // `orb_core::trace::OverAHit`, which a check reads as fields and a person reads here.
+        let over: Vec<String> = record.over_a_hit.iter().flat_map(over_a_hit).collect();
         let lines: Vec<&String> = record
             .lines
             .iter()
+            .chain(over.iter())
             .filter(|line| needle.is_none_or(|needle| line.contains(needle)))
             .collect();
         if lines.is_empty() {

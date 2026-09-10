@@ -113,6 +113,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
                 state,
             },
             slot,
+            frames: None,
             at: unsafe { position(bullet + bullet_manager::BULLET_POSITION) },
             step: Some((vx * scale, vy * scale)),
             half: (wx / 2.0, wy / 2.0),
@@ -140,6 +141,9 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         into.hazards.push(Hazard {
             kind: Kind::Body { solid },
             slot,
+            // **Nothing, nothing read off this game saying how long the enemy in this slot has been there** —
+            // see `Hazard::frames`, whose note has what a slot taken as an identity without one costs.
+            frames: None,
             at: unsafe { position(at + enemy::POSITION) },
             step: None,
             half: (

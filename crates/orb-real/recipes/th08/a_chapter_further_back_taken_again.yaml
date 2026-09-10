@@ -1,0 +1,60 @@
+# **A chapter of th08 further back than the one the run is in, taken again** — which is the second of the
+# ways orb's own question of where to start again offers, and the one with a screen of its own behind it:
+# the chapters the stage has behind the chapter that was lost, each listed by where it is.
+#
+# **Asked in the stage's third chapter, so that two are behind it.** `RetryMenu::new` leaves
+# 更に前からやり直す out of the ways where those are none, so this recipe plays into stage 1's third
+# chapter — past the midstage table's boundary at script 790 and on to the next — and the ways are then
+# the chapter, a chapter further back, the stage and the run given up, with the second of them **item 1**.
+#
+# **Three answers and not two**: the item names the screen, the screen names the chapter, and the naming
+# raises the same yes as every other way.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses — with orb's own mode
+# question over the title's first item, answered with the pointdevice mode.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# **Played into the third chapter of the stage**, which is past the midstage table's first boundary at
+# script 790: five minutes of frames is the bound, the chapter after that being the midboss's arrival at
+# 2935 on the real game and the table's 4086 on the laid-out one.
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+# **The ask, the screen of chapters named, the earliest of them taken, and the yes behind it.**
+- start_over: true
+- answer: { question: retry, item: 1 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And the run playing on from there back up to the chapter it was asked in**, which is what says the
+# snapshot that chapter is landed — and what the check holds it to. Nine hundred frames, which this step
+# was, took the laid-out run from script 790 to some 1,690, short of the chapter the ask came from.
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

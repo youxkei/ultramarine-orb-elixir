@@ -17,6 +17,21 @@ if ! game gone >/dev/null; then
   exit 1
 fi
 
+# **And a trace, always**, unless one was named: a launch is watched and read afterwards through its own trace
+# (`orb-real watching`, `orb-real show`), and a launch without one leaves only `orb.log`, which the next launch
+# starts over. Beside the copy under `traces/`, by the time and the recipe, spelt the Windows way — `--trace`
+# is a path orb opens from inside the game.
+trace=""
+for arg in "$@"; do
+  case "$arg" in --trace=*) trace="${arg#--trace=}" ;; esac
+done
+if [ -z "$trace" ]; then
+  mkdir -p "$dir/traces"
+  trace="$(wslpath -w "$dir/traces")\\$(date +%Y%m%d-%H%M%S)-$(basename "$recipe" .yaml).msgpack"
+  set -- "$@" "--trace=$trace"
+fi
+echo "trace: $trace"
+
 cd "$dir" || exit 1
 ./orb.exe "--autoplay=$recipe" "$@"
 echo "injected, waiting for the game to come up"

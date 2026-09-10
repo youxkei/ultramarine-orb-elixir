@@ -72,7 +72,7 @@ use std::ffi::c_void;
 use std::ops::Range;
 use std::sync::Mutex;
 use std::sync::atomic::{
-    AtomicBool, AtomicI32, AtomicI64, AtomicU16, AtomicU32, AtomicUsize, Ordering,
+    AtomicBool, AtomicI32, AtomicI64, AtomicU8, AtomicU16, AtomicU32, AtomicUsize, Ordering,
 };
 
 use orb_config::{Config, Language};
@@ -126,7 +126,10 @@ const OVERLAY_ATTEMPTS: u32 = 8;
 /// `CHAIN_CALLBACK_RESULT_BREAK`: what `RunCalcChain` returns when a job asks it
 /// to stop for this frame. Returning it instead of calling the original is how
 /// the retry menu freezes the game while drawing carries on.
-const CHAIN_BREAK: i32 = 1;
+///
+/// `pub(crate)` for a game that walks a frame of its own in place of the walk and answers as the walk would —
+/// see `Game::walks_a_frame_of_its_build`.
+pub(crate) const CHAIN_BREAK: i32 = 1;
 /// `th06::RenderResult`, which the loop the game calls this from expects back.
 const RENDER_KEEP_RUNNING: i32 = 0;
 const RENDER_EXIT_SUCCESS: i32 = 1;
@@ -294,6 +297,68 @@ const STOP_GRACE_FRAMES: u32 = 12;
 /// updates again — stage 5 has it and stage 6 does not.
 const STALLED_FRAMES: u32 = 60;
 
+/// **And how many updates a playback may spend per frame of the run it is putting back**, which is the
+/// bound that holds where the clock's own does not: a line of dialogue stops the clock by design, so those
+/// updates cannot be counted as a run gone dead — see the loop in [`play_in`] — and something has to stop a
+/// playback whose dialogue never ends.
+///
+/// Four, because two of the ways an update is not a frame are already known and both are small: th07 skips
+/// the run on one update in five while it slows itself down, and a dialogue is a run of updates with the
+/// clock standing. The spare is a minute of them on top, which is longer than any conversation these games
+/// put up.
+const UPDATES_A_FRAME_MAY_TAKE: u32 = 4;
+const UPDATES_A_PLAYBACK_IS_SPARED: u32 = 3600;
+
+/// **How many updates of a playback go by between two takes of the window's own messages** — see
+/// `orb_api::window::pump`, and the loop in [`play_in`] for what a window left unanswered costs.
+///
+/// Six hundred, which at the rate a playback runs is a few times a second: often enough that nothing
+/// decides the window has stopped answering, and rare enough that the messages are not what the playback
+/// spends its time on.
+const UPDATES_BETWEEN_PUMPS: u32 = 600;
+
+/// **How much of a playback one frame of the host does**, the rest being the next frame's.
+///
+/// **A playback cannot have the frame for as long as it likes.** Put back at a chapter deep in a run it is
+/// 35,227 frames — 24,655 updates at about 2.4ms apiece, a minute and a half — and for that minute and a
+/// half nothing is drawn, no message of the window's is answered, and whatever was last on the screen
+/// stays there: a launch held at a conversation showed orb's own question for a quarter of an hour, and
+/// somebody watching a window like that is watching a program that has hung.
+///
+/// Three hundred, which is about three quarters of a second of updates: a playback of a deep chapter then
+/// takes a couple of hundred frames of the host, each of them drawing and answering the window.
+const UPDATES_A_FRAME_PLAYS_BACK: u32 = 300;
+
+/// **What a playback adds to the word it feeds while a line of dialogue is up**, and nothing otherwise.
+///
+/// A conversation is carried by the shot going *down* and by the skip key where the game has one — which is
+/// what `orb_bot::steer` presses, and why: th08's own line goes on the frame the shot goes down. Those
+/// presses land on frames the stage's clock does not count, and a playback fed the one frame's word over and
+/// over sits in the conversation for ever. A launch resumed at a chapter of stage 5 did exactly that at
+/// `frame 4963`, the midboss's own words.
+///
+/// **And the record does write them down now**, one entry per read of a frame rather than one per frame —
+/// see [`resume::Again`] — so this is what is left for a record that has none of them: a replay being
+/// watched, and the games whose own files keep a frame's first read alone. [`play_in`] asks
+/// [`resume::out_of_reads`] and leaves this empty while the reads last.
+///
+/// Filled by [`play_in`]'s loop, which reads the state every update anyway, and read by [`get_input`],
+/// which is where a fed word reaches the game.
+/// **The word a playback feeds while a line of dialogue is up, or [`CARRYING_NOTHING`]**, which is what a
+/// playback is on every other frame.
+///
+/// **The whole word and not bits added to the record's**, because what carries a line is the press going
+/// *down*: the record's word for a frame the clock never counted is fed over and over, and where that word
+/// holds the shot a bit OR'd on top of it never goes down at all. A launch resumed at a chapter of stage 5
+/// sat in the midboss's words for 22,500 updates with `carrying 0x100` — the skip held, never let go.
+static CARRYING_A_CONVERSATION: AtomicI32 = AtomicI32::new(CARRYING_NOTHING);
+const CARRYING_NOTHING: i32 = -1;
+
+/// How long the press carrying a conversation is held and let go for, in updates of the playback: a cycle
+/// of twice this, pressed for the first half and let go for the second. Six, which is a press every twelfth
+/// update — quicker than a person and long enough for the game to see both edges.
+const A_CARRIED_PRESS_LASTS: u32 = 6;
+
 /// How far a playback goes between saying so: ten seconds of the run it is putting back, which for the deepest
 /// chapter of a stage is a line every few seconds of waiting and forty of them in all.
 const SAID_EVERY: u32 = 600;
@@ -440,6 +505,9 @@ pub struct Runtime {
     /// Which chapter this run's file describes — the stage and the frame it began on — so that it is
     /// written once per chapter rather than once per frame of one.
     kept: Option<(i32, u32)>,
+    /// **And which chapter was said to be passed without being written**, so that the line is said once for
+    /// it — see [`keep_chapter`].
+    said_not_written: Option<(i32, u32)>,
     /// Frames spent waiting for the game to build the stage a resume asked for.
     starting: u32,
     /// Whether the game has been asked to read its keyboard the way it does without DirectInput,
@@ -733,6 +801,29 @@ fn asked_outright() -> Option<usize> {
     }
 }
 
+/// **Asks for a picture of this frame where the last one was a launch's own interval ago**, and for nothing
+/// where no launch asked — see `Config::shot_every`, and [`crate::trace::picture`] for where it goes.
+///
+/// The host's clock and not the run's frames, so that `--pace=8` puts the same number of pictures in a
+/// trace as a launch at the game's own rate: what is being looked through afterwards is the launch.
+fn the_clocks_own_picture(runtime: &Runtime) {
+    let every = runtime.config.shot_every;
+    if every == 0 || !crate::trace::on() {
+        return;
+    }
+    let now = orb_api::clock::ticks();
+    let every = every.saturating_mul(1000);
+    let last = THE_LAST_PICTURE.load(Ordering::Relaxed);
+    if last != 0 && now.wrapping_sub(last) < every {
+        return;
+    }
+    THE_LAST_PICTURE.store(now, Ordering::Relaxed);
+    crate::shot::wanted(crate::shot::INTO_THE_TRACE);
+}
+
+/// When the clock's own last picture was asked for, as the host's own stamp, and nought before the first.
+static THE_LAST_PICTURE: AtomicU32 = AtomicU32::new(0);
+
 /// Which item of the question up now has been asked for, and [`NOTHING_ASKED`] where none has.
 ///
 /// An `i64` and not an `Option<usize>` because it is a static every one of the question blocks reads: what
@@ -762,6 +853,8 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             card: false,
             card_name: false,
             typing_a_name: false,
+            spell: None,
+            card_frames: None,
         },
         pressing: None,
         said: None,
@@ -1398,6 +1491,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     if let Some(path) = &config.trace {
         trace::open(&config.base_dir.join(path));
     }
+    trace::wants_the_field_in(config.trace_the_field_in);
     // And whether this launch is looking for a field of the game's own rather than playing it — see
     // [`find`], whose pass is nine megabytes a frame and so belongs to no other launch.
     unsafe { find::looks_for_what_moves(config.find) };
@@ -1453,6 +1547,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             mark: resume_ui::Mark::new(language),
             started: None,
             kept: None,
+            said_not_written: None,
             starting: 0,
             sent_keys: false,
             language,
@@ -1546,6 +1641,15 @@ unsafe fn pad(game: &dyn Game) -> Pad {
 ///
 /// # Safety
 /// Only ever called from the frame hook, on the game's main thread.
+/// **The chapter the run is in, counted the way the log counts it, for the stage the game was read as
+/// being in** — and nought where the chapters are not yet of that stage, or nothing has been read.
+fn the_chapter_of_the_stage(runtime: &Runtime, stage: Option<i32>) -> u32 {
+    match stage {
+        Some(stage) if runtime.chapters.stage() == Some(stage) => runtime.chapters.number(),
+        _ => 0,
+    }
+}
+
 unsafe fn what_is_reached(runtime: &Runtime) {
     let mut held = PLAYING_IT
         .lock()
@@ -1553,7 +1657,6 @@ unsafe fn what_is_reached(runtime: &Runtime) {
     let Some(playing) = held.as_mut() else {
         return;
     };
-    playing.reached.chapter = runtime.chapters.number();
     playing.reached.cursor = unsafe { runtime.game.front_end_cursor() };
     playing.reached.screen = unsafe { runtime.game.front_end_screen() };
     // **Which screen is up and which item its cursor is on, said whenever either changes.** That is what a
@@ -1591,6 +1694,14 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         // see `recipe::Until::Name`.
         playing.reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
     }
+    // **The chapter is the stage's, and nought where the chapters are not yet of the stage reached.** The
+    // stage is read off the game where the frame ends and the chapters take a stage up only once the game is
+    // in it, so between the two — th08 building the next stage on its loader thread, its `in_game` off for
+    // the whole build — the stage read as the new one while the number read as the old stage's last. A
+    // `play_until: { stage: 5, chapter: 8 }` ended on that pair, and the `stand_at` a run had for that
+    // stage's fourth attack was over before the stage began. After the stage above, so the two agree on
+    // the game whose stage is read here.
+    playing.reached.chapter = the_chapter_of_the_stage(runtime, Some(playing.reached.stage - 1));
     playing.pressing = (playing.word)(runtime.game, playing.reached);
 }
 
@@ -1712,9 +1823,16 @@ pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
     word
 }
 
-/// What [`the_frames_word`] last decided, for the keyboard read of the same game to write into its snapshot
-/// — see [`keyboard_state`]: that read is made at its own rate, and a snapshot filled from the bot's own word
-/// while a chapter is being fed would be the bot's word laid over the recording's. [`NO_WORD`] for none.
+/// What the word of this frame is, for two readers: the keyboard read of a game whose read orb answers a
+/// lookup for, to write into its snapshot — see [`keyboard_state`], where that read is made at its own
+/// rate and a snapshot filled from the bot's own word while a chapter is being fed would be the bot's
+/// word laid over the recording's — and [`the_word_orb_chose`], which is the `resume:` line's `chose=`.
+///
+/// **Written by both of the paths a word reaches a game by**, because they are disjoint and each game
+/// takes one: [`the_frames_word`] for a `Read::LookedUp` game, and [`noted`] for a `Read::Code` one. See
+/// that store, which has the launch that measured what having only the first one cost.
+///
+/// [`NO_WORD`] for none.
 static WORD_THIS_FRAME: AtomicI32 = AtomicI32::new(NO_WORD);
 const NO_WORD: i32 = -1;
 
@@ -1877,9 +1995,50 @@ unsafe fn give_up(game: &dyn Game) -> bool {
     // from a snapshot, and this leaves the game to build the title menu — which reads the same
     // keyboard, and would take the `z` still held from this answer as an item chosen.
     unsafe { game.swallow_input() };
+    // And the press the game's own way out waits for, where it waits for one. From nothing and not over
+    // a press already under way: a watched attempt gives its run up on every frame until it has gone, and
+    // starting the press over each time would press on none of them.
+    if game.a_run_given_up_waits_for_a_press() {
+        let _ = HAND_OVER.compare_exchange(
+            HAND_OVER_NONE,
+            HAND_OVER_DOWN,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
     log!("retry: the run is given up; the game is on its way to the title");
     true
 }
+
+/// **The press a run given up waits for, where the game's own way out wants one** — see
+/// [`Game::a_run_given_up_waits_for_a_press`] — answered in the game's read until the run has gone: one of
+/// the menu's decide bits on every other read, down and then let go.
+///
+/// **One bit and not the menu's whole mask**, because the give-up swallows the input: last frame's word is
+/// left all ones, and every bit of the mask down against that is no change at all. And **every other read**,
+/// a word held down being no change either.
+fn the_press_a_hand_over_waits_for(game: &dyn Game, frame: Option<u32>) -> Option<u16> {
+    match HAND_OVER.load(Ordering::Relaxed) {
+        HAND_OVER_NONE => None,
+        _ if frame.is_none() => {
+            HAND_OVER.store(HAND_OVER_NONE, Ordering::Relaxed);
+            None
+        }
+        state => {
+            let down = state == HAND_OVER_DOWN;
+            let next = if down { HAND_OVER_UP } else { HAND_OVER_DOWN };
+            HAND_OVER.store(next, Ordering::Relaxed);
+            let decide = game.menu_decide();
+            Some(if down { decide.isolate_lowest_one() } else { 0 })
+        }
+    }
+}
+
+/// Where that press is: none being made, the bit to go down on the next read, or to be let go of.
+static HAND_OVER: AtomicU8 = AtomicU8::new(HAND_OVER_NONE);
+const HAND_OVER_NONE: u8 = 0;
+const HAND_OVER_DOWN: u8 = 1;
+const HAND_OVER_UP: u8 = 2;
 
 /// The chapters the retry menu lists behind the one that was lost, in the order it lists them: the
 /// ones the stage has a snapshot of, each by the name the status line calls it.
@@ -2119,6 +2278,21 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
     if let Some(game) = unsafe { chosen() } {
         unsafe { crate::snapshot::finish_the_restores_sound(game) };
     }
+    // **And which frame the walk gave up on, said before the frame leaves.** A launch that ends here ends
+    // with whatever the game does about it and nothing of orb's after — so a run that stopped for this
+    // reason is a run whose last line is somebody else's unless it is said now. What the two answers mean
+    // is the walk's own: th08's is the count of jobs it ran, so nought is a frame in which not one of them
+    // was reached.
+    if updated == CHAIN_EXIT_SUCCESS || updated == CHAIN_EXIT_ERROR {
+        log!("frame: the game's own walk answered {updated}, which is a frame it leaves on");
+        // **And what was on the list as it answered**, which is the one thing that answer does not say —
+        // see `Game::the_jobs_a_frame_has`: for th08 the same nought means a list nothing was reached in,
+        // a list of null callbacks and a single job asking to stop, and a resumed run's landing frame is
+        // followed by one of the three.
+        if let Some(jobs) = unsafe { game.the_jobs_a_frame_has() } {
+            log!("frame: {jobs}");
+        }
+    }
     if updated == CHAIN_EXIT_SUCCESS {
         return RENDER_EXIT_SUCCESS;
     }
@@ -2173,6 +2347,11 @@ unsafe fn the_frame(game_window: *mut c_void) -> i32 {
         game.end_drawing(device);
         if scene {
             d3d8::end_scene(device);
+            // **And the clock's own picture asked for first, where a launch asked for those** — see
+            // `Config::shot_every`: a trace of a long run wants a frame of it every so often, and the
+            // one moment a picture can be had is the one below. Asked here rather than from anything of
+            // the run's, because what it is by is the host's clock and not the run's frames.
+            the_clocks_own_picture(runtime);
             // Whatever asked for a picture of this frame, now that everything of the frame is in the
             // back buffer and before the swap makes what is in it undefined. Nothing on a frame nobody
             // asked on.
@@ -2272,6 +2451,16 @@ pub extern "system" fn get_input() -> u16 {
         // not that frame — see `Game::hand_the_read_to_the_run`. Which is also where the frame this read is
         // for matters most: a playback drives its updates in a burst, so the game skips the run on other
         // frames than it did while somebody was playing it.
+        // **And the conversation carried with it where the record cannot carry it itself.** A line of
+        // dialogue stops th08's clock, so every update one is up is a read of the same frame — and those
+        // reads are written down, in the order the run made them, which is what `resume::Again` is. What is
+        // left for this is a record that has none of them: a replay being watched, and the games whose own
+        // files carry only a frame's first read. See [`CARRYING_A_CONVERSATION`], which the playback's own
+        // loop fills and leaves empty while the reads last.
+        let buttons = match CARRYING_A_CONVERSATION.load(Ordering::Relaxed) {
+            CARRYING_NOTHING => buttons,
+            carrying => u16::try_from(carrying).unwrap_or(0),
+        };
         unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
         return buttons;
     }
@@ -2314,6 +2503,11 @@ pub extern "system" fn get_input() -> u16 {
     // What that cost is four launches on the real game: every one of them pressed at the title menu's replay
     // item and every one opened the game's own replay list, `menu:` never once in the log, while the same press
     // made at a keyboard put orb's question up.
+    // **Behind the press a run given up waits for**, which goes in front of the bot's word and the keyboard's
+    // both: the run is on its way to the title whatever either would do with the read.
+    if let Some(word) = the_press_a_hand_over_waits_for(game, frame) {
+        return unsafe { noted(game, frame, word) };
+    }
     if let Some(word) = pressing() {
         return unsafe { noted(game, frame, held_back(game, word)) };
     }
@@ -2902,6 +3096,17 @@ fn held_back(game: &dyn Game, buttons: u16) -> u16 {
 /// Only ever called from the input hook, on the game's main thread.
 unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     trace::the_word(buttons);
+    // **And the word kept for the `resume:` line to carry** — see [`WORD_THIS_FRAME`], which
+    // [`the_frames_word`] is the other writer of.
+    //
+    // **Here because the two paths a word reaches a game by are disjoint.** A game whose read orb
+    // *patched* comes through this hook — `Read::Code`, which is th06, th07 and th08 — and one whose read
+    // orb answers a *lookup* for never reaches it, its word going through `the_frames_word` instead. So
+    // nothing stored this for the first three, and `the_word_orb_chose` read the `NO_WORD` the static
+    // starts at: measured, a launch of a th08 Normal run wrote `chose=none` on **all 10,094** of its
+    // `resume:` lines, so the one line a playback would be held against the run by could not say what the
+    // run was played with.
+    WORD_THIS_FRAME.store(i32::from(buttons), Ordering::Relaxed);
     if let Some(frame) = frame {
         let word = buttons & game.run_input();
         let generator = unsafe { game.generator() };
@@ -2917,6 +3122,21 @@ unsafe fn noted(game: &dyn Game, frame: Option<u32>, buttons: u16) -> u16 {
     // update that acts on it is a game played a frame late — see `Game::hand_the_read_to_the_run`. Every way
     // out of this hook comes through here, so what the run is given is what the game was given.
     unsafe { game.hand_the_read_to_the_run(buttons, the_first_read_of(frame)) };
+    // **And the search a launch that is looking runs, for a game orb patched the read of.**
+    // [`keyboard_state`] runs the same search for a game whose read orb answers a *lookup* for — th06c and
+    // th06nc — and a game whose read is a [`game::Read::Code`] never reaches that function at all, so a
+    // `--find` launch of one had nothing to search and said nothing about it. Measured on th08, whose
+    // recipe pressed right and left ten times over for `find: looking for the field that moves` and not
+    // one reading after it.
+    //
+    // Here rather than beside the other call because this is where every way out of this hook comes
+    // through, so the word a frame is searched against is the word the game was given. It does nothing
+    // where `--find` was not asked for, which is every other launch — see [`find::a_frame`].
+    if let Some(runtime) = unsafe { RUNTIME.get() }.as_ref()
+        && runtime.config.find
+    {
+        unsafe { find::a_frame(&runtime.data, the_way(game, Some(buttons))) };
+    }
     buttons
 }
 
@@ -3463,10 +3683,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     unsafe { what_is_reached(runtime) };
     // Here, at the top, for the reason `trace::Record` gives: this update leaves by several doors, and a
     // record taken before any of them is one record however the frame went.
+    // **With the chapter the stage read is in**, for the reason a recipe's is — see [`what_is_reached`]. A
+    // trace that paired th08's next stage with the last chapter of the stage being left put that stage's
+    // beginning on the frame its build was asked for, `stage=1 frames=20646`, and a check reading the
+    // second stage's clock there found it where the first stage's had stopped.
     trace::frame(
         runtime.frames,
         runtime.previous,
-        runtime.chapters.number(),
+        the_chapter_of_the_stage(runtime, runtime.previous.map(|state| state.stage)),
         runtime.chapters.retries(),
         question_up(runtime),
     );
@@ -3483,6 +3707,13 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // And what became of a stream a restore has been through, over the frames after it — nothing while none
     // is being watched, which is every frame but the few after a chapter came back.
     unsafe { crate::audio::read_the_stream_back(runtime.game) };
+    // **And a stage whose numbers came into place on another thread**, for a game whose build is a loader
+    // the main thread waits out — see `Game::a_stage_has_just_been_built`. What [`stage_begun`] does on
+    // the thread a build returns on, this does on the first frame the main thread runs after one.
+    if unsafe { runtime.game.a_stage_has_just_been_built() } {
+        unsafe { resume::stage_begun(runtime.game) };
+        unsafe { replay::stage_begun(runtime.game) };
+    }
 
     // Asked once, and here rather than at startup because the device does not exist until the game
     // has made one — which it does after `DllMain` has been and gone.
@@ -3507,11 +3738,22 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // And the item a recipe named, which is any of them: what a press can reach is the cursor's own item,
         // so a launch playing itself could take the chapter it lost and nothing else — see
         // [`retry_ui::RetryMenu::answered_outright`].
+        // **And nothing of the keys or the pad while a run is being put back**, whose words are the record's
+        // and not a menu's: a playback feeds the buttons a run pressed, and this menu reading them answers
+        // itself. That is an unbounded loop and a launch spent itself in one — a chapter of 15,743 frames
+        // whose playback climbed to **9,246** and then re-ran the window from **9,000 ninety-five times**,
+        // `retry: the chapter again on the pad` and `retry chapter 4 (retry 94)` at every turn of it, the
+        // restore putting the same generator back each time (`0x6eda` at 9,000 and `0x4d19` at 9,024). The
+        // record having parted from the run — that launch said so at frame 5,122 — the run dies inside the
+        // playback, the menu comes up inside it too, and the next button of the record answers it.
+        let putting_back = unsafe { resume::landing() }.is_some();
         let answered = if asked_to_give_the_run_up() {
             Some((Choice::Quit, By::Recipe))
         } else if let Some(item) = asked_outright() {
             menu.answered_outright(item)
                 .map(|choice| (choice, By::Recipe))
+        } else if putting_back {
+            None
         } else {
             menu.update(&runtime.keyboard, pad)
         };
@@ -3800,7 +4042,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // which holds the time.
         unsafe { profile::record_until(profile::Phase::Ahead, started, the_games_own) };
         crate::sampler::the_update_begins(the_games_own);
-        result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
+        // **Only what the build leans on while a stage is being built beside the walk**: the walk would run
+        // the stage's jobs on a build still going on and before anything of orb's is back in — see
+        // `Game::walks_a_frame_of_its_build`, which answers off the look the built frame is read off, so the
+        // first update anything of the stage runs is the one after orb has put the run in place.
+        result = match unsafe { runtime.game.walks_a_frame_of_its_build() } {
+            Some(answered) => answered,
+            None => unsafe { call_original(&RUN_CALC_CHAIN, chain) },
+        };
         started = profile::now();
         crate::sampler::the_update_ends(started);
         state = unsafe { runtime.game.read_state() };
@@ -3891,7 +4140,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         }
         let (reached, ran) = unsafe { play_in(runtime, chain, at) };
         state = reached;
-        result = ran;
+        // **And this frame is over rather than the game**, whatever the playback's last update answered:
+        // the answer that means a walk simply carried on is the same nought the game's own frame *returns*
+        // on — see [`CHAIN_EXIT_SUCCESS`] — so handing it back ended a launch the moment its run landed.
+        // A launch put back at a chapter of stage 4 quit there every time: `exit()` under
+        // `mainCRTStartup`, no exception, the game's score file written on the way out. What is true of
+        // the frame is that a job has had it, which is [`CHAIN_BREAK`]; the walk giving up is the one
+        // answer worth carrying, a chain being taken apart underneath being no frame to ask for another.
+        result = match ran {
+            CHAIN_EXIT_ERROR => ran,
+            _ => CHAIN_BREAK,
+        };
     }
     // The stage a watched attempt is in, which the run the front end just started has none of: see
     // [`resume::the_stage_of_a_watch`], and [`Game::front_end_starts_a_run`] for why that item is what starts
@@ -4233,6 +4492,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // And whether a card is running, and whether the plate its name is on is being drawn — which is a frame
         // or more later, and the frame a picture of that name has to be asked on.
         playing.reached.card = state.spellcard.is_some();
+        playing.reached.spell = state.spellcard;
+        playing.reached.card_frames = state.spellcard.and(state.boss_attack_frames);
         playing.reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
         // And the game's own name entry, which the run's end is past — see `recipe::Until::Name`.
         playing.reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
@@ -4710,6 +4971,12 @@ unsafe fn watch_an_attempt(
         // to the run: an attempt is watched rather than checked, so there is nothing to compare its own
         // frames against.
         generators: stage.generators[..upto(attempt.at, stage.generators.len())].to_vec(),
+        // **And no read past a frame's first, which is what a replay's own file does not hold**: a replay
+        // is one word a frame — see [`replay`], whose per-frame list is what these buttons come out of —
+        // so an attempt watched out of one is fed a frame's word for every update it spends on that frame.
+        // Which on th08's dialogue is the hundred updates a conversation runs; see `resume::Again`, and
+        // this change's own TODO for what a replay would have to keep for that to be watchable.
+        again: Vec::new(),
     };
     let frames = attempt.buttons.len() as u32;
     // **The front end's own item asked for the run where this game has one to ask**, and the press it reads
@@ -5393,6 +5660,8 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     let mut reached = unsafe { runtime.game.read_state() };
     let mut ran = CHAIN_BREAK;
     let mut frames = 0;
+    // Where this frame's share of the playback began, for the line it says on its way out.
+    let into_this_frame = reached.stage_frames;
     let deaths = reached.deaths;
     // The first frame the player was hit, where one was. The buttons written down are a path that
     // survived — every death a run had was rewound away by the retry menu, and the frames of the
@@ -5409,20 +5678,132 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // run down when the screen fills, 0x42e186 answering one update in five with the 3 that skips both
     // clocks, so a stage played through that takes as many updates again.
     let mut stalled = 0;
+    // **And `CHAIN_EXIT_SUCCESS` is not a reason to stop, though it was one.** 0 is what a walk answers
+    // when it simply carried on as well as when a scene is done with — the ranking's own loop above says
+    // so and stopped guarding on it for the same reason — and th08 answers it two frames into a stage of
+    // a run picked up out of `pointdevice_resume/`: every launch that tried to carry on from a chapter of
+    // stage 5 ended there, `the landing is not the frame written down: frames=93265 against frames=2`,
+    // where the same playback of a chapter of stage 1 played its 6,779 frames in. What stops this loop is
+    // the run being over, the clock having stopped for [`STALLED_FRAMES`], or the walk having given up.
+    // **And the player being hit, which is the one of these that is about the record and not the run.**
+    // The buttons written down are a path that survived, so a death here says the playback and the run have
+    // parted — and what answers a death is the chapter machinery, which puts the run back where the chapter
+    // began and leaves the playback to feed the same frames again. That is an unbounded loop and a launch
+    // spent itself in one: over a chapter of 15,743 frames the playback climbed to **9,246** and then re-ran
+    // the window from **9,000 ninety-five times**, `9000 of 15743 frame(s) played back, 275 update(s) in`
+    // and `9024 of 15743, this frame's 300 update(s) in` about every 1.9 seconds with the host's own frame
+    // number and the run's `frames=9024` both standing still. The same launch had already said where the
+    // parting was — `the playback parted from the run at frame 5122: the generator is 0x1710 where the run
+    // had 0x0e20` — so the frames it kept feeding were frames of a run that no longer existed.
     while reached.stage_frames < at
         && reached.playing
+        && hit.is_none()
         && stalled < STALLED_FRAMES
-        && ran != CHAIN_EXIT_SUCCESS
+        && frames < UPDATES_A_FRAME_PLAYS_BACK
         && ran != CHAIN_EXIT_ERROR
     {
         let was = reached.stage_frames;
+        // **And the window's own messages taken every so often**, which the game's loop is not there to
+        // do: this whole playback is inside one frame of the host, and a window that has answered nothing
+        // for a minute is one Windows draws a ghost of and offers to close. A launch put back at a chapter
+        // of stage 4 ended on the game's own `exit()` with no exception in it at all — `Exit process, code
+        // 0` under `mainCRTStartup`, which is a close that reached the window while the playback had the
+        // frame. See `orb_api::window::pump`.
+        if frames.is_multiple_of(UPDATES_BETWEEN_PUMPS) && orb_api::window::pump() {
+            log!("resume: the window was asked to quit while the run was being put back");
+        }
+        // **The conversation carried, where one is up and the record has nothing more for the frame** —
+        // see [`CARRYING_A_CONVERSATION`]: the skip key where the game has one, and the shot going down
+        // every so often, which is what carries a line on a game that has none.
+        //
+        // **Asked of the record and not of the line alone, because the run's own presses are the ones that
+        // carried it.** A frame whose clock stands is a frame the run read again and again — 103 times on
+        // the launch `resume::Again` was measured off — and those reads are in the file: fed in order they
+        // carry the conversation exactly as the run carried it, where a press of orb's own gets past the
+        // line on some other update and leaves the world somewhere else. So this is what is left for a
+        // record that has no such reads in it: a replay being watched, and th06's and th07's own files.
+        let bit = |name| runtime.game.button_bit(name).unwrap_or(0);
+        CARRYING_A_CONVERSATION.store(
+            match reached.in_dialogue && unsafe { resume::out_of_reads() } {
+                true => match (frames / A_CARRIED_PRESS_LASTS).is_multiple_of(2) {
+                    true => i32::from(bit("skip") | bit("shot")),
+                    false => 0,
+                },
+                false => CARRYING_NOTHING,
+            },
+            Ordering::Relaxed,
+        );
         ran = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         reached = unsafe { runtime.game.read_state() };
+        // **And a line of dialogue is not the clock standing still**, which is the third way an update of a
+        // stage is not a frame of it: th08 stops both of its clocks while one is up (0x42c6a1 and 0x4358bb)
+        // and a conversation is longer than this bound — a playback of a chapter of its stage 5 stopped at
+        // `frame 4963` with `the stage's clock stood still for 60 update(s)`, which was the midboss's own
+        // words and not a run gone dead. So the whole playback takes a bound of its own instead, there being
+        // no clock to bound it by on those frames.
+        //
+        // **And the record is what says how long the clock is meant to stand**, which is neither the clock
+        // nor a count of updates: the run read that one frame as many times as the line was up for, and
+        // those reads are in the file — so a playback standing on a frame it has reads left for is standing
+        // where the run stood, and one that has spent them is standing on its own. Counted only in the
+        // second case. Held rather than put back in the first, so that a stall which began before the line
+        // is not forgotten by it.
         stalled = if reached.stage_frames > was {
             0
-        } else {
+        } else if unsafe { resume::out_of_reads() } {
             stalled + 1
+        } else {
+            stalled
         };
+        // **And a conversation written away rather than waited out**, which is what gets a playback of
+        // th08 past one whose words it does not have: the clock stands for as long as the line does, so a
+        // playback with nothing left to feed for that frame presses whatever orb presses and the line ends
+        // when the game decides. Once, at the bound, and the count put back so that a stall with no line in
+        // it still ends the playback — and so that a playback can never spin for minutes inside one frame of
+        // the host, which is what left orb's own question on the screen while a launch sat here.
+        //
+        // **What this said and had wrong is that the run advances nothing while a line is up.** It
+        // advances: the 103 reads of frame 7,179 that `resume::Again` was measured off walked the player
+        // from `293,368` to `253,352`, collected four items and brought the midboss in from off the field.
+        // So a line written away is a hundred frames of a run cut short, and it is the answer for a record
+        // that cannot say what those frames were rather than for any line at all.
+        if reached.in_dialogue && stalled >= STALLED_FRAMES {
+            unsafe { runtime.game.give_up_on_a_line_of_dialogue() };
+            log!(
+                "resume: the line of dialogue at frame {} was written away, the record having no more \
+                 reads of that frame to feed",
+                reached.stage_frames,
+            );
+            stalled = 0;
+        }
+        // **And a record per update of the playback too**, which the frame loop cannot take: the whole
+        // playback runs inside one frame of the host, so orb's own frame count does not move and a trace
+        // of a launch that picked a run up held nothing at all for the minute it took. The frame number is
+        // that one frame's, `ms` and the state being what tell these apart — and the state is the run
+        // being put back, which is the thing a resume is read for.
+        trace::frame(
+            runtime.frames,
+            Some(reached),
+            runtime.chapters.number(),
+            runtime.chapters.retries(),
+            None,
+        );
+        // **And what the clock is standing on, every so often while it stands**, which is the one thing the
+        // stall's own line cannot say: a playback held up on a frame is held up by a conversation, by a
+        // pause, or by an update that is doing nothing at all, and those are different repairs.
+        if reached.stage_frames == was && frames.is_multiple_of(STALLED_FRAMES) {
+            detail!(
+                "resume: the clock has stood at {} for a while — dialogue={} paused={} boss={} \
+                 script={} seed={:#06x} carrying {:#05x}, {frames} update(s) in",
+                reached.stage_frames,
+                reached.in_dialogue,
+                reached.paused,
+                reached.boss_present,
+                reached.script_frames,
+                reached.random_seed,
+                CARRYING_A_CONVERSATION.load(Ordering::Relaxed),
+            );
+        }
         // **How far it has got, every so often.** The whole playback is one frame of the game: nothing is drawn
         // and the window does not answer for as long as it takes, which for a chapter deep in a stage is
         // minutes — and from outside, a game that has stopped answering is a game that has hung. This is the
@@ -5472,6 +5853,35 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         }
         frames += 1;
     }
+    // **And this frame's share of the playback done, the rest being the next frame's** — see
+    // [`UPDATES_A_FRAME_PLAYS_BACK`]. Nothing of the landing here: the run is not back yet, and
+    // `resume::landing` still answers the frame it is being put back to, which is what brings this
+    // function round again.
+    //
+    // **Save where the player was hit, which is a playback to give up rather than one to carry on.** The
+    // frames written down are a path that survived, so a death says the record and the run have parted and
+    // every frame after it is fed to a run that is not the one written down. Falling through to the lines
+    // below gives the landing up — `resume::landed` takes it — and hands the death back to the machinery
+    // that answers one: the chapter goes back to its own snapshot, which is where the pick-up was aimed. A
+    // launch that carried on instead re-ran the same window ninety-five times, its own menu answered by the
+    // record's next button every turn.
+    if reached.stage_frames < at
+        && reached.playing
+        && hit.is_none()
+        && stalled < STALLED_FRAMES
+        && ran != CHAIN_EXIT_ERROR
+    {
+        if reached.stage_frames / SAID_EVERY != into_this_frame / SAID_EVERY {
+            log!(
+                "resume: {} of {at} frame(s) played back, this frame's {frames} update(s) in, the \
+                 generator at {:#06x}",
+                reached.stage_frames,
+                reached.random_seed,
+            );
+        }
+        CARRYING_A_CONVERSATION.store(CARRYING_NOTHING, Ordering::Relaxed);
+        return (reached, CHAIN_BREAK);
+    }
     // **Which of the four ways out it took**, because they are four different faults and the line below says
     // only where the run got to. A playback that stopped after one update was read as a stall, as a run that
     // died, and as a chain that had given up, and none of the three was written down anywhere — the frame it
@@ -5480,10 +5890,18 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
         "resume: the playback stopped because {}",
         if reached.stage_frames >= at {
             "it reached the frame the chapter began on".to_owned()
+        } else if let Some(frame) = hit {
+            format!("the player was hit at frame {frame}, so the record and the run have parted")
         } else if !reached.playing {
             "the run stopped being one: the game is no longer playing a stage".to_owned()
         } else if stalled >= STALLED_FRAMES {
             format!("the stage's clock stood still for {stalled} update(s)")
+        } else if frames
+            >= at.saturating_mul(UPDATES_A_FRAME_MAY_TAKE) + UPDATES_A_PLAYBACK_IS_SPARED
+        {
+            format!(
+                "it spent {frames} update(s) on {at} frame(s), which is more than a playback is given"
+            )
         } else {
             format!("the game's own chain gave up on the frame: it answered {ran}")
         },
@@ -5491,10 +5909,15 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     if let Some(frame) = hit {
         log!(
             "resume: the player was hit at frame {frame}, which a path that survived does not do; \
-             the playback has come out of step there or before it"
+             the playback has come out of step there or before it, and is stopped rather than fed on"
         );
     }
+    // And the record's own word again once the playback is over, whatever it was carrying when it stopped.
+    CARRYING_A_CONVERSATION.store(CARRYING_NOTHING, Ordering::Relaxed);
     let arrived = unsafe { resume::landed() };
+    if reached.stage_frames < at {
+        unsafe { resume::stopped_short() };
+    }
     // The captures back as they were before the buttons went in: playing a stage again starts every
     // card the run had passed, and the game counts an attempt — and a capture — at each of them. The
     // names those starts wrote stay, a name being what the playback learned rather than what it counted.
@@ -5525,7 +5948,12 @@ unsafe fn play_in(runtime: &mut Runtime, chain: *mut c_void, at: u32) -> (State,
     // Nothing about the frame the question was frozen on is worth comparing against this one. The
     // count of deaths above all: the run's own is in place now, and against the count the front end
     // was left holding it reads as a death on the frame the resume landed.
-    runtime.previous = None;
+    // **Bar the death the playback stopped on**, which is the run's own and is answered the way any is:
+    // held against the count this frame's share of the playback began with, the next frame reads it as
+    // the death it is. Compared against nothing, it took its life with no question asked — the Extra picked
+    // up at its fifth boss card said `died in chapter 1` of the record's *second* hit, ninety frames on,
+    // and the first had gone unanswered.
+    runtime.previous = hit.map(|_| State { deaths, ..reached });
     let landed = unsafe { runtime.game.reproduction() };
     // The score is not on this line, the reproduction lines under it carrying it: what a game keeps a score
     // in is that game's own field and this is every game's summary — see `Game::reproduction`.
@@ -5687,6 +6115,18 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
     // reproduction line for that frame and a frame further on is not that frame. A run at more
     // than one update to a drawn frame — a clear — passes chapters without ever standing on one.
     if state.stage_frames != at {
+        // **Said once a chapter and not once a frame**, a frame past the chapter's first being one the run never
+        // stands on again: said every frame, session 17's no-bomb clear at four updates a frame wrote the line
+        // on 612 records running through one card.
+        // **Its own field and not [`Runtime::kept`]**, which says a chapter *was* written: the end of a run
+        // takes the slot's file away where that is set, and a run that wrote nothing would take away the file
+        // an earlier session left.
+        if runtime.said_not_written == Some(chapter) {
+            return;
+        }
+        if state.stage_frames > at {
+            runtime.said_not_written = Some(chapter);
+        }
         return detail!(
             "resume: chapter {} began at frame {at} and the game is at {}; not written",
             runtime.chapters.number(),
@@ -5696,6 +6136,11 @@ unsafe fn keep_chapter(runtime: &mut Runtime, state: &State) {
     // Set whether or not the write comes off: what it would do again next frame is fail again,
     // and the line saying why has been written once.
     runtime.kept = Some(chapter);
+    // **And a chapter on the frame a clock jumped to is written as the chapter it is**: th08's clock goes 1,800
+    // on in one update as a boss's card ends, and the boss's next attack begins on the frame it lands on, before
+    // the next read has noted anything against it. Session 11's no-bomb clear lost seven chapters that way, every
+    // one a boss's attack after one of its cards.
+    unsafe { resume::stepped_over(THE_FRAME_THEY_ARE_ON.load(Ordering::Relaxed), at) };
     let written = unsafe {
         resume::write(
             &runtime.config.base_dir,

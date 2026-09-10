@@ -259,6 +259,13 @@ pub fn decode(bytes: &[u8]) -> Option<Kept> {
         landing: written.landing,
         buttons: dense(&changes, at),
         generators: written.generators,
+        // **Nothing, and this game's file carries none.** A read of a frame before its last is what a clock
+        // that stands while the run plays on makes — th08's dialogue, where `resume::Again` was measured —
+        // and this game's own frame count is stepped by its slowdown rather than held: a frame read twice
+        // here is a frame its run was not advanced on, which is the case the one entry a frame was always
+        // right for. So a playback of this game is fed a frame's last read for every update it spends on
+        // it, which is what it was fed before.
+        again: Vec::new(),
     })
 }
 
@@ -490,6 +497,8 @@ mod tests {
                 Some(0x100a),
                 Some(0x100b),
             ],
+            // None: this game's file carries no read of a frame before its last — see [`decode`].
+            again: Vec::new(),
         }
     }
 

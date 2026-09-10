@@ -9,6 +9,7 @@
 //! - start_over: true
 //! - take_hits: { chance: 0.2, times_each_retry: 0.5 }
 //! - bombs: false
+//! - stand_at: { x: 40 }
 //! - name: ORB
 //! - leave: true
 //! - wait_until: { question: resume }
@@ -38,12 +39,41 @@
 //! dodge everything cannot show: a death, the chapter retried, and the run carrying on from it. It stands from
 //! the step it is written at until another one changes it, so a recipe can play the stages it wants clean and
 //! take hits through the rest. A `bombs` is the other such step: `false` forbids the rules the bomb from there
-//! on, which is what a run held to no bomb is written with, and `true` hands it back.
+//! on, which is what a run held to no bomb is written with, and `true` hands it back. **And a `stand_at` tells
+//! the rules where to stand**, from there on until a `stand_at` with nothing in it frees them: an `x` across
+//! the field, or `away_from_the_boss`, a distance to keep from the boss's own x on whichever side the run is
+//! on with the whole distance to spare. The rules still dodge from that place, and the place is the recipe's
+//! rather than theirs — which is what an attack the rules cannot read their way out of wants: a beam laid down
+//! the field from where the boss stands is one a run kept a beam's width from her is never under, wherever
+//! she goes. **And a `dodge` names a way through one card**, for a card no place gets through: the way is
+//! the rules', carried out in `orb_bot::steer`, and what the recipe says is which card wants which — see
+//! [`Dodge`].
+//!
+//! **Which is what the steps that say how a run is played are for: the chapter the rules cannot clear gets its
+//! own way past it here, rather than a change to the rules that every game pays for.** A `play_until` naming
+//! that chapter's card by its number — `spell: 94` — is what brackets it where it is a card, and one naming
+//! the chapter's own boundary where it is not: stand where the chapter wants, free the rules on the one
+//! after. The recipe's own comment is where which attack it is for goes, with the place and the count of what
+//! the rules died to without it.
+//!
+//! **A reading first, where there is one to make.** A chapter lost to something orb never handed over is a
+//! reading missing and not a chapter wanting a strategy: th08's stage 4 boss took 28, 15 and then 7 deaths at
+//! a place apiece until her beam was read off the anchor its script writes, and neither told place dodged it,
+//! that beam being aimed at the player rather than laid from her. What a told place is for is the attack that
+//! *is* read and still not survived.
 //!
 //! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
 //! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
 //! from the pause menu, and it is *that* interruption a resume is for. So a recipe that measures one says both:
 //! leave the run, and then close the game.
+//!
+//! **And a recipe that leaves a run answers the resume question itself.** The chapter the run was in is kept
+//! as it goes, so orb puts its own question up over the front end the give-up lands on — and every `press` a
+//! recipe makes after that is read as the answer to it. A launch of th08 pressed `down` at what it took for
+//! the title, the question took that as its answer, the playback of a chapter 38,564 frames deep began over a
+//! run that had just been torn down, and the game went out with `0xc0000005` in the text element walk that
+//! teardown had freed. Answer it with an `answer` step — `はじめから` where the recipe is about what comes
+//! after the give-up — and the presses after it go where they were meant to.
 //!
 //! **And a `press` with an `until` of its own is a tap**: down for its frames, up for as many, over and over
 //! until what it waits for is reached. Which is how a run is *started* without counting the screens on the way
@@ -161,6 +191,36 @@ pub enum Step {
     /// a recipe that says nothing gets is the rules bombing as they see fit, which is every recipe written
     /// before this.
     Bombs { allowed: bool },
+    /// **Where the rules are told to stand**, from here on while they dodge — see the module's doc for what
+    /// it is for. An `x` across the field, or a distance to keep from the boss's own x
+    /// (`away_from_the_boss`), the side being whichever the run is on with the whole distance to spare;
+    /// both `None` frees them.
+    ///
+    /// **Neither dodges a beam aimed at the player**, and a launch of each says so: th08's stage 4 boss
+    /// lays one 160 wide along the angle she is facing, and a run held at the field's left edge died to it
+    /// fifteen times while a run held 120 from her x died at `90.8` with her at `210.8` and the beam's own
+    /// column at `128.5` — 38 units from its middle, the step having moved the run into it. What a told
+    /// place is for is an attack whose ground does not follow the run.
+    ///
+    /// **And with a `spell` beside it the place is that card's alone**: it stands while the card of that
+    /// number runs and lapses when it ends, the place written without one standing the rest of the time. So
+    /// a told place needs no `play_until` either side of it, which is what a chapter's number could not give
+    /// it — see [`Until::Spell`] for how a stage's own table moves those.
+    StandAt {
+        x: Option<f32>,
+        y: Option<f32>,
+        away_from_the_boss: Option<f32>,
+        spell: Option<u32>,
+    },
+    /// **A way of dodging one card, by its name**, which the rules take up while the card of that number runs
+    /// and put down when it ends — see [`Dodge`].
+    ///
+    /// **A name and not numbers**, because what a way does is `orb_bot`'s and what a recipe says is which card
+    /// wants which. Most of them are a way through and not somewhere to stand — the laser that goes live where
+    /// the run stood is dodged by stepping behind it wherever the run is, and no one place is that — and the
+    /// ones that are a place are a place `orb_bot` holds the measurement of, which a [`Step::StandAt`] of the
+    /// same numbers would leave to every recipe to copy.
+    Dodge { with: Dodge, spell: u32 },
     /// **An item of one of orb's own questions, taken outright rather than pressed for.**
     ///
     /// **Which is the one thing a press cannot do to those screens.** A question of orb's keeps its own cursor
@@ -199,6 +259,70 @@ pub enum Step {
         typed: String,
         give_up_after: Option<u32>,
     },
+}
+
+/// **The ways of dodging a card the rules have by name**, which a [`Step::Dodge`] picks one of for a card and
+/// `orb_bot::steer` carries out — named in a recipe the way it reads, `behind_the_laser`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Dodge {
+    /// A laser drawn off to one side of the run, turned onto where the run stood when it appeared and turned
+    /// live there and on past: stepped the short way across towards the side it came from before it goes
+    /// live, and stood behind as it sweeps.
+    BehindTheLaser,
+    /// A beam an enemy's script aims where the run is, holds there while it warns, fires wider than it can
+    /// be read to be before it does and then turns after the run: kept clear of at the width it fires at,
+    /// and led round the field away from it, corner by corner, as it turns.
+    OutOfTheFollowingLaser,
+    /// Lasers laid up the field from its floor with aimed fire between them: waited for in the field's
+    /// middle, where there is room either side of each.
+    InTheMiddle,
+    /// th08's `狂符「幻視調律（ビジョナリチューニング）」`, whose lattice is hidden on the same frames of the card every
+    /// launch: climbed back up through while it is hidden, and waited for in the middle below the band it is
+    /// born in — see `orb_bot::cards`.
+    VisionaryTuning,
+    /// A boss that follows the run about and fires from where it is: never waited for at all, the run going
+    /// on round the field corner by corner.
+    RoundTheField,
+    /// Familiars that stay on the run and fire from where they are: never still, the run going round a small
+    /// square under the boss clockwise at the whole step.
+    RoundASmallSquare,
+    /// Lasers a boss aims at the run, with fire strewn between them: never still either, the run going from
+    /// one side of the low line to the other and back, so that where each laser is aimed is where the run was.
+    SideToSide,
+    /// Fire whose boss lets items fall down the column it is thickest in: dodged where the rules' own boxes
+    /// say, with no item gone for.
+    WithoutTheItems,
+    /// Fire whose gaps are narrower than the run's whole step: dodged focused from the card's first frame to
+    /// its last, at the fine step, the place being the rules' own.
+    Focused,
+    /// th08's Extra Last Spell `「インペリシャブルシューティング」`, whose eight waves come at the same frames of
+    /// the card every launch: dodged by that schedule — see `orb_bot::cards`.
+    ImperishableShooting,
+    /// Fire that fills the field and piles against its right: waited for left of the middle.
+    LeftOfTheMiddle,
+    /// Fire that fills the field and piles against its left: waited for right of the middle.
+    RightOfTheMiddle,
+}
+
+impl Dodge {
+    /// The name a recipe gives it, which is what the log says it by too.
+    pub fn name(self) -> &'static str {
+        match self {
+            Dodge::BehindTheLaser => "behind_the_laser",
+            Dodge::OutOfTheFollowingLaser => "out_of_the_following_laser",
+            Dodge::InTheMiddle => "in_the_middle",
+            Dodge::VisionaryTuning => "visionary_tuning",
+            Dodge::RoundTheField => "round_the_field",
+            Dodge::RoundASmallSquare => "round_a_small_square",
+            Dodge::SideToSide => "side_to_side",
+            Dodge::WithoutTheItems => "without_the_items",
+            Dodge::Focused => "focused",
+            Dodge::ImperishableShooting => "imperishable_shooting",
+            Dodge::LeftOfTheMiddle => "left_of_the_middle",
+            Dodge::RightOfTheMiddle => "right_of_the_middle",
+        }
+    }
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -263,6 +387,15 @@ pub enum Until {
     /// **The plate a card's name is shown on being drawn**, which is what a picture of that name waits for and
     /// is not the same frame as the card starting: the card starts and the plate is put up after it.
     CardName,
+    /// **That card running**, by the number the game gives it — the index of its own record in the score
+    /// file, which is what `spell=` in a launch's state lines says.
+    ///
+    /// **Which is what a told place is bracketed by where a chapter number would move under it.** A stage's
+    /// chapters are counted through its midstage table as well as its fight, so every boundary that table
+    /// gains puts every chapter of the fight after it one further on: th08's table went from nothing to rows
+    /// for six stages in one pass, and the four brackets its whole-run recipes had been written with named
+    /// chapters that were then other chapters. The card is the card whatever the table holds.
+    Spell(u32),
     /// Or that many frames having gone by.
     Frames(u32),
 }
@@ -299,10 +432,40 @@ struct Written {
     take_hits: Option<WrittenHits>,
     /// And whether the rules may bomb — see [`Step::Bombs`].
     bombs: Option<bool>,
+    /// And where the rules are told to stand — see [`Step::StandAt`].
+    stand_at: Option<WrittenStand>,
+    /// And a way of dodging one card — see [`Step::Dodge`].
+    dodge: Option<WrittenDodge>,
     /// And an item of one of orb's own questions, taken outright — see [`Step::Answer`].
     answer: Option<WrittenAnswer>,
     /// And the name a run's ranking is registered under — see [`Step::Name`].
     name: Option<String>,
+}
+
+/// `dodge: { with: behind_the_laser, spell: 198 }` — the way, by its name, and the card it is for.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenDodge {
+    with: Dodge,
+    spell: u32,
+}
+
+/// `stand_at: { x: 40 }` or `stand_at: { away_from_the_boss: 120 }`, a `y` beside either or on its own, and
+/// `stand_at: {}` to free the rules of the place — and a `spell` beside any of them for a place one card's
+/// alone.
+///
+/// **A `y` on its own leaves the x to the rules' own errand**, which is what an attack whose ground is a
+/// height and not a place wants: a mesh of bullets that is harmless until it turns solid is stood in from
+/// above the band, and where along it the run stands is where the gap is. What that does not buy is the
+/// sides — the dodging can still be pushed into a corner, and a launch of th08's stage 5 card died six
+/// times at `8.0,432.0` with the height told and the x free.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenStand {
+    x: Option<f32>,
+    y: Option<f32>,
+    away_from_the_boss: Option<f32>,
+    spell: Option<u32>,
 }
 
 /// The question a step answers and which of its items.
@@ -356,6 +519,7 @@ struct WrittenUntil {
     card_name: Option<bool>,
     name: Option<bool>,
     frames: Option<u32>,
+    spell: Option<u32>,
 }
 
 impl WrittenUntil {
@@ -423,29 +587,33 @@ impl WrittenUntil {
             self.screen,
             self.cursor,
             self.frames,
+            self.spell,
         );
         // **And nothing beside it**, a flag being a whole condition: anything written with one is a step
         // waiting for two things.
         if let Some(until) = asked {
             return match shaped {
-                (None, None, None, None, None, None) => Ok(until),
+                (None, None, None, None, None, None, None) => Ok(until),
                 _ => Err(Self::one_of_them(at)),
             };
         }
         match shaped {
-            (Some(stage), Some(chapter), None, None, None, None) => {
+            (Some(stage), Some(chapter), None, None, None, None, None) => {
                 Ok(Until::Chapter { stage, chapter })
             }
-            (None, None, Some(question), None, None, None) => Ok(Until::Question(question.clone())),
-            (None, None, None, Some(screen), Some(cursor), None) => {
+            (None, None, Some(question), None, None, None, None) => {
+                Ok(Until::Question(question.clone()))
+            }
+            (None, None, None, Some(screen), Some(cursor), None, None) => {
                 Ok(Until::Where { screen, cursor })
             }
-            (None, None, None, Some(screen), None, None) => Ok(Until::Screen(screen)),
-            (None, None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
-            (None, None, None, None, None, Some(0)) => {
+            (None, None, None, Some(screen), None, None, None) => Ok(Until::Screen(screen)),
+            (None, None, None, None, Some(cursor), None, None) => Ok(Until::Cursor(cursor)),
+            (None, None, None, None, None, Some(0), None) => {
                 Err(format!("step {at} is over before it starts"))
             }
-            (None, None, None, None, None, Some(frames)) => Ok(Until::Frames(frames)),
+            (None, None, None, None, None, Some(frames), None) => Ok(Until::Frames(frames)),
+            (None, None, None, None, None, None, Some(spell)) => Ok(Until::Spell(spell)),
             _ => Err(Self::one_of_them(at)),
         }
     }
@@ -454,7 +622,8 @@ impl WrittenUntil {
         format!(
             "step {at} waits for a stage and a chapter, a question, an item the cursor is on with \
              or without the screen it is a list of, a boss being up, a dialogue being up, a card \
-             running, a card's name being shown, or a count of frames, and for one of those"
+             running, a card's name being shown, a card by its number, or a count of frames, and \
+             for one of those"
         )
     }
 }
@@ -492,6 +661,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => match frames {
@@ -517,6 +688,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::Play {
@@ -536,6 +709,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::Wait {
@@ -555,6 +730,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::Leave,
@@ -571,6 +748,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::Quit,
@@ -587,6 +766,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => match named.trim() {
@@ -611,6 +792,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: Some(true),
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::StartOver,
@@ -627,6 +810,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: Some(hits),
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::TakeHits {
@@ -652,9 +837,73 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: Some(allowed),
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: None,
             } => Step::Bombs { allowed: *allowed },
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                bombs: None,
+                stand_at: Some(stand),
+                dodge: None,
+                answer: None,
+                name: None,
+            } => {
+                if stand.x.is_some() && stand.away_from_the_boss.is_some() {
+                    return Err(format!(
+                        "step {at} tells the rules an x and a distance from the boss both, which is two \
+                         places"
+                    ));
+                }
+                if let Some(spell) = stand.spell
+                    && stand.x.is_none()
+                    && stand.y.is_none()
+                    && stand.away_from_the_boss.is_none()
+                {
+                    return Err(format!(
+                        "step {at} gives card {spell} no place to stand, which is the place written \
+                         without a card standing through it anyway"
+                    ));
+                }
+                Step::StandAt {
+                    x: stand.x,
+                    y: stand.y,
+                    away_from_the_boss: stand.away_from_the_boss,
+                    spell: stand.spell,
+                }
+            }
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                bombs: None,
+                stand_at: None,
+                dodge: Some(dodge),
+                answer: None,
+                name: None,
+            } => Step::Dodge {
+                with: dodge.with,
+                spell: dodge.spell,
+            },
             Written {
                 press: None,
                 frames: None,
@@ -668,6 +917,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: Some(answer),
                 name: None,
             } => match answer.question.trim() {
@@ -693,6 +944,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 bombs: None,
+                stand_at: None,
+                dodge: None,
                 answer: None,
                 name: Some(typed),
             } => match typed.trim() {
@@ -715,8 +968,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             _ => {
                 return Err(format!(
                     "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a take_hits, a bombs, an answer, a name, a leave or a quit, and one of those and \
-                     not two"
+                     a take_hits, a bombs, a stand_at, a dodge, an answer, a name, a leave or a quit, and \
+                     one of those and not two"
                 ));
             }
         };
@@ -727,7 +980,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Step, Until, read};
+    use super::{Dodge, Step, Until, read};
 
     /// A recipe of every step there is, which is what one looks like — and what the scenario this was
     /// written for is: th07 played into stage 2 as far as its midboss, left, picked up again, and closed.
@@ -885,6 +1138,105 @@ mod tests {
                 gives_up: 0.0,
             }]),
         );
+    }
+
+    /// **A step can tell the rules where to stand**, and free them of the place again.
+    #[test]
+    fn a_step_can_tell_the_rules_where_to_stand() {
+        assert_eq!(
+            read(
+                "- stand_at: { x: 40 }\n- stand_at: { away_from_the_boss: 120 }\n\
+                 - stand_at: { y: 240 }\n- stand_at: {}\n",
+            ),
+            Ok(vec![
+                Step::StandAt {
+                    x: Some(40.0),
+                    y: None,
+                    away_from_the_boss: None,
+                    spell: None
+                },
+                Step::StandAt {
+                    x: None,
+                    y: None,
+                    away_from_the_boss: Some(120.0),
+                    spell: None
+                },
+                Step::StandAt {
+                    x: None,
+                    y: Some(240.0),
+                    away_from_the_boss: None,
+                    spell: None
+                },
+                Step::StandAt {
+                    x: None,
+                    y: None,
+                    away_from_the_boss: None,
+                    spell: None
+                },
+            ]),
+        );
+    }
+
+    /// **A step cannot tell the rules an x and a distance from the boss both**, which would be two places.
+    #[test]
+    fn a_step_cannot_tell_the_rules_two_places_to_stand() {
+        assert!(read("- stand_at: { x: 40, away_from_the_boss: 120 }\n").is_err());
+    }
+
+    /// **A step can name the way one card is dodged**, by the way's own name and the card's number — and a
+    /// name the rules have no way of is refused, as is a way named for no card.
+    #[test]
+    fn a_step_can_name_the_way_one_card_is_dodged() {
+        assert_eq!(
+            read("- dodge: { with: behind_the_laser, spell: 198 }\n"),
+            Ok(vec![Step::Dodge {
+                with: Dodge::BehindTheLaser,
+                spell: 198,
+            }]),
+        );
+        assert_eq!(
+            read("- dodge: { with: out_of_the_following_laser, spell: 97 }\n"),
+            Ok(vec![Step::Dodge {
+                with: Dodge::OutOfTheFollowingLaser,
+                spell: 97,
+            }]),
+        );
+        for (name, with) in [
+            ("in_the_middle", Dodge::InTheMiddle),
+            ("visionary_tuning", Dodge::VisionaryTuning),
+            ("round_the_field", Dodge::RoundTheField),
+            ("round_a_small_square", Dodge::RoundASmallSquare),
+            ("side_to_side", Dodge::SideToSide),
+            ("without_the_items", Dodge::WithoutTheItems),
+            ("focused", Dodge::Focused),
+            ("imperishable_shooting", Dodge::ImperishableShooting),
+            ("left_of_the_middle", Dodge::LeftOfTheMiddle),
+            ("right_of_the_middle", Dodge::RightOfTheMiddle),
+        ] {
+            assert_eq!(
+                read(&format!("- dodge: {{ with: {name}, spell: 1 }}\n")),
+                Ok(vec![Step::Dodge { with, spell: 1 }]),
+            );
+            assert_eq!(with.name(), name);
+        }
+        assert!(read("- dodge: { with: standing_still, spell: 198 }\n").is_err());
+        assert!(read("- dodge: { with: behind_the_laser }\n").is_err());
+    }
+
+    /// **And a place can be one card's**, which is a place with the card's number beside it — and a card with
+    /// no place beside it is refused, being no telling at all.
+    #[test]
+    fn a_step_can_tell_the_rules_where_to_stand_through_one_card() {
+        assert_eq!(
+            read("- stand_at: { x: 192, y: 260, spell: 105 }\n"),
+            Ok(vec![Step::StandAt {
+                x: Some(192.0),
+                y: Some(260.0),
+                away_from_the_boss: None,
+                spell: Some(105),
+            }]),
+        );
+        assert!(read("- stand_at: { spell: 105 }\n").is_err());
     }
 
     /// **A step can forbid the rules the bomb**, and allow it again, which is what a run held to no bomb is
@@ -1155,6 +1507,21 @@ mod tests {
             }]),
         );
         assert!(read("- play_until: { card_name: false }\n").is_err());
+    }
+
+    /// **And one card by its number**, which is what brackets a told place against a table that moves the
+    /// chapters — alone, a card and a chapter being two things to wait for.
+    #[test]
+    fn a_step_can_wait_for_a_card_by_its_number_and_for_nothing_beside_it() {
+        assert_eq!(
+            read("- play_until: { spell: 94 }\n"),
+            Ok(vec![Step::Play {
+                until: Until::Spell(94),
+                give_up_after: None,
+            }]),
+        );
+        assert!(read("- play_until: { spell: 94, stage: 5 }\n").is_err());
+        assert!(read("- play_until: { spell: 94, card: true }\n").is_err());
     }
 
     /// And two of them at once is a step waiting for two things, which no step does.

@@ -113,6 +113,18 @@ pub struct Config {
     /// reason as [`Config::autoplay`]: a launch somebody plays is not one being checked, and a settings file
     /// cannot ask for the file a check reads. Relative to the game's own directory where it names no other.
     pub trace: Option<PathBuf>,
+    /// **How often a picture of the frame goes into that trace, in seconds**, and nought for none —
+    /// `--shot-every`, and nothing unless `--trace` names a file.
+    ///
+    /// Seconds of the host's clock and not frames of the run, because what this is for is looking through
+    /// a launch afterwards: a launch at `--pace=8` plays eight times the frames in the same minute, and a
+    /// count of frames would put eight times as many pictures in the file for the same time watched.
+    pub shot_every: u32,
+    /// **Which spell card's every frame puts the whole field into that trace**, and none unless
+    /// `--trace-the-field-in` names one — `crate::trace`'s `TheField` in `orb_core`. For measuring a card: a
+    /// field of bullets a frame is a trace ten times the size, so it is asked of the one card being read and
+    /// not of a launch.
+    pub trace_the_field_in: Option<u32>,
     /// Write down what a pointdevice run has pressed, so the chapter it is left in can be
     /// played again in a later launch.
     ///
@@ -556,6 +568,8 @@ impl Config {
             sent_keys: false,
             autoplay: None,
             trace: None,
+            shot_every: 0,
+            trace_the_field_in: None,
             frame_hooks: true,
             own_frame_loop: true,
             always_draw: file.always_draw,

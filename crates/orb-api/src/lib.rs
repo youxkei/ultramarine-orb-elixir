@@ -253,6 +253,18 @@ pub trait Win: Send + Sync + 'static {
     /// and not of the address space.
     fn read_committed_bytes(&self, address: usize, len: usize) -> Option<Vec<u8>>;
 
+    /// [`read_bytes`](Win::read_bytes) and [`read_committed_bytes`](Win::read_committed_bytes) into
+    /// `into`, which is what the facade's reads of one value ask: **a `Vec` apiece was the larger part
+    /// of a read**, and th08's frame in an e2e test is some five thousand of them.
+    fn read_into(&self, address: usize, into: &mut [u8]) {
+        into.copy_from_slice(&self.read_bytes(address, into.len()));
+    }
+    fn read_committed_into(&self, address: usize, into: &mut [u8]) -> bool {
+        self.read_committed_bytes(address, into.len())
+            .map(|bytes| into.copy_from_slice(&bytes))
+            .is_some()
+    }
+
     /// Puts back any page of `address..address + len` that has gone since a snapshot, so a
     /// restore has somewhere to write, and says whether the whole of it is now there.
     fn commit(&self, address: usize, len: usize) -> bool;
@@ -599,6 +611,13 @@ pub trait Win: Send + Sync + 'static {
     /// window is up, which is what one with nothing to hide a window with would be.
     fn is_visible(&self, _window: Hwnd) -> bool {
         true
+    }
+
+    /// The message queue taken and given to the windows it is for — see [`crate::window::pump`], and
+    /// `true` where a quit was among them. The default is a host with nothing waiting, which is what a
+    /// laid-out one is: its windows are made by orb and nothing posts to them.
+    fn pump(&self) -> bool {
+        false
     }
 
     /// `GetWindowLongPtrW` on the extended style — see [`crate::window::ex_style`]. A laid-out host keeps

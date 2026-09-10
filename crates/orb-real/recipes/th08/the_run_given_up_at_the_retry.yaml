@@ -1,0 +1,50 @@
+# **th08's run given up at orb's own question of where to start again**, which is the last of the ways it
+# offers: the run is over, the game carries on into its own front end, and the chapters it had are gone.
+#
+# **Asked in the stage's first chapter, where nothing is behind it.** `RetryMenu::new` leaves
+# 更に前からやり直す out of the ways where the chapters behind the lost one are none, so the items here are
+# the chapter, the stage and the run given up — and giving the run up is **item 2**. A recipe that asked
+# deeper would have four items and it would be 3.
+#
+# **The front end is walked by this game's own screen numbers** — 0 is the title, whose item 0 starts a
+# run, 4 is the difficulty on Normal and 5 the team select, which takes two presses — with orb's own mode
+# question over the title's first item, answered with the pointdevice mode: the question this case is
+# about is the mode's own.
+- wait_until: { screen: 0 }
+  give_up_after: 1800
+- press: [up]
+  frames: 30
+  until: { cursor: 0 }
+  give_up_after: 900
+- press: [decide]
+  frames: 30
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 4 }
+  give_up_after: 1800
+- press: [decide]
+  frames: 30
+  until: { screen: 5 }
+  give_up_after: 900
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 12
+- wait_until: { frames: 300 }
+# A second of the stage, so that the run is in its first chapter and no further.
+- play_until: { frames: 60 }
+  give_up_after: 7200
+# **The ask, the run given up, and the screen that naming raises answered with yes.**
+- start_over: true
+- answer: { question: retry, item: 2 }
+  give_up_after: 600
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+# **And nothing after it but the game closed**, the run being over: a `leave` would have nothing to give
+# up, and the front end is where the game takes itself — the press its own way out waits for being orb's to
+# make, see `Game::a_run_given_up_waits_for_a_press`.
+- wait_until: { frames: 300 }
+- quit: true
