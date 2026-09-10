@@ -1572,8 +1572,9 @@ impl Game for Th06 {
     /// not scrub freed blocks, and following a stale pointer into DirectSound
     /// crashes.
     fn music(&self) -> Option<Music> {
-        /// A streaming buffer holds a fraction of a second of audio; anything
-        /// near this is not a buffer size.
+        /// The game's streaming buffer is four half-second chunks of 44100Hz 16-bit stereo, 352,800
+        /// bytes — `LoadBGM` works the chunk out at 0x430c3c–0x430c82 and passes 4 at 0x430ce0, see
+        /// `docs/th06/asm.md`. Anything near this is not a buffer size.
         const MAX_BUFFER_SIZE: u32 = 8 << 20;
 
         let streaming = self.streaming_sound()?;
