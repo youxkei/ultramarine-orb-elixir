@@ -242,6 +242,37 @@ What tells one track from another is `Th06::music_identity`, out of the wave fil
 points, and that is what a line about the sound carries for this game — see `Game::the_track_heard`, which
 answers nothing here. th07's own record does carry a name, so its line has one.
 
+## The music thread refills once per wake and holds nothing against the cursor
+
+`SoundPlayer::LoadBGM` (`0x430a50`) works a chunk out at `0x430c3c`–`0x430c82` as
+`nSamplesPerSec << 1 × nBlockAlign >> 2` rounded down to `nBlockAlign`, which for the 44100 Hz 16-bit stereo
+wav every track is comes to 88,200 bytes — half a second. `0x430ce0` passes 4 as how many of them there are
+and `0x43aa6f` multiplies the two into `DSBUFFERDESC`'s `dwBufferBytes`, so the sound buffer is 352,800 bytes,
+two seconds. `0x43b420` and `0x43acf5` put the two sizes where `streaming_sound::NOTIFY_SIZE` and
+`streaming_sound::BUFFER_SIZE` in `game/th06/mod.rs` read them, with `BUFFER_COUNT` 1.
+
+`0x430c8d` makes **one auto-reset event** with `CreateEventA`. `0x43ab1b` allocates a `DSBPOSITIONNOTIFY` per
+chunk and `0x43ab4c`–`0x43ab81` fills each one's offset with the last byte of its chunk and each one's handle
+with **that same event**, which `0x43ab94` hands to `SetNotificationPositions`. `0x430cbd` starts the thread at
+`0x431370` that waits on it — the wait is on the player's two handles at `0x6d4580` with a 191 ms timeout, and
+where it answers the first of them the thread calls `CStreamingSound::ServiceBuffer` at `0x43b560` and goes
+round.
+
+The refill locks the buffer at `[this+0x2c]` for `[this+0x28]` bytes (`0x43b61c`–`0x43b63a`, which are
+`NEXT_WRITE_OFFSET` and `NOTIFY_SIZE`), reads the wav into it through `WaveFile::Read` at `0x43c080`, and moves
+the offset on by a chunk. **`GetCurrentPosition` is called nowhere on that path**: where the next chunk goes is
+a count of how many times the event has been consumed, and it is never held against the play cursor. So a
+thread that does not reach the wait again before the next notification position comes round has two signals
+collapse into one — an auto-reset event set twice is set once — refills once where it should have refilled
+twice, and is a chunk out from then on. Nothing in the game brings it back; a new stream does, which is what
+going to the title screen makes.
+
+The ring is four chunks, so the first three missed refills are inaudible, each writing a chunk that the cursor
+has yet to reach. The fourth writes the chunk the cursor is in, under the mixer, and a seam is heard at every
+chunk boundary — twice a second — for as long as the stream lives. That is what a 紅魔郷 run under heavy load
+heard from part way through stage 6's boss to the end of the run, and what `audio::Refills` counts and
+`Th06::a_missed_refill_is_never_made_up` answers for.
+
 ## The plate a spell card's name is shown on
 
 The panel keeps the name in an `AnmVm` at `impl+0x20f4` (`GuiImpl::enemySpellcardName`) and the plate behind it

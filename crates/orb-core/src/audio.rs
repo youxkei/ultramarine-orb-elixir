@@ -161,6 +161,117 @@ pub struct Margin {
     pub notify_size: u32,
 }
 
+/// **Whether the game's own refills are keeping up with the mixer, counted rather than measured.**
+///
+/// The streaming thread is woken once per chunk the mixer plays out and writes one chunk per wake, so the
+/// chunk boundaries the play cursor passes and the chunks the next write moves by are two counts of the
+/// same thing, and refills the thread *owes* is the difference. A wake that comes late owes one for a while
+/// and pays it; a wake that never comes — see `Th06`'s `a_missed_refill_is_never_made_up` — owes one for
+/// good. So what says a refill was missed for good is the debt standing for longer than a late wake can
+/// account for, which is [`Refills::MISSED_FOR_GOOD_AFTER`] chunks of play.
+///
+/// **A count and not [`Margin`], because one reading of the margin cannot tell the fault from health.** th06's
+/// next write is a counter of wakes and nothing holds it against the cursor, so each missed refill moves it
+/// one chunk round the ring — and the ring is four chunks. After four the next write is the chunk the cursor
+/// is in, every refill writes under the mixer, a seam is heard at every chunk boundary, and the margin reads
+/// as it does when nothing is wrong. Nor is the margin's *value* the same thing in both games: th07's steady
+/// state holds the next write a chunk behind the device's write cursor and refuses a refill that would land
+/// inside it, so a threshold that means a fault for one game is the ordinary way of things for the other.
+/// Counting boundaries against writes needs no baseline and reads the same in either.
+///
+/// Read from the frame once a frame, which is what makes the count exact: a frame is a fraction of a chunk,
+/// so no reading skips a boundary, and the next write moves by whole chunks.
+pub struct Refills {
+    buffer_size: u32,
+    notify_size: u32,
+    /// The play cursor and the next write as they were last read.
+    play: u32,
+    write: u32,
+    /// Chunk boundaries the cursor has passed that no refill has answered yet.
+    owed: u32,
+    /// How many bytes the cursor has played since `owed` last stood at nothing.
+    owed_for: u32,
+    /// Whether the debt now standing has been reported: one report per debt, since one it never pays is the
+    /// same fault every frame after.
+    reported: bool,
+}
+
+impl Refills {
+    /// How long a refill may stay owed before it is missed for good, in chunks of play.
+    ///
+    /// **A chunk and a half, judged from what each side can do.** A wake that is merely late pays its debt
+    /// before the next boundary — were it later than that, the event would have been set twice before the
+    /// thread consumed it once, and that *is* the miss. So a debt standing for a whole chunk of play is one
+    /// no late wake explains, and the extra half is for the refill itself taking time under the same load
+    /// that made the wake late: the write is seen when the chunk is in, not when the thread woke.
+    pub const MISSED_FOR_GOOD_AFTER: u32 = 3;
+
+    /// Starts counting from where the cursor and the next write are now.
+    ///
+    /// `None` for a buffer that is not a whole number of chunks, which neither game makes: the boundaries
+    /// the thread is woken at are the chunk grid, and a short last chunk would need its own boundary.
+    pub fn from(music: &Music, play: u32, write: u32) -> Option<Self> {
+        if music.notify_size == 0 || !music.buffer_size.is_multiple_of(music.notify_size) {
+            return None;
+        }
+        Some(Self {
+            buffer_size: music.buffer_size,
+            notify_size: music.notify_size,
+            play,
+            write,
+            owed: 0,
+            owed_for: 0,
+            reported: false,
+        })
+    }
+
+    /// One more reading of the two, and how many refills are missed for good where that has just become
+    /// certain.
+    ///
+    /// Said once per debt: a debt the thread never pays is the same fault at every frame after this one, and
+    /// what the caller does about it is either to put the stream back — which starts a count of its own —
+    /// or to leave it, which wants no second line.
+    pub fn note(&mut self, play: u32, write: u32) -> Option<u32> {
+        let played = (play + self.buffer_size - self.play) % self.buffer_size;
+        let written = (write + self.buffer_size - self.write) % self.buffer_size;
+        // Boundaries at whole chunks in the stretch just played, the ring unrolled: `buffer_size` being a
+        // whole number of chunks, its end is one of them and the count carries across the wrap.
+        let passed = (self.play + played) / self.notify_size - self.play / self.notify_size;
+        // The next write moves by whole chunks, each refill being one; rounded rather than truncated so that
+        // a write short of a chunk, were a game to make one, is still the refill it was.
+        let refilled = (written + self.notify_size / 2) / self.notify_size;
+        self.play = play;
+        self.write = write;
+        // Never below nothing: a refill seen with no boundary counted for it is one whose boundary went
+        // by before this count started.
+        self.owed = (self.owed + passed).saturating_sub(refilled);
+        if self.owed == 0 {
+            self.owed_for = 0;
+            self.reported = false;
+            return None;
+        }
+        self.owed_for = self.owed_for.saturating_add(played);
+        if self.reported || self.owed_for < self.notify_size * Self::MISSED_FOR_GOOD_AFTER / 2 {
+            return None;
+        }
+        self.reported = true;
+        Some(self.owed)
+    }
+}
+
+/// **Whether orb itself has moved the cursor or the next write since this was last asked.** A restore puts
+/// both back where a chapter had them and `play_from` puts both at nothing, and a count of refills that
+/// read either as the mixer playing would owe or forgive chunks that were never played.
+///
+/// A static rather than a return value because the two that move the stream are called from a restore, a
+/// resume's landing and a retry's menu, and the count is the frame's — the same reason [`WATCHING`] is one.
+static REPOSITIONED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the stream was moved by orb since the last time this was asked, which resets the answer.
+pub fn was_repositioned() -> bool {
+    REPOSITIONED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct Saved {
     bytes: Vec<u8>,
     play_cursor: u32,
@@ -302,6 +413,7 @@ impl Music {
                 .is_some()
         };
         dsound::set_current_position(self.buffer, saved.play_cursor);
+        REPOSITIONED.store(true, std::sync::atomic::Ordering::Relaxed);
         let seeked = if saved.file_position >= 0 {
             unsafe { self.track.seek(saved.file_position, SEEK_SET) }
         } else {
@@ -352,6 +464,19 @@ impl Music {
     /// # Safety
     /// Must run on the game's main thread.
     pub unsafe fn margin(&self) -> Option<Margin> {
+        let (play, write) = unsafe { self.cursor_and_next_write()? };
+        Some(Margin {
+            behind: (play + self.buffer_size - write) % self.buffer_size,
+            notify_size: self.notify_size,
+        })
+    }
+
+    /// The play cursor and the offset the game's next write goes at, both inside the buffer. `None` when
+    /// nothing is playing or either will not say.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    pub unsafe fn cursor_and_next_write(&self) -> Option<(u32, u32)> {
         let (asked, status) = dsound::get_status(self.buffer);
         if asked < 0 || status & DSBSTATUS_PLAYING == 0 {
             return None;
@@ -364,10 +489,7 @@ impl Music {
         if self.buffer_size == 0 || play >= self.buffer_size || write >= self.buffer_size {
             return None;
         }
-        Some(Margin {
-            behind: (play + self.buffer_size - write) % self.buffer_size,
-            notify_size: self.notify_size,
-        })
+        Some((play, write))
     }
 
     /// **Where the mixer and the game's own next write stand**, as a log line says it.
@@ -525,6 +647,7 @@ impl Music {
         }
         dsound::set_current_position(self.buffer, 0);
         unsafe { orb_api::mem::write::<u32>(self.write_offset, 0) };
+        REPOSITIONED.store(true, std::sync::atomic::Ordering::Relaxed);
         dsound::play(self.buffer, 0, 0, DSBPLAY_LOOPING);
         true
     }
@@ -677,4 +800,107 @@ unsafe fn file_read(file: usize, into: &mut [u8]) -> i32 {
         return -1;
     }
     i32::try_from(got).unwrap_or(-1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BUFFER: u32 = 4 * CHUNK;
+    const CHUNK: u32 = 8_000;
+    /// A frame of the mixer, a fraction of a chunk.
+    const FRAME: u32 = 1_000;
+
+    fn counting(play: u32, write: u32) -> Refills {
+        Refills {
+            buffer_size: BUFFER,
+            notify_size: CHUNK,
+            play,
+            write,
+            owed: 0,
+            owed_for: 0,
+            reported: false,
+        }
+    }
+
+    /// The mixer playing `frames` frames from where the count is, the thread refilling at every boundary
+    /// the cursor passes where `refilling`; what the count said at each.
+    fn plays(refills: &mut Refills, frames: u32, refilling: bool) -> Vec<Option<u32>> {
+        (0..frames)
+            .map(|_| {
+                let play = (refills.play + FRAME) % BUFFER;
+                let write = if refilling && play.is_multiple_of(CHUNK) {
+                    (refills.write + CHUNK) % BUFFER
+                } else {
+                    refills.write
+                };
+                refills.note(play, write)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_thread_refilling_at_every_boundary_owes_nothing_however_long_it_runs() {
+        let mut refills = counting(0, 0);
+        assert!(plays(&mut refills, 400, true).iter().all(Option::is_none));
+        assert_eq!(refills.owed, 0);
+    }
+
+    #[test]
+    fn a_refill_that_comes_late_is_owed_until_it_comes_and_is_not_a_miss() {
+        let mut refills = counting(0, 0);
+        // A boundary passed with no refill, and half a chunk of play before the thread gets to it.
+        assert!(plays(&mut refills, 12, false).iter().all(Option::is_none));
+        assert_eq!(refills.owed, 1);
+        assert_eq!(refills.note(refills.play, CHUNK), None);
+        assert_eq!(refills.owed, 0);
+        assert!(plays(&mut refills, 100, true).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn two_boundaries_answered_by_one_refill_are_a_miss_a_chunk_and_a_half_on_said_once() {
+        let mut refills = counting(0, 0);
+        plays(&mut refills, 16, true);
+        // The thread woke once for two notifications: a boundary with no refill, and the next with one.
+        assert!(plays(&mut refills, 8, false).iter().all(Option::is_none));
+        assert!(plays(&mut refills, 8, true).iter().all(Option::is_none));
+        assert_eq!(refills.owed, 1);
+        let said = plays(&mut refills, 60, true);
+        assert_eq!(
+            said.iter().enumerate().find(|(_, it)| it.is_some()),
+            Some((2, &Some(1))),
+            "{said:?}"
+        );
+        assert_eq!(said.iter().filter(|it| it.is_some()).count(), 1, "{said:?}");
+        assert_eq!(refills.owed, 1);
+    }
+
+    #[test]
+    fn a_count_started_between_a_boundary_and_its_refill_does_not_hold_the_refill_against_it() {
+        let mut refills = counting(FRAME, 0);
+        assert_eq!(refills.note(2 * FRAME, CHUNK), None);
+        assert_eq!(refills.owed, 0);
+        assert!(plays(&mut refills, 100, true).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn the_count_carries_across_the_end_of_the_ring() {
+        let mut refills = counting(BUFFER - FRAME, 3 * CHUNK);
+        assert!(plays(&mut refills, 200, true).iter().all(Option::is_none));
+        assert_eq!(refills.owed, 0);
+    }
+
+    #[test]
+    fn a_buffer_that_is_not_whole_chunks_is_not_counted() {
+        let music = Music {
+            stream: 0,
+            buffer: SoundBuffer(0),
+            buffer_size: 3 * CHUNK + 1,
+            notify_size: CHUNK,
+            track: Track::Mmio(0),
+            bytes_left: 0,
+            write_offset: 0,
+        };
+        assert!(Refills::from(&music, 0, 0).is_none());
+    }
 }

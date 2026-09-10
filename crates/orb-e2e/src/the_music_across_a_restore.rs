@@ -275,10 +275,9 @@ fn a_chapters_stream_comes_back_byte_for_byte_when_the_chapter_does() {
 /// restored on a timer leaves it where the chapter had it.
 ///
 /// **What a listener hears when that distance runs out is the music breaking up**, which is why orb
-/// reports it at all — and it only asks DirectSound for it while something is being diagnosed, a poll a
-/// frame being work nothing else needs. `--stress-restore` is one of the two switches that turn it on,
-/// and it is also what puts a restore on a timer: the snapshot and the music get as many goes as a long
-/// session would with nobody playing one.
+/// reports it at all. `--stress-restore` is what puts a restore on a timer, so that the snapshot and the
+/// music get as many goes as a long session would with nobody playing one, and what has the distance said
+/// every frame after each of them rather than once a reporting period.
 #[test]
 fn the_distance_to_the_next_write_is_reported_and_a_restore_on_a_timer_puts_it_back() {
     in_its_own_process(|| {
@@ -697,6 +696,182 @@ fn a_stream_whose_file_handle_will_not_read_keeps_its_buffer_and_leaves_the_file
 /// How often that e2e test's restore comes round, in frames. Its own number: short enough that a chapter
 /// gets its four goes inside an e2e test and long enough that the frames between them are frames.
 const RESTORED_EVERY: u32 = 20;
+
+/// How far the mixer plays in a frame of these e2e tests: a fraction of a chunk, as it is on the real game —
+/// 2940 bytes of an 88200-byte chunk at sixty frames a second — so that no frame passes two boundaries.
+const PLAYS_A_FRAME: u32 = STREAM_NOTIFY / 4;
+
+/// A frame with the mixer playing on, the streaming thread refilling at the boundary the cursor passes
+/// where `refilling`, and orb's frame after both. Whether a boundary was passed.
+fn a_frame_of_the_stream(game: &Fake, refilling: bool) -> bool {
+    game.plays_the_buffer_on(PLAYS_A_FRAME);
+    let passed = game.stream_now().play_cursor.is_multiple_of(STREAM_NOTIFY);
+    if passed && refilling {
+        game.services_the_buffer();
+    }
+    game.frame();
+    passed
+}
+
+/// The lines about the stream being fed, which is what every assertion below is about.
+fn what_was_said_of_the_refills(game: &Fake) -> Vec<String> {
+    game.log()
+        .lines()
+        .iter()
+        .filter(|line| line.contains("refill(s) missed") || line.contains("the stream "))
+        .cloned()
+        .collect()
+}
+
+/// **A refill the streaming thread never made is made up by putting the stream back from where it is
+/// audible**, before the missing chunk can be heard.
+///
+/// th06's thread refills once per wake and holds nothing against the cursor, so a wake that came after two
+/// notifications leaves the stream a chunk out of step for good; four of those and every refill writes under
+/// the mixer, which a 紅魔郷 run heard as a blip at every chunk until the title screen. So what orb watches is
+/// the count — boundaries the cursor passes against chunks the next write moves by — and what it does at the
+/// first refill missed for good is start the stream again from the sound now audible, where that offset is
+/// still exact. A late refill is not a miss, which `the_refill_a_late_wake_makes_is_not_a_miss` holds it to.
+#[test]
+fn a_refill_the_streaming_thread_never_made_is_made_up_by_putting_the_stream_back() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-refill-missed", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.streams_its_song(SONG);
+        game.in_a_pointdevice_run();
+
+        // Three chunks fed the ordinary way: nothing is owed and nothing is said.
+        let mut passed = 0;
+        while passed < 3 {
+            passed += u32::from(a_frame_of_the_stream(&game, true));
+        }
+        assert!(
+            what_was_said_of_the_refills(&game).is_empty(),
+            "a stream fed at every boundary was said to be short of a refill:\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+
+        // The thread woke once for two notifications: a boundary passed with no refill, and the next one
+        // with the one refill for the pair.
+        while !a_frame_of_the_stream(&game, false) {}
+        while !a_frame_of_the_stream(&game, true) {}
+        assert!(
+            what_was_said_of_the_refills(&game).is_empty(),
+            "a refill was said to be missed for good before a late wake could have made it:\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+
+        // A chunk and a half of play on, with the thread refilling at every boundary since and never
+        // making the missed one up, the stream is put back from where it is audible: the whole buffer from
+        // there, the cursor and the next write at its start, and the file a buffer further on.
+        let log = game.log();
+        let before = std::cell::Cell::new(None);
+        game.frames_until(
+            "the stream put back",
+            3 * STREAM_NOTIFY / PLAYS_A_FRAME,
+            || {
+                if log.said("audio: the stream put back") {
+                    return true;
+                }
+                // A frame of the stream by hand, so that the readings orb's frame is about to make — the
+                // mixer moved on and the boundary answered — are the ones held against its lines.
+                game.plays_the_buffer_on(PLAYS_A_FRAME);
+                if game.stream_now().play_cursor.is_multiple_of(STREAM_NOTIFY) {
+                    game.services_the_buffer();
+                }
+                before.set(Some((game.stream_now(), game.image().next_write_offset())));
+                game.frame();
+                false
+            },
+        );
+        let (before, next_write) = before
+            .take()
+            .expect("a frame before the stream was put back");
+        let audible = before.position
+            - ((next_write + STREAM_BUFFER as u32 - before.play_cursor) % STREAM_BUFFER as u32)
+                as i32;
+        assert!(
+            log.said(&format!(
+                "audio: 1 refill(s) missed for good: the next write is {} byte(s) behind the cursor, \
+                 chunk {STREAM_NOTIFY} of a {STREAM_BUFFER}-byte buffer",
+                (before.play_cursor + STREAM_BUFFER as u32 - next_write) % STREAM_BUFFER as u32
+            )),
+            "the refill missed was not said, or not with the distance the cursor had on the next write:\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+        assert!(
+            log.said(&format!(
+                "audio: the stream put back at {audible} in the track's own file"
+            )),
+            "the stream was not put back from where it was audible ({audible}):\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+        let after = game.stream_now();
+        assert_eq!(
+            (
+                after.play_cursor,
+                game.image().next_write_offset(),
+                after.position,
+                after.playing
+            ),
+            (0, 0, audible + STREAM_BUFFER as i32, true),
+            "the stream put back is not a fresh one from the sound that was audible",
+        );
+        assert_eq!(
+            after.buffered[0], before.buffered[before.play_cursor as usize],
+            "the buffer put back does not begin with the sound that was under the cursor",
+        );
+
+        // And the fresh stream, fed the ordinary way, owes nothing.
+        let said = what_was_said_of_the_refills(&game).len();
+        let mut passed = 0;
+        while passed < 3 {
+            passed += u32::from(a_frame_of_the_stream(&game, true));
+        }
+        assert_eq!(
+            what_was_said_of_the_refills(&game).len(),
+            said,
+            "the stream put back was said to be short of a refill:\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+    });
+}
+
+/// A refill that comes late — the boundary passed, and the thread getting to it part way through the next
+/// chunk — is owed and then paid, and nothing is said of it: the miss is a wake that never comes, and a
+/// threshold under a chunk is one an ordinary late wake crosses.
+#[test]
+fn the_refill_a_late_wake_makes_is_not_a_miss() {
+    in_its_own_process(|| {
+        let game = Fake::attach("the-music-refill-late", the_run(), |config| {
+            config.log_level = LogLevel::Verbose;
+        });
+        game.streams_its_song(SONG);
+        game.in_a_pointdevice_run();
+
+        for _ in 0..4 {
+            // The boundary goes by unanswered, half a chunk of play follows, and then the thread refills.
+            while !a_frame_of_the_stream(&game, false) {}
+            for _ in 0..(STREAM_NOTIFY / PLAYS_A_FRAME / 2) {
+                a_frame_of_the_stream(&game, false);
+            }
+            game.services_the_buffer();
+            game.frame();
+        }
+        // And a chunk and a half more, fed the ordinary way, which is as long as the count would have waited
+        // to say a refill was missed had any been.
+        let mut passed = 0;
+        while passed < 2 {
+            passed += u32::from(a_frame_of_the_stream(&game, true));
+        }
+        assert!(
+            what_was_said_of_the_refills(&game).is_empty(),
+            "a late refill was taken for a missed one:\n  {}",
+            what_was_said_of_the_refills(&game).join("\n  ")
+        );
+    });
+}
 
 /// And how far the play cursor is ahead of the offset the next chunk goes at. Inside a chunk, which is a
 /// stream that is keeping up — the number growing past one is the streaming falling behind.

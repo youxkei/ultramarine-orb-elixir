@@ -283,6 +283,10 @@ pub struct Runtime {
     /// Frames left to report the margin every frame, set by a restore so that what
     /// a restore does to the streaming is visible rather than averaged away.
     margin_trace: u32,
+    /// The count of refills the streaming thread owes the mixer, for the stream in `stream` — see
+    /// [`audio::Refills`]. `None` between streams and after anything that moved the cursor or the next write
+    /// behind the count's back, and started again from the next reading.
+    refills: Option<crate::audio::Refills>,
     /// **Whose the replays this launch writes are**: the name the game's own name entry was last seen holding
     /// — see [`Game::the_name_its_own_entry_holds`] — and, until one has been seen, the one the settings file
     /// carries, which is where the last launch to see one wrote it.
@@ -1211,6 +1215,7 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
             margin_worst: 0,
             margin_best: u32::MAX,
             margin_trace: 0,
+            refills: None,
             name,
             heard: None,
             flash: None,
@@ -3201,11 +3206,7 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         runtime.kept = None;
     }
     unsafe { stress(runtime, &state) };
-    // Polling DirectSound every frame is diagnostic work, so it only happens when
-    // something is being diagnosed.
-    if runtime.config.stress_restore_frames > 0 || runtime.config.self_check {
-        unsafe { watch_music(runtime, &state) };
-    }
+    unsafe { watch_music(runtime, &state) };
 
     // The stage a run has got to, which is the one part of [`Reached`] that needs a stage read: the rest of it
     // is filled where the frame begins — see [`what_is_reached`], and the reason it cannot wait until here.
@@ -4952,13 +4953,29 @@ unsafe fn notice_the_track(runtime: &mut Runtime) {
     });
 }
 
-/// Watches the streaming margin, which is what a listener hears as the music
-/// breaking up once it runs out.
+/// Watches the stream being fed: the margin, which is what a listener hears as the music breaking up once
+/// it runs out, and the refills the streaming thread owes the mixer, which is what says a chunk was missed
+/// for good before anything is heard.
+///
+/// **Every frame of a run, and not only while something is being diagnosed**, which is where the margin used
+/// to be read: a stream a chunk out of step stays out of step for as long as it lives, and the run it was
+/// found in had `audio: behind 0..0 bytes` — no reading at all — in its log for the whole of the twenty minutes
+/// it played on. Each frame's cost is one `GetCurrentPosition` and a word read out of the game's memory.
+///
+/// **The stream is put back before the fault is heard, and only where the game is known to leave it.** th06's
+/// ring holds four chunks, so the first missed refill is inaudible and the fourth writes under the mixer; up
+/// to the third, [`Music::audible_offset`] is still exact, since the chunks between the cursor and the next
+/// write are the file's in order, and [`Music::play_from`] from there is a fresh stream with a full buffer
+/// ahead of the cursor and a gap of the call's own length in the sound. At the fourth the three numbers that
+/// offset is made of have been moved by what was lost, and the song would jump by up to that. So the first
+/// missed refill is acted on, where the repair is exact, rather than the fault that can be heard, where it is
+/// not — and `Game::a_missed_refill_is_never_made_up` says which game's thread leaves a missed refill missed.
 unsafe fn watch_music(runtime: &mut Runtime, state: &State) {
     if !state.playing {
         return;
     }
     let Some(music) = runtime.game.music() else {
+        runtime.refills = None;
         return;
     };
     let identity = runtime.game.music_identity();
@@ -4971,20 +4988,56 @@ unsafe fn watch_music(runtime: &mut Runtime, state: &State) {
             runtime.stream.1,
         );
         runtime.stream = (music.stream, identity);
+        runtime.refills = None;
     }
-    let margin = unsafe { music.margin() };
-    let Some(margin) = margin else { return };
-    runtime.margin_worst = runtime.margin_worst.max(margin.behind);
-    runtime.margin_best = runtime.margin_best.min(margin.behind);
+    if crate::audio::was_repositioned() {
+        runtime.refills = None;
+    }
+    let Some((play, write)) = (unsafe { music.cursor_and_next_write() }) else {
+        runtime.refills = None;
+        return;
+    };
+    let behind = (play + music.buffer_size - write) % music.buffer_size;
+    runtime.margin_worst = runtime.margin_worst.max(behind);
+    runtime.margin_best = runtime.margin_best.min(behind);
     if runtime.margin_trace > 0 {
         runtime.margin_trace -= 1;
         log!(
-            "audio: behind={} of chunk {} buffer {}",
-            margin.behind,
-            margin.notify_size,
+            "audio: behind={behind} of chunk {} buffer {}",
+            music.notify_size,
             music.buffer_size,
         );
     }
+    let Some(refills) = runtime.refills.as_mut() else {
+        runtime.refills = crate::audio::Refills::from(&music, play, write);
+        return;
+    };
+    let Some(missed) = refills.note(play, write) else {
+        return;
+    };
+    log!(
+        "audio: {missed} refill(s) missed for good: the next write is {behind} byte(s) behind the cursor, \
+         chunk {} of a {}-byte buffer",
+        music.notify_size,
+        music.buffer_size,
+    );
+    if !runtime.game.a_missed_refill_is_never_made_up() {
+        return;
+    }
+    let Some(offset) = (unsafe { music.audible_offset() }) else {
+        return log!(
+            "audio: the stream was left alone: it will not say where the sound audible begins"
+        );
+    };
+    log!(
+        "audio: the stream {} at {offset} in the track's own file",
+        if unsafe { music.play_from(offset) } {
+            "put back"
+        } else {
+            "could not be put back"
+        },
+    );
+    runtime.refills = None;
 }
 
 /// Restores the current chapter on a timer, so the snapshot and the music get

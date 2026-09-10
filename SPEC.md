@@ -207,6 +207,22 @@ boss repeating after a chapter retry, and the same few seconds still playing at 
 frozen at the values the chapter had. Both games keep their buffers that way, so both hold that array back with
 the rest of the sound's own memory.
 
+**The stream being fed is watched every frame of a run, as a count of the refills the streaming thread owes
+the mixer, and th06's is put back at the first refill missed for good.** The thread is woken once per chunk the
+mixer plays out and writes one chunk per wake, so the chunk boundaries the play cursor passes and the chunks
+the next write moves by are two counts of the same thing; a late wake owes a refill for a while and pays it, and
+one that never comes owes it for good. A debt standing for a chunk and a half of play is one no late wake
+explains, and that is what is said — `audio: N refill(s) missed for good` — and, for th06, acted on. Its thread
+never holds the next write against the cursor (`docs/th06/asm.md`), so a wake that came after two
+notifications leaves the stream a chunk out of step for the life of the stream: the ring is four chunks, the
+first three misses are inaudible, and the fourth has every refill writing under the mixer, heard on the real
+game as a blip at every chunk boundary from stage 6's boss to the end of the run. Up to the third the offset
+where the sound is audible is still exact, so the stream is started again from there — the same repair a
+resume's landing makes — with a full buffer ahead of the cursor. A count and not the margin, because one reading
+of the margin cannot tell that fault from health: after four misses the next write is the cursor's own chunk
+again. th07's missed refills are counted and said and its stream is left alone, its refill's refusal of a write
+inside the device's chunk being its ordinary state and its thread not having been read.
+
 **A track change is handled by the game, not by the copy.** Restoring a snapshot taken under
 another track — the stage's start, once a boss has brought its own music — cannot put that
 track back: the game freed its stream and released its sound buffer, and no memory copy brings a

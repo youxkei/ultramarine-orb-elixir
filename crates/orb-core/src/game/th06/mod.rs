@@ -1620,6 +1620,18 @@ impl Game for Th06 {
         ))
     }
 
+    /// **Read off the thread at 0x431370 and the refill it calls**, and the whole path is in
+    /// `docs/th06/asm.md`. Every chunk's notification position is bound to one auto-reset event and the
+    /// thread waits on that one event; the refill at 0x43b560 writes a chunk at `NEXT_WRITE_OFFSET` and moves
+    /// it on by a chunk, and **nothing on that path calls `GetCurrentPosition`** — where the next chunk goes
+    /// is how many wakes there have been. Two notifications before one wake set the event once, so the thread
+    /// refills once for two chunks played and is a chunk out of step for as long as the stream lives. A
+    /// 紅魔郷 run under heavy load lost its music to that four chunks in, part way through stage 6's boss,
+    /// and kept the seam until the title screen made a new stream.
+    fn a_missed_refill_is_never_made_up(&self) -> bool {
+        true
+    }
+
     /// The track's length and loop points together, which differ between tracks
     /// and stay put while one is playing.
     fn music_identity(&self) -> Option<u32> {

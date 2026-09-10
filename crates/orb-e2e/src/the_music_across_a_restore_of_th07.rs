@@ -615,3 +615,80 @@ fn the_music_of_th07_carries_on_where_the_pause_menu_asked_the_run_to_start_over
         );
     });
 }
+
+/// How far the mixer plays in a frame of this e2e test: a fraction of a chunk, so that no frame passes two
+/// boundaries.
+const PLAYS_A_FRAME: u32 = STREAM_NOTIFY / 4;
+
+/// **A refill th07's streaming thread never made is counted and said, and the stream is left alone.**
+///
+/// The count is the same as th06's — boundaries the cursor passes against chunks the next write moves by — but
+/// what th07's thread does about a wake that came after two notifications has not been read off its exe, and
+/// its refill refuses a write that would land inside the chunk the device is writing out of, which is its
+/// ordinary state and not a fault. A repair that read that state as broken was measured rebuilding the stream
+/// on every retry, so the missed refill is a line and nothing more until the thread has been read.
+#[test]
+fn a_refill_th07s_streaming_thread_never_made_is_said_and_the_stream_is_left_alone() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th07-the-music-refill-missed",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        let log = game.log();
+        game.streams_its_song(HEARD_AT);
+        game.in_a_pointdevice_run();
+
+        let a_frame = |refilling: bool| {
+            game.plays_the_buffer_on(PLAYS_A_FRAME);
+            let passed = game.stream_now().play_cursor.is_multiple_of(STREAM_NOTIFY);
+            if passed && refilling {
+                game.services_the_buffer();
+            }
+            game.frame();
+            passed
+        };
+        // Two chunks fed the ordinary way, then the thread waking once for two notifications.
+        let mut passed = 0;
+        while passed < 2 {
+            passed += u32::from(a_frame(true));
+        }
+        while !a_frame(false) {}
+        while !a_frame(true) {}
+        assert!(
+            !log.said("refill(s) missed"),
+            "a refill was said to be missed for good before a late wake could have made it:\n  {}",
+            log.lines().join("\n  ")
+        );
+        let position = game.stream_now().position;
+        game.frames_until(
+            "the missed refill said",
+            3 * STREAM_NOTIFY / PLAYS_A_FRAME,
+            || {
+                if log.said("audio: 1 refill(s) missed for good") {
+                    return true;
+                }
+                a_frame(true);
+                false
+            },
+        );
+
+        // And two chunks more, with nothing done about it: the file read on by the thread's own refills alone,
+        // and no line saying the stream was put back or could not be.
+        let mut passed = 0;
+        while passed < 2 {
+            passed += u32::from(a_frame(true));
+        }
+        assert!(
+            !log.said("audio: the stream "),
+            "the stream of th07 was put back, or was tried:\n  {}",
+            log.lines().join("\n  ")
+        );
+        assert_eq!(
+            game.stream_now().position,
+            position + 2 * STREAM_NOTIFY as i32,
+            "the file is not where the thread's own two refills leave it",
+        );
+    });
+}

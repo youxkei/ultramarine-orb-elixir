@@ -782,6 +782,20 @@ pub trait Game {
         None
     }
 
+    /// **Whether a refill the streaming thread was woken for and did not make is never made afterwards**, so
+    /// that the stream is a chunk out from then on and orb puts it back — see `audio::Refills` for how a
+    /// missed one is told from a late one.
+    ///
+    /// `true` is a reading of the thread, not a default: th06's is read at `Th06::a_missed_refill_is_never_made_up`.
+    /// th07's refill refuses a write that would land inside the chunk the device is writing out of — `Stream
+    /// Skip`, 0x45db60 — and what its thread does about a wake that was late, and whether a refusal is a refill
+    /// owed or one forgiven, has not been read off the exe or watched on the game. Its missed refills are
+    /// counted and said, and the stream is left alone: a repair built on reading th07's ordinary state as a
+    /// fault was measured rebuilding the stream on every retry and taken out — see `SPEC.md`.
+    fn a_missed_refill_is_never_made_up(&self) -> bool {
+        false
+    }
+
     /// And what that track is *called*, where the game keeps the name of the one it is streaming.
     ///
     /// **`None` is not a game with no music**, it is a game that does not keep the name: th06 builds the
