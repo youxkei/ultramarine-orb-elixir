@@ -21,18 +21,18 @@ use orb_api::mem;
 use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
 
 use super::{
-    BOSS_SLOTS, BOSSES, BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE, BULLET_SLOTS,
-    BULLET_STATE, BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_MENU, BUTTON_SHOT,
-    BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE, ENEMY_BYTES,
-    ENEMY_POSITION, ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS, ENEMY_TRAIL,
-    ENEMY_TRAIL_BYTES, ENEMY_TRAIL_EVERY, ENEMY_TRAIL_FROM, ENEMY_TRAIL_NODES, FIELD_HEIGHT,
-    FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER,
-    G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP, ITEM_ALIVE,
-    ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE, ITEM_POINT,
-    ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES, LASER_FADING,
-    LASER_FAR, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS, LASER_TIMER,
-    LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP, PLAYER_BORDER,
-    PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_NORMAL, PLAYER_POSITION,
+    BOMBS, BOSS_SLOTS, BOSSES, BULLET_BYTES, BULLET_HITS, BULLET_POSITION, BULLET_SIZE,
+    BULLET_SLOTS, BULLET_STATE, BULLET_STEP, BULLETS, BUTTON_BOMB, BUTTON_FOCUS, BUTTON_MENU,
+    BUTTON_SHOT, BUTTON_SKIP, ENEMIES, ENEMY_ALIVE, ENEMY_ALIVE_BIT, ENEMY_BOX_OF_ITS_SIZE,
+    ENEMY_BYTES, ENEMY_POSITION, ENEMY_SIZE, ENEMY_SLOTS, ENEMY_SOLID, ENEMY_SOLID_BITS,
+    ENEMY_TRAIL, ENEMY_TRAIL_BYTES, ENEMY_TRAIL_EVERY, ENEMY_TRAIL_FROM, ENEMY_TRAIL_NODES,
+    FIELD_HEIGHT, FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, G_BULLET_MANAGER, G_ENEMY_MANAGER,
+    G_GAME_MANAGER, G_ITEM_MANAGER, G_LASERS, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, GAME_MENU_UP,
+    ITEM_ALIVE, ITEM_BIG_POWER, ITEM_BOMB, ITEM_BYTES, ITEM_CHERRY, ITEM_KIND, ITEM_LIFE,
+    ITEM_POINT, ITEM_POSITION, ITEM_POWER, ITEM_SLOTS, LASER_ALIVE, LASER_ANGLE, LASER_BYTES,
+    LASER_FADING, LASER_FAR, LASER_LIVE_AT, LASER_NEAR, LASER_ORIGIN, LASER_PHASE, LASER_SLOTS,
+    LASER_TIMER, LASER_WIDTH, MENU_CANCEL, MENU_DECIDE, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_UP,
+    PLAYER_BORDER, PLAYER_BOX_MAX, PLAYER_BOX_MIN, PLAYER_HIT, PLAYER_NORMAL, PLAYER_POSITION,
     PLAYER_SCALE_ACROSS, PLAYER_SCALE_DOWN, PLAYER_SPEEDS, PLAYER_STATE, POWER, POWER_FULL,
     SCENE_RUN, SPEED_DIAGONAL, SPEED_STRAIGHT, SUPERVISOR_SCENE, Th07,
 };
@@ -83,6 +83,12 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.at = unsafe { player() };
     into.half = unsafe { player_box() };
     (into.straight, into.diagonal) = unsafe { a_step() };
+    // **The same pair for a focused frame, this game keeping no second one.** Its speeds are one table the
+    // player's own update writes a fraction into, and what selects that fraction is not established — see
+    // [`super::PLAYER_SCALE_ACROSS`], which has the eight writes and why none of them is a key. So the rules
+    // are handed the same numbers twice here, and their own focus rule then changes nothing about the
+    // projection rather than changing it by a ratio nobody has read.
+    (into.focused_straight, into.focused_diagonal) = (into.straight, into.diagonal);
     // **The frame the player is hit and not the frames after it.** 0x43edc0 leaves the state at 2 and zeroes
     // the timer, and 0x440cf0 counts `[player+0x23f8]` down from there while the state stands — a window a bomb
     // can be pressed into rather than a single frame, and one whose end takes the life.
@@ -99,6 +105,13 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.full_power = unsafe { Th07.run_numbers() }
         .and_then(|run| mem::read_committed::<f32>(run + POWER))
         .is_some_and(|power| power >= POWER_FULL);
+    // **And how many bombs there are to spend**, which this game keeps as a float in the run's own numbers
+    // the way it keeps the lives — see `Frame::bombs`, whose reason is that the rules wait after one
+    // whether it went off or not. Nought where there is no run's numbers to read it out of, which is a
+    // frame with no bomb to spend either.
+    into.bombs = unsafe { Th07.run_numbers() }
+        .and_then(|run| mem::read_committed::<f32>(run + BOMBS))
+        .map_or(0, |bombs| bombs as i8);
     into.dialogue = unsafe { Th07::dialogue_line() }.is_some();
     into.boss = unsafe { the_boss_the_fight_is_with(into.field) };
     into.hazards.clear();
@@ -127,6 +140,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         into.hazards.push(Hazard {
             kind: Kind::Bullet {
                 hitting: state == BULLET_HITS,
+                state,
             },
             slot,
             at: unsafe { position(bullet + BULLET_POSITION) },
@@ -216,6 +230,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             slot,
             origin: unsafe { position(laser + LASER_ORIGIN) },
             angle: unsafe { mem::read::<f32>(laser + LASER_ANGLE) },
+            frames: unsafe { mem::read::<i32>(laser + LASER_TIMER) },
             near: unsafe { mem::read::<f32>(laser + LASER_NEAR) },
             far: unsafe { mem::read::<f32>(laser + LASER_FAR) },
             // **Nothing, this game's own growth not having been read.** th06 keeps a beam's own rate beside

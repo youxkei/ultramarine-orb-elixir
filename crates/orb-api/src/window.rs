@@ -40,6 +40,19 @@ pub fn primary_monitor() -> Option<Rect> {
     host::primary_monitor()
 }
 
+/// **Every monitor, in the desktop's own coordinates**, which is what says how they are arranged: a
+/// monitor to the left of the primary one has a negative `left`, and one above it a negative `top`.
+///
+/// A list and not a choice, the choosing being `orb_core::window`'s — see
+/// `orb_core::window::the_leftmost_of`, which is where a window orb plays in is put in a corner of.
+pub fn monitors() -> Vec<Rect> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.monitors();
+    }
+    host::monitors()
+}
+
 /// The whole window — frame included — that a client area of `area`'s size needs.
 pub fn adjust_window_rect(area: Rect, style: u32, menu: bool) -> Option<Rect> {
     #[cfg(feature = "sim")]
@@ -47,6 +60,19 @@ pub fn adjust_window_rect(area: Rect, style: u32, menu: bool) -> Option<Rect> {
         return win.adjust_window_rect(area, style, menu);
     }
     host::adjust_window_rect(area, style, menu)
+}
+
+/// **Where a window is on the desktop**, frame and caption included, which is what says whether it is
+/// still where orb put it — see `orb_core::window::keeps_its_corner`.
+///
+/// Apart from [`client_rect`] because the two are different rectangles in different coordinates: that
+/// one is what the game draws into, measured from its own corner.
+pub fn window_rect(window: Hwnd) -> Option<Rect> {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.window_rect(window);
+    }
+    host::window_rect(window)
 }
 
 /// What the game draws into, which is what the letterbox and the bar beside it are worked out from.
@@ -108,8 +134,14 @@ mod host {
     pub fn primary_monitor() -> Option<Rect> {
         no_windows("window::primary_monitor")
     }
+    pub fn monitors() -> Vec<Rect> {
+        no_windows("window::monitors")
+    }
     pub fn adjust_window_rect(_area: Rect, _style: u32, _menu: bool) -> Option<Rect> {
         no_windows("window::adjust_window_rect")
+    }
+    pub fn window_rect(_window: Hwnd) -> Option<Rect> {
+        no_windows("window::window_rect")
     }
     pub fn client_rect(_window: Hwnd) -> Option<Rect> {
         no_windows("window::client_rect")

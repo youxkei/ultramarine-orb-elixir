@@ -1,17 +1,17 @@
 //! Which real window is in front, what the real monitor measures, the frame a real host puts round a
 //! client area, and the GDI a stack of lines is measured and written with.
 
-use windows_sys::Win32::Foundation::{POINT, RECT, SIZE};
+use windows_sys::Win32::Foundation::{BOOL, LPARAM, POINT, RECT, SIZE, TRUE};
 use windows_sys::Win32::Graphics::Gdi::{
     ANTIALIASED_QUALITY, BLACKNESS, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap,
-    CreateCompatibleDC, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC, DeleteObject, FW_NORMAL, GetDC,
-    GetMonitorInfoW, HDC, HFONT, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
-    OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextAlign,
-    SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
+    CreateCompatibleDC, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteDC, DeleteObject,
+    EnumDisplayMonitors, FW_NORMAL, GetDC, GetMonitorInfoW, HDC, HFONT, HGDIOBJ, HMONITOR,
+    MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, OUT_DEFAULT_PRECIS, PatBlt, ReleaseDC,
+    SRCCOPY, SelectObject, SetBkMode, SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRect, GetClientRect, GetForegroundWindow, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
-    MB_SYSTEMMODAL, MessageBoxW, SetProcessDPIAware,
+    AdjustWindowRect, GetClientRect, GetForegroundWindow, GetWindowRect, MB_ICONERROR, MB_OK,
+    MB_SETFOREGROUND, MB_SYSTEMMODAL, MessageBoxW, SetProcessDPIAware,
 };
 
 use crate::real::gdi;
@@ -47,9 +47,48 @@ pub fn primary_monitor() -> Option<Rect> {
     (unsafe { GetMonitorInfoW(monitor, &mut info) } != 0).then(|| neutral(info.rcMonitor))
 }
 
+/// Every monitor, as the desktop has them arranged.
+///
+/// `EnumDisplayMonitors` and not a walk of `MonitorFromPoint`: which monitors there are and where each
+/// one sits is one question, and this is the call that answers it.
+pub fn monitors() -> Vec<Rect> {
+    let mut found: Vec<Rect> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            Some(collect),
+            (&raw mut found) as isize,
+        )
+    };
+    found
+}
+
+/// One monitor, onto the end of the list the enumeration was given.
+unsafe extern "system" fn collect(
+    _monitor: HMONITOR,
+    _dc: HDC,
+    rect: *mut RECT,
+    into: LPARAM,
+) -> BOOL {
+    let found = unsafe { &mut *(into as *mut Vec<Rect>) };
+    found.push(neutral(unsafe { *rect }));
+    TRUE
+}
+
 pub fn adjust_window_rect(area: Rect, style: u32, menu: bool) -> Option<Rect> {
     let mut rect = windows(area);
     (unsafe { AdjustWindowRect(&mut rect, style, i32::from(menu)) } != 0).then(|| neutral(rect))
+}
+
+pub fn window_rect(window: Hwnd) -> Option<Rect> {
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    (unsafe { GetWindowRect(window.0 as _, &mut rect) } != 0).then(|| neutral(rect))
 }
 
 pub fn client_rect(window: Hwnd) -> Option<Rect> {

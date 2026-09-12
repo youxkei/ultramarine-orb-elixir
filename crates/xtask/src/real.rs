@@ -6,6 +6,11 @@
 //! into the copy of the install, and for each case a launch that plays itself to the recipe, is waited on
 //! until the game has gone, and leaves a trace for `orb-real` to check at the end.
 //!
+//! **And built twice where the game is not this task's own architecture.** The checker is read on
+//! [`TARGET`] whatever the game is — a trace is the same file either way — but the exe installed beside the
+//! game has to be the architecture the game is: see `orb_real::Game::target`, and `orb_core::game::KNOWN`
+//! for why a build of orb carries the games of one architecture and no others.
+//!
 //! **A copy of the install, never the install** — a played game writes its records beside itself, and a bot
 //! in the directory somebody plays in writes over them. The directory is the caller's to name; nothing here
 //! guesses one.
@@ -49,6 +54,10 @@ struct Game {
     exe: String,
     /// The records it keeps of its own, by the names `orb_real::Game::records` gives them.
     records: Vec<String>,
+    /// **The target the orb installed beside it has to be built for**, which is the architecture the game's
+    /// own exe is — see `orb_real::Game::target`. [`TARGET`] for the 32-bit games and the 64-bit one for
+    /// th06c, and a mismatch is an exe that injects into nothing.
+    target: String,
     cases: Vec<Case>,
 }
 
@@ -203,7 +212,33 @@ pub fn real(args: Vec<String>) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    if let Err(why) = std::fs::copy(built.join("orb.exe"), dir.join("orb.exe")) {
+    // **And orb built again for the game's own architecture where that is not this task's.** The checker
+    // above is read on [`TARGET`] whatever the game is — a trace is the same file either way — but the exe
+    // installed beside the game has to be the architecture the game is, a 32-bit orb injecting into a
+    // 64-bit process not at all. See `orb_real::Game::target`.
+    let installed = if game.target == TARGET {
+        built.clone()
+    } else {
+        if !status(
+            {
+                let mut build = cargo_command();
+                build.args([
+                    "build",
+                    "--release",
+                    "--target",
+                    &game.target,
+                    "-p",
+                    "orb-launcher",
+                ]);
+                build
+            },
+            "build",
+        ) {
+            return ExitCode::FAILURE;
+        }
+        target_dir().join(&game.target).join("release")
+    };
+    if let Err(why) = std::fs::copy(installed.join("orb.exe"), dir.join("orb.exe")) {
         eprintln!(
             "xtask: orb.exe could not be copied into {}: {why}",
             dir.display()
@@ -326,7 +361,7 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let mut games: Vec<Game> = Vec::new();
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
-        let [name, exe, records, case, continues, within] = fields[..] else {
+        let [name, exe, records, target, case, continues, within] = fields[..] else {
             return Err(format!(
                 "orb-real list printed a line of another shape: {line:?}"
             ));
@@ -344,6 +379,7 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
                 name: name.to_owned(),
                 exe: exe.to_owned(),
                 records: records.split(',').map(str::to_owned).collect(),
+                target: target.to_owned(),
                 cases: vec![case],
             }),
         }

@@ -35,6 +35,10 @@
   until: { frames: 240 }
 # **The whole run in one step**, which ends where the run does — see a_run_played_to_its_clear.yaml.
 - play_until: { frames: 216000 }
+# **And the name the ranking is registered under, typed rather than pressed for** — see `Step::Name`, and
+# the same step in a_run_played_to_its_clear.yaml.
+- name: ORB
+  give_up_after: 3600
 # And the screens a finished run arrives on, walked by the same tap: the name entry, the stats, and this
 # game's own offer to save a replay, which orb writes past only for a run with chapters. No question of
 # orb's own is behind them — a run of this mode has no replay it keeps.

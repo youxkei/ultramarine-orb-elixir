@@ -16,6 +16,10 @@
 //! honest before it costs six minutes of the real game: a step that never reaches its point, or a check that
 //! asks for something no launch shows, fails there first.
 //!
+//! **Except th06c's, which has no laid-out game to be played against.** That test has one function per game
+//! and each names the game it has an `Image` for; laying a third one out is a game's worth of memory written
+//! by hand. So what a wrong step in a th06c case costs is a launch of the real thing.
+//!
 //! **One case can carry on from the one before it.** A pick-up needs a run left unfinished, and the launch
 //! that leaves one is a case of its own; [`Case::continues`] says the two share the directory orb keeps its
 //! files in **and the game's own records**, so the second finds both what the first left for it and what the
@@ -38,6 +42,10 @@ use orb_core::trace::Record;
 pub enum Game {
     Th06,
     Th07,
+    /// **And the Steam release of 東方紅魔郷, whose cases are its own** — see [`cases_of`], and
+    /// `orb_core::game::th06c` for how much of it is read: no chapters, no snapshot and no resume, so the
+    /// cases the other two have about picking a run up have nothing here to be about.
+    Th06c,
 }
 
 impl Game {
@@ -46,6 +54,7 @@ impl Game {
         match self {
             Game::Th06 => "th06",
             Game::Th07 => "th07",
+            Game::Th06c => "th06c",
         }
     }
 
@@ -56,6 +65,7 @@ impl Game {
         match self {
             Game::Th06 => "東方紅魔郷.exe",
             Game::Th07 => "th07.exe",
+            Game::Th06c => "th06c.exe",
         }
     }
 
@@ -74,12 +84,30 @@ impl Game {
             match self {
                 Game::Th06 => "東方紅魔郷.cfg",
                 Game::Th07 => "th07.cfg",
+                Game::Th06c => "th06.cfg",
             },
             "pointdevice_score.dat",
         ]
     }
 
-    pub const ALL: [Game; 2] = [Game::Th06, Game::Th07];
+    /// **The target orb has to be built for to attach to this game**, which is the architecture the game's
+    /// own exe is: th06 and th07 are 32-bit processes and th06c is a 64-bit one, and a build of orb carries
+    /// the games of its own architecture and no others — `orb_core::game::KNOWN` is gated on it.
+    ///
+    /// **Read by `cargo xtask real`, which builds and installs per game rather than once.** It built one
+    /// exe for every case before this, which is right while every game is the same architecture and puts a
+    /// 32-bit orb beside a 64-bit game the moment one is not — an injection into nothing.
+    ///
+    /// The same two strings `xtask`'s own `TARGET` and the 64-bit build use, here for the reason
+    /// [`Game::exe`] is: this crate is the one place which games there are is written down.
+    pub fn target(self) -> &'static str {
+        match self {
+            Game::Th06 | Game::Th07 => "i686-pc-windows-gnu",
+            Game::Th06c => "x86_64-pc-windows-gnu",
+        }
+    }
+
+    pub const ALL: [Game; 3] = [Game::Th06, Game::Th07, Game::Th06c];
 }
 
 /// **How long an ordinary case's launch may take**, in seconds, before `cargo xtask real` gives up on it: a
@@ -135,12 +163,50 @@ pub fn cases() -> Vec<Case> {
 }
 
 /// The cases of one game, in order.
+///
+/// **th06c's are its own list and not the same one.** What the sixteen below are about is a run picked up,
+/// a chapter taken again, a replay watched and a mode forked — every one of them standing on a snapshot of
+/// the game's memory and a score file orb forks, and th06c has neither read: `Th06c::rewinds` answers false
+/// and `Config`'s defaults turn the rest off. So a list shared with the other two would be fifteen cases
+/// asking a game to do what it has no reading for.
 pub fn cases_of(game: Game) -> Vec<Case> {
+    match game {
+        Game::Th06 | Game::Th07 => the_cases_of_a_game_orb_rewinds(game),
+        Game::Th06c => the_cases_of_th06c(),
+    }
+}
+
+/// **The one case th06c has**: a run played out by the rules and registered under a name.
+///
+/// **Which is the whole of what it can be asked**, and each half of it is a reading of its own — the run
+/// ends where the run ends because `Game::replaying` tells its attract demo from a run, and the name is
+/// written because its own entry has been read. Both are `docs/th06c/asm.md`'s.
+///
+/// **And no laid-out th06c plays it first.** `orb-e2e`'s `the_cases_the_real_game_is_tested_with` has a test
+/// per game and names the two it has an `Image` for; this game has none, so what a wrong step here costs is
+/// a launch of the real thing rather than a case of the suite. Building one is a game's worth of memory laid
+/// out by hand and is not what this case is waiting for.
+fn the_cases_of_th06c() -> Vec<Case> {
+    vec![Case {
+        game: Game::Th06c,
+        name: "a_run_played_to_its_clear_and_named",
+        recipe: include_str!("../recipes/th06c/a_run_played_to_its_clear_and_named.yaml"),
+        continues: false,
+        within: A_WHOLE_GAME,
+        check: checks::a_run_played_to_its_clear_and_named,
+    }]
+}
+
+/// The cases of a game orb rewinds, which is th06 and th07 — see [`cases_of`].
+fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
     macro_rules! recipe {
         ($game:expr, $name:literal) => {
             match $game {
                 Game::Th06 => include_str!(concat!("../recipes/th06/", $name, ".yaml")),
                 Game::Th07 => include_str!(concat!("../recipes/th07/", $name, ".yaml")),
+                // Not reachable: [`cases_of`] is what chooses between the two lists, and this one is the
+                // other branch of that choice.
+                Game::Th06c => unreachable!("th06c has its own cases"),
             }
         };
     }
@@ -441,6 +507,52 @@ pub mod checks {
     /// `DIFFICULTY_EXTRA`, and the fifth of the six th07 keeps a record per. What reads it is the case that
     /// starts the Extra, the item being what writes it rather than a select.
     const EXTRA: i32 = 4;
+
+    /// **th06c's one case: a run was started, played out by the rules, and registered under a name.**
+    ///
+    /// **No mode question and no chapter to wait for**, which is what makes this its own check rather than
+    /// `a_run_played_to_its_clear`: `Th06c::rewinds` answers false, so nothing offers a mode, and nothing
+    /// has read this game's chapters — the trace's `stage` moves and its `chapter` does not.
+    ///
+    /// **And the name is the whole of the second half.** The entry opens while the state is still a stage's,
+    /// after the last boss and its ending, so a `play` step that had waited for the run to be *over* would
+    /// have run past it — and the frames in between are ones the rules are asked for a word on, whose held
+    /// shot writes the entry's first character eight times. So the line this looks for says two things at
+    /// once: the step ended at the entry, and what was written there was the name and not `AAAAAAAA`.
+    ///
+    /// **What it does not ask is how well the rules played.** A run of this game is twenty-eight minutes of
+    /// Flandre's own patterns and a dozen of Remilia's, and a case that failed on a hit would be a case that
+    /// fails on the day the boss aims differently. What a run's hits are read against is a launch and the
+    /// dumps beside them, not this.
+    pub fn a_run_played_to_its_clear_and_named(trace: &Trace) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        trace
+            .line_from(started, "types ORB into the name the game asks for")
+            .ok_or(
+                "the name was never written, so the run reached no entry to write it into — either it \
+                 was not played out or the entry is not where it was read to be",
+            )?;
+        // **And the run's own end is not asked for**, which is what this check was wrong about first: the
+        // step above ends at the *entry* and the recipe closes the game a few hundred frames later, so the
+        // line orb writes when a run ends — `score: a run ended` — is past the launch, and a launch that
+        // reached the entry failed on it.
+        //
+        // **The entry is the proof anyway.** th06c asks for a name at the end of a run it played out and
+        // nowhere else: `0x14004fd59` puts the screen into the state that asks only where `[0x1403a3b60]` is
+        // clear, and the state runs after the last boss and after the ending. So a name written there says
+        // the run started, was played to its end, and its ending ran.
+        //
+        // **And the attract demo was not read as a run**, which is the other reading this case stands on: a
+        // playback of this game's own is a stage with a run's own numbers in a run's own statics, and the
+        // launch walks past one on its way in. See `game::th06c::A_REPLAY_IS_PLAYING`.
+        expect(
+            trace
+                .line_from(0, "run: the demo is playing back")
+                .is_none()
+                || trace.line_from(0, "run: the playback is over").is_some(),
+            || "a playback started and the log never said it was over".to_owned(),
+        )
+    }
 
     /// **The mode question stood, was answered for the rewindable mode, a run was started and played into its
     /// second chapter, and then left for the title** — which is what leaves a run for the next case to pick up.
@@ -1085,6 +1197,13 @@ pub mod checks {
             })
             .map(|at| at + last)
             .ok_or("nothing says an ending ran, so the run was not cleared")?;
+        // **And the name the ranking was registered under.** The entry a run ends at is a grid of
+        // characters with a cursor of its own, so the tap that walks these screens registers eight of
+        // whichever character it started on — `AAAAAAAA`, on every clear this case played before
+        // `Step::Name` existed.
+        trace
+            .line_from(ending, "types ORB into the name the game asks for")
+            .ok_or("the ranking was not registered under the name the recipe typed")?;
         let offered = trace
             .question_from(ending, "keep_replay")
             .ok_or("the replay of the run that was finished with was never asked about")?;
@@ -1129,15 +1248,24 @@ pub mod checks {
         // [`a_run_played_to_its_clear`] gives, which holds of a run of either mode: orb runs an ending out
         // inside the frame it came up on, and the run cleared here said `ending skipped, 7993 frames run,
         // scene 10 -> 7` with every record of its trace reading `in_ending` false.
-        trace.records[last..]
+        let ending = trace.records[last..]
             .iter()
             .position(|record| {
                 record.lines.iter().any(|line| {
                     line.starts_with("ending run out in") || line.starts_with("ending skipped")
                 }) || record.state.is_some_and(|state| state.in_ending)
             })
+            .map(|at| at + last)
+            .ok_or("nothing says an ending ran, so the run was not cleared")?;
+        // **And the name the ranking was registered under**, for the reason
+        // [`a_run_played_to_its_clear`] gives: a tap at that entry registers the character its cursor
+        // started on, eight times over.
+        trace
+            .line_from(ending, "types ORB into the name the game asks for")
             .map(|_| ())
-            .ok_or_else(|| "nothing says an ending ran, so the run was not cleared".to_owned())
+            .ok_or_else(|| {
+                "the ranking was not registered under the name the recipe typed".to_owned()
+            })
     }
 
     /// **The Extra, which the run cleared in the other mode unlocked**: the run that starts is at the

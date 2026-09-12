@@ -19,10 +19,12 @@
 
 use std::ffi::c_void;
 use std::ops::Range;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 
 use orb_config::{Config, Language};
 
+use crate::find;
 use crate::game::{CountedDeath, Game, Menu, Pad, Question, Reached, RunStart, State};
 use crate::input::{Keyboard, Pads};
 use crate::lives_ui::LivesMark;
@@ -78,8 +80,12 @@ const RENDER_EXIT_SUCCESS: i32 = 1;
 const RENDER_EXIT_ERROR: i32 = 2;
 
 /// `RunCalcChain`'s answers that mean the game wants to stop running.
-const CHAIN_EXIT_SUCCESS: i32 = 0;
-const CHAIN_EXIT_ERROR: i32 = -1;
+///
+/// `pub(crate)` because a game whose calc walk answers something else has to turn its own answers into
+/// these before the frame loop reads them — see `game::Walks`, and `game::th06c`, whose walk answers a
+/// byte saying whether the frame is leaving.
+pub(crate) const CHAIN_EXIT_SUCCESS: i32 = 0;
+pub(crate) const CHAIN_EXIT_ERROR: i32 = -1;
 
 /// A stop on the ending skip, in case an ending ever waits for something that
 /// running the update alone will not deliver.
@@ -491,6 +497,13 @@ pub static CREATE_GAME_WINDOW: AtomicUsize = AtomicUsize::new(0);
 pub static INIT_D3D_DEVICE: AtomicUsize = AtomicUsize::new(0);
 pub static RENDER: AtomicUsize = AtomicUsize::new(0);
 pub static GET_INPUT: AtomicUsize = AtomicUsize::new(0);
+/// And the read of a game that looks its own up: the host's own `GetKeyboardState`, which is the answer
+/// orb took the game's lookup of it away from — see [`keyboard_state`], [`get_proc_address`] and
+/// `game::Read::LookedUp`.
+pub static GET_KEYBOARD_STATE: AtomicUsize = AtomicUsize::new(0);
+/// And the lookup itself, which orb stands in front of to be the one that answers: the exe's own import
+/// of `GetProcAddress` — see [`get_proc_address`].
+pub static GET_PROC_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 /// Where the original of the one hook orb does **not** call through goes: `GetControllerInput`, whose
 /// prologue is patched and whose body never runs again — see [`get_controller_input`], which answers for
 /// every pad itself.
@@ -696,6 +709,7 @@ pub unsafe fn plays_the_run(word: Option<PlaysTheRun>) {
             dialogue: false,
             card: false,
             card_name: false,
+            typing_a_name: false,
         },
         pressing: None,
         said: None,
@@ -937,9 +951,14 @@ pub struct Originals {
     pub init_d3d_device: extern "C" fn(),
     /// And its own refill of the music buffer, which [`tops_up_the_music`] says what is being fed through and
     /// then calls: `__thiscall` on the stream with the one argument both games' own threads pass it.
+    /// **Of the 32-bit games and no other**, which is what the ABI settles: `__thiscall` is an x86
+    /// calling convention and there is no such thing to spell anywhere else — see `game::th06`, whose
+    /// module is the same architecture's. A game whose music orb does not feed has neither of these.
+    #[cfg(target_arch = "x86")]
     pub tops_up_the_music: unsafe extern "thiscall" fn(usize, i32) -> i32,
     /// And its own stop of that music, which [`stops_the_music`] says is happening and then calls:
     /// `__thiscall` on the stream for th07 and on the sound player for th06, neither taking an argument.
+    #[cfg(target_arch = "x86")]
     pub stops_the_music: unsafe extern "thiscall" fn(usize) -> i32,
 }
 
@@ -1005,8 +1024,6 @@ pub unsafe fn attach_to(
         (&SAVE_REPLAY, originals.save_replay as usize),
         (&INIT_D3D_DEVICE, originals.init_d3d_device as usize),
         (&PAD_BUTTONS, originals.pad_buttons as usize),
-        (&TOPS_UP_THE_MUSIC, originals.tops_up_the_music as usize),
-        (&STOPS_THE_MUSIC, originals.stops_the_music as usize),
         // What the patched call sites would be. In a real process these are the game's own two chain
         // functions with a jump to orb's hooks written over their prologues, so the frame loop calling
         // the address it was handed runs everything orb does per frame; here the hooks are what there
@@ -1015,6 +1032,14 @@ pub unsafe fn attach_to(
         (&RUN_DRAW_CHAIN_TARGET, run_draw_chain as *const () as usize),
     ] {
         slot.store(original, Ordering::Relaxed);
+    }
+    // And the music's own two apart from the rest, the `__thiscall` they are being an x86 ABI and so
+    // an x86 field — see [`Originals::tops_up_the_music`]. Outside the list above because a `cfg` on an
+    // element of an array is not a thing to write.
+    #[cfg(target_arch = "x86")]
+    {
+        TOPS_UP_THE_MUSIC.store(originals.tops_up_the_music as usize, Ordering::Relaxed);
+        STOPS_THE_MUSIC.store(originals.stops_the_music as usize, Ordering::Relaxed);
     }
     // And the two the frame loop calls in the game rather than reaching through a hook. Nothing to
     // call them on: see [`Originals`].
@@ -1192,6 +1217,9 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     if let Some(path) = &config.trace {
         trace::open(&config.base_dir.join(path));
     }
+    // And whether this launch is looking for a field of the game's own rather than playing it — see
+    // [`find`], whose pass is nine megabytes a frame and so belongs to no other launch.
+    unsafe { find::looks_for_what_moves(config.find) };
 
     let tuning = config.chapter_tuning.then(|| config.base_dir.clone());
     let during_replay = config.during_replay;
@@ -1351,6 +1379,25 @@ unsafe fn what_is_reached(runtime: &Runtime) {
         }
     }
     playing.reached.question = question_up(runtime);
+    // **And the stage and whether the run is over, for a game orb stands in no frame of.** Everything a
+    // stage is read for is filled where the frame ends — see the block after `watch_music`, which is
+    // where the state is read anyway — and a game whose `Hooks::update` is `None` never reaches it: the
+    // stage stayed nought and the run read as never over, so a `play_until` could wait for neither. What
+    // that cost was a launch of th06c whose run lost its last life, whose front end the rules then went
+    // on pressing at, and which started a second run the same recipe step was still counting frames of.
+    //
+    // **Read here rather than left to the frame**, because here is the only call a game like that has:
+    // this runs once a tick, off its own read of its keyboard.
+    if runtime.game.hooks().update.is_none() {
+        let state = unsafe { runtime.game.read_state() };
+        playing.reached.stage = state.stage + 1;
+        playing.reached.over = !state.in_run;
+        playing.reached.dialogue = state.in_dialogue;
+        playing.reached.boss = state.boss_present;
+        // And whether the game's own name entry is up, which a `play` step runs straight past otherwise —
+        // see `recipe::Until::Name`.
+        playing.reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
+    }
     playing.pressing = (playing.word)(runtime.game, playing.reached);
 }
 
@@ -1373,7 +1420,11 @@ fn question_up(runtime: &Runtime) -> Option<Question> {
 }
 
 /// What the bot is pressing this frame, or nothing where no launch is playing itself.
-fn pressing() -> Option<u16> {
+///
+/// `pub(crate)` for the game that has to put that word somewhere itself: th06c's calc walk writes it
+/// into the game's own keys, the read those would otherwise come through being made at its own rate
+/// rather than once a frame — see `game::Game::presses_into_its_own_keys`.
+pub(crate) fn pressing() -> Option<u16> {
     PLAYING_IT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1651,7 +1702,14 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let game = runtime.game;
     let device = unsafe { game.d3d_device() };
     // Nothing to pace or draw with; let the game have its own loop back.
-    if device.is_null() {
+    //
+    // **A game orb has no device of at all is not that**, and its frame is still orb's to run: what a
+    // device is wanted for here is the scene orb's overlay is drawn inside and the picture a `screenshot`
+    // step copies, where the *pacing* is the compositor's and wants only the window. So the scene either
+    // side of the draw chain is skipped and the four calls the loop is made of stay — see
+    // `Game::draws_through_its_d3d_device`, and `game::th06c`, which draws through D3D11.
+    let scene = !device.is_null();
+    if !scene && game.draws_through_its_d3d_device() {
         return unsafe { call_render(game_window) };
     }
     // The pointer, above the check below rather than beside the keyboard's own read: whether the mouse
@@ -1749,7 +1807,12 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let sounded = frame::now();
 
     let (drawn, held) = unsafe {
-        d3d8::begin_scene(device);
+        // **The scene only where there is a device to open one on.** A game orb draws nothing in has no
+        // scene of orb's around its draw chain — its own renderer opens whatever it draws inside — and
+        // the same goes for the picture below and the texture unbound after it.
+        if scene {
+            d3d8::begin_scene(device);
+        }
         // What the game's own frame does around its own draw chain, inside its own scene. Nothing at all
         // for th06, whose frame has nothing there; th07's queue of quads is emptied by the first and
         // drawn by the second, and a frame missing either is a frame that writes a quad through a null
@@ -1764,11 +1827,14 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
         // inside the chain. Left here until then, because that is where the game's frame has it relative
         // to the chain and nothing yet says which of the two the overlay wants.
         game.end_drawing(device);
-        d3d8::end_scene(device);
-        // Whatever asked for a picture of this frame, now that everything of the frame is in the back
-        // buffer and before the swap makes what is in it undefined. Nothing on a frame nobody asked on.
-        crate::shot::taken(device);
-        d3d8::set_texture(device, 0, None);
+        if scene {
+            d3d8::end_scene(device);
+            // Whatever asked for a picture of this frame, now that everything of the frame is in the
+            // back buffer and before the swap makes what is in it undefined. Nothing on a frame nobody
+            // asked on.
+            crate::shot::taken(device);
+            d3d8::set_texture(device, 0, None);
+        }
         let drawn = frame::now();
         // Between the drawing and the handover, which is the one place the frame's own work is a
         // number rather than a prediction — see `Pacing::hold_for_the_blank_before` for what goes
@@ -1949,6 +2015,289 @@ pub extern "system" fn get_input() -> u16 {
     unsafe { noted(game, frame, held_back(game, buttons)) }
 }
 
+/// **The keyboard read of a game that looks its own up**, which the game itself put in place: orb
+/// answered the lookup with this — see [`get_proc_address`], [`crate::game::Read::LookedUp`] and
+/// [`GET_KEYBOARD_STATE`].
+///
+/// **And the frame's own moment, for a game orb has no frame loop in.** th06c reads the keyboard nowhere
+/// else, so this is where a recipe's step is walked and where the word that step presses is put into the
+/// snapshot the game is about to read. A game orb *is* inside the frame of walks its steps in
+/// [`on_update`] instead, and its own read answers a word rather than filling a snapshot.
+///
+/// **It is not that game's tick, though, and nothing here makes it one.** The read is made more often
+/// than the game moves — 66 times a second against a game that moves 60, measured over a whole stage
+/// and written down in `docs/th06c/asm.md` — so a recipe's count of frames is that many reads and not
+/// that many of the game's own, and the rules are asked for a word on readings that are the reading
+/// before over again. What answers those is `orb_bot::steer::a_tick_read_again`, off the reading itself,
+/// rather than a tick read here: nothing in this exe has been found that counts one.
+/// # Safety
+/// `state` must be the 256 bytes the host's own read is given, which is what the game passes.
+pub unsafe extern "system" fn keyboard_state(state: *mut u8) -> i32 {
+    let original: extern "system" fn(*mut u8) -> i32 =
+        unsafe { std::mem::transmute(GET_KEYBOARD_STATE.load(Ordering::Relaxed)) };
+    let answer = original(state);
+    // Nothing of orb's in a process the attach settled on no game in, the same as [`get_input`].
+    let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
+        return answer;
+    };
+    // **The device taken away before the word is written**, for a game whose run reads one instead of
+    // the keys: what `Game::acquire_input` answers here is that the game is to read its keyboard, which
+    // is the only read orb is in front of. Nothing for a game that has no such device — see th06c's,
+    // which is the measurement.
+    unsafe { runtime.game.acquire_input() };
+    // **And the word asked for here only where orb has no frame of its own.** This read is made more
+    // often than such a game moves — 683 to 773 of them against every 600 walks of th06c's calc chain —
+    // so where orb runs the frame the rules are asked there and what this read writes is the word they
+    // left. See [`THE_FRAME_IS_THE_SEAM`].
+    if !THE_FRAME_IS_THE_SEAM.load(Ordering::Relaxed) {
+        unsafe { what_is_reached(runtime) };
+    }
+    let word = pressing();
+    if let Some(word) = word {
+        unsafe { runtime.game.press_into(state, word) };
+    }
+    // **And the search a launch that is looking runs** — see [`find`], and `Config::find`, which is off
+    // in every other launch. Here rather than in the frame hook because this is the frame a game orb
+    // stands in none of has: the word is the one just written into the snapshot, so the reading taken
+    // next frame is the one this press moved.
+    if runtime.config.find {
+        unsafe { find::a_frame(&runtime.data, the_way(runtime.game, word)) };
+    }
+    // And the corner the window orb plays in is held in, for a game whose own window something else
+    // moves — see [`crate::window::keeps_its_corner`], which does nothing in every other launch.
+    unsafe { crate::window::keeps_its_corner() };
+    answer
+}
+
+/// Whether orb's own frame is what the rules are asked from — see [`on_update`], which is the only
+/// thing that sets it, and [`keyboard_state`], which stops asking where it is set.
+static THE_FRAME_IS_THE_SEAM: AtomicBool = AtomicBool::new(false);
+
+/// Which way what is being looked for is expected to be going, out of the word being pressed.
+///
+/// **Across and not down**, which is the axis a game clamps least: a field is wider than the player's
+/// step on both, but the bottom of one is where the rules park a run and the top is where nothing goes.
+fn the_way(game: &dyn Game, word: Option<u16>) -> find::Way {
+    let Some(word) = word else {
+        return find::Way::Still;
+    };
+    let bit = |name| game.button_bit(name).unwrap_or(0);
+    match (word & bit("right") != 0, word & bit("left") != 0) {
+        (true, false) => find::Way::Up,
+        (false, true) => find::Way::Down,
+        _ => find::Way::Still,
+    }
+}
+
+/// **The pad orb is, for a game that reads one rather than the keys.**
+///
+/// `DWORD XInputGetState(DWORD dwUserIndex, XINPUT_STATE *pState)`, answered for the first pad and
+/// refused for the rest: what the game finds is one pad, always there, pressing whatever the run is
+/// being played with.
+///
+/// **Answered and not called through, which is the point of it.** A real pad on this machine is
+/// somebody's and is not playing this run — and what a run needs is a read that works on every screen,
+/// where this game's keyboard works only on some. See `game::Hooks::reads_a_pad`.
+///
+/// # Safety
+/// `state` must be what `XInputGetState` takes: the bytes of an `XINPUT_STATE`.
+pub unsafe extern "system" fn xinput_get_state(user: u32, state: *mut u8) -> u32 {
+    /// `ERROR_DEVICE_NOT_CONNECTED`, which is what a pad that is not there answers.
+    const NOT_CONNECTED: u32 = 1167;
+    if user != 0 || state.is_null() {
+        return NOT_CONNECTED;
+    }
+    let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
+        return NOT_CONNECTED;
+    };
+    unsafe { runtime.game.press_into_pad(state, pressing().unwrap_or(0)) };
+    0
+}
+
+/// **The names orb answers a lookup for in the host's place**, set at the attach out of `game::Hooks` —
+/// the game's own keyboard read, the pad it reads, and the making and moving of the window a launch that
+/// plays itself puts in a corner. See [`crate::window::create_window_ex_w`] and
+/// [`crate::window::move_window`].
+static LOOKED_UP: Mutex<Lookups> = Mutex::new(Lookups {
+    read: None,
+    pad: None,
+    window_made: None,
+    window_moved: None,
+    millis: None,
+    ticks: None,
+    counter: None,
+    renderer: None,
+});
+
+/// **The names a game looks up that orb answers**, out of `game::Hooks`.
+///
+/// A field apiece and not a list, because each has an answer of its own and nothing chooses between
+/// them: what would be in a list is the pair of a name and a function, and the function is this crate's
+/// to know.
+#[derive(Default, Clone, Copy)]
+pub struct Lookups {
+    pub read: Option<&'static str>,
+    pub pad: Option<&'static str>,
+    pub window_made: Option<&'static str>,
+    pub window_moved: Option<&'static str>,
+    /// **The three clocks a game paces itself by**, answered running faster than the host's where the
+    /// launch asked for the game to — see [`crate::faster`], which has why all three go together and
+    /// why the frequency beside them does not. Nothing in an ordinary launch: a clock that answers what
+    /// the host answers is a name there is no reason to stand in front of.
+    pub millis: Option<&'static str>,
+    pub ticks: Option<&'static str>,
+    pub counter: Option<&'static str>,
+    /// **The name a DXGI renderer is made through**, answered so that the swapchain the game makes is
+    /// one orb can present through — see [`crate::dxgi`], which has why it is that name and not the two
+    /// older ones beside it. Nothing for a game that draws some other way, and nothing for one whose
+    /// frame is its own: the present is only orb's business where the frame is.
+    pub renderer: Option<&'static str>,
+}
+
+/// Says which names those are, or takes them away.
+///
+/// # Safety
+/// Must run at the attach, before the game has been asked for a frame.
+pub unsafe fn answers_the_lookup_of(names: Lookups) {
+    *LOOKED_UP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = names;
+}
+
+/// **The game's own `GetProcAddress`, answered with orb's read where the name is the one orb wants.**
+///
+/// This is what stands in front of a read the game looks up rather than imports: the slot the answer
+/// lands in is the game's own to write, so writing there at the attach is writing what the game's own
+/// startup overwrites — measured, th06c's keyboard slot held `0x0` when orb read it. Answered here, the
+/// pointer the game keeps is orb's because the game put it there, and no address of the game's is needed
+/// for it at all.
+///
+/// **Called through first**, always: what the host answers is what orb calls through to, and every name
+/// but the one is handed back exactly as it came.
+///
+/// # Safety
+/// `name` must be what `GetProcAddress` takes: a null-terminated string, or an ordinal in the pointer
+/// itself.
+pub unsafe extern "system" fn get_proc_address(module: usize, name: *const u8) -> usize {
+    let original: extern "system" fn(usize, *const u8) -> usize =
+        unsafe { std::mem::transmute(GET_PROC_ADDRESS.load(Ordering::Relaxed)) };
+    let answer = original(module, name);
+    // **An ordinal is not a name.** `GetProcAddress` takes either, an ordinal being a small integer in
+    // the pointer itself rather than a string to read, so a lookup by ordinal has nothing to compare and
+    // is one orb answers for never.
+    if (name as usize) >> 16 == 0 {
+        return answer;
+    }
+    let wanted = *LOOKED_UP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // **Every answer is orb's own function, and every one of them keeps the host's**, which is what
+    // `orb::lookup` exists for: what the game stores is orb's pointer because the game stored it, and
+    // what orb calls through to is what the host would have given it.
+    //
+    // Through a pointer and not straight to an integer, a cast of a function item being a lint of its
+    // own — the same spelling `orb::crash` takes orb's own address with.
+    if let Some(read) = wanted.read
+        && unsafe { asked_for(name, read) }
+    {
+        GET_KEYBOARD_STATE.store(answer, Ordering::Relaxed);
+        log!("hook: the game asked for {read} and got orb's, the host's being at {answer:#x}");
+        return keyboard_state as *const () as usize;
+    }
+    if let Some(pad) = wanted.pad
+        && unsafe { asked_for(name, pad) }
+    {
+        log!(
+            "hook: the game asked for {pad} and got orb's own pad, the host's being at {answer:#x}"
+        );
+        return xinput_get_state as *const () as usize;
+    }
+    if let Some(made) = wanted.window_made
+        && unsafe { asked_for(name, made) }
+    {
+        unsafe { crate::window::answers_the_window_made(answer, playing_it()) };
+        log!("hook: the game asked for {made} and got orb's, the host's being at {answer:#x}");
+        return crate::window::create_window_ex_w as *const () as usize;
+    }
+    if let Some(moved) = wanted.window_moved
+        && unsafe { asked_for(name, moved) }
+    {
+        unsafe { crate::window::answers_the_window_moved(answer) };
+        log!("hook: the game asked for {moved} and got orb's, the host's being at {answer:#x}");
+        return crate::window::move_window as *const () as usize;
+    }
+    // **And the clocks, for a launch asked to run the game faster than it runs itself** — see
+    // [`crate::faster`]. Which of the three a game paces by is the game's own business and this says
+    // which ones it asked for: th06c holds the strings of all four and orb answers whichever it is asked
+    // for, the frequency among them left to the host.
+    if let Some(millis) = wanted.millis
+        && unsafe { asked_for(name, millis) }
+    {
+        unsafe { crate::faster::the_millis_are(answer) };
+        log!(
+            "hook: the game asked for {millis} and got orb's faster one, the host's being at {answer:#x}"
+        );
+        return crate::faster::millis as *const () as usize;
+    }
+    if let Some(ticks) = wanted.ticks
+        && unsafe { asked_for(name, ticks) }
+    {
+        unsafe { crate::faster::the_ticks_are(answer) };
+        log!(
+            "hook: the game asked for {ticks} and got orb's faster one, the host's being at {answer:#x}"
+        );
+        return crate::faster::ticks as *const () as usize;
+    }
+    if let Some(counter) = wanted.counter
+        && unsafe { asked_for(name, counter) }
+    {
+        unsafe { crate::faster::the_counter_is(answer) };
+        log!(
+            "hook: the game asked for {counter} and got orb's faster one, the host's being at {answer:#x}"
+        );
+        return crate::faster::counter as *const () as usize;
+    }
+    // **And the renderer, for the game whose frame orb hands over itself** — the factory this answers is
+    // the host's own with the swapchains it makes taken on the way past, which is what puts the present
+    // in orb's hands. See [`crate::dxgi`].
+    if let Some(renderer) = wanted.renderer
+        && unsafe { asked_for(name, renderer) }
+    {
+        unsafe { crate::dxgi::answers_the_factory(answer) };
+        log!("hook: the game asked for {renderer} and got orb's, the host's being at {answer:#x}");
+        return crate::dxgi::creates_a_factory as *const () as usize;
+    }
+    answer
+}
+
+/// Whether a launch is one orb plays the game in, which is what decides whether the window it is about
+/// to make goes in a corner — asked of the bot's own slot rather than of the config, that slot being
+/// what `Config::autoplay` installed.
+fn playing_it() -> bool {
+    PLAYING_IT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some()
+}
+
+/// Whether the name a lookup asked for is this one, read off the `char *` the host was handed.
+///
+/// Compared byte by byte rather than copied into a `String`: this runs on every lookup the game's own
+/// startup makes — three hundred and forty-four of them in th06c — and what is being asked of each is
+/// whether it is the one name orb answers for.
+///
+/// # Safety
+/// `name` must be a null-terminated string.
+unsafe fn asked_for(name: *const u8, wanted: &str) -> bool {
+    for (at, byte) in wanted.as_bytes().iter().enumerate() {
+        if unsafe { name.add(at).read() } != *byte {
+            return false;
+        }
+    }
+    // And ends there, or it is a longer name this one is the start of.
+    unsafe { name.add(wanted.len()).read() == 0 }
+}
+
 /// The word the game reads, with the front end's own decide taken out of it while orb has a question
 /// to ask on that press, and put back for the one read that hands the press over.
 ///
@@ -2078,6 +2427,7 @@ fn the_first_read_of(frame: Option<u32>) -> bool {
 /// **Not the frame's thread**, which is the whole of what this may do: it reads the stream it was handed
 /// through [`Game::the_refill_is_about_to`] and says a line. Nothing of `Runtime` is touched — the frame is
 /// running beside it — and the log takes lines from any thread, counting what they cost per thread.
+#[cfg(target_arch = "x86")]
 pub extern "thiscall" fn tops_up_the_music(stream: usize, argument: i32) -> i32 {
     let original: unsafe extern "thiscall" fn(usize, i32) -> i32 =
         unsafe { std::mem::transmute(TOPS_UP_THE_MUSIC.load(Ordering::Relaxed)) };
@@ -2111,6 +2461,7 @@ pub extern "thiscall" fn tops_up_the_music(stream: usize, argument: i32) -> i32 
 ///
 /// # Safety
 /// Only ever called from the hook over the game's own stop, on the thread the game calls it from.
+#[cfg(target_arch = "x86")]
 pub extern "thiscall" fn stops_the_music(this: usize) -> i32 {
     let original: unsafe extern "thiscall" fn(usize) -> i32 =
         unsafe { std::mem::transmute(STOPS_THE_MUSIC.load(Ordering::Relaxed)) };
@@ -2538,6 +2889,14 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
     };
     runtime.keyboard.poll(unsafe { runtime.game.window() });
+    // **And this is the frame the rules are asked on, whichever read a game's own word comes through.**
+    // A game that looks its keyboard read up reaches [`keyboard_state`], and that read is made more often
+    // than the game moves — so where orb has a frame of its own the rules are asked here and that read
+    // only writes the word down. Measured: an Extra run whose frame was orb's and whose read still asked
+    // said `52447 of the 93711 frame(s) asked for were a tick read again`, which is
+    // `orb_bot::steer::a_tick_read_again` catching more than half of the asks as a world that had not
+    // moved since the answer before.
+    THE_FRAME_IS_THE_SEAM.store(true, Ordering::Relaxed);
     unsafe { what_is_reached(runtime) };
     // Here, at the top, for the reason `trace::Record` gives: this update leaves by several doors, and a
     // record taken before any of them is one record however the frame went.
@@ -2880,11 +3239,17 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         //
         // At the verbose level, which costs log and nothing else — and only while a stage is running, a frame
         // of the front end having no run to be about.
-        if log::wanted(log::VERBOSE) && state.in_run && !state.paused {
+        //
+        // **And only where the game answers any of it.** A game whose stage clock and generator are unread
+        // has nothing for two runs to be held against each other by, and the line is then its own frame
+        // number of nought and two empty fields: measured, a th06c launch wrote 3,713 of them in four
+        // minutes, one per frame, saying `resume: frame 0 played with  updates=0`.
+        let reproduction = unsafe { runtime.game.reproduction() };
+        if log::wanted(log::VERBOSE) && state.in_run && !state.paused && !reproduction.is_empty() {
             log!(
                 "resume: frame {} played with {}{} updates={}",
                 state.stage_frames,
-                unsafe { runtime.game.reproduction() },
+                reproduction,
                 the_worlds_fingerprint(runtime.game),
                 updates_taken(),
             );
@@ -3239,6 +3604,8 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         // or more later, and the frame a picture of that name has to be asked on.
         playing.reached.card = state.spellcard.is_some();
         playing.reached.card_name = unsafe { runtime.game.a_cards_name_is_shown() };
+        // And the game's own name entry, which the run's end is past — see `recipe::Until::Name`.
+        playing.reached.typing_a_name = unsafe { runtime.game.typing_a_name() };
     }
 
     // **The count moving is where a death is noticed and not where it is settled.** th06 counts the *hit*:
@@ -5427,7 +5794,9 @@ unsafe fn write_status(runtime: &mut Runtime) {
     unsafe { crate::window::hold_beside(lines) };
 }
 
-#[cfg(test)]
+// Only on the target th06 and th07 are built for — see `game::th06c::tests`, which is what the other
+// target's run of these is for.
+#[cfg(all(test, target_arch = "x86"))]
 mod tests {
     use std::sync::atomic::Ordering;
 
@@ -5435,8 +5804,31 @@ mod tests {
 
     use super::{
         Cause, DECIDE_PRESSED, DECIDE_WAS_DOWN, FEED_DECIDE, FLASH_JUDGING, FLASH_PLAYING, Game,
-        HOLD_CANCEL, HOLD_DECIDE, SETTLE_KEYS, Watching, flash_for, held_back, moved_on,
+        HOLD_CANCEL, HOLD_DECIDE, SETTLE_KEYS, Watching, asked_for, flash_for, held_back, moved_on,
     };
+
+    /// **Which name a lookup asked for**, which is what decides whether orb answers it: the one name it
+    /// stands in front of and nothing that merely starts with it or is spelled another way.
+    ///
+    /// The one that matters is the third: `GetKeyboardState` is the start of no other name in `USER32`,
+    /// but the comparison walks the wanted name's bytes and would say yes to any name beginning with
+    /// them — so what says the name ends where it should is the byte after it.
+    #[test]
+    fn a_lookup_is_answered_by_orb_for_one_name_and_no_other() {
+        for (asked, wanted, answered) in [
+            (c"GetKeyboardState", "GetKeyboardState", true),
+            (c"GetKeyboardLayout", "GetKeyboardState", false),
+            (c"GetKeyboardStateEx", "GetKeyboardState", false),
+            (c"GetKeyboard", "GetKeyboardState", false),
+            (c"", "GetKeyboardState", false),
+        ] {
+            assert_eq!(
+                unsafe { asked_for(asked.as_ptr().cast(), wanted) },
+                answered,
+                "a lookup of {asked:?} against {wanted}",
+            );
+        }
+    }
 
     /// What the game reads while orb is holding a press of its own back: the buttons it does read are
     /// its own, the decide is gone from every frame of the holding, it is the press that is reported

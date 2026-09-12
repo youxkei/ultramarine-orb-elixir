@@ -159,11 +159,13 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     let above_the_seam = ABOVE_THE_SEAM.join(" and ");
+    let also = ALSO.0;
     eprintln!(
         "usage: cargo xtask <task> [<args>]\n\
          \n\
          clippy    every target, {TARGET}, warnings denied\n\
-         test      the suite, {TARGET}, on half the threads\n\
+         test      the suite, {TARGET}, on half the threads — and {also} first, which\n\
+         \x20         is where the game built for it has its own tests\n\
          build     {TARGET} — `build --release` is what installs\n\
          seam      {above_the_seam} checked for {SEAM_TARGET}, a host with no Windows\n\
          \x20         on it, which is what says nothing above the seam reaches past it\n\
@@ -228,7 +230,25 @@ fn plain<const B: usize, const A: usize>(
 /// `RUST_TEST_THREADS=4 cmd.exe /c 'echo [%RUST_TEST_THREADS%]'`, which prints the name back unexpanded. The
 /// setting was in this function as an environment variable first and did nothing at all — sixteen threads and
 /// thirty-two processes every run — which is the whole reason this note is here.
+/// **The other target the suite is run for, and the one package that has anything there.**
+///
+/// `TARGET` is 32-bit and th06c is a 64-bit build, so its module is gated to `x86_64` and everything it
+/// asserts about that exe — the addresses, the keyboard, the scale each of its bullet states divides a step
+/// by — is asserted by tests nothing was running. Only `orb-core` carries a game, so only `orb-core` is run
+/// again: `orb-e2e` lays out th06 and th07, which are this `TARGET`'s, and a second run of it would be the
+/// same suite twice.
+///
+/// **And it is `orb-core`'s own test modules that made this impossible until now.** Five of them name
+/// `game::th06` or `game::th07` outright, which a 64-bit build has neither of, so the run did not compile
+/// at all; each is gated to `target_arch = "x86"` with a line pointing here.
+const ALSO: (&str, &str) = ("x86_64-pc-windows-gnu", "orb-core");
+
 fn test(args: Vec<String>) -> ExitCode {
+    let mut also = cargo_command();
+    also.args(["test", "--target", ALSO.0, "-p", ALSO.1]);
+    if !status(also, "test") {
+        return ExitCode::FAILURE;
+    }
     let mut command = cargo_command();
     command.args(["test", "--target", TARGET]).args(&args);
     if !args.iter().any(|arg| arg.starts_with("--test-threads")) {

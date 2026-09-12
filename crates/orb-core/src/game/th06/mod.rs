@@ -27,7 +27,7 @@ use crate::audio::{Music, Track};
 // `crate::joystick::axis`.
 use crate::game::{
     Axis, Boundary, Call, CountedDeath, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile,
-    Patch, Reading, Rect, RunStart, State,
+    Patch, Read, Reading, Rect, RunStart, State,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
@@ -1135,6 +1135,16 @@ mod result_screen {
     /// `YXK` in two of them and `YKI` in the third.
     pub const NAME: usize = 0x5193;
     pub const NAME_BYTES: usize = 8;
+
+    /// **Which character of the grid the cursor is on**, and how many of the name have been typed —
+    /// `[this+0x20]` and `[this+0x10]`, the two the handler above walks and caps.
+    pub const CURSOR: usize = 0x20;
+    pub const TYPED: usize = 0x10;
+
+    /// **The item that ends the entry**, which is the one past the grid's own space item: `0x42c16e`
+    /// leaves the typing for any cursor past `0x5e`, and `0x42c195` is where the game itself puts the
+    /// cursor once eight characters have been typed.
+    pub const THE_END_ITEM: i32 = 0x5f;
 }
 
 /// `th06::Ending`, 0x1170 bytes on the heap, reached through the job it registers.
@@ -1404,14 +1414,19 @@ impl Game for Th06 {
     /// class as `joystick::install`.
     fn hooks(&self) -> Hooks {
         Hooks {
-            update: Patch {
+            update: Some(Patch {
                 target: RUN_CALC_CHAIN,
                 prologue: RUN_CHAIN_PROLOGUE,
-            },
-            draw: Patch {
+            }),
+            draw: Some(Patch {
                 target: RUN_DRAW_CHAIN,
                 prologue: RUN_CHAIN_PROLOGUE,
-            },
+            }),
+            // Nothing: this game has a function for each of its two walks and the patches above are
+            // how orb's loop reaches them.
+            walks: None,
+            // Nothing: orb is inside this game's frame, and the two above are it.
+            runs_its_frame: None,
             save_replay: Some(Patch {
                 target: SAVE_REPLAY,
                 prologue: SAVE_REPLAY_PROLOGUE,
@@ -1453,10 +1468,10 @@ impl Game for Th06 {
                 target: RENDER,
                 prologue: RENDER_PROLOGUE,
             }),
-            input: Some(Patch {
+            input: Some(Read::Code(Patch {
                 target: GET_INPUT,
                 prologue: GET_INPUT_PROLOGUE,
-            }),
+            })),
             joystick: Some(Entered::OnTheStack(Patch {
                 target: GET_CONTROLLER_INPUT,
                 prologue: GET_CONTROLLER_INPUT_PROLOGUE,
@@ -1477,6 +1492,20 @@ impl Game for Th06 {
             // to write into `東方紅魔郷.cfg`, and the game reads that mapping and never the pad's own
             // numbering. So there is no such read to get in front of.
             pad_buttons: None,
+            // And no dialog of its own to get past: 1.02h's settings are `custom.exe`'s beside it, and
+            // the exe a launch starts goes to its own title menu.
+            startup_dialog: None,
+            // Nor a window it looks the making of up: `CreateWindowExA` is in its import table, which is
+            // what `orb::window` writes over. And it leaves the window where it made it, so there is no
+            // move to answer either.
+            makes_its_window: None,
+            moves_its_window: None,
+            // And no pad read to answer: th06's own is `joyGetPosEx`, which orb stands in front of and
+            // hands a word of — see `Hooks::joystick`.
+            reads_a_pad: None,
+            // Nothing: this game's present is an address `Th06::frame_calls` carries, its renderer
+            // being Direct3D 8's and made before orb could answer anything about it.
+            makes_its_renderer: None,
         }
     }
 
@@ -2772,6 +2801,10 @@ impl Game for Th06 {
         unsafe { mem::write::<u16>(G_CUR_FRAME_INPUT, u16::MAX) };
     }
 
+    /// Nothing: this game's own read is a word and orb answers it with one — see [`GET_INPUT`] and
+    /// `Game::press_into`, whose whole doc this is.
+    unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
+
     /// The state is written rather than the screen being answered for the player, because
     /// answering it means writing the interrupt each of its 38 sprites is to run next and then
     /// waiting out the fade they play — where this is one number, and the one the game itself
@@ -2829,6 +2862,39 @@ impl Game for Th06 {
         }
         let screen = chain_argument(RESULT_SCREEN_ON_UPDATE)?;
         crate::game::the_name_held_at(screen + result_screen::NAME, result_screen::NAME_BYTES)
+    }
+
+    /// **Into the field the entry's own keys write**, with its cursor left on the item that ends it and
+    /// the count of characters typed at the full eight — which is the state the game itself is in after
+    /// somebody has typed eight, so the press that follows leaves the screen the way theirs would.
+    ///
+    /// **Only while that entry is the state the screen is in**, and not on the ranking the *Score* item
+    /// opens: that is the same object with no run behind it, and a name written there would be one
+    /// nobody's run was ranked under.
+    unsafe fn types_its_name(&self, name: &str) -> bool {
+        let Some(screen) = the_entry_a_name_is_typed_into() else {
+            return false;
+        };
+        if !crate::game::the_name_typed_into(
+            screen + result_screen::NAME,
+            result_screen::NAME_BYTES,
+            name,
+        ) {
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(
+                screen + result_screen::TYPED,
+                result_screen::NAME_BYTES as i32,
+            );
+            mem::write::<i32>(screen + result_screen::CURSOR, result_screen::THE_END_ITEM);
+        }
+        true
+    }
+
+    /// Whether that entry is up at all — see [`the_entry_a_name_is_typed_into`].
+    unsafe fn typing_a_name(&self) -> bool {
+        the_entry_a_name_is_typed_into().is_some()
     }
 
     /// [`MENU_STATE_REPLAYS`] and not the state the item writes, which is the second of that screen's own
@@ -3421,6 +3487,19 @@ fn chain_holds(list: usize, elem: usize) -> bool {
 /// Every step is asked of the memory map rather than read outright, at a `VirtualQuery` each.
 /// The walk is short, it only runs on the frames of an ending, and it is what makes this
 /// answerable with no game around it.
+/// **The screen a name is being typed into, or nothing where none is** — the result screen while its
+/// own state is [`RESULT_STATE_WRITING_HIGHSCORE_NAME`].
+///
+/// **The state as well as the screen, so that the ranking the *Score* item opens answers nothing**: that
+/// is the same object with no run behind it, and a name written there would be one nobody's run was
+/// ranked under.
+fn the_entry_a_name_is_typed_into() -> Option<usize> {
+    let screen = chain_argument(RESULT_SCREEN_ON_UPDATE)?;
+    (mem::read_committed::<i32>(screen + result_screen::STATE)
+        == Some(RESULT_STATE_WRITING_HIGHSCORE_NAME))
+    .then_some(screen)
+}
+
 fn chain_argument(callback: usize) -> Option<usize> {
     let mut elem = mem::read_committed::<usize>(G_CHAIN + chain_elem::NEXT)?;
     for _ in 0..CHAIN_LINKS {

@@ -35,6 +35,12 @@
 # the step still waiting — which it then gave up on, the run being over, leaving the step after it to sit at
 # the game's own name entry for its whole bound.
 - play_until: { frames: 216000 }
+# **And the name the ranking is registered under, typed rather than pressed for.** The entry a run ends at
+# is a grid of characters with a cursor of its own, so the tap below writes whichever one it is on and
+# moves along the name — eight of the same letter, and `AAAAAAAA` is what every clear this case played was
+# ranked as. See `Step::Name`.
+- name: ORB
+  give_up_after: 3600
 # Then the screens a finished run arrives on, which are the game's own and take a press apiece: the name
 # entry for the high score and the stats after it. A tap walks them, and orb's own question about the replay
 # comes up behind them — the second of the two moments it is asked, this being a run nobody will add to.

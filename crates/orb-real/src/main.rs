@@ -16,9 +16,10 @@
 //! copy holds, and a session stopped early has traces for the cases before the stop.
 //!
 //! `list` prints the cases for `cargo xtask real` to drive — one line each, `game`, the game's exe, the
-//! records it keeps of its own as one comma-separated field, the case, whether it continues the one before
-//! and how long its launch may take, tab-separated — so that which games and cases there are is said in one
-//! place, this crate, and `xtask` carries no copy of it.
+//! records it keeps of its own as one comma-separated field, the target orb has to be built for to attach
+//! to it, the case, whether it continues the one before and how long its launch may take, tab-separated —
+//! so that which games and cases there are is said in one place, this crate, and `xtask` carries no copy
+//! of it.
 //!
 //! **`show` prints what one trace holds**, frame by frame: the state the game's memory was in and the log's
 //! lines that frame, and with a `<needle>` only the frames whose lines hold it. Without it a trace is
@@ -57,10 +58,11 @@ fn main() -> ExitCode {
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
+                case.game.target(),
                 case.name,
                 u8::from(case.continues),
                 case.within,

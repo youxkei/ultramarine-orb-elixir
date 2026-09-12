@@ -20,10 +20,10 @@ use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
 
 use super::{
     BUTTON_BOMB, BUTTON_DOWN, BUTTON_FOCUS, BUTTON_LEFT, BUTTON_MENU, BUTTON_RIGHT, BUTTON_SHOOT,
-    BUTTON_SKIP, BUTTON_UP, G_BULLET_MANAGER, G_CUR_FRAME_INPUT, G_ENEMY_MANAGER, G_GAME_MANAGER,
-    G_ITEM_MANAGER, G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, MENU_CANCEL, MENU_DECIDE, PLAYER_DEAD,
-    PLAYER_NORMAL, POWER_FULL, STATE_GAMEMANAGER, Th06, bullet_manager, enemy, enemy_manager,
-    game_manager, item, player, supervisor,
+    BUTTON_SKIP, BUTTON_UP, G_BULLET_MANAGER, G_ENEMY_MANAGER, G_GAME_MANAGER, G_ITEM_MANAGER,
+    G_MOTION_SCALE, G_PLAYER, G_SUPERVISOR, MENU_CANCEL, MENU_DECIDE, PLAYER_DEAD, PLAYER_NORMAL,
+    POWER_FULL, STATE_GAMEMANAGER, Th06, bullet_manager, enemy, enemy_manager, game_manager, item,
+    player, supervisor,
 };
 
 /// **The bit a recipe's button name is**, or `None` for a name th06 has nothing for.
@@ -69,7 +69,8 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     into.field = unsafe { field() };
     into.at = unsafe { player() };
     into.half = unsafe { player_box() };
-    (into.straight, into.diagonal) = unsafe { a_step() };
+    (into.straight, into.diagonal) = unsafe { a_step(false) };
+    (into.focused_straight, into.focused_diagonal) = unsafe { a_step(true) };
     // **The frames a bomb still takes the hit back in.** `Player::Die` at 0x427770 leaves the state at 2 and
     // puts the timer under it back, and the four bombs write 3 over it — so a bomb pressed while it stands is
     // a deathbomb and takes the death back. It stands for `respawnTimer` frames and not for one, which is what
@@ -84,6 +85,9 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
     // [`POWER_FULL`] — the number its own item handlers compare against before they step it up.
     into.full_power =
         unsafe { mem::read::<u16>(G_GAME_MANAGER + game_manager::CURRENT_POWER) } >= POWER_FULL;
+    // **And how many bombs there are to spend**, which is the game manager's own byte — see
+    // `Frame::bombs`, whose reason is that the rules wait after one whether it went off or not.
+    into.bombs = unsafe { mem::read::<i8>(G_GAME_MANAGER + game_manager::BOMBS_REMAINING) };
     into.dialogue = unsafe { crate::game::Game::a_line_of_dialogue_is_shown(&Th06) };
     into.boss = unsafe { the_boss_the_fight_is_with() };
     into.hazards.clear();
@@ -106,6 +110,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
         into.hazards.push(Hazard {
             kind: Kind::Bullet {
                 hitting: state != bullet_manager::BULLET_SPENT,
+                state,
             },
             slot,
             at: unsafe { position(bullet + bullet_manager::BULLET_POSITION) },
@@ -159,6 +164,7 @@ pub unsafe fn what_a_bot_sees(into: &mut Frame) -> bool {
             slot,
             origin: unsafe { position(laser + bullet_manager::LASER_ORIGIN) },
             angle: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_ANGLE) },
+            frames: unsafe { mem::read::<i32>(laser + bullet_manager::LASER_PHASE_FRAMES) },
             near: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_NEAR) },
             far: unsafe { mem::read::<f32>(laser + bullet_manager::LASER_FAR) },
             // What 0x415e35 adds to the far end every frame, which is the only thing about a beam here that
@@ -260,16 +266,17 @@ unsafe fn in_a_stage() -> bool {
 /// **What one frame of holding a direction moves the player by**, as 0x427da5 works it out: the speed for that
 /// kind of move, times the player's own scale for the axis, times [`G_MOTION_SCALE`].
 ///
-/// **The focused pair where the key was held on the frame just read**, which is the step the position was last
-/// moved by: the four speeds are the player's own fields and the switch at 0x427a09 picks between them by that
-/// key, so a step read without it is out by the ratio between the two.
+/// **Whichever pair the caller asks for**, and both are asked for: the four speeds are the player's own fields
+/// and the switch at 0x427a09 picks between them by the focus key, so which pair a frame takes is decided by a
+/// key the *rules* press — see `Frame::focused_straight`, which is why the answer is not this reading's to
+/// choose.
 ///
 /// [`A_PROBE`] where any of it cannot be read or comes out as no step at all — a bot that stood still would be
 /// worse than one that moved by a guess, and outside a run there is nothing there to read.
 ///
 /// # Safety
 /// Must run on the game's main thread.
-unsafe fn a_step() -> ((f32, f32), (f32, f32)) {
+unsafe fn a_step(focused: bool) -> ((f32, f32), (f32, f32)) {
     let motion = mem::read_committed::<f32>(G_MOTION_SCALE);
     let scale = |of: usize| {
         mem::read_committed::<f32>(G_PLAYER + of)
@@ -277,8 +284,6 @@ unsafe fn a_step() -> ((f32, f32), (f32, f32)) {
             .map(|(own, motion)| own * motion)
     };
     let (across, down) = (scale(player::SCALE_ACROSS), scale(player::SCALE_DOWN));
-    let focused =
-        mem::read_committed::<u16>(G_CUR_FRAME_INPUT).is_some_and(|word| word & BUTTON_FOCUS != 0);
     let step = |of: usize, scale: Option<f32>| {
         mem::read_committed::<f32>(G_PLAYER + of)
             .zip(scale)

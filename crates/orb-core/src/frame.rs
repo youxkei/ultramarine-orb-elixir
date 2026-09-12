@@ -540,6 +540,12 @@ impl Pacing {
     /// this at one.
     pub fn paces_faster(&mut self, times: u32) {
         self.faster = i64::from(times.max(1));
+        // **And the display let go of the frames as well as the blanks**, for a game whose present waits
+        // on one: the interval a game asks its present for *is* the display pacing it, so asking for
+        // frames faster than the display and handing each one over with a wait are two answers to the
+        // same question. See [`crate::dxgi::hands_over_without_waiting`], which has the measurement —
+        // `--pace=4` and `--pace=8` held the same 8.3ms a frame until this, one refresh apiece.
+        crate::dxgi::hands_over_without_waiting(self.faster > 1);
         if self.faster > 1 {
             log!(
                 "frame: paced at {}Hz, {} time(s) the game's own rate — the clock pacing it, no display \

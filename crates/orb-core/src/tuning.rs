@@ -548,7 +548,9 @@ impl Pass {
     }
 }
 
-#[cfg(test)]
+// Only on the target th06 and th07 are built for — see `game::th06c::tests`, which is what the other
+// target's run of these is for.
+#[cfg(all(test, target_arch = "x86"))]
 mod tests {
     use super::Tuning;
     use crate::game::th06::Th06;

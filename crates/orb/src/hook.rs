@@ -16,8 +16,26 @@ use windows_sys::Win32::System::Memory::{
 };
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
-const JMP_REL32: u8 = 0xe9;
+/// **The jump written over the game's code, which is not the same instruction in the two builds.**
+///
+/// `jmp rel32` — `e9` and a displacement — reaches anywhere in a 32-bit address space and only ±2GB of
+/// itself in a 64-bit one, and in a 64-bit process neither end of a hook is within that of the game: a
+/// launch of th06c whose frame was hooked this way had its exe at `0x7ff76f380000` and the trampoline
+/// `VirtualAlloc` answered at `0x18f4ae10000`, a hundred gigabytes apart, so the displacement truncated
+/// to a jump into nothing and the game died on its first frame with the hook installed and the rules
+/// asked once.
+///
+/// So the 64-bit jump is the indirect one — `ff 25` with a nought displacement and the address in the
+/// eight bytes after it, which reaches anything at the cost of needing fourteen bytes of prologue rather
+/// than five.
+#[cfg(target_pointer_width = "32")]
+const JMP: &[u8] = &[0xe9];
+#[cfg(target_pointer_width = "64")]
+const JMP: &[u8] = &[0xff, 0x25, 0x00, 0x00, 0x00, 0x00];
+#[cfg(target_pointer_width = "32")]
 const JMP_LENGTH: usize = 5;
+#[cfg(target_pointer_width = "64")]
+const JMP_LENGTH: usize = 14;
 const NOP: u8 = 0x90;
 
 #[derive(Debug)]
@@ -32,7 +50,12 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PrologueTooShort => write!(f, "prologue is shorter than a jmp rel32"),
+            Self::PrologueTooShort => {
+                write!(
+                    f,
+                    "prologue is shorter than the {JMP_LENGTH} bytes a jump takes"
+                )
+            }
             Self::UnexpectedPrologue { expected, found } => {
                 write!(
                     f,
@@ -172,9 +195,18 @@ pub unsafe fn install_import(
 }
 
 unsafe fn write_jmp(at: usize, to: usize) {
+    for (offset, byte) in JMP.iter().enumerate() {
+        unsafe { orb_api::mem::write(at + offset, *byte) };
+    }
+    // **A displacement in the one and the address itself in the other** — see [`JMP`], which has why the
+    // 64-bit jump cannot be the relative one.
+    #[cfg(target_pointer_width = "32")]
     unsafe {
-        orb_api::mem::write(at, JMP_REL32);
-        orb_api::mem::write(at + 1, (to.wrapping_sub(at + JMP_LENGTH)) as u32);
+        orb_api::mem::write(at + JMP.len(), (to.wrapping_sub(at + JMP_LENGTH)) as u32);
+    }
+    #[cfg(target_pointer_width = "64")]
+    unsafe {
+        orb_api::mem::write(at + JMP.len(), to as u64);
     }
 }
 

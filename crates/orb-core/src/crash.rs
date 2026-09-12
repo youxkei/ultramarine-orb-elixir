@@ -446,7 +446,13 @@ mod tests {
     }
 
     /// A stack of this test's own, and the two frames on it: the one that faulted and the one that called
-    /// it, as a frame-pointer chain — `[ebp]` the next frame up and `[ebp+4]` the return address.
+    /// it, as a frame-pointer chain — `[ebp]` the next frame up and the word after it the return address.
+    ///
+    /// **A word and not four bytes**, which is what [`callers`] steps by: this crate is built for a 64-bit
+    /// target as well as a 32-bit one, and a chain laid out four bytes apart is one the walk reads the
+    /// wrong halves of there. Written down here because the games these faults come out of are both 32-bit
+    /// and their own frames really are four apart, so the literal reads as right until the other target
+    /// runs — which is what `xtask`'s `ALSO` is for.
     const STACK: usize = 0x0020_0000;
     const STACK_BYTES: usize = 0x1000;
     const INNER: usize = STACK + 0x100;
@@ -461,9 +467,11 @@ mod tests {
     fn faulted(sim: &orb_sim::Sim) -> Vec<String> {
         sim.space().map(STACK, STACK_BYTES, Kind::Private);
         sim.space().write::<usize>(INNER, OUTER);
-        sim.space().write::<usize>(INNER + 4, RETURNS_TO);
+        sim.space()
+            .write::<usize>(INNER + size_of::<usize>(), RETURNS_TO);
         sim.space().write::<usize>(OUTER, 0);
-        sim.space().write::<usize>(OUTER + 4, CALLED_FROM);
+        sim.space()
+            .write::<usize>(OUTER + size_of::<usize>(), CALLED_FROM);
         let fault = Fault {
             code: 0xc000_0005u32 as i32,
             at: 0x0045_0db1,

@@ -35,27 +35,41 @@ there is nothing to hold it against.
 
 **Nothing in a Touhou game stops a second copy of itself starting, and two of them fight over the same files.** So
 before a launch, ask whether one is running and close it if it is. The exe to ask about is the game's own and
-not orb's — `game::KNOWN` in `orb-core` is the list of them — and the filter is what to ask with:
+not orb's — `game::KNOWN` in `orb-core` is the list of them.
 
-    tasklist.exe /FI "IMAGENAME eq <the game's exe>" /FO CSV /NH 2>/dev/null | grep -a '^"' | wc -l
+**Every one of those three questions is `scripts/game.sh`'s, and none of them is to be typed out again:**
 
-**A row per process, counted, and never a grep for the name**: an image name comes back in the console code
-page, so a grep for 東方紅魔郷.exe finds a running game never — the filter the command is given is Windows'
-own and matches.
+    bash scripts/game.sh running <the game's exe>   # how many are running, as a number
+    bash scripts/game.sh gone <the game's exe>      # exit 0 where none is
+    bash scripts/game.sh close <the game's exe>     # close it, and say so readably
 
-**And `-a`, or the count is nought while the game is up.** That code page is not this shell's, so the row
-comes back with bytes grep reads as binary and it prints `binary file matches` to stderr rather than the
-line. Measured: a launch that had already injected, whose window was on the screen, was watched for sixty
-seconds and then declared never to have come up.
+**Written down as a script because the same three traps were walked into session after session**, each of
+them a `tasklist.exe` invocation that answers *wrongly* rather than failing:
 
-Nought means none — **once**. It is a Windows process reached through the interop, and it answered
-nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts on one
-answer of nought acts on a game that is still running. Ask again before believing it.
+- **A row per process, counted, and never a grep for the name**: an image name comes back in the console
+  code page, so a grep for 東方紅魔郷.exe finds a running game never — the filter the command is given is
+  Windows' own and matches. And `grep -c` answers nothing at all where nothing matched, which reaches
+  `[ -eq ]` as an empty string and reads as a game still running.
+- **`grep -a`, or the count is nought while the game is up.** That code page is not this shell's, so the
+  row comes back with bytes grep reads as binary and it prints `binary file matches` to stderr rather than
+  the line. Measured: a launch that had already injected, whose window was on the screen, was watched for
+  sixty seconds and then declared never to have come up.
+- **Nought means none once and not twice.** It is a Windows process reached through the interop, and it
+  answered nothing twice in one afternoon while the game was up and playing, so a watch or a wait that acts
+  on one answer of nought acts on a game that is still running. `gone` asks again before believing it.
+
+**And `taskkill.exe`'s own answer is unreadable here** — `���: �v���Z�X "th06c.exe"` — so `close` says what
+it did in this shell's words instead. It is also a thing to ask about rather than to do to a game somebody
+is playing: what it is for is a launch of orb's own that has finished or gone wrong.
 
 **A script that refuses is worth more than remembering to ask.** `orb.exe` returns as soon as it has
 injected, so what makes one invocation one run is waiting for the game to appear and then waiting for it to
-go. Written out here because `/scripts` is ignored by this repository, and taking what varies as arguments for
-the reason `CLAUDE.md` gives:
+go. That is `scripts/drive-a-run.sh`, which asks `game.sh` the questions above:
+
+    bash scripts/drive-a-run.sh <game-dir> <game-exe> <recipe.yaml> [orb option...]
+
+Both are written out below as well, because `/scripts` is ignored by this repository and a copy that is in
+no commit is a copy one `rm` away from being gone:
 
 ```sh
 #!/usr/bin/env bash
@@ -116,6 +130,31 @@ Run it in the background: it does not return until the run is over, and the laun
 **And close the monitor of a run that is over** — `TaskStop` — before starting the next. Two monitors on one
 log both fire, and the older one's filter was written for the launch before this one.
 
+## And `--pace=8`, which is what a launch costs
+
+**A launch of a whole run is twenty-eight minutes of game time**, and `--pace=N` is what turns that into
+minutes of wall clock: N game frames to a sixtieth of a second, with everything orb does per frame left
+exactly as it is. Eight held `2.1ms` a frame on this machine, which is a Normal run of th06c in four
+minutes and an Extra attempt in two.
+
+**It was two for a long while and the cap was the present and not the pacing.** `--pace=4` and `--pace=8`
+both came out at `8.3ms` a frame — one refresh of a 120Hz display — and what moved between them was only
+where the waiting was: `wait 3869us` with `draw 3512us` at four, and `wait 199us` with `draw 7421us` at
+eight. The interval a game asks its present for *is* the display pacing it, so a launch asking for frames
+faster than the display and a present that waits for a blank are two answers to one question.
+`orb_core::dxgi` drops the interval while `frame::Pacing` is pacing faster than one, which is what makes
+the ask reachable on a game that presents through DXGI at all.
+
+**What a paced launch does not change is the run**, the frames being the same frames; what it does change
+is that a monitor polling every thirty seconds is polling every two minutes of game time. A screen that
+stands for a few seconds — a ranking, the frame a run hands over on — wants a two-second poll, and the
+state line every fifteen of those.
+
+**And nothing after the run belongs in the recipe.** A `play_until` ends where the run does, which is past
+both the ending and the name the game asks for, so a `wait_until` after it is waiting for nothing: one
+recipe's 10,800 frames there spent ninety seconds at the logo screen, which starts the attract demo at 720
+of them and filled the log with a playback nobody had asked for.
+
 ## Every launch says `--log=verbose`
 
 **A launch is verbose, whether it is a recipe's or somebody's own game** — `./orb.exe --log=verbose`, and for
@@ -141,6 +180,15 @@ minutes is megabytes rather than hundreds of kilobytes, and `orb.log` is one fil
 Watch with `Monitor` over the copy's `orb.log`, and **say the state every 30 seconds** rather than only when
 something changes: a run whose chapter has not changed for two minutes is either a long spellcard or a run
 that is stuck, and the two are indistinguishable while nothing is said.
+
+**And nothing a monitor says arrives while a tool call is blocking**, which is the whole of whether it is
+being read. Its events land between calls; a `TaskOutput` waiting ten minutes on the launch, or any other
+long wait, holds every one of them back and then delivers the lot at once when the turn resumes — so the
+run is unwatched for exactly as long as the wait. Measured: a launch whose game over sat behind a continue
+prompt ran on for ten minutes with the monitor printing all of it into a queue nobody could see, and what
+ended the wait was somebody asking why the game was stuck. **So check with short commands between
+actions** — `wc -c` on the log, the newest `run:` line — and never block on the launch itself; there is
+always other work while a run plays, and the events arrive in the gaps.
 
 **That monitor is armed with the launch and not when somebody asks for it**, and a monitor that only greps
 for the lines a measurement is about is not it: a run reported on every thirty seconds is one whose stall,
@@ -210,6 +258,13 @@ closing line ends the monitor the moment it starts.
 
 **Stalled** is the log not growing. Fetch `wc -c` on it each tick and count the ticks it has not moved for.
 
+**And a run can be over while nothing is stalled at all.** A game with no lives left puts its continue
+prompt over the stage and waits for somebody; the log grows, the frames climb, `Game::read_state` still
+says a run is on — and a `play_until` then waits out its whole bound, which for th06c's Extra is half an
+hour of frames. So the state a watch says has to carry the **lives**: nought of them with the play step
+still waiting is a game over and not a fight, and it is the one shape that looks healthy in every other
+field. Nothing in a recipe ends it, so closing the game is the answer.
+
 **Not stalled**: a chapter that stays the same while `frames=` climbs, a boss's own attack running thousands
 of frames; and `script=` standing still while `frames=` climbs, which is what a boss attack does to the
 stage's script clock. The newest `f<N> scene=…` line tells them apart:
@@ -238,6 +293,24 @@ question — measured: without it, three runs an earlier session had left beside
 first case's launch, and a pad answered the offer before the recipe reached it. A case there is
 also played against the laid-out games by `orb-e2e`'s `the_cases_the_real_game_is_tested_with`, which is
 where a step that reaches nothing is found first.
+
+**A launch may come up in the game's own demo, and what leaves one is `decide`.** th06c's front end goes
+straight into it — a replay of the game's own played at the title, which is the game manager's state 1 and
+stands for as long as that replay does. Three launches were spent on this: one waited 23,400 frames for a
+title that was not coming, one tapped `down` at the demo for 6,000 frames and stayed in it, and a third
+worked only because a `decide` meant for a menu happened to land there first. So the first step of a recipe
+for such a game is that press, waiting for the title, and the press it takes is the demo's own and reaches no
+menu:
+
+    - press: [decide]
+      frames: 30
+      until: { screen: 2, cursor: 0 }
+      give_up_after: 36000
+
+**And a screen on its own is what a step waiting for one waits for**: `wait_until: { screen: 6 }`, whatever
+its cursor is on. Which is how a front end is walked where the screens do not arrive in the same order every
+launch — a step per screen, each waiting for the screen it is about to press at — and where the cursor is no
+use for it, being one field whatever screen is up and left wherever the score file remembered.
 
 **The front end is walked by pressing toward orb's own question, not by tapping through screens.** A screen
 and an item — `{ screen: 8, cursor: 1 }` — are numbers that depend on where the score file left the cursors
@@ -309,6 +382,22 @@ to be up, answers it, and is over once it has gone, so one that never comes up e
 twelve items and there is no other way into one; and the mode question, raised by the press at the title's own
 item, is answered on the frame a tap toward it lets go — item nought, whatever was meant.
 
+**The name a run's ranking is registered under is written and not pressed for**, and the step that writes it
+has to be the step already running when the entry opens:
+
+    - play_until: { name: true }
+      give_up_after: 216000
+    - name: ORB
+      give_up_after: 1800
+    - press: [decide]
+      frames: 6
+
+**Because the run's own end is past that entry.** It opens inside the scene a run is played in — after the
+last boss and after the ending, with the field empty — so a `play` step waiting for the run to be *over* runs
+straight past it. And every frame in between is a frame the rules are asked for a word on, whose held shot
+writes whichever character the entry's cursor starts on: every ranking a clear registered before
+`play_until: { name: true }` existed was `AAAAAAAA`, read back out of the replay the same run wrote.
+
 **`menu` is the game's own pause menu, and it is a press like any other.** The button both games call the menu
 button, held for a few frames and let go — the manager takes its *edge*, so a word held for ever opens one menu
 and closes none:
@@ -356,6 +445,13 @@ longer does not help; it is where the words are drawn and not when.
 **A picture asked for before the game has drawn anything is one flat colour.** A `screenshot` as a recipe's
 first step copies a back buffer nothing has presented into — a few hundred bytes of one colour once encoded.
 Wait for the screen to be up first, by a count of frames where there is nothing else to wait for.
+
+**And a `screenshot` step asks for nothing at all on a game that draws through D3D11.** `orb_core::shot`
+copies the D3D8 back buffer at the end of `d3d8::end_scene`, which th06c never reaches — so its recipes'
+`screenshot` steps log the ask, log `done`, and write no file. What takes a picture there is
+`scripts/shot.ps1` from outside, run from the monitor on the line that says the screen is up, and **the
+recipe has to hold that screen long enough for a poll to catch it**: two launches took their shot after the
+game had closed, the recipe's 300 frames being under a second at `--pace=8`.
 
 **What the game itself draws is always in the picture**, which is what makes a translation patch checkable: a
 stage, its panel, a card's name plate and the title menu all come out, so the same recipe run with the patch

@@ -138,6 +138,11 @@ enum Step {
         item: usize,
         give_up_after: Option<u32>,
     },
+    /// The name a run's ranking is registered under — see `recipe::Step::Name`.
+    Name {
+        typed: String,
+        give_up_after: Option<u32>,
+    },
 }
 
 enum Wait {
@@ -145,10 +150,12 @@ enum Wait {
     Question(Question),
     Cursor(i32),
     Where { screen: i32, cursor: i32 },
+    Screen(i32),
     Boss,
     Dialogue,
     Card,
     CardName,
+    Name,
     Frames(u32),
 }
 
@@ -259,6 +266,13 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
                 item,
                 give_up_after,
             },
+            recipe::Step::Name {
+                typed,
+                give_up_after,
+            } => Step::Name {
+                typed,
+                give_up_after,
+            },
         };
         steps.push(step);
     }
@@ -282,10 +296,12 @@ fn waiting(until: Until, at: usize) -> Option<Wait> {
         Until::Chapter { stage, chapter } => Wait::Chapter { stage, chapter },
         Until::Cursor(item) => Wait::Cursor(item),
         Until::Where { screen, cursor } => Wait::Where { screen, cursor },
+        Until::Screen(screen) => Wait::Screen(screen),
         Until::Boss => Wait::Boss,
         Until::Dialogue => Wait::Dialogue,
         Until::Card => Wait::Card,
         Until::CardName => Wait::CardName,
+        Until::Name => Wait::Name,
         Until::Frames(frames) => Wait::Frames(frames),
         Until::Question(name) => Wait::Question(named_question(&name, at)?),
     })
@@ -387,19 +403,35 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // **Tapped**: down for `frames`, up for as many, over and over. The cycle is counted rather than the
         // taps, so a step that ends mid-cycle ends there — what the next step presses is its own business, and
         // a screen already gone is not waiting on this one to let go.
+        //
+        // **And nothing pressed on the frame a step waiting for something of the game's is over**, which is
+        // what stops a tap overshooting the item it was aiming at. A menu moves on the *edge* of a press, so a
+        // hold already under way costs nothing more — but a step whose `until` is satisfied on its very first
+        // frame presses a fresh edge and walks one item past the target. That is the whole of what a recipe
+        // otherwise has to work around: a step aiming at a cursor the list already sat on ended one item
+        // further on, and what saved the recipes that did it was only that the item beside the target was
+        // harmless.
+        //
+        // **A count of the step's own frames is not one of those**, and its last frame is pressed: `frames` is
+        // how long the step is rather than something that has happened, so a tap of two held to nine frames
+        // holds the ninth — see `a_press_with_an_until_is_tapped_until_it_is_reached`.
         Step::Press {
             word,
             frames,
             until: Some(wait),
             ..
-        } => (
-            if (playing.frames - 1) % (frames * 2) < *frames {
-                *word
-            } else {
-                0
-            },
-            waited(wait, reached, playing.frames),
-        ),
+        } => {
+            let over = waited(wait, reached, playing.frames);
+            let letting_go = over && !matches!(wait, Wait::Frames(_));
+            (
+                if !letting_go && (playing.frames - 1) % (frames * 2) < *frames {
+                    *word
+                } else {
+                    0
+                },
+                over,
+            )
+        }
         Step::Wait { until, .. } => (0, waited(until, reached, playing.frames)),
         Step::Play { until, .. } => (
             unsafe { steer::word_to_press(game, hazards) },
@@ -496,6 +528,29 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             // ten seconds a list, three times over, on the launch that measured it.
             (0, playing.asked && !runtime::answering_a_question())
         }
+        // **The name a run's ranking is registered under, written into the game's own entry.** Nothing is
+        // pressed while it waits for that entry: a press at one writes whatever character its cursor is on,
+        // which is the `AAAAAAAA` this step exists instead of — see `Game::types_its_name`.
+        Step::Name { typed, .. } => {
+            let written = unsafe { game.types_its_name(typed) };
+            if written {
+                // **And what the entry holds after it, read back through the game's own field.** A write
+                // that answered true and a ranking that came out `AAAAAAAA` are the same line without
+                // this, and they are different repairs: one is the field not being where it was read to
+                // be, the other the ranking taking its name from somewhere the entry is not.
+                log!(
+                    "autoplay: step {} of {} types {typed} into the name the game asks for, which now \
+                     holds {}",
+                    playing.at + 1,
+                    playing.steps.len(),
+                    match unsafe { game.the_name_its_own_entry_holds() } {
+                        Some(held) => format!("{held:?}"),
+                        None => "nothing this game reads back".to_owned(),
+                    },
+                );
+            }
+            (0, written)
+        }
         // Nothing pressed for it and nothing after it: the step is left in front so that the log says which
         // one the launch stopped on, and the game is asked to close.
         Step::Quit => {
@@ -523,9 +578,12 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         && match step {
             // An `answer` waits for its question the way a `wait_until` for one does, so it takes a bound the
             // same way: a question that never comes up is a step that would never end.
+            // And a `name` waits for the game's own entry, which a run that ended some other way never
+            // reaches.
             Step::Press { give_up_after, .. }
             | Step::Wait { give_up_after, .. }
-            | Step::Answer { give_up_after, .. } => {
+            | Step::Answer { give_up_after, .. }
+            | Step::Name { give_up_after, .. } => {
                 give_up_after.is_some_and(|bound| playing.frames >= bound)
             }
             Step::Play { give_up_after, .. } => {
@@ -580,10 +638,13 @@ fn waited(wait: &Wait, reached: Reached, frames: u32) -> bool {
         Wait::Where { screen, cursor } => {
             reached.screen == Some(*screen) && reached.cursor == Some(*cursor)
         }
+        // **And the screen on its own, for a step waiting to press at it** — see `recipe::Until::Screen`.
+        Wait::Screen(screen) => reached.screen == Some(*screen),
         Wait::Boss => reached.boss,
         Wait::Dialogue => reached.dialogue,
         Wait::Card => reached.card,
         Wait::CardName => reached.card_name,
+        Wait::Name => reached.typing_a_name,
         Wait::Frames(wanted) => frames >= *wanted,
     }
 }
@@ -620,6 +681,7 @@ mod tests {
             dialogue: false,
             card: false,
             card_name: false,
+            typing_a_name: false,
         }
     }
 

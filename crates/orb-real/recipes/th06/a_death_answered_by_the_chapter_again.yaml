@@ -39,8 +39,16 @@
 # above ends inside the chapter the retry put back on a game whose chapters are thousands of frames long: the
 # real game was still in its first chapter when the window ran out, where a laid-out one had reached its third.
 # The chance is nought from here, so the chapters this crosses are none of them drawn to be hit in.
+#
+# **And the chapter it ends at is past either game's own death and not the one after this game's**, which is
+# what makes it a bound at all: what chapter the death falls in is a thing of how well the rules play, so it
+# moves when they change — a walk of `steer::LOOK_AHEAD` frames at forty rather than twelve chooses a
+# different nearest thing to be hit by and carried the laid-out game's death from its second chapter to its
+# third, where a step ending at the third was already over and the run left the stage without passing
+# anything. The check wants the chapter after the one it died in, so the bound is the chapter after the later
+# of the two.
 - take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
-- play_until: { stage: 1, chapter: 3 }
+- play_until: { stage: 1, chapter: 4 }
   give_up_after: 36000
 - leave: true
 - wait_until: { frames: 300 }

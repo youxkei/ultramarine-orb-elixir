@@ -28,10 +28,24 @@ husky-rs = "0.4"
 
 # Not linked against: depended on for its built cdylib, whose path arrives as
 # `CARGO_CDYLIB_FILE_ORB` so the launcher can carry the DLL inside itself.
-[dependencies.orb]
+#
+# **The launcher's own target and not a named one**, which is what `"target"` means to cargo: a 32-bit
+# process cannot load a 64-bit DLL and a 64-bit one cannot load a 32-bit DLL, so the DLL this exe carries
+# has to be the architecture the exe is — th06 and th07 are 32-bit games and th06c is a 64-bit one, and
+# each is reached by the build of orb that matches. Pinned to `i686-pc-windows-gnu` instead, a 64-bit
+# launcher carried the 32-bit DLL and the injection ended at `LoadLibraryW returned NULL`.
+# One per architecture rather than `target = "target"`, which cargo takes in build-dependencies and
+# refuses here: only the table whose `cfg` matches the launcher's own target is read, so the exe is handed
+# the DLL of its own architecture either way.
+[target.'cfg(target_arch = "x86")'.dependencies.orb]
 path = "../orb"
 artifact = "cdylib"
 target = "i686-pc-windows-gnu"
+
+[target.'cfg(target_arch = "x86_64")'.dependencies.orb]
+path = "../orb"
+artifact = "cdylib"
+target = "x86_64-pc-windows-gnu"
 
 [dependencies.windows-sys]
 workspace = true

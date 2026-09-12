@@ -598,6 +598,15 @@ impl Win for Sim {
         self.windows.monitor_now()
     }
 
+    /// The one monitor a laid-out host has, which is what [`Windows::set_monitor`] declares.
+    ///
+    /// **Which of several is the leftmost is settled above the seam** — see
+    /// `orb_core::window::the_leftmost_of` and its own tests — so declaring two here would be a second
+    /// place saying the same thing, and one that could disagree with it.
+    fn monitors(&self) -> Vec<Rect> {
+        self.windows.monitor_now().into_iter().collect()
+    }
+
     fn adjust_window_rect(&self, area: Rect, style: u32, _menu: bool) -> Option<Rect> {
         Some(self.windows.adjust(area, style))
     }
@@ -627,6 +636,12 @@ impl Win for Sim {
 
     fn client_rect(&self, window: Hwnd) -> Option<Rect> {
         self.windows.client(window)
+    }
+
+    /// Where the window was asked for, which for a laid-out host is where it is: nothing here moves a
+    /// window after it is made, so what orb asked for is what a read of it answers.
+    fn window_rect(&self, window: Hwnd) -> Option<Rect> {
+        self.windows.asked_for(window)
     }
 
     fn keyboard_state(&self) -> Option<[u8; 256]> {

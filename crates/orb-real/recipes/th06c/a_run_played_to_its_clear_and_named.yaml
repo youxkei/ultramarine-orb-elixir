@@ -1,0 +1,73 @@
+# **A Normal run of Reimu's first shot, played out by the rules and registered under ORB.**
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the game
+# manager's state: 1 is the logo, 2 the title, 6 goes by on its own, 7 the difficulty, 9 the shot select and
+# 11 a stage. `docs/th06c/asm.md` has where each was read.
+#
+# **Six frames a press, because these menus repeat a held key** rather than taking one edge from it: a launch
+# whose presses were thirty frames long moved two screens on one press and came out Lunatic three times
+# running. Thirty is what th06 1.02h and th07 want.
+#
+# **And each screen waited for and pressed at exactly once.** A press with an `until` presses again on the
+# frame its condition becomes true, and at a front end that press lands on the next screen — so only the two
+# steps that *aim* at an item are taps, and each aims within a screen it is already on.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+# **The difficulty, waited for past the screen that goes by on its own**, and aimed at Normal — item 1.
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+# **Reimu's first shot**: what it fires follows what it is fired at, so what the rules have to get right is
+# the dodging and not the aim.
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+# **And the shot select, which is screen 11 — the number a stage has.** A press in the moment that screen
+# arrives is swallowed, so this waits before pressing and presses twice; a press at a stage of this game does
+# nothing, so the second is free.
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+- wait_until: { frames: 120 }
+# **The whole run in one step, ending at the entry the game asks a name into and not at the run's end.**
+#
+# **Because the run's end is past that entry.** It opens while the game manager's state is still a stage's —
+# after the last boss and after the ending, with the field empty — so a step that waited for the run to be
+# over would be waiting for the entry to have gone. And every frame in between is a frame the rules are asked
+# for a word on, and the word they hold is the shot: that writes whichever character the entry's cursor
+# starts on, eight times over, which is the `AAAAAAAA` every clear of this game registered before this.
+- play_until: { name: true }
+  give_up_after: 216000
+# **The name written into that entry rather than pressed for**, its cursor walking a grid of 96 characters
+# where a `decide` writes the one it is on. Nothing is pressed while this waits.
+- name: ORB
+  give_up_after: 1800
+# One press to leave the entry, which the step above left on the item that ends it.
+- press: [decide]
+  frames: 6
+- wait_until: { frames: 300 }
+- quit: true

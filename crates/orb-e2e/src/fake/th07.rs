@@ -2084,13 +2084,19 @@ impl Fake {
             if let Some(left) = self.roll_updates.get().filter(|left| *left > 0) {
                 self.roll_updates.set(Some(left - 1));
                 if left == 1 {
-                    // **A cleared run's roll hands over to the screen its own end arrives on**, which is
-                    // where the offer to save a replay of it is and so where orb asks about its own — see
-                    // [`Fake::enters_the_ending`]. A roll an e2e test laid out goes to the front end, that
-                    // test being about the roll rather than about what a run leaves behind.
+                    // **A cleared run's roll hands over to the screen its own end arrives on**, in that
+                    // screen's own first phase — see [`Fake::enters_the_ending`]. A roll an e2e test laid out
+                    // goes to the front end, that test being about the roll rather than about what a run
+                    // leaves behind.
+                    //
+                    // **And not to the offer of a replay, which is a phase along from it.** That phase is
+                    // where the name a ranking is registered under is typed — `Th07::types_its_name` refuses
+                    // any other — and `RESULT_FROM_A_RUN` and `RESULT_TYPING_A_NAME` are the same `0xa`, so
+                    // offering the replay in the same update wrote over the one phase a name can be typed in.
+                    // What reaches the offer is the decide the recipe presses there, which is
+                    // [`Fake::walks_the_screen_a_run_ends_at`].
                     if self.cleared.replace(false) {
                         self.the_run_ends_at_its_own_screen();
-                        self.the_screen_offers_a_replay();
                     } else {
                         self.image.the_front_end_is_up();
                     }

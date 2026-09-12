@@ -8,6 +8,7 @@
 //!   frames: 30
 //! - start_over: true
 //! - take_hits: { chance: 0.2, times_each_retry: 0.5 }
+//! - name: ORB
 //! - leave: true
 //! - wait_until: { question: resume }
 //! - quit: true
@@ -169,6 +170,24 @@ pub enum Step {
         item: usize,
         give_up_after: Option<u32>,
     },
+    /// **The name a run's ranking is registered under, typed into the game's own entry.**
+    ///
+    /// **Which a press cannot do.** That entry is a grid of characters with a cursor of its own, and a
+    /// `decide` at it writes whatever character the cursor happens to be on and moves to the next place
+    /// in the name — so a step that taps `decide` until the screen goes away registers eight of the
+    /// letter the cursor started on, and `AAAAAAAA` is what every clear a recipe played was ranked as.
+    /// Walking the grid instead is thirty-odd presses a name, each of them blind: the cursor is the
+    /// screen's own and not the one an `until` can wait for.
+    ///
+    /// So the name is written where the screen's own keys write it and the entry left on its end item,
+    /// which leaves one press to finish it — see `Game::types_its_name`.
+    ///
+    /// It waits for that entry the way a `wait_until` waits for a screen, and takes a bound for the same
+    /// reason: a run that ends some other way never reaches one.
+    Name {
+        typed: String,
+        give_up_after: Option<u32>,
+    },
 }
 
 /// What a `play` or a `wait` is waiting for: one of these and never two.
@@ -193,6 +212,19 @@ pub enum Until {
     /// walking into stage practice put the difficulty on Lunatic that way — the 3 it was waiting for was the
     /// difficulty's fourth item and not the stage's.
     Where { screen: i32, cursor: i32 },
+    /// **Or that screen being up, whatever its cursor is on**, which is what a step *waiting* for one wants:
+    /// an item is what an aim needs and a wait needs the screen.
+    ///
+    /// **And a walk of a front end cannot be written without it.** Which screen a launch is on when a recipe
+    /// reaches a step is not always the same screen: th06c comes up in a demo whose length is the replay's,
+    /// so the title arrives before some launches' first step and long after others'. A recipe that presses
+    /// blind then walks a different list every launch — three launches written that way started Lunatic
+    /// instead of Normal, the press meant for the demo having chosen the title's first item — where a step
+    /// per screen waits for the screen it is about to press at and is over the frame that screen is up.
+    ///
+    /// The cursor is no use for that: it is one field whatever screen is up, and where it sits on a screen
+    /// nobody has pressed at is whatever the game's own score file remembered.
+    Screen(i32),
     /// **A boss being up**, which is what the part of a stage before one ends at.
     ///
     /// Practising that part was a thing this grammar could not say: bounded by a count of frames instead, a run
@@ -206,6 +238,12 @@ pub enum Until {
     /// takes presses, so a conversation is up for a handful of frames and shots at hundred-frame intervals
     /// through a midsection walked either side of it.
     Dialogue,
+    /// **The game's own name entry being up**, which is the one thing a `play` step otherwise runs straight
+    /// past: the entry opens inside the scene a run is played in and the run's own end is past it, so a step
+    /// that waited for the run to be over would be waiting for the entry to have gone. Every frame in between
+    /// is one the rules are asked for a word on, and the word they hold is a shot — which types whichever
+    /// character the entry's cursor starts on, eight times over. See `Game::typing_a_name`.
+    Name,
     /// **A spell card running**, which is the frames the plate its name is on is drawn over.
     ///
     /// Named this way rather than by the chapter it falls in: which chapter of a stage is a card is the game's
@@ -250,6 +288,8 @@ struct Written {
     take_hits: Option<WrittenHits>,
     /// And an item of one of orb's own questions, taken outright — see [`Step::Answer`].
     answer: Option<WrittenAnswer>,
+    /// And the name a run's ranking is registered under — see [`Step::Name`].
+    name: Option<String>,
 }
 
 /// The question a step answers and which of its items.
@@ -301,6 +341,7 @@ struct WrittenUntil {
     dialogue: Option<bool>,
     card: Option<bool>,
     card_name: Option<bool>,
+    name: Option<bool>,
     frames: Option<u32>,
 }
 
@@ -311,7 +352,7 @@ impl WrittenUntil {
     /// A list rather than four more places in the tuple below. Each of these is one field that is either `true`
     /// or absent, so an arm per combination of them grows by a factor for every condition added — and the
     /// `None`s a new one puts into every arm already there are that many chances to put one in the wrong place.
-    fn flags(&self) -> [(&'static str, Option<bool>, Until, &'static str); 4] {
+    fn flags(&self) -> [(&'static str, Option<bool>, Until, &'static str); 5] {
         [
             // **Only `true` throughout.** What a step could do with `boss: false` is wait for a fight to be
             // over, and a fight ends by the stage ending — which is a stage and a chapter to wait for and
@@ -340,6 +381,12 @@ impl WrittenUntil {
                 self.card_name,
                 Until::CardName,
                 "most of a card, and a card is a card running to wait for",
+            ),
+            (
+                "name",
+                self.name,
+                Until::Name,
+                "the run being over, which is what a play step ends at anyway",
             ),
         ]
     }
@@ -380,6 +427,7 @@ impl WrittenUntil {
             (None, None, None, Some(screen), Some(cursor), None) => {
                 Ok(Until::Where { screen, cursor })
             }
+            (None, None, None, Some(screen), None, None) => Ok(Until::Screen(screen)),
             (None, None, None, None, Some(cursor), None) => Ok(Until::Cursor(cursor)),
             (None, None, None, None, None, Some(0)) => {
                 Err(format!("step {at} is over before it starts"))
@@ -431,6 +479,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => match frames {
                 None => return Err(format!("step {at} presses without saying for how long")),
                 Some(0) => return Err(format!("step {at} is over before it starts")),
@@ -454,6 +503,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => Step::Play {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -471,6 +521,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => Step::Wait {
                 until: until.read(at)?,
                 give_up_after: gives_up(*give_up_after, at)?,
@@ -488,6 +539,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => Step::Leave,
             Written {
                 press: None,
@@ -502,6 +554,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => Step::Quit,
             Written {
                 press: None,
@@ -516,6 +569,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: None,
+                name: None,
             } => match named.trim() {
                 "" => return Err(format!("step {at} asks for a picture of nothing")),
                 named => Step::Screenshot {
@@ -538,6 +592,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: Some(true),
                 take_hits: None,
                 answer: None,
+                name: None,
             } => Step::StartOver,
             Written {
                 press: None,
@@ -552,6 +607,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: Some(hits),
                 answer: None,
+                name: None,
             } => Step::TakeHits {
                 chance: a_chance("a chance", hits.chance, at)?,
                 // **Nothing said is a chance that does not change** — see [`WrittenHits`].
@@ -575,6 +631,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 start_over: None,
                 take_hits: None,
                 answer: Some(answer),
+                name: None,
             } => match answer.question.trim() {
                 "" => return Err(format!("step {at} answers a question with no name")),
                 question => Step::Answer {
@@ -582,6 +639,27 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                     // **Nothing said is the first item**, which is what a press would have taken: a step
                     // that names no item is a step asking for the answer pressing would give.
                     item: answer.item.unwrap_or(0),
+                    give_up_after: gives_up(*give_up_after, at)?,
+                },
+            },
+            Written {
+                press: None,
+                frames: None,
+                until: None,
+                give_up_after,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                answer: None,
+                name: Some(typed),
+            } => match typed.trim() {
+                "" => return Err(format!("step {at} types a name of nothing")),
+                typed => Step::Name {
+                    typed: typed.to_owned(),
                     give_up_after: gives_up(*give_up_after, at)?,
                 },
             },
@@ -598,7 +676,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             _ => {
                 return Err(format!(
                     "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a take_hits, an answer, a leave or a quit, and one of those and not two"
+                     a take_hits, an answer, a name, a leave or a quit, and one of those and not two"
                 ));
             }
         };
@@ -685,6 +763,32 @@ mod tests {
     #[test]
     fn a_picture_wants_a_name() {
         assert!(read("- screenshot: \"  \"\n").is_err());
+    }
+
+    /// **The name a run's ranking is registered under is a step of its own**, and it takes a bound the
+    /// way anything waiting for a screen does.
+    #[test]
+    fn a_step_can_type_the_name_a_ranking_is_registered_under() {
+        assert_eq!(
+            read("- name: ORB\n- name: A B\n  give_up_after: 600\n"),
+            Ok(vec![
+                Step::Name {
+                    typed: "ORB".to_owned(),
+                    give_up_after: None,
+                },
+                Step::Name {
+                    typed: "A B".to_owned(),
+                    give_up_after: Some(600),
+                },
+            ]),
+        );
+    }
+
+    /// And a name of nothing is refused: a ranking under a field of spaces is the ranking the entry came
+    /// up holding, which is what naming one is instead of.
+    #[test]
+    fn a_name_wants_characters() {
+        assert!(read("- name: \"   \"\n").is_err());
     }
 
     /// **The run asked to start over is a step of its own**, and what it answers with is a press at orb's
@@ -819,8 +923,19 @@ mod tests {
                 give_up_after: None,
             }]),
         );
-        // The screen alone names no item, so it is not an `until` of its own.
-        assert!(read("- press: [down]\n  until: { screen: 11 }\n").is_err());
+    }
+
+    /// **And the screen on its own is a step waiting for that screen**, whatever its cursor is on — which
+    /// is what a walk of a front end whose screens do not always arrive in the same order needs.
+    #[test]
+    fn a_step_can_wait_for_a_screen_whatever_its_cursor_is_on() {
+        assert_eq!(
+            read("- wait_until: { screen: 6 }\n  give_up_after: 900\n"),
+            Ok(vec![Step::Wait {
+                until: Until::Screen(6),
+                give_up_after: Some(900),
+            }]),
+        );
     }
 
     /// **A step can say how long it is worth waiting through**, which is what stops a recipe holding a launch

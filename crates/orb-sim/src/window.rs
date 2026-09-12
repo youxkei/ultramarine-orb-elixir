@@ -287,6 +287,17 @@ impl Windows {
             .map(|made| made.client)
     }
 
+    /// And the whole rectangle it was asked for, frame included — which is where it is, nothing here
+    /// moving a window after it was made.
+    pub fn asked_for(&self, window: Hwnd) -> Option<Rect> {
+        self.made
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|made| made.handle == window)
+            .map(|made| made.asked)
+    }
+
     /// Every window this host has been asked to make, in the order it was asked — which is how an
     /// e2e test says that one was made and that nothing came before it to flash on the screen.
     pub fn made(&self) -> Vec<Made> {

@@ -96,17 +96,44 @@ unsafe extern "system" fn report(exception: *mut EXCEPTION_POINTERS) -> i32 {
         touching,
         // The registers as the fault left them, out of the context the filter is handed: the whole reason
         // this runs in the process rather than being read out of a dump afterwards.
+        // **Named by the 32-bit registers on either architecture**, which is what the eight fields of
+        // [`Registers`] are: a fault in a 64-bit game is read off `Rax` and the rest, and what a
+        // reader of the log wants of one is the same eight values under the same eight names.
         registers: unsafe { (*exception).ContextRecord.as_ref() }.map_or_else(
             Registers::default,
-            |context| Registers {
-                eax: context.Eax as usize,
-                ebx: context.Ebx as usize,
-                ecx: context.Ecx as usize,
-                edx: context.Edx as usize,
-                esi: context.Esi as usize,
-                edi: context.Edi as usize,
-                esp: context.Esp as usize,
-                ebp: context.Ebp as usize,
+            |context| {
+                #[cfg(target_arch = "x86")]
+                let (a, b, c, d, si, di, sp, bp) = (
+                    context.Eax,
+                    context.Ebx,
+                    context.Ecx,
+                    context.Edx,
+                    context.Esi,
+                    context.Edi,
+                    context.Esp,
+                    context.Ebp,
+                );
+                #[cfg(target_arch = "x86_64")]
+                let (a, b, c, d, si, di, sp, bp) = (
+                    context.Rax,
+                    context.Rbx,
+                    context.Rcx,
+                    context.Rdx,
+                    context.Rsi,
+                    context.Rdi,
+                    context.Rsp,
+                    context.Rbp,
+                );
+                Registers {
+                    eax: a as usize,
+                    ebx: b as usize,
+                    ecx: c as usize,
+                    edx: d as usize,
+                    esi: si as usize,
+                    edi: di as usize,
+                    esp: sp as usize,
+                    ebp: bp as usize,
+                }
             },
         ),
     };

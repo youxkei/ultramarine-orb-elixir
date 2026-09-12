@@ -1,5 +1,5 @@
-//! **Where the window goes while orb is playing th06 itself**: small, in the monitor's bottom-left corner,
-//! and framed as a dialog.
+//! **Where the window goes while orb is playing th06 itself**: small, in the top-left corner of the
+//! leftmost monitor, and framed as a dialog.
 //!
 //! What `the_window_a_bot_plays_in_of_th07.rs` asks of th07, asked of this game: the decision is orb's and
 //! not either game's — `--autoplay` is a run nobody is watching, played on the machine somebody is working
@@ -68,12 +68,13 @@ fn a_bots_window_over_th06_is_small_in_the_corner_and_framed_as_a_dialog() {
             "the bot was given a window the size the settings asked for:\n  {}",
             game.log().lines().join("\n  "),
         );
-        // The corner, and the frame counted in: what is asked for is the whole window, so it is its own
-        // left and bottom that sit against the monitor's.
+        // The corner, and the frame counted in: what is asked for is the whole window, caption included,
+        // so it is its own left and top that sit against the monitor's — which is what keeps the caption
+        // on the screen.
         assert_eq!(
-            (made.asked.left, made.asked.bottom),
-            (0, MONITOR.1),
-            "the bot's window is not in the monitor's bottom-left corner:\n  {}",
+            (made.asked.left, made.asked.top),
+            (0, 0),
+            "the bot's window is not in the monitor's top-left corner:\n  {}",
             game.log().lines().join("\n  "),
         );
         assert_eq!(

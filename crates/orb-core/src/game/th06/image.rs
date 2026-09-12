@@ -1765,6 +1765,23 @@ impl Image {
         space.write::<f32>(super::G_MOTION_SCALE, 1.0);
     }
 
+    /// **And the focused pair on its own**, which [`the_player_steps_by`](Self::the_player_steps_by) leaves
+    /// equal to the whole one.
+    ///
+    /// Equal is what a case about anything else wants — an answer that changed with the frame's own word
+    /// would be an answer about the word — and a case about the focus key itself wants them apart: what the
+    /// rules do with that key is choose between two projections, and two projections made of one pair are
+    /// the same projection.
+    pub fn the_player_steps_by_focused(&self, straight: f32, diagonal: f32) {
+        let space = self.space();
+        for (of, speed) in [
+            (super::player::SPEED_STRAIGHT_FOCUSED, straight),
+            (super::player::SPEED_DIAGONAL_FOCUSED, diagonal),
+        ] {
+            space.write::<f32>(super::G_PLAYER + of, speed);
+        }
+    }
+
     /// A bullet in one of its manager's own slots, live and where its update would leave it: where it is,
     /// what it moves by every frame, and **the size the hit test is given** — no two kinds of bullet having
     /// the same one.
@@ -1929,7 +1946,23 @@ impl Image {
         space.write::<f32>(laser + manager::LASER_FAR, along.1);
         space.write::<f32>(laser + manager::LASER_WIDTH, width);
         space.write::<f32>(laser + manager::LASER_GROWS, 0.0);
+        space.write::<i32>(laser + manager::LASER_PHASE_FRAMES, 0);
         space.write::<f32>(super::G_MOTION_SCALE, 1.0);
+    }
+
+    /// **And that beam one frame on, fired from somewhere else** — which is a beam its boss's script is
+    /// carrying: the origin where it is now, and one more frame of the phase it is in.
+    ///
+    /// Apart from [`a_laser_is_at`](Self::a_laser_is_at) for [`the_laser_grows_by`](Self::the_laser_grows_by)'s
+    /// reason, and the frames with it because that count is what says the beam in this slot is still the same
+    /// beam — see `game::Beam::frames`.
+    pub fn the_laser_was_carried_to(&self, slot: usize, origin: (f32, f32)) {
+        use super::bullet_manager as manager;
+        let laser = super::G_BULLET_MANAGER + manager::LASERS + slot * manager::LASER_STRIDE;
+        let space = self.space();
+        self.writes_a_position(laser + manager::LASER_ORIGIN, origin.0, origin.1);
+        let frames = space.read::<i32>(laser + manager::LASER_PHASE_FRAMES);
+        space.write::<i32>(laser + manager::LASER_PHASE_FRAMES, frames + 1);
     }
 
     /// **And how much further that beam reaches every frame**, which is what a beam of this game's does while

@@ -124,7 +124,20 @@ pub struct Config {
     /// The clock paces them, no display having a blank per frame to give at four times sixty, and the
     /// music's own thread stays real time: a check of the sound is a launch of this at one. See
     /// [`crate::_frame_pacing`] — or rather `orb_core::frame::Pacing::paces_faster`, where it is divided in.
+    ///
+    /// **And for a game orb stands in no frame of, it is the game's own clock that is answered this many
+    /// times faster** — `orb_core::faster`, which is where the three clocks such a game asks the host for
+    /// are. There is no wait of orb's to shorten in a frame orb is not inside, so the same number reaches
+    /// the same place by the other road: the wait the game does itself.
     pub pace: u32,
+    /// **Say which addresses of the game's own move with the direction being pressed**, for a game
+    /// nobody has read a field of.
+    ///
+    /// What it is for is th06c, whose every address is its own: the only things orb can do in it before
+    /// anything has been read are press a key and count a frame, and this is the finding driven from
+    /// those two — see `orb_core::find`, which is where the narrowing is. Off in every ordinary launch,
+    /// a pass over nine megabytes a frame being nothing a run can afford.
+    pub find: bool,
     /// Nothing can hit the player, and a run someone is playing runs at `speed`.
     ///
     /// For reaching the ending, which nothing else can reach: the game enters one only
@@ -485,6 +498,7 @@ impl Config {
             stress_restore_frames: 0,
             speed: 1,
             pace: 1,
+            find: false,
             fast_clear: false,
             chapter_stepping: false,
             block_replay_save: false,

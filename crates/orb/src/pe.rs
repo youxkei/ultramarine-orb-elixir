@@ -9,11 +9,33 @@ use std::mem::offset_of;
 use std::ops::Range;
 
 use windows_sys::Win32::System::Diagnostics::Debug::{
-    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_NT_HEADERS32, IMAGE_SECTION_HEADER,
+    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_SECTION_HEADER,
 };
 use windows_sys::Win32::System::SystemServices::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_SIGNATURE,
 };
+
+/// **The headers of the architecture orb was built for**, which is the architecture of the module it is
+/// walking: a 32-bit process cannot load a 64-bit module or the other way about, so the exe orb is inside
+/// is always its own kind.
+///
+/// **The two differ where it matters.** `FileHeader` is the same either way and so is where
+/// `OptionalHeader` begins, which is what [`section`] reads — but the optional header itself is not, so
+/// the data directory [`import_slot`] needs sits at a different offset in each. Read as a PE32 in a
+/// PE32+, `DataDirectory` answers with whatever is beyond the array's end: th06c's import table was
+/// reported as *not importing* `DialogBoxIndirectParamW`, `GetProcAddress` and every other name it does
+/// import, so the dialog stood and the keyboard read stayed the game's.
+#[cfg(target_arch = "x86")]
+use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS32 as NtHeaders;
+#[cfg(target_arch = "x86_64")]
+use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS64 as NtHeaders;
+
+/// One entry of either of the import table's two arrays — the names and the addresses the loader writes
+/// over them — which is a pointer's width in the image being walked.
+#[cfg(target_arch = "x86")]
+type Thunk = u32;
+#[cfg(target_arch = "x86_64")]
+type Thunk = u64;
 
 /// `IMAGE_IMPORT_DESCRIPTOR`, spelled out because the Windows definition wraps
 /// its first field in a union that says nothing useful here.
@@ -26,7 +48,8 @@ struct ImportDescriptor {
     first_thunk: u32,
 }
 
-const ORDINAL_FLAG: u32 = 0x8000_0000;
+/// The top bit of a thunk, which says the entry names an ordinal rather than pointing at a name.
+const ORDINAL_FLAG: Thunk = 1 << (Thunk::BITS - 1);
 
 /// # Safety
 /// `module` must be the base address of a module mapped into this process.
@@ -34,7 +57,7 @@ pub unsafe fn section(module: usize, name: &[u8; 8]) -> Option<Range<usize>> {
     unsafe {
         let (nt_address, nt) = headers(module)?;
         let table = nt_address
-            + offset_of!(IMAGE_NT_HEADERS32, OptionalHeader)
+            + offset_of!(NtHeaders, OptionalHeader)
             + nt.FileHeader.SizeOfOptionalHeader as usize;
         let table = table as *const IMAGE_SECTION_HEADER;
         (0..nt.FileHeader.NumberOfSections as usize).find_map(|index| {
@@ -69,8 +92,8 @@ pub unsafe fn import_slot(module: usize, dll: &str, function: &str) -> Option<us
                     0 => (*descriptor).first_thunk,
                     thunk => thunk,
                 };
-                let names = (module + names as usize) as *const u32;
-                let slots = (module + (*descriptor).first_thunk as usize) as *const u32;
+                let names = (module + names as usize) as *const Thunk;
+                let slots = (module + (*descriptor).first_thunk as usize) as *const Thunk;
                 for index in 0.. {
                     let name = *names.add(index);
                     if name == 0 {
@@ -91,14 +114,14 @@ pub unsafe fn import_slot(module: usize, dll: &str, function: &str) -> Option<us
     }
 }
 
-unsafe fn headers(module: usize) -> Option<(usize, &'static IMAGE_NT_HEADERS32)> {
+unsafe fn headers(module: usize) -> Option<(usize, &'static NtHeaders)> {
     unsafe {
         let dos = &*(module as *const IMAGE_DOS_HEADER);
         if dos.e_magic != IMAGE_DOS_SIGNATURE {
             return None;
         }
         let nt_address = module + dos.e_lfanew as usize;
-        let nt = &*(nt_address as *const IMAGE_NT_HEADERS32);
+        let nt = &*(nt_address as *const NtHeaders);
         (nt.Signature == IMAGE_NT_SIGNATURE).then_some((nt_address, nt))
     }
 }

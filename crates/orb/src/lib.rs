@@ -26,12 +26,15 @@
 // table, so where a real launch patches an entry it calls the rewrite itself — and every one of those
 // rewrites is `orb-core`'s.
 mod crash;
+mod dialog;
 mod hook;
 mod joystick;
+mod lookup;
 mod memtrack;
 mod mouse;
 mod pe;
 mod score;
+mod steam;
 mod threads;
 mod window;
 
@@ -44,7 +47,7 @@ use orb_config::Config;
 // `log` carries both the module and the macro of that name — they are in different namespaces —
 // which is why every call site can say `use crate::{detail, log}` whether it lives here or in
 // `orb-core`, and go on saying it as it moves between them.
-pub(crate) use orb_core::{game, log, trace};
+pub(crate) use orb_core::{game, log, runtime, trace};
 // What a hook *does* is `orb-core`'s, and so are the statics the install lists below fill: this crate
 // installs them and calls none of them itself — see
 // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
@@ -52,12 +55,16 @@ use orb_core::runtime::{
     CARD_RECORDS_READ, CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT,
     INIT_D3D_DEVICE, PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN,
     RUN_CALC_CHAIN_TARGET, RUN_DRAW_CHAIN, RUN_DRAW_CHAIN_TARGET, SAVE_REPLAY, STAGE_BEGUN,
-    STAGE_BUILDING, STOP_RECORDING, STOPS_THE_MUSIC, TOPS_UP_THE_MUSIC, UNLOCKS_READ, attached,
-    card_records_read, create_game_window, get_controller_input, get_controller_input_in_ecx,
-    get_input, init_d3d_device, pacing, pad_buttons, ranking_read, ranking_read_in_ecx, render,
-    run_calc_chain, run_draw_chain, save_replay, stage_begun, stage_begun_in_ecx, stage_building,
-    stop_recording, stops_the_music, tops_up_the_music, unlocks_read, unlocks_read_in_ecx,
+    STAGE_BUILDING, STOP_RECORDING, UNLOCKS_READ, attached, card_records_read, create_game_window,
+    get_controller_input, get_controller_input_in_ecx, get_input, init_d3d_device, pacing,
+    pad_buttons, ranking_read, ranking_read_in_ecx, render, run_calc_chain, run_draw_chain,
+    save_replay, stage_begun, stage_begun_in_ecx, stage_building, stop_recording, unlocks_read,
+    unlocks_read_in_ecx,
 };
+// The music's own two, which are the 32-bit games' — a `__thiscall` is an x86 calling convention and
+// the hook that stands in front of one is that architecture's too. See `orb_core::runtime::Originals`.
+#[cfg(target_arch = "x86")]
+use orb_core::runtime::{STOPS_THE_MUSIC, TOPS_UP_THE_MUSIC, stops_the_music, tops_up_the_music};
 use windows_sys::Win32::Foundation::{BOOL, HANDLE, TRUE};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -165,6 +172,10 @@ fn attach() {
     // however the rest of the attach goes — see [`GAME`].
     unsafe { *GAME.get() = Some(known.game) };
     let game = known.game;
+    // And where its exe turned out to be, before a single address of it is read: a game built with ASLR
+    // on is one whose addresses are written against a base the loader was free to refuse. See
+    // `Game::set_image_base`.
+    game.set_image_base(exe);
     unsafe { pacing() }.configure();
 
     let mut config = match Config::load_beside(&exe_path) {
@@ -198,7 +209,14 @@ fn attach() {
     // through, so a launch of the real game never runs a line of it.
     unsafe { pacing() }.paces_faster(config.pace);
 
-    if config.track_memory {
+    // **And only where a run of this game can be rewound at all**, which is the whole of what the two
+    // installations below are for: what they watch is the memory and the threads a chapter's snapshot has
+    // to put back, and a game orb takes no snapshot of has nothing for them to watch. A `return` on the
+    // failure is right for a game that does — a launch that would rewind against half a reading is worse
+    // than one that does not start — and for th06c it ended the attach before the keyboard read was
+    // hooked: that exe is linked against the UCRT, whose `KERNEL32.dll` import list has no `HeapCreate`
+    // in it, so the install cannot find the entry it patches. See `Game::rewinds`.
+    if config.track_memory && game.rewinds() {
         match unsafe { memtrack::install(exe) } {
             Ok(()) => {
                 log!("memory hooks installed");
@@ -245,24 +263,69 @@ fn attach() {
     // Remembered before the patches are consumed: orb's own frame loop calls the
     // game's chain functions at these addresses, which is what keeps its hooks in
     // the path.
-    RUN_CALC_CHAIN_TARGET.store(patches.update.target, Ordering::Relaxed);
-    RUN_DRAW_CHAIN_TARGET.store(patches.draw.target, Ordering::Relaxed);
+    //
+    // **Or its own two hooks, for a game that handed the walks over.** Nothing of that game's calls
+    // either walk — the frame that did is orb's — so there is no prologue to be in the path of, and what
+    // the loop calls is the hook with the handed-over walk behind it. The same wiring
+    // `orb_core::runtime::attach_to` leaves for a game that is not a real process, and for the same
+    // reason. See `orb_core::game::Walks`.
+    match &patches.walks {
+        Some(walks) => {
+            RUN_CALC_CHAIN_TARGET.store(hook::address(run_calc_chain as _), Ordering::Relaxed);
+            RUN_CALC_CHAIN.store(walks.update, Ordering::Relaxed);
+            RUN_DRAW_CHAIN_TARGET.store(hook::address(run_draw_chain as _), Ordering::Relaxed);
+            RUN_DRAW_CHAIN.store(walks.draw, Ordering::Relaxed);
+        }
+        None => {
+            RUN_CALC_CHAIN_TARGET.store(
+                patches.update.as_ref().map_or(0, |patch| patch.target),
+                Ordering::Relaxed,
+            );
+            RUN_DRAW_CHAIN_TARGET.store(
+                patches.draw.as_ref().map_or(0, |patch| patch.target),
+                Ordering::Relaxed,
+            );
+        }
+    }
+    // **And whether what `--pace` speeds up is the game's own clock**, which is the case a game orb has
+    // no frame hook in: `frame::Pacing` asks for the next frame sooner from inside the frame, and for a
+    // game whose frames are its own there is nothing in there to shorten — th06c waits on a clock it
+    // asks the host for, and a launch of it at `--pace=2` ran at the game's own rate before this. Taken
+    // here because the patches are consumed below. See `orb_core::faster`.
+    // **Through the frame where there is a frame to run and through the clocks where there is not.**
+    // Running the game's own frame more than once is orb deciding how much of a run goes by in one of
+    // them, which is pacing; answering the clocks moves the whole of it, the sound and the drawing with
+    // it, and is what a game orb has no seam in the frame of has instead.
+    // **And a frame loop of orb's own is a frame loop whichever way the game handed it over**, the two
+    // walks being that as much as the two patches: `Pacing::paces_faster` above is what `--pace` does
+    // there, and the game's own clock is not wanted on top of it. **Answering the clocks for such a game
+    // is worse than useless**: the game then ticks twice for every word the rules are asked for, so half
+    // of its frames are played blind, which is what two runs of th06c at `--pace=2` were doing while they
+    // took twelve hits.
+    let its_own_loop = patches.update.is_some() || patches.walks.is_some();
+    let faster = config.pace > 1 && !its_own_loop;
+    if faster {
+        unsafe { orb_core::faster::runs_at(config.pace) };
+    }
     // And the two it calls in the game rather than reaching through a hook.
     let calls = game.frame_calls();
     PLAY_SOUNDS.store(calls.play_sounds);
     PRESENT.store(calls.present);
 
     let mut hooks = Vec::new();
-    if config.frame_hooks {
+    // Where the game has them at all: a game orb has not been read far enough into to stand inside its
+    // frame names neither, and what it gets is the hooks below that it does name — see
+    // `orb_core::game::Hooks::update`.
+    if let (true, Some(update), Some(draw)) = (config.frame_hooks, patches.update, patches.draw) {
         hooks.push((
             "update",
-            patches.update,
+            update,
             hook::address(run_calc_chain as _),
             &RUN_CALC_CHAIN,
         ));
         hooks.push((
             "draw",
-            patches.draw,
+            draw,
             hook::address(run_draw_chain as _),
             &RUN_DRAW_CHAIN,
         ));
@@ -273,15 +336,90 @@ fn attach() {
         }
         _ => {}
     }
+    // The name the game asks for its keyboard read by, where it asks for one: taken here and installed
+    // below with the window's, one entry answering both.
+    let mut looked_up_read = None;
     match patches.input {
         // Two things want this one. Keeping the game updating with the window in the background
         // means the keys have to be dropped there, since the keyboard is read globally rather
         // than per window; and a run that can be picked up again is a run whose buttons are
         // written down here and handed back here.
-        Some(patch) if config.frame_hooks => {
+        Some(game::Read::Code(patch)) if config.frame_hooks => {
             hooks.push(("input", patch, hook::address(get_input as _), &GET_INPUT));
         }
+        // **And a pointer written where the game keeps its own read**, for a game that looked that
+        // read up rather than calling it from its own code: no jump, no prologue, and what was
+        // there is what orb calls through — see `orb_core::game::Read`.
+        // **And the lookup of a read, for a game that asks for its own by name.** No code patched and
+        // no address of the game's: orb answers the ask and the game writes orb's pointer into its own
+        // table itself — see `orb_core::game::Read::LookedUp`, which has why the table is the wrong
+        // place to write.
+        Some(game::Read::LookedUp(looked_up)) if config.frame_hooks => {
+            looked_up_read = Some(looked_up.name);
+        }
         _ => {}
+    }
+    // **And the window's own making and moving, for a game that looks those up too** — one installation
+    // for all of them, there being one `GetProcAddress` entry whatever is answered through it. Only where
+    // the launch plays itself: what orb does with those two is put the window in a corner and hold it
+    // there, and a window somebody plays in is the settings'. See
+    // `orb_core::game::Hooks::makes_its_window`.
+    let plays_itself = config.autoplay.is_some();
+    let looked_up = runtime::Lookups {
+        read: looked_up_read,
+        // And the pad, which is how a run of a game like this is played at all — see
+        // `orb_core::game::Hooks::reads_a_pad`. Only where the launch plays itself: a pad somebody is
+        // holding is theirs, and orb answering the read would take it away from them.
+        pad: patches
+            .reads_a_pad
+            .filter(|_| config.autoplay.is_some())
+            .map(|looked_up| looked_up.name),
+        window_made: patches
+            .makes_its_window
+            .filter(|_| plays_itself)
+            .map(|looked_up| looked_up.name),
+        window_moved: patches
+            .moves_its_window
+            .filter(|_| plays_itself)
+            .map(|looked_up| looked_up.name),
+        // **And the clocks, for a game orb paces no frame of.** `--pace` shortens the wait between one
+        // frame and the next from inside the frame, and a game orb is not inside waits on its own — so
+        // what that number does here is scale the clock the game does the waiting by. Named without
+        // asking the game, these being the host's own names: a game that imports its clock rather than
+        // asking for it is one no answer of orb's reaches, and nothing is patched on its behalf. See
+        // `orb_core::faster`.
+        millis: faster.then_some("timeGetTime"),
+        ticks: faster.then_some("GetTickCount"),
+        counter: faster.then_some("QueryPerformanceCounter"),
+        // **And the renderer, where the frame is orb's own**: what that answer is for is the present,
+        // and the present is only orb's to make from inside a loop of orb's — see
+        // `orb_core::game::Hooks::makes_its_renderer`.
+        renderer: patches
+            .makes_its_renderer
+            .filter(|_| its_own_loop)
+            .map(|looked_up| looked_up.name),
+    };
+    let names: Vec<&str> = [
+        looked_up.read,
+        looked_up.pad,
+        looked_up.window_made,
+        looked_up.window_moved,
+        looked_up.millis,
+        looked_up.ticks,
+        looked_up.counter,
+        looked_up.renderer,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !names.is_empty() {
+        match unsafe { lookup::install(exe, looked_up) } {
+            Ok(()) => log!(
+                "hook: the game's own lookup of {} is answered by orb",
+                names.join(", "),
+            ),
+            Err(error) => log!("hook: {error}; every name the game looks up is the host's own"),
+        }
     }
     match patches.stage_begun {
         // Whatever mode the launch starts in, since the mode is answered per run: this is the
@@ -322,6 +460,7 @@ fn attach() {
     // **Installed whatever the launch is for**, unlike the two above: what it says is what the game is
     // feeding its music buffer, which is as much a question of a launch with no chapters in it — and the
     // lines are at the verbose level, so a launch that is not being read pays a comparison per refill.
+    #[cfg(target_arch = "x86")]
     if let Some(patch) = patches.tops_up_the_music {
         hooks.push((
             "music refill",
@@ -332,6 +471,7 @@ fn attach() {
     }
     // And the stop that ends it, for the same reason and at every launch: what a log has to be able to say is
     // where a silence began, and this is the one call that makes one.
+    #[cfg(target_arch = "x86")]
     if let Some(patch) = patches.stops_the_music {
         hooks.push((
             "music stop",
@@ -409,6 +549,27 @@ fn attach() {
     // only keeps the slot. A launch nobody asked to play itself installs nothing and reads its keyboard.
     if let Some(recipe) = &config.autoplay {
         unsafe { orb_bot::install(recipe, game) };
+        // **And Steam taken out of the launch**, for a game sold through it: a run the machine played is
+        // not a run anybody played, so it puts no playtime on somebody's account, unlocks nothing and
+        // hands Steam no save to sync — and it needs no client running to start at all. Only where the
+        // launch plays itself; a game somebody is playing is theirs to have counted. See `steam`.
+        match unsafe { steam::install(exe) } {
+            Ok(()) => log!("steam: this launch reaches Steam not at all"),
+            Err(error) => log!("steam: {error}; this launch is Steam's own"),
+        }
+        // And the dialog the game puts up before it starts anything, where it puts one up: a recipe's
+        // first step cannot be pressed at a game that is still asking which window to make. Only for a
+        // launch that plays itself — a person at the keyboard is who the dialog is *for* — which is what
+        // puts it here rather than beside the rest of the installations.
+        if let Some(answer) = patches.startup_dialog {
+            match unsafe { dialog::install(exe, answer.clicks) } {
+                Ok(()) => log!(
+                    "dialog: the game's own startup dialog will be answered with {:?}",
+                    answer.clicks,
+                ),
+                Err(error) => log!("dialog: {error}; the game's own startup dialog stands"),
+            }
+        }
     }
     // And the pointer over that window, where the settings ask for it: a window is where Windows draws
     // one, and nothing in the game is played with the mouse. Left out rather than installed and idle

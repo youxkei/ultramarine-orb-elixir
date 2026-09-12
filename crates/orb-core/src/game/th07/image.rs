@@ -1614,6 +1614,22 @@ impl Image {
         space.write::<i32>(laser + super::LASER_LIVE_AT, 0);
     }
 
+    /// **And that beam one frame on, pointing somewhere else** — which is a beam its boss's script is turning:
+    /// the angle where it points now, and one more frame on its own count.
+    ///
+    /// The count goes with the angle because it is what says the beam in this slot is still the same beam —
+    /// see `game::Beam::frames`. A script that turns a beam leaves nothing else to tell it from the next beam
+    /// to be given that slot, and the turn is read as the difference between two frames' angles, so a beam
+    /// whose count stands still is a beam nothing can be read off.
+    pub fn the_laser_was_turned_to(&self, slot: usize, angle: f32) {
+        let laser = super::G_LASERS + slot * super::LASER_BYTES;
+        let space = self.space();
+        space.write::<f32>(laser + super::LASER_ANGLE, angle);
+        let count = space.read::<i32>(laser + super::LASER_TIMER);
+        space.write::<i32>(laser + super::LASER_TIMER, count + 1);
+        space.write::<i32>(laser + super::LASER_LIVE_AT, count + 1);
+    }
+
     /// And a slot whose aliveness word is nought while its geometry stands, which is what a slot the game's own
     /// walk skips looks like — and what a dump asking whether anything is being skipped has to be given.
     pub fn the_laser_slot_is_not_alive(&self, slot: usize) {

@@ -26,7 +26,7 @@ use orb_api::{Bar, Hresult, Hwnd, Rect};
 use orb_config::Screen;
 
 use crate::sync::MainThread;
-use crate::{log, profile};
+use crate::{detail, log, profile};
 
 /// All a borderless window needs. Anything else — caption, frame, system menu — is what puts a border on
 /// it.
@@ -126,6 +126,229 @@ pub type CreateWindowExA = unsafe extern "system" fn(
 /// laid out by hand handed over in place of it.
 static CREATE_WINDOW_EX_A: AtomicUsize = AtomicUsize::new(0);
 
+/// And the wide one, for a game that asks the host for it by name rather than importing either — see
+/// [`create_window_ex_w`] and `game::Hooks::makes_its_window`.
+static CREATE_WINDOW_EX_W: AtomicUsize = AtomicUsize::new(0);
+
+/// The same twelve arguments with the two strings wide, which is the whole difference between the two
+/// calls.
+#[allow(clippy::type_complexity)]
+pub type CreateWindowExW = unsafe extern "system" fn(
+    u32,
+    *const u16,
+    *const u16,
+    u32,
+    i32,
+    i32,
+    i32,
+    i32,
+    *mut c_void,
+    *mut c_void,
+    *mut c_void,
+    *const c_void,
+) -> *mut c_void;
+
+/// **Makes the window a launch that plays itself gets in [`the_leftmost_of`]'s corner, framed as a
+/// dialog and kept off the taskbar** — the corner and the frame of [`placed_out_of_the_way`], which is
+/// what the game whose `CreateWindowExA` is written over gets the whole of.
+///
+/// **[`DIALOG_EX_STYLE`] for the reason it is there at all**: a window a bot plays in that the window
+/// manager treats as an ordinary one is a window in the way — in the taskbar, in alt-tab, and taking a
+/// turn at being focused.
+///
+/// **But not the size, because this game's drawing is not orb's to lay out.** It presents through a
+/// swapchain of its own, built for the window it asked for, and orb has no hold on that present: a
+/// client of [`OUT_OF_THE_WAY_CLIENT`] clips the game rather than making it small, and the launch that
+/// asked for one lost the corner as well — its window measured back in the middle of the primary
+/// monitor at the swapchain's own size. So the size and the style are what the game's own startup
+/// dialog was told, and `game::Dialog` is where the smallest window it offers is chosen.
+///
+/// **And nothing at all for a launch somebody plays**, which is the other thing this does differently: a
+/// game that looks this call up has had no [`settle`] run for it — the installation that one is part of
+/// needs an import table — so there is no ratio, no screen and no letterbox settled, and a window laid
+/// out against them would be laid out against nothing.
+///
+/// **Top-level windows only.** A child is placed in its parent's own coordinates, where the desktop's
+/// corner means nothing at all.
+///
+/// # Safety
+/// The arguments are `CreateWindowExW`'s own, and [`answers_the_window_made`] must have run first.
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "system" fn create_window_ex_w(
+    ex_style: u32,
+    class_name: *const u16,
+    window_name: *const u16,
+    style: u32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    parent: *mut c_void,
+    menu: *mut c_void,
+    instance: *mut c_void,
+    param: *const c_void,
+) -> *mut c_void {
+    let original: CreateWindowExW =
+        unsafe { std::mem::transmute(CREATE_WINDOW_EX_W.load(Ordering::Relaxed)) };
+    let corner = (unsafe { *OUT_OF_THE_WAY.get() } && parent.is_null())
+        .then(|| the_leftmost_of(&orb_api::window::monitors()))
+        .flatten();
+    let (into_x, into_y) = match corner {
+        Some(monitor) => (monitor.left, monitor.top),
+        None => (x, y),
+    };
+    let window = unsafe {
+        original(
+            // Added to the game's own rather than written over it, the same as the other rewrite.
+            ex_style | corner.map_or(0, |_| DIALOG_EX_STYLE),
+            class_name,
+            window_name,
+            style,
+            into_x,
+            into_y,
+            width,
+            height,
+            parent,
+            menu,
+            instance,
+            param,
+        )
+    };
+    if !window.is_null() && corner.is_some() {
+        // Remembered so that [`keeps_its_corner`] has a window to put back, whatever moves it.
+        PLAYED_IN.store(window as usize, Ordering::Relaxed);
+        log!(
+            "screen: the window orb plays in is at {into_x},{into_y} sized {width}x{height}, \
+             which is the size the game asked for",
+        );
+    }
+    window
+}
+
+/// The game's own `MoveWindow`, which it calls through — or the whole of it in a bot's launch.
+static MOVE_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// `BOOL MoveWindow(HWND, int x, int y, int cx, int cy, BOOL repaint)`.
+pub type MoveWindow = unsafe extern "system" fn(*mut c_void, i32, i32, i32, i32, i32) -> i32;
+
+/// **Holds the window orb plays in in its corner**, for a game that moves its own afterwards — and
+/// leaves the size it is asking for alone.
+///
+/// **The corner and not the size, which is measured rather than chosen.** th06c's own move asks for
+/// that same corner and a bigger window: it is applying the resolution its dialog was told, and its
+/// swapchain is that size. A launch that answered the size too was measured with its window back in the
+/// middle of the primary monitor at the swapchain's own size — the size is DXGI's to enforce, and
+/// fighting it costs the corner as well.
+///
+/// **A launch nobody asked to play itself is moved exactly as it asked.**
+///
+/// # Safety
+/// The arguments are `MoveWindow`'s own, and [`answers_the_window_moved`] must have run first.
+pub unsafe extern "system" fn move_window(
+    window: *mut c_void,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    repaint: i32,
+) -> i32 {
+    let original: MoveWindow = unsafe { std::mem::transmute(MOVE_WINDOW.load(Ordering::Relaxed)) };
+    let corner = unsafe { *OUT_OF_THE_WAY.get() }
+        .then(|| the_leftmost_of(&orb_api::window::monitors()))
+        .flatten();
+    let (into_x, into_y) = match corner {
+        Some(monitor) => (monitor.left, monitor.top),
+        None => (x, y),
+    };
+    if corner.is_some() && (into_x, into_y) != (x, y) {
+        detail!(
+            "screen: the game moved its window to {x},{y}; it goes to {into_x},{into_y} instead"
+        );
+    }
+    unsafe { original(window, into_x, into_y, width, height, repaint) }
+}
+
+/// Says which function [`move_window`] calls through.
+///
+/// # Safety
+/// Must run before the game has moved its window.
+pub unsafe fn answers_the_window_moved(original: usize) {
+    MOVE_WINDOW.store(original, Ordering::Relaxed);
+}
+
+/// The window a game that looks its own creation up was given, so that [`keeps_its_corner`] has one to
+/// put back.
+static PLAYED_IN: AtomicUsize = AtomicUsize::new(0);
+
+/// **Puts the window orb plays in back in its corner where something has moved it**, asked once a frame.
+///
+/// **Because answering the calls is not enough.** A window made in the corner at the game's own size,
+/// with th06c's own `MoveWindow` answered and both of its `SetWindowPos` calls carrying `SWP_NOMOVE`,
+/// was still measured in the middle of the primary monitor — the mover is something else again, and
+/// `SetWindowPos` is in the names that exe looks up as well as in its import table. So this stops asking
+/// who moved it: what orb decided is where the window is put back to, whoever moved it and however.
+///
+/// Nothing where no launch is playing the game itself, where no such window was made, or where the host
+/// gave orb no `MoveWindow` to put it back with.
+///
+/// # Safety
+/// Must run on the thread the game's window belongs to.
+pub unsafe fn keeps_its_corner() {
+    if !unsafe { *OUT_OF_THE_WAY.get() } {
+        return;
+    }
+    let window = PLAYED_IN.load(Ordering::Relaxed);
+    let putting_back = MOVE_WINDOW.load(Ordering::Relaxed);
+    if window == 0 || putting_back == 0 {
+        return;
+    }
+    let Some(corner) = the_leftmost_of(&orb_api::window::monitors()) else {
+        return;
+    };
+    let Some(is_at) = orb_api::window::window_rect(Hwnd(window)) else {
+        return;
+    };
+    // **The corner and not the size**, for [`create_window_ex_w`]'s reason: the size is the game's own
+    // and a smaller one clips what it draws. Where the corner is already right there is nothing to do,
+    // which is every frame but the few something moved it on.
+    if (is_at.left, is_at.top) == (corner.left, corner.top) {
+        return;
+    }
+    detail!(
+        "screen: the window orb plays in is at {},{}; putting it back to {},{}",
+        is_at.left,
+        is_at.top,
+        corner.left,
+        corner.top,
+    );
+    let original: MoveWindow = unsafe { std::mem::transmute(putting_back) };
+    unsafe {
+        original(
+            window as *mut c_void,
+            corner.left,
+            corner.top,
+            is_at.width(),
+            is_at.height(),
+            1,
+        )
+    };
+}
+
+/// Says which function [`create_window_ex_w`] calls through, and whether this launch is one orb plays
+/// the game in.
+///
+/// **That second thing is said here and not by [`settle`]**, which is the other place it is said: a game
+/// that looks its window creation up is a game whose `RegisterClassA` is not in an import table either,
+/// so the installation `settle` is part of never runs. What a launch like that settles is the corner and
+/// nothing else — there is no size, no ratio and no letterbox for it to be laying out.
+///
+/// # Safety
+/// Must run before the game has made its window.
+pub unsafe fn answers_the_window_made(original: usize, out_of_the_way: bool) {
+    CREATE_WINDOW_EX_W.store(original, Ordering::Relaxed);
+    unsafe { *OUT_OF_THE_WAY.get() = out_of_the_way };
+}
+
 /// Says which function [`create_window_ex_a`] calls through, and settles the window it is to make.
 ///
 /// What `orb::window::install` does above this and a laid-out game cannot is patch an import table — so
@@ -176,9 +399,18 @@ pub unsafe extern "system" fn create_window_ex_a(
         unsafe { std::mem::transmute(CREATE_WINDOW_EX_A.load(Ordering::Relaxed)) };
     // The class first, so a window that is not the game's is not the reason the monitor was read: the
     // game makes others, and orb leaves those the size they asked for.
-    let monitor = unsafe { is_game_class(class_name) }
-        .then(orb_api::window::primary_monitor)
-        .flatten();
+    //
+    // **And which monitor depends on which window this is to be.** A window somebody plays in goes on the
+    // primary monitor, which is the one the settings are about; a window orb plays in goes into the corner
+    // of the leftmost, which is where a run nobody is watching belongs — see [`placed_out_of_the_way`].
+    let monitor = unsafe { is_game_class(class_name) }.then(|| {
+        if unsafe { *OUT_OF_THE_WAY.get() } {
+            the_leftmost_of(&orb_api::window::monitors())
+        } else {
+            orb_api::window::primary_monitor()
+        }
+    });
+    let monitor = monitor.flatten();
     let Some(monitor) = monitor else {
         return unsafe {
             original(
@@ -662,15 +894,19 @@ pub const DIALOG_EX_STYLE: u32 = 0x0000_0001 | 0x0000_0080;
 /// corner of somebody's screen and big enough to see what the bot is doing to the run.
 const OUT_OF_THE_WAY_CLIENT: (i32, i32) = (320, 240);
 
-/// **Where a window orb plays the game in goes**: that client, in the monitor's bottom-left corner, framed
-/// as a dialog and kept off the taskbar.
+/// **Where a window orb plays the game in goes**: that client, in the monitor's top-left corner, framed as
+/// a dialog and kept off the taskbar.
 ///
 /// Whatever the settings say, and that is the point: `Config::autoplay` is a run nobody is watching, played
 /// on the machine somebody is working on. Fullscreen there would be orb taking the screen for a run that is
 /// not theirs.
 ///
-/// Against the corner rather than inset from it: a window whose caption is off the top of the screen cannot
-/// be moved back on — see [`centred`] — and a bottom-left corner has that trouble nowhere.
+/// **Against the corner rather than inset from it**, which the top-left corner allows and the middle of the
+/// screen does not: a window placed by its client area's own corner has its caption above that corner, and
+/// a caption off the top of the screen cannot be dragged back on — see [`centred`]. The rectangle asked for
+/// here is the whole window, frame and caption included, so the caption is on the screen.
+///
+/// Which monitor's corner is [`the_leftmost_of`]'s.
 pub fn placed_out_of_the_way(monitor: Rect) -> Placed {
     let client = Rect::sized(OUT_OF_THE_WAY_CLIENT.0, OUT_OF_THE_WAY_CLIENT.1);
     // A failure leaves the rectangle as the client area, which is a window a frame too small rather than no
@@ -681,11 +917,27 @@ pub fn placed_out_of_the_way(monitor: Rect) -> Placed {
         ex_style: DIALOG_EX_STYLE,
         area: Rect {
             left: monitor.left,
-            top: monitor.bottom - area.height(),
+            top: monitor.top,
             right: monitor.left + area.width(),
-            bottom: monitor.bottom,
+            bottom: monitor.top + area.height(),
         },
     }
+}
+
+/// **The monitor furthest to the left of the desktop**, which is the one a window orb plays in goes into the
+/// corner of — the leftmost by how the monitors are arranged and not by which the game came up on, since
+/// that is what somebody looking at their own screens means by *the left*.
+///
+/// **The topmost of the leftmost where two share an edge.** Two monitors stacked one above the other have
+/// the same `left`, and a corner of the desktop is one place: the upper of them is the one that holds it.
+///
+/// `None` where the host names no monitor, which leaves the window as the game made it — the same answer
+/// `primary_monitor` answering nothing gets.
+pub fn the_leftmost_of(monitors: &[Rect]) -> Option<Rect> {
+    monitors
+        .iter()
+        .min_by_key(|monitor| (monitor.left, monitor.top))
+        .copied()
 }
 
 /// Where the game's window goes.
@@ -760,11 +1012,51 @@ pub fn fit(client: Rect, content: (u32, u32)) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{centred, fit};
+    use super::{centred, fit, the_leftmost_of};
     use orb_api::Rect;
 
     fn client(width: i32, height: i32) -> Rect {
         Rect::sized(width, height)
+    }
+
+    fn monitor(left: i32, top: i32, width: i32, height: i32) -> Rect {
+        Rect {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+        }
+    }
+
+    /// **The leftmost monitor is the leftmost of the arrangement**, which for a monitor to the left of the
+    /// primary one is a negative `left` and not the first the host happened to name.
+    #[test]
+    fn the_window_orb_plays_in_goes_on_the_leftmost_monitor() {
+        let primary = monitor(0, 0, 1920, 1080);
+        let to_the_right = monitor(1920, 0, 2560, 1440);
+        let to_the_left = monitor(-2560, -200, 2560, 1440);
+        assert_eq!(
+            the_leftmost_of(&[primary, to_the_right, to_the_left]),
+            Some(to_the_left),
+        );
+        assert_eq!(the_leftmost_of(&[primary, to_the_right]), Some(primary));
+        assert_eq!(the_leftmost_of(&[primary]), Some(primary));
+    }
+
+    /// And the upper of two that share that edge, a corner of the desktop being one place.
+    #[test]
+    fn two_monitors_stacked_on_the_left_edge_are_answered_by_the_upper_one() {
+        let lower = monitor(-1920, 1080, 1920, 1080);
+        let upper = monitor(-1920, 0, 1920, 1080);
+        assert_eq!(the_leftmost_of(&[lower, upper]), Some(upper));
+        assert_eq!(the_leftmost_of(&[upper, lower]), Some(upper));
+    }
+
+    /// And a host that names no monitor at all is answered with none, which leaves the window as the game
+    /// made it.
+    #[test]
+    fn a_desktop_with_no_monitors_is_answered_with_none() {
+        assert_eq!(the_leftmost_of(&[]), None);
     }
 
     /// A window goes in the middle of the monitor it is on, which for a second monitor is not

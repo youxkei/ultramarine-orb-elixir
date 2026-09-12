@@ -62,8 +62,8 @@ use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
 use crate::audio::{Music, Track};
 use crate::game::{
-    Boundary, Call, Entered, Face, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Reading,
-    Rect, RunStart, State,
+    Boundary, Call, Entered, Face, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Read,
+    Reading, Rect, RunStart, State,
 };
 use crate::{detail, log};
 
@@ -1712,6 +1712,16 @@ const RESULT_PHASE: usize = 0x08;
 /// to the end. One name in six of them and the same name less a letter in the seventh.
 const RESULT_NAME: usize = 0xbfaf;
 const RESULT_NAME_BYTES: usize = 8;
+/// **The phase that entry is up in**, which is the one a name may be written in — and not the kind below,
+/// which is the same number for another field.
+const RESULT_TYPING_A_NAME: i32 = 0xa;
+/// **Which character of the grid the cursor is on**, and how many of the name have been typed.
+const RESULT_CURSOR: usize = 0x20;
+const RESULT_TYPED: usize = 0x10;
+/// **The item that ends the entry**, past the grid's own space item: `0x446f94` leaves the typing for any
+/// cursor past `0x5e`, and `0x446ff6` is where the game itself puts the cursor once eight have been typed
+/// — the same numbers and the same order as th06 1.02h's, read off this exe at those two addresses.
+const RESULT_THE_END_ITEM: i32 = 0x5f;
 const RESULT_FROM_A_RUN: i32 = 0xa;
 const RESULT_FROM_A_PRACTICE_RUN: i32 = 0x12;
 /// And the phase the other way in leaves: the ranking asked for from the front end, which 0x44a38d writes.
@@ -2421,6 +2431,25 @@ impl Th07 {
         mem::read_committed::<usize>(elem + CHAIN_ARGUMENT).filter(|it| *it != 0)
     }
 
+    /// **The screen a name is being typed into, or nothing where none is** — the result screen while the
+    /// scene is the one a run ends in and that screen's own phase is [`RESULT_TYPING_A_NAME`].
+    ///
+    /// **The phase as well as the screen, so that the ranking the *Score* item opens answers nothing**: that
+    /// is the same object with no run behind it, and a name written there would be one nobody's run was
+    /// ranked under.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn the_entry_a_name_is_typed_into() -> Option<usize> {
+        let scene: i32 = unsafe { mem::read(G_SUPERVISOR + SUPERVISOR_SCENE) };
+        if scene != SCENE_RUN_OVER {
+            return None;
+        }
+        let screen = unsafe { Self::chain_argument(RESULT_UPDATE) }?;
+        (mem::read_committed::<i32>(screen + RESULT_PHASE) == Some(RESULT_TYPING_A_NAME))
+            .then_some(screen)
+    }
+
     /// And the element itself, in the list at `head`: [`G_CHAIN`] for the one the update is walked from and
     /// [`CHAIN_DRAW_LIST`] past it for the drawing's.
     ///
@@ -2750,14 +2779,19 @@ impl Game for Th07 {
     /// than a gap: the replay write and the recording's own teardown are declined beside `save_replay` below.
     fn hooks(&self) -> Hooks {
         Hooks {
-            update: Patch {
+            update: Some(Patch {
                 target: RUN_CALC_CHAIN,
                 prologue: RUN_CHAIN_PROLOGUE,
-            },
-            draw: Patch {
+            }),
+            draw: Some(Patch {
                 target: RUN_DRAW_CHAIN,
                 prologue: RUN_CHAIN_PROLOGUE,
-            },
+            }),
+            // Nothing: this game has a function for each of its two walks and the patches above are
+            // how orb's loop reaches them.
+            walks: None,
+            // Nothing: orb is inside this game's frame, and the two above are it.
+            runs_its_frame: None,
             // orb's own cadence, and a frame of input lag gone with it. What this replaces is
             // [`RENDER`], and what the two seams either side of the draw chain are for is the rest of
             // what that frame does — see [`Th07::begin_drawing`] and
@@ -2841,10 +2875,10 @@ impl Game for Th07 {
             // being `GetKeyboardState` and so answering what somebody typed at whatever is in front, see
             // [`Th07::acquire_input`] — and a run whose buttons are written down here is a run that can be
             // picked up again, which is what `stage_frame` and `run_input` above answer for. See [`INPUT_READ`].
-            input: Some(Patch {
+            input: Some(Read::Code(Patch {
                 target: INPUT_READ,
                 prologue: INPUT_READ_PROLOGUE,
-            }),
+            })),
             // The pad half of that read, which is orb's: every pad the machine has, in place of the one
             // device the game looks for and the one winmm joystick it falls back to. Not called through —
             // see [`GET_CONTROLLER_INPUT`].
@@ -2870,6 +2904,18 @@ impl Game for Th07 {
                 target: GET_PAD_BUTTONS,
                 prologue: GET_PAD_BUTTONS_PROLOGUE,
             }),
+            // And no dialog of its own to get past: what th07 has instead is a screen inside the game,
+            // reached from its own title menu.
+            startup_dialog: None,
+            // Nor a window it looks the making of up, the same as th06: `CreateWindowExA` is imported,
+            // and the window stays where it was made.
+            makes_its_window: None,
+            moves_its_window: None,
+            // Nor a pad read, the same as th06: its own is stood in front of and answered with a word.
+            reads_a_pad: None,
+            // Nothing: this game's present is an address `Th07::frame_calls` carries, its renderer
+            // being Direct3D 8's and made before orb could answer anything about it.
+            makes_its_renderer: None,
         }
     }
 
@@ -4150,6 +4196,10 @@ impl Game for Th07 {
         unsafe { mem::write::<u16>(G_INPUT_READ, u16::MAX) };
     }
 
+    /// Nothing: this game's own read is a word and orb answers it with one — see [`INPUT_READ`] and
+    /// `Game::press_into`, whose whole doc this is.
+    unsafe fn press_into(&self, _state: *mut u8, _word: u16) {}
+
     /// The two masks the game's own front end reads a press and a back out of — see [`MENU_DECIDE`].
     fn menu_decide(&self) -> u16 {
         MENU_DECIDE
@@ -4223,6 +4273,32 @@ impl Game for Th07 {
         }
         let screen = unsafe { Self::chain_argument(RESULT_UPDATE) }?;
         crate::game::the_name_held_at(screen + RESULT_NAME, RESULT_NAME_BYTES)
+    }
+
+    /// **Into the field the entry's own keys write**, with its cursor left on the item that ends it and the
+    /// count of characters typed at the full eight — which is the state this screen puts itself in once
+    /// somebody has typed eight, so the press after it leaves the entry the way theirs would.
+    ///
+    /// **Only in the phase that entry is up in**, and not in the one the *Score* item's ranking builds in
+    /// or the ones that offer a replay: the field is the same field in every phase of this screen, and a
+    /// name written in another of them is one no press of the entry's would have written.
+    unsafe fn types_its_name(&self, name: &str) -> bool {
+        let Some(screen) = (unsafe { Self::the_entry_a_name_is_typed_into() }) else {
+            return false;
+        };
+        if !crate::game::the_name_typed_into(screen + RESULT_NAME, RESULT_NAME_BYTES, name) {
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(screen + RESULT_TYPED, RESULT_NAME_BYTES as i32);
+            mem::write::<i32>(screen + RESULT_CURSOR, RESULT_THE_END_ITEM);
+        }
+        true
+    }
+
+    /// Whether that entry is up at all — see [`Th07::the_entry_a_name_is_typed_into`].
+    unsafe fn typing_a_name(&self) -> bool {
+        unsafe { Self::the_entry_a_name_is_typed_into() }.is_some()
     }
 
     /// The frames the stage has run for, which is the manager's own count — and only while a stage is one of

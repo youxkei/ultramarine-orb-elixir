@@ -9,8 +9,10 @@
 //!
 //! - the shot held, let go for one frame in every [`SHOT_LET_GO_EVERY`] so that a screen waiting for a press
 //!   gets one, and the skip key while a dialogue is up
-//! - the bomb the frame the player is hit, which is a deathbomb — [`Frame::hit`] stands for the window the game
-//!   counts down, and a bomb inside it is a death taken back
+//! - the bomb the frame the player is hit and on no other frame at all, which is a deathbomb —
+//!   [`Frame::hit`] stands for the window the game counts down, and a bomb inside it is a death taken back.
+//!   A bomb spent before a hit buys nothing that one does and takes the stock the window needs, which is
+//!   said against the record of the frames it used to be spent on
 //! - **the nearest to where it wants to be, of the nine moves nothing will be at.** Holding each one is
 //!   followed [`LOOK_AHEAD`] frames out, against every bullet's own step and every body where it stands, and a
 //!   move whose path comes within [`ROOM_TO_SPARE`] of one of them is not taken. A body is in that because it is
@@ -52,6 +54,27 @@ use crate::hits::Hazards;
 /// the last frame it can see, so the room ran out on the very frame the trouble was picked for. Four hits in one
 /// session were that arithmetic — a run reached `222,432` with the emptiest box at `328` and was carried back to
 /// `118,432`, since at the clamp there is no downwards and three of [`WAYS`] are the wall.
+///
+/// **And a count of the fire by depth was written to choose this instead of fixing it, and taken out
+/// again.** The ground from [`the_band`]'s top to here cut into three rows, the fire coming into the
+/// player's own column counted by the row it arrives in, a shallower row wanted where the deep line held
+/// clearly more of it — [`clearly_fuller`]'s own bar, so that one bullet moved nothing, and
+/// `a_bullets_own_size_is_part_of_what_a_hit_is` and `a_chapter_drawn_to_be_hit_in_is_not_dodged_in` are
+/// the two frames that set that bar and the gate that only what is above the player counts.
+///
+/// **It fires, and the attempt with it in was worse.** One th06c Extra attempt moved the wait `1,161`
+/// times and was hit five times, four of them outside the band where three of five had been — one at
+/// `49.3,16.0`, the very top of the field, where the worst before it was `192`; and the floor stayed where
+/// it was, `8.0,432.0` being that attempt's first hit. **One attempt against one attempt is inside the
+/// noise**, though, which a later pair measured: an attempt whose only change was a rule that then never
+/// fired was hit six times against a four, so the spread on one build is at least `4` to `7`. What holds
+/// this out is the arithmetic rather than that count — it moves the wait *shallower*, `368` to `331` on
+/// that game's field, leaving `37` units between the wait and the band's own top where there were `74`, so
+/// a climb out of the band is half as long to make.
+///
+/// **Which bounds the wanting the way the nine's own ranking is bounded.** Deeper is the clamp, shallower
+/// is the band's top, and this sits between them: the hits are dodges ending at one end or the other, and
+/// where a dodge goes is not what the wanting decides.
 const ABOVE_THE_BOTTOM: f32 = 64.0;
 
 /// And how far in from either side edge the x the rules want is held, in the same units and for the same
@@ -89,6 +112,12 @@ const THE_BAND: f32 = 1.0 / 3.0;
 ///
 /// Two, which is more than the largest margin a hit has been taken on and half of one unfocused step — so a
 /// lane the player can actually use is still a lane.
+///
+/// **And one of the things that projection was out by has since been named**: the player was projected where it
+/// stands against a hazard a step on — see [`THE_NEXT_FRAME_AND_LOOK_AHEAD`] — which credits a move with a
+/// whole step of room the frame does not have. Whether this can come down now that the two are paired is a run
+/// nobody has made, and it is worth making: a slack larger than it needs to be is a lane a dense pattern leaves
+/// that the rules read as shut, and th06c's Extra boss puts 207 bullets and eight beams up at once.
 const ROOM_TO_SPARE: f32 = 2.0;
 
 /// How many frames of holding a move are looked at before it is chosen.
@@ -104,7 +133,44 @@ const ROOM_TO_SPARE: f32 = 2.0;
 /// and over, 30 hits at one chapter. Twelve is those eight and room to pick a direction in rather than having
 /// to move the frame the bullet appears; past that a bullet's own step stops describing where it goes, and
 /// nothing here reads what turns one.
-const LOOK_AHEAD: usize = 12;
+///
+/// **And it is [`THE_FRAMES_AHEAD`] now, which is the only thing that has moved where a run is hit.** A move
+/// clear for ten frames of thirteen is one that window cannot tell a dead end from a way through, and
+/// th06c's Extra boss lays arms across the band that leave the three upward moves and nothing else: the frame
+/// one attempt left the band on, dumped at `76.3,292.2`, has `left` clear for ten of the thirteen and hit on
+/// the eleventh. Counting the hits outside [`the_band`] or at the clamp against every hit an attempt took,
+/// two attempts a build: **`16` of twenty-one at twelve frames, over every other build of one session,
+/// against `19` of forty-one at forty over five attempts** — and the hits it leaves inside are at the
+/// waiting line rather than above the band — `342.3,367.4`,
+/// `330.3,368.9`, `306.3,366.5`. The judgement those attempts were made against is an attempt with none
+/// outside, and no attempt of either walk has reached it.
+///
+/// **What it changes besides is which branch the ranking spends its frames in.** A move is hit where its room
+/// falls under [`ROOM_TO_SPARE`] on any frame looked at, and over forty frames of a dense screen something
+/// always arrives: a hit at `8.0,421.7` has standing still `hit first on 16` with `1.2 of room`, where the
+/// same frame at thirteen had a way out. So the branch where every one of the nine is hit becomes the
+/// ordinary branch, and that is the branch [`where_to_be`]'s answer reaches only as a tie-break.
+///
+/// **And that is where the walk's gain comes from, which asking the three tiers of the first thirteen frames
+/// instead is what measured.** [`Judged::clear`] over that window and the room it is reported with over the
+/// same one — the two have to agree, or a move called open carries the margin of a frame thirty out — puts
+/// every tier back where it was measured, and the run is worse for it: two Extra attempts took `5` hits
+/// outside [`the_band`] or at the clamp of eight apiece, `10` of sixteen, against `12` of twenty-six for the
+/// three attempts that asked the tiers of the whole walk. So the lengthening is not a longer look with the
+/// old judgement behind it; the collapse of the three tiers into the last of them **is** the change, and the
+/// order inside that branch — `first()`, then the hit count, then sideways and the room — is what a run of
+/// this fight is now steered by.
+///
+/// **And what it cost to get here was two readings and a recipe's own window.** [`Judged::on`] was a `u32`
+/// and the walk it holds a bit per frame of was thirteen, so forty shifted past the end of the mask —
+/// silently in a release build, and the first launch of this was measured on a judgement whose thirty-third
+/// frame read as its first. `the_fine_step_is_taken_where_the_whole_one_finds_nothing_open` is a ring that
+/// has to surround the player inside the play field, which the waiting line leaves `64` of room beneath.
+/// And `orb-real`'s `a_death_answered_by_the_chapter_again` ends at the chapter after the one its death falls
+/// in, which is a thing of how well the rules play: a longer walk chooses a different nearest thing to be hit
+/// by and carried the laid-out game's death from its second chapter to its third. The frame's own time is not
+/// among the costs — a launch reads `on screen from 1648us to 4669us` against `1394us to 3555us` at twelve.
+const LOOK_AHEAD: usize = THE_FRAMES_AHEAD - 1;
 
 /// **What the rules made of a frame**: the d-pad to press, whether the step must not be halved, the room the
 /// move chosen was left with where it was clear, and whether it is a move towards something to collect rather
@@ -119,6 +185,54 @@ struct Steered {
     room: Option<f32>,
     for_an_item: bool,
     at: (f32, f32),
+    /// **And half the player's own box**, which is the other half of every comparison the nine moves are judged
+    /// by: a hit reported beside a hazard's own half says what that hazard covered and not what the thing it hit
+    /// covers, so a box read too small is a run hit with room to spare on every line of its dump and nothing in
+    /// them to say so.
+    half: (f32, f32),
+    /// **Whether the move it chose is hit at all inside the frames looked at**, which — the move chosen
+    /// being the best of the nine — is nothing being open to it.
+    ///
+    /// **And its own next frame left less room than [`ROOM_A_BOMB_IS_OWED_AT`]**: those are the two
+    /// halves of *cornered*.
+    ///
+    /// **Not an overlap, and not the slack either.** Nought of room on the next frame was tried and is
+    /// too late — th06c's Extra boss took a run's first hit on a frame with three bombs in hand,
+    /// `nowhere open to it` on all nine moves and the best of them `0.1 of room` on its own next frame,
+    /// a tenth of a unit and a bomb never spent. [`ROOM_TO_SPARE`] was tried next and is too eager, for
+    /// the reason and with the numbers that constant's own doc has.
+    ///
+    /// **Which is what the record of such a frame is for, and it is held apart by [`BOMBS_APART`] rather
+    /// than by being rare.**
+    /// Two narrower readings were tried and each was too late: the frame the boxes already overlap on is
+    /// a frame the game's own test has run on, and three frames of warning did not save a player with
+    /// seven bullets inside sixteen of it, each of them falling two a frame. **And the wider one spent the
+    /// run's three bombs in its first two stages**, where a run has three for the whole of it and no more
+    /// until a death: `nowhere open to it` alone is the judgement's own pessimism, two units of slack over
+    /// thirteen frames, and stage 1 of Normal is full of frames that read that way and are nothing.
+    ///
+    /// **The next frame's own room and not the least of the thirteen**, which was the reading between
+    /// those two and is why a stage 5 run was hit with two bombs in hand: every one of the nine moves was
+    /// hit and the best of them read `0.1 of room`, that `0.1` being some frame ten ahead — while the
+    /// move's own next frame overlapped by `0.03`, which is the hit. A box eleven frames out is a box
+    /// eleven more frames of choosing can still be moved out of the way of.
+    hit_at_once: bool,
+    /// **And how much room that move had there**, which is what says whether the frame really was lost —
+    /// see the line such a frame writes, and [`ROOM_TO_SPARE`], which is the slack a *clear* move is judged
+    /// with rather than a hit.
+    next_frame: f32,
+    /// **And the step the twelve frames were projected with**, which is the other half of *where* they were
+    /// projected to.
+    ///
+    /// **Because a hit with four of room is either that step or nothing.** Six dumps of one Extra run and two
+    /// of a Lunatic one hold the same shape: a bullet four to one side of the player and seven above it,
+    /// falling faster than the player's own diagonal, and the diagonal away from it judged clear for all
+    /// twelve frames. That judgement comes out of the arithmetic only with the *unfocused* step — 2.83 a
+    /// frame against the bullet's 2.9, which keeps the gap — and the hit comes out of it only with the
+    /// focused one, 1.41, which loses 1.49 a frame and closes seven in five. So the two numbers are the
+    /// question, and `Game::what_a_bot_sees` answers them off the focus bit of the word the run *last* acted
+    /// on.
+    step: ((f32, f32), (f32, f32)),
     /// **And where the rules wanted to be**, which is the one thing the boxes beside a hit cannot settle: a box
     /// climbing from nought to a hundred and eighty while the bot stands in it is either a rule that never fired
     /// or something else wanted more, and those are different repairs.
@@ -132,6 +246,8 @@ struct Steered {
     held: [Option<Held>; HELD],
     /// How many were within reach, which is not how many of them fit in [`Steered::held`].
     held_all: u32,
+    /// **And every beam as the judgement read it** — see [`HELD_BEAMS`].
+    beams: [Option<Beam>; HELD_BEAMS],
     /// **What every one of [`WAYS`] came to**, in that order, so that the move taken can be read against the
     /// ones left: the ranking is a comparison, and a hit that names only the winner says nothing about why it
     /// won. A run walked itself into the floor over fifteen frames, each step the best move of its own frame, and
@@ -199,9 +315,9 @@ struct Counted {
     lasers: u32,
     /// Of those, how many had not started hitting yet — a warning line, judged for where its beam will be.
     warnings: u32,
-    /// And how many of them are fading. Judged like any other, and worth saying because the width read for one
-    /// is the width it had while what the game is testing against by then is narrower — so a beam left too
-    /// eagerly is this number standing where the room should be.
+    /// And how many of them are fading. Judged like any other, and worth saying because what a game takes down
+    /// while a beam goes out is that game's own — th06c's takes the length and not the width — so a beam left
+    /// too eagerly or crossed too readily is this number standing where the room should be.
     ///
     /// It was the count of lasers *skipped* for their phase, and the skip was the wrong walk's gate — see the
     /// seam's `Beam::fading`.
@@ -210,11 +326,38 @@ struct Counted {
     /// enough to be a beam a script is sweeping — see [`a_sweep`].
     swept: u32,
     sweeping: Option<f32>,
+    /// **And the widest of those disagreements, as what the bullet moved against what it said it would.**
+    ///
+    /// **Which is the one thing the count cannot say and the whole of what to do about it turns on.** A
+    /// count of bullets that moved otherwise is the same number whether the seam's step is out by a
+    /// factor, is being read a frame late, or describes a bullet a script re-aims — and those are three
+    /// different repairs. A launch of th06c read `189 bullet(s) no step of their own explained` out of
+    /// 189, so every one of them was feared over the box it had swept and not one was projected; what
+    /// this says is which of the three that was.
+    out_by: Option<OutBy>,
     /// And how many boxes the enemies' own trails put in, which is the beams that follow them.
     trail: u32,
     /// And the fire each box across the field was counted as holding, which is what the place to wait was chosen
     /// by — see [`the_fire_in_each_box`].
     fire: [f32; BOXES_ACROSS],
+    /// **And the frame a beam will be lying across the band in each of those boxes on**, which the fire count
+    /// has no shape for — [`THE_FRAMES_AHEAD`] for a box none of them reaches inside the window. See the loop
+    /// in [`steer`] that answers it.
+    closes: [u32; BOXES_ACROSS],
+}
+
+/// **One bullet's disagreement between what it moved and what its step said** — see [`Counted::out_by`], which
+/// keeps the widest of them.
+///
+/// **With the game's own number for the state that step was scaled by**, which is what a scale is picked by:
+/// that number is what says whether a factor is one of the game's own branches read wrongly or something no
+/// branch accounts for. th06c's five are `1.0`, `1/2`, `1/2.5`, `1/3` and `1/2`, and no ratio between two of
+/// them is the `1.4` one of its bullets moved by.
+#[derive(Clone, Copy)]
+struct OutBy {
+    moved: (f32, f32),
+    step: (f32, f32),
+    state: u16,
 }
 
 /// **What came nearest to a move**, as much of it as a log line can carry: which kind of hazard, where it was
@@ -253,6 +396,19 @@ struct Held {
     half: (f32, f32),
 }
 
+/// **How many beams the judgement's own reading of them is kept for**, which is [`Held`]'s reason applied to
+/// the one hazard [`Held`] cannot carry: a beam is a place rather than a point, so it is never *within reach*
+/// of the player and never held.
+///
+/// **And what the walk beside a hit shows is not what the judgement had.** A launch of th06c on Extra was hit
+/// with `0.1 of room`, the nearest beam `12.0` across in the judgement and `12.0` wide in the walk that
+/// followed — half of which is `6.0`. Two different repairs read the same: a width measured wrong, or a beam
+/// whose width, origin or very existence moved between the read and the walk. th06's own lasers arrive one a
+/// frame in a sweep, so the second is not a remote possibility, and no field of [`Steered`] told them apart.
+///
+/// Sixteen, against the nine th06c's Extra boss had up at once.
+const HELD_BEAMS: usize = 16;
+
 /// **What a move came to**: which of the frames looked at it is hit on, and the least room any of them had.
 ///
 /// The frames as a set of bits rather than a count, so that two bullets reaching the same frame is one frame
@@ -263,6 +419,7 @@ struct Held {
 /// puts a small bullet six away ahead of a large one seventeen away, when it is the large one that is one unit
 /// from a hit. Which is not only a number in the log: it is what picks between moves that are all hit, and what
 /// the log names as the hazard to look at.
+///
 /// **And which of them a beam will only be drawing its warning on**, which is a frame to be elsewhere for and
 /// not a frame that is lost. The game's own test is gated on the beam's own countdown, so a warning cannot hit
 /// anything at all — a move into one is worse than a move out of one and better than a move into a beam that is
@@ -271,9 +428,22 @@ struct Held {
 /// the beams fire.
 #[derive(Clone, Copy)]
 struct Judged {
-    on: u32,
-    warned: u32,
+    /// **A bit per frame of [`THE_NEXT_FRAME_AND_LOOK_AHEAD`], so the width is what bounds the look-ahead.**
+    /// At `u32` a walk of forty frames shifts past the end of it, which a release build does silently: the
+    /// frames past the thirty-second come back as the low ones, so a move hit on the thirty-third reads as
+    /// hit on the first. One launch was measured that way before a debug build's own overflow check said so.
+    on: u64,
+    warned: u64,
     room: f32,
+    /// **The room left on the move's own next frame**, where [`Judged::room`] is the least of all the
+    /// frames looked at.
+    ///
+    /// Kept apart because the two answer different questions: the least room over
+    /// [`THE_NEXT_FRAME_AND_LOOK_AHEAD`] frames is how tight the way out is, and *twelve* frames of it
+    /// is a way out the next eleven frames of choosing can still find — where a box that overlaps on
+    /// the next frame is a hit no later frame can decide its way out of. That one is what such a frame's
+    /// own record is of; see [`Steered::hit_at_once`].
+    next_frame: f32,
 }
 
 impl Judged {
@@ -281,6 +451,7 @@ impl Judged {
         on: 0,
         warned: 0,
         room: f32::INFINITY,
+        next_frame: f32::INFINITY,
     };
 
     fn hit(&mut self, frame: usize) {
@@ -327,6 +498,14 @@ impl Judged {
 ///
 /// **Directions and not words**, which is what moved here from the game: a word is made of that game's own bits
 /// and this is nine ways to go, the same nine in every game there is.
+///
+/// **And up before down, which is not a preference between the two.** A tie goes to whichever comes first, and
+/// down first was tried for a run of th06c's Extra that climbed out of the band and was hit there — the
+/// histories of its hits have the player at `y >= 360` for 68% of their 2,910 frames and above the band for 7%,
+/// with every hit in the 7%. It is the wrong answer twice over: the climb is made of moves that win outright and
+/// not of ties, so the order never reached it; and a tie broken downward walks the player at the wait line into
+/// the last [`ABOVE_THE_BOTTOM`] units of the field, where the clamp takes `down` away and three of these are
+/// the wall — which is the arithmetic that constant was raised for, at four hits.
 const WAYS: [(f32, f32); 9] = [
     (0.0, 0.0),
     (0.0, -1.0),
@@ -428,6 +607,22 @@ struct Before {
     settled: Settled,
     word: u16,
     open: bool,
+    /// **How many of the nine were clear on that frame**, which is what says whether the move it made was
+    /// the move it had: a climb out of [`THE_BAND`] is one thing where every other move was shut and
+    /// another where three were open and this one was nearest to where it wanted to be.
+    ///
+    /// **Which the history could not say and is the question it is kept for.** One run's hit came at
+    /// `224.2,186.5` — above the band, in the hub of two four-arm crosses — and the frames before it read
+    /// `with something open` all the way up, meaning the *chosen* move was clear and nothing more.
+    clear: u32,
+    /// **And how many of them a beam was only warning over**, which is the one thing left that can send a
+    /// move the other way from where the rules want to be.
+    ///
+    /// **Which reading the history needed and could not do.** Three of the nine frames of one Extra's climb
+    /// read `9 of the nine clear` while the word went *left* from `169,394` with the wanting at `192,368`,
+    /// and nothing in the line says whether that was a warning ranked above the wanting or a defect: the
+    /// boxes read `0, 0, 0, 0, 0` on all three, a beam being no part of the counting.
+    warned: u32,
     fire: [f32; BOXES_ACROSS],
 }
 
@@ -463,7 +658,7 @@ fn say_the_frames_before() {
     }) {
         detail!(
             "autoplay: before it, {} frame(s) back, at {:.0},{:.0} wanting {} at {:.0},{:.0}, \
-             pressing {:#05x} with {} and the boxes {}",
+             pressing {:#05x} with {} of the nine clear, {} of them only warned, and {} and the boxes {}",
             back - step,
             before.at.0,
             before.at.1,
@@ -471,6 +666,8 @@ fn say_the_frames_before() {
             before.wanted.0,
             before.wanted.1,
             before.word,
+            before.clear,
+            before.warned,
             match before.open {
                 true => "something open",
                 false => "nothing open",
@@ -511,17 +708,103 @@ struct Remembered {
     bullets: Vec<Option<Stood>>,
     /// Where each body was, and how it was moving.
     bodies: Vec<Option<Stood>>,
-    /// The angle each beam pointed at.
-    beams: Vec<Option<f32>>,
+    /// Where each beam was fired from, the angle it pointed at, and how many frames it had been in its
+    /// phase — see [`Aimed`].
+    beams: Vec<Option<Aimed>>,
 }
 
 /// What one slot held: where its thing stood, and the step or the motion it had there.
 type Stood = ((f32, f32), (f32, f32));
 
+/// **What one beam slot held**: where the beam was fired from, which way it pointed, and how many frames it
+/// had been in its phase — the third being what says the beam there now is that same beam, for the reason
+/// `game::Beam::frames` gives.
+type Aimed = ((f32, f32), f32, i32);
+
 static REMEMBERED: Mutex<Option<Remembered>> = Mutex::new(None);
+
+/// **What the frame's own call of [`steer`] read, waiting to become the row the next frame reads against.**
+///
+/// Held apart from [`REMEMBERED`] so that every call inside one frame reads the same motion — see the put at
+/// the end of `steer`, which has what publishing there cost, and [`remembers_what_the_frame_read`], which is
+/// what moves it.
+static READ_THIS_FRAME: Mutex<Option<Remembered>> = Mutex::new(None);
+
+/// Move what the frame's own call of [`steer`] read into the row the next frame reads against.
+///
+/// Nothing where this frame made no such call, which is a frame answered off [`a_tick_read_again`]: the row
+/// then stays the one that reading was made against, the world not having moved.
+fn remembers_what_the_frame_read() {
+    let read = READ_THIS_FRAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(read) = read {
+        *REMEMBERED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(read);
+    }
+}
 
 /// The frame last read out of the game, kept so that reading the next one allocates nothing.
 static SEEN: Mutex<Option<Frame>> = Mutex::new(None);
+
+/// How many of the frames these rules were asked for read a tick they had already read — see
+/// [`a_tick_read_again`], and the hit's own line, which is where it is said against [`FRAMES`].
+static AGAIN: AtomicU32 = AtomicU32::new(0);
+
+/// **What the rules decided last frame, for a frame that read the same tick over again** — or nothing where
+/// this reading is a new one.
+///
+/// **Such frames exist because the read that asks for a word is not the game's tick.** A game orb has no frame
+/// loop in is asked off its own keyboard read, and th06c makes that read as often as it gets round to it: one
+/// launch's play step was asked 62,400 times in 944.9 seconds — 66.0 a second, running from 61 to 76 as the load
+/// moved — against a game that moves its bullets sixty times a second. So about one frame in ten is the frame
+/// before it, read again.
+///
+/// **And on such a frame the model is a field of bullets standing still.** What a bullet moved is where it is
+/// now less where it was, so a tick read twice makes that nought for every one of them while each still claims
+/// a step — which is [`A_STEP_OF_ITS_OWN`]'s test for a bullet a script is moving, and a scripted bullet is
+/// feared over what it *just* moved rather than projected along its step. Feared over nothing, here. Four hits
+/// of one launch of th06c were dumped and three of them were decided on a frame like this, each saying every
+/// bullet it held was explained by no step of its own — 100 of 100, 53 of 61, 195 of 195 — with the widest of
+/// them having moved `0.00,0.00` while its step said `-4.82` down the screen.
+///
+/// **Read off the world and not off a clock of the game's**, because what is being asked is whether this
+/// reading is a new one, and the reading itself answers that: the bullets that claim a step standing exactly
+/// where they stood, and the player with them. Exact equality, these being the same bytes read twice.
+///
+/// **A field where nothing claims a step says nothing either way, and such a frame decides for itself.** There
+/// is nothing to be wrong about where nothing is moving: the same decision comes out of the same reading.
+fn a_tick_read_again(frame: &Frame) -> Option<Steered> {
+    let was = (*LAST_FRAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner))?;
+    if was.at != frame.at {
+        return None;
+    }
+    let kept = REMEMBERED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let last = kept.as_ref()?;
+    let mut claimed = 0;
+    for hazard in &frame.hazards {
+        if !matches!(hazard.kind, Kind::Bullet { .. }) {
+            continue;
+        }
+        let Some((stood, step)) = what_a_slot_held(&last.bullets, hazard.slot) else {
+            continue;
+        };
+        if step == (0.0, 0.0) {
+            continue;
+        }
+        if stood != hazard.at {
+            return None;
+        }
+        claimed += 1;
+    }
+    (claimed > 0).then_some(was)
+}
 
 /// What one row says of a slot, and nothing for a slot it does not reach.
 fn what_a_slot_held<T: Copy>(row: &[Option<T>], slot: usize) -> Option<T> {
@@ -551,6 +834,23 @@ fn turned(was: Option<f32>, angle: f32) -> f32 {
     turn - round * (turn / round).round()
 }
 
+/// How far a beam was carried since last frame, and nothing for one that was not there then.
+///
+/// **A difference and not a rate**, for the reason [`turned`] gives: what carries a beam is its boss's script,
+/// and nothing on the beam says where it is going.
+///
+/// **And a beam that is carried is the one hit th06c's Extra boss took every attempt of.** Its wide beam is
+/// fired from the boss and follows her while it charges: `114.0,58.1` one frame and `120.4,59.2` the next,
+/// `6.4` across in one frame against the player's own `4.0`. Taken as standing still it left the move the
+/// rules chose `0.0 of room` with every one of the nine hit, and the frame after it the player was inside the
+/// beam — three attempts in one launch, each of them at that beam and none of them at anything else.
+fn moved(was: Option<(f32, f32)>, (x, y): (f32, f32)) -> (f32, f32) {
+    match was {
+        Some((was_x, was_y)) => (x - was_x, y - was_y),
+        None => (0.0, 0.0),
+    }
+}
+
 /// How far what a hazard actually moved may differ from the step it claims, **or its step from the step it had
 /// last frame**, before it counts as moved by something other than itself. A hair, an ordinary bullet's movement
 /// *being* its step to the bit and its step never changing at all.
@@ -560,6 +860,82 @@ fn turned(was: Option<f32>, angle: f32) -> f32 {
 /// straight line it is then projected along is wrong by the whole of the turn twelve frames out — which is a hit
 /// reading `12.2 of room` with nothing else near, and stage 6's turning card gave three of them.
 const A_STEP_OF_ITS_OWN: f32 = 0.5;
+
+/// **The move's own next frame, and then the [`LOOK_AHEAD`] after it.**
+///
+/// **The player and the hazard are projected by the same count, because one frame moves both.** th06c
+/// advances a bullet's own position at `0x14000e0a7` and hands *that* position to the hit test at
+/// `0x14000e1c0`, and the player's job is walked ahead of the bullets' — so the frame a hit happens on
+/// is one where each has taken the same number of steps, and pairing the player where it stands with
+/// the bullet a step on credits the move with a whole step of room the frame does not have. Measured:
+/// a stage 4 hit was taken on a move judged to have `2.6` of room with a bullet stepping `2.7` a frame,
+/// and the two boxes were `6.7` apart on the axis where their halves add to `6.7` — touching, and the
+/// game's test takes that. See `docs/th06c/asm.md`.
+///
+/// **So the frame the player is standing in is not judged at all**, and nothing is lost with it: it is
+/// the frame whose test has already run, no move can change where the player already is, and the same
+/// answer for all nine moves is one that decides nothing between them.
+const THE_NEXT_FRAME_AND_LOOK_AHEAD: usize = LOOK_AHEAD + 1;
+
+/// **How little room the move chosen has left on its own next frame for the frame to count as one that
+/// was lost**, which is not [`ROOM_TO_SPARE`] and is a different question from it.
+///
+/// **Those two answer different things.** The slack is what a move has to clear a hazard by before the
+/// rules will call it clear, and it is generous on purpose: a move judged clear has to *be* clear. What
+/// this answers is whether the frame is a hit already, and a frame the rules read wrongly either way is
+/// one somebody has to be able to read back afterwards — so it wants the smallest number the projection
+/// can be trusted to, and the slack is not that number.
+///
+/// **Measured on the four bombs one th06c Extra launch spent inside Flandre's fight**, back when such a
+/// frame spent one: `1.9`, `-3.2`, `0.0` and `-3.3` of room. The three at nought or below are hits the
+/// bomb took back — the game's own test compares its edges inclusively, so nought is a hit there — and
+/// `1.9` is a frame nothing was going to touch, one bomb of four spent on the slack rather than on a
+/// corner. That launch was then hit on the corner after its last bomb, which is the reading that
+/// eventually left the bomb to the deathbomb and this number to the record.
+///
+/// Half a unit: five times the `0.1` the one hit this threshold was first set from had, and a quarter of
+/// the `1.9` a bomb was wasted at.
+const ROOM_A_BOMB_IS_OWED_AT: f32 = 0.5;
+
+/// **How long after one corner the next is worth writing down**, counted in the frames the rules are asked
+/// for.
+///
+/// **Longer than a bomb of the game's own lasts**, which is the length it was chosen for while this held a
+/// bomb apart from the next: th06's clears the screen and holds the player untouchable for a few seconds,
+/// and a second bomb pressed inside that is one spent on a screen with nothing in it. Four seconds at sixty
+/// a second. What it holds apart now is the dump, and a corner that lasts a hundred frames is one corner.
+const BOMBS_APART: u32 = 240;
+
+/// When the last corner was written down — see [`BOMBS_APART`].
+static SAID_AT: AtomicU32 = AtomicU32::new(0);
+
+/// Whether the player was above [`the_band`] on the frame before, so that a climb out of it is written down
+/// on the frame it is made and not on every frame it lasts.
+static WAS_ABOVE_THE_BAND: AtomicBool = AtomicBool::new(false);
+
+/// And when the last such climb was written down, held apart by [`BOMBS_APART`] like the corner.
+static LEFT_THE_BAND_AT: AtomicU32 = AtomicU32::new(0);
+
+/// **How many frames running nothing has been open to the move chosen, which is a place lost rather than a
+/// frame lost.**
+///
+/// **One such frame is the judgement's own pessimism and dozens of them running are not.** Nothing open means
+/// every one of the nine is inside [`ROOM_TO_SPARE`] of something somewhere in the frames looked at, and a
+/// screen of th06's stage 1 reads that way often enough to have spent a run's three bombs in two stages back
+/// when such a frame spent one — see [`Steered::hit_at_once`], which is why a single frame of it is not a
+/// stretch and is not written down as one. What it cannot see
+/// is a *stretch* of them: the player is then somewhere every move is shut from, and each of those frames was
+/// the best of its own nine, so nothing in the ranking gets it out. th06c's Extra boss took a run's second hit
+/// after `169` frames of exactly that — `wanting the emptiest box at 192,368` on every one of them, and the
+/// player at `x = 376` in the thickest box of the five the whole time.
+///
+/// A second of it, against a stretch six times that long; and one corner's record is held from the next by
+/// [`BOMBS_APART`] whichever of the two asked for it, so what this can cost a launch is one dump in four
+/// seconds.
+const SHUT_IN_FOR: u32 = 60;
+
+/// How many there have been in a row, counted from the last bomb — see [`SHUT_IN_FOR`].
+static SHUT_IN: AtomicU32 = AtomicU32::new(0);
 
 // **Nothing here is a dead zone round where it wants to be**, which the choice makes unnecessary: standing
 // still is one of the [`WAYS`] and the one a tie goes to, so the frame the player is there is a frame nothing
@@ -614,7 +990,72 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     if frame.dialogue {
         word |= keys.skip;
     }
-    let steered = steer(frame, &keys, hazards);
+    let steered = match a_tick_read_again(frame) {
+        Some(again) => {
+            AGAIN.fetch_add(1, Ordering::Relaxed);
+            again
+        }
+        None => steer(frame, &keys, hazards, false, THE_FRAMES_OWN),
+    };
+    // **And the choice made again with the step the focus key it is about to press will take**, which is the
+    // circle between the two closed rather than left open: the bit is decided from what steering answered —
+    // see [`holds_the_focus`] — and the step a frame moves by is decided by the bit, so one pass is always a
+    // projection of the other state's step on any frame that answer changes. th06c's are `4.00` and `2.83`
+    // against `2.00` and `1.41`, which is a move that covers half what it planned or twice it.
+    //
+    // **Twice at most, and the unfocused answer is what a disagreement keeps.** Where the focused pass no
+    // longer says the frame is one to hold the key on, the frame is played at the whole step it was found
+    // clear at: that is the answer both passes agree about, where taking the focused one would be pressing a
+    // key its own projection says not to.
+    let (mut steered, mut focused) = (steered, false);
+    if holds_the_focus(frame, hazards, &steered) {
+        let held = steer(frame, &keys, hazards, true, ASKED_AGAIN);
+        if holds_the_focus(frame, hazards, &held) {
+            steered = held;
+            focused = true;
+        }
+    }
+    // **And once more with the fine step where nothing at all is open**, because what a move is judged on is
+    // a *path* and not a landing: [`LOOK_AHEAD`] frames of the whole step travel `52` units and of the
+    // focused one `26`, and a path that travels less crosses less.
+    //
+    // **Measured on the fan th06c's Extra boss lays.** Nine lanes from `192,80`, their angles `0.039` rad
+    // apart and each `half_across` of `3.0` — which at the player's own radius from that origin, `266`,
+    // is `0.023` rad of lane and `4.3` units of gap between two, against a player `2.4` across. So each
+    // gap is passable and the trouble is getting *along* one: a fifty-two unit path crosses a dozen lanes
+    // and is hit on one of them, where half of it crosses six. Three bombs of one launch went on that
+    // pattern with `the model was holding 0 within reach` — no bullets at all, the lanes alone, and every
+    // one of the nine shut.
+    //
+    // **Not the landing, which the whole step already reaches finely enough**: the nine land at `0`,
+    // `±2.83` and `±4.00` across, five places inside four units, so a `4.3` gap within reach holds one of
+    // them already. It is the frames in between that the coarse step spends crossing lanes.
+    //
+    // **Asked only where the whole step found nothing**, which is what keeps it from being the halving
+    // [`holds_the_focus`] exists to refuse: a frame with room to spare is played at the step that has the
+    // ground, and a frame with none has nothing left to lose.
+    //
+    // **And taken only where it found real room and not merely something not shut.** An answer with a
+    // slack's worth of room is not an answer, and taking it reports the frame as one that had a way out:
+    // `hit_at_once` reads the room this leaves, so the frame is neither steered out of nor written down.
+    // One launch's hit was exactly that — every whole-step move shut, the fine pass answering
+    // `2.2 of room`, and the player hit on the frame after. So the same margin [`holds_the_focus`] asks
+    // for is asked here, of the step this move will actually take.
+    if !focused && steered.room.is_none() {
+        let fine = steer(frame, &keys, hazards, true, ASKED_AGAIN);
+        let enough = ROOM_TO_SPARE + frame.focused_straight.0.max(frame.focused_straight.1);
+        if fine.room.is_some_and(|room| room > enough) {
+            steered = fine;
+            focused = true;
+        }
+    }
+    if focused {
+        word |= keys.focus;
+    }
+    // **And now that every pass has been made, what the frame read becomes what the next one reads
+    // against.** Any earlier and the passes disagree about what moved — see
+    // [`remembers_what_the_frame_read`].
+    remembers_what_the_frame_read();
     // **What the rules thought of the move a hit was taken on — and it is the frame before's that they thought
     // it of.** A frame ahead is computed and a move nothing will be at is chosen, so a run that is hit at all
     // means one of three things and no others: something on the screen is not in the model, or every one of the
@@ -646,6 +1087,118 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
         said_what_took_it(game);
         orb_core::shot::wanted("hit");
     }
+    // **And the frame nothing was open on is written down and no bomb is spent on it**, which is the whole
+    // of what a bomb of these rules is for now: the one above, pressed into the window the game opens on a
+    // hit it has already registered, and that one only.
+    //
+    // **Because a bomb spent before the hit buys nothing the deathbomb does not.** Both clear the screen
+    // and both make the player untouchable while they do; what the earlier one adds is that the hit is
+    // never registered, and what it costs is the stock. **Which is what one Extra attempt paid.** Eight of
+    // its bombs went on frames the rules called lost — rooms of `-0.1`, `-2.9`, `-2.8`, `-0.3`, `0.2`,
+    // `0.2` and `0.2` on the move's own next frame — and then both of its hits came with `bombs=0` in hand
+    // and `6 frame(s) a bomb still takes it back in` on the dump, so both took a life a bomb would have
+    // taken back. **And a prediction can be wrong where a hit cannot**: the frame above is a hit the game
+    // has counted, and these are frames a model says are lost.
+    //
+    // **What is kept is the record and the picture**, which is what every reading in this change was made
+    // of: the frames nothing was open on are where the rules are wrong or the place was lost, and
+    // [`said_what_the_frame_had_nothing_open_on`] writes what a hit writes. [`ROOM_A_BOMB_IS_OWED_AT`] is
+    // still the room that decides one, and [`SHUT_IN_FOR`] still the stretch.
+    //
+    // **And nothing in a chapter drawn to be hit in**, the same as the deathbomb: that drawing is the whole
+    // of what a retry measurement is for.
+    let shut_in = match steered.room {
+        None => SHUT_IN.fetch_add(1, Ordering::Relaxed) + 1,
+        Some(_) => {
+            SHUT_IN.store(0, Ordering::Relaxed);
+            0
+        }
+    };
+    // **And held apart by [`BOMBS_APART`] the way the bomb was**, one line and one picture per corner
+    // rather than one per frame of it: the frames a corner lasts are a corner and not dozens of them.
+    let count = FRAMES.load(Ordering::Relaxed);
+    let cornered = steered.hit_at_once || shut_in >= SHUT_IN_FOR;
+    if hazards == Hazards::Dodged
+        && cornered
+        && !frame.hit
+        && count.wrapping_sub(SAID_AT.load(Ordering::Relaxed)) >= BOMBS_APART
+    {
+        SAID_AT.store(count, Ordering::Relaxed);
+        SHUT_IN.store(0, Ordering::Relaxed);
+        // **And a bomb for the place and not for the frame**, which is the half of the older rule the
+        // deathbomb does not already cover. A bomb pressed the frame before a hit buys nothing that one
+        // does: the same hit, paid a frame earlier — see the comment above, and the eight of them one
+        // attempt spent before both of its hits came with `bombs=0` in hand. **A stretch is the other
+        // question.** What a bomb buys there is not the frame: it clears the screen and holds the player
+        // untouchable across it, which is the one thing that puts a run somewhere it can play from — and
+        // where nothing has been open for a second the run is not going to get there by steering, every
+        // one of those frames having been the best of its own nine.
+        //
+        // **Which the frames of one climb say outright.** A run pinned at `x = 8` crawled from `y = 119`
+        // to `96` with `0 of the nine clear` on every frame of it, was recorded as
+        // `60 frame(s) running with nothing open` at `8.0,121.8` — and with nothing spent on it went on
+        // crawling to be hit at `12.0,95.7`, two lives and a bomb in hand.
+        let for_the_place = !steered.hit_at_once && frame.bombs > 0;
+        if for_the_place {
+            word |= keys.bomb;
+        }
+        match (steered.hit_at_once, for_the_place) {
+            (true, _) => detail!(
+                "autoplay: nothing open and {:.1} of room on the move's own next frame, which is a \
+                 hit the window is for",
+                steered.next_frame,
+            ),
+            (_, true) => detail!(
+                "autoplay: a bomb spent after {shut_in} frame(s) running with nothing open, which is \
+                 a place to be out of"
+            ),
+            _ => detail!(
+                "autoplay: {shut_in} frame(s) running with nothing open and no bomb to spend on it, \
+                 which is a place lost"
+            ),
+        }
+        // **And the whole of what the rules made of the frame**, which the room alone is not: see
+        // [`said_what_the_frame_had_nothing_open_on`], and the picture beside it for the one question the
+        // arrays cannot answer — whether the screen the rules called shut had a way out on it.
+        said_what_the_frame_had_nothing_open_on(game, &steered);
+        orb_core::shot::wanted("shut");
+    }
+    // **And the frame the player leaves [`the_band`], which is the one frame of a climb anything can be
+    // read off.** The dumps above are a hit and a second with nothing open, and a climb is neither: every
+    // attempt of th06c's Extra puts two to four hits into the region above the band's own top, and read
+    // back from each of them the run spends sixty frames going up with three or four of the nine open — so
+    // the moves it *had* on those frames are what says why up was the one it took, and no line of any
+    // launch carried them. The wanting is in the history and the nine judgements are not.
+    //
+    // **And what it answered is that the climb is forced.** One attempt's four, with the moves open on
+    // each and what stood nearest:
+    //
+    //     76.3,292.2    up, up-left, up-right only    a laser at 80.5,314.5 stepping 1.2,0.0, 22 below
+    //     314.2,291.3   still, up, right, up-left,    a bullet at 244.8,194.2 — the four downward hit
+    //                   up-right
+    //     116.4,293.1   none of the nine              a laser at 144.6,265.4 stepping -1.2,0.7, 28 above
+    //     99.9,291.3    up, up-left, up-right only    a bullet at 148.0,223.6
+    //
+    // Three of the four have the three upward moves and nothing else, and the fourth is the run going for
+    // an item above the band, whose place no clamp of [`where_to_be`]'s is applied to by design. On two of
+    // them the nearest thing is a laser lying below or level with the player *inside* the band — this
+    // boss lays arms across the strip the rules wait in, and `Counted::closes` counts all five boxes of it
+    // closed on ten of nineteen frames one attempt dumped. So upward is the answer left on those frames
+    // and a run that climbs is dodging, which is why nothing here refuses the climb.
+    //
+    // **Written on the crossing and not on every frame above**, so that one climb is one dump, and held
+    // apart by [`BOMBS_APART`] besides for a run that hovers on the line.
+    let above = steered.at.1 < the_band(frame.field);
+    let was_in = !WAS_ABOVE_THE_BAND.swap(above, Ordering::Relaxed);
+    if hazards == Hazards::Dodged
+        && above
+        && was_in
+        && !frame.hit
+        && count.wrapping_sub(LEFT_THE_BAND_AT.load(Ordering::Relaxed)) >= BOMBS_APART
+    {
+        LEFT_THE_BAND_AT.store(count, Ordering::Relaxed);
+        said_what_the_frame_left_the_band_on(game, &steered);
+    }
     // **Kept every frame, because a hit takes the screen it happened on away.** What a hit needs is the seconds
     // before it, and by the frame it is noticed the bullets have moved on and the place is a place nothing is at
     // any more — see [`THE_FRAMES_BEFORE`].
@@ -655,39 +1208,83 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
         settled: steered.settled,
         word: word | steered.word,
         open: steered.room.is_some(),
+        clear: steered
+            .judgements
+            .iter()
+            .filter(|judged| judged.clear())
+            .count() as u32,
+        warned: steered
+            .judgements
+            .iter()
+            .filter(|judged| judged.only_warned())
+            .count() as u32,
         fire: steered.counted.fire,
     });
     *LAST_FRAME
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(steered);
-    // **The focused step under a boss**, which is where this game's shots do their damage — and off again for
-    // either of the two things that want the whole step: anything that reaches the move chosen inside the frames
-    // looked at, since the halving is paid for by the frame a bullet is a hit, and an item to go for, which is
-    // most of a field of crossing at half the speed.
+    // **Whether the step the projection was made of is the step the frame will take**, which is a thing to
+    // check and no longer a thing to expect: the two passes above are made for exactly this, so what is left
+    // for this to catch is a move taken from a tick already read — see [`a_tick_read_again`], whose answer was
+    // projected on some earlier frame and whose focus rule is re-asked here.
     //
-    // **And off in a chapter drawn to be hit in**, whatever is up: the halved step is what a player fighting a
-    // boss holds, and this is a run on its way to a death — twice as many frames to cross the field in is twice
-    // as long before the thing that is going to hit it does.
-    if hazards == Hazards::Dodged
-        && !steered.dodging
-        && !steered.for_an_item
-        && frame.boss.is_some()
-    {
-        word |= keys.focus;
-    }
-    // **Whether the step the projection was made of is the step the frame will take.** The step handed over is
-    // what the player's own update left last frame, and that update is what the focus key moves — so on any
-    // frame this changes its mind about the focus bit the projection was made with the step of the other state,
-    // which for 1.0 against 0.4 is two and a half times out. Whether that is what a hit is is a thing only a
-    // launch can say, so the hit line says it.
+    // **The pairs themselves and not the bit changing.** What matters is the number the twelve frames were
+    // walked with, so that is what is compared: the bit going on or off between two frames is ordinary, and
+    // says nothing about whether either frame was projected right.
     let focused = word & keys.focus != 0 && keys.focus != 0;
-    let changed = WAS_FOCUSED.swap(focused, Ordering::Relaxed) != focused;
-    THE_STEP_WAS_STALE.store(changed, Ordering::Relaxed);
+    WAS_FOCUSED.store(focused, Ordering::Relaxed);
+    let would_take = match focused {
+        true => (frame.focused_straight, frame.focused_diagonal),
+        false => (frame.straight, frame.diagonal),
+    };
+    THE_STEP_WAS_STALE.store(steered.step != would_take, Ordering::Relaxed);
     word | steered.word
 }
 
-/// Whether the focus key was held on the frame before, and whether that answer had just changed — which is the
-/// frame the step a move was chosen with is the wrong one. Read by [`said_what_took_it`] and nothing else.
+/// **Whether the frame steering has just answered is one to hold the focus key on**, which is where a shot does
+/// its damage — and off again for either of the two things that want the whole step: anything that reaches the
+/// move chosen inside the frames looked at, since the halving is paid for by the frame a bullet is a hit, and an
+/// item to go for, which is most of a field of crossing at half the speed.
+///
+/// **And off in a chapter drawn to be hit in**, whatever is up: the halved step is what a player fighting a boss
+/// holds, and that is a run on its way to a death — twice as many frames to cross the field in is twice as long
+/// before the thing that is going to hit it does.
+///
+/// **And off unless the move chosen has a whole step of room beyond the slack**, which is stricter than being
+/// clear and is what four hits of one Extra launch bought: each was a move the model called clear with `2.3`,
+/// `2.4`, `2.7` and `4.2` of room, the focus key held. [`ROOM_TO_SPARE`] is two units, so those are frames
+/// whose margin is a slack and no more — and a halved step covers half the ground over the frames looked at
+/// while everything coming at it keeps its own speed, which is what turns such a margin into a hit.
+///
+/// **The room and not what is near**, which the case about a bullet twelve units off and going nowhere is
+/// there to refuse: room is measured past both boxes, so one number means the same thing for a large bullet
+/// and a small one where a distance means two different things. That bullet leaves `8` of room against the
+/// `6` this asks for and the key stays on.
+///
+/// **It is also what the rule used to do without saying so.** Before the two passes above, the key was
+/// decided off a projection made with the step the *last* frame took, so holding it made the next frame's
+/// projection the halved one, which said `dodging` and took it off again: the launches before this show
+/// `the focus key not held` on every dump, and the rule was calibrated against that oscillation rather than
+/// against holding it.
+///
+/// Its own function because [`word_to_press`] asks it twice, of two passes of [`steer`].
+fn holds_the_focus(frame: &Frame, hazards: Hazards, steered: &Steered) -> bool {
+    let step = frame.straight.0.max(frame.straight.1);
+    // **Standing still and not the move chosen**, which is the difference between *nothing is coming at the
+    // player* and *the way out is wide*. A bullet falling onto the player's own column leaves every sideways
+    // move a whole field of room while the frame is one to take at the whole step — and read off the move
+    // chosen, the key goes down on it. `the_bot_shoots_a_boss_slowed_down` is that frame: a bullet `12` to
+    // the side with no step of its own is a frame to hold the key on, and the same bullet `24` above and
+    // closing `4` a frame is not, where both leave the sideways moves clear by the width of the field.
+    hazards == Hazards::Dodged
+        && !steered.dodging
+        && !steered.for_an_item
+        && steered.judgements[0].room > ROOM_TO_SPARE + step
+        && frame.boss.is_some()
+}
+
+/// Whether the focus key was held on the frame just decided, and whether the step that frame's projection was
+/// made with is the one its own word takes. Read by [`said_what_took_it`] and nothing else.
 static WAS_FOCUSED: AtomicBool = AtomicBool::new(false);
 static THE_STEP_WAS_STALE: AtomicBool = AtomicBool::new(false);
 
@@ -706,6 +1303,36 @@ fn said_what_took_it(game: &dyn Game) {
         detail!("autoplay: hit on the first frame the rules were asked for");
         return;
     };
+    said_what_the_frame_held(game, &was, "hit at");
+}
+
+/// **And the same dump for a frame the rules found nothing open on**, which is the frame being judged now
+/// rather than the one before: that is decided on the frame itself, where a hit is only noticed on the frame
+/// after the game took it. So this is handed [`steer`]'s own answer and [`said_what_took_it`] reads
+/// [`LAST_FRAME`].
+///
+/// **Because such a frame with only its room beside it cannot be argued with.** One launch spent a bomb at
+/// `-1.1` of room on a screen somebody watching called plainly open, and the line carried no position, no
+/// nine judgements and nothing of what the model was made of — so which of *phantom hazard*, *wrong step*
+/// and *nothing open after all* it was could not be told apart, and the frame is gone by the time anybody
+/// asks.
+fn said_what_the_frame_had_nothing_open_on(game: &dyn Game, steered: &Steered) {
+    said_what_the_frame_held(game, steered, "nothing open at");
+}
+
+/// **And the same dump for the frame a climb out of [`the_band`] was made on**, which is the frame whose
+/// nine judgements say why upward was the move it had — see the call, which has what nine attempts could
+/// not answer without it.
+fn said_what_the_frame_left_the_band_on(game: &dyn Game, steered: &Steered) {
+    said_what_the_frame_held(game, steered, "left the band at");
+}
+
+/// The dump itself, `took` naming what it is of — see the two above.
+///
+/// **Never the words `hit at` for anything but a hit**, that being what a launch's hits are counted by: the
+/// dump of a frame the rules called shut is read by the same eye, and some of those are frames nothing was
+/// going to touch — a launch with three of them would otherwise read as a run that took three hits.
+fn said_what_the_frame_held(game: &dyn Game, was: &Steered, took: &str) {
     let room = match was.room {
         Some(room) => format!("{room:.1} of room"),
         None => "nowhere open to it".to_owned(),
@@ -715,12 +1342,34 @@ fn said_what_took_it(game: &dyn Game) {
     // size, what the model was made of, and whether the step was the frame before's are what a *calibration*
     // reads, and a run nobody is calibrating should not carry three lines' worth of them per hit.
     detail!(
-        "autoplay: hit at {:.1},{:.1} having pressed {:#05x} with {room}",
+        "autoplay: {took} {:.1},{:.1} having pressed {:#05x} with {room}, half of it {:.1},{:.1}, \
+         projected at {:.2},{:.2} straight and {:.2},{:.2} diagonal, the focus key {}",
         was.at.0,
         was.at.1,
         was.word,
+        was.half.0,
+        was.half.1,
+        was.step.0.0,
+        was.step.0.1,
+        was.step.1.0,
+        was.step.1.1,
+        // **What orb pressed on that frame, which the word beside it does not carry**: the word a hit line
+        // holds is the direction chosen, and the focus bit is added after the choice — see the end of
+        // [`word_to_press`]. So the two halves of the question are one line apart without this.
+        match WAS_FOCUSED.load(Ordering::Relaxed) {
+            true => "held",
+            false => "not held",
+        },
     );
     let of = was.counted;
+    // **How many frames of this run were a tick already read**, which is the one thing in this dump that is
+    // about the run rather than the frame — and it is here because it is what says whether the frame above is
+    // one of them: see [`a_tick_read_again`].
+    detail!(
+        "autoplay: {} of the {} frame(s) asked for were a tick read again",
+        AGAIN.load(Ordering::Relaxed),
+        FRAMES.load(Ordering::Relaxed),
+    );
     detail!(
         "autoplay: the enemies' own trails put {} box(es) in",
         of.trail,
@@ -737,12 +1386,33 @@ fn said_what_took_it(game: &dyn Game) {
             .collect::<Vec<_>>()
             .join(", "),
     );
+    // **And which of them a beam will be lying across the band in**, which the numbers above cannot
+    // hold: a beam is not one of the hazards they are counted from, and the frames a climb out of the band
+    // is made on are frames an arm is across the strip the rules wait in.
     detail!(
-        "autoplay: {} bullet(s) no step of their own explained, {}",
+        "autoplay: a beam lies across the band in each box from frame {}",
+        of.closes
+            .iter()
+            .map(|closes| match *closes {
+                never if never >= THE_FRAMES_AHEAD as u32 => "never".to_owned(),
+                at => at.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    detail!(
+        "autoplay: {} bullet(s) no step of their own explained, {}{}",
         of.swept,
         match of.sweeping {
             Some(x) => format!("a beam being swept about x {x:.1}"),
             None => "too few to be a beam being swept".to_owned(),
+        },
+        match of.out_by {
+            Some(out) => format!(
+                "; the widest of them moved {:.2},{:.2} saying {:.2},{:.2}, in the game's own state {}",
+                out.moved.0, out.moved.1, out.step.0, out.step.1, out.state,
+            ),
+            None => String::new(),
         },
     );
     detail!(
@@ -790,7 +1460,7 @@ fn said_what_took_it(game: &dyn Game) {
     for (way, judged) in WAYS.iter().zip(was.judgements) {
         detail!(
             "autoplay: the move {:#05x} was hit first on {}, on {} frame(s), warned on {}, \
-             with {:.1} of room",
+             with {:.1} of room and {:.1} of it on its own next frame",
             keys.way(*way),
             match judged.clear() {
                 true => "none".to_owned(),
@@ -799,6 +1469,7 @@ fn said_what_took_it(game: &dyn Game) {
             judged.hits(),
             judged.warnings(),
             judged.room,
+            judged.next_frame,
         );
     }
     detail!(
@@ -818,6 +1489,26 @@ fn said_what_took_it(game: &dyn Game) {
             held.half.1,
         );
     }
+    for beam in was.beams.iter().flatten() {
+        detail!(
+            "autoplay: judged a laser {} from {:.1},{:.1} at {:.3} rad, half of it {:.1} across, \
+             {:.1}..{:.1} along growing {:.1}, firing in {}, {} frame(s) into its phase{}",
+            beam.slot,
+            beam.origin.0,
+            beam.origin.1,
+            beam.angle,
+            beam.half_across,
+            beam.near,
+            beam.far,
+            beam.grows,
+            beam.fires_in,
+            beam.frames,
+            match beam.fading {
+                true => ", fading",
+                false => "",
+            },
+        );
+    }
     say_the_frames_before();
     // And what the game's own arrays hold now, past every rule that leaves one out, which is the one question
     // this side cannot answer: the frame handed over is what the rules were given, so a hazard missing from it
@@ -828,15 +1519,85 @@ fn said_what_took_it(game: &dyn Game) {
 /// How near a thing has to be to the player for a hit to name it, whatever rule the model judged it by.
 const NEAR_ENOUGH_TO_BE_IT: f32 = 16.0;
 
+/// **How far apart two lanes may stand, in halves of their own width, and still be one step of one sweep.**
+///
+/// **Because a beam a frame older than another is not always the frame before of it.** What the test below it
+/// is for is a boss laying a row of lanes, one a frame; two lasers that have nothing to do with each other
+/// can carry those same two ages, and a spacing read off such a pair is a band swept across the whole field.
+///
+/// **Four halves — twice a lane's own width — because that is what the two patterns measure.** th06c's Extra
+/// boss lays them both ways, and the halves are `3.0` in each: crossing the field, one dump's origins were
+/// `200.7`, `205.8`, `210.8`, `215.7`, `220.5`, `225.3`, `229.9`, `234.5`, all at `1.571` rad and
+/// `4.8` apart, which is `1.6` halves; standing still, another's were one origin with the angles `1.296`
+/// through `1.610` in steps of `0.039` rad, which at the player's own radius from it is `11.2` apart, or
+/// `3.7` halves.
+///
+/// **And what the band this feeds cannot reach is the frame such a row is laid *over* the player on**,
+/// which is worth having here before somebody writes a sixth rule for it. Those numbers are a front
+/// covering `4.8` and `11.2` units a frame against the `4.0` a whole step does: a player the front has
+/// reached cannot be got out from under it, so the frame is decided by where the run was standing dozens
+/// of frames earlier — one dump of it has the player `1.373` rad from the origin against a front at
+/// `1.453`, two lanes and so two frames, with every one of the nine hit on its own next frame and nothing
+/// within reach but the lanes. **And the choice that would have saved it is not in those frames either**:
+/// what a boss lays next is her script's, and nothing in the model reads a script. A person clears such a
+/// pattern by having seen it; rules asked for a word off one frame at a time are playing it for the first
+/// time every time.
+///
+/// **Five rules were written for that one frame and taken out again**, each with what it measured beside
+/// the code it would go in: the lanes counted into `the_fire_in_each_box` by [`how_much_it_fills`] and
+/// then by the share of a box they cover, the row's own x fed to [`a_sweep`]'s answer, the ground behind
+/// the front wanted by [`where_to_be`], and the band ranked into the nine. So what is left for it is not
+/// another weighing — it is the pattern known ahead of the frame, which is a change to what orb *reads*.
+const A_SWEEPS_OWN_SPACING: f32 = 4.0;
+
+/// **The lane laid the frame before this one, where one was** — the beam whose phase is one frame further on
+/// than this beam's and whose origin is nearest to it.
+///
+/// **The phase and not the slot, which is what makes a sweep readable at all.** A boss laying a row of lanes
+/// lays each in whatever slot is free, so nothing about the slots says which lane came before which; what
+/// says it is `game::Beam::frames`, the count each carries of how long it has been in its phase.
+///
+/// **And nothing where this beam is the oldest of them**, which is the one lane with nothing behind it: a
+/// sweep is read from the pair and a single lane says nothing about where the next one goes.
+fn the_lane_laid_before(frame: &Frame, beam: &Beam) -> Option<Beam> {
+    frame
+        .beams
+        .iter()
+        .filter(|other| other.frames == beam.frames + 1)
+        .min_by(|a, b| {
+            let apart = |it: &Beam| {
+                (it.origin.0 - beam.origin.0).powi(2) + (it.origin.1 - beam.origin.1).powi(2)
+            };
+            apart(a).total_cmp(&apart(b))
+        })
+        .copied()
+}
+
 /// **The d-pad of the safest of the nine one-frame moves**, or the one towards where the rules want to be
 /// where nothing is near enough to dodge.
 ///
 /// **Or the nearest to where it wants to be and nothing else, in a chapter drawn to be hit in.** Everything
 /// below is still worked out there — the projection, the boxes, what came nearest — because that is what the
 /// line beside a hit is made of, and a hit taken on purpose is read the same way as any other.
-fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
+/// **The frame's own call of [`steer`], which is the one that puts what it read into [`REMEMBERED`].**
+///
+/// What a hazard moved is read against that row, so exactly one call a frame may replace it — see the put
+/// at the end of `steer`, which has what a second one cost.
+const THE_FRAMES_OWN: bool = true;
+
+/// And a call asked again inside the same frame, which leaves the row where the frame's own call left it.
+const ASKED_AGAIN: bool = false;
+
+fn steer(frame: &Frame, keys: &Keys, hazards: Hazards, focused: bool, remembers: bool) -> Steered {
     let at = frame.at;
     let field = frame.field;
+    // **The step the frame this chooses for will actually take**, which is the pair for the focus key as
+    // *this* answer will leave it and not as the last one did — see `Frame::focused_straight`, and
+    // [`word_to_press`], which asks twice to close the circle between the two.
+    let (the_straight, the_diagonal) = match focused {
+        true => (frame.focused_straight, frame.focused_diagonal),
+        false => (frame.straight, frame.diagonal),
+    };
     // **Where holding each move leads over the next [`LOOK_AHEAD`] frames**, held inside the field the way the
     // game's own clamp would hold it: a move into a wall is a move that does not happen, and scoring it as
     // though it did would pick it. Not held inside [`THE_BAND`] — that is where it *wants* to be, and a probe
@@ -847,9 +1608,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     // gets it there.
     let lands = WAYS.map(|(dx, dy)| {
         let (across, down) = if dx != 0.0 && dy != 0.0 {
-            frame.diagonal
+            the_diagonal
         } else {
-            frame.straight
+            the_straight
         };
         // **Clamped to the field's own edges and not to the line the bot waits on.** Holding the projection off
         // the bottom by [`ABOVE_THE_BOTTOM`] was tried, so that a dodge could not spend the floor — two hits in
@@ -858,7 +1619,17 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
         // keeping the player low needs the moves that reach the low line to be moves, and the longest way out of
         // a pattern coming from above is sometimes downwards. The strip below the line is a bad place to be and
         // that is not the same as a place no move may land in.
-        std::array::from_fn::<_, LOOK_AHEAD, _>(|step| {
+        //
+        // **And holding it under [`the_band`]'s own top while the player is inside the band was tried as
+        // well, which is the same idea the other way up and the last thing about the place that is neither
+        // a preference between the nine nor a wanting.** A move that leaves the band is then followed as a
+        // move that stopped at the boundary, so climbing out counts as escaping nothing — and what that
+        // costs is the escape itself. One Extra attempt with it in was hit six times against four and read
+        // `14` frames with nothing open against `10`, four of the six still outside the band; the hits are
+        // one sample each and inside the spread of `4` to `7` a build, where the shut count is not — a
+        // model that will not follow a move upward has three fewer of them on the frames that need them
+        // most, and upward is where a pattern that comes from above is left.
+        std::array::from_fn::<_, THE_NEXT_FRAME_AND_LOOK_AHEAD, _>(|step| {
             let frames = (step + 1) as f32;
             (
                 (at.0 + dx * across * frames).clamp(field.0, field.0 + field.2),
@@ -889,9 +1660,14 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     let mut nearest = [None; WAYS.len()];
     let mut held = [None; HELD];
     let mut held_all = 0;
+    let mut kept_beams = [None; HELD_BEAMS];
     // The bullets no step of their own explains, and where across the field they are — see [`a_sweep`].
     let mut swept = 0u32;
     let mut swept_x = 0.0;
+    // **And the frame a beam will be lying across the band in each of the boxes on**, or
+    // [`THE_FRAMES_AHEAD`] for a box none of them reaches inside the window — see the beam loop below,
+    // which is where the motion it takes to answer that is already worked out.
+    let mut closes = [THE_FRAMES_AHEAD as u32; BOXES_ACROSS];
     let mut kept = REMEMBERED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -904,7 +1680,8 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                        (hx, hy): (f32, f32),
                        (sx, sy): (f32, f32),
                        (wx, wy): (f32, f32),
-                       grows: (f32, f32)| {
+                       grows: (f32, f32),
+                       (tx, ty): (f32, f32)| {
         // Held before it is judged, and by where it is rather than by where it is projected: what a hit is read
         // against is what the model had, and a projection is the thing being called into question.
         if (hx - at.0).abs() < NEAR_ENOUGH_TO_BE_IT + wx
@@ -925,10 +1702,42 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             for (step, (x, y)) in path.iter().enumerate() {
                 let ahead = (step + 1) as f32;
                 let (wx, wy) = (wx + grows.0 * ahead, wy + grows.1 * ahead);
-                let (dx, dy) = ((x - (hx + sx * ahead)).abs(), (y - (hy + sy * ahead)).abs());
+                // **And the step's own change carried with it, which a straight line is wrong by the whole
+                // of.** A hazard whose step is the same every frame is where its step says it will be; one
+                // whose step changes by a hair a frame is somewhere else entirely by the end of the frames
+                // looked at, and that hair is measured already — see [`A_STEP_OF_ITS_OWN`], whose own note
+                // says a turn under it is *projected straight and wrong by the whole of the turn twelve
+                // frames out*, and names the three hits of stage 6's turning card that were read as `12.2 of
+                // room` with nothing near. Each frame adds one more turn to the step, so what the frames add
+                // up to is the turn over the triangle of them.
+                let curve = ahead * (ahead - 1.0) / 2.0;
+                let (dx, dy) = (
+                    (x - (hx + sx * ahead + tx * curve)).abs(),
+                    (y - (hy + sy * ahead + ty * curve)).abs(),
+                );
                 // What was left on the tighter of the two axes, which is negative on both where the boxes
                 // overlap — so the larger of the two is the room, and a room below zero is the hit.
                 let room = (dx - (mine_x + wx)).max(dy - (mine_y + wy));
+                // **And the same against where it is now, on the move's own next frame.** A step is what a
+                // hazard claims and not what the game is obliged to apply: the order inside one frame is the
+                // player's job, then the hazard's, then the test — so a hazard that does not move is one the
+                // test compares the *moved* player with where it already stands, and a landing has to be clear
+                // of both places to be clear at all.
+                //
+                // **Which costs a lane only where a hazard is receding.** Coming at the player the projected
+                // place is the tighter of the two and this changes nothing; going away it is the space just
+                // vacated, and that space is exactly what a bullet that stops takes back. A Normal run of
+                // th06c was hit at `138.5,381.1` on a move judged to have `2.2 of room`: bullet 461 stood at
+                // `141.9,384.6` claiming `-1.0,3.0` a frame, did not move at all, and the run stepped `2.0`
+                // right into where the projection had it leaving.
+                let room = match step {
+                    0 => {
+                        let still =
+                            ((x - hx).abs() - (mine_x + wx)).max((y - hy).abs() - (mine_y + wy));
+                        room.min(still)
+                    }
+                    _ => room,
+                };
                 if room < judged.room {
                     judged.room = room;
                     *nearest = Some(Nearest {
@@ -937,6 +1746,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                         step: (sx, sy),
                         half: (wx, wy),
                     });
+                }
+                if step == 0 {
+                    judged.next_frame = judged.next_frame.min(room);
                 }
                 // **[`ROOM_TO_SPARE`] and not nought**: a frame the move only just clears is a frame it is
                 // treated as losing, which is what keeps it out of the choice as well as out of the test.
@@ -955,7 +1767,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             half,
         } = *hazard;
         match kind {
-            Kind::Bullet { hitting } => {
+            Kind::Bullet { hitting, state } => {
                 if !hitting {
                     counted.another_state += 1;
                 }
@@ -980,6 +1792,15 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                 if scripted {
                     swept += 1;
                     swept_x += place.0;
+                    // The widest of them kept, as the pair it disagreed on — see `Counted::out_by`.
+                    let out = (moved.0 - step.0).abs().max((moved.1 - step.1).abs());
+                    if counted.out_by.is_none_or(|was| {
+                        out > (was.moved.0 - was.step.0)
+                            .abs()
+                            .max((was.moved.1 - was.step.1).abs())
+                    }) {
+                        counted.out_by = Some(OutBy { moved, step, state });
+                    }
                 }
                 against(
                     "a bullet",
@@ -995,6 +1816,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                     } else {
                         (0.0, 0.0)
                     },
+                    // **And the turn it is carrying, where its own step is what moves it.** A scripted one is
+                    // feared over the box above instead, there being nothing to carry.
+                    if scripted { (0.0, 0.0) } else { turn },
                 );
             }
             // **And the bodies, which are as solid as a bullet.** Which is what a run on its way to an item
@@ -1046,6 +1870,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                     } else {
                         (0.0, 0.0)
                     },
+                    // And the change in how it is moving, which is what a body's own motion is read as — see
+                    // the bullet above, and `swung`, which is that change.
+                    if scripted { (0.0, 0.0) } else { swung },
                 );
             }
             // **And every place a body has been, each its own box, with [`CLEAR_OF_A_BEAM`] kept round it.** A
@@ -1065,6 +1892,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                     (0.0, 0.0),
                     (half.0 + CLEAR_OF_A_BEAM, half.1 + CLEAR_OF_A_BEAM),
                     (0.0, 0.0),
+                    (0.0, 0.0),
                 );
             }
         }
@@ -1080,8 +1908,9 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     // looked at that fall after it fires are frames to be elsewhere for. So the count decides, frame by frame,
     // and neither answer has to be guessed.
     //
-    // The angle is the one it has now carried on by the turn it made last frame — nothing in a beam's own update
-    // moves it, so one whose sweep speeds up or turns back is a beam this is late about.
+    // The angle and the origin are the ones it has now carried on by the turn and the distance it made last
+    // frame — nothing in a beam's own update moves either, so one whose sweep speeds up or turns back is a
+    // beam this is late about.
     for beam in &frame.beams {
         let Beam {
             slot,
@@ -1093,25 +1922,132 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             half_across: across,
             fires_in,
             fading,
+            frames,
         } = *beam;
         counted.lasers += 1;
+        if let Some(room) = kept_beams.iter_mut().find(|kept| kept.is_none()) {
+            *room = Some(*beam);
+        }
         if fires_in > 0 {
             counted.warnings += 1;
         }
         if fading {
             counted.fading += 1;
         }
-        let turn = turned(what_a_slot_held(&last.beams, slot), angle);
-        note(&mut now.beams, slot, angle);
+        // **And the slot's own reading is the beam's only where the beam in it is the same one**, which is
+        // one frame more of its phase and nothing else — see `game::Beam::frames`.
+        let was = what_a_slot_held(&last.beams, slot).filter(|(.., then)| then + 1 == frames);
+        let turn = turned(was.map(|(_, angle, _)| angle), angle);
+        let went = moved(was.map(|(origin, ..)| origin), (ox, oy));
+        // **And the lane laid the frame before this one, where a boss is laying a row of them** — see
+        // [`the_lane_laid_before`], which is what says another is coming and how far on it will be.
+        let before = the_lane_laid_before(frame, beam).map(|it| (it.origin, it.angle.sin_cos()));
+        // **And which of the boxes across the field this beam will be lying across the band in, at any frame
+        // inside [`THE_FRAMES_AHEAD`].** Which is the one thing [`the_fire_in_each_box`] has no shape
+        // for, and the shape it wants is this one: a truth per box and not an amount of anything. Both
+        // measures tried instead were the wrong scale for a lane — [`how_much_it_fills`] squares, so a
+        // warning `768` across reads as `36864` in the box its axis crosses, and the share of a box a lane
+        // covers puts `134` in one against `clearly_fuller`'s bar of `9`, which makes any beam over the bot a
+        // reason to cross the field. A truth has no scale to be wrong about.
+        //
+        // **And it answers the frames a climb out of the band is made on.** One of those, dumped at
+        // `76.3,292.2`, has the three upward moves clear and the other six hit, with the nearest thing a
+        // laser `25` below the player: an arm from `173.4,288.0` at `2.847` rad, `216` long and `12` across,
+        // running down to the left across the strip the rules wait in at `1.2` units a frame. The band was
+        // being closed from underneath, and nothing the rules read could see that the place they were
+        // waiting in was about to have a beam laid across it.
+        //
+        // **And a beam closes a box across and not along, which is the whole of the measure.** The arm above
+        // runs `17°` below the horizontal, so inside the band it spans `146` units of x — two boxes' worth of
+        // width, with nowhere left in them to stand. A beam running *down* through the band spans a few units
+        // of x however long it is, and this tree has already decided what to do about one of those: nothing.
+        // `the_bot_leaves_a_laser_that_is_turning_onto_it` stands the player under a beam `19` away pointing
+        // almost straight down and asks for no move at all, and it is the frame that says so — marking the
+        // box its crossing falls in made the bot leave, a box being `77` across where that beam covers `7`.
+        // So what is asked is how much of a box's own width the beam takes inside the band, against
+        // [`A_BOX_IS_BLOCKED_AT`].
+        //
+        // **Sampled along the beam and not solved for the crossing**, so that the same arithmetic answers an
+        // arm at any angle, and stepped by the beam's own half-width, which is as fine as the thing sampled.
+        // **And the frame it arrives on and not only whether it does**, which is what the truth alone could
+        // not say: eight arms of this boss close all five boxes on most of the frames one attempt dumped, so
+        // *closed* tells them nothing apart where *closed in three frames* against *closed in thirty-nine*
+        // is a place to wait and a place not to.
+        let (field, band) = (frame.field, the_band(frame.field));
+        let wide = field.2 / BOXES_ACROSS as f32 * A_BOX_IS_BLOCKED_AT;
+        for ahead in 0..THE_FRAMES_AHEAD {
+            let at_frame = ahead as u32;
+            let ahead = ahead as f32;
+            // A beam still only drawn hits nothing, and by this frame it either fires or it does not.
+            if fires_in as f32 > ahead {
+                continue;
+            }
+            let (at, (sin, cos)) = (
+                (ox + went.0 * ahead, oy + went.1 * ahead),
+                (angle + turn * ahead).sin_cos(),
+            );
+            let end = far + grows * ahead;
+            let mut span = [(f32::MAX, f32::MIN); BOXES_ACROSS];
+            let mut along = near;
+            while along <= end {
+                let (x, y) = (at.0 + cos * along, at.1 + sin * along);
+                if y >= band - across {
+                    let (from, to) = &mut span[which_box(field, x)];
+                    *from = from.min(x);
+                    *to = to.max(x);
+                }
+                along += across.max(A_SMALL_ONE);
+            }
+            for (box_, (from, to)) in span.iter().enumerate() {
+                if to - from >= wide {
+                    closes[box_] = closes[box_].min(at_frame);
+                }
+            }
+        }
+        note(&mut now.beams, slot, ((ox, oy), angle, frames));
         for ((judged, nearest), path) in judged.iter_mut().zip(&mut nearest).zip(&lands) {
             for (step, (x, y)) in path.iter().enumerate() {
                 // Where the beam will be pointing by then, which is where it points now plus as many of its own
-                // turns as there are frames to look.
+                // turns as there are frames to look — and where it will be fired from, which is the same
+                // arithmetic on the origin.
                 let ahead = angle + turn * (step + 1) as f32;
                 let (cos, sin) = (ahead.cos(), ahead.sin());
+                let (ox, oy) = (
+                    ox + went.0 * (step + 1) as f32,
+                    oy + went.1 * (step + 1) as f32,
+                );
                 let (dx, dy) = (x - ox, y - oy);
                 let along = dx * cos + dy * sin;
-                let off = (-dx * sin + dy * cos).abs();
+                let off = -dx * sin + dy * cos;
+                // **And the whole band the sweep is being laid across, not only the lane it stands in.**
+                // Where a lane was laid the frame before this one, the two are one step of a sweep and the
+                // step is how far apart they stand here: the lane after this one is that far on again, and
+                // the one after that twice. So every across from this lane to where the sweep has reached
+                // by then is a place to be out of — the room is the nearer of the two ends, and nought
+                // where the player is between them.
+                //
+                // **Measured where it stands and not projected**, the lane before being a laid one: what
+                // moves in this pattern is the laying and not what is laid, which every dump of it says —
+                // `nearest was a laser ... stepping 0.0,0.0`, nine of them and not one carried.
+                //
+                // **And left alone where the two are too far apart to be one sweep**, which is
+                // [`A_SWEEPS_OWN_SPACING`]: a lane a screen away that happens to be a frame older is not
+                // the frame before of this one, and taking it for that is a band across the whole field.
+                let swept = match before {
+                    Some(((bx, by), (before_sin, before_cos))) => {
+                        let behind = -(x - bx) * before_sin + (y - by) * before_cos;
+                        let apart = behind - off;
+                        match apart.abs() <= across * A_SWEEPS_OWN_SPACING {
+                            true => off - apart * (step + 1) as f32,
+                            false => off,
+                        }
+                    }
+                    None => off,
+                };
+                let off = match off * swept > 0.0 {
+                    true => off.abs().min(swept.abs()),
+                    false => 0.0,
+                };
                 // **And how far it will reach by then**, which is the other thing a beam does with a frame:
                 // th06's own extend as they fire, and a length taken as settled is a beam whose end the
                 // player is standing just past for every frame looked at. A run stood five units under one and
@@ -1129,9 +2065,15 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                     *nearest = Some(Nearest {
                         what: "a laser",
                         at: (ox + on * cos, oy + on * sin),
-                        step: (0.0, 0.0),
+                        step: went,
                         half: (across, across),
                     });
+                }
+                // And the beam's own room on that frame, for the same reason a bullet's is kept — save
+                // where it is a beam that has not fired, which reaches nothing whatever it is drawn
+                // across.
+                if step == 0 && fires_in <= 1 {
+                    judged.next_frame = judged.next_frame.min(room);
                 }
                 if room < ROOM_TO_SPARE {
                     // **Live by then or still only drawn.** The game's own gate is the countdown running out, so
@@ -1146,8 +2088,26 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             }
         }
     }
-    *kept = Some(now);
+    // **And the row this frame read against is left exactly as it was**, whichever call this is: what a
+    // hazard *moved* is where it is now against where that row says it was, so a call that replaces the row
+    // leaves every call after it inside the same frame reading every hazard as having moved nothing.
+    //
+    // **Which is what the two focus passes were deciding on.** A bullet that claims a step and moved nought
+    // is one [`A_STEP_OF_ITS_OWN`] calls script-moved, and such a hazard is feared over what it just
+    // moved — nothing at all. So the pass after the frame's own saw a field of points: a bullet `24` above
+    // the player closing `4` a frame, feared over `(12,24)` by the frame's own call and judged a point by
+    // the one after it, which answered `20 of room` where the first had `-160` and pressed the focus key on
+    // the strength of it. `the_bot_shoots_a_boss_slowed_down` is the frame that says so.
+    //
+    // **So what the frame's own call read waits in [`READ_THIS_FRAME`]** until the word is decided, and
+    // [`remembers_what_the_frame_read`] moves it across — see [`THE_FRAMES_OWN`].
+    *kept = Some(last);
     drop(kept);
+    if remembers {
+        *READ_THIS_FRAME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(now);
+    }
     // **The nearest to where it wants to be, of the moves nothing will be at.** Which is not the same as the
     // one furthest from everything: the next frame's positions are known, so what a move has to be is *not
     // where a bullet lands* — and keeping away from bullets besides is a bot that spends the stage leaving,
@@ -1158,6 +2118,7 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
     counted.swept = swept;
     counted.sweeping = sweeping;
     counted.fire = the_fire_in_each_box(frame);
+    counted.closes = closes;
     // **Or the nearest thing that can hit the player, where the chapter is one to be hit in and has not been.**
     // The nearest to the move of standing still is that thing: it is the one whose box came closest to where the
     // player is over the frames looked at, past every rule that leaves a hazard out — so a body with nothing
@@ -1171,9 +2132,48 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
         _ => where_to_be(frame, sweeping),
     };
     let mut best: Option<(usize, Judged, f32, f32)> = None;
-    for (((way, judged), land), which) in WAYS.iter().zip(judged).zip(lands).zip(0..) {
+    for ((judged, land), which) in judged.into_iter().zip(lands).zip(0..) {
         // How near this frame's own step gets to where it wants to be, which is the first of the path: the
         // frames after it are what the move is judged *hit* by and not where it is going.
+        //
+        // **And the nearest that holding the move gets to where it wants to be was written, measured and
+        // taken out.** Which is the one thing the frames of th06c's Extra point at: every frame of that
+        // climb is a step that was locally the thing to do — the run goes up because up is what is open, one
+        // step at a time, with the step itself never far from where the rules want to be — so a move judged
+        // by its landing alone cannot tell a way down from a way out of the band. Two Extra attempts of it
+        // took `10` hits outside [`the_band`] or at the clamp of the eighteen they took, against `12` of
+        // twenty-six for the attempts judged by the landing, and the hub cluster is in both of them. So
+        // where a move *leads* is not what the place a run loses turns on either.
+        //
+        // **Not the end of the path**, which is a different rule and a wrong one: held [`LOOK_AHEAD`] frames
+        // the end is `160` units past a place `20` away, so a move that arrives reads as one that overshot,
+        // and seventeen frames of this suite said so at once.
+        //
+        // **And stopped where the field's own edge stops it**, which is what the nearest along the whole
+        // path gets wrong and what `the_bot_dodges_an_enemy_on_its_way_to_an_item` is the frame for. That
+        // frame stands the player at `192,384` with an item at `100,384` and the field ending at `448`: up
+        // and down are a tie, both nearest at the sixteenth step with `4234`, until the downward path is
+        // clamped at the floor on the twenty-third and runs *left along it* — reaching the item's own column
+        // `64` below it, `4096`, which is nearer than the tie and is a place the item cannot be taken from.
+        // The clamp is right for judging what a move is hit by, a move into a wall being a move that does
+        // not happen; carried into where it leads it turns holding a direction into being pinned against
+        // that wall, so the path is read only as far as it is still going somewhere.
+        //
+        // **And it had to be read only as far as the field's own edge lets the move go**, which is where
+        // the first form of it went wrong and is worth keeping: the nearest over the *whole* path cost
+        // `the_bot_dodges_an_enemy_on_its_way_to_an_item`, whose player stands at `192,384` with an item at
+        // `100,384` and the field ending at `448`. Up and down are a tie there, both nearest at the
+        // sixteenth step with `4234`, until the downward path is clamped at the floor on the twenty-third
+        // and runs *left along it* — reaching the item's own column `64` below it, `4096`, which is nearer
+        // than the tie and is a place the item cannot be taken from. The clamp is right for judging what a
+        // move is hit by, a move into a wall being a move that does not happen; carried into where a move
+        // leads it turns holding a direction into being pinned against that wall. Stopped at the frame the
+        // stored landing first differs from the step's own arithmetic, the tie holds and the suite passes —
+        // which is how the measure above was run at all.
+        //
+        // **And the end of the path is a third form and a wrong one**: held [`LOOK_AHEAD`] frames it is
+        // `160` units past a place `20` away, so a move that arrives reads as one that overshot, and
+        // seventeen frames of this suite said so at once.
         let (x, y) = land[0];
         let towards = (x - wanted.0).powi(2) + (y - wanted.1).powi(2);
         // Clear first, then nearest to where it wants to be. And where nothing is clear: **the latest first
@@ -1206,8 +2206,21 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
             // played as though none of them were there — and where that ends up is where a player who stopped
             // looking ends up.
             Some((.., was_towards)) if hazards != Hazards::Dodged => towards < was_towards,
+            // **And the band was ranked in here three ways over and reaches none of it.** A move that stays
+            // inside [`the_band`] over one that leaves it: under the depth of the next frame's overlap, then
+            // under the frames a move buys as well, then over whether either is open at all. One Extra
+            // attempt apiece, counting the hits dumped above the band's own top against the five and three
+            // the ordering before them gave: `4`, `4` and `6` of six and seven. The last of those is the
+            // whole trade — a hit taken at the boundary rather than a climb — and it left the run up there
+            // more rather than less.
+            //
+            // **Which is the same answer the floor got**, and for the same reason: the climbs are made on
+            // frames where nothing in the band is open to prefer. Three hits of one attempt read `1, 0, 0,
+            // 1, 1, 0, 0, 0` of the nine clear over the last eight sampled frames of the climb they ended,
+            // `4, 0, 0, 0, 0, 0, 0, 0` and `3, 1, 0, 0, 1, 0, 0, 0` — so what is left is a place decided
+            // dozens of frames earlier, and `where_to_be` is where that lives.
             Some((_, was, ..)) if tier(judged) != tier(was) => tier(judged) < tier(was),
-            Some((_, was, was_dx, was_towards)) => match (was.clear(), judged.clear()) {
+            Some((_, was, was_x, was_towards)) => match (was.clear(), judged.clear()) {
                 (false, true) => true,
                 (true, false) => false,
                 // **And the emptier of two the wanting cannot tell apart.** Every symmetric pair is such a
@@ -1219,6 +2232,16 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                 // **And the one crossing fewer of the warnings first, where both are crossing some.** Above the
                 // wanting because the frames a warning covers are frames the beam will be firing on: a lane
                 // left is a lane left before it matters, and by the frame it matters the move is the same move.
+                //
+                // **And holding it under the wanting unless the lane the player is already in is one of them
+                // was tried and reaches nothing.** The thought was that a card fanning its warnings over the
+                // field has the run leaving lanes it was never going to be in, which above the wanting reads as
+                // a walk to wherever the fewest of them are — and the climb three attempts of th06c's Extra
+                // made goes *left* from `165` to `135` on its first three frames, every one of them with `9 of
+                // the nine clear`, while what it wants is `192,368`. Two attempts with the gate in ended above
+                // the band in the same three places as the three without it: `167.5,192.0`, `125.5,270.6` and
+                // `215.1,196.4` against `180.0,202.1`, `126.1,270.4` and `180.5,203.2`. So the climb is not
+                // this term.
                 (true, true) => {
                     judged.warnings() < was.warnings()
                         || (judged.warnings() == was.warnings()
@@ -1248,20 +2271,135 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
                 // changed nothing and the third cost
                 // `the_bot_steps_out_of_the_way_of_a_bullet_a_step_wide_of_it`. What is left is to stop the
                 // place being wanted at all, which is [`where_to_be`]'s business.
+                // **And a move whose own next frame does not overlap, over one that does, before any of that.**
+                // With nothing open the next frame is the only one the player is certain to reach: a move
+                // already inside something on it is a hit taken now, where one clear of everything on it buys
+                // another frame of choosing, and no frame further out can be worth more than that. Which
+                // `first()` cannot say for it — every move is `hit first on 0` the moment the slack is
+                // crossed, and the slack is crossed on every frame of a screen like this one.
+                //
+                // **A run died of that order**, on th06c's Extra boss with 207 bullets and eight beams up:
+                // `0x0a0` was chosen `-3.2` into something on its own next frame because it was hit on four
+                // of the thirteen, over `0x090` with `1.8` of room there and hit on all thirteen — and a
+                // frame twelve out is one twelve more frames of choosing can be spent getting out of the way
+                // of.
                 (false, false) => {
-                    let sideways = way.0 != 0.0;
-                    let was_sideways = was_dx != 0.0;
-                    judged.first() > was.first()
-                        || (judged.first() == was.first()
-                            && (judged.hits() < was.hits()
-                                || (judged.hits() == was.hits()
-                                    && ((sideways && !was_sideways)
-                                        || (sideways == was_sideways && judged.room > was.room)))))
+                    // **And a move the field's own edge turns into standing still is not one of them.** The
+                    // reason a sideways move is preferred here is that the fire's thickness is a thing of
+                    // *x* and a move that does not change the x cannot get out of it — which a move into a
+                    // wall does not, the clamp on [`lands`] holding it where it is. One hit of an Extra
+                    // attempt is the whole of it, at `8.0,130.9` against a field that starts at `8`:
+                    // `0x000` and `0x040` read `hit first on 6, on 7 frame(s), -0.8 of room and 3.3 on its
+                    // own next frame`, the same numbers to the last digit, and the word that came out was
+                    // `0x040` — the run pressing into the wall because pressing into it was ranked as
+                    // getting out from under something. Which is how a run comes to spend thirty frames
+                    // pinned at `x = 8`.
+                    let sideways = land[0].0 != at.0;
+                    let was_sideways = was_x != at.0;
+                    let lives = judged.next_frame >= 0.0;
+                    let was_lives = was.next_frame >= 0.0;
+                    match (lives, was_lives) {
+                        (true, false) => true,
+                        (false, true) => false,
+                        // **And where neither of them reaches it, the shallower of the two overlaps.** The
+                        // frames after the next one are frames that never arrive, so what is left to choose
+                        // by is how far into something the next frame puts the player — and the least of
+                        // that is the move nearest to being no hit at all, [`ROOM_TO_SPARE`] being two units
+                        // of slack the projection is kept with rather than a hit. A run stood still into a
+                        // beam `-6.0` deep over a step aside `-2.0` deep, because standing still was hit on
+                        // two of the thirteen frames where the step was hit on six.
+                        //
+                        // **And where two of them are as shallow as each other, the one nearer to where
+                        // the rules want to be** — which is the one way the wanting reaches a screen the
+                        // nine are never all clear on, and the place a run loses is lost on exactly those
+                        // screens. What decided the corner one attempt was hit in was this comparison and
+                        // then nothing: the nine read `-0.9, -2.9, -0.9, -0.9, -0.9, -2.9, -2.8, -0.9,
+                        // -0.9` on their own next frames, six of them tied at `-0.9`, and the tie went to
+                        // [`WAYS`]'s own order, which is standing still. The boxes on that frame read
+                        // `173.2, 348.4, 257.2, 19.2, 11.2` with the player in the first of them, so the
+                        // count that decides where to be had every number it needed and no way to be read:
+                        // `towards` is looked at where both moves are clear and where the hazards are
+                        // ignored, and was looked at nowhere else.
+                        //
+                        // **A tie-break and not a re-ordering**, which is what keeps every measured order
+                        // above it intact: the depth of the overlap still decides wherever the two differ.
+                        // And it cannot oscillate the way the comment above warns a tie-break can — what it
+                        // aims at is one place per frame rather than the other move's own number, so two
+                        // moves cannot each be the answer to the other.
+                        //
+                        // **What one Extra attempt apiece says**: four hits against five, the first of them
+                        // at `f27480` against `f16860`, and ten frames with nothing open against twelve.
+                        // What it does not do is put the hits back inside the band — all four are still
+                        // outside it, one at the clamp and three above — so the place a dense screen loses
+                        // is not this tie either.
+                        //
+                        // **And one attempt apiece is inside the noise**, which a later pair of them
+                        // measured: an attempt whose only change was a rule that then never fired was hit
+                        // six times against that four, so the spread on one build is at least `4` to `7`.
+                        // What holds this in is the reasoning above and not that number. `steer`'s own comment records `towards` tried under and
+                        // over `hits()` against a bot that predates the two focus passes, the
+                        // deathbomb-only bomb, the swept band and the read that stopped a second pass
+                        // seeing a world that had not moved, and found nothing then; this is the same
+                        // question asked where the corner frame was actually decided.
+                        (false, false) => match judged.next_frame == was.next_frame {
+                            true => towards < was_towards,
+                            false => judged.next_frame > was.next_frame,
+                        },
+                        // **And under the first hit, where the rules want to be — which is this branch
+                        // being the ordinary one now and not the corner.** A move is hit where its room
+                        // falls under [`ROOM_TO_SPARE`] on any frame looked at, and at
+                        // [`LOOK_AHEAD`]'s forty frames something always arrives on a screen of this
+                        // game's Extra boss: the hit at `8.0,421.7` has standing still `hit first on 16`
+                        // with `1.2 of room`, a frame the thirteen-frame walk called open. So the branch
+                        // every one of the nine being hit leads to is where a run now spends its frames,
+                        // and the wanting was read in it only where two moves were equally shallow on
+                        // their own next frame.
+                        //
+                        // **And the wanting ranked into this chain rather than left as the tie above was
+                        // written and taken out again.** The reason to try it is that this branch is the
+                        // ordinary one at [`LOOK_AHEAD`]'s forty frames — a move is hit where its room
+                        // falls under [`ROOM_TO_SPARE`] on any frame looked at, and something always
+                        // arrives on a screen of this game's Extra boss, so the hit at `8.0,421.7` has
+                        // standing still `hit first on 16` with `1.2 of room`, a frame the thirteen-frame
+                        // walk called open.
+                        //
+                        // **Over `hits()` it costs a case of this suite outright**:
+                        // `a_warning_line_is_left_whatever_frame_its_beam_fires_on` has a beam two frames
+                        // from firing, where the step aside and standing still are both hit from the
+                        // second frame and what carries the step clear by the third is the count — ranked
+                        // under the wanting, the player stayed in the lane. **And under `hits()` it
+                        // measures worse**: two Extra attempts took `13` hits outside [`the_band`] or at
+                        // the clamp of the eighteen they took, against `12` of twenty-six for the three
+                        // attempts without it, and the hits it left inside were the two at the waiting
+                        // line each attempt already had. So the wanting stays where it was measured to
+                        // belong, which is the tie on the next frame's own depth.
+                        // **And the count over the first hit was tried at this walk's own length and is
+                        // refused by the frame that settled the order at the old one.** That order was
+                        // measured when the walk was twelve frames, where *hit at all* and *hit next
+                        // frame* are nearly the same thing, and at forty they are further apart than
+                        // ever — `hit first on 32` against `hit first on 2` is thirty frames of choosing
+                        // — so the question is worth asking again and
+                        // `the_move_taken_is_the_one_whose_trouble_is_furthest_off` answers it: swapping
+                        // the two costs that case outright.
+                        (true, true) => {
+                            judged.first() > was.first()
+                                || (judged.first() == was.first()
+                                    && (judged.hits() < was.hits()
+                                        || (judged.hits() == was.hits()
+                                            && ((sideways && !was_sideways)
+                                                || (sideways == was_sideways
+                                                    && (judged.room > was.room
+                                                        // And the same tie-break at the bottom of this
+                                                        // chain, for the same reason.
+                                                        || (judged.room == was.room
+                                                            && towards < was_towards)))))))
+                        }
+                    }
                 }
             },
         };
         if better {
-            best = Some((which, judged, way.0, towards));
+            best = Some((which, judged, land[0].0, towards));
         }
     }
     // **What the focused step under a boss is off for is anything that reaches the move chosen** inside the frames
@@ -1282,13 +2420,21 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
         dodging: !judged[0].clear(),
         room: judged_it.clear().then_some(judged_it.room),
         for_an_item: the_item_worth_going_for(frame).is_some(),
+        // **Nothing open at all *and* the best of the nine short of the slack on its own next frame**,
+        // which is the difference between a corner and thirteen frames of pessimism — see
+        // [`Steered::hit_at_once`].
+        hit_at_once: !judged_it.clear() && judged_it.next_frame < ROOM_A_BOMB_IS_OWED_AT,
+        next_frame: judged_it.next_frame,
         at,
+        half: frame.half,
+        step: (the_straight, the_diagonal),
         wanted,
         settled,
         nearest: nearest[chosen],
         counted,
         held,
         held_all,
+        beams: kept_beams,
         judgements: judged,
     }
 }
@@ -1306,6 +2452,40 @@ fn steer(frame: &Frame, keys: &Keys, hazards: Hazards) -> Steered {
 fn a_sweep(swept: u32, swept_x: f32) -> Option<f32> {
     (swept as usize > WAYS.len()).then(|| swept_x / swept as f32)
 }
+
+// **And the x just behind a row of lanes being laid was answered here and wanted by [`where_to_be`], and
+// what it reached is nothing.** The reading behind it holds: such a row cannot be outrun — a lane a frame,
+// `4.8` units apart crossing the field in one of the two patterns and `0.039` rad apart from one origin in
+// the other, which is `11.2` units a frame at the player's own radius against the `4.0` a whole step
+// covers — and the ground behind the front is the ground that opens, the lanes fading after about seven
+// frames with every dump of the pattern carrying one `fading` with no length left.
+//
+// **What it cannot do is get there.** The frame it is for has the player *ahead* of the front — one dump
+// reads `1.373` rad from the origin against a front at `1.453`, two lanes and so two frames, with every
+// one of the nine hit on its own next frame at `-7.1`, `-6.3`, `-6.6`, `-3.5`, `-3.2`, `-5.2`, `-3.8`,
+// `-4.1` and `-4.9` of room and `the model was holding 0 within reach` — and behind the front, from there,
+// is the far side of seven laid lanes. The attempt with it in read the same one frame of `nowhere open to
+// it` on the fan as the attempt without and put all four of its hits above the band, where three of five
+// had been.
+//
+// **And the gate it was written with is worth keeping in mind**, being the thing the try before it could
+// not say: more than four lanes with one before them and at least one of those laid this frame or last. A
+// pattern that stopped sweeping ten frames ago still has every lane a frame apart in its phases, and the
+// two static crosses that boss puts up are eight lanes `147` frames into their own.
+
+// **A row of lanes being laid was fed to that rule as well and taken out again.** A box a row is crossing
+// is a box the nine moves can do nothing about once the front is on them — `4.8` units a frame in one of
+// the patterns and `11.2` at the player's own radius in the other, against the `4.0` a whole step
+// covers — so the frame is decided dozens of frames earlier by which box the player is standing in, and
+// `the_lane_laid_before` already says which lanes are a row.
+//
+// **What it did not do is move the number it was for.** An Extra attempt with it in read one frame of
+// `nowhere open to it` on the row and the fan, which is exactly what the attempt without it read; what
+// moved was the rest — eight frames on the two crosses against seven, six with no beam on the screen
+// against four, and seven hits against five. It fires on a pattern that is not being laid at all, two
+// static lanes a frame apart in their phases being all it asks for, and `counted.sweeping` is printed on
+// the *bullets*' own line, so fifteen dumps read `0 bullet(s) no step of their own explained, a beam being
+// swept about x …`.
 
 /// Where the rules want the player: the x whatever is worth being under has, and the y always low.
 fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
@@ -1355,10 +2535,38 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
     // into a pile does: see [`MUCH_MORE_THAN_A_HANDFUL`].
     let badly = clearly_fuller(&fire, mine, MUCH_MORE_THAN_A_HANDFUL);
     let elsewhere = || {
-        let empty = the_emptiest_box(&fire);
+        let empty = the_emptiest_box(&fire, mine, swept);
         field.0 + field.2 * (empty as f32 + 0.5) / BOXES_ACROSS as f32
     };
+    // **And waiting out of a box a beam will be lying across the band in was written and taken out again,
+    // which is what the measure itself says is the wrong use of it.** The same two questions the thickness
+    // is asked — the box it is heading for and the box it is standing in — with a box it will not be lying
+    // across to go to, and the emptiest of those preferred over one it will. Two Extra attempts of it took
+    // `6` hits and `8`, every one of the fourteen outside the band, which is the worst pair of any build
+    // measured; and the dumps say why. Of nineteen frames one attempt dumped, **ten read `a beam will lie
+    // across the band in box(es) 0, 1, 2, 3, 4` and six read `0, 1, 3, 4`** — so this boss closes the whole
+    // width of the band most of the time, and where it leaves one box it is the middle one, which is where
+    // the two crosses converge and where every hit above the band already is. A rule that leaves the closed
+    // boxes therefore aims the run at the hub.
+    //
+    // **And graded by the frame the arm arrives on rather than left a truth, it is out too.** Which is the
+    // answer to what that pair of dumps says — *closed* tells five boxes nothing apart where *closed in
+    // three frames* against *closed in thirty-nine* is a place to wait and a place not to — so the measure
+    // carries the frame now and `the_emptiest_box` preferred the box whose arm arrives latest among the ones
+    // that are not piled. Two Extra attempts took `10` hits outside [`the_band`] or at the clamp of the
+    // twenty-one they took, against `12` of twenty-six for the attempts without it: the same attempt twice
+    // over, with the first five hits of each at the waiting line and the hub cluster after them.
+    //
+    // **The measure is kept for what it says and not for what it chose**, which is the dump line beside the
+    // fire counts: see `Counted::closes`.
     let (settled, x) = match the_thickest_box(&fire) {
+        // **And the ground behind a row of lanes being laid was wanted here and is not any more.** That row
+        // cannot be outrun and what it has laid goes out behind it, so past its back lane is the one place
+        // it leaves — and from *ahead* of the front, which is where the frames that need it are, that place
+        // is on the far side of seven laid lanes and forty-seven units of wall. An attempt with it in read
+        // the same one frame of `nowhere open to it` on the fan as the attempt without, and put all four of
+        // its hits above the band where three of five had been. See [`behind_a_sweep`], which is kept for
+        // the reading in it.
         _ if swept.is_some_and(|swept| swept == heading || swept == mine) => {
             (Settled::TheEmptiestBox, elsewhere())
         }
@@ -1368,6 +2576,27 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
         }
         _ => (settled, x),
     };
+    // **And keeping the place until the run is there was written and taken out again.** Every one of the
+    // three arms above is a threshold on a count of a screen in motion or a detection that comes and goes
+    // with what the script does, and a crossing of two boxes is most of a second at the game's own step — so
+    // the errand alternates and the run is never at either end of it. One walk's wanted x, a sample in six
+    // frames:
+    //
+    //     118 192 192 192  56  56  56  56  56  56 192 192  56 192 192 192 118 192 192 192 266 266
+    //
+    // `192` is the boss's own x and `56` the emptiest box, two places `136` apart with the run forty frames
+    // from both, and that walk ended above the band at `194.7,214.7`. Held until the run arrived — the box
+    // it then stands in being what the arms are asked about next, with a lapse for a place that cannot be
+    // reached and a drop for one the fire has piled into since — the flip goes: the next attempt's walk
+    // reads `the emptiest box 118` on twenty samples running.
+    //
+    // **And it made the place worse both times it was run.** Two Extra attempts apiece, counting the hits
+    // outside [`the_band`] and the clamp: `5` of six and `6` of seven with it in, against `4` of six and `4`
+    // of five without, and its own pair is the highest of every build measured — `6` and `7` hits where the
+    // spread of one build is `4` to `7`. Which has a mechanism as plausible as the one it was written for: a
+    // place kept is a place crossed to through fire that arrived while the crossing was being made, and
+    // nothing measured bounds how long it is worth keeping. So the errand is asked afresh each frame, and
+    // what the flip costs is still unmeasured.
     // **Inside the band or waited for at the low line**, and not held at the band's own top edge: an item is
     // almost always above, so clamping its y into the band put the bot to live on that edge — the middle of the
     // field, moving only sideways, with the dodge it wanted to make upwards pulled straight back. Waiting low is
@@ -1376,6 +2605,14 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
     // **And the x held [`IN_FROM_THE_SIDE`] off either edge**, which the y has needed all along and the x turned
     // out to need too: a corner is a place with nothing open in it. A field too narrow to keep that off both
     // sides has only its middle to offer, which is where a run with no field read at all ends up.
+    // **And the player's own x while it is above the band was tried and taken out again.** The errand is what
+    // keeps a climb going — `towards` is one distance over both axes, so a wanted x a hundred units off swamps
+    // a y twenty out, and at `77,366` wanting `a boss at 192,368` standing still measures `13229` against
+    // `13261` for going up, a quarter of a percent, where wanting `77,384` makes the same two `324` and `484`.
+    // What it contradicts is `the_bot_holds_the_bosss_x_and_stays_low`, which is this tree's own answer to the
+    // frame it fires on: a player above the band with a boss across the field goes under it diagonally, and
+    // wanting its own x makes that move straight down. The narrower form — the band's x only where the errand
+    // is the middle or the emptiest box, and the boss's and an item's left alone — is untried.
     let (inside, outside) = (
         field.0 + IN_FROM_THE_SIDE,
         field.0 + field.2 - IN_FROM_THE_SIDE,
@@ -1392,6 +2629,15 @@ fn where_to_be(frame: &Frame, sweep: Option<f32>) -> ((f32, f32), Settled) {
         settled,
     )
 }
+
+/// **How much of a box's own width a beam has to lie across for that box to be no place to wait** — half of
+/// it.
+///
+/// Half, because what the measure is for is a box with nowhere left in it to stand: a beam across half of one
+/// leaves the other half, which at a fifth of a 384-wide field is `38` units and five steps of room. And
+/// because the two things it has to tell apart are `146` units of one arm inside the band against `7` of a
+/// beam running down through it — a gap no number between them has to be chosen carefully inside.
+const A_BOX_IS_BLOCKED_AT: f32 = 0.5;
 
 /// How many pieces the field is cut into across its width for the fire in each to be counted.
 ///
@@ -1501,6 +2747,30 @@ fn the_fire_in_each_box(frame: &Frame) -> [f32; BOXES_ACROSS] {
         };
         fire[which_box(field, x)] += how_much_it_fills(hazard.half.0);
     }
+    // **And the lanes the beams are laid along are not counted here, which two measures of them say is
+    // right for this count rather than for the beams.** A beam is its own array and not one of the
+    // hazards, so a screen with ten lanes down one side of the field and nothing down the other reads as
+    // empty on both — and that is one Extra pattern outright: its boss crosses laying one lane a frame,
+    // `4.8` units apart and `6.0` wide, and a player caught in front of that front cannot be got out of
+    // the way of it at `4.0` a frame.
+    //
+    // **[`how_much_it_fills`] is the wrong shape for a lane.** It squares, a bullet twice as wide taking
+    // four times the room to weave past, so a warning `768` across read as `36864` in the box its axis
+    // crossed, made the middle of the field the thickest box there is, and sent the bot to the edge on the
+    // very frame `a_warning_line_is_crossed_where_they_leave_nowhere_to_go` asks it to cross.
+    //
+    // **And the share of a box a lane covers is the right shape and the wrong scale.** A lane blocks
+    // across and runs the whole way along, so what it takes out of a box is the width it covers for the
+    // whole of the band this count is over — `covered × the band / A_SMALL_ONE²`, which is `100` for one
+    // `6`-wide lane inside one box against a box that holds `1290`, and `1290` in every one of the five
+    // for a lane as wide as the field, so that one tells the boxes nothing apart and the warning case
+    // passes. What it runs into is [`MUCH_MORE_THAN_A_HANDFUL`]: `clearly_fuller` asks for `9` and one
+    // ordinary lane crossing the waiting depth puts `134` in a box, so *any* beam over the bot becomes a
+    // reason to cross the field — and `the_bot_leaves_a_laser_that_is_turning_onto_it` says a beam
+    // pointing wide of the player is nothing to move for at all.
+    //
+    // So what a beam wants is an answer of its own rather than a share of this one, whose thresholds are
+    // the bullets' — and `steer`'s own worklist is where that is written down.
     // **The middle discounted, and the two beside it discounted less.** The converging a pattern does is a thing
     // of the middle of the field, and it falls off either side of it rather than stopping at a box's edge.
     let middle = BOXES_ACROSS / 2;
@@ -1597,10 +2867,41 @@ fn clearly_fuller(fire: &[f32; BOXES_ACROSS], box_: usize, enough: f32) -> bool 
 }
 
 /// And the emptiest of them, which is where the bot waits instead.
-fn the_emptiest_box(fire: &[f32; BOXES_ACROSS]) -> usize {
+///
+/// **The nearest of the boxes as empty as that one, and not the bare least of the five.** What the count
+/// measures is a screen in motion, and the least of five floats is settled by a tenth of a bullet: six
+/// consecutive samples of one th06c Extra's walk wanted `56`, `56`, `266`, `56`, `118` and `56`, the two
+/// that flipped reading `11, 13, 16, 11, 11` and `16, 13, 26, 13, 16` — a place to wait thrown 210 units
+/// across the field and back while the boxes either side of it were inside a unit of each other. A run
+/// given that spends the pattern crossing, and it is crossing that takes it up out of [`THE_BAND`]: the
+/// same walk goes on to `313`, `280`, `263` and the hit at `176,202`.
+///
+/// So a box that is not [`clearly_fuller`] than the emptiest is as good as the emptiest, and of those the
+/// nearest is the one to want — the crossing itself being the cost this is weighed with. Equally near and
+/// equally empty, the emptier by the float decides, so that nothing here leans on [`BOXES_ACROSS`]'s own
+/// order.
+///
+/// **And the box a beam is being swept across is no candidate however little it holds**, which is the whole
+/// of why [`where_to_be`] asks about a sweep separately: a dozen swept bullets are not a pile, so the
+/// counting cannot be left to rule that box out.
+///
+/// **And a beam's own arrival was ranked in here twice and is out both times** — see [`where_to_be`]'s note,
+/// which has what the measure says about itself: as a truth, this boss closes the whole width of the band
+/// most of the time and the one box it leaves is the middle, where the hits already are; as the frame it
+/// arrives on, so that a box an arm reaches in thirty-nine frames beats one it reaches in three, two Extra
+/// attempts took `10` hits outside [`the_band`] or at the clamp of twenty-one against `12` of twenty-six
+/// without it, which is the same attempt twice over. What the measure is kept for is the dump line.
+fn the_emptiest_box(fire: &[f32; BOXES_ACROSS], mine: usize, swept: Option<usize>) -> usize {
+    let piled = |box_: usize| clearly_fuller(fire, box_, MORE_THAN_A_HANDFUL);
     (0..BOXES_ACROSS)
-        .min_by(|a, b| fire[*a].total_cmp(&fire[*b]))
-        .unwrap_or(BOXES_ACROSS / 2)
+        .filter(|box_| Some(*box_) != swept)
+        .min_by(|a, b| {
+            piled(*a)
+                .cmp(&piled(*b))
+                .then_with(|| a.abs_diff(mine).cmp(&b.abs_diff(mine)))
+                .then_with(|| fire[*a].total_cmp(&fire[*b]))
+        })
+        .unwrap_or(mine)
 }
 
 /// The top of the band the bot moves in, which is the bottom [`THE_BAND`] of the field.
@@ -1615,6 +2916,16 @@ fn the_band(field: (f32, f32, f32, f32)) -> f32 {
 /// hit boxed in at the bottom right with the bottom left plainly empty, and what closed on it was a band of fire
 /// that had not reached the bottom third yet — counted only there, the box it stood in read as clear enough to
 /// wait in until the fire arrived.
+///
+/// **And asking [`THE_BAND`] of it once the counting projects was tried, which is the same question with the
+/// projection behind it.** `where_it_comes_into` walks each hazard [`THE_FRAMES_AHEAD`] along its own step and
+/// counts it where it first comes into this band, so *will it be somewhere to be by then* is already the
+/// question being asked — and narrowing the band to the one the bot moves in makes that *will it reach the
+/// bottom third in forty frames*, which two frames of the suite refuse:
+/// `a_box_is_counted_by_the_fire_in_the_bottom_half_of_the_field` is the run above, whose fire never reached
+/// the third at all, and `fire_on_its_way_into_the_band_is_counted_where_it_will_be` has a wall descending
+/// from `100` at three a frame, which is `220` by the fortieth — inside this band and short of that one. So
+/// the depth is not what the counting is missing, and the projection did not change the answer.
 const COUNTED_BAND: f32 = 3.0 / 5.0;
 
 /// The y above which fire is not counted towards a box.

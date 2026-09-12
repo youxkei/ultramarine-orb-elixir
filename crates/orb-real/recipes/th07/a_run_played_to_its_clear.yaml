@@ -34,6 +34,11 @@
 # a_run_played_to_its_clear.yaml under th06, where a step written for a sixth stage waited for one th06's
 # Easy does not have.
 - play_until: { frames: 216000 }
+# **And the name the ranking is registered under, typed rather than pressed for** — see `Step::Name`: a tap
+# at that entry writes whichever character its cursor is on and moves along the name, so what every clear
+# this case played was ranked as is eight of one letter.
+- name: ORB
+  give_up_after: 3600
 # Then the screens a finished run arrives on, which are the game's own and take a press apiece: the name
 # entry for the high score and the stats after it. A tap walks them, and orb's own question about the replay
 # comes up behind them — the second of the two moments it is asked, this being a run nobody will add to.

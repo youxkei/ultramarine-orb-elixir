@@ -1,5 +1,5 @@
-//! **Where the window goes while orb is playing the game itself**: small, in the monitor's bottom-left
-//! corner, and framed as a dialog.
+//! **Where the window goes while orb is playing the game itself**: small, in the top-left corner of the
+//! leftmost monitor, and framed as a dialog.
 //!
 //! A run orb plays is a run nobody is watching, and it is played on the machine somebody is working on. The
 //! settings say where a window a player asked for goes — fullscreen, or a size of their own — and none of that
@@ -67,12 +67,13 @@ fn a_bots_window_is_small_in_the_corner_and_framed_as_a_dialog() {
             BOT_CLIENT,
             "the bot was given a window the size the settings asked for",
         );
-        // The corner, and the frame counted in: what is asked for is the whole window, so it is its own
-        // left and bottom that sit against the monitor's.
+        // The corner, and the frame counted in: what is asked for is the whole window, caption included,
+        // so it is its own left and top that sit against the monitor's — which is what keeps the caption
+        // on the screen.
         assert_eq!(
-            (made.asked.left, made.asked.bottom),
-            (0, MONITOR.1),
-            "the bot's window is not in the monitor's bottom-left corner",
+            (made.asked.left, made.asked.top),
+            (0, 0),
+            "the bot's window is not in the monitor's top-left corner",
         );
         assert_eq!(
             made.ex_style & (DIALOG | TOOL),

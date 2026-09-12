@@ -82,7 +82,9 @@ pub struct Options {
     /// an ordinary launch** — this shortens the wait between frames and nothing else, which is what
     /// makes it different from --speed. The clock paces it, no display having a blank per frame to
     /// give at four times sixty, and the music plays at its own speed while the stage goes by
-    /// quicker: a check of the sound is a launch of this at 1
+    /// quicker: a check of the sound is a launch of this at 1. **And for a game orb has no frame of
+    /// its own in, what runs faster is the clock the game waits on** — orb answers its ask for
+    /// timeGetTime, GetTickCount and QueryPerformanceCounter with one running this many times over
     #[arg(
         long,
         require_equals = true,
@@ -91,6 +93,14 @@ pub struct Options {
         help_heading = TABLE,
     )]
     pace: Option<u32>,
+
+    /// say which addresses of the game's own move with the direction being pressed, for a game
+    /// nobody has read a field of. Hold one direction for a while and then the other — a count of
+    /// frames rises on every frame of a pass that wants rising, and only what is being steered
+    /// rises and then falls. Every surviving address is said with its value, and the pass is nine
+    /// megabytes a frame, so this is for a launch that is looking and no other
+    #[arg(long, help_heading = TABLE)]
+    find: bool,
 
     /// nothing can hit the player and the run goes at 64 updates a drawn frame, so half an
     /// hour of playing well is a minute of holding the shot key. It leaves no record: no score
@@ -269,6 +279,9 @@ impl Config {
         }
         if let Some(pace) = options.pace {
             self.pace = pace;
+        }
+        if options.find {
+            self.find = true;
         }
         if let Some(speed) = options.speed.or(pass_speed) {
             self.speed = speed;

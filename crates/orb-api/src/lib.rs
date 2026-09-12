@@ -480,6 +480,10 @@ pub trait Win: Send + Sync + 'static {
     /// is not in front comes out wrong.
     fn foreground_window(&self) -> Hwnd;
 
+    /// Every monitor, as the desktop has them arranged — see [`crate::window::monitors`], and
+    /// `orb_core::window::the_leftmost_of`, which is what does the choosing.
+    fn monitors(&self) -> Vec<Rect>;
+
     /// `SetProcessDPIAware`, and whether the host took it. Said once, before there is a window.
     ///
     /// Behind the seam because every size orb lays out is measured against what the host reports
@@ -507,6 +511,8 @@ pub trait Win: Send + Sync + 'static {
     /// `GetClientRect` — what the game draws into, which is not the size that was asked for whenever
     /// anything between here and the screen has an opinion. `None` for a window that is not there.
     fn client_rect(&self, window: Hwnd) -> Option<Rect>;
+    /// Where a window is on the desktop, frame and all — see [`crate::window::window_rect`].
+    fn window_rect(&self, window: Hwnd) -> Option<Rect>;
 
     // --- the status line, in the black beside the game ---------------------------
     //

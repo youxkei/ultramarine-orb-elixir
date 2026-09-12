@@ -26,6 +26,11 @@
 /// constant and no atomic in the path. The setter is not `install_`, which everything wearing that name
 /// in this tree does by writing over something — an import table entry or a prologue: this patches
 /// nothing and records where a function is.
+// **Allowed rather than gated, because what declares nothing through it is a whole target.** Both of the
+// games with such calls are 32-bit builds and this crate is built for `x86_64-pc-windows-gnu` as well,
+// where th06c is the only game compiled in and it hands over its frame without an address — see
+// `th06c::THE_FRAME`. A `cfg` on the arch here would say that in a place nothing reads it.
+#[allow(unused_macros)]
 macro_rules! handed_over {
     ($slot:ident, $at:ident, $set:ident, $real:ident) => {
         #[cfg(any(test, feature = "sim"))]
@@ -48,7 +53,15 @@ macro_rules! handed_over {
     };
 }
 
+// **A game is a module of the architecture its exe is**, and not of every build of orb: th06 and th07 are
+// 32-bit processes whose every address, calling convention and struct offset is a 32-bit one — their
+// `__thiscall`s do not exist as an ABI anywhere else — where th06c is a 64-bit process of its own. A build
+// of orb carries the games it could attach to and no others, which is also what [`KNOWN`] then lists.
+#[cfg(target_arch = "x86")]
 pub mod th06;
+#[cfg(target_arch = "x86_64")]
+pub mod th06c;
+#[cfg(target_arch = "x86")]
 pub mod th07;
 
 use std::ffi::c_void;
@@ -102,6 +115,18 @@ pub struct Build {
 ///
 /// A `const` rather than a `static` because a `static` of this type would want `Game: Sync`, and what
 /// this table is read for on either side is one entry copied out of it once.
+#[cfg(target_arch = "x86_64")]
+pub const KNOWN: &[Known] = &[Known {
+    exe: "th06c.exe",
+    cfg: "th06.cfg",
+    builds: &[Build {
+        md5: "acadbc0cabf3bade16c22fb884957bcd",
+        version: "the Steam build of md5 acadbc0c",
+    }],
+    game: &th06c::Th06c,
+}];
+
+#[cfg(target_arch = "x86")]
 pub const KNOWN: &[Known] = &[
     Known {
         exe: "東方紅魔郷.exe",
@@ -212,6 +237,69 @@ pub(crate) fn the_name_held_at(address: usize, bytes: usize) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+/// A name written into the field a game's own entry types into, padded with the spaces that entry pads
+/// with — see [`Game::types_its_name`], which both games would answer through this.
+///
+/// **Refused rather than cut short** where the name does not fit the field or holds a character the entry
+/// has no item for: a ranking under half a name is worse than one under the name the entry came up
+/// holding, and the step that asked for it says so by never ending.
+///
+/// **The same ASCII [`the_name_held_at`] reads**, which is the whole of what those grids offer.
+pub(crate) fn the_name_typed_into(address: usize, bytes: usize, name: &str) -> bool {
+    if name.len() > bytes
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+    {
+        return false;
+    }
+    let mut field = name.as_bytes().to_vec();
+    field.resize(bytes, b' ');
+    for (offset, byte) in field.into_iter().enumerate() {
+        unsafe { orb_api::mem::write(address + offset, byte) };
+    }
+    true
+}
+
+/// **Where a game's own read of the keyboard is**, which is not the same kind of place in every game.
+///
+/// th06 and th07 call theirs from their own code at an address, so what stands in front of one is a
+/// [`Patch`]: the first bytes jump to orb's and the prologue is kept to run. th06c calls nothing of the
+/// kind — it asks `GetProcAddress` for its read at startup and keeps the answer in a table of its own —
+/// so what stands in front of that one is a [`Lookup`]: orb answers the ask, and the pointer the game
+/// keeps is orb's because the game wrote it there itself.
+pub enum Read {
+    Code(Patch),
+    LookedUp(Lookup),
+}
+
+/// **A function the game asks for by name at startup**, which orb answers in place of the host.
+///
+/// **The ask and not the slot the answer lands in.** That slot is the game's own to write and holds
+/// nought until it does, so a pointer written there at the attach is one the game's startup overwrites:
+/// measured, th06c's keyboard slot held `0x0` when orb read it. Answering the ask needs no address at
+/// all, which is what makes it hold across a build and across where the loader put the exe.
+///
+/// See `docs/th06c/asm.md`, where the three hundred and forty-two names this kind of game asks for are
+/// listed.
+pub struct Lookup {
+    /// **The name, which is the whole of what identifies it.** Not the module beside it: the handle the
+    /// game passes is one it got wherever it liked, and a name like `GetKeyboardState` belongs to one
+    /// module in any process.
+    pub name: &'static str,
+}
+
+/// **The controls of a game's own startup dialog that a launch playing itself clicks**, in the order they
+/// are clicked: `None` for a game that puts no dialog up.
+///
+/// **Clicked rather than the dialog being skipped.** What each click settles is the dialog procedure's
+/// own business — th06c reads its radio buttons with `IsDlgButtonChecked` when the start button is
+/// pressed — so a dialog orb answered by never showing it is a launch whose renderer was never told
+/// which window to make. Clicking is what a person does, and it settles the same things.
+pub struct Dialog {
+    pub clicks: &'static [i32],
+}
+
 /// A function to hook and the bytes expected at it, so a mismatch is caught
 /// rather than relocating an instruction that cannot be relocated.
 pub struct Patch {
@@ -238,6 +326,24 @@ pub struct Call {
 /// is for everything else, instead of the transmute written again — and it is what lets a game that
 /// is not a real process be driven through the frame loop at all, an address space laid out by hand
 /// answering reads rather than execution.
+/// **The two walks orb's own frame loop calls, handed over rather than patched.**
+///
+/// **Which is what a game whose whole frame orb replaces needs.** Nothing else calls either walk then —
+/// the frame that did is orb's now — so there is no prologue to be in the path of, and the loop calls
+/// orb's own two hooks with these two behind them. It is also the only way in for a walk a game has no
+/// function of its own for, th06c's draw chain being walked inline in the frame orb replaced, and for one
+/// whose answers the loop cannot read as they come: th06c's calc walk answers a byte saying whether the
+/// frame is leaving and writes the answer it leaves with through a pointer.
+///
+/// Addresses for the reason [`FrameCalls`] holds addresses, and the same two statics behind them — see
+/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+pub struct Walks {
+    /// `extern "fastcall" fn(*mut c_void) -> i32`, called where the patched calc chain would be.
+    pub update: usize,
+    /// The same, for the draw chain.
+    pub draw: usize,
+}
+
 pub struct FrameCalls {
     /// Hands queued sound effects to the sound system, as the game does once per frame after its
     /// update. Runs on the game's main thread.
@@ -249,10 +355,37 @@ pub struct FrameCalls {
 
 pub struct Hooks {
     /// One call per logic frame. Not calling through freezes the game.
-    pub update: Patch,
+    ///
+    /// `None` for a game whose frame orb has not been read far enough into to stand in: a launch there
+    /// gets no frame loop of orb's own and no chapters, and what it does get is whatever hooks below
+    /// are named — see [`th06c`], which is read as far as its keys and no further.
+    pub update: Option<Patch>,
     /// Called inside the scene the game draws into, the only place an overlay
-    /// may draw.
-    pub draw: Patch,
+    /// may draw. `None` on the same terms as [`Hooks::update`].
+    pub draw: Option<Patch>,
+    /// **The two walks handed over instead of patched**, for a game whose frame is orb's — see
+    /// [`Walks`], which has why a patch cannot reach either of th06c's.
+    ///
+    /// `None` for a game whose walks are the two patches above, and where both are named this is what
+    /// wins: it is the loop's own two calls, and the patches would be a second answer to the same
+    /// question.
+    pub walks: Option<Walks>,
+    /// **One call per frame of the game's own, for a game orb does not own the frame of** — the walk of
+    /// the calc chain, which orb is told about here rather than standing in the place of.
+    ///
+    /// **Which is not [`Hooks::update`] and cannot be it.** That one is the frame loop's: naming it
+    /// hands orb the update, the draw, the sound and the present, and a game that names it and not the
+    /// three others gets no hook installed at all. This is the seam a game orb is *outside* the frame of
+    /// has instead, and all it decides is when the rules are asked for a word and when a recipe's step
+    /// is walked.
+    ///
+    /// **Because the read a game like that is otherwise driven off is not its frame.** th06c is asked
+    /// for a word by its own keyboard read, and that read is made more often than the game moves: with
+    /// this hook in place a launch counted 683, 692, 736, 761 and 773 reads against every 600 walks of
+    /// the calc chain, so between a seventh and a quarter of the words were decided off a world that had
+    /// not moved since the word before. See `orb_bot::steer::a_tick_read_again`, which is what answers
+    /// those where this is `None`, and `docs/th06c/asm.md` for the frame itself.
+    pub runs_its_frame: Option<Patch>,
     /// Writes a replay file. `None` if the game has nothing to suppress.
     pub save_replay: Option<Patch>,
     /// Finishes off the record of inputs a run is being recorded into. `None` if the
@@ -319,7 +452,7 @@ pub struct Hooks {
     /// Everything the game reads from the keyboard, once a frame. Needed because
     /// orb keeps updating while the window is not in front, and a game that carried
     /// on reading the keyboard then would act on keys meant for something else.
-    pub input: Option<Patch>,
+    pub input: Option<Read>,
     /// The part of the input read that goes to a joystick, if the game keeps it separate. Hooked and
     /// **not called through**: what every pad does to the word is [`Game::pad_word`], so a launch that
     /// left this out is a launch where no pad does anything. `None` for a game whose pad read has not
@@ -361,6 +494,54 @@ pub struct Hooks {
     /// is made on. `None` for a game with no such screen, which is th06: its buttons are configured by
     /// `custom.exe` beside it and nothing in the game reads a pad by number.
     pub pad_buttons: Option<Patch>,
+    /// The dialog the game puts up before it starts anything, and the controls a launch that plays
+    /// itself clicks to get past it — see [`Dialog`].
+    ///
+    /// Only a launch that plays itself: a person at the keyboard is somebody the dialog is *for*, and
+    /// answering it for them would take away the choice the game came up to ask about.
+    ///
+    /// `None` for a game that puts no dialog up, which is th06 and th07 — 1.02h's own settings are
+    /// `custom.exe`'s beside it, and th07's are a screen inside the game.
+    pub startup_dialog: Option<Dialog>,
+    /// **The name the game asks for to make its window**, for a game that looks that up rather than
+    /// importing it — see [`Lookup`], and [`Hooks::create_window`] for the moment a game that imports it
+    /// is got in front of instead.
+    ///
+    /// What it buys is the one thing a launch that plays itself wants of a window: somewhere out of the
+    /// way. Only the corner is taken — the size and the style are the game's own, being what its own
+    /// settings just chose.
+    ///
+    /// `None` for a game whose window creation is in its import table, which is th06 and th07.
+    pub makes_its_window: Option<Lookup>,
+    /// **And the name it asks for to move that window afterwards**, which is the other half of placing
+    /// one: a game that centres its own window undoes wherever it was made.
+    ///
+    /// th06c does — it looks up `MonitorFromWindow`, `GetMonitorInfoW`, `GetSystemMetrics`,
+    /// `ClientToScreen` and `MoveWindow` together, and a window orb had made in the corner was found in
+    /// the middle of a screen two seconds later. So a launch that plays itself answers this one too, and
+    /// what it answers with is the rectangle it already decided.
+    ///
+    /// `None` for a game that leaves its window where it made it, which is th06 and th07.
+    pub moves_its_window: Option<Lookup>,
+    /// **The name it asks for to read a pad**, which orb answers by being one.
+    ///
+    /// **A pad rather than the keys, because a pad is read the same way whatever screen is up.** This
+    /// game's keyboard comes two ways — a DirectInput device while a run is on and a translation from
+    /// virtual keys while a menu is — so a key orb writes reaches a menu and not a run. An XInput pad is
+    /// read through one call on every screen, and orb answering that call is a pad nothing had to
+    /// install.
+    ///
+    /// `None` for a game whose pad orb reads for itself and hands over a word of — which is th06 and
+    /// th07, where [`Hooks::joystick`] is the read that is stood in front of.
+    pub reads_a_pad: Option<Lookup>,
+    /// **The name it makes its renderer through**, answered so that the swapchain it then makes is one
+    /// orb can present through — see `dxgi`, which is all of what that answer does.
+    ///
+    /// **Which is what a frame orb owns needs and nothing else does.** The loop presents once per frame,
+    /// and a game whose own present is inside its draw chain would present twice — so the game's is
+    /// taken over and orb's is the one that reaches the display. `None` for a game whose frame is its
+    /// own, and for the two whose present is an address `FrameCalls` already carries.
+    pub makes_its_renderer: Option<Lookup>,
 }
 
 /// A patch, and where the argument of the function under it arrives.
@@ -624,6 +805,18 @@ pub enum CountedDeath {
 pub trait Game {
     fn hooks(&self) -> Hooks;
 
+    /// **Where the exe turned out to be loaded**, said once at the attach and before any address of
+    /// this game's is used.
+    ///
+    /// Nothing by default, which is a game whose exe is where it asked to be: th06 and th07 are 32-bit
+    /// images the loader puts at the 0x400000 their addresses are written against, and there is nothing
+    /// to move. A game built with ASLR on gets the ask honoured only until something else is there
+    /// first — th06c came up at a different base on every launch measured — and such a game keeps what
+    /// it is told here and puts its own addresses through it.
+    fn set_image_base(&self, base: usize) {
+        let _ = base;
+    }
+
     /// Whether a run of this game can be rewound at all, which is what pointdevice mode *is*: chapters,
     /// the snapshots they are taken as, and the retry menu a death offers.
     ///
@@ -738,6 +931,67 @@ pub trait Game {
         None
     }
 
+    /// **Types a name into that entry**: the characters written where the screen's own keys write them,
+    /// and the entry left on the item that ends it so that one press finishes it.
+    ///
+    /// **Written rather than pressed for, because the entry cannot be pressed to a name.** Its cursor
+    /// walks a grid of characters and a `decide` writes whichever one the cursor is on, so eight taps
+    /// register eight of the same letter — which is what every ranking a recipe's clear ever wrote:
+    /// `AAAAAAAA`. Walking the grid is thirty-odd presses a name and each of them blind, that cursor
+    /// being the screen's own and not the one a recipe's `until` can wait for.
+    ///
+    /// **What it is not is a name orb asks for.** `the_name_its_own_entry_holds` reads what a run was
+    /// entered under and orb asks nobody for one; this writes the name a *recipe* asked for, which is a
+    /// launch that plays itself and has nobody at the keyboard to type one.
+    ///
+    /// False where no such entry is up, where the game has none read, or where the name has more
+    /// characters than the field holds — so a step that asked for one waits and gives up rather than
+    /// registering half of it.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn types_its_name(&self, name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
+    /// **Whether that entry is up**, which is the one thing a recipe otherwise cannot wait for.
+    ///
+    /// **Because the entry opens inside the scene a run is played in**, so the step that types a name has to
+    /// be the step already running when it opens: a `play` ends where the *run* does and the run's own end is
+    /// past the entry, and every frame in between is one the rules are asked for a word on — which is a held
+    /// shot writing whichever character the cursor starts on. See `recipe::Until::Name`, which is what a step
+    /// waits for it by.
+    ///
+    /// False for a game whose entry has not been read, the same as [`Game::types_its_name`].
+    ///
+    /// # Safety
+    /// Must run on the game's main thread.
+    unsafe fn typing_a_name(&self) -> bool {
+        false
+    }
+
+    /// **A word's keys written into the game's own buffer**, for a game orb is asked for a word by its frame
+    /// rather than by its keyboard read.
+    ///
+    /// **Because that read has already happened by then.** [`Game::press_into`] writes into the snapshot the
+    /// read was given and the game translates it; a frame hook runs after that translation, so a word left
+    /// there reaches the game a whole frame later — and a frame of that is a bot walking into what it just
+    /// decided to walk out of. Measured: a launch of th06c whose rules were moved onto its frame took five
+    /// hits in two stages where the launch before it took none, every one of them with a bullet directly
+    /// above the player, the move chosen away from it, and the room the model left it clear for all twelve
+    /// frames looked at — which is the arithmetic of a player that did not move.
+    ///
+    /// False for a game that has no such buffer, which is every game orb is inside the frame of: theirs is
+    /// the read itself.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, between its keyboard read and the update that acts on it.
+    unsafe fn presses_into_its_own_keys(&self, word: u16) -> bool {
+        let _ = word;
+        false
+    }
+
     /// Notices what the game has counted of its own play time since the frame before, so that a span counted
     /// before anybody chose a mode can be carried onto whichever file the sitting turns out to write.
     ///
@@ -757,6 +1011,22 @@ pub trait Game {
     /// # Safety
     /// Must run on the game's main thread.
     unsafe fn d3d_device(&self) -> Device;
+
+    /// **Whether [`Game::d3d_device`] is a device orb draws through**, and so whether a null one is a
+    /// frame to hand back.
+    ///
+    /// `true` for the two games orb has an overlay in: what it draws goes through that device, the scene
+    /// either side of the draw chain is that device's, and a frame before the game has made one is a
+    /// frame orb can neither pace nor draw in — see `runtime::render`, which hands those back.
+    ///
+    /// `false` for a game whose renderer orb has no device of. Its frame is still orb's to run — the
+    /// update, the draw, the sound and the present are what that loop is made of — and what it gives up
+    /// is the overlay, the picture a `screenshot` step takes and every question orb would put over the
+    /// game, none of which has anywhere to be drawn. See [`th06c`], which draws through D3D11 and hands
+    /// orb nothing.
+    fn draws_through_its_d3d_device(&self) -> bool {
+        true
+    }
 
     /// The music stream, if one is playing and its objects look intact.
     fn music(&self) -> Option<Music>;
@@ -1428,6 +1698,31 @@ pub trait Game {
     /// Must run on the game's main thread, between frames.
     unsafe fn swallow_input(&self);
 
+    /// **A word's own buttons put into the keyboard snapshot the game is about to read**, for a game
+    /// whose read is a snapshot rather than a word — see [`Read::Pointer`] and
+    /// [`crate::runtime::keyboard_state`].
+    ///
+    /// Nothing for a game that hands orb a word and takes one back: th06 and th07 read their own keys
+    /// and orb answers that read with the word, so there is no snapshot for anything to be written
+    /// into. Which is why this is a method here rather than a table in the runtime — which keys a word
+    /// is, and whether the game reads keys at all, is the game's own.
+    ///
+    /// # Safety
+    /// `state` must be the 256 bytes the game's own read was given.
+    unsafe fn press_into(&self, state: *mut u8, word: u16);
+
+    /// **A word's buttons put into the pad state orb answers a game's own pad read with**, for a game
+    /// whose input orb reaches that way — see [`Hooks::reads_a_pad`].
+    ///
+    /// Nothing by default, which is a game orb does not answer a pad read for: th06 and th07 stand in
+    /// front of their own pad read instead and hand it a word, so there is no state to fill.
+    ///
+    /// # Safety
+    /// `state` must be the bytes that game's own read was given.
+    unsafe fn press_into_pad(&self, state: *mut u8, word: u16) {
+        let _ = (state, word);
+    }
+
     /// Which buttons the game's own front end reads as *decide*, in the word its input read hands
     /// back.
     ///
@@ -1994,10 +2289,24 @@ pub struct Frame {
     /// separate because nothing says a hitbox is square.
     pub at: (f32, f32),
     pub half: (f32, f32),
-    /// What one frame of holding a direction moves the player by, across and down, straight and then diagonally.
-    /// Both pairs, because nothing says the two axes are scaled alike.
+    /// What one frame of holding a direction moves the player by with the focus key *up*, across and down,
+    /// straight and then diagonally. Both pairs, because nothing says the two axes are scaled alike.
     pub straight: (f32, f32),
     pub diagonal: (f32, f32),
+    /// **And the same two for a frame with the focus key held**, which is a different pair in every game that
+    /// has one — th06c's are `4.00` and `2.83` against `2.00` and `1.41`.
+    ///
+    /// **Both, because which of them a frame takes is the bot's own answer and not the game's.** The key is
+    /// pressed by the rules after the move is chosen, so a projection made with the pair the *last* frame
+    /// held is a projection of the other state's step on every frame that answer changes — half what the
+    /// move covers or twice it. So what the game hands over is both pairs and which to project with is
+    /// `steer`'s, whose own focus rule is what decides it.
+    ///
+    /// **The same pair as [`straight`](Frame::straight) where a game keeps no second one**, which is th07:
+    /// its speeds are one table the game itself writes the fraction into, and what selects that fraction is
+    /// not established — see `game::th07::PLAYER_SCALE_ACROSS`.
+    pub focused_straight: (f32, f32),
+    pub focused_diagonal: (f32, f32),
     /// Whether the game says the player has just been hit and is inside whatever window it gives to take that
     /// back — th07's deathbomb window and whatever the next game calls its own.
     pub hit: bool,
@@ -2020,6 +2329,15 @@ pub struct Frame {
     /// something else, so a run that goes for one there gets what it went for; th06 leaves it a power item
     /// worth a scrap of score, and a run that crosses the field for one has crossed it for nothing.
     pub full_power: bool,
+    /// **How many bombs the run has in hand**, which is what says whether the bomb the rules reach for is
+    /// one there is.
+    ///
+    /// **Because a bomb pressed with none in hand is not a bomb that did nothing**: the rules hold their own
+    /// bomb off for `steer::BOMBS_APART` frames afterwards, so a press with the count at nought spends the
+    /// wait and leaves the next real corner unbombed. One Extra launch wrote 24 `a bomb spent` lines against
+    /// a run that could have had nine — three at the start and what two deaths refilled — and its own two
+    /// hits came at corners inside that wait.
+    pub bombs: i8,
     /// Whether a line of dialogue is up, which is a thing to press past.
     pub dialogue: bool,
     /// Where the boss is, for a fight that has one up.
@@ -2049,7 +2367,12 @@ pub struct Hazard {
 pub enum Kind {
     /// A bullet, and whether it is in the state its collision is found in: the others are a bullet still coming
     /// out, or one already spent.
-    Bullet { hitting: bool },
+    ///
+    /// **And the game's own number for that state**, which is for the log and nothing else: what a bullet's own
+    /// step is scaled by is its state's, so a bullet that moved by something other than what its step said is
+    /// one whose state is the question — and th06c has a bullet that moved `-2.25,5.13` against a step of
+    /// `-1.60,3.66`, the same `1.4` on both axes, which no scale it reads off that game's five branches is.
+    Bullet { hitting: bool, state: u16 },
     /// A body, and whether the game will run its collision at all — an enemy with nothing solid on it cannot
     /// touch the player, however wide it is.
     Body { solid: bool },
@@ -2059,12 +2382,20 @@ pub enum Kind {
 }
 
 /// **A beam**, which is a line rather than a box and so is not a [`Hazard`] at all.
+#[derive(Clone, Copy)]
 pub struct Beam {
     pub slot: usize,
-    /// Where it is fired from, and which way it points now. What it will be pointing at in a frame's time is a
-    /// thing to work out from how it has been turning, there being no rate on it to read.
+    /// Where it is fired from, and which way it points now. Where it will be fired from and what it will be
+    /// pointing at in a frame's time are things to work out from how it has been moving and turning, there
+    /// being no rate on either to read.
     pub origin: (f32, f32),
     pub angle: f32,
+    /// **How many frames it has been in the phase it is in**, which is what says the beam in this slot next
+    /// frame is the same beam: a slot the game gives to the next beam of a sweep holds one whose angle, ends
+    /// and width all match the last one's, so nothing else about a beam tells the two apart — and a beam
+    /// credited with the distance between it and its predecessor is a lane feared the width of the field away
+    /// from where it is.
+    pub frames: i32,
     /// How far along it the beam runs, from the near end to the far one.
     pub near: f32,
     pub far: f32,
@@ -2080,8 +2411,10 @@ pub struct Beam {
     /// How many frames until the game starts testing the player against it, which is nought or less for one
     /// already firing. Before that it is drawn and hits nothing.
     pub fires_in: i32,
-    /// Whether it is on its way out. It goes on hitting while it fades, narrowing as it does — so this is worth
-    /// having only to say that the width read for it is the width it had.
+    /// Whether it is on its way out. It goes on hitting while it fades, and what the fading takes down is a
+    /// game's own business — th06c's takes the length and not the width, which is why the ends handed over are
+    /// the seam's to work out rather than the fields as they are read. So this says which beams a lane read
+    /// wrong would be, and nothing else turns on it.
     pub fading: bool,
 }
 
@@ -2148,6 +2481,9 @@ pub struct Reached {
     /// has to be asked on — and a frame or more after the card itself started. See
     /// [`Game::a_cards_name_is_shown`].
     pub card_name: bool,
+    /// **Whether the game's own name entry is up**, which is what a step that types one has to be running
+    /// while — see [`Game::typing_a_name`], and `recipe::Until::Name`.
+    pub typing_a_name: bool,
 }
 
 /// The questions of orb's own a recipe can wait for, by the names it writes them as.
@@ -2302,7 +2638,9 @@ impl fmt::Display for State {
     }
 }
 
-#[cfg(test)]
+// Only on the target th06 and th07 are built for — see `th06c::tests`, which is what the other target's
+// run of these is for.
+#[cfg(all(test, target_arch = "x86"))]
 mod tests {
     use super::{Build, KNOWN, Known, known_by_exe, known_named, th06};
 

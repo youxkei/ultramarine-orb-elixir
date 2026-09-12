@@ -152,6 +152,223 @@ fn the_bot_bombs_the_frame_the_player_is_hit() {
     });
 }
 
+/// **With nothing open, the move whose own next frame is clear of everything**, over one that is hit on fewer
+/// of the frames looked at and already inside something on the next.
+///
+/// The next frame is the only one the player is certain to reach, and twelve more frames of choosing is what a
+/// move that reaches it buys: a run of th06c's Extra died on the other order, taking a move `-3.2` into
+/// something on its own next frame because it was hit on four of the thirteen, over one with `1.8` of room
+/// there and hit on all thirteen.
+#[test]
+fn with_nothing_open_the_bot_takes_the_move_whose_next_frame_is_clear() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-keeps-its-next-frame");
+        game.frames(30);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // **Two bigger on both axes than every frame looked at can cross**, above and below: every one of
+        // the nine is hit, and the sideways ones are left a unit of room on their own next frame where the
+        // rest are inside one of the two.
+        let closing = 1.0;
+        let size = (A_STEP * 32.0, A_STEP * 24.0);
+        let apart = size.1 / 2.0 + closing * 2.0 + A_STEP;
+        game.image()
+            .a_bullet_of_size_is_at(500, MIDDLE, LOW - apart, (0.0, closing), size);
+        game.image()
+            .a_bullet_of_size_is_at(501, MIDDLE, LOW + apart, (0.0, -closing), size);
+        // **And what makes the two sides differ.** To the left, standing still, something the walk runs deep
+        // into by the last of the frames looked at and is nowhere near on the first — so going left is the
+        // move with the least room of the thirteen. To the right, something crossing the landing on the very
+        // next frame and gone by the one after — so going right is the move with the most room of the
+        // thirteen and a hit on the next.
+        game.image().a_bullet_of_size_is_at(
+            502,
+            MIDDLE - A_STEP * 18.0,
+            LOW,
+            (0.0, 0.0),
+            (A_STEP * 20.0, size.1),
+        );
+        // **Far enough left that where it stands now is clear of the left landing**, which the judgement
+        // reads as well as where its step takes it: a landing has to be clear of both places, so a crossing
+        // bullet parked on the move this test is about would shut that move rather than the one it is for.
+        game.image().a_bullet_of_size_is_at(
+            503,
+            MIDDLE - A_STEP * 4.0,
+            LOW,
+            (A_STEP * 5.0, 0.0),
+            (A_STEP * 2.0, A_STEP * 2.0),
+        );
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & (LEFT | RIGHT),
+            LEFT,
+            "the bot took a move already inside something on its own next frame:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a bomb where nothing has been open for a second running**, which is a place lost rather than a
+/// frame lost: every one of those frames was the best of its own nine, so nothing in the ranking gets the
+/// player out of where it is. th06c's Extra boss took a run's hit after `169` such frames, the player in
+/// the thickest box of the five the whole time and the rules wanting the emptiest on every one of them.
+///
+/// **And not on one of them**, which is the judgement's own pessimism: `steer::SHUT_IN_FOR` has what a single
+/// frame of it cost.
+///
+/// **This and the deathbomb are the only two bombs there are**, and what tells them from the frame before a
+/// hit — which spends nothing — is what the bomb buys: that one is the same hit paid a frame earlier, where
+/// a stretch is a place, and clearing the screen is the one thing that puts a run somewhere it can play
+/// from. `steer`'s own record of these frames has the climb that measured it.
+#[test]
+fn a_place_nothing_has_been_open_in_is_bombed_out_of() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-place-nothing-was-open-in");
+        game.frames(300);
+        // **Two closing on the player from a distance its own next frame keeps more room than the slack at**,
+        // where the last of the frames looked at is inside it — so nothing is open to any of the nine and the
+        // move chosen is not hit on its own next frame, which is the state a single frame of is nothing.
+        //
+        // **Put back every frame**, both of them and the player: a stretch of it is the whole subject, and
+        // either of them left to close turns it into the corner the other bomb answers within two frames.
+        let closing = 1.0;
+        let size = (A_STEP * 32.0, A_STEP * 24.0);
+        let apart = size.1 / 2.0 + A_STEP + A_STEP;
+        let shut_in = || {
+            game.image().the_player_is_at(MIDDLE, LOW);
+            game.image()
+                .a_bullet_of_size_is_at(500, MIDDLE, LOW - apart, (0.0, closing), size);
+            game.image()
+                .a_bullet_of_size_is_at(501, MIDDLE, LOW + apart, (0.0, -closing), size);
+        };
+
+        // A sixth of a second of it, which is not a place lost.
+        for _ in 0..10 {
+            shut_in();
+            game.frames(1);
+        }
+        game.one_frame_to_drain_the_log();
+        assert!(
+            !game.log().said("frame(s) running with nothing open"),
+            "the bot called ten frames with nothing open a place lost:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And a second of it, which is. **Read off the line and not off the word**, the word the game acts
+        // on being the one the frame before it left: the bomb is pressed on the frame the stretch reaches a
+        // second, and by the frame that word is readable the stretch has been reset and the next word has
+        // no bomb in it. The line says which of the three the frame was, which is what this is about.
+        for _ in 0..60 {
+            shut_in();
+            game.frames(1);
+        }
+        game.one_frame_to_drain_the_log();
+        assert!(
+            game.log().said("a bomb spent after"),
+            "the bot did not spend a bomb on a place nothing had been open in for a second:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And where not one of the nine reaches its own next frame, the shallowest of the overlaps.**
+///
+/// The frames after the next one are frames that never arrive, so a move hit on two of the thirteen and six
+/// units inside something on the next is worth less than one hit on all thirteen and a unit inside: `room`, the
+/// least of the thirteen, cannot tell them apart and `hits()` has them the wrong way round. A run of th06c's
+/// Extra stood still into a beam `-6.0` deep over a step aside `-2.0` deep for exactly that reason.
+#[test]
+fn with_nothing_reaching_its_next_frame_the_bot_takes_the_shallowest_overlap() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-takes-the-shallowest");
+        game.frames(30);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // **Two that put every one of the nine a unit inside something on its own next frame**, above and
+        // below and wider on both axes than the frames looked at can cross — so nothing is open, nothing
+        // reaches its next frame, and every move is hit on all thirteen.
+        let closing = 1.0;
+        let size = (A_STEP * 32.0, A_STEP * 24.0);
+        let apart = size.1 / 2.0 + A_STEP;
+        game.image()
+            .a_bullet_of_size_is_at(500, MIDDLE, LOW - apart, (0.0, closing), size);
+        game.image()
+            .a_bullet_of_size_is_at(501, MIDDLE, LOW + apart, (0.0, -closing), size);
+        // **And one to the left, drifting right**, which is what makes the three middle moves differ on their
+        // own next frame and on nothing else: going left is seven units into it, standing still three, and
+        // going right is clear of it — so right is the shallowest overlap of the nine while sharing the least
+        // room of the thirteen with left.
+        game.image().a_bullet_of_size_is_at(
+            502,
+            MIDDLE - A_STEP * 3.0,
+            LOW,
+            (closing, 0.0),
+            (A_STEP * 5.0, size.1),
+        );
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & (LEFT | RIGHT),
+            RIGHT,
+            "the bot took the deeper of two overlaps on its own next frame:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a corner where nothing is open and the move it chose has less room left on its own next frame than
+/// a bomb is owed at is written down, with the bomb kept for the window.**
+///
+/// **Under that and not overlapping.** A tenth of a unit of room on the next frame is not room, and a corner
+/// read only at the overlap is one read too late: th06c's Extra boss took a run's first hit on such a frame
+/// with three bombs still in hand. What the number is and why it is neither nought nor the slack a clear move
+/// is judged with is `steer::ROOM_A_BOMB_IS_OWED_AT`.
+///
+/// **And what the bomb is for is the hit the game has counted**, which such a frame is one frame short of:
+/// spending it here buys nothing the deathbomb does not and takes the stock the window needs, so the word
+/// read back carries the line and not the bomb.
+#[test]
+fn a_corner_with_only_the_slack_left_is_written_down_unbombed() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-corner-with-the-slack-left");
+        // **Past the frames one corner is held from the next by**, which a launch counts from nought: inside
+        // them no corner is written down at all, so one put up before them reads as one the rules passed over.
+        game.frames(300);
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // **One above and one below, each bigger on both axes than every frame looked at can cross**, so
+        // that not one of the nine is out of the way of both: a box a diagonal passes through and comes out
+        // the far side of is a move with frames of its own to spare, and that move is then the one chosen
+        // with its own next frame already over the boxes — which is the reading this test is here instead
+        // of.
+        //
+        // **And closing a unit a frame onto a quarter of one**, which is a next frame under
+        // `steer::ROOM_A_BOMB_IS_OWED_AT` and still clear of the boxes: at nought the next frame is already
+        // a hit, which is the reading this one is here instead of, and at the whole of
+        // `steer::ROOM_TO_SPARE` it is a frame nothing was going to touch, which is the other.
+        let closing = 1.0;
+        let a_quarter = 0.25;
+        let size = (A_STEP * 32.0, A_STEP * 24.0);
+        let apart = size.1 / 2.0 + A_STEP + closing + a_quarter;
+        game.image()
+            .a_bullet_of_size_is_at(500, MIDDLE, LOW - apart, (0.0, closing), size);
+        game.image()
+            .a_bullet_of_size_is_at(501, MIDDLE, LOW + apart, (0.0, -closing), size);
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & BOMB,
+            0,
+            "the bot spent a bomb on a corner rather than keeping it for the window:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+        game.one_frame_to_drain_the_log();
+        assert!(
+            game.log().said("of room on the move's own next frame"),
+            "the bot did not write down a corner it had only the slack left in:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// th07's own d-pad bits, as `Th07` has them.
 const UP: u16 = 0x010;
 const DOWN: u16 = 0x020;
@@ -197,6 +414,11 @@ fn in_a_stage(name: &str) -> Box<Fake> {
     game.image().the_player_is_playing();
     game.image().is_playing(1, 1);
     game.image().has_a_runs_numbers();
+    // **And bombs in hand, which is what a run has**: the block those numbers live in is laid out zeroed,
+    // and the rules now ask whether the bomb they are reaching for is one there is — see `Frame::bombs`.
+    // Without this every case about bombing would be a case whose run had none, and the two that expect one
+    // would be measuring the count rather than the corner.
+    game.image().has_lives_and_bombs(2.0, 3.0);
     game.image().is_not_paused();
     // A step of the shape the game's own is: a diagonal covers a corner of the square a straight move covers a
     // side of, so the two are not the same distance and a diagonal is not simply the better move.
@@ -361,6 +583,9 @@ fn the_bot_dodges_an_enemy_on_its_way_to_an_item() {
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
+            // **Up and not down**, which is a tie and is decided by the order of `steer::WAYS`: the enemy is
+            // level with the player, so stepping off its line costs the same either way and the item is the
+            // same distance from both landings. That order has why up is the half it goes to.
             LEFT | UP,
             "the bot walked into the enemy on its way to the item:\n  {}",
             game.log().lines().join("\n  "),
@@ -461,18 +686,15 @@ fn the_bot_leaves_a_laser_that_is_turning_onto_it() {
         let game = in_a_stage("th07-the-bot-leaves-a-turning-laser");
         game.image().the_player_is_at(MIDDLE, LOW);
         let straight_down = std::f32::consts::FRAC_PI_2;
-        let beam = |off: f32| {
-            game.image().a_laser_is_at(
-                11,
-                (MIDDLE, FIELD.1),
-                straight_down - off,
-                (0.0, FIELD.3),
-                A_STEP * 2.0,
-            );
-        };
 
         // The first frame has nothing to compare with, so the beam is only where it points — wide of the player.
-        beam(0.05);
+        game.image().a_laser_is_at(
+            11,
+            (MIDDLE, FIELD.1),
+            straight_down - 0.05,
+            (0.0, FIELD.3),
+            A_STEP * 2.0,
+        );
         game.frames(1);
         assert_eq!(
             game.image().the_word_the_run_acts_on() & PAD,
@@ -482,7 +704,8 @@ fn the_bot_leaves_a_laser_that_is_turning_onto_it() {
         );
 
         // And now it has turned a little towards it. Where it points is still wide; where it is going is not.
-        beam(0.04);
+        game.image()
+            .the_laser_was_turned_to(11, straight_down - 0.04);
         game.frames(1);
         assert_ne!(
             game.image().the_word_the_run_acts_on() & PAD,
@@ -1059,6 +1282,176 @@ fn the_box_the_player_stands_in_is_left_and_not_only_the_one_it_was_heading_for(
     });
 }
 
+/// **And of two boxes as empty as each other, the one the player has less field to cross to reach.**
+///
+/// The count is a measure of a screen in motion and the emptiest of five is settled by a tenth of a bullet, so
+/// the bare least of them throws the place to wait a fifth of the field away on a difference nothing can act on:
+/// six consecutive samples of one th06c Extra's walk wanted `56`, `56`, `266`, `56`, `118` and `56`, the two that
+/// flipped reading `11, 13, 16, 11, 11` and `16, 13, 26, 13, 16`. A run given that spends the pattern crossing,
+/// and the same walk goes on up out of the band it was waiting in to be hit at `176,202`.
+///
+/// Here the box the player stands in is one to leave, the two either side of it are piled too, and what is left
+/// is a box one across holding a bullet or two against an empty one two across the other way — which the bare
+/// least sends it past both piles to reach.
+#[test]
+fn the_nearer_of_two_boxes_as_empty_as_each_other_is_the_one_waited_in() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-nearer-of-two-empty-boxes");
+        // In the middle, which is the box to be out of.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        // Badly worse than anywhere else, so that the ground underfoot is what moves it.
+        for slot in 0..30 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                MIDDLE,
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        // A pile in the leftmost and another in the second from the right, so that neither is a candidate and
+        // both are fire to cross.
+        for slot in 30..54 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * if slot < 42 { 0.1 } else { 0.7 },
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        // And a handful in the box one to the left, which leaves the rightmost emptier than it by a handful and
+        // two boxes further off.
+        for slot in 54..58 {
+            game.image().a_bullet_of_size_is_at(
+                slot,
+                FIELD.0 + FIELD.2 * 0.3,
+                LOW - 40.0 - (slot % 8) as f32 * 4.0,
+                (0.0, 0.0),
+                (4.0, 4.0),
+            );
+        }
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & PAD,
+            LEFT,
+            "the bot crossed two piles for a box a handful emptier:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
+/// **And the frame a climb out of the band is made on says what every move came to, the same as a hit
+/// does.**
+///
+/// Which is the one frame of a climb anything can be read off. The two dumps beside this are a hit and a
+/// second with nothing open, and a climb is neither: nine attempts of one Extra put three hits apiece above
+/// the band's own top, always at the same three places, and read back from each of them the run spends sixty
+/// frames going up with three or four of the nine open. So what says why upward was the move it had is the
+/// nine judgements of the frame it left on, and until this nothing carried them — the frames before a hit
+/// say what the rules wanted and how many were clear, and not which ones.
+#[test]
+fn the_frame_a_climb_out_of_the_band_is_made_on_says_what_every_move_came_to() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-a-climb-says-what-every-move-came-to");
+        // Inside the band, which is the bottom third of the field — and for longer than one dump is held
+        // apart from the next, so that the frame below is not the one that wait swallows.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(300);
+        game.one_frame_to_drain_the_log();
+        assert!(
+            !game.log().said("left the band at"),
+            "a frame inside the band was written down as a climb out of it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And above its top, which is where every one of those hits was.
+        game.image()
+            .the_player_is_at(MIDDLE, FIELD.1 + FIELD.3 / 4.0);
+        game.frames(1);
+        game.one_frame_to_drain_the_log();
+        let log = game.log();
+        assert!(
+            log.said("left the band at") && log.said("the move 0x000 was"),
+            "the climb out of the band said nothing of the nine moves:\n  {}",
+            log.lines().join("\n  "),
+        );
+    });
+}
+
+/// **And a dump says which boxes of the field a beam will be lying across the band in, which is the hazard
+/// the fire in a box cannot count.**
+///
+/// A beam is its own array and not one of the hazards counted, so a screen with an arm across one side of the
+/// field and nothing down the other reads as empty on both — and the frames a run climbs out of the band on
+/// are frames an arm is lying across the strip it waits in. One of them, dumped at `76.3,292.2`, has the
+/// three upward moves clear and the other six hit, with the nearest thing an arm `25` below the player
+/// running down to the left across the band at `1.2` units a frame.
+///
+/// **Across and not along**, which is the whole of the measure and what the two attempts at counting a beam
+/// as fire got wrong: the width it takes out of a box inside the band, against `steer::A_BOX_IS_BLOCKED_AT`.
+/// An arm `17°` off the horizontal spans `146` units of x in there where a beam running down through the band
+/// spans `7` however long it is — and a run moved for the second is
+/// [`the_bot_leaves_a_laser_that_is_turning_onto_it`], which asks for no move at all.
+#[test]
+fn a_dump_says_which_boxes_a_beam_will_lie_across_the_band_in() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-which-boxes-a-beam-lies-across");
+        // Inside the band for longer than one dump is held apart from the next.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(300);
+
+        // A beam running *down* through the band, which takes a few units of one box's width however long it
+        // is. Thirteen frames of climbing reach `52` up from the waiting line, so it is put out of the nine's
+        // own reach and what answers is the count and not a dodge.
+        let across_the_band = LOW - A_STEP * 18.0;
+        game.image().a_laser_is_at(
+            11,
+            (MIDDLE, FIELD.1),
+            std::f32::consts::FRAC_PI_2,
+            (0.0, FIELD.3),
+            A_STEP * 3.0,
+        );
+        let along = game.log().written();
+        game.image()
+            .the_player_is_at(MIDDLE, FIELD.1 + FIELD.3 / 4.0);
+        game.frames(1);
+        game.one_frame_to_drain_the_log();
+        assert!(
+            game.log().said_since(
+                along,
+                "in each box from frame never, never, never, never, never"
+            ),
+            "a beam running down through the band was counted as lying across one:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+
+        // And back inside it for the wait, then an arm lying across three of the five: from a hundred left of
+        // the middle to a hundred right of it, which is the whole of the middle box and most of the two
+        // beside it.
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.frames(300);
+        game.image().a_laser_is_at(
+            11,
+            (MIDDLE - 100.0, across_the_band),
+            0.0,
+            (0.0, 200.0),
+            A_STEP * 3.0,
+        );
+        let across = game.log().written();
+        game.image()
+            .the_player_is_at(MIDDLE, FIELD.1 + FIELD.3 / 4.0);
+        game.frames(1);
+        game.one_frame_to_drain_the_log();
+        assert!(
+            game.log()
+                .said_since(across, "in each box from frame never, 0, 0, 0, never"),
+            "the boxes an arm lay across the band in were not the ones it lay across:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **Fire below the player is not counted towards a box, whatever else is in it.**
 ///
 /// What a box is counted for is deciding where to wait, and what makes a box a bad place to wait is the fire
@@ -1120,12 +1513,13 @@ fn fire_on_its_way_into_the_band_is_counted_where_it_will_be() {
                 (4.0, 4.0),
             );
         }
-        // And a little on its way into the three boxes left of the rightmost, so the emptiest is the one box
-        // nothing is heading for rather than either of a pair of empty ones.
-        for slot in 40..49 {
+        // And a little on its way into the two boxes left of the player, so that the box to wait in is to the
+        // right of it whichever of the two rules picks it — the emptiest of the five, and the nearest of the
+        // ones as empty as that.
+        for slot in 40..48 {
             game.image().a_bullet_of_size_is_at(
                 slot,
-                FIELD.0 + FIELD.2 * [0.1, 0.3, 0.7][slot % 3],
+                FIELD.0 + FIELD.2 * [0.1, 0.3][slot % 2],
                 100.0,
                 (0.0, 3.0),
                 (4.0, 4.0),
@@ -1649,6 +2043,39 @@ fn the_bot_leaves_for_a_bullet_that_is_frames_away() {
     });
 }
 
+/// **And the move and the bullet are one frame's worth apart and not two.** One frame moves both, so the frame
+/// a hit happens on is the one each has taken the same number of steps into — th07 and th06c alike advance a
+/// bullet's own position and then hand *that* position to the test. A judgement that steps the bullet one
+/// further than the move credits every move with a step of room the frame has not got, and the step a bullet
+/// takes is whatever the pattern gave it: a stage 4 run of th06c was hit on a move its dump reported `2.6 of
+/// room` for, by a bullet stepping `2.7` a frame.
+///
+/// **Which is a thing only a move can show**, standing still being the one choice the two readings agree on:
+/// what the extra step hides is the player walking *into* something. So the bot is given an item to the left
+/// and a bullet coming the other way along that line, one step of each apart — a frame from now the two are in
+/// the same place, and the step towards the item is the step that is hit.
+#[test]
+fn the_bot_does_not_step_into_a_bullet_a_frame_from_where_it_is_going() {
+    in_its_own_process(|| {
+        let game = in_a_stage("th07-the-bot-pairs-the-frames");
+        game.image().the_player_is_at(MIDDLE, LOW);
+        game.image().an_item_is_at(700, POWER, 100.0, LOW);
+        // Four of the player's own steps, which is a step long enough that a bullet stepped one time too many
+        // is clear across the player rather than near it.
+        let step = A_STEP * 4.0;
+        game.image()
+            .a_bullet_is_at(500, MIDDLE - A_STEP - step, LOW, (step, 0.0));
+
+        game.frames(1);
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() & LEFT,
+            0,
+            "the bot stepped into a bullet a frame from where that step lands it:\n  {}",
+            game.log().lines().join("\n  "),
+        );
+    });
+}
+
 /// **And a bullet it has room from stops nothing.** A band wide enough to take in most of what is on the screen
 /// is a bot that spends every frame leaving and never collects anything: the screen of a th07 stage is never
 /// empty, and being somewhere near a bullet is the ordinary state of playing at all.
@@ -2108,12 +2535,14 @@ fn the_thick_of_it_is_crossed_for_a_big_power_item_and_not_for_a_point() {
             game.image()
                 .a_bullet_is_at(slot, FIELD.0 + 30.0, LOW - 40.0, (0.0, 0.0));
         }
-        // And a little of it everywhere but the rightmost, so that the box to wait in is the far side from the
-        // item — which is what makes the two halves of this tell apart by the way the bot goes.
-        for slot in 30..36 {
+        // And a pile in each of the three between it and the rightmost, so that the rightmost is the only box
+        // left to wait in — which is what makes the two halves of this tell apart by the way the bot goes, and
+        // it has to be the only one: the box the player stands in is as good as any other that is no fuller,
+        // and standing still tells them apart from nothing.
+        for slot in 30..48 {
             game.image().a_bullet_is_at(
                 slot,
-                FIELD.0 + FIELD.2 * (slot - 29) as f32 / 5.0,
+                FIELD.0 + FIELD.2 * [0.25, 0.45, 0.65][slot % 3],
                 LOW - 40.0,
                 (0.0, 0.0),
             );
