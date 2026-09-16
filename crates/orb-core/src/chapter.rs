@@ -8,6 +8,89 @@
 //! Boundaries are found by watching the game rather than by consulting a script,
 //! so difficulty differences need no separate handling: a boss with an extra
 //! attack on Lunatic simply produces an extra chapter.
+//!
+//! A chapter begins at a stage's start, at each attack of a fight — the boss's timer being reset, which a
+//! spellcard beginning does too — and when a midboss is beaten, since that hands the stage back and the
+//! waves after it want a chapter of their own. Not when a spellcard ends: either the fight is moving on,
+//! which the timer says on the same frame, or the boss has just been beaten. Not when the stage's own boss
+//! is beaten either: the stage is over, and a chapter whose first act is that the fight is already won has
+//! nothing to retry.
+//!
+//! Dialogue and a pause hold a boundary back, since neither is the run getting anywhere; a bomb and a death
+//! do not, though a chapter beginning under either is a poor place to restart from. A boundary the fight
+//! really has is worth more than one that is always comfortable, and the way out of a bad start is the
+//! chapter before it. What the fight did while a boundary was held back is taken as soon as one is allowed,
+//! so nothing is lost to the seconds a bomb or a death lasts.
+//!
+//! The log names what began each chapter, so one that turns up where none belongs says which signal
+//! produced it. Midstage boundaries come from a compiled-in table of script frame numbers, because a
+//! stage's waves run on a clock and are reproducible. Boss boundaries are detected as the game runs, so a
+//! difficulty with an extra attack gets an extra chapter with no table.
+//!
+//! **A chapter beginning washes the play field green**, so that where dying will send you back to is
+//! something seen rather than a number to read off the status line. Dim enough to read the bullets through
+//! and gone inside a sixth of a second, because a chapter begins every few seconds through a fight and the
+//! frame one lands on is a frame being dodged on. Not a stage's own start: that is already unmistakable
+//! from the title, the music and an empty field, and a wash over its first frame says nothing that was not
+//! obvious. Green because the game flashes white itself — a bomb, a boss going down — and a mark that means
+//! something orb decided should not look like something the game did; nothing in th06 fills the play field
+//! with green. It holds a moment before it fades, since a wash that starts fading at once reads as dim
+//! however bright its first frame is. The play field and no further, because that is the part the game
+//! repaints every frame: the panel beside it and the border around it are not, so a wash drawn there would
+//! never be drawn over and would stay for good. The fade is counted in frames drawn rather than in the
+//! game's, which is stopped wherever a step is holding the game still.
+//!
+//! `boundary_flash: false` leaves the screen with nothing of orb's over the game. Only a run somebody is
+//! playing is marked, and a judging pass ([`crate::tuning`]) — never a replay running for anything else: a
+//! collecting pass crosses a boundary every few drawn frames, and a green field for twenty minutes is a
+//! mark to nobody.
+//!
+//! **The chapters of the stage are kept from its start up to the one being played**, since every one of
+//! them is a place the retry menu offers to go back to. Eight of them at once, which reaches back across a
+//! fight — th06's bosses have eight or nine attacks, so the chapter a fight began at is usually still there
+//! to be gone back to from the one it is being lost in. When a ninth is due **the oldest above the stage's
+//! own start goes**: that one stays whatever else does, being the way out of the whole stage, and what a
+//! death wants is the chapters around the one it happened in.
+//!
+//! What eight cost is measured rather than guessed, and the log is the instrument: a chapter is written down
+//! with the size of its own snapshot, and a session over stages 1 to 5 came out at **five to nine regions
+//! and 4.2 to 7.2 megabytes** a chapter — so forty to fifty-five megabytes for the eight, against a
+//! two-gigabyte address space. Those are the same numbers wherever it runs, what a snapshot covers being the
+//! game's own memory. What a boundary costs the *frame* is not: the `snapshot` phase of the `perf:` line is
+//! where that is asked, of the machine asking.
+//!
+//! Going back to a chapter drops the ones after it, the run not having played them yet — and their buffers
+//! are kept to be written over rather than freed, because the run is about to play those frames again and
+//! reach those boundaries again. Freed, each of those boundaries would have a chapter's worth of fresh pages
+//! to fault in between two frames.
+//!
+//! **They are this stage's chapters only** — a snapshot of an earlier one would name Direct3D textures the
+//! game released when it loaded this stage, and reloading them is not enough to make it whole: an `AnmVm`
+//! holds its script as a raw pointer into the file's buffer, so a file loaded again at another address
+//! leaves every live one of them pointing at nothing — a jump to 0x00000000 on the frame after such a
+//! restore.
+//!
+//! They are kept across a stage transition, which is not the run ending however much it looks like one from
+//! outside: the game leaves the gameplay scene for `GAMEMANAGER_REINIT` while it tears the last stage's
+//! managers down and builds the next one's. Only leaving the run for good takes them.
+//!
+//! **Which fight it is comes from the music**, because that is where the game says it: a stage's data names
+//! two songs, its own and its boss's, and the second is played for the fight the stage ends with and for
+//! nothing else. The answer is watched for as long as the fight lasts and only ever raised — it starts at
+//! the fight a stage runs on through, and the first frame the stage's own track is gone it becomes the
+//! other for good. Both ends need that: the track changes when the fight begins, which is not always the
+//! frame the boss arrives on, and by the frame the boss is beaten the sound may be being taken down again.
+//! The defeat is where the answer matters most, a midboss going down being a boundary and the stage's own
+//! boss going down being the stage ending.
+//!
+//! **And where the game names those two songs, the answer is which of them is playing rather than whether
+//! the track has changed.** th07 does: its stage data carries both names, so the fight it ends with is the
+//! one under the second of them and every other fight is a midboss, whatever was playing when the chapter
+//! at the stage's start was taken. That last part is why the two readings are not the same — a stage's
+//! first chapter falls frames into the stage, and the song the stage was come into with can still be
+//! playing then, which made every fight of that stage a track change and its midboss the boss. th06 keeps
+//! the comparison: its track is named by a path its stage data holds and what is playing is a wave file
+//! with no name orb can read.
 
 use std::fmt;
 use std::ops::Range;
@@ -997,9 +1080,8 @@ impl Chapters {
         // boss it ends with. What the timeline is doing does not say it — the wait it parks
         // on for a boss, `RunEclTimeline`'s `case 0xc`, is also how stage 3 waits for its
         // *midboss*, which called that fight the stage's own. Neither does anything a boss
-        // carries: both games register a midboss and the boss they end with alike, and
-        // [docs/adr/0021](../../../docs/adr/0021-which-fight-is-on-is-the-music-and-the-stages-record-where-it-has-one.md)
-        // holds where each of them says it instead and what is left of that by the time this reads it.
+        // carries: both games register a midboss and the boss they end with alike, so what says which
+        // fight is on is the music, and the stage's own record where it has been through the frame before.
         //
         // The game's own answer where it has one, and that comparison where it has not: what a
         // stage's start was snapshotted under is not always the stage's own song — see

@@ -40,8 +40,266 @@
 //!
 //! **What is left in `orb::score` is the write over the exe's import of `CreateFileA`.** The replacement
 //! that entry is pointed at is [`create_file_a`] and it is here, being a hook body like the eleven in
-//! [`crate::runtime`]: nothing in it is per-game and nothing in it is Windows. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! [`crate::runtime`]: nothing in it is per-game and nothing in it is Windows.
+//!
+//! A run with chapter retries is not a run anyone played, so its score does not belong in the game's
+//! ranking — the same reason no replay is offered for one. Refusing the write would lose the record
+//! altogether, so the file is forked: while orb is in pointdevice mode an open of `score.dat` becomes an
+//! open of `pointdevice_score.dat`, those runs are ranked against each other in the game's own format and
+//! on its own screen, and `score.dat` comes out of such a run unchanged because it is never opened.
+//!
+//! **Which file is open is a runtime switch, not a setting.** The mode is chosen inside the game — see
+//! [`crate::mode`] — and the fork follows it, because a normal run and the ranking of normal runs are the
+//! game's own file: that is where a run anybody could have played belongs. A launch starts in pointdevice,
+//! which is what orb is for, and in normal with `--no-chapters`, where there is nothing to fork because
+//! nothing can rewind. **And in normal in a game orb cannot rewind anything in**, which is `Game::rewinds`
+//! and is asked at the attach rather than worked out from the run features that game declines: the fork has
+//! to be settled before the front end's first read of the file, which is before there is a run for anything
+//! to be declined about.
+//!
+//! **A rewind does not take back what the game counted about a spell card.** The record lives in the memory
+//! a snapshot covers, so restoring a chapter would undo the attempt the game counted when the card started —
+//! a chapter retried ten times would show one attempt — and undo a capture, which in a chapter that can be
+//! played again is that chapter cleared. So the block is taken before the restore and put back after it, in
+//! both of the paths that restore one. Both counters, not the attempt alone: capturing the card is what
+//! clearing the chapter *is*, so a rewind that took one back and left the other would say a chapter had been
+//! cleared none of the tries at it cleared.
+//!
+//! **A chapter is an attempt at a spell card only where one is up.** The card orb's own count goes against
+//! comes out of `ds:0x5a5f98`, which holds the last card a boss was on and which **nothing clears** — not
+//! the card ending, not the stage, not the run. So a chapter with no card in it reads whichever card came
+//! before, and the nonspell that follows a spell reads the spell it follows: counted there, it would be an
+//! attempt at a card nobody was fighting. Whether there is one to count is asked of
+//! `g_EnemyManager.spellcardIsActive` instead, and asked *after* the snapshot is back rather than before — a
+//! spell chapter's snapshot was taken at the card's own start, so what the restore puts the game back into
+//! is that card. Where no card is up the log says so: `score: no spell card is up; no attempt counted`, said
+//! rather than left as a missing line, since a line only written when the count was made would put the
+//! meaning in the absence.
+//!
+//! **And only against a card the game has named.** th06 fills all 64 records from `Rng::GetRandomU16` before
+//! it reads the file — 0x41bc87, the whole 0x40 of each of them — and writes back only the magic, the two
+//! lengths, the version, the card's number and the two counts, 0x41bca0 to 0x41bcd5. So the name a record
+//! carries is the generator's until the card itself starts and copies one in (0x409720), and `catk`'s parse
+//! leaves every record the file has no entry for exactly as the fill left it. The ranking screen draws that
+//! name for any card whose attempts are not zero and 「？？？？？」 for the ones whose are (0x42e265 and
+//! 0x42e26e), which makes a count added to a record nobody named the generator's own bytes on the screen.
+//! Refused by the game's own test for the same thing: the byte a record holds beside its name against the
+//! sum of that name, which is the comparison at 0x4097e8. **A row already written wrong heals itself**, and
+//! only by the card starting for real: that comparison then disagrees, both counts go, and the name is
+//! written. A retry cannot do it — a chapter's snapshot is taken after the name was copied in, so putting it
+//! back never starts the card again.
+//!
+//! **A run picked up keeps the names its playback learned.** The playback starts every card the run had
+//! passed, which is why the counts are put back as they were before the buttons went in — a run picked up
+//! would otherwise arrive having counted every card it passed. The names those starts wrote are not put back
+//! with them: a name is what the playback *learned* about a card and not something it counted, and it is the
+//! one thing about the card only the game knows. Putting it back leaves the record carrying the fill's own
+//! bytes, which is a card orb then refuses to count against and a row the ranking never draws a name for
+//! again — the landing being *inside* the card, nothing starts it a second time. So the block goes back with
+//! each record's name, and the sum beside it, left as the playback left them. Which makes picking a run up
+//! the second thing that heals a row already written wrong.
+//!
+//! **Where a session stops without the game writing, orb has the ranking built and taken down.** The write
+//! is reached from one place, so a run given up or quit with `ESC` leaves what it counted about spell cards
+//! in memory and nowhere else — th06 loses it, and orb does not. On the first frame the front end is up
+//! after a run that ended anywhere else, orb writes `MainMenu.gameState` with what the `Score` item writes —
+//! 0xa, from the handler at 0x437f56 — runs the updates that brings inside that one frame with nothing
+//! drawn, and writes `curState` back to the front end the way the ranking leaves itself. The deleted
+//! callback then writes the file. Bounded at 240 updates, against the 60 the front end waits and the one
+//! each scene change costs; at 30µs an update the whole of it is under a frame's worth of time and none of
+//! it is seen, the draw chain running once a frame after this.
+//!
+//! **th07 is written through its own save instead, and its ranking screen is never built.** The one write in
+//! that exe is gated on a phase its ranking screen never reaches — the two kinds the screen is built with
+//! skip it — so driving that screen wrote nothing however many updates it was given, and a launch faulted
+//! inside those updates reading a vm the screen it had just asked to leave no longer had. What writes is
+//! `0x44a302(2)`, the save that game makes on its own way out: it reads the file, lays every record the file
+//! holds over the ones in memory, and writes memory back out. So what a run counted is written down on the
+//! frame that run ends, and **put back** at the one moment inside the save that lies between its two halves:
+//! the parse (0x445069) that lays the file's records down, which is hooked for exactly that. Put back rather
+//! than added, because a run's records are the file's own with that run's counts already on them — the
+//! build empties all 141 of them (0x42e657) and reads the file straight back in (0x42e735), and the front
+//! end's own read does the same (0x45bff3). Added instead, a run's history would be counted twice. And only
+//! inside the save orb asked for: the game saves at every run's build and on its way out, and a put-back at
+//! a read that no write follows is records stranded in memory with the note spent.
+//!
+//! **None is built for a run that finished, or for one still inside its ending.** The screen a run finishes
+//! at writes for itself, that deleted callback being the same one — so a run that reached
+//! `STATE_RESULTSCREEN_FROMGAME` has nothing left waiting, and orb drops the request there. There is no
+//! front end to act on 0xa on the result screen or over a staff roll, so all 240 updates would go on
+//! whichever of those was running and the request then be undone — and undoing it writes
+//! `RESULT_SCREEN_STATE_EXITING` into the screen that *was* up. One `ResultScreen` reached two ways is the
+//! same field in the same object either way, so what that write sent away was the high-score name entry a
+//! finished run had just arrived on: two frames from the run ending to the title menu, with the name entry
+//! and the stats screen inside them and nobody having seen either. Over an ending it took 240 frames off the
+//! staff roll instead, and wrote into a screen already freed. So the write is made only where a ranking orb
+//! asked for is up, and the request is dropped where the run finished.
+//!
+//! **The record is put back between the two.** The added callback fills the captures out of the file it
+//! read, which is what they were before the session counted anything, so orb puts back what it took before
+//! asking the screen to leave. The ranking is the file's own and has to be: the write takes it out of the
+//! table that read just filled — which is also why the record goes out through the game's own screen rather
+//! than orb calling the write itself.
+//!
+//! Whether a run wrote on its own is asked rather than assumed: every open for writing is noted, and a run
+//! that ended at the result screen has one. Both modes build one. A legacy session stopping partway keeping
+//! its record is the one place orb is deliberately not the game as it was.
+//!
+//! **The captures in memory are emptied before a ranking is read.** th06 keeps the record of which spell
+//! cards have been captured in one place, `g_GameManager.cardHistory` at 0x69bcd0 — 64 records of 0x40 — and
+//! both reads that load it copy the records the file holds while leaving the rest as they were: 0x42b466
+//! has no clear of its own, unlike `clrd`'s parse at 0x42b502, which memsets four records before it looks.
+//! That is how a run's captures survive the reload the game does at every stage, and it is what the file is
+//! written from: the write at 0x42b9ed copies `catk` out of that global, not out of what the screen read.
+//!
+//! With one file that is consistent. With two it is how one file's captures reach the other: a session that
+//! looks at one ranking has that file's records in memory, and leaving the other one's screen writes them
+//! into the other file. So orb empties the block before the ranking screen's read — at 0x42f060, before the
+//! callback — and the read then defines the history rather than adding to it. Not in the two states that
+//! screen is in on the way out of a run, 9 and 0x11 at `screen+0x8`, which are the ones the game itself
+//! skips its parses in: there the record in memory is that run's own and the file is about to be written
+//! from it. And not with `--no-chapters`, where there is one file and carrying the captures in memory is
+//! right.
+//!
+//! **Every open of the file goes in the log, with which of the two it landed in and what it was for**:
+//! `opened in place of the game's own` or `opened as the game's own`, and `write`, `read`, or `read for the
+//! front end's unlocks`. Both sides rather than the redirected ones alone, because a line that is only
+//! written when the file was swapped makes the absence of a line carry the meaning — and an absence is
+//! equally what a read that never happened looks like. The reads cannot be told apart past the one that is
+//! bracketed, so the line says which of them it is and no more. The one orb makes for itself says so on the
+//! line after — `the practice scores read out of the mode's own file` — that being a read orb knows it is
+//! making rather than one it is guessing at from a callback.
+//!
+//! **One read is not the mode's, and it is the one that is not a record.** th06 keeps four things in the one
+//! file: `hscr`, the ranking; `catk`, which spell cards have been captured; `clrd`, how far each shot has got
+//! on each difficulty, which is what the Extra and the practice stages are behind; `pscr`, what each of those
+//! stages has been practised for. The ranking and the captures are the mode's own — a card captured in a
+//! chapter that can be played again is not the capture the game's record is a record of, for the same
+//! reason the score is not that score. What the front end *offers* is not a record of anything, though: a
+//! stage that has been reached has been reached, and answering that question out of a new file locks the
+//! game back to stage 1 for want of anything in it. So that one read is left pointed at `score.dat` whatever
+//! the mode. The three reads are told apart by which callback is running:
+//!
+//! | read | what it is for | which file |
+//! | --- | --- | --- |
+//! | `MainMenu::AddedCallback`, 0x43a5c0 | `clrd` and `pscr` into `g_GameManager` at 0x69ccd0 and 0x69cd30, the only place the front end's `Extra Start`, its practice stages and their scores come from | the game's own, always |
+//! | `GameManager::AddedCallback`, 0x41bcdc, once per stage | the run's own record: the score to beat, and the spell cards it can add a capture to | the mode's |
+//! | the ranking screen's added callback, 0x42f47f | the ranking on screen, and the record a score is entered into | the mode's |
+//! | **orb's own**, wherever the mode is settled | `pscr` alone, over what the read above left | the mode's |
+//!
+//! **The fourth read is there because half of the first one is a record after all.** `pscr` is a score, one
+//! per shot, difficulty and stage, and a stage practised in a chapter that can be played again was not
+//! practised for that score — so what Pointdevice mode shows beside a practice stage belongs in orb's file
+//! with the rest of that mode's runs, and it was `score.dat`'s number, the front end reading the scores in
+//! the very read its items are lit from. One read lands in one file, so the score is read again: at the
+//! answer to the mode question, orb calls the game's own read helper for the file the fork now points at,
+//! parses `pscr` out of it into 0x69cd30, and gives the buffer back — 0x42b0d9, 0x42b65e and 0x42b7dc, the
+//! three calls `MainMenu::AddedCallback` makes in that order. `clrd` is not parsed with it: that is what the
+//! front end is lit from, and a read of orb's landing there would lock what an installation has earned.
+//!
+//! **At the answer, because that is the last thing before the screen those scores are drawn on.** The
+//! practice stage select is `MainMenu`'s state 17, which the shot type select goes to instead of starting a
+//! run where the run is a practice one (0x436dc5), and its rows are `STAGE %d  %.9d` — the score out of
+//! `pscr` at 0x439a9b, for the shot and the difficulty already answered for. Nothing between that answer and
+//! those rows reads the file again, and every item the screen is behind asks the question first. Which
+//! stages are on it is not `pscr` at all: the count comes out of `clrd`, read at 0x4399e8 and held under six,
+//! five of them on Easy. So what a mode decides here is the number on a row and never which rows there are.
+//!
+//! **A `clrd` record holds how far a shot has got, twice over, and the two are read by different screens.**
+//! Per shot and difficulty there are two arrays of five: `GameManager::AddedCallback` raises the second at
+//! every stage (0x41bf01) and the first only where the run has used no continue (0x41beb8, on the count at
+//! `g_GameManager+0x1818` that a continue puts up at 0x402f0f), and a clear writes 99 — no stage's number —
+//! into the first under that same condition (0x410c41) and into the second whatever happened (0x410c7d). The
+//! Extra is behind the first: `GameManager::HasReachedMaxClears` at 0x43a736 compares Normal, Hard and
+//! Lunatic against that 99, which is why clearing th06 on a continue earns no Extra. The practice stage
+//! select counts its rows out of the second, so a stage reached on a continue can be practised.
+//! `ParseClrd`'s fixup leaves every entry of both at 1 where it found no chunk, which is stage 1 reached:
+//! one practice stage, and no Extra.
+//!
+//! The one write needs no telling apart: the exe reaches it from a single place, the ranking screen's
+//! deleted callback on its way out, so a write while pointdevice mode is on is that screen's — a score
+//! entered into it, or a ranking that was only looked at and written back as it was read, which is what
+//! brings `pointdevice_score.dat` into existence before any run has finished. It carries `clrd` along with
+//! the rest, because the game writes the file whole — so a pointdevice clear is recorded in orb's file and
+//! **unlocks nothing**, the front end being lit from `score.dat`. That is the shape and not a gap in it: what
+//! the front end offers is what runs somebody could have played have earned, and a run orb could rewind is
+//! not one of those. Making a clear in the mode count would mean the union of the two files' `clrd`, and
+//! with it orb knowing a format and an encryption it stays out of.
+//!
+//! **orb's file is a new one, not a copy of the game's.** Nothing seeds it: until a pointdevice run has
+//! entered a score there is no `pointdevice_score.dat` at all, the open of one that is not there fails, and
+//! the game takes that the way it takes a first launch. A copy would put the game's whole record at the top
+//! of a ranking none of it belongs to — what a `score.dat` says has been cleared was cleared by runs nobody
+//! could rewind, which is the one thing keeping these two files apart. The file being new costs a ranking
+//! its history and the practice rows their scores, which is what a mode nobody has played in has to say, and
+//! nothing else.
+//!
+//! **At the exe's import of `CreateFileA`**, not at the game's own score code, because that import is where
+//! both of the game's own paths to the file end up. `score.dat` is one string, at 0x46af94, pushed at four
+//! places: three reads through the helper at 0x42b0d9, which decrypts what it read (from 0x41bcdc, 0x42f47f
+//! and 0x43a5c0), and one write through `FileSystem::WriteDataToFile` at 0x41e460, which encrypts before it
+//! writes (from 0x42bc15). Both of those open with the CRT's `fopen` at 0x45ca0b — `"rb"` and `"wb"` — and
+//! the CRT is statically linked, so the open reaches the OS at the exe's own import, IAT slot 0x46a150.
+//! That slot is called from exactly two places: the CRT's open at 0x4677fa, and a file class at 0x43ceea
+//! that the score file never goes through.
+//!
+//! orb's own read of the practice scores goes through that import with the rest, and it asks by the same
+//! name — bytes of orb's rather than the string at 0x46af94, since which of the two files an open lands in
+//! is decided from the name and the mode. So there is one place that decision is taken and the read orb
+//! makes is forked the way the game's three are.
+//!
+//! So the redirect itself knows nothing about the game: no offset, and nothing about the format or the
+//! encryption. It is the seam `memtrack` hooks for the heap calls, and d3d8's and dsound's own opens go
+//! through their own imports and are not in the path.
+//!
+//! **One address is needed to tell the front end's read from the others**: `MainMenu::AddedCallback` at
+//! 0x43a464, hooked so that the game's own file answers the read made while it runs and the mode's file
+//! answers the rest. It is registered at 0x43a3c4 as the `+0x8` of the chain element at `menu+0x8234`, and
+//! it is the callback that starts the title theme: `bgm/th06_01.mid` at 0x46c3a4, pushed at 0x43a475, which
+//! is what identifies it. The parses identify each read: `hscr` at 0x42b280, `catk` at 0x42b466, `clrd` at
+//! 0x42b502, `pscr` at 0x42b65e; this callback calls only the last two, and the ranking screen picks `hscr`
+//! into a table of five difficulties by four shots at screen+0x3ab0. Nothing but which file an open lands in
+//! rides on that address, and a game orb has no such address for lights its front end from whichever file
+//! the mode points at — which for a mode whose file is new is nothing at all, and is the reason it is
+//! hooked at all.
+//!
+//! **And three more to read the practice scores back**, which are the calls that read rather than a hook
+//! over one: the helper at 0x42b0d9, `pscr`'s parse at 0x42b65e and the free at 0x42b7dc, called in that
+//! order with the destination 0x69cd30 — where a record is 0x14 bytes and sits at `shot * 0x1e0 + stage *
+//! 0x50 + difficulty * 0x14` (the arithmetic the parse itself indexes with at 0x42b783). A file that is not
+//! there needs nothing extra: the helper answers a header with no chunks in it, allocated at 0x42b0f4, and
+//! the parse clears every record it was going to fill — so a mode nobody has practised in shows zero rather
+//! than the other mode's numbers. A game orb has none of these addresses for keeps whatever its own front
+//! end read.
+//!
+//! **Only the open is redirected, which is enough here and would not be everywhere.** That other file class
+//! truncates a `"w"` by calling `DeleteFileA` on the name before creating it — at 0x43cea9, its only call
+//! site in the exe — so a game whose score write went that way would have its own file deleted while orb's
+//! was written. th06's does not go that way.
+//!
+//! The whole file name is compared, ignoring case, and the directory the game named is kept. So
+//! `pointdevice_score.dat` is not itself taken for the game's file and forked again — a second pass over it
+//! would open `pointdevice_pointdevice_score.dat` — and a relative name resolves where the game's own open
+//! would have resolved it. The paths are handled as the bytes the game gave and handed to the game's own
+//! `CreateFileA` as those bytes: a directory name in the game's code page is not necessarily UTF-8, so
+//! nothing in the path converts one. They are converted to text in one place, the log. Making the game
+//! itself run on a machine whose code page is not Japanese is not orb's — th06 opens its own data files
+//! through `CreateFileA` with their names held in the exe as Shift-JIS bytes, `紅魔郷ST.dat` at file offset
+//! 0x6af74 and five more like it — and this hook does one thing to that import, which is which file the
+//! score goes in.
+//!
+//! With `--no-chapters` the hook is not installed at all: nothing can rewind that run, and its score belongs
+//! in the game's own file.
+//!
+//! **With `--clear` nothing is written**, whichever mode the run is in — there the hook is in the path for
+//! the refusing rather than for the forking, and the file that must not be written is whichever this run
+//! would have written. A cheated clear is not a score: orb's file is where runs that cannot be compared with
+//! the game's are kept, and a clear nobody could have played at the top of *that* ranking is the same
+//! mistake one file further on. The refusal is decided before the fork is, so it covers both files. The open
+//! for writing is refused rather than the write being sent elsewhere, which the game takes cleanly:
+//! `WriteDataToFile` checks its `fopen`, returns -1, and its one caller — the `call` at 0x42bc1a — drops
+//! that and frees the buffer either way. Reads go through, so the ranking screen and what the file has
+//! unlocked are what they were.
 
 use std::borrow::Cow;
 use std::ffi::{CStr, c_void};
@@ -176,7 +434,7 @@ pub fn asked(access: u32) -> &'static str {
 /// game's record is a record of. **With one exception**, and it is not a record of anything: what
 /// the front end offers. A stage that has been reached has been reached, and a first pointdevice
 /// session answering that question out of its own new file locked the Extra stage and every
-/// practice stage a `score.dat` had already earned — see `SPEC.md` for the three reads and what
+/// practice stage a `score.dat` had already earned — the module doc above has the three reads and what
 /// each is for.
 ///
 /// Reads and writes alike, which is why this asks nothing about the access: the exception is a read
@@ -264,8 +522,7 @@ pub type CreateFileA = unsafe extern "system" fn(
 /// took out of the import table — and a game laid out by hand with its own `CreateFileA`, there being no
 /// import table to take one out of.
 ///
-/// The same answer [`crate::window::install_over`] is, and for the same reason — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// The same answer [`crate::window::install_over`] is, and for the same reason.
 /// Which file an open lands in is what every e2e test about this file reads, and the path and the access
 /// are the whole of what has to cross for that: a laid-out game answers with a handle of its own and there
 /// is no file on any disk.
@@ -317,8 +574,8 @@ pub unsafe extern "system" fn create_file_a(
         return unsafe { original(name, access, share, security, disposition, flags, template) };
     };
     // The open is refused rather than the write being sent somewhere else, because the game asks
-    // for the file once, checks the open, and drops what its write returned — see `SPEC.md` for
-    // the two calls that is. So a refusal is a file that stays as it was, and a game that carries
+    // for the file once, checks the open, and drops what its write returned — `WriteDataToFile` and
+    // its one caller at 0x42bc1a, as the module doc says. So a refusal is a file that stays as it was, and a game that carries
     // on as if it had saved. Before the fork, since what must not be written is whichever file
     // this run would have written.
     if refused(access) {

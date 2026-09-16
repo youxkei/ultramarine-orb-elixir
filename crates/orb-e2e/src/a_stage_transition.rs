@@ -10,8 +10,7 @@
 //! **Read out of the game's own code rather than off this tree**, because the fake game is both the writer
 //! and the reader of the memory orb is driven through: a transition that put a stage's numbers back would
 //! be a transition every e2e test here agreed with. The route from an address to the function it is the
-//! start of is *Re-deriving it* in
-//! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), and the
+//! start of is the decompilation's `config/mapping.csv`, as `th06/mod.rs` reads it, and the
 //! condition above is at `src/GameManager.cpp`'s `AddedCallback`.
 //!
 //! **Which condition the fake is on needs nothing kept beside its memory.** `build` calls

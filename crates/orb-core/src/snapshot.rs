@@ -21,6 +21,48 @@
 //! Left out for a different reason: `AnmManager`'s surfaces and its vertex buffer. The game releases
 //! those when it loses the device, which a stage does not run into, and a range left out of a restore is
 //! a range the snapshot no longer describes at all.
+//!
+//! A retry restores a whole memory snapshot rather than asking the game to jump anywhere. Nothing has to
+//! know what a boss script was in the middle of.
+//!
+//! A snapshot covers:
+//!
+//! - the exe's `.data`;
+//! - the regions the game's CRT took from the OS, found by hooking `HeapCreate`, `HeapAlloc`,
+//!   `HeapReAlloc`, `HeapFree` and `VirtualAlloc` in the exe's import table and walking the heaps;
+//! - the music's stream position.
+//!
+//! Direct3D and DirectSound objects are not saved. The game loads a stage's resources on entry and creates
+//! nothing within a chapter, so restoring the pointers in `.data` leaves them naming the same live objects.
+//! Since those addresses differ per launch, a snapshot is only valid inside the process that took it, so
+//! nothing of one is written to disk. What is written down instead is what the run *pressed*, and a chapter
+//! is reached again by being played to — see [`crate::resume`].
+//!
+//! Restoring suspends the game's other threads, puts back any page of a saved region that has gone since —
+//! the game freeing a few megabytes hands part of a segment back to the OS, and the copy has to have
+//! somewhere to write — writes each region back, and resumes. The audio thread is left running; the music
+//! is handled separately, rewound for the midstage and the midboss and left playing through a boss-fight
+//! restore — see [`crate::audio`].
+//!
+//! **The name of the spell card being fought is put back by asking the game to write it again.** It is not
+//! memory: the declaration hands the name to `AnmManager::DrawStringFormat` through `Gui::SetSpellcardName`
+//! (0x417bfd, called at 0x409636), which bakes it into a vm's own sprite and keeps no copy of the string —
+//! so a chapter put back where a *later* card has been declared since is fought under that later card's
+//! name: going back from a boss's spell card to the midboss's, the plate said the boss's until the next
+//! card started. So a restore bakes it again through the same call, out of the copy the game itself made in
+//! that card's record — the one copy of the name that is memory, and one a restore already carries across
+//! for the counts beside it. Nothing where no card is up, and nothing for a record the game has not named,
+//! whose bytes are the generator's.
+//!
+//! Sound effects cut off on a restore rather than rewinding. Only the music is restored.
+//!
+//! **`--self-check`** restores every snapshot immediately after taking it and compares the result, and
+//! reports memory that changed since a snapshot without being covered by it. The one moment a restore can
+//! be held against what it should have produced is the instant it was taken from, which is why it happens
+//! there. It fingerprints every private page in the process, so it pauses the game for as long as that
+//! takes. **`--stress=N`** restores the current chapter every N frames, a few times per chapter and then
+//! moving on, so a replay walks through the midstage, the midboss and every boss attack restoring as it
+//! goes.
 
 use std::ops::Range;
 

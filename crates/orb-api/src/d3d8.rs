@@ -6,8 +6,7 @@
 //! the state block brackets a draw, the FVF and the vertex layout are all above this line, because they
 //! are what an e2e test over the drawing is about. A seam that said *draw this text here* would take all
 //! of that into [`crate::real::d3d8`], where no e2e test reaches, and the failure it exists to prevent
-//! is the game's own scene drawing wrong. See
-//! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+//! is the game's own scene drawing wrong.
 //!
 //! **Every slot this file types, and nothing besides.** Direct3D 8 has no metadata in Windows'
 //! own, so the vtables are declared here — and only the methods that get called are typed, the rest

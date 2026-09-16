@@ -12,9 +12,7 @@
 //! them, so nothing of a chapter is reached from any of them.
 //!
 //! **The queue is what makes these more than a smoke test.** orb's first loop in that frame took the game
-//! down on its first frame, writing a quad through a null pointer, and every address it used was right —
-//! see [docs/adr/0004](../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
-//! [docs/adr/0017](../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+//! down on its first frame, writing a quad through a null pointer, and every address it used was right.
 //! So the laid-out game's draw chain queues a quad the way a real one does, through the field the game's
 //! own frame resets, and a loop that leaves that reset out faults here as it faulted there.
 //!
@@ -74,7 +72,7 @@ fn orb_paces_a_launch_of_th07_with_no_run_in_it() {
 
         // And an overlay all the same, in a directory with no `font.ttf` in it: th07 ships none — its
         // fonts are inside `th07.dat` — and orb's own screens are drawn with the face the machine has
-        // rather than not drawn at all. See `docs/adr/0019`.
+        // rather than not drawn at all.
         assert!(
             log.contains("overlay: no font beside the game; using the machine's own face"),
             "orb did not fall back to a face of the machine's:\n  {log}"

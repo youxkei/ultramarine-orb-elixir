@@ -7,8 +7,7 @@
 //! where the game's own were. orb's text then leaves through a replacement written for the game's `-A`
 //! calls, which takes a `-W` call's count of characters for a count of bytes: a line cut short where the
 //! count falls inside the string, and whatever is next in the process drawn as glyphs where it falls
-//! outside. See
-//! [docs/adr/0015](../../../docs/adr/0015-orbs-own-text-leaves-through-gdi32s-exports.md).
+//! outside.
 //!
 //! **Read out of the export table and not asked of `GetProcAddress`**, which is itself one of the calls
 //! such a patcher replaces — it hands out its own wrappers through it by design. The export directory is

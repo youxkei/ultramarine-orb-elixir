@@ -7,6 +7,115 @@
 //!
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! orb asks share.
+//!
+//! The menu goes up on the frame the miss becomes certain, which is `deaths` moving rather than the player
+//! being hit: the deathbomb window closes first, and a successful one never gets here. The game is frozen
+//! underneath it — `RunCalcChain` returning `CHAIN_BREAK` with the drawing carrying on — so the frame the
+//! player died on stays on the screen behind the menu, and the play field's viewport has to be set by orb
+//! because the game's own frame setup is part of the update being held back.
+//!
+//! **And the same menu is what the game's own pause menu's 「最初からやり直す」 opens**, which is the only way
+//! to reach a chapter again without dying for it. In a mode whose runs are rewound that item has nowhere to
+//! land: nothing here is lost, so giving the run up and beginning it again is the one way to throw a stage's
+//! chapters away. So the ask is taken off, the run left standing where it was, and the question put up in
+//! front of it — which already holds every answer the item could have meant. Answering it costs a retry
+//! like any other, that being the game's own field for リトライ回数 and nothing else filling it in this mode.
+//! What that ask does to the music is [`crate::audio`]'s.
+//!
+//! Four ways on, and the chapter is the first of them — each in whichever language orb's screens are in:
+//!
+//! | | |
+//! | --- | --- |
+//! | チャプターをやり直す / `Retry the chapter` | the snapshot taken where this chapter began |
+//! | 更に前からやり直す / `Retry from further back` | the chapters the stage has behind this one, listed on a screen of their own |
+//! | ステージをやり直す / `Retry the stage` | the snapshot taken where the stage began, which is chapter 1 |
+//! | タイトルに戻る / `Back to the title screen` | the run given up, and the game on its way to the title menu |
+//!
+//! The last is named for where it ends up rather than for what it gives up, that being the half of it
+//! somebody reading the item does not already know: that the run is over is the obvious part, and that the
+//! game carries on into its own front end is not.
+//!
+//! **And it asks for the front end rather than for the scene a run ending goes to.** Both tear the run down
+//! — th07's own transition out of a run calls that teardown for either — and the run-ending one then
+//! registers the screen a run ends on, whose background is drawn for a frame or two on the way past. A run
+//! given up is not a run anybody is being shown the score of, so orb asks for the scene where nothing is
+//! registered. A replay is left as it was: what one ends at is not that screen.
+//!
+//! **The second is a screen rather than a place.** Under どこからやり直す / `Where to start again` it lists
+//! the chapters the stage has behind the one that was lost, nearest first, with the stage's own start the
+//! last of them; `x`, escape or the pad's cancel goes back to the four. Each is named the way the status
+//! line names it — which part of the stage it is and which one of those — and that name is the same in
+//! either language, being what the log calls it too. A pass building the table is shown `CHAPTER 7`
+//! instead, for the same reason the status line shows a number there: what a chapter is called is settled
+//! by boundaries the pass is still judging. **A death with nothing behind the chapter it happened in leaves
+//! that item out**, since what is behind it would be an empty screen.
+//!
+//! **A screen of its own rather than the four ways on becoming that list.** The first item is answered
+//! hundreds of times in a session and is one press with nothing to read; the chapters are what somebody
+//! reads when that item is not the answer, and a list of names in place of the four would put reading in
+//! front of the press this menu exists for.
+//!
+//! **The chapter that was lost acts on the press; everything else asks first.** A fight worth grinding
+//! loses a chapter every few seconds, so the first item is answered hundreds of times — a question in front
+//! of it would be answered without being read, and that trains the hand which then answers what is below
+//! it. None of the others can be taken back: going back to a chapter drops the ones after it, the stage's
+//! start drops everything the stage has gained since it, and giving up throws away the run. So each of them
+//! puts up a second question naming what it is about to do, with the cursor on いいえ / `No`, which is where
+//! the game's own quit question puts it. The stage's own start is the last of the chapters listed as well
+//! as a way on of its own, and it asks the same question in both places: one act cannot be guarded on one
+//! screen and not on the other.
+//!
+//! **A question about a chapter names it** — `MIDBOSS NONSPELL 1 からやり直す？` — rather than saying *this
+//! chapter*: the item it was chosen from is not on the screen the question replaces it with, and the line
+//! under the question is about another chapter.
+//!
+//! **Under the two that go back, what answering them leaves behind**: `今のチャプターには戻れません` /
+//! `There is no going back to the chapter you are in`. The chapters after the one put back go with the
+//! restore, so what looked like stepping back one attack is the fight from that chapter onwards again —
+//! which is the half of what is about to happen that neither the item nor the question says. Nothing under
+//! giving up, whose cost is the run and whose chapter is written down for a later launch, and nothing at
+//! all where the stage's own start *is* the chapter the run is in, which leaves nothing behind. A line
+//! spelling out what a stage's worth of progress was stays out: the question naming the stage's start
+//! already says it, and a screen somebody arrives at by dying is not the place to be read at.
+//!
+//! `x`, escape or the pad's cancel takes a confirmation back to the items it was asked from, which for the
+//! stage's own start is either of the two screens it is on.
+//!
+//! **Neither of orb's menus writes its keys on the screen.** The keys are the game's own — `z` shoots and
+//! `x` bombs, which is what its own menus take as decide and back — so a `Z 決定    X 戻る` line would tell
+//! somebody playing th06 the one thing they already know. Where a way out is worth pointing at, the screen
+//! does it with an item rather than with a key: a confirmation's cursor sits on its no, and the retry menu's
+//! last item says where it goes.
+//!
+//! **Both graces are keys being held off, for two different reasons.** The menu itself waits 24 frames
+//! because the player was holding a direction and the shot key when they died, and those presses belong to
+//! the run. A confirmation waits 12, and not for that: the press that opened it is an edge and so already
+//! spent, which is why this is a few frames rather than a fifth of a second — what it buys is that a
+//! question cannot be answered on the frame it appeared on, since an answer that fast is one nobody read.
+//! The cursor starting on いいえ is what makes such a press cost nothing but the question closing. The
+//! chapters wait the same 12 and for the whole of that reason: one of them is acted on the press that lands
+//! on it, so a press left over from opening that screen would send the run back to whichever chapter the
+//! cursor started on.
+//!
+//! **Giving up is what the game's own quit does**: `isInGameMenu` and `isInRetryMenu` cleared and
+//! `g_Supervisor.curState = MAINMENU`, which is `StageMenu::OnUpdateGameMenu`'s answer to yes.
+//! `Supervisor::OnUpdate` then cuts the run's chain — the game manager, the player, the stage, the
+//! recording — and registers the front end, so nothing of the run is orb's to take down. What notices the
+//! run is gone is the state leaving `in_run` a frame or two later, which is the same path that ends any
+//! other run and is what drops the snapshots and writes the line saying how many retries it took.
+//!
+//! The two flags are written although neither can be set here: orb's menu is not one of the game's, and it
+//! goes up on the frame `Player::Die` runs, where the flag a run out of lives gets is written 30 frames
+//! later by a respawn the freeze never reaches. They are worth two bytes for what a stale one *does*, not
+//! for how it would get there — `AsciiManager`'s job is registered by the supervisor for the whole process
+//! rather than per run, so `isInRetryMenu` left set has `StageMenu::OnUpdateRetryMenu` running on the title
+//! screen, and its first three branches write `curState` themselves, one of them to the result screen.
+//!
+//! The key that answered has to be swallowed here, where a retry needs nothing of the sort: a retry puts
+//! the whole of `.data` back from a snapshot, and this leaves the game to build the title menu — which reads
+//! the same keyboard, and would take the `z` still held as an item chosen. No score is entered on the way
+//! out, the same as the game's own quit: that happens at the result screen, and giving up does not go
+//! through one.
 
 use orb_config::Language;
 

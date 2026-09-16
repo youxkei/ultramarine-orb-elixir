@@ -15,10 +15,9 @@ i686-w64-mingw32-objdump -s --start-address=0x4200f8 --stop-address=0x420118 東
 instructions; where a listing here disagrees with a dump, dump the one function again from its own `push
 ebp`.
 
-**This file is a reading and not a plan.** What orb *does* with any of it is in the code beside the constant,
-and why the code is shaped that way is `docs/adr/`. Globals and field names come from the GensokyoClub/th06
-decompilation, and what is here is what the functions do — so that the next person reading them starts where
-this stopped.
+**This file is a reading and not a plan.** What orb *does* with any of it is in the code beside the constant.
+Globals and field names come from the GensokyoClub/th06 decompilation, and what is here is what the
+functions do — so that the next person reading them starts where this stopped.
 
 ## What a hit is, and the path to it
 

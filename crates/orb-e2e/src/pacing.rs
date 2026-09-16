@@ -5,7 +5,7 @@
 //! process wherever it is written and the file it is written in owns nothing of it. One file rather
 //! than twelve is `fake` compiled once instead of twelve times, and the judging below with no
 //! `dead_code` allow over it: a helper nothing calls reads as dead, which twelve binaries could not
-//! see. See `docs/adr/0003`.
+//! see.
 //!
 //! **How many that is has no business being written here**, and was wrong twice over while it was:
 //! `cargo xtask test -p orb-e2e pacing::` counts them, and a number in a comment is stale the moment
@@ -32,9 +32,7 @@ use orb_core::frame;
 /// What the file costs stopped being the split's to decide once two other things moved: the wait to a
 /// frame's deadline became exact, so the spin ran the whole of `SPIN_US` rather than part of it, and then
 /// the spin's `pause` went behind the seam and was charged for, which took a hundredfold off its
-/// iterations. See
-/// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) and
-/// [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
+/// iterations.
 ///
 /// So the spin is no longer nearly all of what this file spends its time on, and what splitting the rows
 /// further would buy is a measurement nobody has taken since.
@@ -1298,8 +1296,7 @@ mod sound {
     /// What the frames either side of the card's do, which is what a real run's report line shows for
     /// the game's own drawing.
     const WORK_US: i64 = 700;
-    /// What the sound the card starts costs, from the run in
-    /// [docs/adr/0011](../../../docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md):
+    /// What the sound the card starts costs, from a measured run:
     /// a `PLAY_SOUNDS` that ran 8438µs, and the worst of a session is worse.
     ///
     /// Inside `budget_ceiling`, which at 120Hz is 12500µs, so this is a frame the budget is allowed to
@@ -1363,8 +1360,8 @@ mod sound {
             // late and this one at its own blank, so the gap between the two is short by however late
             // the first was. The two turns come out 25666µs and 10229µs against a cadence of 16666,
             // which the report line carries as its worst and its best. Both frames reached the blank
-            // they belong to, so a turn of one here is not the game running fast — see `docs/adr/0011`,
-            // and the count of frames shown early below, which is the reading that would say otherwise.
+            // they belong to, so a turn of one here is not the game running fast — see
+            // the count of frames shown early below, which is the reading that would say otherwise.
             assert_eq!(
                 counts[1], 1,
                 "the frame after the card took {} refreshes — {said}",
@@ -2921,7 +2918,7 @@ mod holds {
 /// The rate is every other section's subject. This is the loop's shape: the update before the draw, the
 /// sounds between them, the present at the end, and the frame handed back to the game's own loop where
 /// there is nothing to pace or draw with. None of it could be driven before the two calls into the game
-/// became addresses the game hands over — see `docs/adr/0002`.
+/// became addresses the game hands over.
 mod frame_loop {
     use super::*;
     use crate::fake::th06::{

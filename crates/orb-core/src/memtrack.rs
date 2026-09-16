@@ -12,8 +12,7 @@
 //! **The rule that no two entries cover the same pages went with the walk**, and that is not tidying:
 //! it is a rule about real pages, a heap region and a reservation being able to name the same ones. A
 //! laid-out game's regions are the objects an e2e test put there, and two of those merged because they
-//! happen to abut is one range that nothing in that space can read. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! happen to abut is one range that nothing in that space can read.
 
 use std::ops::Range;
 

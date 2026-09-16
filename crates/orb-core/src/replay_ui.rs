@@ -11,6 +11,49 @@
 //!
 //! How these read their keys and draw their items is [`crate::menu_ui`], which every question orb asks
 //! shares.
+//!
+//! **Watched by stage, then chapter, then attempt**, which is what a replay holds: a run is stages, a stage
+//! is chapters, and a chapter is the attempts made at it. Four lists, one line per item — the replays with
+//! whose run each was and when it was played, then the stages, then the chapters by the names the boundary
+//! detector gave them, then the attempts by number with what each was under the cursor: the one the run
+//! went on from, or one it was rewound away from, and how long it lasted.
+//!
+//! Twelve items on the screen at once with the cursor held inside the window, a stage having more chapters
+//! than that. A cancel goes back a list, and a cancel on the first closes them.
+//!
+//! **And what was chosen out of every list already walked past is above the one that is up**, a line apiece
+//! and in the words that list's own item had: the replay, then its stage, then that stage's chapter. Because
+//! the item chosen is what the next list is *about* — three lists deep the screen was `トライを選ぶ` over a
+//! column of numbered attempts, with nothing on it to say whose run or which chapter they were attempts at.
+//!
+//! **The replays newest first**, which is the run somebody has just played; the three lists below it are in
+//! the run's own order, a stage list that did not start at stage 1 being no list of a run. Ordered by when
+//! each run began, which is what its line says — and not as the directory reads, since a name says which
+//! run it was before it says when: `hard-` sorts before `normal-` whatever evening either was played on,
+//! which put tonight's runs above last night's and read oldest-first inside each of them.
+//!
+//! **And all four stand over the screen the game keeps its own replays on**, which orb asks the front end
+//! for rather than pressing for: the press that would have chosen that item was held back for the mode
+//! question, so what takes the game there is orb writing the state that item writes. A list of replays over
+//! the title menu reads as having left the replays rather than as being in them.
+//!
+//! **Asked for with the frames its coming-up state waits already spent**, so it arrives on the next update
+//! rather than a second later. Those frames are the item's own fade, and what they draw is the screen being
+//! left — which for a list coming back after an attempt is the title menu a left run goes to, a second of it
+//! on the way to a list that exists so that screen need not be walked again.
+//!
+//! Then the frames that screen is left to *draw* itself in, everything under one of these lists being
+//! frozen for as long as it is up: a couple where the list is going up for the first time, the screen behind
+//! it having been drawn every frame since somebody walked a cursor to that item, and a second where it is
+//! coming back — the front end a left run goes to is one built on the frame the run went, and a list two
+//! frames later stood over the flat grey an undrawn screen is.
+//!
+//! What a cancel out of the first list leaves standing is that screen, whose own cancel is the way back to
+//! the title menu — which is where whoever chose the item would have been.
+//!
+//! A launch with nothing kept says so on the screen rather than nothing appearing, a press held back for a
+//! screen that never came being the one thing that would look broken. And a screen asked for that never
+//! comes up is the same: after five seconds the list goes over whatever the front end has instead.
 
 use orb_config::Language;
 

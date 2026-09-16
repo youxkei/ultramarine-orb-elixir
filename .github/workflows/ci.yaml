@@ -24,8 +24,7 @@ env:
 # What *is* asked for another host is the boundary, which is what `cargo xtask seam` is: `orb-core`
 # and `orb-sim` checked for a 32-bit Linux target, where the two ABIs still exist and Windows does
 # not. A crate above the seam that reaches past it then fails to compile rather than being caught by
-# hand — see
-# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+# hand.
 jobs:
   test:
     # Windows rather than a cross-compile run under Wine. The tests are

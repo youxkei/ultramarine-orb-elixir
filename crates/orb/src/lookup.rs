@@ -3,11 +3,10 @@
 //! `GetProcAddress`, and patching that entry catches every name the game looks up — which for a game
 //! built this way is almost everything it calls: th06c imports eighteen names from `USER32.dll` and asks
 //! for three hundred and forty-two more by string, its window, its renderer and its keyboard read among
-//! them. See `docs/th06c/asm.md`.
+//! them. See `orb-core`'s `game/th06c/asm.md`.
 //!
 //! Everything the rewrite decides is [`orb_core::runtime::get_proc_address`]'s: which name is answered
-//! with orb's own, what the host answered, and that every other name is handed back untouched. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! with orb's own, what the host answered, and that every other name is handed back untouched.
 
 use std::sync::atomic::Ordering;
 

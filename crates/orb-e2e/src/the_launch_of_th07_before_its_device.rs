@@ -8,8 +8,7 @@
 //!
 //! **A laid-out game with its device already in place never reaches that hook**, which is why this file
 //! exists: every other e2e test over this game writes the device before orb is attached, so the phase a real
-//! launch spends without one is a phase nothing had run. See
-//! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+//! launch spends without one is a phase nothing had run.
 //!
 //! What orb does without a device is nothing: the frame is handed straight back to the game's own, and the
 //! overlay is not built until there is a device to build it through — so it is still there to be built when

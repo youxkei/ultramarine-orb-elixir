@@ -6,8 +6,7 @@ publish.workspace = true
 
 # The file seam. `orb.yaml` goes through it for the same reason the run left unfinished does: a test that
 # read and wrote a real one would be a test with a temporary directory to empty and no way to ask what a
-# write that failed does. See
-# [docs/adr/0012](../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+# write that failed does.
 [features]
 sim = ["orb-api/sim"]
 

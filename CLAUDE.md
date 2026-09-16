@@ -1,259 +1,180 @@
-# Conventions for this repository
+# How to work in this repository
 
-The project is **Ultramarine Orb Elixir**. Written in full where it is being named, and
-shortened to *orb* everywhere else, which is also what its crates and the files it installs
-are called.
+Name the project **Ultramarine Orb Elixir** where it is being named in full, and *orb* everywhere
+else — that is also the name of its crates and of the files it installs.
 
 ## Building and checking
 
-`cargo xtask build --release` is what installs: it puts the one file to hand out,
-`target/i686-pc-windows-gnu/release/orb.exe`, which carries `orb.dll` inside itself. Building needs
-the 32-bit mingw linker `.cargo/config.toml` names, `mingw-w64-i686-gcc` from MSYS2's MINGW32
-environment, on `PATH`. **The README says none of this** — it tells whoever is going to play to
-download that exe from the latest release, so what a release is built with is written down here and
-nowhere else.
-
-Everything that has to name a target goes through `cargo xtask` — `build`, `test`, `clippy`,
-`seam`, `coverage`, `real` — because there is no `[build] target` naming it for them; `cargo xtask` with no
-task lists them, and `.cargo/config.toml` says why there is no such key.
-
-**`cargo xtask real <copy of the install>` is the test on the real game**: it copies the release `orb.exe`
-into that copy, plays each case of `crates/orb-real` there — a recipe under `--autoplay`, every frame written
-down by `--trace` — and checks each trace. The copy is never the install somebody plays in, and the cases are
-played against the laid-out games by `orb-e2e` first, so a recipe or a check is wrong in the suite before it
-costs a run of the game. A bare `cargo check`
-therefore builds for the host and fails on `windows-sys`, so **point the editor at the target
-instead**: rust-analyzer's setting is `rust-analyzer.cargo.target`, and the target is
-`i686-pc-windows-gnu`.
-
-**The pre-commit check is run by hand — `sh .husky/pre-commit` — before a commit is asked for.** Version
-control here is jj, and jj runs no git hooks, so nothing fires it on its own; that file is still the one
-place the four checks are written down, and running it is running them. `cargo xtask test` also still
-installs it as a git hook, husky-rs pointing `core.hooksPath` at `.husky`, which is what a `git commit`
-would go through — `NO_HUSKY_HOOKS=1` and `git commit --no-verify` are written in the file with the rest.
-The tree is held at zero warnings, so a lint that is wrong about this code is answered with an allow and
-the reason beside it rather than left in the output.
+- Run every task that has to name a target through `cargo xtask`: `build`, `test`, `clippy`, `seam`,
+  `coverage`, `real`. `cargo xtask` with no task lists them.
+- Build what is handed out with `cargo xtask build --release`; the one file is
+  `target/i686-pc-windows-gnu/release/orb.exe`. Have `mingw-w64-i686-gcc` from MSYS2's MINGW32
+  environment on `PATH` — `.cargo/config.toml` names it as the linker.
+- Point the editor at the target: set `rust-analyzer.cargo.target` to `i686-pc-windows-gnu`.
+- Test on the real game with `cargo xtask real <copy of the install>`, on a copy made for it, after the
+  same cases pass in `orb-e2e`.
+- Run `cargo xtask seam` after touching a crate above the seam: it builds those crates for a target with no
+  Windows, which is what says no call went past the seam.
+- Run `sh .husky/pre-commit` by hand before asking for a commit; jj runs no git hooks.
+- Keep the tree at zero warnings. Answer a lint that is wrong about this code with an allow and the
+  reason beside it.
 
 ## Commit messages
 
-**The subject line is `type(scope): description`**, which is
-[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), and the whole of it is a
-summary in 50 characters, 72 at the very most — the prefix is counted, so what the description has is
-whatever the prefix leaves. At that length one line cannot hold a commit that did seven things, and it is
-not asked to: it says which thing was done to what, and the body carries the rest.
+Write commit messages in English.
 
-`feat` and `fix` are the two the specification gives a meaning of its own. The others this repository uses
-are `docs`, `chore`, `test` and `refactor`, and a type that is not on that list is added to it by the commit
-that first needs one — an open set is a prefix nothing can be read by. The scope is a crate, `orb-core` and
-`orb-e2e` and the rest, and it is left out where the change is not one crate's.
+### The subject line
 
-**The description is what the whole line used to be**: its subject is the commit, and it says what that
-commit does to this repository, with the editing action as its head verb, lowercase and imperative. **The
-type does not stand in for that verb.** `feat: hide the pointer while the mouse stays still` is the shape
-the fourth of the blind read-back's five questions below exists to refuse — a description that reads as
-what the program does while it runs reads that way with the prefix as well as without it, the prefix being
-no part of the sentence.
+- Write it as `type(scope): description`
+  ([Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)), 50 characters
+  including the prefix, 72 at the very most.
+- Pick the type from `feat`, `fix`, `docs`, `chore`, `test`, `refactor`. A commit that needs a type
+  not on this list adds it to the list.
+- Give the scope where the change is one crate's, as that crate's name (`orb-core`, `orb-e2e`, …), and
+  leave it out where it is not.
+- Write the description as a sentence whose subject is this commit: the head verb is the editing
+  action — add, move, rename, remove, … — lowercase and imperative, with the type in front of it. Put
+  behaviour in a clause hanging off the thing that was added, so that clause's subject is that thing.
+- Say in it which one thing was done to what. The body carries the rest.
 
-**The body opens with what the commit does**: one bullet per change, and a bullet for every change, so
-that a reader learns from the list which changes happened without opening the diff. Picking out the
-largest of them and leaving the others unwritten is what this exists to stop. Where a diff really is
-unrelated changes, separate commits are better than one long list.
+### The body
 
-**Each bullet is a summary of its change and not an inventory of it**, in the words the code uses for
-the things it touches: unabbreviated, with no metaphor standing in for a name, no periphrasis where the
-code has a name, and no abstract gesture at an *area* — *the docs*, *the e2e tests*, *the score file*,
-none of which leaves a reader anything to reconstruct. It is the area that makes those bad and not the
-shortness: a measurable property with one direction to move in is no such area, and naming it with the
-direction it went does say what happened.
-Name the file or the item the bullet is about, say what it now does, and stop: the identifiers, the
-constants, the addresses, the arguments, the call sites and the e2e test names inside that change are
-the diff's, and a bullet that needs a sub-item per name is too detailed rather than too short.
+- Open with one bullet per change, and a bullet for every change.
+- Write each bullet as a summary of its change: name the file or the item it is about, say what it now
+  does, and stop. Use the code's own words for what it touches, unabbreviated, and name a measurable
+  property together with the direction it moved. Leave the identifiers, constants, addresses,
+  arguments, call sites and test names inside the change to the diff.
+- Then write why: the problem the change solves, with the numbers and addresses that make it real, and
+  why this way rather than the obvious alternative. Where a commit adds e2e tests beside other changes,
+  write here what they now cover.
+- Give unrelated changes separate commits.
 
-**Then why the change was made**, concretely: the problem it solves, named and with whatever numbers or
-addresses make it real, and why this way rather than the obvious alternative. Not a list of what
-changed, which the bullets and the diff carry between them, and not a summary abstract enough to fit
-some other change. What a commit's e2e tests now cover goes here, unless the e2e tests are the whole of
-the diff.
+### Reading the message back
 
-**The read-back is not yours to do.** Having written the message you cannot read it as the reader it is
-for, who has not seen the diff: you supply the owner a noun phrase left out, so the line reads as
-finished to you and to nobody else. Before committing, hand **the description by itself** — the prefix
-off, it being no part of any sentence — to an agent with an empty context, no sight of the diff and no
-access to this repository, and ask it five things —
-what the line claims was changed, whose each thing in it is, which noun phrases it can read more than
-one way, whether the line is true read as a sentence whose subject is *this commit*, and whether any of it
-is figurative rather than the plain word. Then compare its answer with what the commit did. Where the two
-differ the line is wrong and the reader is right. Where the description leans on a bullet, hand that bullet
-over with it.
+Have the message read back by agents before asking for a commit, and change the line where a reader
+and the commit disagree.
 
-**The last two are asked because the first three pass a line that is not about the commit at all.**
-`hide the mouse pointer once the mouse has been still` came back read correctly — the reader reconstructed
-the wait, the hiding, and the pointer coming back — and it is a description of what orb does per frame
-rather than of what the commit did to this tree: no commit hides anything three seconds after a mouse
-stops, so the sentence has no reading in which its subject is the commit. Asked the fourth question the
-same reader said so outright, and named the shape that does pass — an editing action as the head verb,
-with the behaviour in a clause hanging off the thing that was added, whose subject is that thing and not
-the commit. `give orb the mouse pointer to hide while it rests` failed it too: `give` is no editing action,
-nothing being added, moved, renamed or removed by it.
+1. Hand **the description by itself** — prefix off, together with any bullet it leans on — to an
+   agent with an empty context, no sight of the diff and no access to this repository. Ask it: what
+   the line claims was changed; whose each thing in it is; which noun phrases it can read more than
+   one way; whether the line is true read as a sentence whose subject is this commit; and whether any
+   word in it is figurative rather than the plain word. Compare its answer with what the commit did.
+2. Hand **the diff and the line** to a second agent. Ask it: what the diff does, in one sentence of
+   its own; whether the line names what the commit is *for* or a step on the way to it; whether it is
+   true of the whole diff or of a part of it; and whether any word in it is one the diff itself
+   deletes.
+3. Check every noun phrase against the code yourself: where the code has a name for that thing, use
+   that name.
 
-And the fifth is asked because a metaphor reads as ordinary language to everyone who already knows what
-was meant. `at rest`, in `add hide_mouse, which hides the mouse pointer at rest`, came through the first
-three unremarked and is a figure standing in for the word this code has: `still`, in `STILL_FOR_MS` and in
-every document beside it.
-
-What it reports is judged rather than obeyed: it will also name what no subject line could settle. `cap a commit's subject line at fifty characters in CLAUDE.md` came back read correctly and still
-flagged *a commit* for being any commit rather than one — which is the rule being general — and asked
-which CLAUDE.md, there being a global one as well. Both stay. What does not stay is a difference in what
-was changed: `cut CLAUDE.md's subject line to fifty characters` came back as a subject line **belonging to
-the file**, and `cut a commit's subject line to fifty characters in CLAUDE.md` as an example inside the
-file cut down to fifty characters as much as a limit set at fifty — one word each time, and the fifty
-characters had room for it.
-
-**The fit is read back as well, and by a second agent that does see the diff.** The blind reader answers
-whether the line can be read; whether it is the line this diff deserves is a comparison against the diff,
-and that one is not yours either — having seen the diff, the name of a mechanism reads to you as the purpose
-it served, which is the same defect as supplying the owner a noun phrase left out, wearing other clothes. So
-hand a second agent the diff and the line and ask it four things: what the diff does, in one sentence of its
-own; whether the line names the thing the commit is *for* or a step on the way to it; whether it is true of
-the whole diff or overclaims a part of it; and whether any word in it is one the diff itself deletes.
-`route summary! and detail! into the log's held queue` passed the blind five and failed the second and the
-fourth: it named the queue two macros were sent to rather than the frame's work they were taken out of, and
-`held queue` was this tree's name for that buffer in one place only — the comment the same diff removed.
-`stop the log making a frame miss its blank` failed the third, `log!` still writing where it stands from
-inside the frame's work.
-
-Neither reader is the other, and a line has to pass both. `stop summary! and detail! making a frame late`
-came back from the blind five with `a frame late` reading as a frame of input lag as readily as a frame
-that missed its blank — and this is a repository whose subject is both, so it is not a question a reader
-holding the diff would think to ask.
-
-The check neither reader can make is the one against the code: for every noun phrase, ask whether the code
-has a name for that thing, and where it does, a paraphrase in its place is a defect.
-
-**A rule above refuses a wording only where three things hold**: it is the rule for that part of the
-message, whatever would replace the wording fails it too, and refusing serves the reason the rule gives.
-Where two candidates come out level the ordinary phrasing wins, a technicality being no tiebreak — and a
-line defended over two turns was defended from the letter.
-
-**This section is the convention, and the log is not.** The one reason to read a repository's history is to
-learn a convention that is not written down; this one is written down here, so there is nothing in the log to
-learn and no subject in it that settles anything. These rules also arrived after most of the commits under
-them, so it holds lines written to an earlier rule and lines written to none, and nothing in it tells those
-from a line this section would pass — a subject quoted back as *how it is done here* is an argument from a
-sample that includes every mistake this section exists to stop. It is the same circle as justifying a word by
-a sentence added in the same change, and it is worth naming because both look like evidence and neither is.
-What settles a wording is this section and the words the code itself uses for the things the line names.
+Judge what the readers report rather than obeying it; a reader also names what no one line can
+settle. Where two wordings pass equally, use the ordinary one. What settles a wording is this section
+and the words the code uses — a subject in the log is a sample of an earlier convention, and settles
+nothing.
 
 ## The documents
 
 | | |
 | --- | --- |
-| `README.md` | one sentence saying what orb is, where to download it, and which games it runs — and nothing else. **Not a feature list**: the window, the frame pacing and the frame of input lag are not in it, and the table of games says supported or not supported and nothing more. Nor is how any of it works — no build, no target, no linker, no file format. Nor is there a section pointing at any of the documents below: the only link out is to the other language. Whoever is going to play knows 完全無欠モード already, is installing one file, and reads past everything that is neither of those two things |
-| `README.ja.md` | the same in Japanese, and the two are edited together. The game and everything orb puts on the screen are Japanese, so it is the language most of the people it is for read. Each names the games and the mode in its own language — 東方紺珠伝's 完全無欠モード here, Legacy of Lunatic Kingdom's Pointdevice mode in `README.md`, where a Japanese title is a title the reader cannot read |
-| `SPEC.md` | the final form only. No history of what was tried, no record of what a mechanism used to be |
-| `docs/adr/` | one file per decision about how the code is *shaped*, numbered, in the order they were taken. A **status** at the top, then context, the decision, what follows from it. A decision belongs here rather than in `SPEC.md` when what has to survive is the reasoning — `SPEC.md` carries the final form and would have to throw the reasoning away — and rather than in an empty change's description when it is settled rather than pending |
-| `docs/<game>/asm.md` | what one game does, read off its own exe: the build's md5, the commands to read it again, the functions and every address in them, and a list at the end of what is *not* established. One file per game, since an address means nothing about another game or another build. A reading belongs here rather than beside a constant when it spans dozens of addresses no one constant is about — a whole path through the exe — and the code beside the constant still carries the measurement that constant is the number it is because of |
+| `README.md` | one sentence: what orb is, where to download it, and which games it runs, the table saying supported or not supported. The one link out is to `README.ja.md` |
+| `README.ja.md` | the same in Japanese, edited together with `README.md`. Each names the games and the mode in its own language |
+| `crates/orb-core/src/game/<game>/asm.md` | what one game does, read off its exe: the build's md5, the commands to read it again, the functions with every address in them, and at the end the list of what is not established. One file per game, pulled into the game module's doc with `#![doc = include_str!("asm.md")]` |
 
-The status is the first thing because a reader knows from it which document this is: `accepted, not
-built` is a plan and the code does not look like it yet, `accepted and built` is a description of the
-tree. It carries where to read the rest of the story too — what the thing that got built stands on,
-and which later decision overturned something this one said, so the reasoning can be followed from
-either end. A
-decision nobody took is not a file here: an alternative that was weighed and rejected is recorded
-inside the decision that rejected it, beside what was chosen instead.
+Where a piece of writing goes:
 
-Reasons an alternative was rejected go in a comment beside the code that would otherwise tempt
-someone back to it, not into `SPEC.md`.
+- what orb itself is and does → the doc comment (`//!`, `///`) of the crate, module or item that does
+  it
+- the reasoning behind how the code is shaped → the `//!` of the crate or module it constrains, and
+  *Shape* below where it is a rule for working here
+- a decision still to be taken → the description of the change for it (see *What is left*)
+- a reading that spans a whole path through an exe → that game's `asm.md`
+- the measurement a constant is the number it is because of → a comment beside that constant, with how
+  it was found
+- the reason an alternative was rejected → a comment beside the code that would tempt someone back to
+  it
+- how a release is built → this file
 
 ## What is left
 
-**What is left to do is not a document, and none of it is in the tree.** A problem found while working
-becomes an empty change, one per piece of work, inserted into the line of work with
-`jj new --no-edit -A @ -m "TODO: ..."`. Its description starts with `TODO: `, so that `jj log` tells a
-change still to be worked from one that is done at a glance, and carries the problem, everything already
-known about it, what was measured and the order the work is worth doing in. The work will be done in that
-change, so the description written now is the start of the message it will carry, and `jj log` shows what is
-left beside what is done. There is no `TODO.md` — a worklist in the tree is one every branch carries its own copy of,
-and what is left to do is not a fact about a commit.
-
-The one thing a description cannot hold is a measurement that has to be repeatable: the recipe for that
-goes into the tree beside the code it is run against, as a script or a test, since a worklist nobody can
-re-derive is one nobody can tell is still true.
-
-**The description is rewritten into the commit message when its work is done**, the `TODO: ` going with
-it, and that rewrite is the last step of the work rather than tidying afterwards: the change is no longer
-empty, and a message still saying what was left to do is wrong about the commit it now sits on.
-
-Not everything in it belongs in a commit message, though. Everything that has to survive goes first, and
-where each thing goes is what the rules below already say — the reason an e2e test or a check *cannot* be
-written to a comment beside the code that would otherwise tempt somebody to write it, the recipe for a
-measurement to the code that implements it, a decision still to be taken to `docs/adr/`. What needs no home
-at all is the measurement itself, wherever the recipe it went with can be run again — a number in a message
-is stale the moment the tree moves, and the command that produces it is not. What stays is what the
-commit-message rules above ask for: the problem, with the numbers and addresses that made it real.
+- Write work still to do into the description of the change whose work it is:
+  - where that change exists — the one being worked on, or another in the line of work — as a
+    `TODO: ` line below what the message already says, one line per piece of work;
+  - otherwise as a new empty change, one per piece of work, inserted into the line of work with
+    `jj new --no-edit -A @ -m "TODO: ..."`, its description starting with `TODO: ` so that `jj log`
+    tells work to do from work done.
+- Carry in it the problem, everything already known, what was measured, and the order the work is
+  worth doing in.
+- Put the recipe for a measurement that has to be repeatable into the tree beside the code it is run
+  against, as a script or a test.
+- Rewrite the TODO as the last step of its work: an empty change's description into the commit message,
+  a `TODO: ` line into the bullet and the why its work earns. Move what has to survive to its home
+  first — the reason a test or a check cannot be written to a comment beside the code that would tempt
+  somebody to write it, the recipe to the code that implements it — and keep in the message the problem
+  with the numbers and addresses that made it real.
 
 ## Code
 
-- **The how is in the code.** Keep it self-explanatory; do not write it again in comments.
+- **The how is in the code.** Keep it self-explanatory.
 - **The what is in the tests.** Write them so the expected behaviour is clear from the test.
 - **The why not is in the comments.** The alternative rejected, the constraint that is not obvious,
   the reason the straightforward approach was avoided.
 
-**And all three are written in English**, comments and doc comments and test names alike — and so are
-the commit messages, whose subject lines this settles too. A term this project reaches for in Japanese
-has an English name and that name is what goes in: *deathbomb* rather than 決死結界, *focused* rather
-than 低速, *Pointdevice mode* rather than 完全無欠モード, *the warning line* rather than 予告線, *stage 2*
-rather than 2面.
+### Shape
 
-**What stays Japanese is what the game itself holds.** A string the game draws or orb draws over
-it — 「チャプターをやり直す」, the questions orb puts over the title menu — is that text and not a
-translation of it, and an e2e test matching one matches the characters. The same goes for a file name
-the game owns (`東方紅魔郷.exe`, `紅魔郷ST.dat`), a directory of an install, and `README.ja.md`, which
-is the Japanese half of a pair by design. Everything else is prose, and prose here is English.
+- Put code by what it touches:
+  - `orb` holds code whose subject is another module's memory — `DllMain`, the jump written over a
+    prologue, the import table entry and the vtable slot swapped, the PE headers those are read out of,
+    the crash filter, and the install lists saying which hook goes with which prologue. A hook body makes
+    the one call its rewrite consists of and stays beside its patch.
+  - `orb-api` is the seam: every call to the host — Win32, COM, GDI, DirectSound, the files orb reads
+    and writes, the machine's language, the `pause` instruction — as a facade, with `real/` behind it on
+    Windows and `orb-sim` behind it in a test. Mirror the host's calls in it and keep every decision above
+    it.
+  - `orb-core` holds everything that decides what happens to a run and names no `windows-sys`: the hook
+    bodies, `Originals`, `attach_to`.
+- Hand every call orb makes into the game over from the `Game` as an address (`FrameCalls`, `Walks`,
+  `Originals`, `handed_over!`), so that a game laid out by hand answers with functions of its own.
+- Give each game a `Game` of its own under `crates/orb-core/src/game/<game>/`: `mod.rs` for the addresses
+  and offsets, `image.rs` for the address space laid out, `chapters.rs` for the midstage table. Choose the
+  game once, at the attach, out of `game::KNOWN`, which the launcher reads too.
+- Answer what has been measured and decline the rest: a method with no reading behind it answers `None`
+  or the emptiest true answer, and a process orb has no addresses for is left as it was found. Read a
+  game's resume set out of its own replay restore, field for field.
+- Write an e2e test in `orb-e2e`, driven by the fake game in `orb-e2e/src/fake/`, speaking only the host
+  and the input — the display, the compositor, the window in front, the keys and the pad — and reading
+  everything else back out of the game's memory, the log and the game's records. Keep the code under
+  test free of a test-only path, and add nothing to production for a test to read.
+- Make the fake game copy the real one wherever orb calls through, and owe nothing where orb replaces or
+  never reads. A divergence is a defect where it makes an e2e test pass that the real game would fail.
+  Fix fidelity red first: read the game's code, write the e2e test from it, watch it fail against the
+  fake, then change the fake.
+- Keep the frame loop's e2e tests in `orb-e2e/src/pacing.rs`, one section per subject, with the functions
+  that judge a rate at the file's top level taking values — microseconds and the log's lines — and
+  nothing of the host.
 
-**How many of something there are is not written down.** Not in a comment and not in `SPEC.md`: a
-count beside a list is a second place to edit every time the list grows, and it is the place nothing
-fails when it is wrong — `settings.rs` said its dialog template was ten controls where the template
-had fourteen, and `d3d8.rs` pasted the output of the `grep -c` that counts its slots beside the
-command. So the list is named and not numbered, and where the number is worth having, what goes in
-is the command that answers it.
+### Language
 
-Three kinds of number are not this. One the game or Windows fixes — `RECT`'s four fields,
-`IUnknown`'s three slots, th06's six endings — does not move when this tree grows, and saying which
-of them is which is the whole content of the sentence it is in. One in a test *is* the expected
-behaviour, which is what a test is for. And `docs/adr/` and the commit log are records of what was
-decided or done at a time, which nothing goes back to update, so a count in them never becomes a
-diff.
+- Write prose in English: comments, doc comments, test names, commit messages. Use the English name
+  for a term the game community holds in Japanese — *deathbomb* for 決死結界, *focused* for 低速,
+  *Pointdevice mode* for 完全無欠モード, *the warning line* for 予告線, *stage 2* for 2面.
+- Keep in Japanese what the game itself holds: a string the game draws or orb draws over it (an e2e
+  test matches its characters), a file name the game owns, a directory of an install, and
+  `README.ja.md`.
 
-Nothing machine-specific in anything committed. Scripts take what varies as an argument or
-from the environment, and fail with a usage line when given neither.
+### Numbers
 
-Claims about the game's behaviour are established by measurement. A plausible explanation is not a
-finding.
+- Name a list; where its count is worth having, write the command that answers it.
+- Write a number down where the game or Windows fixes it, where a test expects it, and in the commit log,
+  which records a moment.
+- Make scripts take what varies as an argument or from the environment, and fail with a usage line
+  when given neither.
 
-**And a grep over the disassembly is not a measurement of what does not happen.** An address reached
-through a pointer is an address no search for it as an operand finds: `[0x62f8a4]` was written down as a
-constant nothing writes while a run is played, on a grep that could not see the dispatcher at 0x40ecf1
-handing its address out to a script — and orb left it out of a resume for that reason, which cost th07's
-own resume every stage past the first. A negative read off the exe says where the thing is *not* written
-plainly; what says a field never changes is watching it.
+### Measurement
 
-**Every measurement is kept beside the thing it is about, and what it did says which thing
-that is:**
-
-- **It decided how the code is shaped** — the file in `docs/adr/` holding that decision, beside the
-  reasoning it settled.
-- **It is why a constant is the number it is** — beside that constant, with how it was found, so that
-  whoever changes the number reads what it was measured against first.
-- **It confirmed the code works on the real game** — an e2e test asserting the same thing, and **nothing
-  says it was confirmed**. What did not work on the real game is an empty change inserted for it, so what
-  has no change waiting works:
-  a comment saying something *was* run there says what the whole tree already says, and says it in a place
-  that goes stale without anybody noticing. So no comment beside the code says it was run on the game, which
-  session it was, or what the log said at the time.
-- **It is ahead of all three** — the description of the empty change inserted for that work, named and
-  carried in it. A measurement still waiting for a constant or an e2e test to stand beside belongs there.
-
-**A claim beside the thing it is about moves when that thing moves**, which is what the list above is
-for: the measurement goes where the reader of that thing is already standing, and a document collecting
-measurements of its own gives that up.
+- Establish a claim about the game's behaviour by measurement. Establish where a thing is written
+  plainly by a grep over the disassembly, and that a field never changes by watching it.
+- Keep each measurement beside the thing it is about, chosen by what the measurement did:
+  - it decided how the code is shaped → the `//!` of the crate or module it shaped
+  - it is why a constant is the number it is → beside that constant, with how it was found
+  - it confirmed the code works on the real game → an e2e test asserting the same thing, which is the
+    whole record of it; what did not work → an empty change inserted for it
+  - it is ahead of all three → the description of the empty change inserted for that work

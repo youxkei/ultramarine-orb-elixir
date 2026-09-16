@@ -3,8 +3,7 @@
 //! **A module of its own, and neither of the two it could have been put in.** `module.rs` opens *the
 //! modules loaded into the process orb is injected into* and a code page is not one; `text.rs` opens
 //! *the font a string is baked through* and a conversion is not that either. One function in a file
-//! that says what it is beats a second subject in a file that already has one. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! that says what it is beats a second subject in a file that already has one.
 
 /// `MultiByteToWideChar` with `CP_ACP`, for bytes a Win32 `-A` call answered in whatever code page
 /// this machine is set to.

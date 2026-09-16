@@ -1,7 +1,6 @@
 //! **A replay of a pointdevice run of th07 kept and watched again.**
 //!
-//! What the machinery is and why it exists is `watching_a_pointdevice_replay.rs` and
-//! [docs/adr/0024](../../../docs/adr/0024-a-pointdevice-runs-replay-is-orbs-own-and-is-watched-through-the-resumes-machinery.md);
+//! What the machinery is and why it exists is `watching_a_pointdevice_replay.rs`;
 //! all of it is one shape for both games, the record and the file included. **What is this game's own is the
 //! run the attempt is watched in.** Every other run orb puts a chapter back into was chosen on the game's own
 //! screens; this one is chosen out of a file, so orb writes the three numbers those screens write, the

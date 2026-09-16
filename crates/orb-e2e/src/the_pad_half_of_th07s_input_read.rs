@@ -3,8 +3,7 @@
 //! th07's read of a frame's buttons is one function, `GetInput` at 0x430b50: the keyboard through
 //! `GetKeyboardState`, and then a tail call at 0x430f20 for the pad — the one DirectInput device the game
 //! looks for and the one winmm joystick it falls back to. orb hooks that tail call and does not call
-//! through — see `Th07`'s `GET_CONTROLLER_INPUT` and
-//! [docs/adr/0013](../../../docs/adr/0013-the-pad-half-of-the-input-read-is-orbs.md) — so everything a pad
+//! through — see `Th07`'s `GET_CONTROLLER_INPUT` — so everything a pad
 //! does to the word the game acts on is orb's answer, out of the pads it samples on a thread of its own.
 //!
 //! **What is asserted here is the arithmetic itself**, which is what makes this file the other half of the

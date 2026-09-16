@@ -7,8 +7,7 @@
 //! `orb-core`, `orb-sim` — be built and tested on a host that is not Windows.
 //!
 //! **The host and not Windows**, which is a distinction with one member: [`Win::spin_once`] is the
-//! `pause` instruction and no call at all — see
-//! [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md). So what decides whether
+//! `pause` instruction and no call at all. So what decides whether
 //! something belongs here is not whether there is a Win32 function on the other side of it.
 //!
 //! **What it is instead is simply: does orb reach outside itself for it.** Every such reach goes through a
@@ -21,14 +20,72 @@
 //! were driven for as long as they were `std::fs`. What that cost is the whole of why the rule changed: an
 //! e2e test with a real directory behind it has one to empty before it runs and one left behind when it
 //! fails, and the question it cannot ask at all is *what happens when the write fails*, there being no way
-//! to make `std::fs` refuse except by deforming the machine into a shape where it does. See
-//! [docs/adr/0012](../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+//! to make `std::fs` refuse except by deforming the machine into a shape where it does.
 //!
 //! The call sites keep their shape. `mem::read(address)` is what it was before the seam went
 //! in, and the alternative — making every caller carry a `&dyn Win` — would have rewritten
 //! two thousand lines of structure walking to say nothing new. The install point is a
 //! thread-local instead, because the test harness runs tests side by side in one process and
 //! a simulated Windows in a static would be two tests writing each other's game.
+//!
+//! Each area of the host — the game's memory, the clock, which keys are down, where the mouse pointer is and
+//! whether it is drawn, which thread is running, the log file, the modules the process has loaded, the
+//! files orb keeps, the display and its compositor, the device, the sound, the glyphs — is a facade of free
+//! functions with two answers behind it: the real one, under `#[cfg(windows)]`, and whatever `Win`
+//! implementation a test has installed.
+//!
+//! What is behind the seam is what a test could not otherwise get at. The game's memory is behind it so that
+//! `Th06` can be read with no game running. The log's deferral turns on which thread is asking and its lines
+//! are stamped with the host's clock, so a test that cannot be two threads or say what time it is cannot
+//! reach the mechanism at all. The display and its compositor are behind it because the pacing reads two
+//! numbers they answer — the compositor's own spacing, which the cadence is counted in, and the monitor's
+//! rate, which says what the desktop is like — and the case that matters is the two disagreeing, which
+//! otherwise wants two monitors of different rates and a window on one of them. The keyboard is behind it
+//! because orb's own questions read it themselves, the game being frozen on the frames they are up on. The
+//! mouse is behind it for both halves of the same reason: a hand moving one is what orb puts the pointer
+//! back for, and whether the pointer is drawn at all is a counter the host keeps for the process. The modal
+//! and the `ExitProcess` that turn away a host orb cannot pace on are behind it for the same reason at its
+//! plainest: an e2e test that raised a real `MessageBoxW` would wait for a click that is never coming, and
+//! one that really exited would take the harness's child with it. The files are behind it because an e2e
+//! test with a real directory behind it has one to empty before it runs and one left behind when it fails,
+//! and the question it cannot ask at all is *what happens when the write fails*.
+//!
+//! A Win32 call with nothing like that behind it stays where it is: orb ships for Windows and only for
+//! Windows, so being able to build without a call buys nothing on its own — what buys something is being
+//! able to *decide* what the call answers.
+//!
+//! Two things the simulated host is deliberately as unhelpful about as the real one, because a kinder
+//! simulation would let a test come to rely on something false: `cRefresh` counts compositions rather than
+//! refreshes of the display, and `cFramesLate` reads zero through a broken cadence as much as an even one.
+//! And one thing it must model that looks like an implementation detail and is not: **spinning costs time.**
+//! `wait_until` spins the last stretch to its deadline, so a clock that moved only on a wait would never
+//! arrive. Both halves of that loop are therefore behind the seam and both are charged for — the counter
+//! read at a tick, and the `pause` at `PAUSE_TICKS`, which is the one member of the seam that is not a call
+//! into Windows at all.
+//!
+//! **The simulated host is not a metronome, and that is deliberate.** Windows is not one from an
+//! application's side: it wakes a thread when it gets round to it, and its compositor now and then takes far
+//! longer over a frame than it usually does. Both are modelled, from measured distributions rather than
+//! chosen ranges — the blanks are an exact grid and it is the *return* of a flush that is delayed, because
+//! that is the shape the measurement has. The delays come from a seeded stream, each e2e test runs over
+//! several seeds, and the seed goes in every assertion so a failure replays exactly. An e2e test that holds
+//! for one seed and not another has found something a real machine can do, which makes it a defect rather
+//! than a flake.
+//!
+//! So what the pacing e2e tests assert is a rate and not a schedule: **what share of the seconds ran at
+//! sixty frames a second, within half a frame, once a few seconds of grace have passed.** That is the
+//! question somebody playing has — the music and every timer in the game are counted in its own frames, so
+//! a second at the wrong rate is a second of the game at the wrong speed however the average over the run
+//! reads.
+//!
+//! The `sim` feature is why the DLL the game loads pays nothing for any of this: with it off the install
+//! point does not exist, and `mem::read` — called thousands of times a frame — compiles to the volatile read
+//! and nothing else.
+//!
+//! `orb-core` carries no `windows-sys` and it is not portable all the same: `Th06` calls the game's own
+//! functions through transmuted pointers, by the conventions MSVC6 compiled them with — `thiscall` and
+//! `fastcall` — and those exist on 32-bit x86 and nowhere else. What is on the far side of that is the
+//! game's code rather than the host's, which is why no seam over Windows reaches it.
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -325,8 +382,7 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// The counter's own ticks and not milliseconds, because a millisecond is the granularity being
     /// left behind: this wait is aimed at a frame's own deadline, which is where the input lag left
-    /// to win is. See
-    /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+    /// to win is.
     ///
     /// The handle stays behind the seam, which is the rule the thread ids and the log's token
     /// already follow. A simulated host waits exactly as long as it was asked to: a real one
@@ -451,7 +507,7 @@ pub trait Win: Send + Sync + 'static {
     // --- the files orb reads and writes of its own ----------------------------
     //
     // Not the game's own: the score file is the game's `CreateFileA` under orb's hook, and the log is
-    // the three above. See [`crate::fs`], and `docs/adr/0012` for why these are here at all.
+    // the three above. See [`crate::fs`].
     //
     // `std::io::Result`, which is neither a `windows-sys` type nor a new one: what every call site
     // does with an error is put it in a line of the log.
@@ -522,8 +578,7 @@ pub trait Win: Send + Sync + 'static {
     // black beside the game is orb's alone, Direct3D never touches it, and the one failure below this
     // line is a flicker, which the single blit prevents and which no test could have seen either way.
     // What an e2e test can have an opinion about — which bar the lines went in, which height they got
-    // and where the block landed — is all above. See
-    // [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+    // and where the block landed — is all above.
 
     /// The widest of `lines` and one line's height, at an em height of `em` pixels —
     /// `GetTextExtentPoint32W` through a font made at that height, over each line.
@@ -628,8 +683,7 @@ pub trait Win: Send + Sync + 'static {
     // code — the GDI, after Direct3D and DirectSound — and the one a grep for `windows-sys` would
     // find least, `Font::load` having been a struct of orb's own. **Coarser than the other two on
     // purpose**: a mirror of the calls would put a device context across the seam, and the whole of
-    // what orb asks a rasteriser is *bake this string at this height*. See
-    // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+    // what orb asks a rasteriser is *bake this string at this height*.
 
     /// `AddFontResourceExW` for the file, then `CreateFontIndirectW` for a face of it at `height`
     /// pixels of em. `None` where the file is not a font that can be added, or no face could be made
@@ -647,7 +701,7 @@ pub trait Win: Send + Sync + 'static {
     ///
     /// For the game that ships no font: th07 keeps its own sprites inside `th07.dat` and asks the machine
     /// for its text — `ＭＳ ゴシック`, bold — so what orb asks for is the same family, and its screens are in
-    /// the face the game's own text is in. See `docs/adr/0019`.
+    /// the face the game's own text is in.
     fn machine_face(&self, height: i32, family: &str, bold: bool) -> Option<Face>;
 
     /// What the host actually selected — `GetTextFaceW`. Asked so that a substituted face shows up in
@@ -671,8 +725,7 @@ pub trait Win: Send + Sync + 'static {
     // Every slot `crates/orb-api/src/d3d8.rs` types, of `IDirect3DDevice8` and of
     // `IDirect3DTexture8`. **A mirror of them and not an abstraction
     // over them**, which is the whole of the design and the one way it can be got wrong: what must not
-    // cross is a decision. See that module, and
-    // [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+    // cross is a decision. See that module.
     //
     // Behind the seam because Direct3D is somebody else's code reached through a pointer the game handed
     // over rather than through a crate a grep would find — so a rule kept by looking for `windows-sys`

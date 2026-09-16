@@ -10,8 +10,7 @@
 //! fails, and no way at all to say *the write failed* — the only way to ask that question of `std::fs` is
 //! to arrange the disk into a shape that makes it fail, which is a test asserting about the machine it
 //! happens to be on. A simulated Windows keeps the bytes instead and refuses on demand, which is what
-//! every other host call here already does. See
-//! [docs/adr/0012](../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+//! every other host call here already does.
 //!
 //! **`std::io::Result` across the seam**, which is neither a `windows-sys` type nor a new one: what every
 //! call site does with the error is put it in a line of the log, so an error that could not say what went

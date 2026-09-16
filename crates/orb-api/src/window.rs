@@ -108,8 +108,7 @@ pub fn write_lines(window: Hwnd, bar: Bar, lines: &[String]) -> bool {
 /// Not to be called from `DllMain`. A `MessageBoxW` under the loader lock loads `comctl32` and
 /// `uxtheme` and pumps messages into a process that is not finished starting, which is the textbook
 /// deadlock — so this is the frame hook's to call, that being the game's main thread with a window
-/// and a pump. See
-/// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+/// and a pump.
 pub fn message_box(title: &str, text: &str) {
     #[cfg(feature = "sim")]
     if let Some(win) = crate::installed() {

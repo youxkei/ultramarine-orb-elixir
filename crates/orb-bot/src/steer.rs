@@ -870,7 +870,7 @@ const A_STEP_OF_ITS_OWN: f32 = 0.5;
 /// the bullet a step on credits the move with a whole step of room the frame does not have. Measured:
 /// a stage 4 hit was taken on a move judged to have `2.6` of room with a bullet stepping `2.7` a frame,
 /// and the two boxes were `6.7` apart on the axis where their halves add to `6.7` — touching, and the
-/// game's test takes that. See `docs/th06c/asm.md`.
+/// game's test takes that. See `orb-core`'s `game/th06c/asm.md`.
 ///
 /// **So the frame the player is standing in is not judged at all**, and nothing is lost with it: it is
 /// the frame whose test has already run, no move can change where the player already is, and the same

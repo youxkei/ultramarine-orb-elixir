@@ -11,8 +11,7 @@
 //! **What each of those entries is pointed at is [`orb_core`]'s**, and so is everything that decides what
 //! happens to a run: every hook body, the rectangles the window is laid out by, the thread the pad is
 //! sampled on, and `attach_to`. Nothing outside this crate names it — the DLL exports `DllMain` and
-//! nothing else, and there is no `rlib` — which is what says so. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! nothing else, and there is no `rlib` — which is what says so.
 //!
 //! Chapter-based retry for th06 1.02h and th07, injected before the game starts.
 
@@ -49,8 +48,7 @@ use orb_config::Config;
 // `orb-core`, and go on saying it as it moves between them.
 pub(crate) use orb_core::{game, log, runtime, trace};
 // What a hook *does* is `orb-core`'s, and so are the statics the install lists below fill: this crate
-// installs them and calls none of them itself — see
-// [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+// installs them and calls none of them itself.
 use orb_core::runtime::{
     CARD_RECORDS_READ, CREATE_GAME_WINDOW, FORCE_WINDOWED, GAME, GET_CONTROLLER_INPUT, GET_INPUT,
     INIT_D3D_DEVICE, PAD_BUTTONS, PLAY_SOUNDS, PRESENT, RANKING_READ, RENDER, RUN_CALC_CHAIN,

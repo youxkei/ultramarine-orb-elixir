@@ -26,6 +26,48 @@
 //!
 //! What is left in `orb::mouse` is the write over that import. Whether the pointer is on the screen is
 //! decided here.
+//!
+//! **The pointer goes once the mouse has been still for three seconds, and comes back on the frame it
+//! moves.** Neither game is played with the mouse and orb's answer to every display setting is a window,
+//! which is where Windows draws a pointer — so without this the arrow sits over the playfield for as long as
+//! nobody moves it away. Where the pointer is is read once a frame with `GetCursorPos`, on every frame the
+//! loop takes and the ones that draw nothing included. A host that will not say where it is has it left
+//! alone: a pointer orb cannot follow is one it cannot tell has stopped, and one taken off the screen by a
+//! launch that has lost sight of the mouse is one nothing puts back.
+//!
+//! **Only while the game's window is the one in front**, and a window going behind puts the pointer back —
+//! with the wait then running from the frame it comes forward rather than from the last movement of the
+//! mouse. Which is the question orb's own keys are read behind as well, asked for a different reason: keys
+//! read with another window in front are keys somebody typed at that window, while no movement of a mouse
+//! is ever the game's to act on. What it answers here is how far the counter below reaches — the pointer
+//! over another program's window is not something orb has measured itself into, and one over a window that
+//! is not in front is in nobody's way.
+//!
+//! **Whether the pointer is drawn is one counter the whole process shares**, and it is a counter rather than
+//! a flag: `ShowCursor` moves it one step per call, and Windows draws the pointer while it is not negative.
+//! **The game moves it too.** th06 answers `WM_SETCURSOR` itself — its window procedure at 0x420d40 sends
+//! `0x20` to the case at 0x420dc0 — and with the game in a window, which is every launch of orb's, that case
+//! loads the arrow, sets it, asks for the pointer to be drawn, and answers 1 so `DefWindowProcA` never sees
+//! the message. One of those arrives per movement of the pointer over the window, so the counter climbs by
+//! one for each and nothing in a windowed run ever lowers it: a single `ShowCursor(FALSE)` from orb would
+//! leave the pointer exactly where it was, and what it would take instead is one call per mouse movement
+//! since the window came up.
+//!
+//! **So the exe's `ShowCursor` import is patched and the game's asks are answered rather than passed on**,
+//! which leaves the counter orb's alone — one step takes the pointer off the screen and one puts it back.
+//! All of them are answered and not only the ones that would fight a pointer orb has taken off: a call let
+//! through while the pointer is drawn changes nothing on the screen and moves the counter all the same, and
+//! a step taken afterwards cannot cross an edge that has moved. What the game gets back is the counter orb
+//! last read, which it looks at in none of its six calls. A launch where that entry could not be patched
+//! says so in the log and leaves the pointer as the game has it, there being no counter left to win.
+//!
+//! Three seconds because nothing in either game wants the pointer at all: the wait is there to keep it from
+//! being chased away between two movements of a hand that is still using it, and no longer.
+//!
+//! **`hide_mouse` in `orb.yaml` is what asks for it**, on by default and one of the switches the launcher
+//! offers — 時間経過でマウスカーソルを消す. Off leaves the pointer to the game, and leaves the `ShowCursor`
+//! import unpatched with it: what orb does about the pointer is own that counter, and there is nothing to
+//! own where the pointer is not being taken off. The log line says which of the two a launch got.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 

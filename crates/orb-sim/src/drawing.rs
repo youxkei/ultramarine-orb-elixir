@@ -15,6 +15,22 @@
 //! was a vtable of Rust functions, and a vtable's functions are plain `extern "system"` with nowhere to
 //! carry a context. Behind the seam the device is a handle and the answer is a `&self`, so the record
 //! goes where the rest of a simulated host's state is.
+//!
+//! The overlay needs no seam of its own. A Direct3D 8 device is a pointer to a vtable, so a vtable of Rust
+//! functions is a device as far as everything that calls one is concerned: the overlay creates its state
+//! block, uploads its textures and draws its quads through exactly the calls it makes against the game's
+//! device, and they land in a record instead of on a screen.
+//!
+//! What is kept is the request — each quad's rectangle and colour, which texture it went through, the
+//! clears, the viewports, in order — **and what was uploaded into each texture**. That answers the questions
+//! worth asking of a frame: whether the mark covers the row the lives are counted in and leaves the rows
+//! either side alone, whether a menu put its items where it says, which of the two flashes a boundary got,
+//! and *which text is at which position* — a quad's texture carries which string it was baked from, since a
+//! device is handed a bitmap and never a string. The colour answers the rest: `menu_ui` draws the item under
+//! a cursor in `SELECTED` and the others in `NORMAL`, so which one is chosen is on the screen rather than in
+//! a field. A rasteriser would answer the same ones at the cost of being a rasteriser, and the one thing
+//! here that is genuinely about pixels — the brush stroke's coverage — is baked from the picture by
+//! `build.rs`, which is where it is checked.
 
 use std::collections::HashMap;
 use std::sync::Mutex;

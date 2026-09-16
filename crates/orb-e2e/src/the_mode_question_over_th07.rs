@@ -2,7 +2,7 @@
 //!
 //! What the question *decides* — which of the two a run is, and which of the two rankings a score file is — driven
 //! the way somebody meets it: the game at its title menu, keys pressed at it, and what came of that read off the
-//! screen and out of orb's log. Not by calling `Question::update`, which is the shape `docs/adr/0001` rules out.
+//! screen and out of orb's log. Not by calling `Question::update`, which is the shape an e2e test here refuses.
 //!
 //! **What is on the screen is how the answer is read.** The question draws the two modes with the one under the
 //! cursor in `SELECTED`, so which would be chosen is a colour rather than a field — and here it is drawn in a face

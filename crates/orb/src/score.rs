@@ -2,8 +2,8 @@
 //!
 //! Done at the import rather than at the game's own score code, which is the seam `memtrack` uses and for
 //! the same reason: the game's statically linked CRT reaches the OS through it. Both of th06's own paths
-//! to the file end there — see `SPEC.md` for the four places it names it and the call graph down to the
-//! import. So nothing about this patch is per-game: no address, no offset, and nothing about the file's
+//! to the file end there — `orb_core::score`'s doc has the four places it names it and the call graph down
+//! to the import. So nothing about this patch is per-game: no address, no offset, and nothing about the file's
 //! format or the encryption over it. d3d8's and dsound's own opens go through their own imports and are
 //! not in the path.
 //!

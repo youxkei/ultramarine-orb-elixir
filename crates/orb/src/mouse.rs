@@ -5,8 +5,7 @@
 //!
 //! Everything the rewrite decides is [`orb_core::mouse`]'s: whether the pointer is on the screen, how
 //! long the mouse has to have been still for it to go, and why the game's ask is answered rather than
-//! passed on. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! passed on.
 
 use crate::hook;
 

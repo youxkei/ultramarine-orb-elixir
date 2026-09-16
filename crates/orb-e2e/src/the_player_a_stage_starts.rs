@@ -22,8 +22,7 @@
 //!
 //! **Read out of the game's own code rather than off this tree**, because the fake game is both the writer
 //! and the reader of the memory orb is driven through: a stage that started its player killable would be
-//! one every e2e test here agreed with. See
-//! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+//! one every e2e test here agreed with.
 //!
 //! Legacy mode throughout, so nothing of orb's is between the bullet and the player: `--clear` writes
 //! the state and the frames under it before every update, which is

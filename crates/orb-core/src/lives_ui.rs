@@ -24,6 +24,79 @@
 //! painted first — with the game's own panel tile rather than a colour of orb's, because the panel
 //! is a noise and a flat rectangle inside it reads as a patch. Painting with the tile also means
 //! that what is left there when orb stops drawing is the panel the game would have painted.
+//!
+//! **The game's own count of lives is painted over with a brush stroke in a pointdevice run**, with `DISABLE`
+//! written on it. Dying there costs the chapter and not a life — the menu goes up, and the snapshot that puts
+//! the chapter back puts the count back with it — so the row is the one thing left on the screen still
+//! describing the game as it was. th15 says it the same way across its own row of lives, which is where
+//! somebody who wants the mode will look for it. Drawn on three conditions: the mode, a run of somebody's
+//! own rather than a demo or a replay, and a chapter with a snapshot to go back to — that last being the
+//! frames at a stage's start before its own snapshot has been taken, where a death does still cost a life.
+//!
+//! Asked of the run and not of the frame, unlike the death, which is a comparison against the frame before
+//! and belongs to one. A run passes through frames that are not gameplay frames and are drawn like any
+//! other: the single frame a stage transition is built in, which is a quarter of a second of screen because
+//! the game builds the next stage inside it, and the frame a chapter is put back on, where what orb knows of
+//! the frame before has deliberately been dropped. So what decides is whether the run being tracked is one
+//! somebody is playing — settled where that stage's snapshot was taken — and, past the end of the run,
+//! whether the game is still painting that row at all. A mark that stopped on any of those frames would
+//! leave whatever the game paints in that row standing there instead, which is the count: the game paints it
+//! from its own "this row changed" bits, and does not ask orb first.
+//!
+//! **The stroke is a picture of one and not a generated one.** Generating one was tried first, and every
+//! version read as a smear rather than as a brush: a spine with a taper has the ends wrong, and noise along
+//! an edge does not carry ink the way a hair does. So the stroke is a real one, and what the tree carries is
+//! the picture of it: `crates/orb-core/brush.png`. `crates/orb-core/build.rs` bakes that into the 144x30 of
+//! coverage the drawing wants, one byte a pixel — how far each pixel of ink on paper is from the paper,
+//! cropped to the ink, averaged by area and put through two smoothstep passes.
+//!
+//! The picture is grey, and that is a size and not a taste: only one channel of it is ever read, so the
+//! colour one it was baked from gave the same 4320 bytes at three times the file. WebP is the wrong trade —
+//! lossless came out *larger* than the grey PNG, 884KB against 460KB, and both of its modes want a decoder
+//! that cannot be sixty lines. What made the difference was never the format.
+//!
+//! In the build rather than in a script anybody runs, and that is the whole of why: a script means its
+//! output committed beside the picture it came from, which is two copies of one stroke with the editable one
+//! the wrong one. Only the inflate comes from a crate — walking a PNG's chunks and undoing its row filters
+//! is sixty lines that say what the picture is, against eight crates that would say it for every picture
+//! there has ever been. The picture's ink is 4:1 and the squash to 144x30 is what fits a stroke between the
+//! score's row and the bombs'.
+//!
+//! **The count is not painted out; the stroke goes over it.** Where the ink is dry, the stars show faintly
+//! through — which is what they are, disabled rather than gone, and one gained still shows. That needs the
+//! count drawn again underneath every frame, and the game is asked to do it: `Gui`'s `flags.flag0`, the two
+//! bits set by whatever changes the count and taken one off by each draw, is written back to 2 before the
+//! game draws. So the game erases that row and draws its own stars again for orb, background and all.
+//!
+//! **Which means every frame the game paints that row is a frame the mark has to go over.** The row it
+//! paints last is the one left standing on the screen, and a run's panel outlives the run: leaving one ends
+//! it on a single frame and the panel stays there until the front end has drawn its own screen. So what ends
+//! the mark is the game no longer painting that row — its `Gui`'s own draw job gone from the draw chain —
+//! and not the run ending. Ending it with the run left the count back on the panel for the whole fade to
+//! the title.
+//!
+//! The two strips the stroke reaches past that row are orb's to paint, and painted first: a panel that is
+//! not repainted is one where a mark blended over what the last frame left hardens into its own edges
+//! within a second. They are painted with the game's own panel tile — `front.anm`'s 32x32 at (0, 224), laid
+//! on the grid it lays it on, from the texture the game has loaded in slot 13 — rather than with a colour of
+//! orb's, because the panel is a noise and a flat rectangle inside it reads as a patch. What that also buys:
+//! what is left where orb stops drawing is the panel the game would have painted there itself.
+//!
+//! **How far past the row the stroke may reach is the game's to say, and can be nothing.** th06's panel
+//! leaves 8 pixels either side of that row, which the squash to 144x30 was made to fit inside; th07 puts its
+//! bombs 16 pixels under a row 16 tall, so there the box is the row, the word is scaled to fit it, and there
+//! are no strips to paint at all — a box hung 7 pixels into the bombs' row took the tops of the bombs' own
+//! stars with it.
+//!
+//! **Over the count and not over the `Player` beside it.** The count is where the stars are — from (496,
+//! 122) rightwards, 16 apart, and eight of them at the most, which is 496 to the right edge of the output —
+//! and it is a row the game will repaint on being asked. The label is drawn when the stage begins and never
+//! again, so a mark over that one would still be on the screen after the run it belonged to. What repaints
+//! what, and how seldom, is a fact about the game: `Gui::OnDraw` erases and redraws a row of the panel only
+//! while that row's two bits are set, and the background behind the whole panel only for the first 250
+//! frames of a stage, that being where its own script reaches `ExitHide`. Nothing repaints any of it after
+//! that unless the game is told to clear the back buffer, which is the setting orb reads for
+//! `clears_back_buffer`.
 
 use crate::game::{PanelTile, Rect};
 use crate::overlay::{Frame, Label, Overlay, Picture};

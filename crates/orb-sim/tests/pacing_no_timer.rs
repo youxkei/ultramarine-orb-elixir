@@ -4,9 +4,7 @@
 //! which is Windows 10 1803's, and there is no second wait behind it: `Sleep` kept as a spare would
 //! be a slow path that ships, and a launch that paced badly while its log said otherwise is what
 //! `frame.rs` is written against. So what has to hold is that orb says so where somebody will read
-//! it and *stops* — see
-//! [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md),
-//! decisions 3 to 5.
+//! it and *stops*.
 //!
 //! Writable at all only because the dialog and the giving up are behind the seam: an e2e test that
 //! raised a real `MessageBoxW` would wait for a click that is never coming, and one that really

@@ -5,6 +5,7 @@
 //! exact build. Offsets are spelled out rather than derived from Rust structs
 //! because only a handful of the fields matter and mirroring whole structs
 //! (`Player` alone is 0x98f0 bytes) would be far more to get wrong.
+#![doc = include_str!("asm.md")]
 
 pub mod chapters;
 /// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the
@@ -153,9 +154,7 @@ const RESULT_SCREEN_ON_UPDATE: usize = 0x0042d98e;
 /// `th06::GameManager::OnUpdate`.
 ///
 /// Read out of the decompilation's `config/mapping.csv` — `awk -F, -v k=th06::Supervisor::OnUpdate
-/// '$1==k {print $2}'` and the two beside it, which is the route *Re-deriving it* in
-/// [docs/adr/0008](../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md)
-/// gives. Held against the two addresses above it, which came from a running game and agree with the
+/// '$1==k {print $2}'` and the two beside it. Held against the two addresses above it, which came from a running game and agree with the
 /// same table: `ScreenEffect::ShakeScreen` is 0x42ffc0 there and `Ending::OnUpdate` 0x4109c0.
 ///
 /// orb calls none of the three. What they are for is the job list a laid-out game walks: the callback
@@ -1036,7 +1035,7 @@ mod gui {
     /// whole of whether the plate is on the screen: the panel's draw at 0x41b078 reads
     /// `[impl+0x2174] & 1` and skips both the plate and the name where it is clear, and `AnmManager::Draw`
     /// at 0x432adc asks the same bit of every vm handed to it. The card's own ANM script sets it as the card
-    /// is shown and the interrupt the card's end sends clears it. See `docs/th06/asm.md`.
+    /// is shown and the interrupt the card's end sends clears it. See `th06/asm.md`.
     pub const VM_FLAGS: usize = 0x80;
     pub const VM_IS_VISIBLE: u32 = 1;
 }
@@ -1603,7 +1602,7 @@ impl Game for Th06 {
     fn music(&self) -> Option<Music> {
         /// The game's streaming buffer is four half-second chunks of 44100Hz 16-bit stereo, 352,800
         /// bytes — `LoadBGM` works the chunk out at 0x430c3c–0x430c82 and passes 4 at 0x430ce0, see
-        /// `docs/th06/asm.md`. Anything near this is not a buffer size.
+        /// `th06/asm.md`. Anything near this is not a buffer size.
         const MAX_BUFFER_SIZE: u32 = 8 << 20;
 
         let streaming = self.streaming_sound()?;
@@ -1651,7 +1650,7 @@ impl Game for Th06 {
     }
 
     /// **Read off the thread at 0x431370 and the refill it calls**, and the whole path is in
-    /// `docs/th06/asm.md`. Every chunk's notification position is bound to one auto-reset event and the
+    /// `th06/asm.md`. Every chunk's notification position is bound to one auto-reset event and the
     /// thread waits on that one event; the refill at 0x43b560 writes a chunk at `NEXT_WRITE_OFFSET` and moves
     /// it on by a chunk, and **nothing on that path calls `GetCurrentPosition`** — where the next chunk goes
     /// is how many wakes there have been. Two notifications before one wake set the event once, so the thread

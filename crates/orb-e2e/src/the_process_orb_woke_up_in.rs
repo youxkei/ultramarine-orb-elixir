@@ -2,8 +2,7 @@
 //!
 //! Every launch begins here. orb reads addresses out of absolute memory, so a process it has no addresses
 //! for is one it must leave exactly as it found it — and the whole of what settles that is the exe's own
-//! file name, nothing else of a game being readable before the game it is has been settled. See
-//! [docs/adr/0004](../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
+//! file name, nothing else of a game being readable before the game it is has been settled.
 //!
 //! **The launch that does not happen is the e2e test here.** Every other file in this crate is a game
 //! playing the game's part; this one is the moment before there is a game at all, which is the one thing a

@@ -559,8 +559,7 @@ impl Drop for Picture {
 fn loaded(path: &Path, own_face: Option<Face>, height: i32) -> Option<Font> {
     let Some(font) = Font::load(path, height) else {
         // The machine's own face rather than nothing, which is the whole difference between orb having
-        // screens in th07 and having none — see
-        // [docs/adr/0019](../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md).
+        // screens in th07 and having none.
         // The line says which of the two this launch is, because what the glyphs on screen *are* is the one
         // thing a substituted face changes.
         log!("overlay: no font beside the game; using the machine's own face");

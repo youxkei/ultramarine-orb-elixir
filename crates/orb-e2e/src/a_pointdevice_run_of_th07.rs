@@ -69,7 +69,7 @@ fn a_pointdevice_run_of_th07_is_chosen_chaptered_lost_and_retried() {
         );
 
         // The overlay first, which is orb's own rule about asking anything — and here it is a face the
-        // machine lent, th07 shipping no `font.ttf`. See `docs/adr/0019`.
+        // machine lent, th07 shipping no `font.ttf`.
         game.frames_until("an overlay", 8, || log.said("overlay: ready"));
 
         // The title menu up and past the frames its own press test refuses, with the cursor on the item

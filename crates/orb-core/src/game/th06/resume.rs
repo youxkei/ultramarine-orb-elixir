@@ -34,8 +34,8 @@ use crate::resume::{Kept, MAX_STAGE_FRAMES};
 
 /// **The numbers a stage of th06 starts with, which is what a stage of it needs to be played again.**
 ///
-/// These are the fields the game's own replay keeps per stage — see `SPEC.md` for the record they are read out
-/// of — plus the count of deaths, which the replay leaves behind because the result screen is the only thing
+/// These are the fields the game's own replay keeps per stage — `crate::resume`'s doc has the record they are
+/// read out of — plus the count of deaths, which the replay leaves behind because the result screen is the only thing
 /// that reads it. Everything else a stage starts with is either loaded with the stage or set the same way
 /// every time, so it is the same on both sides of a resume.
 ///

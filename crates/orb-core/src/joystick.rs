@@ -38,8 +38,167 @@
 //!
 //! **What is left in `orb::joystick` is the write over the import table entry**, which is the whole of
 //! what needs a process to patch. The replacement that entry is pointed at is [`answer`] and it is here,
-//! being a hook body like the eleven in [`crate::runtime`]. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! being a hook body like the eleven in [`crate::runtime`].
+//!
+//! **The pad half of the input read is orb's.** `Controller::GetControllerInput` (0x41cfc0, `__cdecl`) is a
+//! tail call inside `GetInput` that added a joystick's buttons to the keyboard's — reached from that
+//! function's two exits, 0x41dc78 and 0x41e09d, and from nowhere else in the exe — and orb hooks it and does
+//! not call through. What every pad does to the word the game acts on is orb's answer, for the device the
+//! game's own enumeration found as much as for the pads it has none of, and the hook goes in on every
+//! launch: installed only to time the read, a launch without it would be a launch where no pad does
+//! anything.
+//!
+//! Where the game got a pad was `joyGetPosEx(0, JOY_RETURNALL)`, winmm's, through the exe's import table. The
+//! DirectInput branch beside it was only entered where the game's `EnumDevices` found an attached game
+//! controller at startup — where none was, `g_Supervisor.controller` (0x6c6d2c) stays null and every frame
+//! went to winmm.
+//!
+//! **Which is settled at startup and never again.** That pointer is written in one place in the whole exe:
+//! the enumeration's own callback at 0x423da0, which calls `CreateDevice` only while it is still null. The
+//! enumeration is `EnumDevices(DI8DEVCLASS_GAMECTRL, …, DIEDFL_ATTACHEDONLY)` at 0x423d12, reached from the
+//! one call at 0x423a1f, in the startup that also creates the keyboard device. So a pad attached before the
+//! game starts is one the game holds a DirectInput device for all run, and a pad plugged in afterwards is
+//! one nothing ever creates a device for — the run reads winmm for it instead, and so does everything of
+//! orb's that asks the game where a pad is. Which decides nothing on a machine whose winmm has the pad, and
+//! decides everything on one where winmm has only the phantom a pad in XInput's second slot leaves behind.
+//!
+//! Where nothing answers, that call takes a large fraction of a frame and spends nearly all of it on the
+//! CPU, so being work rather than waiting there is nowhere cheap in the frame to put it. Where a joystick
+//! does answer it is fast, so what it charges for is the looking and not the reading. **So the reads are on
+//! a thread of orb's own** and every frame is answered out of the last sample it took: every 4ms while a pad
+//! answers, once a second while none does, and never sooner than the read itself took, so no device can hold
+//! a core of its own.
+//!
+//! The exe's import of that call is redirected all the same, for the one read of a joystick the game still
+//! makes for itself: the startup check that asks whether there is one at all, which is the slow call on a
+//! machine with nothing plugged in.
+//!
+//! Both of those reads — the position and the caps behind it — go through `orb_api::joystick`, and XInput's
+//! through `orb_api::xinput`; the thread is spawned through `orb_api::thread::spawn`, which carries onto it
+//! whatever host the caller reads through: the installation is per thread, so a thread spawned any other way
+//! would read the machine's own winmm whatever was installed. Which is what lets an e2e test plug a pad in.
+//!
+//! The device the game's own enumeration found is not sampled on that thread and cannot be: it is taken
+//! `DISCL_EXCLUSIVE | DISCL_FOREGROUND`, so it is read where the game read it — once a frame, inside the read
+//! orb answers — and its `Poll` and `GetDeviceState` are the fast case, a device that is there.
+//!
+//! **Every pad the machine has is read, and not the one device the game asks about.** The game holds exactly
+//! one controller and asks winmm about joystick 0 alone, so a second pad, a pad plugged in after the game
+//! started, and — on some machines — the pad itself are pads it can do nothing with. th06 is a one-player
+//! game, so every pad on the machine is that one player's. orb's own thread reads all of them: every index
+//! `joyGetNumDevs` reports, and each of XInput's four slots, through `orb_api::joystick` and
+//! `orb_api::xinput`. Which of XInput's three libraries a machine has is a property of the machine, so the
+//! one that is there is loaded by name — the same three the launcher's dialog loads.
+//!
+//! **A socket with nothing in it is the expensive read**, which is what decides how often each is read: a
+//! socket with a pad in it is read every 4ms, and every socket is looked at once a second. That second is
+//! also what bounds how late a pad plugged in mid-run is picked up, and it is the wait the thread was
+//! already taking while nothing answered.
+//!
+//! **The pad the run is played with is the one last pushed.** Two pads plugged into a one-player game is one
+//! in somebody's hands and one on the floor, and the one on the floor is the one whose stick may be resting
+//! past its own dead zone: merged, that is a direction held down for the rest of the run. So one pad is
+//! handed over — whichever was last done something to — and it stops being read the moment the other is
+//! touched. What counts as touching one is a button or the hat changing, or a stick moving a sixteenth of
+//! its travel from where it was last resting: a stick reports a few counts of noise while nobody is holding
+//! it, and a pad whose noise counted would be the last-pushed pad for ever. A sixteenth is well inside the
+//! quarter of the travel the game's own read needs before it calls an axis a direction, so nothing that would
+//! move the player fails to count.
+//!
+//! **Which is not a nicety**: with the pad in XInput's second slot, winmm has no pad at all. `joyGetNumDevs`
+//! says 16, index 0 answers `joyGetPosEx` with `JOYERR_NOERROR` and every field zero — `mid=413d pid=2104`,
+//! no buttons and no axes, which is what Windows leaves there while the slot the pad is in is not the first
+//! — and 1 to 15 are all `JOYERR_UNPLUGGED`. DirectInput has the pad, the game therefore has it, and
+//! everything of orb's that read winmm had nothing. Those numbers are beside `Sample::is_a_pad`.
+//!
+//! XInput reports its buttons in its own order and the game's configuration names them in DirectInput's —
+//! A, B, X, Y, the two shoulders, Back, Start, the two thumbs — so an XInput pad's mask is translated into
+//! that numbering rather than the mapping being second-guessed, and *shoot decides* stays true whatever the
+//! player mapped. Its stick and its d-pad are translated the same way, into a winmm axis' travel and into
+//! the angle a hat reports, so that where an axis becomes a direction stays the game's own arithmetic and is
+//! not written twice.
+//!
+//! **Both devices go into the word, and into a menu of orb's.** The one the game enumerated is read by asking
+//! the game — `Poll`, then `GetDeviceState` into the `DIJOYSTATE2` the format it set fills, the buttons by
+//! the same numbers the mapping names, since `rgbButtons` is indexed by the very number a winmm mask is
+//! shifted by, and each axis against its own threshold in the ±1000 the game gave every axis — and the pad
+//! orb sampled goes in beside it. Either of the two may be the same physical pad, and the same push twice is
+//! the same push. A menu of orb's reads both for the same reason the word does, and one more: those frames
+//! freeze the game, so nothing of the game's is reading anything on them.
+//!
+//! The acquire after a lost device is orb's. The game takes its controller `DISCL_EXCLUSIVE |
+//! DISCL_FOREGROUND`, so anything that took the foreground away leaves it unacquired — and the read that
+//! used to ask for it back is the read orb answers. Asked for once and the frame given up, the way the game
+//! asks: its own loop tries 400 times, at 0x41d2a5 to 0x41d2f0, and a frame spent in that loop is the thing
+//! orb exists to protect.
+//!
+//! **A device with no buttons and no axes is not a pad.** What it answered is what the game's own startup
+//! check is handed, that being what the game would have read for itself, but it drives nothing of orb's:
+//! the axes of a device that has none describe nothing. The log names it rather than reporting a pad.
+//!
+//! What the log says of the sockets is one line each and only where what a socket answers changes: a socket
+//! that has never had anything in it says nothing, sixteen of those being sixteen lines saying nothing, and
+//! a machine with no pad anywhere gets one line for the machine instead. A line also says which socket the
+//! pad the run is being played with is in, whenever that becomes a different one.
+//!
+//! **Every pad is measured against the bounds its own caps report**, which the sample carries beside the
+//! position. `GetControllerInput` placed the centre of an axis at `(wXmin + wXmax) / 2` with a dead zone of
+//! a quarter of the travel, out of the `JOYCAPSA` at 0x69d760 — one struct, which the game filled once in
+//! its startup check and only where a joystick answered there. A pad plugged in later was measured against
+//! zeros, its centred axes reading as held over, and the run spent the rest of itself with two directions
+//! held.
+//!
+//! Nothing writes the answering device's caps into that struct: every read of its fields was in the branch
+//! of the read orb now answers — 0x41d18b to 0x41d22f, the address's only other mention in the exe being the
+//! `joyGetDevCapsA` call that fills it — so it has no reader left. Which is a write into the game's memory
+//! gone, and one less thing for a chapter's restore to put back.
+//!
+//! There is no setting for the read: what a setting turned off cost most of a frame, and now that a thread
+//! of orb's own takes the samples there is nothing left for it to be off for. What that read costs is the
+//! `joystick=` span of the `perf:` line, inside the `input=` it is part of.
+//!
+//! **The d-pad moves the player, which the game itself does not.** `GetControllerInput` reads a pad's two
+//! axes and neither of the two fields a d-pad reports in: not winmm's `dwPOV`, at +0x28 of the `JOYINFOEX`
+//! it fills on its own stack, and not DirectInput's `rgdwPOV[0]`, at +0x20 of the `DIJOYSTATE2` its other
+//! branch fills. The whole function was read for both and reads neither, so a d-pad does nothing in the game
+//! at all — while driving the launcher's settings dialog and orb's own menus, both of which read one, which
+//! is a pad that works everywhere except where it is being played with.
+//!
+//! So orb puts the direction the hat is pushed into the word, in the bits that word names the four
+//! directions by: 0x10 up, 0x20 down, 0x40 left, 0x80 right, read off `Controller::GetInput`'s
+//! `GetKeyboardState` branch at 0x41d86d, 0x41d899, 0x41d8c7 and 0x41d8f4 and off both of
+//! `GetControllerInput`'s own branches. `dpad_moves` in `orb.yaml` is the switch, on by default, and `false`
+//! leaves the word what the game's own read would have made of the same pads.
+//!
+//! Every pad's hat, which is both of the devices there are to read — and it costs no extra read of either:
+//! they are read once for everything, in the read orb answers. The word is made there and so before it is
+//! written down, which is what makes a direction pushed on a d-pad a direction the run recorded; added
+//! afterwards it would be a resumed run playing itself back without it.
+//!
+//! **And the rest of a pad goes into that word by the game's own rules.** Which bit each of the nine mapped
+//! buttons is was read off both of `GetControllerInput`'s branches — shoot 0x1, bomb 0x2, focus 0x4, menu
+//! 0x8, the four directions 0x10 to 0x80, skip 0x100, set by `SetButtonFromControllerInputs` (0x41d600) at
+//! 0x41d01b, 0x41d0d5, 0x41d04a, 0x41d0ef, 0x41d109, 0x41d123, 0x41d13d, 0x41d15a and 0x41d177 and by
+//! `SetButtonFromDirectInputJoystate` (0x41d580) at 0x41d34e, 0x41d40d, 0x41d37f, 0x41d42a, 0x41d447,
+//! 0x41d464, 0x41d481, 0x41d4a1 and 0x41d4c1. A mapping entry below zero names no button.
+//!
+//! **Nothing but the hat is behind a setting**, and that is the line: the hat is what the game reads on no
+//! device at all, and everything else is what its own read would have made of the same pads.
+//!
+//! Focus is the one of the nine that is not simply a button becoming a bit. Where the mapping gives it a
+//! button of its own the game sets 0x4 from that button, and so does orb. Where focus and shoot are the
+//! *same* button there is no focus button to read: the game holds the player still off
+//! `g_IsEigthFrameOfHeldInput` at 0x69d8f4 instead — the count of frames that button has been held, raised
+//! to 16 (0x41d06e, 0x41d3a4) and read against 8 (0x41d08e, 0x41d3c3), and brought back down by 8 a frame
+//! while it is above 8 and to nothing below that (0x41d0ac, 0x41d3e3) — which is what makes holding the shot
+//! button a way to move slowly, and the whole reason anybody maps the two together.
+//!
+//! **That count is the whole reason the read came into orb.** It is fed by whichever pad the read looked at,
+//! so with the read the game's own it followed the device the game holds and nothing else — a pad it has no
+//! device for could shoot and never hold the player still, and orb could not raise the count from outside
+//! either: the game's read runs first in the frame and has already brought it down by the time a hook over
+//! `GetInput` is entered. With every pad read in one place there is one count of one thing, and orb keeps
+//! it where the game kept it, in that field, so a chapter restored rewinds it with the rest of `.data`.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -176,8 +335,7 @@ pub type JoyGetPosEx = unsafe extern "system" fn(u32, *mut JoyInfo) -> u32;
 /// out of the import table — and a game laid out by hand with its own `joyGetPosEx`, there being no import
 /// table to take one out of.
 ///
-/// The same answer [`crate::window::install_over`] and [`crate::score::install_over`] are — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// The same answer [`crate::window::install_over`] and [`crate::score::install_over`] are.
 pub fn install_over(original: JoyGetPosEx) {
     ORIGINAL.store(original as usize, Ordering::Relaxed);
 }

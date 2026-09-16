@@ -25,6 +25,31 @@
 //! a thread whose own `DLL_THREAD_ATTACH` waits for that lock. So until the frame loop has been round
 //! once, every line is written where it stands — which is also what a launch whose thread cannot be made
 //! falls back to, a log written in the frame being better than no log.
+//!
+//! **What a run says, the frame's thread does not write.** A `WriteFile` takes what a disk, an antivirus
+//! reading every write or a folder being synced decides: on th07, one took three quarters of a second while
+//! that frame's own work was under a millisecond, and two more took 230ms and 178ms — three stutters
+//! somebody watching the run noticed. So every line is stamped where it is said and handed to a thread of
+//! orb's own, which is what the files orb keeps already do. Holding the line for the frame's own slack is
+//! not an answer: the slack is what is left of one frame's turn, so a write of that length put there misses
+//! the next frame's blank instead of this one's.
+//!
+//! **What has to be in the file even where the run ends is written before it does.** The first lines are
+//! said from `DllMain`, where a thread cannot be made — the loader lock is held — so until the frame loop
+//! has been round once every line is written where it stands; a launch whose thread cannot be made keeps
+//! writing that way. And every way out flushes what is waiting: the crash filter, the panic hook, the game
+//! closed deliberately, and the launch stopped because the host has no timer.
+//!
+//! **The log is an instrument and is weighed as one all the same.** What writing it cost is written down
+//! beside what it is reporting, per frame and per period, the frame's own thread and orb's kept apart — so
+//! `log 0us in 0 writes here` is the frame saying it paid nothing, and a launch that went back to writing
+//! where a line is said would say so in the same place.
+//!
+//! `orb.log` is appended to rather than started over, because a run worth looking at is usually over before
+//! anyone looks. A crash adds a line naming the faulting module and offset. The log stays English whichever
+//! language orb's screens are in: it is read beside a source tree written in English, and a file that
+//! changed language with the machine it was written on is one no two reports of a defect could be compared
+//! across.
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};

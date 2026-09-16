@@ -16,8 +16,102 @@
 //! **Playing a game's part is that game's own half.** [`th06`] is th06's — the address space, the
 //! scenes it walks, the buttons it is played with and the file it keeps its scores in — and [`th07`] is
 //! th07's, which is a frame and nothing else, that being all of the exe orb has read. Each brings its
-//! own half and nothing of the other's; what they share is here. See
-//! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md).
+//! own half and nothing of the other's; what they share is here.
+//!
+//! Above the laid-out memory there is a game that plays the game's part rather than the address space's: it
+//! owns a laid-out image, has a front end and a stage of its own, and calls orb's hook bodies where the real
+//! game's code calls them — the draw chain and then the update, with the input read inside the update,
+//! which is the game's own order. `orb_core::runtime::attach_to` puts a runtime in place with its functions
+//! where the trampolines `orb`'s own install lists leave behind would be, so nothing is patched and nothing
+//! is a real process — and nothing in that crate is named from an e2e test at all.
+//!
+//! **And the device, the sound and the glyphs are the simulated Windows'**, not objects of the fake's own:
+//! `orb_sim::DEVICE` is what the game writes into its own memory as its `IDirect3DDevice8`,
+//! `orb_sim::BUFFER` is the buffer its music is played out of, and a string baked at a height comes back as
+//! a mask carrying which string it is. So what an e2e test reads off the screen is what the drawing asked
+//! for rather than pixels held against a second bake.
+//!
+//! **Its state is that memory and nothing beside it**, which is what makes a chapter restored underneath it
+//! take the run back: there is nothing else for the run to be. Where each thing lives is `orb-core`'s
+//! `th06::image`, beside the offsets it is written from; what the game does over time is the fake game's.
+//!
+//! **Each e2e test is a process of its own**, which is what lets them all run at once: a launch is a process
+//! — the runtime, the record of what a run pressed, the score's file and the device are one apiece, and the
+//! runtime cannot be per-thread because `DllMain` writes it on the injector's thread and the frame hook
+//! reads it on the game's — so an e2e test spawns the test binary again, told to run that one test, and
+//! reports what the child made of it.
+//!
+//! **An e2e test says which window is in front, presses keys, and runs frames.** Everything it asserts on it
+//! reads back: the game's own memory through `read_state`, the game's own records — the count of attempts
+//! against a spell card — the quads orb drew, and orb's log. Nothing is added to orb so that a test has
+//! something to look at, and nothing calls orb's own functions to move a run along: to have orb in some
+//! state, the game is played into it.
+//!
+//! **Its own loop calls orb's frame loop**, as the real game's does, and that is what a shipped run has on:
+//! the two calls the loop makes into the game are addresses `Game::frame_calls` hands over, so this game
+//! hands over two of its own. Its `Present` is where an e2e test counts a frame handed over — the tick, and
+//! the host told a frame is in the compositor's hands — and its `PlaySounds` is nothing, a laid-out game
+//! having no sound system to hand a frame's sounds to. A launch started `--no-frame-loop` runs th06's own
+//! draw-then-update order instead, which is the other configuration orb ships, and an e2e test reads which
+//! of the two ran off the order the loop asked the game for things in.
+//!
+//! **And ten more of the game's own functions are handed over the same way**, because they are calls orb
+//! makes into the game rather than reads of it: `CreateWindowExA`, which the window's rewrite calls through;
+//! `CreateFileA`, which the score file's fork calls through; `ReplayManager::StopRecording`, which is held
+//! back while a replay is being watched; `GameWindow::Create`, which the hook that overrules the display
+//! setting calls through; `joyGetPosEx` as the import table held it, which the replacement of that entry
+//! calls through where it has no sample of its own; `ReplayManager::SaveReplay`, whose write a cleared run
+//! refuses; `GameWindow::InitD3dDevice`, which orb gets in front of to redirect the device's `Present`;
+//! `Chain::Cut`, which takes a screen shake down at a stage move; and `SoundPlayer::StopBGM` and
+//! `Supervisor::PlayAudio`, which a restore puts the sound down and starts it again through where the track
+//! has been replaced since the chapter was taken. Those it reaches through a hook are `Originals`', and
+//! those it calls in the game are `Th06`'s own.
+//!
+//! **`Controller::GetControllerInput` is not among them**, and that is the one hook orb does not call
+//! through: the pad half of the input read is orb's own answer, so there is nothing for a laid-out game to
+//! hand over — it calls the hook where its keyboard read tail-calls that function and the word comes back
+//! with every pad in it.
+//!
+//! **One of those moved a gate.** A real launch decides whether to refuse a replay write by *installing the
+//! hook or not* — only under `--clear`. A game that hands its own function over has one call site whichever
+//! way the launch was configured, so the decision cannot be the installation there: it is a flag orb sets
+//! where `attach` decides to install, and a laid-out launch nobody asked to block a save writes one.
+//!
+//! **Its update is the chain's own walk.** `Fake::update` is `Chain::RunCalcChain` over the list of jobs its
+//! scenes have registered, in the order their priorities put them in — the supervisor at 0, the front end at
+//! 2, the ending at 3, the gameplay scene at 4, the result screen at 13 and a bomb's screen shake at 14 — and
+//! the list is walked live out of the game's own memory. Which is what makes a scene's first update fall on
+//! the frame it was built: the supervisor is the first job and everything it registers goes in above its own
+//! priority, so a job registered from inside the walk is linked behind the position the walk has reached. A
+//! job answers as a chain callback does, and the walk answers the count of jobs it ran.
+//!
+//! **A track is streamed through a sound of the host's**, which is the one part of a laid-out game that is a
+//! real object rather than laid-out memory: orb *calls* a DirectSound buffer's vtable and asks winmm for
+//! `mmioSeek` and `mmioRead`, so `orb_sim::Sound` is a buffer of its own behind a vtable of Rust functions
+//! and a wave file kept in a `Vec` — the same answer the Direct3D device orb draws through is. What the
+//! address space is told is only where that object is, so that orb's check of the pointer at its head
+//! answers what it answers in a real process. Which is what makes the music across a chapter answerable:
+//! the position a chapter is written down with, which chapters put their song back, where the countdown the
+//! track's loop is taken on lands after a seek, the buffer and the play cursor and the file position coming
+//! back byte for byte with a chapter, and the distance to the next write that a listener hears the music
+//! break up once it runs out.
+//!
+//! **And the pads the machine has are the host's too.** One of them is the other of the two devices the
+//! game's own read has — `Controller::GetControllerInput` asks winmm for joystick 0 only where its own
+//! enumeration found no game controller — and the rest are pads only orb reads. So `orb_sim::Joystick` is
+//! every socket winmm has and `orb_sim::Xinput` is XInput's four slots, both plugged in and pushed by an e2e
+//! test, behind `orb_api::joystick` and `orb_api::xinput`; the game's own read reaches joystick 0 through
+//! orb's replacement of that import entry.
+//!
+//! **An e2e test declares the display the window is on**: what the monitor reports, what the compositor is
+//! timing, what composing a frame takes, and which stream of wake delays the host has. Which is the whole of
+//! what the pacing is paced against, and how the frame loop's own e2e tests exist at all — the rate read off
+//! the ticks the game was handed its frames over at, and orb's own `frame:` line read out of the log beside
+//! it.
+//!
+//! **The one thing no launch here reaches is the write over winmm's `joyGetPosEx` entry.** What a laid-out
+//! game's own pad read reaches is that entry's replacement, so what nothing drives is the write over the
+//! import table and not what it answers with.
 
 pub mod th06;
 pub mod th07;
@@ -497,8 +591,7 @@ unsafe extern "system" fn never_called() {
 /// wanted one: orb redirected the `Present` slot with a `VirtualProtect` over it, which is Windows however
 /// the read and the write are answered, so the vtable lived at a real address *as well as* a mapped one
 /// and the slot orb wrote landed only in the copy. The swap is `orb_api::mem::replace_word` now, which a
-/// simulated host answers out of its own space — see
-/// [docs/adr/0010](../../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+/// simulated host answers out of its own space.
 ///
 /// **Chosen rather than allocated, which the address that page was asked for was too.** A laid-out game
 /// claims the addresses the real one's `.data` and heap blocks are at, and this is a 32-bit process whose
@@ -874,8 +967,7 @@ pub fn in_its_own_process(e2e_test: impl FnOnce()) {
 /// **A path and nothing else: no directory of this name is made anywhere.** Everything orb reads or
 /// writes under it goes through the file seam and lands in `orb_sim::Files`, which is per simulated
 /// Windows and so per e2e test — so there is nothing to empty first, nothing left behind by a test that
-/// failed, and no two tests sharing a directory. See
-/// [docs/adr/0012](../../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+/// failed, and no two tests sharing a directory.
 ///
 /// Named after the test all the same, so that a path in the log says which one wrote it.
 ///

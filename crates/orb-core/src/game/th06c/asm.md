@@ -3,7 +3,7 @@
 What is written here was read off `th06c.exe` of **md5 `acadbc0cabf3bade16c22fb884957bcd`**, 4,039,168
 bytes, which is the Steam release of 東方紅魔郷.
 
-**It is its own game here and not another build of th06.** Nothing of `docs/th06/asm.md` holds of it and
+**It is its own game here and not another build of th06.** Nothing of `th06/asm.md` holds of it and
 nothing here holds of that one: this exe is 64-bit where th06 1.02h is 32-bit, it was built with a
 toolchain twenty years later, it keeps its data in files of other names, and it draws through a renderer
 th06 has no code for. What the two share is the game somebody plays and not a line of the program that
@@ -27,7 +27,9 @@ measured came up somewhere else — `0x7ff7579d0000`, `0x7ff7be160000`, `0x7ff75
 difference between the base the loader used and `0x140000000` has been added to it. Orb reads the base it
 was loaded at and says so in its log's third line:
 
-    exe image base 0x7ff6178a0000
+```text
+exe image base 0x7ff6178a0000
+```
 
 ## What kind of build it is
 
@@ -305,12 +307,9 @@ Its update is `0x14000d8c0`, and the array is read off that function's own loop:
 | how many are live | `[0x14090a190 + 0xe8808]`, counted up per live one at `0x14000d9fb` |
 | one bullet's step | `+0x08`, three floats — `rsi = rbx+8`, read at `0x14000da29` onwards |
 | one bullet's place | `+0x30`, three floats — `rdi = rbx+0x30`, written at `0x14000da62` |
-| **which of five states it is in** | `+0x44`, a word — `cmp WORD PTR [rbx+0x44], 0` at `0x14000d9f0`,
-and nought is a slot nothing is in; `0x14000da02` jumps on it |
-| the size the player's own test is given | `+0x5a4`, two floats, handed over at `0x14000e1ae` beside
-the place — and that test halves what it is given |
-| whether it is armed | `+0x5c8`, a byte: nought runs `0x14004c320` and sets it to 1, and only then does
-`0x14000e1ae` run the player's own test |
+| **which of five states it is in** | `+0x44`, a word — `cmp WORD PTR [rbx+0x44], 0` at `0x14000d9f0`, and nought is a slot nothing is in; `0x14000da02` jumps on it |
+| the size the player's own test is given | `+0x5a4`, two floats, handed over at `0x14000e1ae` beside the place — and that test halves what it is given |
+| whether it is armed | `+0x5c8`, a byte: nought runs `0x14004c320` and sets it to 1, and only then does `0x14000e1ae` run the player's own test |
 | the frame it is on | `+0x28` and `+0x2c`, the second counting up and the first keeping what it was |
 
 **The state decides both whether it can hit and what its step is scaled by**, and there is no one
@@ -519,9 +518,11 @@ gave before it was found through `0x140051f9b`'s indexing instead. So the chain 
 `game::th06c::say_the_jobs_when_they_change` walks it every frame and writes every callback down on the
 frame the set of them changes, and one launch of a Normal clear then named the job outright:
 
-    f98220   chain: 10 job(s): … 0x14004a3f0 … 0x14000d8c0 0x140026f90 0x14004d760
-    f98220   chain: 4 job(s): 0x140058010 0x1400072b0 0x140017e50 0x14004d760
-    f106680  chain: 4 job(s): 0x140058010 0x1400072b0 0x14004feb0 0x14004d760
+```text
+f98220   chain: 10 job(s): … 0x14004a3f0 … 0x14000d8c0 0x140026f90 0x14004d760
+f98220   chain: 4 job(s): 0x140058010 0x1400072b0 0x140017e50 0x14004d760
+f106680  chain: 4 job(s): 0x140058010 0x1400072b0 0x14004feb0 0x14004d760
+```
 
 **Which is `8,460` frames of it, in the scene the stage it followed had.** The frame lines across the
 whole of that read `scene=11 stage=5 enemies=0 bullets=0 boss=false`, so the game manager's own state says
@@ -742,7 +743,6 @@ evidence of that — see the note on `.pdata` above.
 | both together | `0x14002cb40` writes `0x302` over the pair as a run starts — two lives and three bombs |
 | `0x1403a4b70` | a dword something multiplies into at `0x14002b7e0` |
 | `0x1403a4b7c` | a dword `0x14001529a` adds `0x708` to and `0x14001ff83` steps up by one |
-
 | `0x1403a33c4` | **the power**, a word. `0x14002aa8e` is the `0x80` every case of the item walk writes it back at, so 128 is where it stops; `0x140027096` is the `Power * 100` line of the bonus screen; and `0x14004a76c` takes 16 off it on a death, or to nought where it had less |
 | `0x1403a33c0` | **the stage, counted from one**. `0x140027065` multiplies it by a thousand into `Stage * 1000 = %5d`, and `0x14002712e`, `0x140027024` and `0x1400272b4` all treat six as the last — which is what gives the lives and bombs their bonus on an all clear and nowhere else |
 | `0x1403a3b68` | **the difficulty**, nought for Easy up to four for the Extra: `0x1400271a3` picks between `Easy Rank * 0.5`, `Normal Rank * 1.0`, `Hard Rank * 1.2`, `Lunatic Rank * 1.5` and `Extra Rank * 2.0` in that order |
@@ -959,9 +959,11 @@ at `+0x30`: that is the box the player is tested against, and `+0x5c8` is the by
   `0x14084d210` — so orb answers that name, hands the game a factory of the host's own with
   `CreateSwapChainForHwnd` written over, and takes the swapchain the game then makes. A launch says so:
 
-      hook: the game asked for CreateDXGIFactory2 and got orb's, the host's being at 0x7fff4d1bf290
-      frame: the swapchain this game makes will be orb's to present through
-      frame: both of the presents are orb's to call now, the game's own doing nothing
+  ```text
+  hook: the game asked for CreateDXGIFactory2 and got orb's, the host's being at 0x7fff4d1bf290
+  frame: the swapchain this game makes will be orb's to present through
+  frame: both of the presents are orb's to call now, the game's own doing nothing
+  ```
 
   **And it is not among the objects the release names.** `0x14024ff74` onwards releases `0x14084d228`,
   `0x230`, `0x238`, `0x240`, `0x248` and `0x260`; a launch asked every one of those and every pointer in

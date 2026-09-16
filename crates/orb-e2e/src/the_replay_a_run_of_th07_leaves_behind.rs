@@ -2,9 +2,7 @@
 //! were rewound away included.**
 //!
 //! What `the_replay_a_run_leaves_behind.rs` asks of th06, asked of this game. The replay is orb's own and
-//! one shape for both games — see
-//! [docs/adr/0024](../../../docs/adr/0024-a-pointdevice-runs-replay-is-orbs-own-and-is-watched-through-the-resumes-machinery.md)
-//! — so what is this game's is the run it is written out of: th07's own frame counter, the chapters its
+//! one shape for both games — so what is this game's is the run it is written out of: th07's own frame counter, the chapters its
 //! fights are divided into, and the slot its front end's three numbers name. A file this reads back as two
 //! tries of a chapter is a file the lists offer two tries of, the reader being the same.
 //!

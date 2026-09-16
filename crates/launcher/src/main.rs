@@ -1,10 +1,56 @@
 //! Starts a game orb knows with `orb.dll` loaded before the game's entry point runs.
 //!
 //! Which games those are is `orb_core::game::KNOWN`, read here as well as in the DLL so that the two
-//! cannot disagree about which games exist — see `docs/adr/0004`.
+//! cannot disagree about which games exist.
 //!
 //! The DLL is carried inside this exe and written out to be loaded, so installing orb is one
 //! file.
+//!
+//! `orb.exe` carries `orb.dll` inside itself — cargo's artifact dependencies (`-Z bindeps`, which is why the
+//! toolchain is nightly) build the cdylib first and hand over its path — and unpacks it to `%TEMP%\orb`
+//! before injecting, since `LoadLibrary` needs a path. The unpacked file is named for its own checksum
+//! rather than reused, because a mapped image cannot be replaced while it is loaded. Stale copies are
+//! removed by the next launch that finds them unloaded.
+//!
+//! `orb.yaml` and `orb.log` are therefore found in the directory of the exe this is running inside — the
+//! game's, which is where the launcher is installed too — and not relative to the DLL.
+//!
+//! Where the game and the DLL are is the launcher's own question, and `--game-dir=PATH` and
+//! `--orb-dll=PATH` are how it is answered when they are not where they normally are. The DLL is inside the
+//! game, so its answer is where it is; neither is handed on to it, and neither is a key in `orb.yaml`, which
+//! therefore holds no paths and nothing belonging to one machine. `--game-dir` therefore names the
+//! `orb.yaml` as well, since that directory is where the DLL will read it from: the launcher reading the one
+//! beside itself instead put every answer the settings dialog wrote into a file the game never opens.
+//!
+//! One DLL covers every game it is taught, and is not split per game the way vpatch's is. vpatch patches
+//! per-game code; orb's per-game part is a `Game` implementation, which is a table of addresses and a
+//! handful of accessors. Splitting would copy the snapshot, chapter, retry and frame-loop code into every
+//! DLL and make the launcher carry several payloads.
+//!
+//! The launcher reads the arguments, refuses to start on anything it cannot, and hands them on the game's
+//! own command line — which the game never looks at, `lpCmdLine` appearing once in the whole of its
+//! `WinMain` as the parameter it ignores. orb reads them back off that inside the game, so the two sides
+//! cannot disagree and nothing has to be written down between them. `--game-dir=PATH`, `--orb-dll=PATH`,
+//! `--config=PATH` and `--settings` are the launcher's own, and the only ones it does not hand on: each
+//! answers a question the DLL, being inside a game that has already started, never has to ask. Keeping them
+//! here is also what keeps a path with a space in it off the line the DLL reads.
+//!
+//! **A refusal says the same thing twice.** The line is English, and the dialog put up where nothing is
+//! going to read a line is in the machine's language and in sentences — a printed line being terse where a
+//! dialog holds a paragraph. Two of them are refusals somebody playing meets: no game where orb was pointed,
+//! and an exe that is no build orb knows. The timer is the third and is refused before any file has been
+//! read, so its dialog is in the machine's own language whatever a file would have said. A command line orb
+//! cannot read is the fourth, and what clap wrote about it is kept rather than replaced: the option it
+//! suggests instead is the useful half of it. What is left — a file that cannot be read, a process that will
+//! not start — says whatever Windows said, in a dialog that gets the line as it stands.
+//!
+//! **And every one of them goes into `orb.log` as well, before the dialog goes up.** Which is the only one of
+//! the three that is still there afterwards: the line needs a console, and a launch from a shortcut has
+//! none — `--pacing` for `--no-pacing` ended a launch with nothing on the screen and nothing written down.
+//! So the log holds `launch refused:` and that line, beside `orb.exe` where a run's own log is, and the
+//! launcher writes nothing else to it. Before the dialog because that call does not return until somebody
+//! answers it, and a dialog left standing and then killed would otherwise leave nothing at all. Every line
+//! the launcher prints stays English, for the same reason the log does and to the same reader.
 
 // **Not a console program.** Windows makes a console for one that was not started from a shell, and
 // that window is on the screen for as long as this process lives — the whole of the settings dialog,
@@ -264,7 +310,7 @@ fn main() -> ExitCode {
     // Before anything is read or started, because nothing else matters on a host orb cannot pace
     // frames on. The DLL asks the same question of the same call and its answer is to stop the game
     // on its first frame; asking it here is that answer with the game never started, which is the
-    // one an unsupported host should get — see `docs/adr/0006`.
+    // one an unsupported host should get.
     if !can_make_the_timer() {
         // Words of its own for the dialog, where a paragraph reads as one — and in the machine's own
         // language, no file having been read yet: this is before `orb.yaml`, which is where a language

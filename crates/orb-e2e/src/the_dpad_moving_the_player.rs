@@ -12,7 +12,7 @@
 //!
 //! **What moves the player here is orb's addition and only orb's.** This game does no more with a pad
 //! than the real one's arithmetic is left to do — its `get_controller_input` hands the keyboard's word
-//! straight back, `docs/adr/0008` refusing to have where-an-axis-becomes-a-direction written twice — so a
+//! straight back, where-an-axis-becomes-a-direction being orb's and written once — so a
 //! stick moves nothing in an e2e test and a d-pad that moves the player moved it through orb.
 //!
 //! Both of the devices the game reads a pad on, because the addition is only as good as the device it was

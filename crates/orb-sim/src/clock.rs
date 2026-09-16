@@ -54,8 +54,7 @@ thread_local! {
 /// Confined to the spin because `pause` appears nowhere else in orb, which is what makes it a different
 /// knob from [`set_read_cost`](Clock::set_read_cost): that one charges *every* counter read, including
 /// the ones inside a span the game is measuring, and `frame::budget`'s allowance for those is derived
-/// from a read costing one tick. See
-/// [docs/adr/0007](../../../docs/adr/0007-the-spins-pause-is-behind-the-seam.md).
+/// from a read costing one tick.
 const PAUSE_TICKS: i64 = 10;
 
 /// The calendar a simulated host is set to, which nothing here moves: a test that wants a run saved
@@ -176,9 +175,7 @@ impl Clock {
     /// The same arithmetic `orb_api::clock::ticks` does above the seam, and here for an e2e test that
     /// wants to know what a stamp should read. It used to be a divergence — the real host's stamp was
     /// `GetTickCount`, which advances by the system timer's tick and not by the counter this derives
-    /// from — and
-    /// [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md) is
-    /// where that was measured and closed.
+    /// from — closed when the frame loop moved onto the high-resolution timer.
     pub fn ticks(&self) -> u32 {
         (self.counter() / (FREQUENCY / 1_000)) as u32
     }

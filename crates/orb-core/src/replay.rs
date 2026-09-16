@@ -31,8 +31,9 @@
 //! appended to, because what an attempt does to it is not always at the end: a chapter played again adds an
 //! attempt in the middle of a run's own history.
 //!
-//! Why this file exists at all rather than the game's own format or its own replay manager is
-//! [docs/adr/0024](../../../docs/adr/0024-a-pointdevice-runs-replay-is-orbs-own-and-is-watched-through-the-resumes-machinery.md).
+//! orb's own file rather than the game's own format or its replay manager, because the record is the path a
+//! stage was left with plus, per chapter, the attempts that were rewound away — which no replay of the game's
+//! has a place for.
 //!
 //! **One shape for both games, unlike the chapter file.** That one is per-game because it shipped that way
 //! — a field th07 needed could not be added without refusing every th06 file already on a disk, which is
@@ -40,6 +41,116 @@
 //! contributes to it travels as what it already is: the numbers a stage starts with are the game's own
 //! bytes, opaque here, exactly as [`crate::resume::Kept::state`] carries them. What is checked instead is
 //! [`Game::named`], so a file carried between two installations is refused rather than read as this game's.
+//!
+//! **The game cannot keep a replay of a pointdevice run, and what it would keep is the reason.** Its record
+//! of inputs lives in the heap a snapshot covers, so a retry rewinds the record along with the run and each
+//! attempt writes over the last from the chapter's own frame: what the game would save is the path that
+//! survived, with nothing in it of the attempts that did not — a run nobody could tell from a flawless one.
+//! So the game's own offer is written past (see [`crate::mode`]) and orb keeps its own, which holds the
+//! thing the game's cannot. A normal run saves the game's replays the way it always did.
+//!
+//! **An attempt is a stretch the run played from one rewind point to the next**, filed under the chapter it
+//! started at. Every chapter therefore has the attempts that were rewound away and, last, the one that
+//! survived — and that last one is held nowhere of its own: it is the stage's own path from that chapter's
+//! frame to the frame the chapter after it began on, because the path a stage was left with *is* the
+//! attempts that survived, strung together. The same property picking a run up leans on, and it is why a
+//! chapter retried costs this nothing either.
+//!
+//! **One file per run there can be one of**, named for the same slot the chapter that run was left in is
+//! named for. The two correspond by that name and by nothing else: a run picked up in a later launch reads
+//! the chapter out of one and goes on writing the other, and neither had to be told about the other to do
+//! it. A launch that has the chapter and not the replay — the file deleted, or a run left before orb kept
+//! these at all — starts the replay *from the chapter it picked up*, which the chapter file holds every
+//! frame of.
+//!
+//! **A run still being played is not a saved replay, and the extension says which is which.** `.pending` is
+//! the run somebody is in the middle of, or one they walked away from; `.msgpack` is one that has been kept,
+//! and its name carries the day and the time — `normal-reimu-a-20040815-214233` — so that two runs of one
+//! slot are two replays and what tells them apart is when. Both live in `pointdevice_replay/`, because they
+//! are the same file at two moments of its life, and the list orb offers replays from shows the kept ones
+//! alone.
+//!
+//! **It grows as the run does**, for the reason the chapter file does: there is no moment a session ends at.
+//! A chapter beginning and an attempt being rewound each hand the whole of it to the thread orb's own files
+//! are written on. And a run *ending* hands it over once more, whichever way it ended — that write is what
+//! leaves the stretch the run ended in watchable at all, since on the frame a chapter begins the run has
+//! played none of that chapter yet.
+//!
+//! **Kept without asking, or offered.** `save_replays` on keeps every one; off is orb asking, at the two
+//! moments nothing more will ever be added to one — the screen a run ended at, which is the frame the game's
+//! own offer would have been on, and `はじめから`, where the run left unfinished is about to be written over.
+//! `はい` is the file given the day and the time and put where the list offers it; `いいえ` takes it away, and
+//! so does a cancel, there being no third way out of a question about a run that is over either way. The
+//! cursor starts on `はい`: a replay kept by accident is a file somebody deletes, and one declined by accident
+//! is a run nobody can watch again. A run that never reaches either moment — a window closed, a game killed
+//! — leaves its `.pending` where it is, which is the next session going on writing it.
+//!
+//! **A cleared run's replay is not kept**, for the reason `--clear` refuses the game's own and refuses to
+//! write a chapter down: what it recorded is the buttons of a player nothing could hit, so a replay of it
+//! plays back as a run that dies where this one did not.
+//!
+//! **Whose a replay is comes from the game's own name entry.** Both games ask for a name on the screen a
+//! played run ends at — a cursor over a grid of characters, eight of them into a field, and the field's own
+//! eight bytes are what the game writes into a replay of its own. That entry stands two screens in front of
+//! the question orb asks about keeping one, so what a run's replay is named by is what its player typed into
+//! the game itself, and orb asks nobody for a name. It is read off that screen every frame it is up rather
+//! than on the frame it is left, the screen going down on a press orb does not see coming, and kept in
+//! `orb.yaml` afterwards: a run given up at orb's own menu never reaches an entry at all, and what the game
+//! does there is come up holding the name the last run was entered under.
+//!
+//! **And `中断` where a name would be, for the replay of a run nobody finished.** A name is what a run *ends*
+//! with in this game — the high-score entry a run played out reaches — so a name at all is said about a run
+//! that got there, and about one that was given up or written over the line says that instead. Which of the
+//! two a kept replay is of is written in the file as it is kept: the two moments one is kept at are the
+//! screens a run ends at and the answer that writes a run over. A file kept before orb recorded it says
+//! neither, and keeps the name it always showed.
+//!
+//! **The playback is a run being picked up, with a second end.** The frames below the attempt's own first
+//! are fed inside the frame that built the stage, exactly as a resume feeds them, and the landing is held
+//! against the reproduction line written down — so an attempt that plays back somewhere else says so in the
+//! same words a resume that lands somewhere else does. Then the feeding goes on, one frame of the attempt to
+//! one frame of the game, which is the part somebody is watching. So a resume's playback and this one differ
+//! in one number: where the buttons stop.
+//!
+//! **The run it is watched in is asked of the game's own front end**, which is the only run orb asks for:
+//! every other one was chosen on the game's own screens by whoever was there, and this one came out of a
+//! file. The difficulty and the character go where the screens before it write them, the shot goes under
+//! the cursor of the screen whose item starts a run, and the press that chose the attempt is handed to that
+//! item rather than swallowed — so the run is started by the game's own code, and the stage the attempt was
+//! made in is written on the frame the run is registered, which is the one frame the game takes a stage for
+//! a run it has not built yet. That item starts every run at the stage its own menu asked for, which is the
+//! first. Writing the numbers and the scene by hand instead built a run that came up on the recorded seed
+//! and then went, 129 frames in — `EnemyManager::OnTick` reading a sprite pointer of nothing off the first
+//! enemy the stage's timeline spawned, at 0x412499 — with the stage's own data identical to a working run's
+//! field for field; what the item does that a write cannot is not known, and the item is what runs.
+//!
+//! **And when the attempt runs out, the list it was chosen out of comes back**, on the attempt just watched:
+//! another attempt at the same chapter is what somebody watching one wants next, and the walk down to it is
+//! one they have already made. Over the same screen it stood over the first time, which orb asks the front
+//! end for again — a run left goes back to th06's logo, and that is no more where a list of replays belongs
+//! than the title menu is.
+//!
+//! **And nothing about that run is written down.** No chapter of it is kept, no replay of it is written,
+//! dying offers no retry, and what it counted goes in no ranking: it is not a run anybody played. The one
+//! thing still done is what a resume does — the numbers put back and the buttons fed. A playback that wrote
+//! either file would be the run it came out of overwritten by a recording of itself.
+//!
+//! **It ends where the attempt ends**, which for the attempt that survived a chapter is the frame the chapter
+//! after it began on: the frames past that are the next chapter's, and it is one chapter's attempts this was
+//! chosen out of. What follows the frame an attempt ran to is whatever a keyboard does to a stage nobody is
+//! playing, so orb takes the game out of the run there, the way the retry menu's `タイトルに戻る` does. A
+//! cancel does the same at any point and is the only way out somebody watching one has — `x` or escape, or
+//! whichever button the game's own menus take a cancel on, since somebody watching has a controller in their
+//! hands — because the buttons the game acts on are the attempt's and the game's own pause is not theirs to
+//! open. Running on into the attempts after the one chosen would need a rewind between them, which is the
+//! retry menu — and a replay of a run being retried by whoever is watching it is two runs.
+//!
+//! **And where the attempt was the path the boss died on, the screens the run ends at are run out inside the
+//! frame they came up in.** The name entry is where somebody types their own name and the stats after it are
+//! theirs to read, and this run is nobody's: the state written over that screen is the game's own way out of
+//! it, and the frames its way out takes are run by calling the game's update over until the screen is gone.
+//! Drawing happens once per frame, so nothing of it reaches the screen at all — asked for with the write
+//! alone, twenty frames of a name entry did.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

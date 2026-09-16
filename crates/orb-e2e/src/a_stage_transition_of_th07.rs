@@ -9,8 +9,7 @@
 //!
 //! **Read out of the game's own code rather than off this tree**, because the laid-out game is both the writer
 //! and the reader of the memory orb is driven through: a transition that put a stage's numbers back would be a
-//! transition every e2e test here agreed with. See
-//! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+//! transition every e2e test here agreed with.
 //!
 //! And what orb does with it: a transition is **not** the run ending, and it is not a frame outside a run either
 //! — the supervisor does the whole of it inside one update, so what changes for the length of that update is the

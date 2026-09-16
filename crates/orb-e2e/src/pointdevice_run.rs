@@ -15,8 +15,7 @@
 //! here, so this reaches the simulated Windows the only way the shipped DLL would reach the real
 //! one — through the `sim` feature — and nothing it drives can have a test-only path in it. Which
 //! crate's `tests/` is then free, and it is this one's because that is where the simulated Windows
-//! lives — see
-//! [docs/adr/0005](../../../docs/adr/0005-every-e2e-test-lives-in-orb-sims-tests.md).
+//! lives.
 //!
 //! One `#[test]` in the file because there is one game in a process: orb's runtime, the record of what
 //! a run has pressed and which file its score goes to are one apiece, the way they are in the game.

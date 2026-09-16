@@ -5,8 +5,7 @@
 //! own code needs a process to patch and is `orb`'s — `DllMain`, the trampolines, the import table, the
 //! install lists. What a hook then *does* is here: it reads a `State`, asks `chapter` or `resume` for a
 //! decision, and calls through a function pointer out of a static. None of that is Windows, and it is
-//! precisely what an e2e test drives. See
-//! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+//! precisely what an e2e test drives.
 //!
 //! **The install lists fill the statics below**, which is why the ones a hook calls through are `pub`:
 //! `orb::attach` stores a trampoline in each as it patches, and [`attach_to`] stores a laid-out game's
@@ -14,8 +13,60 @@
 //!
 //! **Nothing here is handed the other way.** Every hook body is this crate's, and what each of them needs
 //! of the process it is in — the game's memory read and written, a vtable slot swapped, the black beside
-//! the game painted — goes through `orb_api`. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! the game painted — goes through `orb_api`.
+//!
+//! **The ending.** With `skip_ending`, the ending is run out inside the frame it starts on, so no frame of it
+//! is drawn, rather than jumped over — the ending is also where the game sets the clear flag and enters the
+//! score. Never entered during a demo or a replay.
+//!
+//! **The staff roll is kept**, which the scene cannot say: an ending and its roll are all one scene, so what
+//! the skip stops on is the script the ending is reading. th06 runs an ending from a `.end` file of
+//! one-character instructions, one file per part of it, and the last instruction of every one of the six —
+//! `end00`, `end01`, `end10`, `end11`, and the `end00b`/`end10b` a clear on Easy or with a continue gets —
+//! is `@Fdata/staff00.end`, the roll. `F`, at 0x40fc06 in the interpreter at 0x40f7c0, reads that file over
+//! the one running and carries straight on into it, so nothing else marks the handover: the scene stays 10
+//! and `isInEnding` stays set across both. The skip stops on the update the file changes on and the roll
+//! plays from there a frame at a time, with the track it starts for itself — the ending plays `bgm/th06_16`,
+//! `staff00.end` starts `bgm/th06_17` three instructions after the handover and in the same update as it,
+//! so the track changing is a second signal for the same boundary.
+//!
+//! The script is read out of the `Ending` object, which is on the heap and in no global: it is reached by
+//! walking the calc chain for the job whose callback is `Ending::OnUpdate` at 0x4109c0 and taking that
+//! element's argument at +0x1c, the same field `RunCalcChain` passes to the callback. The file it loaded is
+//! at `Ending + 0x1114`. `Ending::LoadEndingFile` at 0x4106d0 reads the new file before it frees the one it
+//! replaces, so the address is always a different one after a handover — which is what makes comparing
+//! addresses enough. With no script to compare, the skip runs the scene out the way it did before there was
+//! one to read.
+//!
+//! **A stage 6 ending is 29,040 updates** on its own and 36,932 with the roll, after which the scene is 7,
+//! the result screen. So the limit on the loop is above a whole ending — fifteen minutes of game time —
+//! because it is a limit per frame rather than on the skip: the frame the loop stops in goes on to draw
+//! whatever the ending is showing by then, which at two minutes put five frames of it on the screen. What
+//! the frame the skip runs in costs is the pacing's `gap at worst`, that frame being it.
+//!
+//! **Reaching one at all** takes clearing the game: `GameManager`'s end-of-run branch at 0x418f4e sends a
+//! replay to state 8 and practice to the result screen, and only a run somebody played gets state 10. So
+//! `--clear` is how the ending is looked at without half an hour of playing well first.
+//!
+//! `g_Supervisor.isInEnding` is at `G_SUPERVISOR + 0x19c` = 0x6c6eb4. The same flag gates the game's own
+//! frame-rate counter (`cmpl $0x0, 0x6c6eb4` at 0x4240bb, jumping over the `AsciiManager::AddString` at
+//! 0x4240e9), so it must not be written to hide that counter. The counter is left alone; orb's numbers are
+//! outside the game's output.
+//!
+//! **`--clear`** makes nothing able to hit the player and runs the run at `--speed`'s 64 updates a drawn
+//! frame, so half an hour of playing well is a minute of holding the shot key. It is there because the
+//! ending is reached by clearing the game and by nothing else, and a boundary inside one cannot be looked at
+//! twice at half an hour a look. What it writes, before each update, is the player's state — to the one the
+//! game's own bombs write — and the frames of invulnerability left under it. Both, because the state on its
+//! own does not last: `Player::OnUpdate` is chain priority 7 and the bullets are checked at 11, so a state
+//! whose frames have run out is a state put back to normal before the hit test in the same update, and the
+//! player dies with it written. Only from the states the player can be hit in or is already invulnerable
+//! in, so a spawn or a death still plays out as itself. It leaves no record: no score file is written at all
+//! — see [`crate::score`] — because such a run has no score to keep in either ranking, and no replay
+//! either; `--clear` is the one thing that still refuses the write of one, rather than not being offered it,
+//! since a cleared run does reach the screen that offers to save a replay. Nor is the chapter it is in
+//! written down — see [`crate::resume`] — for the same reason: what is kept is the buttons, so a later launch
+//! offered that chapter would play them into a player who can be hit, and land somewhere else.
 
 use std::ffi::c_void;
 use std::ops::Range;
@@ -449,9 +500,8 @@ struct Started {
 
 /// The game this process is, as the attach settled it out of [`game::KNOWN`].
 ///
-/// A static, and not something the hooks below are handed, for the reason
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md)
-/// keeps the frame loop's two calls in statics: a hook is a plain `extern` function with nothing but
+/// A static, and not something the hooks below are handed, for the reason the frame loop's two calls are
+/// statics: a hook is a plain `extern` function with nothing but
 /// the ABI's arguments, so where it would be handed a game it reads one. Filled by [`attach`] before
 /// anything is patched and by [`attach_to`] from what an e2e test hands it — so `None` is a process
 /// orb chose no game for, where none of the readers below was installed and each of them does
@@ -1773,9 +1823,8 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     let updated = update(chain);
     let ran = frame::now();
     // Where the game's own loop makes it, and inside the span this frame has to reach its blank in. On
-    // the frame a spell card starts, this call is most of that span — 8438µs of it on the run
-    // [docs/adr/0011](../../../docs/adr/0011-the-frame-is-held-for-the-blank-before-the-one-it-is-aimed-at.md)
-    // was measured on — so that frame is handed over after its blank has gone and loses a refresh.
+    // the frame a spell card starts, this call is most of that span — 8438µs of it on a measured run — so
+    // that frame is handed over after its blank has gone and loses a refresh.
     //
     // **Past `PRESENT.call()` was tried and buys nothing**, which is why the frame that loses the
     // refresh is this one and not the next. `orb-e2e`'s `pacing`'s `sound` section is the measurement,
@@ -1867,8 +1916,7 @@ unsafe fn call_render(window: *mut c_void) -> i32 {
 /// anything is presented through it. Runs again after every device reset.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
-/// setup would have been reached, there being no prologue to patch — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). A
+/// setup would have been reached, there being no prologue to patch. A
 /// laid-out game that had its device before orb was attached would never reach it at all, which is what
 /// `Fake::attach_before_its_device` exists for.
 pub extern "C" fn init_d3d_device() {
@@ -2026,7 +2074,7 @@ pub extern "system" fn get_input() -> u16 {
 ///
 /// **It is not that game's tick, though, and nothing here makes it one.** The read is made more often
 /// than the game moves — 66 times a second against a game that moves 60, measured over a whole stage
-/// and written down in `docs/th06c/asm.md` — so a recipe's count of frames is that many reads and not
+/// and written down in `game/th06c/asm.md` — so a recipe's count of frames is that many reads and not
 /// that many of the game's own, and the rules are asked for a word on readings that are the reading
 /// before over again. What answers those is `orb_bot::steer::a_tick_read_again`, off the reading itself,
 /// rather than a tick read here: nothing in this exe has been found that counts one.
@@ -2783,8 +2831,7 @@ pub extern "C" fn stage_building(stage: i32) -> i32 {
 /// raise it from outside either, that read having already brought it down for this frame.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
-/// keyboard read tail-calls that function, there being no prologue to patch — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// keyboard read tail-calls that function, there being no prologue to patch.
 pub extern "C" fn get_controller_input(buttons: u32) -> u16 {
     with_the_pad_added(buttons as u16)
 }
@@ -2838,8 +2885,7 @@ fn with_the_pad_added(buttons: u16) -> u16 {
 /// the teardown the game does through the same function.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its own
-/// code calls that function, there being no prologue to patch — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// code calls that function, there being no prologue to patch.
 pub extern "C" fn save_replay(path: *const u8, name: *const u8) {
     if !path.is_null() && BLOCK_REPLAY_SAVE.load(Ordering::Relaxed) {
         log!("replay save blocked");
@@ -2862,8 +2908,7 @@ pub extern "C" fn save_replay(path: *const u8, name: *const u8) {
 /// stage 1 around script frame 250 and straight back — three lives gone by frame 1027.
 ///
 /// `pub` for the same reason the frame loop's hooks are: a game laid out by hand calls this where its
-/// own teardown calls that function, there being no prologue to patch — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// own teardown calls that function, there being no prologue to patch.
 pub extern "C" fn stop_recording() {
     if let Some(game) = unsafe { chosen() }
         && unsafe { game.replaying() }

@@ -13,9 +13,7 @@
 //! being no font beside the exe to build an overlay from. **Its draw chain queues a quad**, which is why
 //! the second of those can be asked at all: a frame missing what the game's own does around its drawing
 //! faults here as it faulted on the machine. Over `Launch`, which is the same half of a launch th06's e2e
-//! tests run on. See
-//! [docs/adr/0004](../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) and
-//! [docs/adr/0017](../../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+//! tests run on.
 //!
 //! Where a number here is th07's it says so. There are two: the answers its chain walk gives, and what
 //! its own frame answers to the loop above it.
@@ -44,7 +42,7 @@ pub const CHAIN_LEFT: i32 = 0;
 pub const CHAIN_FAILED: i32 = -1;
 
 /// The score file th07 asks for, which is the one name this game passes `CreateFileA`: `score.dat`,
-/// beside its exe, opened twice for reading and once for writing in the launch `docs/adr/0004` reports.
+/// beside its exe, opened twice for reading and once for writing in a measured launch.
 ///
 /// The name the game asks for and not the name an open lands in — which of the two files that is is
 /// orb's decision, and a game that named the forked file itself would be answering the question the e2e
@@ -657,8 +655,8 @@ impl Fake {
         let recipe = config.autoplay.clone();
         // The font is there for the harness's own device and gone before orb reaches for one: **a th07
         // install has no `font.ttf` beside its exe.** th06 ships one and th07 keeps its fonts inside
-        // `th07.dat`, so what orb draws here it draws in a face of the machine's own — see
-        // `docs/adr/0019`. A launch with a font here would be a launch of the other game's directory.
+        // `th07.dat`, so what orb draws here it draws in a face of the machine's own. A launch with a font
+        // here would be a launch of the other game's directory.
         let font = dir.join("font.ttf");
         image.sim().text().install_font(&font);
         let launch = Launch::new(
@@ -938,7 +936,7 @@ impl Fake {
 
     /// The game opening its own score file, which is one `CreateFileA` on the name it asks for — and
     /// which th07 does at its front end and again on the way out, measured as three opens of `score.dat`
-    /// in the launch `docs/adr/0004` reports.
+    /// in a measured launch.
     ///
     /// Answers the name the open landed in, which is orb's decision and not this game's.
     ///
@@ -2899,8 +2897,8 @@ const STRETCH_REFUSED: orb_api::Hresult = 0x8876_0827u32 as i32;
 ///
 /// **The whole of why this game has a queue laid out.** A real draw chain reaches 0x44f690 for every
 /// sprite on the screen, and that function writes where `[queue + 0x17e534]` points — so a frame that
-/// never emptied the queue writes its first quad to address zero, which is the fault the launch in
-/// `docs/adr/0004` took. A laid-out game whose draw chain only said it had been asked would have passed
+/// never emptied the queue writes its first quad to address zero, which is the fault orb's first launch of
+/// this game took. A laid-out game whose draw chain only said it had been asked would have passed
 /// that frame and every frame after it.
 extern "fastcall" fn draw(_chain: *mut c_void) -> i32 {
     let fake = running();

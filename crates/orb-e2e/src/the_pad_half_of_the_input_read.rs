@@ -20,7 +20,7 @@
 //!
 //! **This game does no pad arithmetic of its own**, which is what leaves the assertions here about orb:
 //! its `get_controller_input` handed the keyboard's word straight back for as long as the arithmetic was
-//! the real game's, and `docs/adr/0008` is why it never had a copy of it. So a button that reaches the
+//! the real game's, and the fake owes nothing to what orb replaces, so it never had a copy of it. A button that reaches the
 //! word reached it through orb.
 //!
 //! Legacy mode throughout: what a direction does to the player is the same in either mode, and a

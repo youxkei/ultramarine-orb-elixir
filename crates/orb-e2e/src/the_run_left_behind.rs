@@ -17,8 +17,7 @@
 //! itself fails. **Both are declared** — `orb_sim::Files::refuses_to_write`, and a file put where the
 //! directory has to go — because these files go through the file seam like every other host call. Asking
 //! the same question of a real disk means arranging one into a shape that makes `std::fs` refuse, which is
-//! an e2e test asserting about the machine it happens to be on. See
-//! [docs/adr/0012](../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+//! an e2e test asserting about the machine it happens to be on.
 //!
 //! Last is the stage that never comes. A resume points the run the game is about to build at a stage and
 //! holds its numbers for the moment that stage is ready for them; a stage the game cannot load is a wait

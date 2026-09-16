@@ -7,6 +7,38 @@
 //!
 //! Both sides read the whole of both, so each must know every key and every option:
 //! `deny_unknown_fields` and clap would otherwise each refuse the other side's.
+//!
+//! **`language` decides every word orb puts on the screen, and `auto` — what a file with nothing in it says
+//! — is the language Windows itself is in.** `GetUserDefaultUILanguage` answers that, and orb reads the
+//! primary language out of the LANGID it gives: `LANG_JAPANESE` is Japanese and every other language is
+//! English. Which is the honest answer rather than a fallback — a machine in German is one orb has no German
+//! for, and whoever is playing th06 on it is reading either the game's own Japanese or an English patch over
+//! it. The user locale is *not* what is read: that one carries the regional formats, which are set apart
+//! from the language Windows shows its own windows in.
+//!
+//! **The answer is settled once, at the attach, and said in the log** — `language: english, which is what
+//! this machine's own windows are in` — because a screenshot of a menu somebody could not read is otherwise
+//! the only evidence of which language it came out as. The DLL keeps it on the `Runtime` and every screen is
+//! constructed with it; the launcher settles it after it has read the file and hands it to the dialog's
+//! template and to the two refusals.
+//!
+//! Every screen orb puts up is in it: the question over the title menu with both modes and the lines under
+//! them, the menu where a chapter was lost with the questions its items ask and the line under the two that
+//! go back, the question about a run left unfinished with the mark that goes up before it, and the
+//! launcher's settings dialog. A chapter's name is not one of those words, being what the status line and
+//! the log call it. What each screen says in either language is beside the screen itself — `mode.rs`,
+//! `retry_ui.rs`, `resume_ui.rs`, `launcher/settings.rs` — as a `match` over the language, so a screen added
+//! without a wording in both is a build that stops rather than a line nobody can read. 完全無欠モード and
+//! レガシーモード are th15's own names for the two modes, and `Pointdevice Mode` and `Legacy Mode` are that
+//! game's own names for them in English.
+//!
+//! **The machine's own language is one seam function**, `orb_api::locale::ui_language`, answering the LANGID
+//! as Windows gives it. `LANG_JAPANESE` and the mask that takes a LANGID down to its language are
+//! `orb-api`'s constants, held against Windows' own by a `const` assert below the seam; reading them is
+//! [`Language`]'s, above it, because which words to write is a decision and not a call.
+//!
+//! **Which language the *game* is in is not orb's**, and orb does not touch it: th06 draws its own text from
+//! its own data files, and an English one is a patch over the game.
 
 use std::fmt;
 use std::path::{Path, PathBuf};

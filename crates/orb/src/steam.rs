@@ -19,8 +19,6 @@
 //! save file is not this API's business either way.
 //!
 //! Everything these decide is a constant, so there is nothing above the seam for them to decide with.
-//! See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};

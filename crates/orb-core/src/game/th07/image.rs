@@ -206,15 +206,13 @@ const STAGE_SONGS: usize = 0x033a_4000;
 ///
 /// **Its own number and not the constant orb reads with**, which is the whole point of it being here: a laid-out
 /// game that wrote the phase orb expects would agree with orb about a value neither of them had checked, and
-/// that is exactly what let this through — see
-/// [docs/adr/0008](../../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+/// that is exactly what let this through.
 const TITLE_ITEMS_PHASE: i32 = 1;
 
 /// The scenes this game's supervisor moves between, as the exe writes them, and **its own numbers for the same
 /// reason [`TITLE_ITEMS_PHASE`] is**: a laid-out game that wrote the scene orb reads with would agree with orb
 /// about a number neither of them had checked. An address has to be shared — both sides must mean the same word —
-/// and a value must not, which is [docs/adr/0008](../../../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md)'s
-/// own line.
+/// and a value must not.
 ///
 /// Read off the switch at 0x437fbd and the writes that feed it: 1 is the front end (0x437ee3 is the case for
 /// leaving it), 2 the run and 3 the run built again (0x42f3c5 registers the manager for 2, and its added callback

@@ -15,6 +15,62 @@
 //!
 //! How it reads its keys and draws its items is [`crate::menu_ui`], which the other two questions
 //! share.
+//!
+//! **What is asked, and where.** `どこから始める` / `Where to start`, with `つづきから` / `Continue` and
+//! `はじめから` / `From the beginning`, on the game's own shot type select — on the press that would have
+//! started the run, which orb holds back. Asked there rather than beside the mode question because which
+//! run this is includes the character and the shot, and the mode question is two screens too early to know
+//! them; that screen knows all three, the first two being settled and the third under its cursor at
+//! `MainMenu+0x81a0`. Only where a run of that same difficulty, character and shot was left, so the question
+//! never appears for a run there is nothing of.
+//!
+//! **The press is held back in the input read**, `GetInput`'s answer having the front end's decide taken
+//! out of it — `0x1001`, the shot button and return, which is what every one of its screens tests against
+//! the frame before. That word is what `Supervisor::OnUpdate` assigns `g_CurFrameInput` from, so a press
+//! taken out there is one no screen in the frame ever saw. Which is what `キャンセル` is: the press is never
+//! handed over, and the screen carries on where it was, on the shot it was asked about. Nothing is put back,
+//! and nothing has to be — beyond holding the key that cancelled back too, until it is let go: it is still
+//! down on the frame the game carries on into, and what the shot type select does with it is go back to the
+//! character select.
+//!
+//! Handed over on one read, by putting those bits back in, where the answer is a run to start. The screen
+//! then decides as it would have — `shotType` from its own cursor, `curState` to the run — rather than orb
+//! writing the run's three numbers and the scene by hand. Two frames later the run is registered, and the
+//! chapter asked for goes in there, that being the one frame the game will take a stage for a run it has not
+//! built.
+//!
+//! Not asked after the run is chosen. The shot type select does not fade or wait: 0x436dae writes the shot
+//! and the scene in one go, and by the frame the run is chosen the front end has taken its own job out, so a
+//! question asked there has nothing behind it to go back to. That frame is kept as the one place a run whose
+//! press could not be held back is still asked about, and there the cancel it cannot act on is left unread.
+//!
+//! The line under `つづきから` says where that run stopped — the stage, the chapter by name, the retries —
+//! and not which run it is, that having just been chosen. Under `はじめから` it says what starting again
+//! costs, which is that the chapter left behind is written over as soon as the new run reaches one; this is
+//! the last moment anybody is told so. The cursor starts on `つづきから`, not because it is the likelier
+//! answer but because of what the two mistakes cost: a run picked up by accident is a run put back where it
+//! was, while a fresh run started by accident is the file gone.
+//!
+//! **And said before the press, as a mark rather than a question.** `中断データあり` / `A run left
+//! unfinished`, with the stage, the chapter and the retries under it, in the bottom left of that same screen
+//! while the cursor is on a shot a run was left in. Nothing is frozen and nothing is asked for it: the screen
+//! carries on running underneath and the line follows the cursor between the two shots.
+//!
+//! The press is held back on that screen whichever shot the cursor is on, and not only where the line is up.
+//! What the line says is read one frame after the cursor arrives — orb's own frame work runs after the
+//! game's update — while the screen moves its cursor before it reads its decide, 0x436a88 against 0x436d79.
+//! So a direction and the shot button on one frame start a run on the shot the cursor has just reached, and
+//! holding the press back only under the line would leave that one frame able to lose a chapter. Where
+//! there turns out to be nothing to ask, the press is handed over on the next read, which is a frame nobody
+//! sees.
+//!
+//! It is there because the choice that quietly loses a run is made on those screens, not on the question
+//! after them: `MainMenu::RegisterChain` memsets the cursor, so somebody who left a ReimuB run and picks
+//! ReimuA out of habit is offered nothing, gets a fresh run, and that run writes its own file. A practice run
+//! is not marked, its stage being part of which run it is and not chosen until afterwards. The file is read
+//! when the cursor moves onto another run rather than every frame, and it is a few hundred lines to read.
+//! The file is read where the question is put rather than at startup, so what is offered is the chapter the
+//! last session stopped at.
 
 use orb_config::Language;
 

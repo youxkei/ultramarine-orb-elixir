@@ -392,9 +392,7 @@ const COUNTED: u32 = 40;
 /// frames run out it puts the arcade region back and returns that answer, and `Chain::RunCalcChain`'s switch
 /// is what reads the next element, calls `Cut` on the one that answered, and carries on from there.
 ///
-/// **What no e2e test could ask before the walk existed** — see
-/// [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md), where this
-/// is one of the three things the last step of it makes reachable. The job cutting itself and the walk
+/// **What no e2e test could ask before the walk existed.** The job cutting itself and the walk
 /// cutting it leave the same memory behind, so what this is the record of is that the answer is what does it:
 /// the job calls no `Chain::Cut` at all, and the element is gone all the same.
 #[test]

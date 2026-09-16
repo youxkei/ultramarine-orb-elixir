@@ -24,8 +24,7 @@
 //! any of them, and a chapter falls at a stage's start and nowhere inside one until such a run happens. One
 //! thing is declined on purpose and says why where it is, [`Th07::run_slot`]'s names.
 //!
-//! See `docs/adr/0004` for the shape, `docs/adr/0017` for the frame, `docs/adr/0018` for which clock a stage's
-//! script runs on, `docs/adr/0019` for the face orb's own screens are drawn in here, and `docs/th07/asm.md` for
+//! See `th07/asm.md` for
 //! the paths through the exe no one constant here is about. A snapshot is the piece this game answers a changed
 //! number by sabotaging itself over: see [`DEATHS`] and [`CARD_CHECK`].
 //!
@@ -34,6 +33,66 @@
 //! not do. Where the trait offers no way to decline, the answer is the emptiest one that is *true* —
 //! no regions, no music, no run in progress, no button worth writing down — and no method answers a
 //! guess.
+//!
+//! **What a launch of it gets**: the window [`crate::window`] describes, its frames presented into a letterbox
+//! of the 4:3 that 640x480 output is — the game's own present stretches over whatever client it has, so that
+//! rectangle is what keeps the shape — and orb's own frame in place of the game's, the update before the
+//! draw, which is the frame of input lag removed, on the cadence [`crate::frame`] describes. Composing that
+//! frame is what th07 asks for and th06 does not: the queue of quads its drawing fills has to be emptied
+//! before the drawing and drawn before the scene ends, and the fog a stage left on put out, which is
+//! [`Th07::begin_drawing`] and [`Th07::end_drawing`] either side of the draw chain.
+//!
+//! **And the pad half of its input read is orb's**, as th06's is: every pad the machine has, through the
+//! game's own button mapping and with the d-pad reaching the player where `dpad_moves` says so. Which is
+//! worth naming because th07 looks for a DirectInput device of its own and falls back to one winmm joystick,
+//! and a pad neither of those two reaches is a pad the game has none of — see [`crate::joystick`] for orb's
+//! own reading of them. **Every question of orb's is answered on that pad too**, the game being frozen on
+//! the frames one is up and its own read therefore not running: what the mode question and the retry menu
+//! read is the same sample, put through the same mapping and tested against the two masks the game's own
+//! front end reads a decide and a back with.
+//!
+//! **And the rest of what orb does is this game's too**, [`Game::rewinds`] answering that a run of it can be
+//! rewound: the mode question at its own title menu, chapters, the mark over its panel, the retry menu a
+//! death offers, a run picked up in a later launch, a replay of one kept and watched again, a card's attempt
+//! counted and its name put back on the plate, and orb's own `pointdevice_score.dat` for the runs that were
+//! rewound. Two of those work differently here and the difference is the game's, not a setting: **the music
+//! is rewound through the file th07 opens itself** — one `thbgm.dat` for every track, where th06 opens a wav
+//! per track through winmm, which is `audio::Track`'s two shapes — and **orb's own screens are drawn in a
+//! face the machine lent**, that exe shipping no `font.ttf` where th06 ships one. The face asked for is the
+//! one the game asks for itself, `ＭＳ ゴシック` at bold: this game ships no font and makes its own text
+//! through GDI, so orb's screens are in the same face as the game's text and the log names what came back.
+//!
+//! **And a track change is put right by naming a slot rather than a path.** th07 starts a track by naming a
+//! slot of its sound player, and which slot is its music comes out of the stage's own data: that data names
+//! two songs, its own and the one the fight it ends with brings, and the stage's build loads them into slots
+//! 0 and 1. So a chapter taken under the second gets the second back and every other chapter gets the
+//! stage's own, a chapter that had nothing audible included — that one has the sound taken back off
+//! afterwards rather than another slot asked for. The seek that follows is refused by the track's own
+//! identity where the two differ, an offset meaning nothing in another track.
+//!
+//! **Not the slot the track that was playing is in**, which is the answer that suggests itself and is wrong:
+//! the front end leaves its own song in a slot of its own, so a chapter whose stream is still on that song
+//! names that slot and the title screen's music is what comes back — `music: restarting slot 8` in the log.
+//! That stream is the one a stage's first chapter is taken on, the scene before it having left its record
+//! there stopped.
+//!
+//! **And what a restore does about the sound waits for the ask it made to have been carried out.** A command
+//! in that player's queue is walked a phase at a time — one run of `SoundPlayer::PlaySounds` finishes only
+//! the commands whose own step is their last, and one that merely advanced its phase is the same command
+//! again next run — so the frame the restore happened in is not the frame the track is playing in. Both
+//! things a restore has left to do read the queue's first slot and wait for it to empty: the seek that puts
+//! the song where the chapter had it, and the stop that takes a chapter's silence back. Left to the
+//! restore's own frame, the first read `could not be put` and the second stopped a buffer the play had not
+//! reached. orb's own two calls run that queue until it empties, the way the stage build does at 0x42f238.
+//! Neither the stop nor the start has done anything by the time it returns: each writes a command into that
+//! queue and nothing more, and what walks it is `SoundPlayer::PlaySounds`, which the game's own frame calls
+//! once a frame.
+//!
+//! **What a chapter of it is, is coarser than th06's until a tuning run says otherwise**: the midstage table
+//! is a stage per entry with nothing in any of them, so a chapter falls at a stage's start and nowhere inside
+//! one. [`crate::tuning`] is the procedure that fills it, and it is the one thing about this game that
+//! cannot be read off the exe.
+#![doc = include_str!("asm.md")]
 
 /// The midstage table, in a file of its own because a `--chapter-tuning` pass writes one to paste over it.
 pub mod chapters;
@@ -495,9 +554,8 @@ const G_QUAD_QUEUE: usize = 0x004b9e44;
 ///
 /// **This is the call orb's own loop left out, and 0x17e534 is the null it faulted writing through**:
 /// the append at 0x44f690 copies six vertices of 0x1c bytes to what that field points at and adds 0xa8
-/// to it, so a frame whose queue was never emptied writes its first quad to address zero. See
-/// [docs/adr/0004](../../../../../docs/adr/0004-th07-is-a-second-game-chosen-at-the-attach.md) for the
-/// launch that faulted at 0x44f6aa, which is that `rep movsd`.
+/// to it, so a frame whose queue was never emptied writes its first quad to address zero — the launch that
+/// faulted at 0x44f6aa faulted in that `rep movsd`.
 const EMPTY_QUEUE: usize = 0x0044f580;
 
 /// And the queue drawn, `__thiscall` on the same object: `0x2e530` pairs of triangles from what
@@ -590,8 +648,8 @@ const RUN_NUMBER_BYTES: usize = 0xc8;
 /// **`State::power` is a `u16`, so what orb reads is the whole part of it**, taken the way the game takes
 /// it: everything orb does with the number — the log's own line, and what a chapter would carry — works in
 /// whole steps, and a power that is 62.5 is a shot at 62 either way. Whether the trait should carry what
-/// each game keeps instead is a decision for the day a chapter of this game is taken, and it belongs in
-/// `docs/adr/` then rather than in a cast here.
+/// each game keeps instead is a decision for the day a chapter of this game is taken, and not one for a
+/// cast here.
 const POWER: usize = 0x7c;
 
 /// **And the power it stops adding to**, which is the number those three sites compare against.
@@ -729,7 +787,7 @@ const SEALED_WORD: usize = 0x3c;
 #[cfg(any(test, feature = "sim"))]
 const SEALED_COPY: usize = 0xac;
 /// **The two things the game's own replay restore puts back that a resume does not**, said in the log at a
-/// stage's start rather than written — see `docs/th07/asm.md` for the whole of what that restore does.
+/// stage's start rather than written — see `th07/asm.md` for the whole of what that restore does.
 ///
 /// `[0x62f8a4]` is `[gm+0x9634]`, filled at 0x42e3a4 out of the per-shot table at `[0x49f5d0 + shot*0xc]` and
 /// put back from a stage's record at 0x4437ea. Nine sites in 0x40e and 0x412 read it, four of them with
@@ -799,7 +857,7 @@ const SEED_AT_STAGE_START: usize = 0x95e4;
 /// 0x575950 with 0xffffffff — the device pointer, the viewport, [`PAD_MAPPING`] and the scene at
 /// [`SUPERVISOR_SCENE`] all inside that range. So this game answers a changed number by destroying itself,
 /// and a snapshot of orb's that put lives back one field at a time would trip it. The whole of the seal, the
-/// check and the five guarded writes is `docs/th07/asm.md`.
+/// check and the five guarded writes is `th07/asm.md`.
 const DEATHS: usize = 0x50;
 const LIVES: usize = 0x5c;
 const BOMBS: usize = 0x68;
@@ -1044,7 +1102,10 @@ const BOSS_SLOTS: usize = 8;
 /// is re-registered for every stage, so the clock starts again with the stage.
 ///
 /// **Which of the four is a decision and not a reading** — th06 has one timeline on one clock and orb's
-/// midstage boundaries are written in its frames. See `docs/adr/0018`.
+/// midstage boundaries are written in its frames. The first context's `current`, and not the counter at
+/// 0x62f898, which an ECL instruction adds 0x708 to at 0x4157dc and nothing resets; not the stage's own frames,
+/// which are the other clock; and not the sum or the maximum over the four contexts, which is a number the
+/// game gives no meaning to.
 ///
 /// And it stops where [`STAGE_FRAMES`] stops, for a reason that is not its own: the contexts are stepped from
 /// inside the enemy manager's update (0x4207a1), which is a job below the game manager's on the chain — so a
@@ -1526,7 +1587,7 @@ const STAGES: i32 = 8;
 /// **The word is the game manager's `+0x93d8`** as well, which is how those three read it: 0x626270 +
 /// 0x93d8 is 0x62f648, and both spellings are the same word.
 ///
-/// Bits 2 and 4 are not written down here because nothing of orb's reads them — `docs/th07/asm.md` has where
+/// Bits 2 and 4 are not written down here because nothing of orb's reads them — `th07/asm.md` has where
 /// each is set, and why bit 4 cannot be the answer to a run having finished.
 const G_RUN_KIND: usize = 0x0062f648;
 const RUN_IS_A_PRACTICE: u32 = 1 << 0;
@@ -1708,7 +1769,7 @@ const RESULT_PHASE: usize = 0x08;
 /// 0x446fd7 caps `[this+0x10]` at eight.
 ///
 /// **Which is the name a replay of the game's own carries.** Seven of this machine's `replay/th7_*.rpy` were
-/// read the way `docs/th07/asm.md` says one is read: at +0x5e of the unpacked header, eight bytes with spaces
+/// read the way `th07/asm.md` says one is read: at +0x5e of the unpacked header, eight bytes with spaces
 /// to the end. One name in six of them and the same name less a letter in the seventh.
 const RESULT_NAME: usize = 0xbfaf;
 const RESULT_NAME_BYTES: usize = 8;
@@ -2265,7 +2326,7 @@ const LIVES_ROW: Rect = Rect {
 /// **This is the family the exe names, and a thcrap launch is not measured.** thcrap patches the text a game
 /// draws and can put its own face behind it, in which case the game's text on screen is in one face and orb's
 /// screens in this one. What would settle it is asking through the game's own `CreateFontA` import, which a
-/// patch has already hooked — see [docs/adr/0019](../../../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md).
+/// patch has already hooked.
 const OWN_FACE: Face = Face {
     family: "ＭＳ ゴシック",
     bold: true,
@@ -2794,8 +2855,7 @@ impl Game for Th07 {
             runs_its_frame: None,
             // orb's own cadence, and a frame of input lag gone with it. What this replaces is
             // [`RENDER`], and what the two seams either side of the draw chain are for is the rest of
-            // what that frame does — see [`Th07::begin_drawing`] and
-            // [docs/adr/0017](../../../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+            // what that frame does — see [`Th07::begin_drawing`].
             //
             // **This was `None` and a run is why**, which is the one thing worth carrying here: orb's
             // first loop over that frame took the game down on its first frame — `crash: code

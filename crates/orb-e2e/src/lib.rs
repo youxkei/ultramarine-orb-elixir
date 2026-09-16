@@ -10,15 +10,13 @@
 //! entry it calls the rewrite itself — `orb_core::window::create_window_ex_a`,
 //! `orb_core::score::create_file_a` and `orb_core::joystick::answer` — and every one of those is above the
 //! line `orb` draws round the patched bytes. What is left in that crate is `DllMain`, the trampolines, the
-//! PE headers and the crash filter, none of which a laid-out game has anything to offer. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! PE headers and the crash filter, none of which a laid-out game has anything to offer.
 //!
 //! **The whole crate is `#[cfg(test)]`, and that is what it is for.** `orb_core::game::th06::image` and
 //! the seam's install point are reached through `orb-core`'s `sim` feature, and a crate under test
 //! cannot turn a feature on for itself — which is why the e2e tests were integration tests for as long
 //! as they lived in a crate that is under test. This one is not: it is a consumer, so it asks for
-//! `orb-core = { features = ["sim"] }` the ordinary way and its own `#[cfg(test)]` is true. See
-//! [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+//! `orb-core = { features = ["sim"] }` the ordinary way and its own `#[cfg(test)]` is true.
 //!
 //! **Which buys the dead-code check back.** As integration tests the fake was compiled once per
 //! `scenario_*.rs`, twenty-three times, and carried a blanket `#![allow(dead_code)]`: what one file did

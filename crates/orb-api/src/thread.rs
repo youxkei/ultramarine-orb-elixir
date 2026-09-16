@@ -1,4 +1,14 @@
 //! Which thread is running, what a thread of orb's own runs at, and stopping the ones the game made.
+//!
+//! The rule the game's threads are stopped by — every thread the game made stops while its memory is
+//! copied, and the one playing the music does not — is checked with real threads rather than a model of
+//! them, since what is being relied on is what `SuspendThread` does. A test registers threads of its own as
+//! the game's and reads whether each is still counting. Counted turns rather than elapsed time: what says a
+//! thread is running is that it got somewhere while another one was getting somewhere, and a wall-clock
+//! window is the flaky way to ask. The exception is the case where nothing is left running to count
+//! against, which has to wait. `SuspendThread` returns before the thread it names has stopped — a dozen more
+//! counts after the call came back — so what a test reads is the count once that window has passed, not
+//! the one from before the call.
 
 /// `GetCurrentThreadId`. Never zero, which is what lets the log claim the frame's own thread with
 /// nothing but a compare-and-swap.

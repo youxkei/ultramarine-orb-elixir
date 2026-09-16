@@ -16,8 +16,106 @@
 //! goes, where the game goes inside it, the `Present` slot redirected into that rectangle, and where
 //! orb's own lines go in the black that is left. The GDI those lines are measured and written with is
 //! behind the seam, in `orb_api::window`; what is here is which of the two bars they go in and where in it
-//! they start. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! they start.
+//!
+//! The arguments of the game's own `CreateWindowExA` are rewritten on the way through, so the window is the
+//! size it is going to be from the moment it exists — no frame to remove afterwards and nothing to flash
+//! first. Its window class gets a black background brush, and that is the letterbox.
+//!
+//! `screen: fullscreen` is that window borderless — `WS_POPUP | WS_VISIBLE`, and nothing else, since a
+//! caption or a frame is exactly what puts a border on one — covering the monitor. `screen: 1280x720` is
+//! that window with a caption to move it by and a system menu to close it with, centred on the monitor, and
+//! nothing to resize it with: the size is one of the settings, so dragging the edge would be a second place
+//! to say it and the one that is not written down. The size is of what is *inside* the window,
+//! `AdjustWindowRect` being what turns it into the window to ask for, so `1280x720` is 1280x720 of game
+//! however thick the host's frames are. A window too big for the monitor goes against its top-left corner
+//! rather than half off the top, since a caption above the screen cannot be dragged back onto it.
+//!
+//! **Always a window, either way.** The game's own fullscreen setting is overruled before it creates
+//! anything: a game that has taken the display exclusively has no window to size, and orb needs one to write
+//! its numbers in the black beside the game.
+//!
+//! **Display scaling is off**, said with `SetProcessDPIAware` at the same moment — before the window exists,
+//! which is the only moment it can be said. So a size in `orb.yaml` is that many pixels of screen, and the
+//! monitor a fullscreen window is measured against is the whole of it. The size the window came out with is
+//! logged beside the size that was asked for, and again when the device is created, because those are two
+//! different numbers whenever anything in between has an opinion.
+//!
+//! The back buffer stays 640x480. Windowed, the game asks for `D3DSWAPEFFECT_COPY`, the swap effect that
+//! honours a destination rectangle on `Present`, so the back buffer goes into a centred rectangle of the
+//! game's aspect ratio. Which is why a 16:9 window is worth offering at all: the black it leaves down the
+//! sides is where the status line goes.
+//!
+//! **Anything outside the game that squares windows up wins**, and there is nothing orb can do about it:
+//! such a tool acts on the window after it exists, which is after every moment orb has. It takes the black
+//! beside the game with it, and with that the numbers written there — a window created with exactly the
+//! client asked for, still that at the device, and squared up to 4:3 filling the monitor's height some
+//! seconds later. The client the window came out with is logged next to the size asked for, and again at the
+//! device, so a run where this happens says so rather than looking like orb getting the size wrong. vpatch's
+//! `[Window]` section is the same hazard from inside.
+//!
+//! A monitor-sized back buffer would not scale the game: its 2D drawing uses `D3DFVF_XYZRHW`, whose
+//! coordinates are already screen space, so a viewport does not transform them. Scaling that way would need
+//! a render target and a full-screen quad.
+//!
+//! **The status line.** The chapter, `RETRY`, `INPUT LAG` and the frame rate are drawn with GDI onto the
+//! window, in the black beside the game, stacked in whichever letterbox bar is wider and lined up with the
+//! game's edge. `SCRIPT` and `TABLE` join them while a table is being built, and `HOLD` while the game's
+//! update is held. On a 16:9 monitor a 4:3 game leaves that black down the sides. Shown whatever the game is
+//! doing, including demos and menus, and redrawn only when the text changes.
+//!
+//! **In a run the chapter is named for the part of the stage it is in, and numbered inside it**: `MIDSTAGE
+//! 3`, `MIDBOSS SPELL 1`, `BOSS NONSPELL 2`. A count of the chapters gone by says nothing about where the
+//! game is standing, while the second spellcard of a fight is how a fight is talked about and how a chapter
+//! worth grinding is named to somebody else. *Midstage* rather than "stage" because "STAGE 3" beside a stage
+//! number reads as the third stage. The waves are one run of chapters through the whole stage — its start,
+//! each midstage boundary, and the waves handed back when a midboss goes down — since a midboss interrupts
+//! them rather than starting a new set: the chapter after the midboss of stage 4 is `MIDSTAGE 3`, not
+//! `MIDSTAGE 1` again. Where there is no chapter, in a menu, that line is not there at all.
+//!
+//! **Neither it nor `RETRY` is there in a normal run**, where there are no chapters: an empty name and a
+//! retry count that cannot move are two lines saying the run is not the one they describe. What is left is
+//! the lag, the compositor's share and the frame rate, which are about the machine and are the same in both
+//! modes.
+//!
+//! The count comes out of the frames this stage's chapters began at rather than a counter per kind, because
+//! a retry puts the mark back and the run then reaches the same chapters again. A counter would name the
+//! same chapter one further along every time it was played.
+//!
+//! **A pass building the table shows `CH 05` and why the chapter changed instead** — see [`crate::tuning`].
+//! That is a different question from what the chapter is, and the one worth having while what is being
+//! decided is whether the boundary belongs in the table: the name would say the same thing about a boundary
+//! to keep and a boundary to throw away.
+//!
+//! **The GDI it is written with is gdi32's own and not this DLL's import of it.** A translation patch
+//! injected into the same game rewrites the import table of every module in the process, orb's included,
+//! and puts its own replacement in the text calls — one written for the game's `-A` calls, which takes a
+//! `-W` call's count of characters for a count of bytes. So the calls that carry a string or hand back a
+//! font are read out of gdi32's export directory instead, which is the loader's own and is not rewritten;
+//! the overlay's glyphs go the same way.
+//!
+//! **Each draw clears what it is going to write in, and everything the last draw wrote in, to black
+//! first.** A stack with fewer lines than the one before it, or a smaller font, does not reach every row that
+//! already had text in it. Clearing and writing are two operations, so both go into a bitmap of their own
+//! and reach the window as one `BitBlt`: done straight on the window, a refresh landing between them shows a
+//! bar with nothing in it, and at 120Hz that is a flicker. A stack taller than the black there is runs off
+//! the edge of that bitmap and is clipped there, rather than being drawn over the game.
+//!
+//! **The size fits the widest line into the black there is.** What goes here runs from three characters to
+//! twenty — a chapter named for the part of a stage it belongs to is the long one — and a line clipped at
+//! the bar's edge cannot be read at all, which is worse than small. The line is measured at the full size
+//! and the height scaled by what it overran by, once per change of text, which lands inside a pixel or two
+//! because character widths go with the em height. Nothing shrinks below the point where the text stops
+//! being readable anyway; past that, clipping the odd long line is the better trade.
+//!
+//! The game's back buffer is the wrong place for it twice over: all 640x480 of it is shown inside the
+//! letterbox, so anything there is over the game; and the game does not clear it between frames — it draws
+//! the static background once and redraws only the moving parts — so anything in a corner it does not
+//! repaint stays there and accumulates. The black is the window's own background and Direct3D never touches
+//! it. The retry menu is drawn with the Direct3D overlay instead, because it belongs over the game.
+//!
+//! `INPUT LAG` is measured, from the keyboard read to that frame being on screen, across the two frames
+//! those ends fall in.
 
 use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
@@ -353,9 +451,7 @@ pub unsafe fn answers_the_window_made(original: usize, out_of_the_way: bool) {
 ///
 /// What `orb::window::install` does above this and a laid-out game cannot is patch an import table — so
 /// the original is handed over the way every other call into such a game is, and the rewrite is reached by
-/// that game calling [`create_window_ex_a`] itself. See
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md),
-/// which is the same argument about the frame loop's own two calls.
+/// that game calling [`create_window_ex_a`] itself — the same argument as the frame loop's own two calls.
 ///
 /// # Safety
 /// `original` must be the game's own `CreateWindowExA` and outlive the last window it makes, and this must

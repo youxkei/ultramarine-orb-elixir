@@ -3,6 +3,39 @@
 //! Read directly rather than through the game's input state, because the keys
 //! that matter most are the ones pressed while the game's update — and with it
 //! its input handling — is deliberately not running.
+//!
+//! `Controller::GetInput` (0x41d820, `__stdcall`) is the one place every key the game sees passes through:
+//! `Supervisor::OnUpdate` calls it once a frame, and the only other writer of `g_CurFrameInput` is replay
+//! playback.
+//!
+//! **Not read while the window is behind.** The game's keyboard is a foreground DirectInput device —
+//! `DISCL_NONEXCLUSIVE | DISCL_FOREGROUND`, acquired once at startup — so the system unacquires it whenever
+//! the window goes behind and every read fails. The game checks only for `DIERR_INPUTLOST` and treats
+//! anything else as a success, which hands it an uninitialised stack buffer as key state. Reading while
+//! behind also spends that single `DIERR_INPUTLOST` report on a moment when re-acquiring cannot succeed.
+//!
+//! **Re-acquired on the way back.** orb calls `Acquire` itself — `g_Supervisor.keyboard` at
+//! `G_SUPERVISOR + 0x10` (0x6c6d28), vtable slot 7 — and holds the keys back until it succeeds.
+//!
+//! **orb's own questions read the keyboard for themselves**, with `GetKeyboardState`, because each of them is
+//! up on frames the game is frozen on and the game's own input handling is frozen with it. Every key at once
+//! rather than a key at a time, that being what the call answers, and a call that fails reads as nothing
+//! down rather than as whatever was down last — the state it left standing would be a key stuck down on
+//! menus that act on edges.
+//!
+//! **Nothing is down while the window is behind, and the way back is not a press.** Reading while behind
+//! would let typing elsewhere drive the game, so everything reads as released — but zeroing alone makes the
+//! return an edge, everything read as up and then read as down, which is a press by the rule those menus
+//! use. So whatever is down on the first frame orb is reading again counts as already held. The first read
+//! of all goes the same way: orb starting while a key is down is the same thing as coming back to one.
+//!
+//! **`--sent-keys`** has the game read its keyboard the way it does when DirectInput gave it no device: orb
+//! lets the device go — `Unacquire`, `Release`, the pointer cleared, which is what `Supervisor::RegisterChain`
+//! itself does with one it cannot set up — and `Controller::GetInput` then takes its `GetKeyboardState`
+//! branch. What that buys is a session another program can drive, which is otherwise impossible: a device
+//! held `DISCL_EXCLUSIVE | DISCL_FOREGROUND` does not see keys injected with `SendInput`, and every screen
+//! orb has a question over is the game's own screen answered on the game's own keyboard. Nothing else about
+//! a run changes — the same code turns those keys into the same buttons.
 
 use orb_api::{Hwnd, keyboard, window};
 

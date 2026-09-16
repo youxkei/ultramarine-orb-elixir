@@ -20,8 +20,8 @@ string at an `.rdata` address is at `va - 0x48d000 + 0x8c200` in the file. The g
 CP932.
 
 **This file is a reading and not a plan.** What orb *does* with any of it is in the code beside the
-constant, and why the code is shaped that way is `docs/adr/`. What is here is what the game does, so that
-the next person reading these functions starts where this stopped.
+constant. What is here is what the game does, so that the next person reading these functions starts where
+this stopped.
 
 **And two spellings of one address disagreeing is the cheapest evidence there is, worth looking for on
 purpose.** This game holds its globals as fields of the game manager as well as absolutely, so the same
@@ -306,7 +306,7 @@ is the cherry's own obfuscation and not noise.
 
 Inside `GameManager::AddedCallback` (`0x42e83e`), per stage, at `0x42f05f`:
 
-```
+```text
 if ([0x62f648] >> 3) & 1 {                  a replay is playing
     0x42e38c(gm)                            gm+0x9634, gm+0x963c, gm+0x9638 from [0x49f5d0 + shot*0xc]
     0x443aa0(ecx=1, edx=0x62f654)           the replay manager, reading
@@ -332,7 +332,7 @@ stage slots' pointers fixed up to absolute and their lengths worked out.
 
 From `0x443734` is the part that runs for every stage:
 
-```
+```text
 slot   = [0x62f85c] - 1        the stage, held at 6
 record = [replay + slot*4 + 0x1c]         -1 returned where the slot is empty
 inputs = [replay + slot*4 + 0x38]
@@ -423,7 +423,7 @@ score instead.
 
 `[0x62f644]` is an index into the 31 dwords at `0x49ecf8`:
 
-```
+```text
 10 20 30 40 50 60 70 80 90 100 200 300 400 500 600 700 800 900 1000
 2000 3000 4000 5000 6000 7000 8000 9000 10000 11000 12000 12800
 ```
@@ -451,7 +451,7 @@ zero and is what a slot the list does not show has failed. What the list then co
 
 `0x4433b0` is the whole of the reading, in four steps:
 
-```
+```text
 [+0x00] == [0x496aa8]                       the magic, "T7RP"
 [+0x04] == 0x1100                           the version, as a word
 key = [+0x0d]                               and from +0x10 to the end of the file:
@@ -489,7 +489,8 @@ list names:
 
 The screen's phases are dispatched at `0x445dd4`: the byte table at `0x446a4f` indexes the jump table at
 `0x446a1f`, and **phase `0xa` is the name entry**, whose handler is `0x446a66`. Phases `0xb` to `0xf` reach
-`0x447198`, the replay's, and `0x10` and `0x11` reach `0x447fd0` — the walk `docs`' own note above names.
+`0x447198`, the replay's, and `0x10` and `0x11` reach `0x447fd0` — the walk the score file's own phases above
+name.
 
 `0x446a66` walks a cursor at `[this+0x20]` over the 96 characters at `[0x49ec30]` — ±0x10 a row, ±1 a column,
 the 94th of them the space item, and a slot holding `0x20` skipped as the grid's own hole. On the shot key it

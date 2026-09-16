@@ -2,7 +2,7 @@
 #
 # **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the game
 # manager's state: 1 is the logo, 2 the title, 6 goes by on its own, 7 the difficulty, 9 the shot select and
-# 11 a stage. `docs/th06c/asm.md` has where each was read.
+# 11 a stage. `orb-core`'s `game/th06c/asm.md` has where each was read.
 #
 # **Six frames a press, because these menus repeat a held key** rather than taking one edge from it: a launch
 # whose presses were thirty frames long moved two screens on one press and came out Lunatic three times

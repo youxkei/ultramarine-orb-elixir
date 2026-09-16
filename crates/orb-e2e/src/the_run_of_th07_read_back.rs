@@ -7,8 +7,8 @@
 //!
 //! What it still cannot catch is an offset that is wrong: the laid-out game lays its memory out through the
 //! same constants the reads use, so a wrong one is wrong on both sides at once. Those are settled against
-//! `th07.exe` — see `orb_core::game::th07`, where each is written down beside what identifies it, and
-//! `docs/adr/0008` for why a laid-out game cannot settle them.
+//! `th07.exe` — see `orb_core::game::th07`, where each is written down beside what identifies it; a
+//! laid-out game writes and reads through the same constants, so it cannot settle them.
 //!
 //! The chases are the part worth having here. A field the game has not built yet is reached through a pointer
 //! that is nothing, and every one of those has to come back as "none" rather than as a fault: the manager's

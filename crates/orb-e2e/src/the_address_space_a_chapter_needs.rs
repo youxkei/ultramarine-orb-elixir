@@ -11,8 +11,7 @@
 //! asked here is the same telling — which ranges, and for how long — over this game's chapters. The
 //! keeping itself is a reservation over pages a laid-out game does not have: `Sim::hold_what_a_restore_needs`
 //! says so, and `orb::memtrack` is where the one call that asks for it lives, beside the import hooks it
-//! belongs with. See
-//! [docs/adr/0020](../../../docs/adr/0020-the-address-space-a-chapter-needs-is-kept-when-the-game-hands-it-back.md).
+//! belongs with.
 
 use crate::fake::th06::{BOSS_ARRIVES, Fake, the_run};
 use crate::fake::{Launched, READS_KEYS_AFTER, in_its_own_process};

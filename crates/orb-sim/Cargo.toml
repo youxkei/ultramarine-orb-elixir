@@ -14,8 +14,6 @@ orb-api = { workspace = true, features = ["sim"] }
 # a `Sim` installed and nothing of a game anywhere in them. Every launch went to `orb-e2e`, which is
 # also where `orb` stopped being named from here: `orb-sim` → `orb` → `orb-core` → `orb-sim` closed as a
 # cycle cargo took only because a dev-dependency edge is outside the normal build graph, and it is gone.
-# See
-# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
 #
 # Dev-dependencies rather than dependencies because nothing in the simulator itself knows about orb's
 # logic. `orb-core`'s own `sim` feature depends back on this crate, and `crates/orb-core/Cargo.toml`

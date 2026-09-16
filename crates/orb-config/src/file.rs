@@ -20,6 +20,54 @@
 //! language is a word or `auto`, and both are written here exactly as they are read back, where a
 //! serialiser would be two `Serialize` implementations saying the same thing further away from the
 //! parsing they have to agree with.
+//!
+//! **Three places, split by who sets them and when.** `orb.yaml` holds what somebody playing sets and leaves
+//! set; a launch's arguments hold what is different every time it is run; and the mode a run is in is asked
+//! inside the game, where the run is started.
+//!
+//! `orb.yaml`'s keys are `screen`, `language`, `thcrap`, `skip_ending`, `always_draw`, `boundary_flash`,
+//! `hide_mouse`, `dpad_moves`, `save_replays`, `player_name` and `ask_at_startup`. YAML read with serde;
+//! every one but `screen`, `language`, `thcrap` and `player_name` is a switch written `true` or `false`,
+//! `screen` is written `fullscreen` or a size like `1280x720`, `language` is written `japanese`, `english`
+//! or `auto`, `thcrap` is a switch that takes `auto` as well — the two whose answer the machine can give —
+//! and `player_name` is the name orb read out of the game's own name entry, written back double-quoted so
+//! that a name that is a number, a switch's own word or a line with a colon in it comes back as itself.
+//! `deny_unknown_fields`, so a key nobody reads is an error naming it — including one that used to be a
+//! key, which is a file to edit rather than one to pass over quietly. A setting that is not read is a
+//! setting somebody thinks is on.
+//!
+//! **Two of them are what a launch does with a replay, and neither is off meaning nothing.** `save_replays`
+//! on keeps the replay of every pointdevice run without asking; off — which is what a file that says
+//! nothing gives — is orb *asking*, at the two moments nothing more will ever be added to one, and keeping
+//! the ones that were said yes to. `player_name` is whose those runs are, shown against each replay in the
+//! list they are offered from, and it is **not a setting anybody types**: orb writes there the name it read
+//! out of the game's own name entry, and the key is what carries that name to the next launch — empty until
+//! a run has ended at one. A longer one written into the file by hand is cut to what orb has room to draw
+//! beside the rest of the line.
+//!
+//! **The launcher asks for every one of them but the name before it starts the game**, and writes back what
+//! it is told. The name is not asked because the game asks it: what the dialog would have had is a row typed
+//! into beside a screen of the game's own that types the same thing, and whichever of the two was touched
+//! last would be whose the replays are. Which is why they are the keys they are: each is about the machine
+//! the game is being played on, and somebody who has just installed one file has nothing to edit.
+//!
+//! `ask_at_startup` is the last of the questions. Answer no and the next launch starts the game straight
+//! away; `--settings` asks whichever way it is set, which is the way back. Closing the window rather than
+//! answering it starts no game and writes nothing.
+//!
+//! **No file is every default**, which is what leaves the launcher the one file to install — and what makes
+//! the default `ask_at_startup: true`, so a first launch asks and there is a file afterwards. A file that
+//! `--config=PATH` names and does not find is an error even so, since a path somebody typed is one they
+//! meant, and answering it with the defaults would leave them watching for a setting nothing read.
+//!
+//! **Nothing but the keys and their values is written.** What each of them is for is said by the dialog that
+//! asked all of them, in the language the person answering reads — so a comment over each key would be the
+//! one thing orb installs that is in one language whoever gets it may not have. A file somebody has written
+//! comments into keeps them until the dialog writes that file back, which is the same moment every value in
+//! it is replaced by what was just answered. It is written by hand rather than through a serialiser even so:
+//! `screen` is a word or a size and `language` is a word or `auto`, and both are written exactly as they are
+//! read back. There is no copy of the file in this repository to install: it is written by the thing that
+//! asks, and a second hand-kept copy is one that goes stale.
 
 use serde::Deserialize;
 

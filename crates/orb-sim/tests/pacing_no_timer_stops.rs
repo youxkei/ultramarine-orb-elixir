@@ -1,7 +1,6 @@
 //! A host that cannot make the timer every wait is made on: the frame's turn is not waited out.
 //!
-//! The other half of `pacing_no_timer.rs`, whose header has the whole of why — decision 3 of
-//! [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md): orb says so
+//! The other half of `pacing_no_timer.rs`, whose header has the whole of why: orb says so
 //! and *stops*, rather than pacing on with a wait it does not have.
 //!
 //! **A file of its own rather than a second test beside that one**, which is what it was: orb's log is

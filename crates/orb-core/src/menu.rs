@@ -12,6 +12,33 @@
 //!
 //! Apart from the drawing — `menu_ui` in the `orb` crate — because what these decide is a function
 //! of a keyboard and a pad, and both of those are things a test can hand over. The labels are not.
+//!
+//! **A menu of orb's has to read the pad itself.** Freezing the game stops its input read, so on those
+//! frames a pad drives nothing — which looks like the pad being broken, since it worked on the game's own
+//! menu one keypress earlier. So both of orb's menus ask the game what the pad is doing, and the answer is
+//! read the way the game reads it: its own DirectInput controller where it has one, the winmm sample orb's
+//! thread keeps where it has not, and either way through `g_Supervisor.cfg.controllerMapping` — the same
+//! copy `Controller::GetControllerInput` reads. Which of the two matters more than it sounds; see
+//! [`crate::joystick`].
+//!
+//! **Shoot decides; bomb and menu cancel.** Which is what the game's own menus do: `TH_BUTTON_SELECTMENU` is
+//! `TH_BUTTON_ENTER | TH_BUTTON_SHOOT` and `TH_BUTTON_RETURNMENU` is `TH_BUTTON_MENU | TH_BUTTON_BOMB`, so
+//! either of those two is a back there. The settings dialog reads it the same way, out of the game's
+//! configuration file rather than the game's memory, because a button that answers a question before the
+//! game starts and cancels one inside it is worse than either.
+//!
+//! The menu button decided for a while instead. On the pad orb was first run with it was button 0 — where a
+//! thumb rests — so the most obvious button on the pad closed the question instead of answering it. That is
+//! what the launcher printing the mapping it read is for, that being the only place it is written down in a
+//! form anybody can look at: a pad where shoot and menu are the other way round is a pad on which orb's
+//! menus will look like they cancel themselves, and the printed line is where to see it.
+//!
+//! Up and down come from that mapping too, and from the Y axis read the way that function reads it — the
+//! centre halfway between `g_JoyCaps`' bounds and a dead zone of a quarter of the travel either side, its
+//! low side being up since the axis is measured downwards — and from the hat, which is where a d-pad reports
+//! and which the game itself does not read at all. All of it on the press rather than the holding, and the
+//! previous frame's state is kept through the grace frames as well — a button held from before the menu
+//! opened must not become a press the moment the grace ends.
 
 use std::fmt;
 

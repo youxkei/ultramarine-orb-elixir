@@ -26,6 +26,96 @@
 //! thcrap's: a patch that cannot be found or cannot be injected is a game somebody plays in Japanese,
 //! which is the game they had before installing either. Every step says what it did in the line the
 //! launcher prints.
+//!
+//! **The game's own words are thcrap's, and `orb.exe` is the only file started.** Somebody who has installed
+//! both otherwise has two launchers for one game and has to pick: through thcrap and there is no orb in the
+//! process, through orb and there is no translation. So a launch looks for a thcrap, brings its patch stack
+//! up to date, and hands it the game orb has just created — the same launch, whichever of the two the player
+//! thinks of as the launcher. `thcrap: true` and `false` are how somebody says which they want whatever
+//! their machine is.
+//!
+//! **And `auto` — what a file with nothing in it says — is answered by the language orb writes its own
+//! screens in: off where that is Japanese and on where it is anything else.** Japanese is somebody who reads
+//! the words the game already has, and putting an English patch over them would be orb translating a game
+//! away from the language its owner reads; anything else is somebody who cannot read those words, and a
+//! thcrap installed beside the game is what they installed it for. It is that answer and not
+//! `GetUserDefaultUILanguage` directly, so `language` decides this too where it names a language: somebody
+//! who says which language they read has said it about the patch as well. A switch that defaulted to on for
+//! everybody made a Japanese machine with thcrap installed for some other game start th06 in English, and
+//! off for everybody leaves whoever installed thcrap to play this game in English playing it in Japanese
+//! until they find a checkbox. Neither answer is a guess that stands: the settings dialog shows it as the
+//! box it starts from, and whatever comes back from it is written down by name.
+//!
+//! **Where thcrap is comes out of the launcher its own configuration tool wrote.** That tool writes `th06
+//! (en).exe`, whose string resources 0, 1 and 2 are the `bin` it runs from, the command line it runs, and
+//! the exe it runs — and resource 2 naming `thcrap_loader.exe` is what says a file is one of those rather
+//! than the game's own exe or orb's, which carry no string resources at all. It writes `th06 (en).lnk` as
+//! well, whose target and arguments are the same two things read back through `IShellLinkW`, the shell
+//! being the one program never wrong about its own format — a `.lnk` holds a target id list, a link info
+//! block and the string data, and which of those wins is a question the program that wrote the file
+//! answers. `windows-sys` carries Windows' functions and constants and not its COM interfaces, so the two
+//! vtables are declared here in the shape `orb-api` declares Direct3D's — every slot in the interface's own
+//! order, the ones nothing calls holding their places as `usize`. So the patch stack, the run configuration
+//! and the game id are read out of what thcrap wrote about itself, and orb reproduces no step of thcrap's
+//! own installation.
+//!
+//! **Three folders are asked, in this order: the game's directory, the desktop, and thcrap's own folder under
+//! the start menu.** Those are three of the four the configuration tool offers, and the fourth — a launcher
+//! inside the directory thcrap is installed in — cannot be asked for, being inside the directory this is
+//! looking for. Every launcher in a folder is asked, in the order the names sort, since which patch stack it
+//! is is in the name and orb has no more idea than the player which of two is meant — a launch that picked a
+//! different stack each time would be a translation that changed by itself. The game's directory first,
+//! because a launcher there was installed to play *this* game with. A thcrap installed on another drive from
+//! the game is found, and this is the arrangement the wizard produces by default: the path baked into a
+//! wrapper exe is relative only where a relative path can reach, and `games.js` holds an absolute path under
+//! the same condition, so both forms arrive at discovery and both are resolved. The desktop is read on Wine
+//! as well, where thcrap writes a wrapper exe there rather than a shortcut.
+//!
+//! **A launcher on the desktop or under the start menu is matched to the game through thcrap's
+//! `config/games.js`.** Those two folders hold a launcher per game, so the game id in the command line is
+//! read back through the file thcrap resolves it with, and what makes a launcher this game's is that the
+//! exe that file names for its id is the exe orb is about to start — compared through the file system
+//! rather than as two strings, since one of them has been through `..` and a wizard's idea of a drive
+//! letter. `games.js` is read for the one id rather than parsed: what is wanted is one string out of a file
+//! of `"th07": "../th07.exe"` lines, and the `\u` escapes are taken off because the writer puts them there —
+//! the configuration tool serialises with .NET's own encoder, which escapes everything outside ASCII, so
+//! th06's exe is five of them in the file. A launcher beside the game is asked no such question: what
+//! somebody installed there is what they installed to play this game with.
+//!
+//! **Two of thcrap's own exports do the injection, in the order its own loader calls them.** A process
+//! created suspended has not had the loader initialisation Windows does before an entry point, and thcrap
+//! put into one in that state leaves the game standing — a game with thcrap's DLLs in it and no window.
+//! `WaitUntilEntryPoint` is thcrap's answer, exported for this: it runs the process to its entry point,
+//! which is after Windows' initialisation and before any of the game's code, and stops it there.
+//! `thcrap_inject_into_running` then takes the process and the run configuration and does the rest itself.
+//! Both are cdecl — `THCRAP_API` names no convention — and called as stdcall instead the stack comes back
+//! short and orb dies with the game left at its entry point.
+//!
+//! **orb's own DLL goes in second.** The two rewrite some of the same import entries, `CreateWindowExA`
+//! among them — orb's to size the window, thcrap's to read its title as UTF-8 — and whichever is second owns
+//! the entry. orb's rewrite calls through to what was there and thcrap's does not, so orb second leaves both
+//! working and orb first leaves the window the size the game asked for with orb's letterbox holding no
+//! client — a launch that came up in the game's own 640x480 with `screen: fullscreen` in the file.
+//!
+//! **The patch stack is brought up to date the way thcrap's loader does it**: `runconfig_thcrap_dir_set`
+//! with the installation, then the run configuration, then `stack_update_wrapper` twice — the
+//! game-independent files under thcrap's global filter and this game's under its games filter, which is
+//! what keeps a machine with one game from fetching the translations of thirty. thcrap's own
+//! `update_at_exit` decides when: before the game starts unless that box is ticked, in which case the pass
+//! after the game is running is the one that fetches, and the next launch is the one that plays with the
+//! new files. `thcrap_update.dll` is loaded by orb first, with the same altered search path, because the
+//! wrapper in `thcrap.dll` loads it *by name* — from orb's directory, where it is not — and answers with a
+//! fallback that updates nothing when it cannot.
+//!
+//! **Nothing is passed where thcrap's progress callback goes**, and a launch says only that the update ran.
+//! Giving it one corrupted the process's heap — `0xc0000374` first, then the same access violation 477
+//! times and a stack overflow to finish, on two runs out of two with files to fetch — where the same two
+//! calls with nothing there fetched the same thirty files and came back.
+//!
+//! **A failure anywhere in this does not stop the launch.** The game is orb's business and the words in it
+//! are thcrap's, so a patch that cannot be found, loaded or injected is a game somebody plays in Japanese,
+//! which is the game they had before installing either. What each step did is in the line the launcher
+//! prints.
 
 use std::ffi::{CString, c_void};
 use std::os::windows::ffi::OsStrExt;

@@ -8,8 +8,7 @@ publish.workspace = true
 # host goes through `orb-api`, and `cargo xtask seam` holds it to that by checking it for a host with no
 # Windows — 32-bit, because the game's own methods are called by the conventions MSVC6 compiled them with
 # and `extern "thiscall"` exists on x86 and nowhere else. So the tripwire is armed rather than described,
-# which is what the earlier version of this comment claimed and nothing checked. See
-# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+# which is what the earlier version of this comment claimed and nothing checked.
 [features]
 # The test support other crates' tests reach for — `game::th06::image`, the game laid out by hand.
 # A feature as well as `cfg(test)` because `cfg(test)` is false in a crate compiled as a

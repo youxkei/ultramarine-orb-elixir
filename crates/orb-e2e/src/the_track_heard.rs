@@ -3,7 +3,7 @@
 //! th06 builds the `.wav` and `.pos` paths of a track in stack buffers at `Supervisor::PlayAudio` and hands
 //! them to `SoundPlayer::LoadBGM`, which opens the file through a stream of its own and keeps the mmio handle,
 //! the length and the loop points of what it opened — so there is no name in its memory to read. See
-//! `docs/th06/asm.md`.
+//! `orb-core`'s `game/th06/asm.md`.
 //!
 //! What its line carries instead is [`orb_core::game::Game::music_identity`], the number a track's own
 //! numbers make: it names nothing and it tells one track from another, which is what a check on the music

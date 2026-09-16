@@ -14,8 +14,7 @@
 //!
 //! **Read out of the game's own code rather than off this tree**, because the laid-out game is both the writer and
 //! the reader of the memory orb is driven through: a build frame that skipped the scene's update, or one that left
-//! a word standing, would be one every e2e test here agreed with. See
-//! [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+//! a word standing, would be one every e2e test here agreed with.
 
 use crate::fake::th07::Fake;
 use crate::fake::{Display, Launched, Work, in_its_own_process};

@@ -1,8 +1,7 @@
 //! Ending the process orb is inside.
 //!
 //! One call, for one case: a host that cannot make the timer the frame loop waits on is a host orb
-//! does not run on, and what orb does about it is say so and stop — see
-//! [docs/adr/0006](../../../docs/adr/0006-the-frame-loop-waits-on-a-high-resolution-timer.md).
+//! does not run on, and what orb does about it is say so and stop.
 //!
 //! Behind the seam because a suite that really exited would take the harness's child with it, so
 //! there is behaviour here no e2e test could otherwise reach.

@@ -20,8 +20,7 @@ const TARGET: &str = "i686-pc-windows-gnu";
 /// The host with no Windows on it that the crates above the seam are checked against, which is what makes
 /// the boundary self-enforcing rather than kept by hand.
 ///
-/// The rule is that **the code an e2e test drives cannot reach Windows except through the seam** — see
-/// [docs/adr/0009](../../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md).
+/// The rule is that **the code an e2e test drives cannot reach Windows except through the seam**.
 /// A host that has no Windows is the only thing that can say so: a grep for `windows-sys` passes a file
 /// that is calling a COM vtable, and a build for [`TARGET`] passes anything at all.
 ///
@@ -130,7 +129,7 @@ const LLVM_MINGW: &str = "LLVM_MINGW";
 /// Which is what a run is worth reading for: a missed line with no such note beside it is either work or a
 /// note somebody has not written. `game/th07` is the one file to read differently — it is at 20.8% because
 /// `orb-e2e`'s `th07` asserts orb does nothing to a game that declines everything, so raising it changes
-/// what is measured rather than what is known. See `docs/adr/0004`.
+/// what is measured rather than what is known.
 const COVERED: &str = "orb-e2e";
 
 fn main() -> ExitCode {

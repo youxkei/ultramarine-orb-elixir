@@ -7,8 +7,6 @@
 //! **`register_class_a` is here rather than in [`orb_core::window`] with the other rewrite**, and it is
 //! the one exception to where a hook body lives: the whole of what it does is one GDI call, and a seam
 //! function for a call nothing else makes would be a worse tree than a body that stays beside the patch.
-//! See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
 //!
 //! Everything both rewrites decide is [`orb_core::window`]'s: where the window goes, where the game goes
 //! inside it, the `Present` slot redirected into that rectangle, and the lines orb writes in the black

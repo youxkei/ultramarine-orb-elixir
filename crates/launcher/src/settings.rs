@@ -16,6 +16,77 @@
 //!
 //! Its measurements are therefore in dialog units, which are the font's own, so the dialog scales
 //! with whatever the system gives it and nothing here is in pixels.
+//!
+//! It is orb's own window rather than a dialog resource — a resource means a `.rc` and a resource compiler
+//! in the build, for a list of controls this short — with the system's own message font asked for rather
+//! than a face named, since a face named here is one that is missing on somebody's machine and the text may
+//! be Japanese.
+//!
+//! **A real dialog, class `#32770`**, from a `DLGTEMPLATE` built in memory. It is as tall as what is stacked
+//! in it rather than a height of its own, so a switch added to the list takes the dialog with it instead of
+//! being drawn over the buttons. Being one rather than looking like one is the point — a window manager
+//! decides whether to leave a window alone by asking what it is, and the dialog class is the answer it looks
+//! for: a window of orb's own class with a dialog's styles was tiled by a window manager that leaves real
+//! dialogs alone. Its measurements are therefore in dialog units, a quarter of the font's average character
+//! width across and an eighth of its height down, so the whole of it scales with the font the system gives
+//! it — which is also why display scaling costs the dialog nothing. The one measurement the language
+//! changes is the column the two labels are written in, `画面` being two characters where `Language` is
+//! eight. The dialog manager brings the rest: tab between the controls, return on `はじめる` / `Start`,
+//! escape on `やめる` / `Quit`.
+//!
+//! The window sizes offered are 16:9 and then 4:3 at the heights monitors have, biggest of each first and
+//! the game's own 640x480 last, filtered to those that fit the primary monitor with a window frame's worth
+//! of room to spare. 16:9 above because that is the ratio that leaves black for the status line, and biggest
+//! first because on a large monitor the size wanted is the large one. The frame is allowed for by a fixed
+//! 16x40 rather than measured, because the window being filtered for is the game's: it does not exist yet,
+//! and it is created by the other half of orb inside a process that has not started. A monitor is therefore
+//! never offered a window as tall as itself — that is what fullscreen is for.
+//!
+//! **The dialog answers to a pad**, which no dialog does by itself and which matters because the person it
+//! is put in front of is about to play a game with one in their hands. `joyGetPosEx` on a thread of its own
+//! — the same call the game makes, and slow for the same reason, the worse case being the one where there is
+//! no pad to find, so a message loop cannot be made to wait for it — read again as soon as each read
+//! finishes, because a press is only ever seen if a read lands while the button is down. A cycle that waited
+//! between reads was longer than a quick tap and lost taps that fell between two of them, which is what a
+//! pad that answers *sometimes* looks like; the launcher also prints whether a pad answered at all and how
+//! many pushes it sent, since a pad that was never there and one that was pushed and ignored want opposite
+//! things done about them. The thread posts what it sees to the dialog, which turns it into what the dialog
+//! manager and the controls already answer to.
+//!
+//! **What the pad does is a menu's, not a dialog's.** Up and down move a row at a time, and the two buttons
+//! are one row — left and right choose between them, the way a menu with two answers on one line works. Left
+//! and right otherwise change what the row holds more than one of, which is either of the two lists — the
+//! sizes and the languages; a switch is on or off, so turning one over is the decide button's job rather
+//! than a sideways push, which does nothing there. The decide button does whatever the row it is on needs
+//! doing to it: a list is opened, a switch is turned over, a button is pressed. While a list is open it has
+//! the whole pad — up and down move inside it and either button closes it, a dropped list's selection
+//! already being whatever it is showing. The row is worked out from whatever has the focus rather than
+//! remembered, so the pad picks up wherever a mouse or the tab key left off, and the focus is moved through
+//! the dialog with `WM_NEXTDLGCTL` so that its own idea of where it is goes along.
+//!
+//! A stick and a d-pad both drive it: a hat reports in `dwPOV` — hundredths of a degree clockwise from up,
+//! and 0xffff for pushed nowhere — and not on the axes at all, so reading only the axes leaves a d-pad dead.
+//! Up is the *low* side of the Y axis, that axis being measured downwards; the other way round is a dialog
+//! that moves the wrong way. Nothing about the controls is aware that a pad exists. Which button is which
+//! comes out of the first 18 bytes of the game's own configuration file — its `ControllerMapping`, nine
+//! `i16` — so the dialog answers to the buttons the game will, and falls back to the game's own defaults
+//! where there is no file to read.
+//!
+//! **Display scaling is ignored on both sides.** `SetProcessDPIAware` before either process puts anything on
+//! the screen: the launcher before it measures the monitor, and orb inside the game before the window is
+//! created. Without it every size is a size Windows quietly multiplies — a 1280x720 window asked for on a
+//! monitor at 150% covers 1920x1080 of screen, and the monitor a fullscreen window is measured against reads
+//! as two thirds of itself. What it costs is that the settings window's own layout is then in real pixels
+//! and has to be scaled by hand, from `GetDeviceCaps(LOGPIXELSY)` against the 96 the numbers are written in;
+//! the font does not, since what the system hands back for its own windows is already the size it wants at
+//! that dpi.
+//!
+//! **The dialog is in whatever the file said when it was built**, and the row that changes the language does
+//! not change the dialog's own words: every label is in the template the dialog manager has already read,
+//! and rebuilding the window under the hand answering it would be a dialog that vanishes mid-answer. What
+//! the row asks for is what the game and the next launch are in. The two languages are named in themselves
+//! — `日本語` and `English` — the way every language picker names them; only the machine's own is a word
+//! the dialog translates, `自動` or `Automatic`.
 
 use std::error::Error;
 use std::ffi::c_void;

@@ -21,7 +21,7 @@
 //!
 //! **What moves the player here is orb's addition and only orb's.** This game does no more with a pad
 //! than the real one's arithmetic is left to do — its `get_controller_input` hands the keyboard's word
-//! straight back, `docs/adr/0008` refusing to have where-an-axis-becomes-a-direction written twice — so
+//! straight back, where-an-axis-becomes-a-direction being orb's and written once — so
 //! a pad that moved the player moved it through orb.
 //!
 //! Legacy mode throughout: what a direction does to the player is the same in either mode, and a

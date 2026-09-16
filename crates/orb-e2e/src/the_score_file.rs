@@ -2,8 +2,7 @@
 //!
 //! **The game opens the file and orb decides which one it gets.** The fork is a hook over the exe's
 //! `CreateFileA`, reached in a real launch by patching its import table and here by the game handing its own
-//! over — `Originals::create_file`, the same answer `create_window` is, and see
-//! [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md). What
+//! over — `Originals::create_file`, the same answer `create_window` is. What
 //! crosses that call is the path and the access, which is the whole of what these read back: no file is on
 //! any disk. The fork's own arithmetic is covered — `score.rs`'s
 //! `the_game_score_file_is_forked_where_the_game_asked_for_it` and the six beside it — and what these add is

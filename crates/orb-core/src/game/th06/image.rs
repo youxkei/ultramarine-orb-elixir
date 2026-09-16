@@ -15,6 +15,34 @@
 //! Zeroed, not filled with plausible values. A field the game has not written is zero in a
 //! freshly committed page too, and a `Game` method that has to survive reading one is a method
 //! whose pointer chases go through `read_committed` — which is the property worth holding it to.
+//!
+//! Every read and write of the game's memory goes through `orb_api::mem`, and a test can put an address
+//! space of its own in front of the real one: regions at the game's own bases, holding bytes, with `Th06`
+//! reading them through the same four functions it reads a running game through. So the offsets, the
+//! structure walks and the patching are all exercised, rather than a second implementation of `Game`
+//! standing in for them.
+//!
+//! The space answers more than bytes, because that is what the code asks. A region can be committed,
+//! reserved without being committed, or a guard page — which is how a pointer into a structure the game has
+//! not built yet comes back as nothing rather than as a process that has died — and it can be an image or an
+//! allocation, which is how a live COM object's vtable is told from the stale pointer left in a block the
+//! allocator did not scrub. A restore that finds a region gone commits it again, as it does when the game
+//! has handed a few megabytes back to the OS. Installed per thread and taken off again when the test ends,
+//! as the rest of the seam is.
+//!
+//! What this cannot catch is an offset that is wrong: the space is written from the same constants the reads
+//! use, so a wrong one is wrong on both sides at once. Offsets are settled against th06 1.02h running, each
+//! read held against what the screen showed, and each is written down beside the offset it was read at.
+//! Everything built on top of them is what the space is for.
+//!
+//! It also answers what a snapshot covers. In a real process that is a walk of the heaps the game took from
+//! the OS, which the import hooks hand over as they see them; a laid-out space *is* the game's memory, so it
+//! says which regions those are itself. Either way `memtrack` asks `mem::game_regions` like every other host
+//! call, since a branch on `cfg(test)` there is a branch an e2e test does not reach — and holding the answer
+//! to no two regions covering the same pages is the answering host's, a heap region and a reservation being
+//! able to name the same ones where two laid-out objects that abut are two objects.
+//!
+//! In a build without the `sim` feature the space does not exist and none of `mem`'s functions branch.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -126,8 +154,7 @@ const FRONT_END_ELEM: Range<usize> = 0x0300_e000..0x0300_f000;
 /// `GameManager::AddedCallback` registers — the stage at 6, the player at 7, the enemies at 9, the effects
 /// at 10 and the bullets at 11. One job rather than five: they are one function here, and no e2e test can
 /// reach the difference because the memory that comes out of them is the same either way. Which is a
-/// declared stand-in in the sense
-/// [0001](../../../../docs/adr/0001-a-fake-th06-drives-orb-end-to-end.md) means it.
+/// declared stand-in.
 const CALC_SUPERVISOR: i16 = 0;
 const CALC_MAINMENU: i16 = 2;
 const CALC_ENDING: i16 = 3;

@@ -180,7 +180,7 @@ pub fn cases_of(game: Game) -> Vec<Case> {
 ///
 /// **Which is the whole of what it can be asked**, and each half of it is a reading of its own — the run
 /// ends where the run ends because `Game::replaying` tells its attract demo from a run, and the name is
-/// written because its own entry has been read. Both are `docs/th06c/asm.md`'s.
+/// written because its own entry has been read. Both are `orb-core`'s `game/th06c/asm.md`'s.
 ///
 /// **And no laid-out th06c plays it first.** `orb-e2e`'s `the_cases_the_real_game_is_tested_with` has a test
 /// per game and names the two it has an `Image` for; this game has none, so what a wrong step here costs is

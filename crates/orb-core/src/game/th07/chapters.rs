@@ -1,13 +1,11 @@
 //! Midstage chapter boundaries, as script frame numbers.
 //!
 //! The script clock is the one this game's stages run on, so a frame number here lands on the same point of the
-//! wave pattern however fast the run is going and whatever difficulty it is — see
-//! [docs/adr/0018](../../../../../docs/adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md), which
-//! is the reading that settled which of the game's four clocks that is. Boss attacks are not listed: those
+//! wave pattern however fast the run is going and whatever difficulty it is; which of the game's four clocks
+//! that is, is settled beside `SCRIPT_FRAMES` in `th07/mod.rs`. Boss attacks are not listed: those
 //! boundaries are found as the fight is fought.
 //!
-//! Built with `orb --judge` over a Lunatic replay, a stage at a time; see *Building the midstage table* in
-//! `SPEC.md`. A boundary inside a stage is read off such a run and off nothing else, so it cannot be walked out
+//! Built with `orb --judge` over a Lunatic replay, a stage at a time; see `orb_core::tuning`. A boundary inside a stage is read off such a run and off nothing else, so it cannot be walked out
 //! of the exe the way every address in `th07/mod.rs` was. `chapters.rs` beside the game is what a pass writes for
 //! pasting over this file, and `tuning.txt` beside it holds the same numbers for the next sitting.
 //!

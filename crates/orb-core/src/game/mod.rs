@@ -10,6 +10,36 @@
 //! rest, which is how the list of what a second game still needs is found rather
 //! than guessed at. So orb paces th07 and plays th06. Which of them a process
 //! is is [`KNOWN`].
+//!
+//! **One table names every game orb knows, and both halves read it.** [`KNOWN`] holds, per game, the exe's
+//! own file name, the file the game keeps its configuration in, the builds the addresses were read off — an
+//! md5 and what that build is called, apiece — and the [`Game`] those addresses are in. The launcher finds
+//! the game by which entry's exe is in the directory it was pointed at, and refuses an exe that is none of
+//! that entry's builds, naming every game and build orb knows; the build it *is* is what the line a launch
+//! prints names, since a report of a fault is read against what was played and the file's own name does not
+//! say which. The DLL is already inside the process by the time it can ask anything, so it matches on the
+//! exe's own file name — case-insensitively over the ASCII of it — and names in the log every build its
+//! addresses were read off, which of them this one is being the md5's to say and the md5 being read before
+//! the process existed. A process no entry names is one where orb patches nothing, says which games it
+//! knows, and does nothing else.
+//!
+//! **A list of builds rather than the one build, because a translation patch makes another one.** orb reads
+//! the game's state through absolute addresses, so what an entry has to hold is every exe those addresses
+//! are right for — and an exe with the game's text swapped out is a different file with the same code in it.
+//! Each build in the table is one somebody has had orb's addresses read against; what is not in it is
+//! refused, whatever it says about itself.
+//!
+//! The choice is made once, at the attach, and kept in a static the hooks read: a hook is a plain `extern`
+//! function with nothing but the ABI's arguments, so where it would be handed a game it reads one — the same
+//! reason the frame loop's two calls into the game are statics.
+//!
+//! One table rather than a constant apiece because two lists cannot be kept in step, and a launcher that
+//! starts a game the DLL does not recognise is a launch where orb is loaded and silent.
+//!
+//! **Every address answers a measurement and none answers a guess**: an address written down because it is
+//! where another game keeps the same thing is the one thing that must not happen. The addresses in th07's
+//! frame lined up with th06's and the *shape* of the frame did not, and orb's first loop over it took the
+//! game down on its first frame.
 
 /// Where to call one of the game's own functions, which is its address in a real process and whatever a
 /// game laid out by hand hands over in its place: a reader, a setter, and the slot behind them.
@@ -18,8 +48,7 @@
 /// makes into itself that an e2e test reaches has to be answerable — a shake still running at a stage
 /// move is taken down through one of th06's, and the queue of quads a frame of th07's drawing fills is
 /// emptied and drawn through two more. An e2e test without them would be jumping into memory nothing has
-/// mapped. The same answer `window::install_over` and `score::install_over` are — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// mapped. The same answer `window::install_over` and `score::install_over` are.
 ///
 /// Here rather than in either game because both games have such calls, and a macro apiece is one of them
 /// drifting. The slot is behind the same gate the laid-out images are, so the shipped DLL has the
@@ -77,7 +106,7 @@ use crate::audio::Music;
 ///
 /// Here rather than a constant apiece in the DLL and in the launcher, so that the two cannot
 /// disagree about which games exist: the launcher starts nothing it finds no entry for, and orb
-/// inside a process no entry names does nothing at all. See `docs/adr/0004`.
+/// inside a process no entry names does nothing at all.
 pub struct Known {
     /// The exe's own file name, which is what the process orb wakes up inside is recognised by:
     /// nothing else of a game is readable before the game it is has been settled.
@@ -170,7 +199,7 @@ pub fn known_by_exe(exe: &str) -> Option<&'static Known> {
 /// what they say has to be the same: `orb::attach` reads the name off the exe it woke up inside, and a
 /// game laid out by hand is running under a name of its own. A process orb has no addresses for is one
 /// it must leave exactly as it found it, so this is the line before which nothing of the host has been
-/// touched — see `docs/adr/0004`.
+/// touched.
 pub fn found(exe: &str) -> Option<&'static Known> {
     let Some(known) = known_by_exe(exe) else {
         crate::log!(
@@ -280,7 +309,7 @@ pub enum Read {
 /// measured, th06c's keyboard slot held `0x0` when orb read it. Answering the ask needs no address at
 /// all, which is what makes it hold across a build and across where the loader put the exe.
 ///
-/// See `docs/th06c/asm.md`, where the three hundred and forty-two names this kind of game asks for are
+/// See `th06c/asm.md`, where the three hundred and forty-two names this kind of game asks for are
 /// listed.
 pub struct Lookup {
     /// **The name, which is the whole of what identifies it.** Not the module beside it: the handle the
@@ -335,8 +364,7 @@ pub struct Call {
 /// whose answers the loop cannot read as they come: th06c's calc walk answers a byte saying whether the
 /// frame is leaving and writes the answer it leaves with through a pointer.
 ///
-/// Addresses for the reason [`FrameCalls`] holds addresses, and the same two statics behind them — see
-/// [docs/adr/0002](../../../docs/adr/0002-the-frame-loops-two-calls-into-the-game-are-addresses.md).
+/// Addresses for the reason [`FrameCalls`] holds addresses, and the same two statics behind them.
 pub struct Walks {
     /// `extern "fastcall" fn(*mut c_void) -> i32`, called where the patched calc chain would be.
     pub update: usize,
@@ -384,7 +412,7 @@ pub struct Hooks {
     /// this hook in place a launch counted 683, 692, 736, 761 and 773 reads against every 600 walks of
     /// the calc chain, so between a seventh and a quarter of the words were decided off a world that had
     /// not moved since the word before. See `orb_bot::steer::a_tick_read_again`, which is what answers
-    /// those where this is `None`, and `docs/th06c/asm.md` for the frame itself.
+    /// those where this is `None`, and `th06c/asm.md` for the frame itself.
     pub runs_its_frame: Option<Patch>,
     /// Writes a replay file. `None` if the game has nothing to suppress.
     pub save_replay: Option<Patch>,
@@ -1061,7 +1089,7 @@ pub trait Game {
     /// Skip`, 0x45db60 — and what its thread does about a wake that was late, and whether a refusal is a refill
     /// owed or one forgiven, has not been read off the exe or watched on the game. Its missed refills are
     /// counted and said, and the stream is left alone: a repair built on reading th07's ordinary state as a
-    /// fault was measured rebuilding the stream on every retry and taken out — see `SPEC.md`.
+    /// fault rebuilt the stream on every retry and was taken out — see `crate::audio`.
     fn a_missed_refill_is_never_made_up(&self) -> bool {
         false
     }
@@ -1071,7 +1099,7 @@ pub trait Game {
     /// **`None` is not a game with no music**, it is a game that does not keep the name: th06 builds the
     /// `.wav` and `.pos` paths of a track in stack buffers at `Supervisor::PlayAudio`, hands them to
     /// `SoundPlayer::LoadBGM`, and keeps the mmio handle, the length and the loop points of what it opened —
-    /// so there is nothing in its memory to read the name off. See `docs/th06/asm.md`. What a line about its
+    /// so there is nothing in its memory to read the name off. See `th06/asm.md`. What a line about its
     /// music has instead is [`music_identity`](Game::music_identity), which tells one track from another
     /// without naming either.
     fn the_track_heard(&self) -> Option<String> {
@@ -1318,8 +1346,7 @@ pub trait Game {
     ///
     /// Nothing for a game whose frame does nothing there, which is th06: its `GameWindow::Render` goes
     /// `BeginScene` at 0x4207d1, `Chain::RunDrawChain` at 0x4207dc, `EndScene` at 0x4207ef with nothing
-    /// between any of them. See
-    /// [docs/adr/0017](../../../docs/adr/0017-the-frame-loop-has-a-seam-either-side-of-the-draw-chain.md).
+    /// between any of them.
     ///
     /// # Safety
     /// Must run on the game's main thread with a live device, inside the scene the game draws into, and
@@ -1464,7 +1491,7 @@ pub trait Game {
     ///
     /// **An emptied record is not a zeroed one, which is why this cannot be a scan for zero bytes.** th07's
     /// own emptying zeroes every record and then writes each one's `CATK` header and card number back into it
-    /// — `docs/th07/asm.md`, under the score file's own phases — so an array a run's build has just emptied
+    /// — `th07/asm.md`, under the score file's own phases — so an array a run's build has just emptied
     /// answers full to anything counting bytes. Only the game whose records they are can tell a header from a
     /// count, so the question is here.
     ///
@@ -1963,9 +1990,10 @@ pub trait Game {
     /// enumerating what a stage of a run in progress has to be restarted from. A resume builds the stage and
     /// plays the buttons in, so the world is reproducible exactly as far as it is a function of the seed, the
     /// buttons and these bytes — and a field left out is one the replay gets a *build's* value for where the
-    /// run had its own. See
-    /// [docs/adr/0022](../../../docs/adr/0022-what-a-resume-puts-back-is-what-the-games-own-replay-restore-puts-back.md),
-    /// which is also where the alternative that was built and taken back is written down.
+    /// run had its own. The alternative built and taken back was a file holding a stage's *start* in place of
+    /// the chapters inside it: the start replays exactly, and a session interrupted at a boss comes back at the
+    /// stage's first frame. A replay that does not reproduce is a field not yet found, and narrowing what the
+    /// file holds is no fix for it.
     ///
     /// # Safety
     /// Must run on the game's main thread, with a run in progress.

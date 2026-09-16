@@ -12,8 +12,7 @@
 //! **The body is here rather than above the seam**, which is the one exception `orb::window`'s
 //! `register_class_a` already is: the whole of what it does is forward to the procedure it was given and
 //! post two messages, so a seam function for calls nothing else in the tree makes would be a worse tree
-//! than a body that stays beside the patch. See
-//! [docs/adr/0010](../../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+//! than a body that stays beside the patch.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

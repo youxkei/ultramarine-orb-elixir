@@ -6,22 +6,18 @@ publish.workspace = true
 
 # Nothing depends on this crate and nothing ever will: the library it builds outside a test run is
 # empty, every module of it being `#[cfg(test)]`. So everything it names is a dev-dependency — see
-# `src/lib.rs` for why the e2e tests are modules of a crate rather than a `tests/` directory, and
-# [docs/adr/0009](../../docs/adr/0009-orb-injects-and-nothing-else-and-every-com-object-is-behind-the-seam.md)
-# for the decision.
+# `src/lib.rs` for why the e2e tests are modules of a crate rather than a `tests/` directory.
 #
 # **Nothing here names `windows-sys`.** It did, for one page: the device vtable orb patches the `Present`
 # slot of had to be memory this process really owned, the swap calling `VirtualProtect` over the slot
 # before it wrote it. That swap is `orb_api::mem::replace_word` now and a simulated host answers it out of
-# its own address space, so the vtable is laid out like everything else — see
-# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+# its own address space, so the vtable is laid out like everything else.
 [dev-dependencies]
 # **`orb` is not here, and that is the test of where everything lives** rather than a tidying. A game laid
 # out by hand has no import table, so where a real launch patches an entry it calls the rewrite itself —
 # and every one of those rewrites is `orb-core`'s, as is `attach_to`. What is left in `orb` is `DllMain`,
 # the trampolines, the PE headers and the crash filter, none of which an e2e test has ever reached: a
-# laid-out game has neither an import table nor PE headers. See
-# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+# laid-out game has neither an import table nor PE headers.
 orb-api = { workspace = true }
 orb-bot = { workspace = true }
 orb-config = { workspace = true }

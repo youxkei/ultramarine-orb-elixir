@@ -8,9 +8,7 @@ publish.workspace = true
 name = "orb"
 # The DLL the game loads and nothing else. **There is no `rlib`, and that is what says everything an
 # e2e test drives lives above this crate**: it cannot be built while anything a game laid out by hand
-# reaches is still here, because such a game has no import table and calls each rewrite itself. See
-# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md),
-# whose steps are ordered by trying this line first and keeping it last.
+# reaches is still here, because such a game has no import table and calls each rewrite itself.
 #
 # This crate still has unit tests of its own, and cargo builds their harness from the lib's own source
 # whatever `crate-type` says: `hook.rs`'s two over an import table written out by hand, and

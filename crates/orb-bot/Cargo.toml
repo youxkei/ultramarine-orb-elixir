@@ -12,8 +12,7 @@ publish.workspace = true
 # never reaches any of this.
 #
 # The same shape as every other seam in this tree — `window::install_over`, `score::install_over`,
-# `joystick::install_over` — where orb-core keeps the slot and something else decides what goes in it. See
-# [docs/adr/0010](../../docs/adr/0010-orb-is-the-patched-bytes-and-everything-else-has-one-of-two-other-homes.md).
+# `joystick::install_over` — where orb-core keeps the slot and something else decides what goes in it.
 
 [dependencies]
 orb-config = { workspace = true }

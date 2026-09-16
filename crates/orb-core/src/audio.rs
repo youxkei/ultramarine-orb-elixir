@@ -8,6 +8,121 @@
 //! that has moved on, which is audible as a short loop repeating forever.
 //!
 //! **Which file, and how it is moved, is the one thing the two games do not share** — see [`Track`].
+//!
+//! **The buffer the game is playing through is never put back from a snapshot.** DirectSound made it, and
+//! nothing in the game's own memory holds it but the one word of the array the stream keeps its buffers in
+//! — so a restore that wrote that word back from a chapter would name an object the game released when it
+//! made the buffer it is playing through now. Every call about the sound is then refused: orb's own reads,
+//! and the game's own streaming thread's, which feeds nothing from then on — so the buffer that *is* playing
+//! goes round its own contents and the game's own next track never reaches it. Heard as a few seconds of
+//! stage 5's boss repeating after a chapter retry, and the same few seconds still playing at the title; read
+//! in the log as `GetStatus` answering `E_INVALIDARG` at every reading after that restore, with the
+//! countdown and the next write frozen at the values the chapter had. Both games keep their buffers that
+//! way, so both hold that array back with the rest of the sound's own memory.
+//!
+//! **The stream being fed is watched every frame of a run, as a count of the refills the streaming thread
+//! owes the mixer, and th06's is put back at the first refill missed for good.** The thread is woken once
+//! per chunk the mixer plays out and writes one chunk per wake, so the chunk boundaries the play cursor
+//! passes and the chunks the next write moves by are two counts of the same thing; a late wake owes a
+//! refill for a while and pays it, and one that never comes owes it for good. A debt standing for a chunk
+//! and a half of play is one no late wake explains, and that is what is said — `audio: N refill(s) missed
+//! for good` — and, for th06, acted on. Its thread never holds the next write against the cursor, so a wake
+//! that came after two notifications leaves the stream a chunk out of step for the life of the stream: the
+//! ring is four chunks, the first three misses are inaudible, and the fourth has every refill writing under
+//! the mixer, heard as a blip at every chunk boundary from stage 6's boss to the end of the run. Up to the
+//! third the offset where the sound is audible is still exact, so the stream is started again from there —
+//! the same repair a resume's landing makes — with a full buffer ahead of the cursor. A count and not the
+//! margin, because one reading of the margin cannot tell that fault from health: after four misses the next
+//! write is the cursor's own chunk again. th07's missed refills are counted and said and its stream is left
+//! alone, its refill's refusal of a write inside the device's chunk being its ordinary state and its thread
+//! not having been read.
+//!
+//! **A track change is handled by the game, not by the copy.** Restoring a snapshot taken under another
+//! track — the stage's start, once a boss has brought its own music — cannot put that track back: the game
+//! freed its stream and released its sound buffer, and no memory copy brings a released COM object back.
+//! Neither is the memory restorable around the stream that replaced it, since that one was allocated after
+//! the snapshot: writing the snapshot back rolls its object out from under the streaming thread, which is
+//! not suspended — an access violation inside `DSOUND.dll` writing a buffer it no longer owned. Skipping the
+//! live ranges only moves the problem, because the heap's bookkeeping still rolls back to before that
+//! stream existed and the next track change then frees a block the allocator has been told is free.
+//!
+//! So the game is asked to do it:
+//!
+//! - `SoundPlayer::StopBGM` (0x430f80) before the copy, while the game's memory is still its own — it stops
+//!   the buffer, quits and joins the streaming thread, and deletes the stream, which is the one free its
+//!   allocator agrees with;
+//! - the copy, with nothing held back;
+//! - `backgroundMusic` and `backgroundMusicThreadHandle` cleared, because the restored state names the
+//!   stream that was playing when the snapshot was taken and that one is long gone;
+//! - `Supervisor::PlayAudio` (0x424b5d) with `g_Stage.stdData->songPaths[0]`, the stage's own track, read
+//!   out of the memory that was just restored;
+//! - and the song put where that chapter had it, as a file offset seeked to with the buffer filled from
+//!   there — `Music::play_from`, the same seek a resume does for the chapter it lands in.
+//!
+//! **That seek is what the offset is for.** The stream that held the place has been freed with the track
+//! that was playing, so the buffer, the cursor in it and the position are an object's that has gone; the
+//! offset in the track's own file is the one thing left that means anything to the stream the game has just
+//! made. Without it the track starts at its beginning, which is the whole of a stage's music away from
+//! where a chapter deep in that stage had it. Only where the track the game restarted is the one the
+//! chapter's sound was in: an offset means nothing in another wav.
+//!
+//! **And a chapter that had nothing audible comes back to that silence, by the track being asked for and
+//! the sound it starts taken back off.** A stream held is not a sound heard: a game between one song and the
+//! next has stopped its buffer and not asked for the track after it yet, while the stream, its source and
+//! the record that source is on are all still there — which is where a stage's first chapter falls, frames
+//! into a stage whose own song its script has not reached. Left playing, that song is heard twice, orb's
+//! start now and the script's when its own moment comes, the second from the top.
+//!
+//! **The ask is made all the same**, and that is not a detail of how the silence is arrived at: both games
+//! keep the stream a track plays through in one field of their sound player, and the take-down above
+//! empties it, so a play is the only thing that fills it again. A launch that asked for nothing had no music
+//! for the rest of that stage — th07 skips its play command's whole block where that field is null
+//! (0x44cbf3) — and then faulted at 0x44d023, which reads the stream through the same field with no test at
+//! all, three instructions before the same code tests it. So the sound is stopped through the buffer rather
+//! than through the game's own call, that one taking the stream down with it: what has to be left standing
+//! is the stream, and what has to go is only the sound the making of it started.
+//!
+//! **And a chapter taken while the game's own sound still has an ask outstanding keeps no music at all, its
+//! restore leaving the live sound exactly where it stands.** What the player's stream field names then is
+//! not a stream: a restore takes the music down, asks for the track the chapter it puts back had, and copies
+//! the memory — so the field comes back naming the object that take-down deleted, and the ask that would
+//! replace it is a command in the game's own queue, which nothing walks while a pass steps between chapters.
+//! Bytes naming a released COM object are not bytes to put into a live sound player: `0xc0000005` reading
+//! null on the game's own sound thread, one frame after a chapter retry, forty retries into a chapter a
+//! resume had landed in — every one of them restoring over the sound. So the sound's own memory is held
+//! back for such a chapter, the same way a chapter of a boss's own theme holds it back, and what the music
+//! then comes from is the ask rather than the bytes.
+//!
+//! **The music is un-paused with the retry menu's 「最初からやり直す」, and the stream built again from where
+//! it is audible.** th07 pauses the music as that menu goes up and sends the un-pause back on every way out
+//! of it that leaves the run standing; the item that asks for the run to start over sends none, the scene it
+//! asks for being one that builds the run and its music from nothing. So orb sends it where it takes that
+//! ask off. Without it a session was played out in silence from the chapter it asked for at stage 5's boss
+//! to the end of the run.
+//!
+//! **And a chapter that holds no music has its stream left alone — including where the game's own refill
+//! would refuse the next write it holds.** That refusal is the ordinary way of things: the streaming thread
+//! wakes at every notify point and writes only where it is safe to, so its steady state is the next write
+//! exactly one chunk behind the device's write cursor, which is a refusal and is not a fault. A repair that
+//! read it as broken rebuilt the stream on every retry, each from an offset seconds further on than the
+//! last, and was taken out again.
+//!
+//! **What a restore leaves the sound as is therefore read rather than judged**, over the frames after it:
+//! the next write *moving* is what says the thread is feeding a stream, and one reading cannot say it. Which
+//! is a question only the real game answers — a laid-out game has no streaming thread at all.
+//!
+//! **The un-pause command is only the mixer started, though, and a launch that sent it heard the song come
+//! back and then go round a few seconds of itself.** What feeds a streaming buffer is the game's own thread,
+//! and its refill refuses outright where the next write it holds has fallen inside the chunk the device is
+//! playing out of — so a buffer stopped and started again behind the game's back is a mixer running over a
+//! buffer nothing tops up. **Which is what a pause leaves every time**: four of these asks came back with
+//! the buffer stopped and the next write between 12352 and 29988 bytes behind the play cursor, all of them
+//! inside one chunk. The buffer is therefore filled again from where the song is audible, the file seeked
+//! to match and the countdown the track's loop is taken on written to match the file: the same repair a
+//! resume's landing makes, for the same reason, and the same three numbers. **Where it is audible rather
+//! than where the chapter had it**, because the chapter this ask puts back may hold no music at all to be
+//! put anywhere — every chapter a resume's playback takes is one, the sound's own queue being walked by a
+//! frame of the game's and a playback running none.
 
 use orb_api::dsound::{self, DSBPLAY_LOOPING, DSBSTATUS_BUFFER_LOST, DSBSTATUS_PLAYING};
 use orb_api::{SoundBuffer, module};

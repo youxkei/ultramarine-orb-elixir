@@ -6,7 +6,7 @@
 //! those boundaries are detected at runtime.
 //!
 //! Built with `orb --collect` and `--judge` over a Lunatic replay of a 1→6 run and an Extra
-//! replay, a stage at a time; see *Building the midstage table* in `SPEC.md`. Stages keep whatever
+//! replay, a stage at a time; see `orb_core::tuning`. Stages keep whatever
 //! is here until one is looked at again, and `tuning.txt` beside the launcher holds the thirty
 //! boundaries judged out of this as well, so a stage picked up again starts from what was decided
 //! rather than from nothing.

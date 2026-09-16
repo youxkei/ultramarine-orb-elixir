@@ -3,7 +3,7 @@
 //! What the question *decides* — which of the two a run is, and which of the two rankings a `Score`
 //! is — driven the way somebody meets it: a th06 at its title menu, keys pressed at it, and what
 //! came of that read off the screen and out of orb's log. Not by calling `Question::update`, which is
-//! how these were written before and is the shape `docs/adr/0001` rules out: a test that reaches in
+//! how these were written before and is the shape an e2e test here refuses: a test that reaches in
 //! and works the question itself is playing the game's part from a script of its own, and it cannot
 //! fail for the reasons the game supplies — the press being held back, the screen underneath never
 //! having seen it, the frames the game's own menu ignores a press for.

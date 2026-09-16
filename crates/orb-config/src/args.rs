@@ -14,6 +14,28 @@
 //! Both sides read them with the same [`Options`]: the launcher as one part of its own
 //! arguments, alongside the `--config` that is its business alone, and the DLL out of the
 //! command line of the process it is inside.
+//!
+//! Everything to do with building the midstage table, reaching an ending, or looking into a fault is an
+//! argument to `orb.exe` — `--help` lists them — because a file is the wrong place for something that is
+//! different every time it is run. The two passes over a replay are one word each:
+//!
+//! | | |
+//! | --- | --- |
+//! | `--collect` | propose boundaries over the whole replay, at 64 updates a frame, with nothing stopping and nobody at the keyboard |
+//! | `--judge` | step between them at one update a frame and decide about each: the pass somebody watches |
+//!
+//! and beside them `--tune`, `--replay`, `--speed=N`, `--log=quiet|normal|verbose`, `--compose=N`,
+//! `--self-check`, `--stress=N`, `--sent-keys`, and `--no-pacing`, `--no-chapters`, `--no-memory`,
+//! `--no-resume`, `--no-frame-loop` and `--no-hooks` for taking orb apart until a fault stops happening.
+//! What each does is the doc of the module that does it: the passes and the keys `orb_core::tuning`, the
+//! pacing's switches `orb_core::frame`, `--sent-keys` `orb_core::input`, `--self-check` and `--stress`
+//! `orb_core::snapshot`, `--clear` and the ending `orb_core::runtime`, `--no-resume` `orb_core::resume`.
+//!
+//! One clap definition for all of them, read by both halves: the launcher out of its own arguments, the DLL
+//! out of the command line the launcher wrote. A value goes onto its option, `--speed=64` rather than
+//! `--speed 64`, and clap is told to require the `=` — the DLL picks the options out of that whole command
+//! line by the two dashes they begin with, since everything before them is a path that may hold anything,
+//! so a value standing in a word of its own is a line the two halves would read differently.
 
 use std::path::PathBuf;
 

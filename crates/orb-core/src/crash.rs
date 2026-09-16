@@ -10,6 +10,12 @@
 //! **What the callers are for**: a fault inside a call orb made and a fault in the game's own update look
 //! identical from the address alone, and they are opposite problems. The chain says which, and where orb's
 //! own frames are in it says how far in.
+//!
+//! **A latent crash in the game, and why orb feeds it no stray input.** `ResultScreen` passes
+//! `g_CharacterList[charUsed * 2]` as a *format string* to `DrawStringFormat2`. `g_CharacterList` is
+//! `char*[6]` at 0x4784d8; `charUsed = 5` reads 0x478500, which holds the float 2.5 — the address
+//! `0x40200000`. `charUsed` is the shared result-screen cursor, and erratic input can leave it outside the
+//! 0..2 this screen assumes.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

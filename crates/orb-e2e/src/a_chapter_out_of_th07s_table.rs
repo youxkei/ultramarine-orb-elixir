@@ -6,9 +6,7 @@
 //! pass reads the list it is building instead, and that path is `a_chapter_table_collected_for_th07.rs`.
 //! The two are different arms of `Chapters::due`, and this is the one every played run takes.
 //!
-//! **The clock the table is written in is the script's**, which is
-//! [docs/adr/0018](../../../docs/adr/0018-th07s-script-clock-is-the-first-of-four-main-contexts.md)'s
-//! reading: a frame number there lands on the same point of the wave pattern however fast the run is going and
+//! **The clock the table is written in is the script's**: a frame number there lands on the same point of the wave pattern however fast the run is going and
 //! whatever difficulty it is. A laid-out stage runs both of its clocks a frame at a time from nothing, so the
 //! frame the chapter begins on is the script frame the table names.
 //!

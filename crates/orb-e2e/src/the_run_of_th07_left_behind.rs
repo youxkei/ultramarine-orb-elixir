@@ -14,8 +14,7 @@
 //! would stop anybody doing so.
 //!
 //! Then the two ways the file cannot be *written*: the directory it goes in cannot be made, and the write
-//! itself fails. Both are declared, because these files go through the file seam like every other host call —
-//! see [docs/adr/0012](../../../docs/adr/0012-orb-reads-and-writes-its-own-files-through-the-seam.md).
+//! itself fails. Both are declared, because these files go through the file seam like every other host call.
 //!
 //! Last are the three ways the stage a resume asked for is not what came up: another stage of the same run, a
 //! run orb keeps nothing of, and no stage at all. What the first two protect is the one thing about a resume

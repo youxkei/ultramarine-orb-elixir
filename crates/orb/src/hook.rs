@@ -223,8 +223,7 @@ fn hex(bytes: &[u8]) -> String {
 ///
 /// **Not an e2e test.** A laid-out game has no import table for that function to walk — which is why every
 /// e2e test turns the memory hooks off, `Fake::attach_declaring` saying so beside the setting — so what
-/// stands behind it is a test over headers written out by hand. See
-/// [docs/adr/0008](../../../docs/adr/0008-the-fake-game-copies-the-game-orb-is-injected-into.md).
+/// stands behind it is a test over headers written out by hand.
 ///
 /// The headers are the ones [`crate::pe::import_slot`] walks and no more: a DOS header pointing at the NT
 /// headers, one data directory entry for the imports, one descriptor, and the two arrays a descriptor names —

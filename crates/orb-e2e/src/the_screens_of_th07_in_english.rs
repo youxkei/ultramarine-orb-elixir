@@ -11,8 +11,7 @@
 //! draws a screen that looks finished.
 //!
 //! And it is asked of this game because the *face* is this game's own: th07 ships no `font.ttf`, so every screen
-//! here is drawn in a face the machine lent — see
-//! [docs/adr/0019](../../../docs/adr/0019-a-game-that-ships-no-font-is-drawn-in-the-machines-own-face.md) — and a
+//! here is drawn in a face the machine lent — and a
 //! face lent for one language is not evidence about the other.
 
 use crate::fake::th07::Fake;
