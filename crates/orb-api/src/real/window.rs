@@ -10,8 +10,10 @@ use windows_sys::Win32::Graphics::Gdi::{
     SRCCOPY, SelectObject, SetBkMode, SetTextAlign, SetTextColor, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRect, GetClientRect, GetForegroundWindow, GetWindowRect, MB_ICONERROR, MB_OK,
-    MB_SETFOREGROUND, MB_SYSTEMMODAL, MessageBoxW, SetProcessDPIAware,
+    AdjustWindowRect, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
+    GetWindowRect, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_SYSTEMMODAL, MessageBoxW,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetProcessDPIAware,
+    SetWindowLongPtrW, SetWindowPos,
 };
 
 use crate::real::gdi;
@@ -99,6 +101,27 @@ pub fn client_rect(window: Hwnd) -> Option<Rect> {
         bottom: 0,
     };
     (unsafe { GetClientRect(window.0 as _, &mut rect) } != 0).then(|| neutral(rect))
+}
+
+pub fn add_ex_style(window: Hwnd, ex_style: u32) -> bool {
+    // What `SetWindowLongPtrW` answers is the style that was there, and a window with none answers
+    // nought for success and for failure alike — so the frame's redraw below is what says it took.
+    // Through `u32`, because the style is one on both targets and the call's own integer is not: a
+    // `LONG` on the 32-bit build and a `LONG_PTR` on the 64-bit one.
+    let had = unsafe { GetWindowLongPtrW(window.0 as _, GWL_EXSTYLE) } as u32;
+    unsafe { SetWindowLongPtrW(window.0 as _, GWL_EXSTYLE, (had | ex_style) as _) };
+    // The frame is redrawn where the style changed, and nothing else about the window is touched.
+    unsafe {
+        SetWindowPos(
+            window.0 as _,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        ) != 0
+    }
 }
 
 /// A font at `em` pixels of em, in whatever face the host substitutes for no name at all: the lines

@@ -92,8 +92,9 @@ Leave it playing in these:
 
 - Ask for a `screenshot` step on a game that draws through D3D8 (th06, th07): `orb_core::shot` writes the
   back buffer at the end of the frame.
-- Take a picture of th06c from outside, from the monitor on the line that says the screen is up:
-  `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/skills/driving-orb-with-autoplay/scripts/shot.ps1 -Exe th06c.exe -Out <C:\path\to.png>`,
+- Take a picture of th06c or th06nc from outside, from the monitor on the line that says the screen is up:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/skills/driving-orb-with-autoplay/scripts/shot.ps1 -Exe th06c.exe -Out <C:\path\to.png>`
+  (`-Exe th06nc.exe` for the other),
   with the recipe holding that screen for longer than one poll interval.
 
 ## Across launches

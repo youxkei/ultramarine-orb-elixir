@@ -8,6 +8,7 @@
 //!   frames: 30
 //! - start_over: true
 //! - take_hits: { chance: 0.2, times_each_retry: 0.5 }
+//! - bombs: false
 //! - name: ORB
 //! - leave: true
 //! - wait_until: { question: resume }
@@ -36,7 +37,8 @@
 //! rules a chance of being hit on purpose in each chapter, which is the one thing a run played by rules that
 //! dodge everything cannot show: a death, the chapter retried, and the run carrying on from it. It stands from
 //! the step it is written at until another one changes it, so a recipe can play the stages it wants clean and
-//! take hits through the rest.
+//! take hits through the rest. A `bombs` is the other such step: `false` forbids the rules the bomb from there
+//! on, which is what a run held to no bomb is written with, and `true` hands it back.
 //!
 //! **And `leave` gives the run up for the title, which `quit` cannot be.** Closing the process leaves a run
 //! nobody left — no last frame and no line saying the run ended — where somebody playing goes back to the title
@@ -150,6 +152,15 @@ pub enum Step {
         times_each_retry: f32,
         gives_up: f32,
     },
+    /// **Whether the rules may press the bomb**, from the step it is written at onwards.
+    ///
+    /// **A run played without one is a thing a recipe has to be able to ask for**, a *no-bomb* clear being
+    /// what a run is measured by where a run that bombs its way through is not the same measurement: the
+    /// rules bomb where a hit has landed and the bomb takes it back, and where nothing has been open for a
+    /// second — see `orb_bot::steer` — and both are a bomb spent that a run held to none cannot spend. What
+    /// a recipe that says nothing gets is the rules bombing as they see fit, which is every recipe written
+    /// before this.
+    Bombs { allowed: bool },
     /// **An item of one of orb's own questions, taken outright rather than pressed for.**
     ///
     /// **Which is the one thing a press cannot do to those screens.** A question of orb's keeps its own cursor
@@ -286,6 +297,8 @@ struct Written {
     start_over: Option<bool>,
     /// And the chance of being hit on purpose in a chapter — see [`Step::TakeHits`].
     take_hits: Option<WrittenHits>,
+    /// And whether the rules may bomb — see [`Step::Bombs`].
+    bombs: Option<bool>,
     /// And an item of one of orb's own questions, taken outright — see [`Step::Answer`].
     answer: Option<WrittenAnswer>,
     /// And the name a run's ranking is registered under — see [`Step::Name`].
@@ -478,6 +491,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => match frames {
@@ -502,6 +516,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::Play {
@@ -520,6 +535,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::Wait {
@@ -538,6 +554,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::Leave,
@@ -553,6 +570,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::Quit,
@@ -568,6 +586,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: Some(named),
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => match named.trim() {
@@ -591,6 +610,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: Some(true),
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::StartOver,
@@ -606,6 +626,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: Some(hits),
+                bombs: None,
                 answer: None,
                 name: None,
             } => Step::TakeHits {
@@ -622,6 +643,22 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 press: None,
                 frames: None,
                 until: None,
+                give_up_after: None,
+                play_until: None,
+                wait_until: None,
+                leave: None,
+                quit: None,
+                screenshot: None,
+                start_over: None,
+                take_hits: None,
+                bombs: Some(allowed),
+                answer: None,
+                name: None,
+            } => Step::Bombs { allowed: *allowed },
+            Written {
+                press: None,
+                frames: None,
+                until: None,
                 give_up_after,
                 play_until: None,
                 wait_until: None,
@@ -630,6 +667,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: Some(answer),
                 name: None,
             } => match answer.question.trim() {
@@ -654,6 +692,7 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
                 screenshot: None,
                 start_over: None,
                 take_hits: None,
+                bombs: None,
                 answer: None,
                 name: Some(typed),
             } => match typed.trim() {
@@ -676,7 +715,8 @@ pub fn read(text: &str) -> Result<Vec<Step>, String> {
             _ => {
                 return Err(format!(
                     "step {at} is a press, a play_until, a wait_until, a screenshot, a start_over, \
-                     a take_hits, an answer, a name, a leave or a quit, and one of those and not two"
+                     a take_hits, a bombs, an answer, a name, a leave or a quit, and one of those and \
+                     not two"
                 ));
             }
         };
@@ -844,6 +884,19 @@ mod tests {
                 times_each_retry: 1.0,
                 gives_up: 0.0,
             }]),
+        );
+    }
+
+    /// **A step can forbid the rules the bomb**, and allow it again, which is what a run held to no bomb is
+    /// written with.
+    #[test]
+    fn a_step_can_forbid_the_rules_the_bomb() {
+        assert_eq!(
+            read("- bombs: false\n- bombs: true\n"),
+            Ok(vec![
+                Step::Bombs { allowed: false },
+                Step::Bombs { allowed: true },
+            ]),
         );
     }
 

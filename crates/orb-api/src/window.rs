@@ -75,6 +75,16 @@ pub fn window_rect(window: Hwnd) -> Option<Rect> {
     host::window_rect(window)
 }
 
+/// **Adds `ex_style` to a window's extended style and has the frame redrawn**, for a game that makes its
+/// window over after orb framed it — see `orb_core::window::keeps_its_frame`. False where the host refused.
+pub fn add_ex_style(window: Hwnd, ex_style: u32) -> bool {
+    #[cfg(feature = "sim")]
+    if let Some(win) = crate::installed() {
+        return win.add_ex_style(window, ex_style);
+    }
+    host::add_ex_style(window, ex_style)
+}
+
 /// What the game draws into, which is what the letterbox and the bar beside it are worked out from.
 pub fn client_rect(window: Hwnd) -> Option<Rect> {
     #[cfg(feature = "sim")]
@@ -144,6 +154,9 @@ mod host {
     }
     pub fn client_rect(_window: Hwnd) -> Option<Rect> {
         no_windows("window::client_rect")
+    }
+    pub fn add_ex_style(_window: Hwnd, _ex_style: u32) -> bool {
+        no_windows("window::add_ex_style")
     }
     pub fn measure_lines(_lines: &[String], _em: i32) -> (i32, i32) {
         no_windows("window::measure_lines")

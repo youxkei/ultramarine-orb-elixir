@@ -432,6 +432,35 @@ pub unsafe fn keeps_its_corner() {
     };
 }
 
+/// **Whether the window is one orb plays in**, which is what [`answers_the_window_made`] was told — for a
+/// game that sizes its own window afterwards and has to be told to keep it small.
+///
+/// # Safety
+/// Must run on the game's main thread, after [`answers_the_window_made`].
+pub unsafe fn plays_out_of_the_way() -> bool {
+    unsafe { *OUT_OF_THE_WAY.get() }
+}
+
+/// **Frames the window orb plays in as a dialog again**, for a game that made its window over after
+/// [`create_window_ex_w`] framed it — th06nc's window mode does, and the frame it puts back is an
+/// ordinary one, in the taskbar and in alt-tab. [`DIALOG_EX_STYLE`] is added to what the window has;
+/// nothing where the launch is somebody's or the window is not made yet.
+///
+/// # Safety
+/// Must run on the game's main thread, with the window made.
+pub unsafe fn keeps_its_frame() {
+    if !unsafe { *OUT_OF_THE_WAY.get() } {
+        return;
+    }
+    let window = PLAYED_IN.load(Ordering::Relaxed);
+    if window == 0 {
+        return;
+    }
+    if !orb_api::window::add_ex_style(Hwnd(window), DIALOG_EX_STYLE) {
+        log!("screen: the window orb plays in could not be framed as a dialog again");
+    }
+}
+
 /// Says which function [`create_window_ex_w`] calls through, and whether this launch is one orb plays
 /// the game in.
 ///
@@ -612,6 +641,17 @@ pub unsafe fn settle(content: (u32, u32), screen: Screen, out_of_the_way: bool) 
 /// Must run on the game's main thread, after [`settle`].
 pub unsafe fn screen() -> Screen {
     unsafe { *SCREEN.get() }
+}
+
+/// **The setting alone, for a game whose window orb does not lay out** — one that looks `CreateWindowExW`
+/// up by name and so has no import for [`settle`]'s installation to patch. Nothing of the ratio, the
+/// letterbox or the DPI is settled by this, since none of it would be orb's: what it leaves is the answer
+/// to [`screen`], for a `Game` that sizes its own window off its own settings to read.
+///
+/// # Safety
+/// Must run on the game's main thread, before its first frame.
+pub unsafe fn set_screen(screen: Screen) {
+    unsafe { *SCREEN.get() = screen };
 }
 
 /// Says which window the game got, which the rewrite of `CreateWindowExA` calls with what it made.

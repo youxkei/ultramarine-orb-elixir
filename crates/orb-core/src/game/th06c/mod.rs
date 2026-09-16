@@ -1249,6 +1249,7 @@ impl Game for Th06c {
             makes_its_renderer: Some(Lookup {
                 name: RENDERER_MADE,
             }),
+            frame_in_the_loop: None,
         }
     }
 

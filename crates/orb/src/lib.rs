@@ -334,6 +334,17 @@ fn attach() {
         }
         _ => {}
     }
+    // **And a frame that is a stretch of the game's loop**, stood in with the game module's own stub
+    // rather than `render` — see `orb_core::game::FrameInTheLoop`. What `RENDER` is left holding is the
+    // trampoline over those fourteen bytes, which nothing may call: they hold a `call rel32` copied out
+    // of the loop, and `render`'s own fallbacks — no runtime, no device where one is drawn through, no
+    // walk — are the three things such a game's attach cannot leave it with.
+    match patches.frame_in_the_loop {
+        Some(frame) if config.frame_hooks && config.own_frame_loop => {
+            hooks.push(("frame loop", frame.patch, frame.stub, &RENDER));
+        }
+        _ => {}
+    }
     // The name the game asks for its keyboard read by, where it asks for one: taken here and installed
     // below with the window's, one entry answering both.
     let mut looked_up_read = None;
@@ -540,7 +551,12 @@ fn attach() {
         )
     } {
         Ok(()) => log!("screen: window hooks installed"),
-        Err(error) => log!("screen: {error}; the window is left as the game makes it"),
+        // The setting still goes in, for a game that sizes its own window off settings of its own and
+        // can be told orb's — th06nc reads it on its first frame. See `orb_core::window::set_screen`.
+        Err(error) => {
+            unsafe { orb_core::window::set_screen(config.screen) };
+            log!("screen: {error}; the window is left as the game makes it");
+        }
     }
     // **And whoever is playing this run, where a recipe was named.** The harness that plays it is its own
     // crate and this is the one place it is reached from — nothing of orb-core knows how a run is played, it

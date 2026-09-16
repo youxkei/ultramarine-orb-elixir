@@ -2976,6 +2976,7 @@ impl Game for Th07 {
             // Nothing: this game's present is an address `Th07::frame_calls` carries, its renderer
             // being Direct3D 8's and made before orb could answer anything about it.
             makes_its_renderer: None,
+            frame_in_the_loop: None,
         }
     }
 

@@ -1,0 +1,92 @@
+# **A Normal run of the first character's first shot, played out by the rules with the bomb forbidden, and
+# left where the game has written its own records of it.**
+#
+# **The front end is walked by this game's own screen numbers**, `Game::front_end_screen` answering the game
+# manager's state: 1 is the logo, 2 the title, 3 the main menu — item 0 starts a run — 8 goes by on its own, 9 is
+# the difficulty, 11 the character, 13 the shot, and 14, 24 and 25 each take a press before the stage.
+# `orb-core`'s `game/th06nc/asm.md` has where each was read.
+#
+# **Six frames a press, because these menus repeat a held key** rather than taking one edge from it, the way
+# th06c's do.
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 3 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 3, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **The difficulty, aimed at Normal — item 1.**
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 9, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **The first character's first shot**: what it fires follows what it is fired at, so what the rules have to
+# get right is the dodging and not the aim.
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 11, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 13 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 13, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **And three screens that each take a press of their own**: a launch that pressed nothing at 14 sat on it for
+# 1,800 frames, and one that pressed nothing at 24 the same.
+- wait_until: { screen: 14 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 24 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 25 }
+  give_up_after: 1800
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+# **No bomb from here**, which is what the run is measured by: the hit stands and takes the life.
+- bombs: false
+# **The whole run in one step, ending at the entry the game asks a name into and not at the run's end.** The
+# entry comes up after the ending, while the rules are still asked for a word — and the word they hold is the
+# shot, which writes the character the cursor starts on eight times over. Sixty minutes of frames is the bound, a
+# Normal run of this game by the rules being twenty-eight minutes of them; a run lost reaches the entry too.
+- play_until: { name: true }
+  give_up_after: 216000
+# **The name written into that entry rather than pressed for**, its cursor walking a grid of 96 characters
+# where a `decide` writes the one it is on. Nothing is pressed while this waits.
+- name: ORB
+  give_up_after: 1800
+# **And pressed through to the title**, which is what makes the game write its own records: the entry, left on
+# the item that ends it, and the ranking. A clear the game never wrote down is a clear the Extra is not
+# unlocked by.
+- press: [decide]
+  frames: 6
+  until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 300 }
+- quit: true

@@ -954,7 +954,7 @@ static SHUT_IN: AtomicU32 = AtomicU32::new(0);
 ///
 /// # Safety
 /// Must run on the game's main thread.
-pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
+pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards, bombs: bool) -> u16 {
     // **The one buffer, kept between frames**, so that a frame of a run costs no allocation once it has run
     // once: the three lists it holds are cleared and filled, and a stage of th07 fills the first of them six
     // hundred times.
@@ -983,7 +983,9 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
     // **And not at all in a chapter drawn to be hit in**, which is what the whole of that drawing is for: a
     // A deathbomb is the death taken back, so a bomb here is a chapter that was played to be died in and was
     // not.
-    if frame.hit && hazards == Hazards::Dodged {
+    // **And not at all where the recipe forbade the bomb**, which is what a run held to no bomb is: the
+    // hit stands and takes the life — see `recipe::Step::Bombs`.
+    if frame.hit && hazards == Hazards::Dodged && bombs {
         word |= keys.bomb;
     }
     // A dialogue read at the game's own pace is the afternoon this was written to save.
@@ -1138,7 +1140,7 @@ pub unsafe fn word_to_press(game: &dyn Game, hazards: Hazards) -> u16 {
         // to `96` with `0 of the nine clear` on every frame of it, was recorded as
         // `60 frame(s) running with nothing open` at `8.0,121.8` — and with nothing spent on it went on
         // crawling to be hit at `12.0,95.7`, two lives and a bomb in hand.
-        let for_the_place = !steered.hit_at_once && frame.bombs > 0;
+        let for_the_place = !steered.hit_at_once && frame.bombs > 0 && bombs;
         if for_the_place {
             word |= keys.bomb;
         }

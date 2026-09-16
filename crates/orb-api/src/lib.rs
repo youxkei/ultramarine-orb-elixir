@@ -569,6 +569,12 @@ pub trait Win: Send + Sync + 'static {
     fn client_rect(&self, window: Hwnd) -> Option<Rect>;
     /// Where a window is on the desktop, frame and all — see [`crate::window::window_rect`].
     fn window_rect(&self, window: Hwnd) -> Option<Rect>;
+    /// `SetWindowLongPtrW` on the extended style, adding `ex_style`, and the frame redrawn — see
+    /// [`crate::window::add_ex_style`]. A laid-out host keeps no styles, so the default answers that the
+    /// host took it.
+    fn add_ex_style(&self, _window: Hwnd, _ex_style: u32) -> bool {
+        true
+    }
 
     // --- the status line, in the black beside the game ---------------------------
     //

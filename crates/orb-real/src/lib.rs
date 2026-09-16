@@ -46,6 +46,9 @@ pub enum Game {
     /// `orb_core::game::th06c` for how much of it is read: no chapters, no snapshot and no resume, so the
     /// cases the other two have about picking a run up have nothing here to be about.
     Th06c,
+    /// **And the other Steam release, 「東方紅魔郷: New Classic」**, on th06c's engine with every address its
+    /// own — see `orb_core::game::th06nc`. Its cases are its own list too, for the reason th06c's are.
+    Th06nc,
 }
 
 impl Game {
@@ -55,6 +58,7 @@ impl Game {
             Game::Th06 => "th06",
             Game::Th07 => "th07",
             Game::Th06c => "th06c",
+            Game::Th06nc => "th06nc",
         }
     }
 
@@ -66,6 +70,7 @@ impl Game {
             Game::Th06 => "東方紅魔郷.exe",
             Game::Th07 => "th07.exe",
             Game::Th06c => "th06c.exe",
+            Game::Th06nc => "th06nc.exe",
         }
     }
 
@@ -84,7 +89,7 @@ impl Game {
             match self {
                 Game::Th06 => "東方紅魔郷.cfg",
                 Game::Th07 => "th07.cfg",
-                Game::Th06c => "th06.cfg",
+                Game::Th06c | Game::Th06nc => "th06.cfg",
             },
             "pointdevice_score.dat",
         ]
@@ -103,11 +108,11 @@ impl Game {
     pub fn target(self) -> &'static str {
         match self {
             Game::Th06 | Game::Th07 => "i686-pc-windows-gnu",
-            Game::Th06c => "x86_64-pc-windows-gnu",
+            Game::Th06c | Game::Th06nc => "x86_64-pc-windows-gnu",
         }
     }
 
-    pub const ALL: [Game; 3] = [Game::Th06, Game::Th07, Game::Th06c];
+    pub const ALL: [Game; 4] = [Game::Th06, Game::Th07, Game::Th06c, Game::Th06nc];
 }
 
 /// **How long an ordinary case's launch may take**, in seconds, before `cargo xtask real` gives up on it: a
@@ -173,7 +178,41 @@ pub fn cases_of(game: Game) -> Vec<Case> {
     match game {
         Game::Th06 | Game::Th07 => the_cases_of_a_game_orb_rewinds(game),
         Game::Th06c => the_cases_of_th06c(),
+        Game::Th06nc => the_cases_of_th06nc(),
     }
+}
+
+/// **The two cases th06nc has**: a Normal run played out by the rules with the bomb forbidden, and then the
+/// Extra that clear unlocked, played out with the bomb allowed.
+///
+/// **Which is what this game is played for** — see `orb_core::game::th06nc`, which rewinds nothing and
+/// so has none of the sixteen cases about picking a run up — and each half is a reading of its own: the run
+/// ends where the run ends because the stage's own jobs leave the chain, and a clear is known from the
+/// ending's own job arriving. Both are `orb-core`'s `game/th06nc/asm.md`'s.
+///
+/// **The Extra continues the clear**, in the directory the clear's launch left its records in: this game
+/// offers its Extra only once a run has been cleared, and the records that say so are the score file the
+/// first launch pressed through to the title to have written. As with th06c, no laid-out th06nc plays either
+/// first.
+fn the_cases_of_th06nc() -> Vec<Case> {
+    vec![
+        Case {
+            game: Game::Th06nc,
+            name: "a_run_played_to_its_clear_without_a_bomb",
+            recipe: include_str!("../recipes/th06nc/a_run_played_to_its_clear_without_a_bomb.yaml"),
+            continues: false,
+            within: A_WHOLE_GAME,
+            check: checks::a_run_of_th06nc_played_to_its_clear_without_a_bomb,
+        },
+        Case {
+            game: Game::Th06nc,
+            name: "the_extra_played_to_its_clear",
+            recipe: include_str!("../recipes/th06nc/the_extra_played_to_its_clear.yaml"),
+            continues: true,
+            within: A_WHOLE_GAME,
+            check: checks::the_extra_of_th06nc_played_to_its_clear,
+        },
+    ]
 }
 
 /// **The one case th06c has**: a run played out by the rules and registered under a name.
@@ -206,7 +245,9 @@ fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
                 Game::Th07 => include_str!(concat!("../recipes/th07/", $name, ".yaml")),
                 // Not reachable: [`cases_of`] is what chooses between the two lists, and this one is the
                 // other branch of that choice.
-                Game::Th06c => unreachable!("th06c has its own cases"),
+                Game::Th06c | Game::Th06nc => {
+                    unreachable!("th06c and th06nc have their own cases")
+                }
             }
         };
     }
@@ -502,6 +543,115 @@ fn expect(holds: bool, why_not: impl FnOnce() -> String) -> Result<(), String> {
 /// The checks, one per case.
 pub mod checks {
     use super::{Trace, expect};
+
+    /// **The bit th06nc's word carries for the bomb**, which is th06 1.02h's own and the one the recipe's
+    /// `bomb` is — `orb_core::game::th06nc`'s `button::BOMB`. Written down here because a check has no game
+    /// in memory to ask, the way `Game::exe` has the names.
+    const TH06NC_BOMB: u16 = 0x0002;
+
+    /// **th06nc's Normal run: started, played through six stages to its ending, and not one bomb pressed.**
+    ///
+    /// **The ending is what says the run was cleared rather than lost**: the stage's jobs leave the chain
+    /// either way, and the ending's own job arrives only where the last boss went down — see
+    /// `orb_core::game::th06nc`'s `ENDING_UPDATE`, whose arrival is the `run: the ending is running` line
+    /// and the frames `in_ending` holds on.
+    ///
+    /// **And the bomb is read off the word the rules pressed**, not off the stock in hand: a death puts the
+    /// stock back to three, so a stock that went down is not a bomb spent. The recipe forbids the rules
+    /// the bomb from the frame the run starts, so a word with the bit in it inside the run is the rules
+    /// pressing what they were told not to.
+    pub fn a_run_of_th06nc_played_to_its_clear_without_a_bomb(trace: &Trace) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let last = trace
+            .stage_from(started, 6)
+            .ok_or("the run never reached its sixth stage")?;
+        let bombed = trace.records[started..].iter().find(|record| {
+            record.state.is_some_and(|state| state.in_run) && record.word & TH06NC_BOMB != 0
+        });
+        expect(bombed.is_none(), || {
+            format!(
+                "a bomb was pressed inside the run, on frame {}",
+                bombed.map_or(0, |record| record.frame)
+            )
+        })?;
+        let ending = the_ending_ran(trace, last)?;
+        // **And the name the ranking was registered under**, for the reason [`a_run_played_to_its_clear`]
+        // gives: a tap at that entry registers the character its cursor started on, eight times over.
+        the_name_was_typed(trace, ending)
+    }
+
+    /// **th06nc's Extra: started on the Extra's own difficulty, and its boss beaten.**
+    ///
+    /// The Extra is stage 7 played on difficulty 4 — a launch of it read `stage 7 on difficulty 4` — so
+    /// what says the run was the Extra is the difficulty of the run.
+    ///
+    /// **And what says it was cleared is the boss's life as she left, there being no ending to read.**
+    /// The Extra ends into its own clear screen and the result, not the ending the numbered stages
+    /// reach, and a run lost there looks the same way from the chain — the stage's jobs leave and the
+    /// result's arrives, cleared or not. What differs is the boss: beaten, she leaves at the end of her
+    /// last attack with a few points of life — `5` on the launch that cleared — where a run lost leaves
+    /// her standing at whatever her attack held, `1000` for the whole of her survival card on the launch
+    /// that died in it. So the last frame a boss stood on has to read her nearly out of life.
+    pub fn the_extra_of_th06nc_played_to_its_clear(trace: &Trace) -> Result<(), String> {
+        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
+        let extra = trace.records[started..]
+            .iter()
+            .position(|record| {
+                record
+                    .state
+                    .is_some_and(|state| state.in_run && state.difficulty == 4)
+            })
+            .map(|at| at + started)
+            .ok_or("the run started was not on the Extra's difficulty")?;
+        let last_with_a_boss = trace.records[extra..]
+            .iter()
+            .rposition(|record| record.state.is_some_and(|state| state.boss_present))
+            .map(|at| at + extra)
+            .ok_or("no boss was ever up")?;
+        let life = trace.records[last_with_a_boss]
+            .state
+            .and_then(|state| state.boss_life)
+            .ok_or("the boss's life was not read on the last frame she stood on")?;
+        expect(life <= A_BOSS_ALL_BUT_BEATEN, || {
+            format!(
+                "the boss left with {life} life, so the run was lost under her rather than cleared"
+            )
+        })?;
+        // **And the name the ranking was registered under**, the Extra reaching the same entry with no
+        // ending in front of it.
+        the_name_was_typed(trace, last_with_a_boss)
+    }
+
+    /// **How much life a boss of th06nc leaves with where she was beaten**: her last attack ends the frame
+    /// the shot that empties it lands, so what is read is the life the frame before — `5` on the launch that
+    /// cleared the Extra. A bound and not that number, because how much the last shot took is the shot's.
+    const A_BOSS_ALL_BUT_BEATEN: i32 = 100;
+
+    /// Whether th06nc's ending ran at or after `from` — see [`a_run_of_th06nc_played_to_its_clear_without_a_bomb`].
+    fn the_ending_ran(trace: &Trace, from: usize) -> Result<usize, String> {
+        trace.records[from..]
+            .iter()
+            .position(|record| {
+                record.state.is_some_and(|state| state.in_ending)
+                    || record
+                        .lines
+                        .iter()
+                        .any(|line| line.starts_with("run: the ending is running"))
+            })
+            .map(|at| at + from)
+            .ok_or_else(|| "nothing says an ending ran, so the run was not cleared".to_owned())
+    }
+
+    /// Whether th06nc's own name entry was typed into at or after `from` — the line `Step::Name` writes
+    /// once `Game::types_its_name` has answered true, which a tap through the entry never writes.
+    fn the_name_was_typed(trace: &Trace, from: usize) -> Result<(), String> {
+        trace
+            .line_from(from, "types ORB into the name the game asks for")
+            .map(|_| ())
+            .ok_or_else(|| {
+                "the ranking was not registered under the name the recipe typed".to_owned()
+            })
+    }
 
     /// **Which difficulty the Extra is**, which is the same number in both games: th06's own
     /// `DIFFICULTY_EXTRA`, and the fifth of the six th07 keeps a record per. What reads it is the case that

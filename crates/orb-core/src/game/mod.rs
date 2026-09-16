@@ -90,6 +90,8 @@ macro_rules! handed_over {
 pub mod th06;
 #[cfg(target_arch = "x86_64")]
 pub mod th06c;
+#[cfg(target_arch = "x86_64")]
+pub mod th06nc;
 #[cfg(target_arch = "x86")]
 pub mod th07;
 
@@ -145,15 +147,28 @@ pub struct Build {
 /// A `const` rather than a `static` because a `static` of this type would want `Game: Sync`, and what
 /// this table is read for on either side is one entry copied out of it once.
 #[cfg(target_arch = "x86_64")]
-pub const KNOWN: &[Known] = &[Known {
-    exe: "th06c.exe",
-    cfg: "th06.cfg",
-    builds: &[Build {
-        md5: "acadbc0cabf3bade16c22fb884957bcd",
-        version: "the Steam build of md5 acadbc0c",
-    }],
-    game: &th06c::Th06c,
-}];
+pub const KNOWN: &[Known] = &[
+    Known {
+        exe: "th06c.exe",
+        cfg: "th06.cfg",
+        builds: &[Build {
+            md5: "acadbc0cabf3bade16c22fb884957bcd",
+            version: "the Steam build of md5 acadbc0c",
+        }],
+        game: &th06c::Th06c,
+    },
+    // The other Steam release of the same game, on th06c's engine and with every address its own — see
+    // [`th06nc`]. The same `th06.cfg` beside a different exe, which is what tells the two directories apart.
+    Known {
+        exe: "th06nc.exe",
+        cfg: "th06.cfg",
+        builds: &[Build {
+            md5: "b0cc28ec904e9efce2439ad857c938b5",
+            version: "the Steam build of md5 b0cc28ec, ver 1.03",
+        }],
+        game: &th06nc::Th06nc,
+    },
+];
 
 #[cfg(target_arch = "x86")]
 pub const KNOWN: &[Known] = &[
@@ -570,6 +585,28 @@ pub struct Hooks {
     /// taken over and orb's is the one that reaches the display. `None` for a game whose frame is its
     /// own, and for the two whose present is an address `FrameCalls` already carries.
     pub makes_its_renderer: Option<Lookup>,
+    /// **The frame of a game whose frame is a stretch of its loop and not a function**, and the code
+    /// orb stands in that stretch with — see [`FrameInTheLoop`]. `None` for a game whose frame is a
+    /// function [`Hooks::render`] can stand in, which is every other game.
+    pub frame_in_the_loop: Option<FrameInTheLoop>,
+}
+
+/// **A frame inline in the game's own loop**, which is th06nc's: `main` calls the calc chain's walk,
+/// the sound's catch-up, the draw frame and the timing one after another inside its loop, and nothing
+/// of that is a function the loop calls once round.
+///
+/// **So what stands in it is a stub of the game module's own and not [`runtime::render`]**. A jump
+/// written where the walk was called lands in code that has to leave the loop's own frame as it found
+/// it and go back into the loop at a place the loop can carry on from — which is a jump and not a
+/// return, since nothing pushed a return address. The stub calls `runtime::render` for the frame and
+/// jumps where the game module says, and the patch is the fourteen bytes the jump takes.
+///
+/// [`runtime::render`]: crate::runtime::render
+pub struct FrameInTheLoop {
+    /// Where the frame's stretch begins, and the bytes there.
+    pub patch: Patch,
+    /// The stub the jump lands in, which is the game module's own.
+    pub stub: usize,
 }
 
 /// A patch, and where the argument of the function under it arrives.

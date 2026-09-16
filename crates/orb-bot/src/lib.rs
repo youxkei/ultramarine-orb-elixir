@@ -97,6 +97,9 @@ struct Playing {
     /// **What the rules are to do about being hit**, which a [`Step::TakeHits`] sets and which every frame
     /// after it asks — the chapter it is in being what the answer is about rather than the step.
     hits: hits::TakingHits,
+    /// **Whether the rules may press the bomb**, which a [`Step::Bombs`] sets and every frame after it is
+    /// steered under. True until a step says otherwise, which is the rules bombing as they see fit.
+    bombs: bool,
     /// Whether the step now being carried out has asked for its answer, for a [`Step::Answer`]: what ends one
     /// is the question it named being *gone*, and a question that was never up is one to wait for. Without
     /// this the two are the same frame, and a step whose question never came up read as done.
@@ -133,6 +136,8 @@ enum Step {
     },
     StartOver,
     TakeHits(hits::Told),
+    /// Whether the rules may bomb from here on — see [`recipe::Step::Bombs`].
+    Bombs(bool),
     Answer {
         question: Question,
         item: usize,
@@ -257,6 +262,7 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
                 times_each_retry,
                 gives_up,
             }),
+            recipe::Step::Bombs { allowed } => Step::Bombs(allowed),
             recipe::Step::Answer {
                 question,
                 item,
@@ -285,6 +291,7 @@ fn read_the_recipe(recipe: &str, game: &dyn Game) -> Option<Playing> {
         at: 0,
         frames: 0,
         hits: hits::TakingHits::default(),
+        bombs: true,
         asked: false,
         in_run_seen: false,
     })
@@ -389,7 +396,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         // **nothing at all where those have nothing to say**, which is not the same as a word of no buttons:
         // this is the read the game makes on every screen, and a rule with no opinion about the screen that is
         // up should leave the read where it found it. A `wait` step's own silence is a word and stays one.
-        let word = unsafe { steer::word_to_press(game, hazards) };
+        let word = unsafe { steer::word_to_press(game, hazards, playing.bombs) };
         return (word != 0).then_some(word);
     };
     playing.frames += 1;
@@ -434,7 +441,7 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
         }
         Step::Wait { until, .. } => (0, waited(until, reached, playing.frames)),
         Step::Play { until, .. } => (
-            unsafe { steer::word_to_press(game, hazards) },
+            unsafe { steer::word_to_press(game, hazards, playing.bombs) },
             waited(until, reached, playing.frames),
         ),
         // **The run left for the title, and the step over with the asking.** What a recipe does after it is its
@@ -471,7 +478,10 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                     playing.steps.len(),
                 );
             }
-            (unsafe { steer::word_to_press(game, hazards) }, now)
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                now,
+            )
         }
         // **The rules told what to do about being hit, and the step over with the telling.** What it changes is
         // every frame after it rather than this one, so there is nothing to wait for — and the frame it costs
@@ -487,7 +497,25 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
                 told.times_each_retry,
                 told.gives_up,
             );
-            (unsafe { steer::word_to_press(game, hazards) }, true)
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
+        }
+        // **The rules told whether they may bomb, and the step over with the telling** — the same terms a
+        // `take_hits` is on.
+        Step::Bombs(allowed) => {
+            playing.bombs = *allowed;
+            log!(
+                "autoplay: step {} of {} {} the rules the bomb",
+                playing.at + 1,
+                playing.steps.len(),
+                if *allowed { "allows" } else { "forbids" },
+            );
+            (
+                unsafe { steer::word_to_press(game, hazards, playing.bombs) },
+                true,
+            )
         }
         // **The run asked to start over, and the step over with the asking.** What raises the question is the
         // frame hook, on this frame or the first one a stage can be retried from, so there is nothing here to
@@ -597,7 +625,8 @@ fn the_word(playing: &mut Playing, game: &'static dyn Game, reached: Reached) ->
             | Step::Quit
             | Step::Screenshot { .. }
             | Step::StartOver
-            | Step::TakeHits(..) => false,
+            | Step::TakeHits(..)
+            | Step::Bombs(..) => false,
         };
     if over || gave_up {
         playing.at += 1;
