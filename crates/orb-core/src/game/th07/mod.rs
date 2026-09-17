@@ -121,8 +121,8 @@ use orb_api::{Device, SoundBuffer, Texture, Viewport};
 
 use crate::audio::{Music, Track};
 use crate::game::{
-    Boundary, Call, Entered, Face, FrameCalls, Game, Hooks, Menu, Pad, PanelTile, Patch, Read,
-    Reading, Rect, RunStart, State,
+    Boundary, Call, Entered, Face, FileOpen, FrameCalls, Game, Hooks, Memory, Menu, Pad, PanelTile,
+    Patch, Read, Reading, Rect, RunStart, State, Threads,
 };
 use crate::{detail, log};
 
@@ -2977,6 +2977,11 @@ impl Game for Th07 {
             // being Direct3D 8's and made before orb could answer anything about it.
             makes_its_renderer: None,
             frame_in_the_loop: None,
+            // The same CRT as th06's, linked the same way: a heap of the game's own behind the six
+            // `KERNEL32.dll` entries. See `orb::memtrack`.
+            takes_its_memory: Memory::Kernel32Imports,
+            makes_its_threads: Threads::CreateThread,
+            opens_its_files: FileOpen::CreateFileA,
         }
     }
 
@@ -3549,6 +3554,8 @@ impl Game for Th07 {
                 function: PRESENT,
                 this: 0,
             },
+            // Both are this exe's own functions at this exe's own addresses.
+            orbs_own: false,
         }
     }
 

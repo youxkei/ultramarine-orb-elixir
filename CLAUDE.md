@@ -6,7 +6,7 @@ else — that is also the name of its crates and of the files it installs.
 ## Building and checking
 
 - Run every task that has to name a target through `cargo xtask`: `build`, `test`, `clippy`, `seam`,
-  `coverage`, `real`. `cargo xtask` with no task lists them.
+  `check`, `coverage`, `real`. `cargo xtask` with no task lists them.
 - Build what is handed out with `cargo xtask build --release`; the one file is
   `target/i686-pc-windows-gnu/release/orb.exe`. Have `mingw-w64-i686-gcc` from MSYS2's MINGW32
   environment on `PATH` — `.cargo/config.toml` names it as the linker.
@@ -15,9 +15,12 @@ else — that is also the name of its crates and of the files it installs.
   same cases pass in `orb-e2e`.
 - Run `cargo xtask seam` after touching a crate above the seam: it builds those crates for a target with no
   Windows, which is what says no call went past the seam.
-- Run `sh .husky/pre-commit` by hand before asking for a commit; jj runs no git hooks.
-- Keep the tree at zero warnings. Answer a lint that is wrong about this code with an allow and the
-  reason beside it.
+- Run `cargo xtask check` by hand before asking for a commit: it is the four checks in the order CI
+  runs them, and nothing fires it, jj running no git hooks.
+- Keep the tree at zero warnings, for every target the checks name and not only the one that ships.
+  Answer a lint that is wrong about this code with an allow and the reason beside it — as narrow as
+  the thing it is wrong about, since an allow over a whole crate stands over whatever that crate
+  gains next. Where the lint is right, the answer is the change it asks for.
 
 ## Commit messages
 

@@ -594,6 +594,15 @@ impl Chapters {
         self.mark.started_at
     }
 
+    /// **Which stage the chapters kept are of**, and `None` before a stage's start has settled into one.
+    ///
+    /// Which is not always `State::stage`: a game that leaves the gameplay scene to build its next stage
+    /// says no stage at all on the frames of the transition — th06c's stage word reads nought there — and
+    /// what the chapters are still of is the stage just played.
+    pub fn stage(&self) -> Option<i32> {
+        self.stage
+    }
+
     /// What began the chapter now running, which is what says which of the three kinds of
     /// boundary the game is standing in: one the game settled as it ran, or one of the
     /// table's — and for those the status line goes on to say whether a person put it there.
@@ -1008,6 +1017,20 @@ impl Chapters {
             return;
         }
 
+        // **A frame between two stages is a frame of neither**, and this is not the frame to give one up on:
+        // th06 and th06c both leave the gameplay scene while the next stage is built, and this game's stage
+        // word reads nought there — `State::stage` being that word less one — so a frame of the rebuild
+        // announces a stage that is no stage. Left to the line below it, that frame dropped everything kept
+        // of the stage just played: a `--judge` pass stepping forward off the last boundary of a th06c stage
+        // came to rest there and then answered `cannot go back — no stage start kept`, which is the wall
+        // being a place a pass loses the stage from rather than one to look around in.
+        // **And only where the chapters are of a stage already**: a run that has not been in one has not
+        // left one, and a frame before its first stage is built says the same nought — see the wall in
+        // `runtime::step`, which is the same distinction.
+        if state.stage < 0 && self.stage.is_some() {
+            return;
+        }
+
         if self.stage != Some(state.stage) {
             // **Nothing of the stage before this one is this one's**, from the frame the game is in it: no
             // chapter has begun here, so there is no boundary to have been reached, nothing to step to and
@@ -1026,7 +1049,9 @@ impl Chapters {
         }
         if let Some(until) = self.settling_until {
             let settled = state.stage_frames >= until;
-            let music_ready = game.music().is_some();
+            // A game whose snapshots carry no music has nothing here to wait for, and counts as ready —
+            // see [`Game::a_snapshot_waits_for_its_music`], which measures what the wait cost th06c.
+            let music_ready = !game.a_snapshot_waits_for_its_music() || game.music().is_some();
             if settled && (music_ready || state.stage_frames >= until + MUSIC_WAIT_FRAMES) {
                 self.settling_until = None;
                 unsafe { self.begin_stage(game, state, data, self_check) };

@@ -71,7 +71,9 @@
 use std::ffi::c_void;
 use std::ops::Range;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{
+    AtomicBool, AtomicI32, AtomicI64, AtomicU16, AtomicU32, AtomicUsize, Ordering,
+};
 
 use orb_config::{Config, Language};
 
@@ -844,6 +846,9 @@ const NO_FRAME: i64 = -1;
 pub static HOLD_DECIDE: AtomicBool = AtomicBool::new(false);
 /// Whether one of those presses has arrived and has not been asked about yet.
 pub static DECIDE_PRESSED: AtomicBool = AtomicBool::new(false);
+/// Whether the screen under a question orb has to ask was taking a press on the frame before, so that the
+/// line saying it is not is written as that turns rather than once a frame — see where it is written.
+static THE_SCREEN_TOOK_A_PRESS: AtomicBool = AtomicBool::new(true);
 /// Whether it was down on the read before. What is held back is the press and not the holding, and
 /// the game's own `g_LastFrameInput` cannot tell orb which this is: the bits were taken out of the
 /// word it is assigned from.
@@ -888,7 +893,7 @@ impl FrameCall {
     /// Must run on the game's main thread with whatever that call itself wants of the frame — see
     /// [`game::FrameCalls`] — and after the attach that filled this one.
     unsafe fn call(&self) {
-        let function: unsafe extern "fastcall" fn(usize) =
+        let function: OnAnAddress =
             unsafe { std::mem::transmute(self.function.load(Ordering::Relaxed)) };
         unsafe { function(self.this.load(Ordering::Relaxed)) };
     }
@@ -931,6 +936,77 @@ pub type CreateFileA = unsafe extern "system" fn(
 /// is `JOYINFOEX`'s own layout, so this is the signature winmm exports rather than a shape of orb's.
 pub type JoyGetPosEx = unsafe extern "system" fn(u32, *mut orb_api::JoyInfo) -> u32;
 
+/// **A call into the game on its `this` alone, answering the i32 its caller reads** — the chain walks,
+/// the frame, and the reads whose `this` arrives in the first register.
+///
+/// **The spelling follows the target and the call does not.** What the 32-bit games' methods are
+/// compiled with is MSVC's `__thiscall`, whose `this` is ecx and whose arguments are on the stack, and
+/// `fastcall` with a single argument is that same call with nothing on the stack, which is the reason
+/// the ABI is spelled that way at all. `"fastcall"` exists on x86 and
+/// nowhere else, though, and rustc warns for a 64-bit target that it "is not a supported ABI",
+/// phased out to become a hard error (rust issue #137018) — so a build for th06c's own architecture
+/// would stop compiling. x86-64 has one convention and `extern "C"` is it, which puts the first
+/// argument in rcx, so the register the `this` arrives in is the same on both and only the name for it
+/// differs.
+///
+/// **Not `extern "system"`, which would be one spelling for both**: that is stdcall on x86, and stdcall
+/// puts the `this` on the stack.
+///
+/// `win64` and not `C` for the 64-bit arm, though the two are the same convention on
+/// `x86_64-pc-windows`: it is the name the rest of the tree already uses for it — th06nc's stub says
+/// "`runtime::render` being `win64`" and `orb-e2e`'s fake th06c spells its own functions that way — and
+/// the stub is hand-written asm that passes its argument in `rcx` and reads the answer in `eax`, which
+/// is that convention named rather than inherited.
+#[cfg(target_arch = "x86")]
+pub type OnItsThis = extern "fastcall" fn(*mut c_void) -> i32;
+#[cfg(not(target_arch = "x86"))]
+pub type OnItsThis = extern "win64" fn(*mut c_void) -> i32;
+
+/// One whose `this` is an address rather than a pointer and which answers nothing: the frame's own
+/// sound and its present, called on nothing a hook was handed. [`OnItsThis`] has why the spelling is
+/// the target's.
+#[cfg(target_arch = "x86")]
+pub type OnAnAddress = unsafe extern "fastcall" fn(usize);
+#[cfg(not(target_arch = "x86"))]
+pub type OnAnAddress = unsafe extern "win64" fn(usize);
+
+/// One with an argument past the `this`: the score file's own parse, whose two registers are the file's
+/// image and the array it lays the records into. [`OnItsThis`] has why the spelling is the target's.
+#[cfg(target_arch = "x86")]
+pub type OnItsThisWithOne = unsafe extern "fastcall" fn(usize, usize) -> i32;
+#[cfg(not(target_arch = "x86"))]
+pub type OnItsThisWithOne = unsafe extern "win64" fn(usize, usize) -> i32;
+
+/// **A hook the game itself enters, stamped with the convention that game's own methods use** — see
+/// [`OnItsThis`], which has why the spelling has to follow the target where the call does not.
+///
+/// One macro rather than a pair of `cfg`s at each of them, and rather than the `cfg`s wrapping a body
+/// each would call: what differs between the two arms is the ABI and nothing else, so writing the
+/// function twice is writing the reason twice for a reader to check against.
+///
+/// **Only the hooks a 64-bit game actually enters are here.** The four that are not —
+/// `card_records_read`, `ranking_read_in_ecx`, `unlocks_read_in_ecx` and
+/// `get_controller_input_in_ecx` — are reached by th06/th07 and by the `orb` crate alone, all three
+/// 32-bit, so they carry a `cfg` for that architecture instead and one ABI is all they need.
+macro_rules! the_games_own_convention {
+    ($(#[$attr:meta])* pub unsafe fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $answer:ty $body:block) => {
+        $(#[$attr])*
+        #[cfg(target_arch = "x86")]
+        pub unsafe extern "fastcall" fn $name($($arg: $ty),*) -> $answer $body
+        $(#[$attr])*
+        #[cfg(not(target_arch = "x86"))]
+        pub unsafe extern "win64" fn $name($($arg: $ty),*) -> $answer $body
+    };
+    ($(#[$attr:meta])* pub fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $answer:ty $body:block) => {
+        $(#[$attr])*
+        #[cfg(target_arch = "x86")]
+        pub extern "fastcall" fn $name($($arg: $ty),*) -> $answer $body
+        $(#[$attr])*
+        #[cfg(not(target_arch = "x86"))]
+        pub extern "win64" fn $name($($arg: $ty),*) -> $answer $body
+    };
+}
+
 /// The game's own functions orb's hooks call through, which in a real process are the trampolines
 /// [`hook::install`] leaves behind and for a game that is not one are its own.
 ///
@@ -941,8 +1017,8 @@ pub type JoyGetPosEx = unsafe extern "system" fn(u32, *mut orb_api::JoyInfo) -> 
 /// [`Game::frame_calls`] answers with, which in a real process are the exe's code at its own addresses
 /// and here are functions a laid-out game brings.
 pub struct Originals {
-    pub update: extern "fastcall" fn(*mut c_void) -> i32,
-    pub draw: extern "fastcall" fn(*mut c_void) -> i32,
+    pub update: OnItsThis,
+    pub draw: OnItsThis,
     pub input: extern "system" fn() -> u16,
     pub stage_building: extern "C" fn(i32) -> i32,
     pub stage_begun: extern "C" fn(*mut c_void) -> i32,
@@ -950,14 +1026,14 @@ pub struct Originals {
     pub ranking_read: extern "C" fn(*mut c_void) -> i32,
     /// The game's own parse of the records its score file holds, which [`card_records_read`] calls through
     /// to: two registers, the file's image and the array it lays that file's records into.
-    pub card_records_read: unsafe extern "fastcall" fn(usize, usize) -> i32,
+    pub card_records_read: OnItsThisWithOne,
     /// The game's own whole frame, which is what [`render`] hands one back to on the three ways out
     /// of it that return: no runtime, no device, and a chain target that is null.
-    pub render: extern "fastcall" fn(*mut c_void) -> i32,
+    pub render: OnItsThis,
     /// Its sound and its present. Called on nothing, a function of a laid-out game's own reaching
     /// that game the way the hooks above it do rather than through a `this` it was handed.
-    pub play_sounds: unsafe extern "fastcall" fn(usize),
-    pub present: unsafe extern "fastcall" fn(usize),
+    pub play_sounds: OnAnAddress,
+    pub present: OnAnAddress,
     /// Its own `CreateWindowExA`, which the rewrite calls through with the arguments it decided —
     /// where a real launch reaches the exe's import table for it. A laid-out game hands it over for
     /// the same reason it hands over the two above: there is no import table to patch.
@@ -1101,6 +1177,14 @@ pub unsafe fn attach_to(
         function: originals.present as usize,
         this: 0,
     });
+    // **And the game's own answer where these two are orb's**, which is what `FrameCalls::orbs_own` says:
+    // the same code in a test as in a run, so standing a test's own in for it is the divergence. See that
+    // field, which has what the divergence cost when it was there.
+    let calls = game.frame_calls();
+    if calls.orbs_own {
+        PLAY_SOUNDS.store(calls.play_sounds);
+        PRESENT.store(calls.present);
+    }
     // And the window, which is the same story: what the game gets is decided by orb either way, and a
     // laid-out game reaches the rewrite by calling it rather than by having its imports patched. Always,
     // as [`attach`] installs it always — the answer is orb's whichever of the two the settings say.
@@ -1234,6 +1318,12 @@ pub unsafe fn attached(game: &'static dyn Game, config: Config, data: Range<usiz
     // went in: with nothing able to rewind, the mode is normal and this is the game's own file, which
     // is where it was anyway.
     score::fork(mode == Mode::Pointdevice);
+    // A game that reads the file once, at startup, makes the front end's read of its unlocks there — before
+    // any callback a bracket could go round — so the bracket goes up now and comes down where the mode is
+    // first settled, in [`choose`]. See [`Game::reads_its_file_once_at_startup`].
+    if game.reads_its_file_once_at_startup() {
+        score::reading_unlocks(true);
+    }
     // And whether the read of that file empties the record of captures first, which is the same question:
     // two files to keep apart is a launch that can rewind a run. A setting rather than an installation
     // because the hook has a second job that is every launch's — see [`EMPTIES_CAPTURES`].
@@ -1344,6 +1434,18 @@ impl Runtime {
     /// played again in a later launch.
     fn keeping(&self) -> bool {
         self.chaptering() && self.config.resume
+    }
+
+    /// **Whether a question of orb's own can be put over the game**: somebody is there to see it, which is
+    /// the overlay that draws it — or a recipe is there to answer it unseen, which is a launch that plays
+    /// itself. A question nobody can see and nobody will answer is a game frozen under nothing, so where
+    /// neither is there the question is not asked and the game goes where it was going.
+    ///
+    /// **The recipe half is what a game with no overlay is driven by at all**: th06c draws through D3D11
+    /// and orb has no overlay in it, and its first launch that played itself pressed the title's item
+    /// straight through with `the mode question never stood` for its whole trace.
+    fn asks_over_the_game(&self) -> bool {
+        self.overlay.is_some() || self.config.autoplay.is_some()
     }
 
     /// And whether a replay of the whole of it is being kept, which is that and one thing more: a launch
@@ -1482,6 +1584,72 @@ pub(crate) fn pressing() -> Option<u16> {
         .and_then(|playing| playing.pressing)
 }
 
+/// **The word a frame of a run is played with, for a game orb is inside the frame of and whose keyboard
+/// read answers no word** — th06c, whose calc walk calls this where every other game's input hook calls
+/// [`get_input`], and for the same three things: a run being played back into its chapter is fed the frame's
+/// recorded buttons, a bot's word goes through [`held_back`] so that a question of orb's can be raised on it,
+/// and whichever it was is written down against the frame by [`noted`], for the chapter file and the replay.
+///
+/// **Which is what a run of such a game is kept by at all.** The first launch of th06c that played into its
+/// second chapter wrote `resume: not written — 0 frame(s) of buttons for a chapter` on every frame: its word
+/// went from the bot into the game's own keys and through nothing that writes a frame down, so there was no
+/// run to pick up and no replay to watch.
+///
+/// `None` where no launch is playing itself and nothing is being fed — a person at the keyboard, whose keys
+/// reach the game through its own read. What it answers is kept in [`WORD_THIS_FRAME`] for that read.
+///
+/// # Safety
+/// Must run on the game's main thread, before the update of the frame the word is for.
+// Only the 64-bit build carries a game that calls this — see `game::th06c` — and the 32-bit build's two
+// games come through [`get_input`] instead.
+#[cfg(target_arch = "x86_64")]
+pub(crate) unsafe fn the_frames_word(game: &dyn Game) -> Option<u16> {
+    let frame = unsafe { game.stage_frame() };
+    updates_of(frame);
+    if let Some(buttons) = frame.and_then(|frame| unsafe { resume::fed(frame, game.generator()) }) {
+        WORD_THIS_FRAME.store(i32::from(buttons), Ordering::Relaxed);
+        return Some(buttons);
+    }
+    // **A run waiting for its stage is played with nothing**, which is the one frame of a resumed stage a
+    // playback cannot cover and must not leave to the rules.
+    //
+    // `Record::until` is filled where the landing is, and the landing is inside the frame that builds the
+    // stage — see `resume`'s own *Picking a run up again*. This function is asked before that frame's walk,
+    // so `resume::fed` answers `None` for it and the rules would choose its word; the walk then builds the
+    // stage, lands, and runs the stage's own job, which moves the player with whatever they chose. The run
+    // that wrote the file had nothing to move on that frame — its player is not built yet, and
+    // `Game::stage_frame` answers `None` there, so the frame is not written down either — where a run being
+    // picked up has the landing's own player standing by the time that job runs.
+    //
+    // Measured on th06c before this: a chapter of four hundred frames came back with the played-back player
+    // `2.83` off on both axes from the frame after the landing and every frame after it — `4/√2`, one
+    // unfocused diagonal step, out of `DECIDE | DOWN | RIGHT` where the record held `DECIDE` alone — and the
+    // stage's own firing schedule reached them at frame 186 of a record whose every chapter was written with
+    // `deaths: 0`. The generator agreed to the digit throughout and `Record::feed`'s parting check said
+    // nothing, which is what said the divergence was a word rather than a world. With this, `player` and
+    // `randoms` read back frame for frame as the run's own.
+    //
+    // **`picking_up` and not `starting`**, which both answer for this frame: a watched attempt is also a
+    // saved run waiting for its stage, and the press that reaches *its* stage is on this very frame — held,
+    // `an_attempt_of_the_kept_replay_watched` never plays back into a stage at all.
+    //
+    // **Not noted**, because it is not a frame of the run: the run's own launch writes nothing for it, and a
+    // word written here would be one the next playback is held to that the run never acted on.
+    if unsafe { resume::picking_up() } {
+        WORD_THIS_FRAME.store(0, Ordering::Relaxed);
+        return Some(0);
+    }
+    let word = pressing().map(|word| unsafe { noted(game, frame, held_back(game, word)) });
+    WORD_THIS_FRAME.store(word.map_or(NO_WORD, i32::from), Ordering::Relaxed);
+    word
+}
+
+/// What [`the_frames_word`] last decided, for the keyboard read of the same game to write into its snapshot
+/// — see [`keyboard_state`]: that read is made at its own rate, and a snapshot filled from the bot's own word
+/// while a chapter is being fed would be the bot's word laid over the recording's. [`NO_WORD`] for none.
+static WORD_THIS_FRAME: AtomicI32 = AtomicI32::new(NO_WORD);
+const NO_WORD: i32 = -1;
+
 /// Takes the answer to the mode question: what a run does, and which of the two files the
 /// scores are kept in.
 ///
@@ -1502,6 +1670,9 @@ pub(crate) fn pressing() -> Option<u16> {
 unsafe fn choose(runtime: &mut Runtime, mode: Mode) {
     let was = std::mem::replace(&mut runtime.mode, mode);
     score::fork(mode == Mode::Pointdevice);
+    // The bracket a game whose one read is at startup had up since the attach comes down here, the mode
+    // being settled: nothing inside one is running between frames, so this is nought for every other game.
+    score::reading_unlocks(false);
     unsafe { the_modes_own_records_again() };
     resume::keep(runtime.keeping());
     // The replay of a run follows the same two things the chapter it is left in does: the mode, and orb
@@ -1669,13 +1840,20 @@ fn offered(runtime: &Runtime) -> Vec<retry_ui::Chapter> {
         .collect()
 }
 
-/// Replaces `th06::Chain::RunCalcChain`. `__thiscall` with a single argument is
-/// `fastcall` with nothing on the stack, which is an ABI Rust can spell.
-///
-/// # Safety
-/// Must run on the game's main thread, and `chain` must be the chain object the game calls this on:
-/// it is handed to the game's own update, which reads the frame's jobs out of it.
-pub unsafe extern "fastcall" fn run_calc_chain(chain: *mut c_void) -> i32 {
+the_games_own_convention! {
+    /// Replaces `th06::Chain::RunCalcChain`, and is where th06c's own calc walk is called from — see
+    /// [`game::Walks`].
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, and `chain` must be the chain object the game calls this on:
+    /// it is handed to the game's own update, which reads the frame's jobs out of it.
+    pub unsafe fn run_calc_chain(chain: *mut c_void) -> i32 { unsafe { the_calc_chain(chain) } }
+}
+
+/// [`run_calc_chain`]'s own work, which is a function of its own so that the ABI is all the macro
+/// above decides: what a macro's braces hold is not `rustfmt`'s to format, and a body left out there
+/// stops being held to the shape the rest of the file is in.
+unsafe fn the_calc_chain(chain: *mut c_void) -> i32 {
     if IN_HOOK.swap(true, Ordering::Relaxed) {
         note_reentry();
         return unsafe { call_original(&RUN_CALC_CHAIN, chain) };
@@ -1698,13 +1876,18 @@ fn note_reentry() {
     }
 }
 
-/// Replaces `th06::Chain::RunDrawChain`, so the overlay draws after the game's
-/// own drawing and inside the same scene.
-///
-/// # Safety
-/// As [`run_calc_chain`], and inside the scene the game draws into: what orb draws here goes through
-/// the device it is already drawing with.
-pub unsafe extern "fastcall" fn run_draw_chain(chain: *mut c_void) -> i32 {
+the_games_own_convention! {
+    /// Replaces `th06::Chain::RunDrawChain`, so the overlay draws after the game's
+    /// own drawing and inside the same scene, and is where th06c's own draw walk is called from.
+    ///
+    /// # Safety
+    /// As [`run_calc_chain`], and inside the scene the game draws into: what orb draws here goes through
+    /// the device it is already drawing with.
+    pub unsafe fn run_draw_chain(chain: *mut c_void) -> i32 { unsafe { the_draw_chain(chain) } }
+}
+
+/// [`run_draw_chain`]'s own work — [`the_calc_chain`] has why it is a function of its own.
+unsafe fn the_draw_chain(chain: *mut c_void) -> i32 {
     if IN_HOOK.swap(true, Ordering::Relaxed) {
         note_reentry();
         return unsafe { call_original(&RUN_DRAW_CHAIN, chain) };
@@ -1733,18 +1916,27 @@ pub extern "C" fn create_game_window(instance: *mut c_void) {
     original(instance)
 }
 
-/// Replaces `th06::GameWindow::Render` with orb's own frame: update first, then
-/// draw, then present on the display's cadence.
-///
-/// The game's own order is draw-then-update, which puts everything on screen one
-/// update behind the input that produced it. Doing the update first is the whole of
-/// that fix; the pacing around it is what keeps the result smooth.
-///
-/// # Safety
-/// Must run on the game's main thread, and `game_window` must be the object the game calls its own
-/// whole frame on: the three ways out of this that return hand the frame back to that frame, which
-/// reads it.
-pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
+the_games_own_convention! {
+    /// Replaces `th06::GameWindow::Render` with orb's own frame: update first, then
+    /// draw, then present on the display's cadence.
+    ///
+    /// The game's own order is draw-then-update, which puts everything on screen one
+    /// update behind the input that produced it. Doing the update first is the whole of
+    /// that fix; the pacing around it is what keeps the result smooth.
+    ///
+    /// **th06nc's stub jumps here rather than patching a prologue**, and it is hand-written asm that
+    /// passes its argument in `rcx` and reads the answer in `eax` — see `game::th06nc` — so the
+    /// convention this carries on a 64-bit target is one that stub depends on rather than a detail.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, and `game_window` must be the object the game calls its own
+    /// whole frame on: the three ways out of this that return hand the frame back to that frame, which
+    /// reads it.
+    pub unsafe fn render(game_window: *mut c_void) -> i32 { unsafe { the_frame(game_window) } }
+}
+
+/// [`render`]'s own work — [`the_calc_chain`] has why it is a function of its own.
+unsafe fn the_frame(game_window: *mut c_void) -> i32 {
     let runtime = unsafe { RUNTIME.get() }.as_mut();
     let Some(runtime) = runtime else {
         return unsafe { call_render(game_window) };
@@ -1800,8 +1992,8 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
     if update == 0 || draw == 0 {
         return unsafe { call_render(game_window) };
     }
-    let update: extern "fastcall" fn(*mut c_void) -> i32 = unsafe { std::mem::transmute(update) };
-    let draw: extern "fastcall" fn(*mut c_void) -> i32 = unsafe { std::mem::transmute(draw) };
+    let update: OnItsThis = unsafe { std::mem::transmute(update) };
+    let draw: OnItsThis = unsafe { std::mem::transmute(draw) };
 
     // Before the update as the game does it: it leaves the viewport covering the whole
     // output, and the update is what narrows it to the playfield for the drawing that
@@ -1875,6 +2067,12 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
         // `after_draw`, which puts it where the game's own frame has it relative to everything drawn
         // inside the chain. Left here until then, because that is where the game's frame has it relative
         // to the chain and nothing yet says which of the two the overlay wants.
+        //
+        // **And for th06c this call is the hand-over itself**, `FINISHES_THE_PICTURE` being what puts the
+        // frame on the screen — so a canvas drawn after it would be drawing into a buffer whose contents
+        // the swap has already made undefined. That is why what orb draws over a swapchain is drawn in
+        // the draw hook like the rest of the overlay, and not on this side of it: a tried rectangle put
+        // here reached no screen at all.
         game.end_drawing(device);
         if scene {
             d3d8::end_scene(device);
@@ -1907,8 +2105,7 @@ pub unsafe extern "fastcall" fn render(game_window: *mut c_void) -> i32 {
 }
 
 unsafe fn call_render(window: *mut c_void) -> i32 {
-    let original: extern "fastcall" fn(*mut c_void) -> i32 =
-        unsafe { std::mem::transmute(RENDER.load(Ordering::Relaxed)) };
+    let original: OnItsThis = unsafe { std::mem::transmute(RENDER.load(Ordering::Relaxed)) };
     original(window)
 }
 
@@ -2097,10 +2294,37 @@ pub unsafe extern "system" fn keyboard_state(state: *mut u8) -> i32 {
     // often than such a game moves — 683 to 773 of them against every 600 walks of th06c's calc chain —
     // so where orb runs the frame the rules are asked there and what this read writes is the word they
     // left. See [`THE_FRAME_IS_THE_SEAM`].
+    // **And where orb does run the frame, the word that frame decided** — fed, held back and written down
+    // by [`the_frames_word`] — rather than the bot's own: a chapter being played back into place is fed its
+    // recorded buttons there, and this read filling the snapshot from the bot instead would lay the bot's
+    // word over them at whatever rate the game reads.
     if !THE_FRAME_IS_THE_SEAM.load(Ordering::Relaxed) {
         unsafe { what_is_reached(runtime) };
     }
-    let word = pressing();
+    // **And a person's own keys, where nothing is being fed**, which is what makes a question of orb's
+    // answerable at a keyboard here: `held_back` takes the decide out of a word on the reads a question is
+    // to be asked on, and for a game whose keys orb answers rather than reads there was no word for it to
+    // take it out of — see [`the_frames_word`], which runs the holding on a bot's word and answers `None`
+    // for a person. So the press reached the game's own item and orb never saw one: four launches of the
+    // real th06c pressed at the title and every one started a run with `menu:` never in the log, while the
+    // same press made with a recipe put the question up.
+    //
+    // **Through [`noted`] as well, like every other way out of a read.** A run somebody plays here had no
+    // buttons written down at all — nothing called it — so its chapter had nothing to feed back and its
+    // replay nothing to play. This is where those come from now.
+    //
+    // The word is written back over the snapshot whichever way round it came, because what
+    // `Game::press_into` writes is the whole of what the game reads: a decide taken out and left down in
+    // the bytes is a press held back and acted on anyway.
+    let word = match the_word_the_game_reads() {
+        Some(word) => Some(word),
+        None => {
+            let frame = unsafe { runtime.game.stage_frame() };
+            unsafe { runtime.game.word_in(state) }.map(|pressed| unsafe {
+                noted(runtime.game, frame, held_back(runtime.game, pressed))
+            })
+        }
+    };
     if let Some(word) = word {
         unsafe { runtime.game.press_into(state, word) };
     }
@@ -2158,8 +2382,26 @@ pub unsafe extern "system" fn xinput_get_state(user: u32, state: *mut u8) -> u32
     let Some(runtime) = unsafe { RUNTIME.get() }.as_mut() else {
         return NOT_CONNECTED;
     };
-    unsafe { runtime.game.press_into_pad(state, pressing().unwrap_or(0)) };
+    // **The frame's own word where orb runs the frame, and the bot's where it does not** — the same choice
+    // [`keyboard_state`] makes and for the same reason, plus one: the decide a question of orb's is to be
+    // raised on is held out of the frame's word by [`held_back`], and a pad filled from the bot's own put it
+    // straight back in. Measured on th06c: the title's item was pressed through on every launch and
+    // `menu: nothing to ask about the item under the cursor` was written on the frame after, the front end
+    // already a screen on.
+    let word = the_word_the_game_reads();
+    unsafe { runtime.game.press_into_pad(state, word.unwrap_or(0)) };
     0
+}
+
+/// **The word a read of the game's own — its keyboard, its pad — is filled from**: what [`the_frames_word`]
+/// decided where orb runs the frame, and the bot's own where it does not. `None` for a launch nobody is
+/// playing.
+fn the_word_the_game_reads() -> Option<u16> {
+    if THE_FRAME_IS_THE_SEAM.load(Ordering::Relaxed) {
+        u16::try_from(WORD_THIS_FRAME.load(Ordering::Relaxed)).ok()
+    } else {
+        pressing()
+    }
 }
 
 /// **The names orb answers a lookup for in the host's place**, set at the attach out of `game::Hooks` —
@@ -2652,8 +2894,14 @@ unsafe fn a_write_follows_this_read(screen: *mut c_void) -> bool {
 /// # Safety
 /// Must run on the game's main thread. `image` and `records` are the two the parse is entered with, and are
 /// passed through untouched.
+///
+/// **32-bit alone**, because th07 and the `orb` crate are all that reach it and both are: `"fastcall"`
+/// is not an ABI a 64-bit target has — see [`OnItsThis`] — and a hook no 64-bit game enters needs no
+/// second spelling of it. The same holds of [`ranking_read_in_ecx`], [`unlocks_read_in_ecx`] and
+/// [`get_controller_input_in_ecx`]; [`stage_begun_in_ecx`] is the one of the five th06c does enter.
+#[cfg(target_arch = "x86")]
 pub unsafe extern "fastcall" fn card_records_read(image: usize, records: usize) -> i32 {
-    let original: unsafe extern "fastcall" fn(usize, usize) -> i32 =
+    let original: OnItsThisWithOne =
         unsafe { std::mem::transmute(CARD_RECORDS_READ.load(Ordering::Relaxed)) };
     // **And the note is taken here, before the parse, where a run was playing on the last frame orb saw.**
     // This read is the last moment that run's own counting is in memory: the parse below lays the file's
@@ -2727,6 +2975,10 @@ unsafe fn note_what_the_run_counted(game: &dyn game::Game) {
 ///
 /// # Safety
 /// Must run on the game's main thread.
+///
+/// 32-bit alone with [`card_records_read`], its one caller: th06c and th06nc answer `None` for that
+/// hook, so a 64-bit build has nothing that reaches this.
+#[cfg(target_arch = "x86")]
 unsafe fn note_the_records_as_they_stand(game: &dyn game::Game) {
     let counted = unsafe { game.captures() };
     if !game.these_records_hold_a_count(&counted) {
@@ -2764,9 +3016,11 @@ static A_RUN_WAS_PLAYING: AtomicBool = AtomicBool::new(false);
 /// # Safety
 /// The same as [`ranking_read`]: the game's main thread, and `screen` the ranking screen's own object as the
 /// callback this replaces is handed it.
+///
+/// 32-bit alone, for the reason [`card_records_read`] carries.
+#[cfg(target_arch = "x86")]
 pub unsafe extern "fastcall" fn ranking_read_in_ecx(screen: *mut c_void) -> i32 {
-    let original: extern "fastcall" fn(*mut c_void) -> i32 =
-        unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
+    let original: OnItsThis = unsafe { std::mem::transmute(RANKING_READ.load(Ordering::Relaxed)) };
     if let Some(game) = unsafe { chosen() }.filter(|_| EMPTIES_CAPTURES.load(Ordering::Relaxed)) {
         unsafe { game.forget_captures(screen) };
     }
@@ -2780,9 +3034,11 @@ pub unsafe extern "fastcall" fn ranking_read_in_ecx(screen: *mut c_void) -> i32 
 
 /// The same bracket where the game's own callback takes the front end in `ecx` — th07's, at 0x45c4c8, its
 /// chain calling every callback that way. See [`game::Entered`].
+///
+/// 32-bit alone, for the reason [`card_records_read`] carries.
+#[cfg(target_arch = "x86")]
 pub extern "fastcall" fn unlocks_read_in_ecx(menu: *mut c_void) -> i32 {
-    let original: extern "fastcall" fn(*mut c_void) -> i32 =
-        unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
+    let original: OnItsThis = unsafe { std::mem::transmute(UNLOCKS_READ.load(Ordering::Relaxed)) };
     score::reading_unlocks(true);
     let result = original(menu);
     score::reading_unlocks(false);
@@ -2790,13 +3046,22 @@ pub extern "fastcall" fn unlocks_read_in_ecx(menu: *mut c_void) -> i32 {
     result
 }
 
-/// The same moment where the game's own callback takes the manager in `ecx` — th07's added callback, at
-/// 0x42e83e, its chain calling every callback as `mov ecx,[elem+0x1c]; call [elem+0x4]`. See
-/// [`game::Entered`], and [`get_controller_input_in_ecx`] for why this is an entry point of its own rather
-/// than one function told which.
-pub extern "fastcall" fn stage_begun_in_ecx(manager: *mut c_void) -> i32 {
-    let original: extern "fastcall" fn(*mut c_void) -> i32 =
-        unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
+the_games_own_convention! {
+    /// The same moment where the game's own callback takes the manager in the first register — th07's
+    /// added callback, at 0x42e83e, its chain calling every callback as
+    /// `mov ecx,[elem+0x1c]; call [elem+0x4]`, and th06c's stage callback taking it in `rcx`. See
+    /// [`game::Entered`], and `get_controller_input_in_ecx` for why this is an entry point of its own
+    /// rather than one function told which.
+    ///
+    /// **The one of these four a 64-bit game reaches**: th06c patches a prologue to jump here — its
+    /// `stage_begun` is an [`game::Entered::InEcx`] — so the convention is the game's to satisfy and
+    /// not orb's to pick.
+    pub fn stage_begun_in_ecx(manager: *mut c_void) -> i32 { the_stage_begun(manager) }
+}
+
+/// [`stage_begun_in_ecx`]'s own work — [`the_calc_chain`] has why it is a function of its own.
+fn the_stage_begun(manager: *mut c_void) -> i32 {
+    let original: OnItsThis = unsafe { std::mem::transmute(STAGE_BEGUN.load(Ordering::Relaxed)) };
     let result = original(manager);
     if result == 0
         && let Some(game) = unsafe { chosen() }
@@ -2862,6 +3127,9 @@ pub extern "C" fn pad_buttons() -> *mut c_void {
 ///
 /// An entry point apiece rather than one function told which, because a hook is entered by its ABI: what
 /// installs one writes a jump over a prologue, and the convention is settled by then.
+///
+/// 32-bit alone, for the reason [`card_records_read`] carries.
+#[cfg(target_arch = "x86")]
 pub extern "fastcall" fn get_controller_input_in_ecx(buttons: u16) -> u16 {
     with_the_pad_added(buttons)
 }
@@ -2922,8 +3190,7 @@ pub extern "C" fn stop_recording() {
 }
 
 unsafe fn call_original(trampoline: &AtomicUsize, chain: *mut c_void) -> i32 {
-    let original: extern "fastcall" fn(*mut c_void) -> i32 =
-        unsafe { std::mem::transmute(trampoline.load(Ordering::Relaxed)) };
+    let original: OnItsThis = unsafe { std::mem::transmute(trampoline.load(Ordering::Relaxed)) };
     original(chain)
 }
 
@@ -3217,9 +3484,16 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // A run being cleared to reach an ending goes the same way. It is somebody at the
     // keyboard rather than a replay, but they are not dodging anything — nothing can hit
     // them — so the frames are there to see the run go by and not to play on.
+    //
+    // **And a run a recipe plays, where a speed was asked for**: the rules are asked again before every
+    // one of the frame's updates below, so the player they steer is the one the last update left and not
+    // one the frame before did — a bot that reacts once a frame at sixty-four updates a frame is a bot
+    // that dies of the update it did not look at. Only inside a run: a menu repeated is a press repeated,
+    // and the recipe's own counts of frames are of orb's frames, which is what the front end is walked by.
     let fast_forward = runtime.previous.is_some_and(|previous| {
         previous.replay && previous.playing && !previous.demo
             || runtime.config.fast_clear && previous.in_game
+            || runtime.config.autoplay.is_some() && runtime.config.speed > 1 && previous.in_game
     });
     let mut repeats = if fast_forward {
         runtime.config.speed
@@ -3245,16 +3519,27 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
     // Timed around orb's own work only: the game's update runs in between, and
     // counting it made orb look like it was costing milliseconds a frame.
     let mut started = profile::now();
-    for _ in 0..repeats {
+    for repeat in 0..repeats {
+        // The rules asked again for every update past the frame's first, off the world that update left —
+        // see `fast_forward` above; the first was asked at the top of the frame with everything else.
+        if repeat > 0 && runtime.config.autoplay.is_some() {
+            unsafe { what_is_reached(runtime) };
+        }
         // Before the update, because what reads it is the hit test inside the update. Not
         // during a replay or the attract demo, where the run is a record of one somebody
         // played and the player not dying would be a different run from the one recorded.
         if runtime.config.fast_clear && state.in_game {
             unsafe { runtime.game.make_invulnerable() };
         }
-        unsafe { profile::record(profile::Phase::Update, started) };
+        // One read of the counter for the moment orb's own work ends and the game's update begins, and
+        // one for the moment it ends: a read costs the frame the read, and a simulated one charges the
+        // frame for it — see `profile::record_until`, which is why neither of these is a second read.
+        let the_games_own = profile::now();
+        unsafe { profile::record_until(profile::Phase::Update, started, the_games_own) };
+        crate::sampler::the_update_begins(the_games_own);
         result = unsafe { call_original(&RUN_CALC_CHAIN, chain) };
         started = profile::now();
+        crate::sampler::the_update_ends(started);
         state = unsafe { runtime.game.read_state() };
         if runtime.chaptering() {
             unsafe {
@@ -3812,12 +4097,29 @@ unsafe fn on_update(chain: *mut c_void) -> i32 {
         .asks_mode
         .then(|| unsafe { runtime.game.menu_pointed_at() })
         .flatten();
+    let there_is_something_to_ask = pointing.is_some() || asked_about.is_some();
+    let takes_a_press = unsafe { runtime.game.menu_takes_a_press() };
     HOLD_DECIDE.store(
-        (pointing.is_some() || asked_about.is_some())
-            && runtime.overlay.is_some()
-            && unsafe { runtime.game.menu_takes_a_press() },
+        there_is_something_to_ask && runtime.asks_over_the_game() && takes_a_press,
         Ordering::Relaxed,
     );
+    // **And a line where there is something to ask and the screen will not take the press**, said as that
+    // turns from one to the other and not once a frame.
+    //
+    // What it is for is a launch whose title sat unanswered for its whole bound: orb fed the decide on 912
+    // frames, raised no question — the trace's `question` is None on every one of them — and the game did
+    // nothing with it either, both of them reading the same count of how long the screen had been up. No
+    // line said which was refusing, and this is that line. See this change's own `TODO:` for the session it
+    // came out of.
+    if there_is_something_to_ask
+        && runtime.asks_over_the_game()
+        && THE_SCREEN_TOOK_A_PRESS.swap(takes_a_press, Ordering::Relaxed) != takes_a_press
+    {
+        detail!(
+            "menu: there is something to ask about the item under the cursor and the screen {} take a press",
+            if takes_a_press { "will" } else { "will not" },
+        );
+    }
     if DECIDE_PRESSED.swap(false, Ordering::Relaxed) {
         match (pointing, pointed, asked_about) {
             (Some(run), Some(slot), _) => {
@@ -4166,10 +4468,10 @@ fn ask_where_to_start(
     cancels: resume_ui::Cancels,
 ) -> bool {
     let asked = match resume::load(&runtime.config.base_dir, runtime.game, run) {
-        // Not without the overlay, which is what would draw it: a frozen game with an invisible
-        // question over it is a game that looks broken, and what is lost by not asking is the run
-        // starting where the game was going to start it anyway.
-        Some(_) if runtime.overlay.is_none() => {
+        // Not without somebody to answer it — see [`Runtime::asks_over_the_game`]: a frozen game with an
+        // invisible question over it is a game that looks broken, and what is lost by not asking is the
+        // run starting where the game was going to start it anyway.
+        Some(_) if !runtime.asks_over_the_game() => {
             log!("resume: {slot} was left, but there is no overlay to ask over the game with");
             false
         }
@@ -4348,10 +4650,10 @@ fn the_replay_being_written_over(runtime: &mut Runtime, slot: &str) -> bool {
     if runtime.config.save_replays || !replay::is_being_played(&runtime.config.base_dir, slot) {
         return false;
     }
-    // Not without the overlay, which is what would draw it: a frozen game with an invisible question over
-    // it is a game that looks broken, and what is lost by not asking is a replay kept that somebody may
-    // not have wanted — against a launch that cannot start a run at all.
-    if runtime.overlay.is_none() {
+    // Not without somebody to answer it — see [`Runtime::asks_over_the_game`]: a frozen game with an
+    // invisible question over it is a game that looks broken, and what is lost by not asking is a replay
+    // kept that somebody may not have wanted — against a launch that cannot start a run at all.
+    if !runtime.asks_over_the_game() {
         log!(
             "replay: {slot} is being written over, and there is no overlay to ask over the game with"
         );
@@ -4456,14 +4758,28 @@ unsafe fn step(runtime: &mut Runtime, chain: *mut c_void, state: &State) -> Step
     // without stopping. This one is inside the stage, where every chapter of it is still a
     // snapshot to go back into; once the next stage has loaded, what a snapshot of this one
     // names has been released and the way back is the game's to load.
-    let ended = runtime.played && (!state.playing || runtime.chapters.stage_won());
+    // **And a frame in no stage at all is that same end for a game whose scene does not say so**: th06c
+    // counts the state its manager is rebuilt in as a stage being played — `sight::a_stage_is_the_scene`,
+    // whose reason is that a stage move is where the frame counter restarts — so `playing` stays set right
+    // through the transition and the wall above had nothing to fire on. Its stage word reads nought there,
+    // which is `State::stage` of -1: measured, a pass stepping forward off the last boundary of a th06c
+    // stage ran on into the next one and the chapters of the one it was judging were gone.
+    //
+    // **Only where the chapters are of a stage already**, which is the same trap `runtime.played` is
+    // guarding against one door along: the frames before a pass's *first* stage is built say that same
+    // nought, and a wall there stops the update that would build it — a th06 pass held on its own way in
+    // and never reached stage 1.
+    let in_no_stage = state.stage < 0 && runtime.chapters.stage().is_some();
+    let ended = runtime.played && (!state.playing || in_no_stage || runtime.chapters.stage_won());
     if ended {
         runtime.held = true;
         if !runtime.walled {
             runtime.walled = true;
             log!(
                 "step: stage {} has ended; the across key with next or back leaves it",
-                state.stage + 1,
+                // The stage the chapters are of and not the one the frame says: the frame this fires on
+                // may be one the game is in no stage at all on — see `Chapters::stage`.
+                runtime.chapters.stage().unwrap_or(state.stage) + 1,
             );
         }
     } else {
@@ -4676,6 +4992,12 @@ unsafe fn run_to(runtime: &mut Runtime, chain: *mut c_void, aim: Aim) -> Step {
         // scene runs on into the stage after. A launch found it: `next` at the end of a fight came to rest
         // in stage 2, with the stage it was judging gone and no chapter of it left to go back into.
         && !runtime.chapters.stage_won()
+        // **And a frame in no stage at all**, which is the same end for a game whose scene does not say so:
+        // th06c counts the state its manager is rebuilt in as a stage being played, so `playing` above
+        // carries this loop straight through a transition — measured, a step forward off the last boundary
+        // of a th06c stage ran 201 updates and came to rest in stage 2 at frame 1, with the chapters of the
+        // stage it was judging gone. Asked of a pass that is in a stage already, for the wall's own reason.
+        && (reached.stage >= 0 || runtime.chapters.stage().is_none())
         && !reached.paused
         && frames < STEP_LIMIT_FRAMES
         && ran != CHAIN_EXIT_SUCCESS
@@ -5610,6 +5932,47 @@ enum Marking {
 /// Only ever called from the draw hook, between the game's `BeginScene` and
 /// `EndScene`, on the game's main thread.
 unsafe fn after_draw() {
+    // **Nothing here for a game orb draws over a swapchain**, which is drawn from the present instead —
+    // see [`the_overlay_over_a_swapchain`]. A game with a Direct3D 8 device is drawn on here, inside the
+    // scene its own draw chain is walked in, which is the only place such a device may be drawn with.
+    if unsafe { drawn_at_the_present() } {
+        return;
+    }
+    let started = profile::now();
+    unsafe { draw_overlay() };
+    unsafe { profile::record(profile::Phase::Draw, started) };
+}
+
+/// Whether this launch's overlay is one drawn from the present rather than from the draw hook, which is
+/// a game with no Direct3D 8 device — and `false` before there is an overlay at all, so that the first
+/// frames still reach [`draw_overlay`] and build one.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn drawn_at_the_present() -> bool {
+    unsafe { RUNTIME.get() }
+        .as_ref()
+        .and_then(|runtime| runtime.overlay.as_ref())
+        .is_some_and(Overlay::draws_over_a_swapchain)
+}
+
+/// **What orb draws over the frame of a game whose frames go through a swapchain**, called from
+/// `crate::dxgi`'s stand-in for the game's own `Present` with the finished picture in the back buffer and
+/// the hand-over not yet made.
+///
+/// **That is the one moment a frame of this kind can be drawn over.** th06c's own `Game::end_drawing` both
+/// composites the frame and puts it on the screen, so everything before it is written over and everything
+/// after it is too late — see `dxgi::presents_nothing`, which is where this is called.
+///
+/// Nothing at all for a game whose overlay is its Direct3D 8 device's, that one being drawn in the draw
+/// hook where the device's own scene is open.
+///
+/// # Safety
+/// Must run on the game's main thread, with the frame drawn and not yet handed over.
+pub unsafe fn the_overlay_over_a_swapchain() {
+    if !unsafe { drawn_at_the_present() } {
+        return;
+    }
     let started = profile::now();
     unsafe { draw_overlay() };
     unsafe { profile::record(profile::Phase::Draw, started) };
@@ -5623,19 +5986,23 @@ unsafe fn draw_overlay() {
         return;
     };
     if runtime.overlay.is_none() && runtime.overlay_attempts > 0 {
+        let font = runtime.config.game_dir.join("font.ttf");
+        let face = runtime.game.own_face();
+        // **Whichever of the two this game draws through**, asked in that order: a game with a Direct3D 8
+        // device is drawn on with that device, and one with none — which is what `d3d_device` answering
+        // null means — is drawn on through the swapchain its own frames go to. A game that has neither yet
+        // has nothing to build on, and the frame is handed back with a try still to spend.
         let device = unsafe { runtime.game.d3d_device() };
-        if device.is_null() {
+        let swapchain = crate::dxgi::the_swapchain();
+        if device.is_null() && swapchain == 0 {
             return;
         }
         runtime.overlay_attempts -= 1;
-        runtime.overlay = unsafe {
-            Overlay::new(
-                device,
-                &runtime.config.game_dir.join("font.ttf"),
-                runtime.game.own_face(),
-                FONT_HEIGHT,
-                MARK_FONT_HEIGHT,
-            )
+        runtime.overlay = match device.is_null() {
+            false => unsafe { Overlay::new(device, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT) },
+            true => unsafe {
+                Overlay::over_a_swapchain(swapchain, &font, face, FONT_HEIGHT, MARK_FONT_HEIGHT)
+            },
         };
         // Said when it is there and when the last try has gone, and nothing in between: what
         // each try itself could not do is already a line of its own.

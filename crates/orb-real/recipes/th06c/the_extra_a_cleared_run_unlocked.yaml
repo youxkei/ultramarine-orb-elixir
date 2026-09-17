@@ -1,0 +1,53 @@
+# The Extra the clear before this unlocked — the title's second item, Extra Start — played in the rewindable
+# mode into its third chapter, a chapter taken again, and the run left. The item is there only where the game's
+# own records hold a Normal clear or better, which a_normal_mode_run_played_to_its_clear left in them.
+#
+# **The Extra has no difficulty select, and its two selects carry the numbers a full run's first two do**:
+# the item opens screen 6, which goes to 7 on its own — the character select here, where a full run's 7 is
+# the difficulty — and its decide opens 9, the shot select, whose decide is the stage. Read off a launch's
+# own `front end:` lines: `screen 6, cursor on item 1`, `screen 7, cursor on item 0`, `screen 9`, then
+# `screen 11` for one frame as `run: stage 7 on difficulty 4` began.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 7, chapter: 1 }
+  give_up_after: 3600
+- play_until: { stage: 7, chapter: 3 }
+  give_up_after: 36000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 7, chapter: 4 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

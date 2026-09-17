@@ -1,0 +1,33 @@
+# The replay the_run_started_over_and_its_replay_kept kept, found through the title's fourth item — Replay —
+# where orb's own list stands in the game's screen's place for the rewindable mode, and one attempt of it
+# watched: the list is answered down through the replay, the stage and the chapter to the attempt, and the
+# attempt plays out until the list is back.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 3 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- answer: { question: choose_replay, item: 0 }
+  give_up_after: 900
+- wait_until: { question: choose_replay }
+  give_up_after: 3600
+- quit: true

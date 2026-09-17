@@ -7,9 +7,10 @@ use std::sync::Mutex;
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Memory::{
     GetProcessHeap, HeapLock, HeapUnlock, HeapValidate, HeapWalk, MEM_COMMIT, MEM_FREE, MEM_IMAGE,
-    MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
-    PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY,
-    PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY, VirtualAlloc, VirtualProtect, VirtualQuery,
+    MEM_PRIVATE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READ,
+    PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS,
+    PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY, PROCESS_HEAP_ENTRY,
+    VirtualAlloc, VirtualProtect, VirtualQuery,
 };
 use windows_sys::Win32::System::SystemServices::PROCESS_HEAP_REGION;
 
@@ -136,6 +137,28 @@ pub fn vtable_in_image(address: usize) -> bool {
         return false;
     };
     query(vtable).is_some_and(|info| info.State == MEM_COMMIT && info.Type == MEM_IMAGE)
+}
+
+/// Whether `address` holds a pointer to a page a module can be executed out of, which is what a
+/// return address on a stack looks like.
+///
+/// **Executable and not merely inside an image**, which is [`vtable_in_image`]'s question: a stack
+/// also carries pointers to a module's own data, and a run of those among the return addresses is a
+/// call chain nobody can read. Used by `thread::where_it_is` and nothing above the seam.
+pub fn points_at_code(address: usize) -> bool {
+    let Some(pointer) = read_committed::<usize>(address) else {
+        return false;
+    };
+    query(pointer).is_some_and(|info| {
+        info.State == MEM_COMMIT
+            && info.Type == MEM_IMAGE
+            && info.Protect
+                & (PAGE_EXECUTE
+                    | PAGE_EXECUTE_READ
+                    | PAGE_EXECUTE_READWRITE
+                    | PAGE_EXECUTE_WRITECOPY)
+                != 0
+    })
 }
 
 /// Alignment is refused here as well as in the facade, and not redundantly: the facade checks it

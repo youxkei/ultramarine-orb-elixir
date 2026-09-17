@@ -6,10 +6,16 @@
 
 use std::sync::Mutex;
 
+use crate::thread::Executing;
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
+#[cfg(target_arch = "x86_64")]
+use windows_sys::Win32::System::Diagnostics::Debug::CONTEXT_CONTROL_AMD64 as CONTEXT_CONTROL;
+#[cfg(target_arch = "x86")]
+use windows_sys::Win32::System::Diagnostics::Debug::CONTEXT_CONTROL_X86 as CONTEXT_CONTROL;
+use windows_sys::Win32::System::Diagnostics::Debug::{CONTEXT, GetThreadContext};
 use windows_sys::Win32::System::Threading::{
     GetCurrentThread, GetCurrentThreadId, OpenThread, ResumeThread, SetThreadPriority,
-    SuspendThread, THREAD_PRIORITY_BELOW_NORMAL, THREAD_SUSPEND_RESUME,
+    SuspendThread, THREAD_GET_CONTEXT, THREAD_PRIORITY_BELOW_NORMAL, THREAD_SUSPEND_RESUME,
 };
 
 /// The threads the game has created, with a handle each so that suspending one needs no lookup. A
@@ -47,6 +53,75 @@ pub fn registered(id: u32) -> bool {
         });
     }
     true
+}
+
+/// **A `CONTEXT` on a sixteen**, which is what `GetThreadContext` on x64 requires of the one it is handed
+/// and refuses with `ERROR_NOACCESS` without. `windows-sys` declares the struct `repr(C)` alone, and its
+/// own alignment is eight — the `M128A`s in it being two `u64`s each — so the alignment is asked for here.
+#[repr(C, align(16))]
+struct Aligned(CONTEXT);
+
+/// How far up the stack the return addresses are looked for, in words, and how many are kept.
+///
+/// **A bound rather than the whole stack**, because every word of it is read with the thread held still
+/// and each read is a `VirtualQuery`: a kilobyte is the nearest dozen frames, which is as far as a
+/// thread's own call chain is worth following, and the cost of it is a fifth of a millisecond.
+const UP_THE_STACK: usize = 128;
+const HOW_MANY_CALLS: usize = 12;
+
+/// Where thread `id` is, held still for the read.
+///
+/// A handle opened for the one read rather than one of the table's, because the thread asked about is
+/// the frame's own — the game's main thread, which the game did not create and the table therefore never
+/// held. `SuspendThread` before `GetThreadContext` and `ResumeThread` after, because a context read off a
+/// running thread is a context of no moment in particular, and the stack is read inside the same window
+/// for the same reason: a stack read after the resume is one whose frames may already have gone.
+///
+/// **Nothing is allocated between the suspend and the resume.** A suspended thread holding the allocator's
+/// lock would never release it, and the thread suspended here is one that runs orb's own hooks — so the
+/// words are counted into an array on this thread's stack and the `Vec` is built after the resume.
+pub fn where_it_is(id: u32) -> Option<Executing> {
+    if id == 0 || id == current_id() {
+        return None;
+    }
+    let handle = unsafe { OpenThread(THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, id) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut under = [0usize; HOW_MANY_CALLS];
+    let mut calls = 0;
+    let executing = if unsafe { SuspendThread(handle) } == u32::MAX {
+        None
+    } else {
+        let mut context: Aligned = unsafe { std::mem::zeroed() };
+        context.0.ContextFlags = CONTEXT_CONTROL;
+        let read = unsafe { GetThreadContext(handle, &mut context.0) } != 0;
+        #[cfg(target_arch = "x86_64")]
+        let (at, stack) = (context.0.Rip as usize, context.0.Rsp as usize);
+        #[cfg(target_arch = "x86")]
+        let (at, stack) = (context.0.Eip as usize, context.0.Esp as usize);
+        if read {
+            for word in 0..UP_THE_STACK {
+                if calls == under.len() {
+                    break;
+                }
+                let slot = stack + word * size_of::<usize>();
+                // The real memory beside this and not the facade above it: this file is the answer a
+                // simulated host has already been asked instead of.
+                if super::mem::points_at_code(slot) {
+                    under[calls] = super::mem::read_committed::<usize>(slot).unwrap_or(0);
+                    calls += 1;
+                }
+            }
+        }
+        unsafe { ResumeThread(handle) };
+        read.then_some(at)
+    };
+    unsafe { CloseHandle(handle) };
+    executing.map(|at| Executing {
+        at,
+        under: under[..calls].to_vec(),
+    })
 }
 
 pub fn suspend_game_threads(audio: Option<u32>) -> Vec<u32> {

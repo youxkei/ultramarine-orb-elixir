@@ -21,11 +21,6 @@ md-5 = "0.10"
 # each entry is the DLL's to use.
 orb-core.workspace = true
 
-# Nothing here calls it. Its build script is what points git at `.husky` for this repository's
-# hooks, and a workspace with no root package has to hang that off one of its members.
-[dev-dependencies]
-husky-rs = "0.4"
-
 # Not linked against: depended on for its built cdylib, whose path arrives as
 # `CARGO_CDYLIB_FILE_ORB` so the launcher can carry the DLL inside itself.
 #

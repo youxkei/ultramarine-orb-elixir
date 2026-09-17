@@ -49,4 +49,8 @@ features = [
     "Win32_System_SystemInformation",
     "Win32_System_Performance",
     "Win32_System_Threading",
+    # `GetThreadContext` and `CONTEXT`, which is where a thread held still is executing. Both are
+    # declared in the first and gated behind the second.
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
 ]

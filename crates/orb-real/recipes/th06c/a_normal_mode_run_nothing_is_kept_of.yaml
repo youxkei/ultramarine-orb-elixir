@@ -1,0 +1,46 @@
+# A run of the other mode — the mode question answered with the normal one — started from the title, played
+# for a while and left: nothing of it is a chapter, and nothing of it is kept. The walk to the run is
+# a_run_left_in_its_second_chapter's.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+# Pressed at for ten seconds rather than until a chapter, this mode having none: the presses past the one
+# that starts the run are shots.
+- press: [decide]
+  frames: 6
+  until: { frames: 600 }
+- play_until: { frames: 1800 }
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -918,6 +918,21 @@ pub unsafe fn starting() -> bool {
     unsafe { RECORD.get() }.starting.is_some()
 }
 
+/// Whether a saved run is waiting for its stage and it is a run being *picked up* rather than an attempt
+/// being watched.
+///
+/// **[`starting`] answers for both and this is what tells them apart**, which is [`WATCHING`]'s whole
+/// purpose — see its own note, where the two flags are said to want opposite answers of one another. What
+/// wants the narrower question is the frame that builds the stage: a run being picked up must not be played
+/// with a word of the rules' own there, and a watched attempt must, the press that reaches its stage being
+/// on that frame.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn picking_up() -> bool {
+    unsafe { RECORD.get() }.starting.is_some() && !WATCHING.load(Ordering::Relaxed)
+}
+
 /// Gives up on a resume, wherever it had got to.
 ///
 /// # Safety

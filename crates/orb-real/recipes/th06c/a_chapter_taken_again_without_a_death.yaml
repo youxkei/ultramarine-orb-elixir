@@ -1,0 +1,51 @@
+# A run played into its second chapter, the retry menu opened from the pause menu's own 最初からやり直す rather
+# than by a death, and the chapter taken again — then played on into the third. The walk to the run is
+# a_run_left_in_its_second_chapter's.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- play_until: { stage: 1, chapter: 2 }
+  give_up_after: 18000
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

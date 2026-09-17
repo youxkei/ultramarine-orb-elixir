@@ -276,15 +276,26 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
         // took, and here one clock serves both threads — a read the game's own frames advanced it across
         // is charged that time — so a longer ask can stand between two of these. That a *shorter* one
         // cannot is the assertion: with nothing answering the wait is `max(1000, cost)`.
+        //
+        // **That thread's own cadence and not every thread's**: a sampler of orb's own waits like this
+        // too, and in one list the two interleave — see `orb_sim::Clock::sleep`. The second between reads
+        // is what names the poller among them.
+        let the_pollers_cadence = || {
+            game.sim()
+                .clock()
+                .the_cadence_of_whatever_waited(LOOKED_FOR_MS)
+        };
         waits_until(
             &game,
             "the second the thread waits for an empty socket",
-            || game.sim().clock().sleeps().contains(&LOOKED_FOR_MS),
+            || the_pollers_cadence().is_some(),
         );
         assert!(
-            !game.sim().clock().sleeps().contains(&SAMPLED_MS),
+            !the_pollers_cadence()
+                .expect("the wait that was just waited for")
+                .contains(&SAMPLED_MS),
             "the empty socket was read at a pad's cadence: {:?}",
-            game.sim().clock().sleeps(),
+            the_pollers_cadence(),
         );
 
         // And that thread runs below the game's, which is the other half of costing the frame nothing: a
@@ -328,7 +339,7 @@ fn an_empty_socket_is_named_and_a_pad_that_turns_up_later_drives_the_menu() {
         // And the cadence changes with it: four samples a frame, so that what the game is handed is never
         // a frame behind what the stick is doing.
         waits_until(&game, "the cadence of a pad that is answering", || {
-            game.sim().clock().sleeps().contains(&SAMPLED_MS)
+            the_pollers_cadence().is_some_and(|cadence| cadence.contains(&SAMPLED_MS))
         });
         game.sim().joystick().pushes(1 << MAPPING.shoot, centred());
         waits_until(&game, "the pad's answer", || outcomes(&game) == 1);

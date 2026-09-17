@@ -4,6 +4,8 @@
 //! below full speed while the lighter ones look fine, which is indistinguishable
 //! from several different causes by eye. These numbers tell them apart.
 
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+
 use orb_api::clock;
 
 use crate::log;
@@ -68,6 +70,25 @@ static FRAME: MainThread<Slot> = MainThread::new(Slot {
 });
 static LAST_FRAME: MainThread<i64> = MainThread::new(0);
 
+/// **The game's `malloc` and `free` where orb answers them**, which is the one phase not confined to the
+/// game's main thread: a UCRT game allocates from its streaming thread too — `orb::memtrack` — so this
+/// slot is atomics rather than a [`MainThread`], and what it counts is every call from every thread.
+///
+/// Measured because a launch of th06c dropped frames each time the player's shot hit an enemy, and the
+/// hit's own effects are allocations: whether the time is in the heap orb answers out of is what this
+/// line says.
+static HEAP_TICKS: AtomicI64 = AtomicI64::new(0);
+static HEAP_WORST: AtomicI64 = AtomicI64::new(0);
+static HEAP_CALLS: AtomicU32 = AtomicU32::new(0);
+
+/// A call of the game's `malloc` or `free` that began at `since`, from whichever thread made it.
+pub fn record_heap(since: i64) {
+    let elapsed = now() - since;
+    HEAP_TICKS.fetch_add(elapsed, Ordering::Relaxed);
+    HEAP_WORST.fetch_max(elapsed, Ordering::Relaxed);
+    HEAP_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
 pub fn now() -> i64 {
     clock::counter()
 }
@@ -78,10 +99,28 @@ pub fn since(started: i64) -> i64 {
     microseconds(now() - started, frequency())
 }
 
+/// Microseconds between two `now()`s, for a span whose ends the caller already read.
+pub fn span_us(from: i64, to: i64) -> i64 {
+    microseconds(to - from, frequency())
+}
+
 /// # Safety
 /// Must run on the game's main thread.
 pub unsafe fn record(phase: Phase, since: i64) {
-    let elapsed = now() - since;
+    unsafe { record_until(phase, since, now()) };
+}
+
+/// A phase whose end the caller has already read the counter for.
+///
+/// **Which is the whole reason this exists**: a read of the counter costs the frame the read, and a
+/// simulated one charges the frame for it too — `orb_sim::Clock::counter`, whose cost every pacing e2e
+/// test's numbers are derived from. So where a caller takes a `now()` of its own for the moment a phase
+/// ends, that read is the one to charge the phase with, and [`record`]'s own would be a second.
+///
+/// # Safety
+/// Must run on the game's main thread.
+pub unsafe fn record_until(phase: Phase, since: i64, until: i64) {
+    let elapsed = until - since;
     let slot = &mut unsafe { SLOTS.get() }[index(phase)];
     slot.ticks += elapsed;
     slot.worst = slot.worst.max(elapsed);
@@ -130,6 +169,14 @@ pub unsafe fn frame() -> bool {
             microseconds(slot.ticks, frequency) / i64::from(counted),
             microseconds(slot.worst, frequency),
             slot.calls,
+        );
+    }
+    let heap_calls = HEAP_CALLS.swap(0, Ordering::Relaxed);
+    if heap_calls != 0 {
+        report += &format!(
+            " heap={}us/frame worst={}us calls={heap_calls}",
+            microseconds(HEAP_TICKS.swap(0, Ordering::Relaxed), frequency) / i64::from(counted),
+            microseconds(HEAP_WORST.swap(0, Ordering::Relaxed), frequency),
         );
     }
     if log::wanted(log::NORMAL) {

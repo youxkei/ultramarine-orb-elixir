@@ -163,22 +163,36 @@ struct Case {
     /// a recipe makes is bounded, so a launch still running past it is one whose step never gave up — and
     /// the case that plays a whole game is an hour and a half where the others are twenty minutes.
     within: Duration,
+    /// How many updates a frame the case asks to be played at, which is the case's own too — see
+    /// `orb_real::Case::speed`, where the rule and the measurements behind it are.
+    speed: u32,
 }
 
 pub fn real(args: Vec<String>) -> ExitCode {
     let mut args = args.into_iter();
     let Some(dir) = args.next() else {
         eprintln!(
-            "usage: cargo xtask real <copy of the install> [<case>...]\n\
+            "usage: cargo xtask real <copy of the install> [--speed=N] [<case>...]\n\
              \n\
              The directory holds one of the games orb runs and is a copy of the install, never the\n\
              install: the run writes the game's own records beside it. Cases are those of `orb-real`;\n\
-             none named plays them all, in order."
+             none named plays them all, in order, each at the speed it declares — four updates a frame\n\
+             for a case that plays a whole game and the game's own for the rest. `--speed=N` overrides\n\
+             that with one speed for every launch, which is a sweep and not what a session wants."
         );
         return ExitCode::FAILURE;
     };
     let dir = PathBuf::from(dir);
-    let only: Vec<String> = args.collect();
+    // **`--speed=N` among the cases is one speed for every launch, and every case otherwise carries its
+    // own** — see `orb_real::Case::speed`, which answers four for a case that plays a whole game and the
+    // game's own one for the rest. So a session with no flag is both green and quick: the long cases are
+    // watched in minutes rather than the better part of an hour, and the short ones keep the speed their
+    // trace check needs.
+    //
+    // The flag stays for a sweep, where what is wanted is every case at the one speed whatever it costs the
+    // checks.
+    let (speed, only): (Vec<String>, Vec<String>) =
+        args.partition(|arg| arg.starts_with("--speed="));
 
     if !status(
         {
@@ -302,6 +316,11 @@ pub fn real(args: Vec<String>) -> ExitCode {
             format!("--trace={}", windows_path(&case_dir.join("trace.msgpack"))),
             "--log=verbose".to_owned(),
         ]);
+        // The flag where one was given, and the case's own otherwise.
+        match speed.is_empty() {
+            true => launch.arg(format!("--speed={}", case.speed)),
+            false => launch.args(&speed),
+        };
         if !status(launch, "orb.exe") {
             return ExitCode::FAILURE;
         }
@@ -361,7 +380,7 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
     let mut games: Vec<Game> = Vec::new();
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
-        let [name, exe, records, target, case, continues, within] = fields[..] else {
+        let [name, exe, records, target, case, continues, within, speed] = fields[..] else {
             return Err(format!(
                 "orb-real list printed a line of another shape: {line:?}"
             ));
@@ -372,6 +391,9 @@ fn games_known_to(checker: &Path) -> Result<Vec<Game>, String> {
             within: Duration::from_secs(within.parse().map_err(|why| {
                 format!("orb-real list printed {within:?} as a count of seconds: {why}")
             })?),
+            speed: speed.parse().map_err(|why| {
+                format!("orb-real list printed {speed:?} as a count of updates a frame: {why}")
+            })?,
         };
         match games.iter_mut().find(|game| game.name == name) {
             Some(game) => game.cases.push(case),

@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use orb_api::d3d11;
 use orb_api::{
     Composition, Device, Face, Hresult, Hwnd, Locked, LockedBuffer, LogFile, Mask, Rect,
     SoundBuffer, Surface, SurfaceDesc, Texture, Viewport, Win,
@@ -40,7 +41,7 @@ mod window;
 mod xinput;
 pub use clock::{Clock, FREQUENCY};
 pub use display::{Compose, Display, SPIKE_PERCENT, SPIKE_US, USUAL_US};
-pub use drawing::{DEVICE, Drawn, Quad, Recording};
+pub use drawing::{DEVICE, Drawn, Quad, Recording, State};
 pub use files::Files;
 pub use joystick::{Joystick, POV_CENTERED, SOCKETS};
 pub use keyboard::{Keyboard, keys};
@@ -769,6 +770,14 @@ impl Win for Sim {
             .any(|loaded| loaded == module)
     }
 
+    /// **Whichever modules an e2e test said are there, and nothing brought in.** A simulated host has no
+    /// loader: what modules a laid-out game has is a test's own declaration — `Sim::load_module` — so this
+    /// answers that declaration rather than adding to it, and a library the test did not name is one orb
+    /// finds missing here as it would on a machine without it.
+    fn module_brings_in(&self, module: &str) -> bool {
+        self.module_loaded(module)
+    }
+
     fn proc_address(&self, module: &str, name: &str) -> Option<usize> {
         self.procs
             .lock()
@@ -941,6 +950,252 @@ impl Win for Sim {
 
     /// Nothing, and the storage stays, for the reason [`Sim::release_texture`] carries.
     fn release_surface(&self, _surface: Surface) {}
+
+    // --- Direct3D 11, which the canvas over a game's swapchain draws through ------
+    //
+    // **Everything answers**, where this host answered nothing before: a drawer that would not come up is
+    // a launch with no overlay, and no e2e test could then ask what orb put on a th06c screen. What the
+    // quads come back as is `drawing::Recording`'s, the same record the Direct3D 8 drawing lands in.
+
+    fn d3d11_device_of(&self, _swapchain: usize) -> Option<d3d11::Device> {
+        Some(d3d11::Device(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_immediate_context(&self, _device: d3d11::Device) -> Option<d3d11::Context> {
+        Some(d3d11::Context(self.drawing.a_d3d11_object()))
+    }
+
+    /// A handle and no rows: what the canvas does with a back buffer is make a render target view over it
+    /// and release it again, and nothing reads what is in it.
+    fn d3d11_back_buffer(&self, _swapchain: usize) -> Option<d3d11::Texture> {
+        Some(d3d11::Texture(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_render_target(
+        &self,
+        _device: d3d11::Device,
+        _texture: d3d11::Texture,
+    ) -> Option<d3d11::Target> {
+        Some(d3d11::Target(self.drawing.a_d3d11_object()))
+    }
+
+    /// **The entry point's own name as the bytecode**, this host having no HLSL compiler and no way to say
+    /// whether the source is valid. What the bytes are for is to be handed back to the two shaders and the
+    /// layout, which here need only something that is not empty — and a name is what a failure can be read
+    /// by. A source this host would refuse is therefore a thing only the real game says.
+    fn d3d11_compile(&self, _source: &str, entry: &str, _profile: &str) -> Result<Vec<u8>, String> {
+        Ok(entry.as_bytes().to_vec())
+    }
+
+    fn d3d11_vertex_shader(
+        &self,
+        _device: d3d11::Device,
+        _bytecode: &[u8],
+    ) -> Option<d3d11::VertexShader> {
+        Some(d3d11::VertexShader(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_pixel_shader(
+        &self,
+        _device: d3d11::Device,
+        _bytecode: &[u8],
+    ) -> Option<d3d11::PixelShader> {
+        Some(d3d11::PixelShader(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_input_layout(
+        &self,
+        _device: d3d11::Device,
+        _elements: &[d3d11::InputElementDesc],
+        _bytecode: &[u8],
+    ) -> Option<d3d11::Layout> {
+        Some(d3d11::Layout(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_buffer(
+        &self,
+        _device: d3d11::Device,
+        _desc: d3d11::BufferDesc,
+        _bytes: Option<&[u8]>,
+    ) -> Option<d3d11::Buffer> {
+        Some(d3d11::Buffer(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_texture(
+        &self,
+        _device: d3d11::Device,
+        desc: d3d11::Texture2dDesc,
+        pixels: &[u32],
+    ) -> Option<d3d11::Texture> {
+        Some(d3d11::Texture(self.drawing.create_d3d11_texture(
+            desc.width,
+            desc.height,
+            pixels,
+        )))
+    }
+
+    /// **The texture's own handle**, so that a quad drawn through this view carries the handle whose rows
+    /// [`Recording::pixels_of`](crate::Recording::pixels_of) holds — which is what lets
+    /// [`says`](crate::Recording::says) read a line of text back out of a canvas's quad exactly as it does
+    /// out of a device's.
+    fn d3d11_resource_view(
+        &self,
+        _device: d3d11::Device,
+        texture: d3d11::Texture,
+    ) -> Option<d3d11::ResourceView> {
+        Some(d3d11::ResourceView(texture.0))
+    }
+
+    fn d3d11_blend_state(
+        &self,
+        _device: d3d11::Device,
+        _desc: d3d11::BlendDesc,
+    ) -> Option<d3d11::Blend> {
+        Some(d3d11::Blend(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_sampler_state(
+        &self,
+        _device: d3d11::Device,
+        _desc: d3d11::SamplerDesc,
+    ) -> Option<d3d11::Sampler> {
+        Some(d3d11::Sampler(self.drawing.a_d3d11_object()))
+    }
+
+    fn d3d11_write(&self, _context: d3d11::Context, _buffer: d3d11::Buffer, bytes: &[u8]) -> bool {
+        self.drawing.canvas_wrote(bytes);
+        true
+    }
+
+    fn d3d11_set_viewports(&self, _context: d3d11::Context, viewports: &[d3d11::Viewport]) {
+        self.drawing.canvas_viewports_set(viewports);
+    }
+
+    fn d3d11_set_resource_view(&self, _context: d3d11::Context, view: d3d11::ResourceView) {
+        self.drawing.canvas_bound(view.0);
+    }
+
+    /// One piece of context state written down, whichever of the ten it was.
+    fn d3d11_sets(&self, _context: d3d11::Context, what: d3d11::Set) {
+        self.drawing.canvas_sets(|state| match what {
+            d3d11::Set::RenderTargets(targets, depth) => {
+                state.targets = targets.iter().map(|target| target.0).collect();
+                state.depth_view = depth.0;
+            }
+            d3d11::Set::BlendState(blend, factor, mask) => {
+                state.blend = blend.0;
+                state.blend_factor = factor;
+                state.blend_mask = mask;
+            }
+            d3d11::Set::DepthStencil(depth, reference) => {
+                state.depth_stencil = depth.0;
+                state.stencil_reference = reference;
+            }
+            d3d11::Set::Rasterizer(rasterizer) => state.rasterizer = rasterizer.0,
+            d3d11::Set::InputLayout(layout) => state.layout = layout.0,
+            d3d11::Set::VertexBuffer(buffer, stride, offset) => {
+                state.vertex_buffer = buffer.0;
+                state.stride = stride;
+                state.offset = offset;
+            }
+            d3d11::Set::Topology(topology) => state.topology = topology,
+            d3d11::Set::VertexShader(shader) => state.vertex_shader = shader.0,
+            d3d11::Set::PixelShader(shader) => state.pixel_shader = shader.0,
+            d3d11::Set::Sampler(sampler) => state.sampler = sampler.0,
+        });
+    }
+
+    // ---- and the state read back, out of what the setters were given ----------------------------
+    //
+    // **Which is why the setters are kept now and were not before.** A drawing that changes context state
+    // has to put it back, Direct3D 11 having no state block, and whether it did is the question these
+    // answer. A simulated host that kept none of it could not be asked.
+
+    fn d3d11_render_targets(
+        &self,
+        _context: d3d11::Context,
+        most: usize,
+    ) -> (Vec<d3d11::Target>, d3d11::DepthView) {
+        let state = self.drawing.canvas_state();
+        let targets = state
+            .targets
+            .iter()
+            .take(most)
+            .map(|at| d3d11::Target(*at))
+            .collect();
+        (targets, d3d11::DepthView(state.depth_view))
+    }
+
+    fn d3d11_blend_state_set(&self, _context: d3d11::Context) -> (d3d11::Blend, [f32; 4], u32) {
+        let state = self.drawing.canvas_state();
+        (
+            d3d11::Blend(state.blend),
+            state.blend_factor,
+            state.blend_mask,
+        )
+    }
+
+    fn d3d11_depth_stencil_set(&self, _context: d3d11::Context) -> (d3d11::DepthStencil, u32) {
+        let state = self.drawing.canvas_state();
+        (
+            d3d11::DepthStencil(state.depth_stencil),
+            state.stencil_reference,
+        )
+    }
+
+    fn d3d11_rasterizer_set(&self, _context: d3d11::Context) -> d3d11::Rasterizer {
+        d3d11::Rasterizer(self.drawing.canvas_state().rasterizer)
+    }
+
+    fn d3d11_viewports_set(&self, _context: d3d11::Context, most: usize) -> Vec<d3d11::Viewport> {
+        let mut viewports = self.drawing.canvas_state().viewports;
+        viewports.truncate(most);
+        viewports
+    }
+
+    fn d3d11_input_layout_set(&self, _context: d3d11::Context) -> d3d11::Layout {
+        d3d11::Layout(self.drawing.canvas_state().layout)
+    }
+
+    fn d3d11_vertex_buffer_set(&self, _context: d3d11::Context) -> (d3d11::Buffer, u32, u32) {
+        let state = self.drawing.canvas_state();
+        (
+            d3d11::Buffer(state.vertex_buffer),
+            state.stride,
+            state.offset,
+        )
+    }
+
+    fn d3d11_topology_set(&self, _context: d3d11::Context) -> u32 {
+        self.drawing.canvas_state().topology
+    }
+
+    fn d3d11_vertex_shader_set(&self, _context: d3d11::Context) -> d3d11::VertexShader {
+        d3d11::VertexShader(self.drawing.canvas_state().vertex_shader)
+    }
+
+    fn d3d11_pixel_shader_set(&self, _context: d3d11::Context) -> d3d11::PixelShader {
+        d3d11::PixelShader(self.drawing.canvas_state().pixel_shader)
+    }
+
+    fn d3d11_resource_view_set(&self, _context: d3d11::Context) -> d3d11::ResourceView {
+        d3d11::ResourceView(self.drawing.canvas_state().resource_view)
+    }
+
+    fn d3d11_sampler_set(&self, _context: d3d11::Context) -> d3d11::Sampler {
+        d3d11::Sampler(self.drawing.canvas_state().sampler)
+    }
+
+    fn d3d11_draw(&self, _context: d3d11::Context, vertices: u32, _first: u32) {
+        self.drawing.canvas_drew(vertices);
+    }
+
+    /// Nothing given back and nothing counted, for the reason [`release_texture`](Self::release_texture)
+    /// answers nothing: what an e2e test asks afterwards is what went into a texture, so the storage stays
+    /// — and the drawing releases the same object twice where a `Label` is re-baked.
+    fn d3d11_release(&self, _object: d3d11::Object) -> u32 {
+        0
+    }
 
     // --- the buffer the game's music is played out of ----------------------------
     //

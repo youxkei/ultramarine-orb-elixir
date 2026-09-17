@@ -20,9 +20,9 @@ use crate::game::{Beam, Frame, Hazard, Kind, Pickup, Worth};
 
 use super::{
     A_REPLAY_IS_PLAYING, BOMBS, BULLET_MANAGER, ENEMY_MANAGER, EVERYTHING_HELD, FIELD_SIZE,
-    GAME_MANAGER, INPUT_THE_RUN_ACTS_ON, ITEM_MANAGER, LASERS, LIVES, PLAYER, PLAYER_AREA, POWER,
-    POWER_FULL, STAGE, THE_PLAYBACK_IS_THE_DEMO, at, bullet_manager, enemy, enemy_manager,
-    game_manager, item, laser, player,
+    INPUT_THE_RUN_ACTS_ON, ITEM_MANAGER, LASERS, LIVES, PLAYER, PLAYER_AREA, POWER, POWER_FULL,
+    STATE_GAMEMANAGER, STATE_GAMEMANAGER_REINIT, SUPERVISOR, THE_PLAYBACK_IS_THE_DEMO, at,
+    bullet_manager, enemy, enemy_manager, item, laser, player, supervisor,
 };
 
 /// **One frame of a run, out of the game's own arrays**, and `false` off a stage.
@@ -234,21 +234,20 @@ unsafe fn player_box() -> (f32, f32) {
 
 /// Whether a stage is running to be steered in.
 ///
-/// **The stage the run has reached, the state the game manager is in, and the byte that holds
-/// everything.** [`STAGE`] is nought until a run starts; [`A_STAGE`] is the one state of the twenty-one
-/// a stage is played in; and a frame with [`EVERYTHING_HELD`] set is a frame nothing of the game moved
-/// in.
+/// **The state the supervisor is in, and the byte that holds everything.** The supervisor's state says a
+/// stage is what is running — see [`a_stage_is_the_scene`]; and a frame with [`EVERYTHING_HELD`] set is a
+/// frame nothing of the game moved in.
 ///
 /// **The state is there because the stage alone kept a launch pressing after its run was over**, which
 /// is a number a run leaves behind it: the front end that came up after a game over still read
 /// `stage 4`, so the rules went on pressing there and walked the title into a second run the recipe's
 /// own `play_until` was still counting the first one's frames of.
 ///
-/// **And the stage is there because the state alone is not the whole of it**: [`A_STAGE`] is the state
-/// the game manager sits in for a stage, and `0x14002f95d`'s table of six — reached from twelve to
-/// seventeen — is not a stage's phases at all. A launch that took those six for one never steered:
-/// nothing pressed, and the run was over at `得点 000001800` with the panel's lives row empty and the
-/// game asking 「コンティニュ〜？」.
+/// **And the state is the supervisor's, not the front end's**: the front end's state eleven, which this
+/// read before the supervisor was found, sits under a stage and under the shot select alike, and
+/// `0x14002f95d`'s table of six — reached from twelve to seventeen — is not a stage's phases at all. A
+/// launch that took those six for one never steered: nothing pressed, and the run was over at
+/// `得点 000001800` with the panel's lives row empty and the game asking 「コンティニュ〜？」.
 ///
 /// # Safety
 /// Must run on the game's main thread.
@@ -267,28 +266,53 @@ pub unsafe fn in_a_stage() -> bool {
 /// `run:` line either side of each death read `stage 0` — no run — and the frames between them were the
 /// death being played out. Measured across four deaths of one launch.
 ///
-/// **And a playback is none of it, however much of a stage it is.** This game plays its attract demo
+/// **And the attract demo is none of it, however much of a stage it is.** This game plays that demo
 /// through the same stage the player's own run uses: the state was 11, the stage 7 and the difficulty 4
 /// while the screen said `DEMO PLAY` over stage 4's library, so a step that had played its run to the
-/// end waited another 34,200 frames for a run that was over to be over. [`A_REPLAY_IS_PLAYING`] is what
-/// tells the two apart, and what said so at the time was a picture: every line of the log was that same
-/// reading.
+/// end waited another 34,200 frames for a run that was over to be over. What said so at the time was a
+/// picture: every line of the log was that same reading.
+///
+/// **A replay somebody asked to watch *is* one of it, and that is the narrower reading's job.** This
+/// answered `!a_replay_is_playing()` once, which covers the demo and the watched replay together — and a
+/// pass over this game then had nothing to hold: `Chapters::tracking` is `in_game || (during_replay &&
+/// playing && !demo)`, and with both terms false through a playback there were no chapters to step
+/// between, no `sync:` line and no reader for [`Game::mid_build`](crate::game::Game::mid_build). So the
+/// two readings are split the way th07's are: this one and `in_a_stage` are what a stage is being played
+/// in whoever is playing it, and `State::in_game` is the one a run of somebody's own answers —
+/// [`a_replay_is_playing`] being what tells those apart. Every place that must not act on a replay says
+/// so itself, `resume::stage_begun` and `replay::left` among them.
+///
+/// **The demo and not both, because the demo is the one nobody can be watching**:
+/// [`THE_PLAYBACK_IS_THE_DEMO`] is set where the logo screen starts it and cleared at the hand-over back
+/// to the title, so a step bounded by a run ending still ends where a run ends.
 ///
 /// # Safety
 /// Must run on the game's main thread.
 pub unsafe fn in_a_run() -> bool {
-    unsafe { a_stage_is_the_scene() && !a_replay_is_playing() }
+    unsafe { a_stage_is_the_scene() && !the_playback_is_the_demo() }
 }
 
-/// **Whether a stage is what the game is showing**, whoever or whatever is playing it: the stage the run
-/// has reached and the state the game manager is in, which the demo holds exactly as a run does.
+/// **Whether a stage is what the game is showing**, whoever or whatever is playing it: the supervisor's
+/// state, which the demo holds exactly as a run does — the two states th06 1.02h's `in_run` counts, the
+/// stage's own and the one a stage moves to the next through.
+///
+/// **The supervisor's state and not the front end's**, which is what this read before the supervisor was
+/// found: the front end's number is whatever screen a run was started from and stays it through the run —
+/// eleven for a run started at the shot select, and whatever the practice stage select's is for one started
+/// there — where the supervisor's is the stage itself. See `STATE_GAMEMANAGER` in `th06c/mod.rs`.
+///
+/// **And not the stage word**, which this once asked to be between one and seven as well. The word is
+/// nought on frames that are the run's all the same: the frame between two stages, where the supervisor is
+/// rebuilding its manager — a launch played to the end of stage 1 said `run: stage 0 on difficulty 0,
+/// scene 3` there and `run ended` with it, one stage in — and the first frame of a run, where the stage
+/// callback has yet to raise the number the character select or `Th06c::start_stage` wrote, which is where
+/// a watched attempt's run was read as gone one frame after it began.
 ///
 /// # Safety
 /// Must run on the game's main thread.
 unsafe fn a_stage_is_the_scene() -> bool {
-    let scene = unsafe { mem::read::<i32>(at(GAME_MANAGER + game_manager::STATE)) };
-    let stage = unsafe { mem::read::<i32>(at(STAGE)) };
-    (1..=STAGES).contains(&stage) && scene == A_STAGE
+    let scene = unsafe { mem::read::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)) };
+    scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT
 }
 
 /// **Whether the replay in memory is one being played back**, which is [`A_REPLAY_IS_PLAYING`] and a
@@ -309,16 +333,6 @@ pub unsafe fn a_replay_is_playing() -> bool {
 pub unsafe fn the_playback_is_the_demo() -> bool {
     unsafe { mem::read::<u8>(at(THE_PLAYBACK_IS_THE_DEMO)) != 0 }
 }
-
-/// The stages a run of this game has, the Extra counted: `0x14002712e` treats six as the last of the
-/// numbered ones and the Extra is the seventh.
-const STAGES: i32 = 7;
-
-/// **The state of the game manager's twenty-one that a stage is played in**, read off the `run:` line a
-/// launch writes each time its stage, difficulty or state changes. Walking a fresh launch into a run
-/// said 0, 1, 2, 6, 7 and 9 for the screens of the front end, then `run: stage 1 … scene 11` for the
-/// whole of the first stage and `run: stage 2 … scene 11` for the second.
-const A_STAGE: i32 = 11;
 
 /// The field the player may move in, as its left, top, width and height.
 ///

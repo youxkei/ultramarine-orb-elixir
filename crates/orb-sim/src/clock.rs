@@ -6,6 +6,7 @@
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::thread::ThreadId;
 
 /// Ticks a second, matching what Windows reports on every machine since Windows 8: the counter is
 /// in 100ns units there, so a test that works out a duration in microseconds is working it out the
@@ -89,9 +90,9 @@ pub struct Clock {
     /// What one turn of the spin costs. [`PAUSE_TICKS`] unless an e2e test has said otherwise —
     /// nothing that spins may set it to zero.
     pause_cost: AtomicI64,
-    /// The coarse waits asked for, in order, with a run of equal ones held as one — see
-    /// [`Clock::sleep`].
-    sleeps: Mutex<Vec<u32>>,
+    /// The coarse waits asked for, one list per thread that asked, in the order the threads first asked
+    /// and with a run of equal ones held as one — see [`Clock::sleep`].
+    sleeps: Mutex<Vec<(ThreadId, Vec<u32>)>>,
 }
 
 impl Default for Clock {
@@ -224,19 +225,43 @@ impl Clock {
     /// against 16.4s over `orb-e2e`, with `pacing::` unchanged at 15.1s.
     ///
     /// **So what a run of them says is how long was asked for and not how often**, the caller going
-    /// round as fast as a core will let it. Which is why [`sleeps`](Self::sleeps) collapses a run of
-    /// equal asks: a cadence is the number, and the count of it is this machine's clock speed.
+    /// round as fast as a core will let it. Which is why a run of equal asks is held as one: a cadence is
+    /// the number, and the count of it is this machine's clock speed.
+    ///
+    /// **And kept per thread, because more than one thread of orb's own waits like this.** The joystick
+    /// poller is one and the sampler that watches a long update is another; in one list their asks
+    /// interleave, and the poller's second between reads of an empty socket then reads back as a pad's
+    /// four milliseconds. Which is a test that failed: `mode_on_a_winmm_pad` came back with
+    /// `[4, 1000, 4, 1000, …]` off two threads whose cadences are `[1000]` and `[4]`.
     pub fn sleep(&self, ms: u32) {
+        let mine = std::thread::current().id();
         let mut sleeps = self.sleeps.lock().unwrap();
-        if sleeps.last() != Some(&ms) {
-            sleeps.push(ms);
+        let cadence = match sleeps.iter_mut().find(|(thread, _)| *thread == mine) {
+            Some((_, cadence)) => cadence,
+            None => {
+                sleeps.push((mine, Vec::new()));
+                &mut sleeps.last_mut().expect("just pushed").1
+            }
+        };
+        if cadence.last() != Some(&ms) {
+            cadence.push(ms);
         }
     }
 
-    /// The coarse waits asked for, in order and with a run of equal ones as one — what an e2e test reads
-    /// a sampling cadence back off. See [`sleep`](Self::sleep) for why the repeats are not kept.
-    pub fn sleeps(&self) -> Vec<u32> {
-        self.sleeps.lock().unwrap().clone()
+    /// The coarse waits one thread of orb's own asked for, in order and with a run of equal ones as one —
+    /// what an e2e test reads a sampling cadence back off. See [`sleep`](Self::sleep) for why the repeats
+    /// are not kept and why the answer is one thread's.
+    ///
+    /// **Which thread is said by a wait it has asked for**: `ms` names it. A test watching the joystick
+    /// poller asks by the second it waits while nothing answers, and gets that thread's whole cadence
+    /// back — `None` until some thread has asked for `ms`.
+    pub fn the_cadence_of_whatever_waited(&self, ms: u32) -> Option<Vec<u32>> {
+        self.sleeps
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, cadence)| cadence.contains(&ms))
+            .map(|(_, cadence)| cadence.clone())
     }
 
     /// Moves the clock on by `micros`, which is what a test does instead of sleeping.

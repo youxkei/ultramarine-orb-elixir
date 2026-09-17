@@ -36,8 +36,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Call, FrameCalls, FrameInTheLoop, Game, Hooks, Lookup, Menu, Pad, PanelTile, Patch,
-    Read, Reading, Rect, RunStart, State, Walks,
+    Boundary, Call, FileOpen, FrameCalls, FrameInTheLoop, Game, Hooks, Lookup, Memory, Menu, Pad,
+    PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
 };
 
 mod sight;
@@ -721,6 +721,10 @@ const NO_MORE_KEYS: u16 = 0xffff;
 
 /// What a key that is down reads as in a `GetKeyboardState` snapshot: the high bit of the byte.
 const DOWN: u8 = 0x80;
+/// And what one that is not reads as, which is what [`Game::press_into`] writes for every button the word
+/// does not hold — see th06c's, which has why they are written rather than left as the host's read left
+/// them.
+const UP: u8 = 0x00;
 
 /// The pad's own packet number, which moves on every state orb hands over.
 static PACKETS: AtomicU32 = AtomicU32::new(1);
@@ -1113,6 +1117,14 @@ impl Game for Th06nc {
                 },
                 stub: th06nc_frame_in_the_loop as *const () as usize,
             }),
+            // The universal CRT's, as th06c's are: `objdump -p` on this exe lists `malloc`/`free` from
+            // `api-ms-win-crt-heap-l1-1-0.dll`, `_beginthreadex` from `api-ms-win-crt-runtime-l1-1-0.dll`
+            // and `fopen` from `api-ms-win-crt-stdio-l1-1-0.dll`, and no `Heap*`, `VirtualAlloc`,
+            // `CreateThread` or `CreateFile*` in `KERNEL32.dll`'s. Nothing is installed in front of any of
+            // them while this game declines to rewind; the answer is here so that a launch has one.
+            takes_its_memory: Memory::UcrtImports,
+            makes_its_threads: Threads::BeginThreadEx,
+            opens_its_files: FileOpen::Fopen,
         }
     }
 
@@ -1129,10 +1141,33 @@ impl Game for Th06nc {
     /// `state` must be the 256 bytes the game's read was given.
     unsafe fn press_into(&self, state: *mut u8, word: u16) {
         for (_, bit, key) in Self::BUTTONS {
-            if word & bit != 0 && usize::from(*key) < KEYS_IN_A_SNAPSHOT {
-                unsafe { state.add(usize::from(*key)).write(DOWN) };
+            if usize::from(*key) < KEYS_IN_A_SNAPSHOT {
+                let held = match word & bit != 0 {
+                    true => DOWN,
+                    false => UP,
+                };
+                unsafe { state.add(usize::from(*key)).write(held) };
             }
         }
+    }
+
+    /// **The word this game's own keys in that snapshot say** — see th06c's, which this is the same as, and
+    /// `Game::word_in` for what asks. Nothing of orb's is drawn over this game and nothing of orb's is
+    /// asked at it, [`Th06nc::rewinds`] answering false, so what this buys here is only that a launch that
+    /// plays itself is played by its own word: the holding a question needs has no question to hold for.
+    ///
+    /// # Safety
+    /// `state` must be the 256 bytes the game's read was given.
+    unsafe fn word_in(&self, state: *const u8) -> Option<u16> {
+        let mut word = 0;
+        for (_, bit, key) in Self::BUTTONS {
+            if usize::from(*key) < KEYS_IN_A_SNAPSHOT
+                && unsafe { state.add(usize::from(*key)).read() } & DOWN != 0
+            {
+                word |= bit;
+            }
+        }
+        Some(word)
     }
 
     /// **A word's keys written straight into the buffer this game plays a run off**, through the
@@ -1393,6 +1428,11 @@ impl Game for Th06nc {
         None
     }
 
+    /// **Nothing to wait for**, th06c's reason: the line above answers `None` on every frame.
+    fn a_snapshot_waits_for_its_music(&self) -> bool {
+        false
+    }
+
     fn music_identity(&self) -> Option<u32> {
         None
     }
@@ -1511,6 +1551,7 @@ impl Game for Th06nc {
                 function: presents as *const () as usize,
                 this: 0,
             },
+            orbs_own: true,
         }
     }
 

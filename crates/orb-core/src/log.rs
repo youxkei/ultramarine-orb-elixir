@@ -148,6 +148,11 @@ pub fn set_level(level: LogLevel) {
     );
 }
 
+/// The thread the frame loop runs on, and zero before [`off_the_frame`] has claimed it.
+pub fn frame_thread() -> u32 {
+    FRAME_THREAD.load(Ordering::Relaxed)
+}
+
 pub fn set_pacing(wanted: bool) {
     PACING.store(wanted, Ordering::Release);
 }

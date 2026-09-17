@@ -1,0 +1,108 @@
+//! **The keys a frame of th06c is played with reach that frame's own update, and the word beside them is the
+//! frame before's.**
+//!
+//! th07's own answer is `the_frame_a_run_of_th07_acts_on.rs`, and there it is a fix: that game reads the keys
+//! at chain priority 0, moves the player at 8 and only copies the read into the word the run acts on at 0x10,
+//! so the player moves on the frame before's keys until orb hands the read to the run.
+//!
+//! **This game has no such gap to close**, and where that was read is `th06c/asm.md`'s *Where that word comes
+//! from*: the job at `0x140058010` is the calc chain's priority nought, and inside one walk of it
+//! `0x140058098` copies `0x14090a110` into `0x14090a114`, `0x1400580a4` calls `0x14000f7b0` for the new word
+//! and `0x1400580af` writes it back — the word is built, the player moves on it and the bullets test against
+//! where it moved, all in that same walk. So `Th06c` hands no read to the run and this file says what is left
+//! to say: that nothing of orb's puts a frame between the keys and the update, and that the pair an edge is
+//! taken from is still a pair.
+//!
+//! **Which the pair is for**: `0x14004a5c3` holds `0x14090a110` against `0x14090a114` where a bomb is
+//! pressed, so a key held over two frames has to read as a press on the first and a hold on the second. A
+//! word moved on without its predecessor would read as a hold on every frame and no bomb would ever go off.
+
+use crate::fake::th06c::Fake;
+use crate::fake::{Display, Launched, Work, in_its_own_process};
+use orb_config::LogLevel;
+use orb_sim::keys;
+
+/// What the game's own frame is declared to take, as every other e2e test over this game declares it.
+const WORK_US: i64 = 700;
+
+/// The stage the run below is played in, orb's own 0-based number for it.
+const THE_FIRST_STAGE: i32 = 0;
+
+/// The bit this game's own read leaves for up, which the walk at `0x14004ac69` tests first of the four.
+/// Written out here rather than taken from `Th06c`'s own `button` module, which keeps the same number: a test
+/// that read its bits off the code under test would agree with it whatever either said.
+const UP: u16 = 0x0010;
+
+/// The state a run is played in, and how many frames of a stage go by before the player is in it: the
+/// walk-in and the invulnerability behind it, which `the_player_a_stage_of_th06c_starts` reads off the exe.
+const PLAYING: u8 = 0;
+const A_STAGES_FIRST_FRAMES: u32 = 30 + 0xf0;
+
+/// And a second of frames on top of that as the wall this test puts up, rather than the count itself: what
+/// is under test here is the word a frame is played with and not which frame the walk-in ends on.
+const A_SECOND: u32 = 60;
+
+#[test]
+fn a_frame_of_th06c_is_played_with_the_keys_that_frame_was_given() {
+    in_its_own_process(|| {
+        let game = Fake::attach_configured(
+            Display::agreed(120),
+            "th06c-the-frame-it-acts-on",
+            Work::wandering(WORK_US),
+            |config| config.log_level = LogLevel::Verbose,
+        );
+        game.in_a_run_in_the_stage(THE_FIRST_STAGE);
+        // **Past the frames a stage begins with**, in which the player is walking back in and moves on no
+        // word at all — see `the_player_a_stage_of_th06c_starts`, which is how long that is and why.
+        game.frames_until(
+            "the player playing",
+            A_STAGES_FIRST_FRAMES + A_SECOND,
+            || game.image().the_players_state() == PLAYING,
+        );
+        let was = game.image().where_the_player_is();
+
+        // Up held, and the one frame it is held for run.
+        game.keyboard().set(keys::UP, true);
+        game.frame();
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() as u16 & UP,
+            UP,
+            "the game's own read did not leave the key that was held",
+        );
+        // **And the player has moved on it on that same frame**, which is the half a frame of lag would
+        // break: the word is read at priority 0 and the player's own job is behind it in the same walk.
+        let now = game.image().where_the_player_is();
+        assert!(
+            now.1 < was.1,
+            "the player is still where they were, so the run acted on a word the key is not in yet: \
+             {was:?} against {now:?}",
+        );
+
+        // **And the pair an edge is taken from is still a pair**: the word beside the one the run acts on
+        // holds the frame before's, so the second frame of a held key is a hold and not another press.
+        game.frame();
+        assert_eq!(
+            (
+                game.image().the_word_the_run_acts_on() as u16 & UP,
+                game.image().the_word_before() as u16 & UP,
+            ),
+            (UP, UP),
+            "the word beside the one the run acts on is not the frame before's",
+        );
+
+        // And the key let go of leaves the word on its own frame, which is the same thing said the other way
+        // round: a word that lags going up is a shot that keeps firing after the key is released.
+        game.keyboard().set(keys::UP, false);
+        game.frame();
+        assert_eq!(
+            game.image().the_word_the_run_acts_on() as u16 & UP,
+            0,
+            "the run acts on a word the key is still in, a frame after it was let go of",
+        );
+        assert_eq!(
+            game.image().the_word_before() as u16 & UP,
+            UP,
+            "the frame before's word does not hold the key that was down on it",
+        );
+    });
+}

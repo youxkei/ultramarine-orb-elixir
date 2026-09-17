@@ -58,7 +58,7 @@ fn main() -> ExitCode {
     if session == "list" {
         for case in orb_real::cases() {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 case.game.name(),
                 case.game.exe(),
                 case.game.records().join(","),
@@ -66,6 +66,7 @@ fn main() -> ExitCode {
                 case.name,
                 u8::from(case.continues),
                 case.within,
+                case.speed(),
             );
         }
         return ExitCode::SUCCESS;

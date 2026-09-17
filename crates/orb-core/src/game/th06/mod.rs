@@ -27,8 +27,8 @@ use crate::audio::{Music, Track};
 // The rule for an axis' dead zone and a hat's angle, which both games are read for and neither owns — see
 // `crate::joystick::axis`.
 use crate::game::{
-    Axis, Boundary, Call, CountedDeath, Entered, FrameCalls, Game, Hooks, Menu, Pad, PanelTile,
-    Patch, Read, Reading, Rect, RunStart, State,
+    Axis, Boundary, Call, CountedDeath, Entered, FileOpen, FrameCalls, Game, Hooks, Memory, Menu,
+    Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads,
 };
 use crate::joystick::{axis, hat};
 use crate::{detail, log, score};
@@ -1506,6 +1506,11 @@ impl Game for Th06 {
             // being Direct3D 8's and made before orb could answer anything about it.
             makes_its_renderer: None,
             frame_in_the_loop: None,
+            // A CRT linked statically, whose heap is its own: the six `KERNEL32.dll` entries are what
+            // `malloc` and `new` reach the OS through. See `orb::memtrack`.
+            takes_its_memory: Memory::Kernel32Imports,
+            makes_its_threads: Threads::CreateThread,
+            opens_its_files: FileOpen::CreateFileA,
         }
     }
 
@@ -1990,6 +1995,8 @@ impl Game for Th06 {
                 function: PRESENT,
                 this: G_GAME_WINDOW,
             },
+            // Both are this exe's own functions at this exe's own addresses.
+            orbs_own: false,
         }
     }
 

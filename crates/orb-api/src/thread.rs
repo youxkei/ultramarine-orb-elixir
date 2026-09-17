@@ -69,6 +69,35 @@ pub fn registered(id: u32) -> bool {
     host::registered(id)
 }
 
+/// Where a thread is, as a sample of it taken while it was held still.
+pub struct Executing {
+    /// The instruction it will run next.
+    pub at: usize,
+    /// The calls it is inside, innermost first: the words on its stack that point into a mapped image,
+    /// which is what a return address looks like and what nothing else on a stack does.
+    ///
+    /// **Return addresses and not a walk of the frames**, which on x64 needs the unwind tables of every
+    /// module on the stack and answers nothing more here: what is being asked is which of the game's own
+    /// functions the thread is under, and a word pointing into the exe answers that whether or not the
+    /// frame it belongs to can be named.
+    pub under: Vec<usize>,
+}
+
+/// **Where the thread `id` is executing**, read with the thread held still for the read and let go
+/// again. `None` where the thread cannot be opened or read — and always in a test, where a simulated
+/// thread has no instruction pointer to read.
+///
+/// What it is for is a frame that ran long inside the game's own update, which no phase of orb's accounts
+/// for: a sample of where the game was, taken from a thread of orb's while the frame's own thread is
+/// still in there, is what says which of the game's functions the time went to.
+pub fn where_it_is(id: u32) -> Option<Executing> {
+    #[cfg(feature = "sim")]
+    if crate::installed().is_some() {
+        return None;
+    }
+    host::where_it_is(id)
+}
+
 /// The game's own threads, stopped for as long as this lives.
 ///
 /// A guard rather than a pair of calls because the one thing that must not happen is a copy that
@@ -127,6 +156,9 @@ mod host {
     }
     pub fn registered(_id: u32) -> bool {
         no_windows("thread::registered")
+    }
+    pub fn where_it_is(_id: u32) -> Option<super::Executing> {
+        no_windows("thread::where_it_is")
     }
     pub fn suspend_game_threads(_audio: Option<u32>) -> Vec<u32> {
         no_windows("thread::suspend_game_threads")

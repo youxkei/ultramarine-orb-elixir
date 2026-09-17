@@ -102,9 +102,6 @@ jobs:
       # No fmt, clippy, seam or suite in front of this. A tag names a commit that is already on main,
       # where ci.yaml ran all four against this same tree; running them again would only make the
       # release later.
-      #
-      # And no NO_HUSKY_HOOKS, which ci.yaml sets: husky-rs is a dev-dependency, and a `cargo build`
-      # does not build those, so nothing here reaches the build script that points git at .husky.
       - name: Build
         run: cargo xtask build --release
 

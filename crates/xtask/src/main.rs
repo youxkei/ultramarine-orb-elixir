@@ -6,8 +6,15 @@
 //! host is not Windows. So the target moved to where the builds are asked for — and to *one* place rather
 //! than to the hook, the workflow and the README each keeping a copy of a triple to hold in step.
 //!
-//! What is not here is `cargo fmt --check`: it needs no target, so the hook and the workflow run it
-//! themselves and it stays readable where it is asked for.
+//! **`cargo fmt --check` is here for one task and is not a task**, which is the one thing in this
+//! crate that names no target. [`check`] is the four a commit has to pass, in order, and fmt is the
+//! first of them; asking for it as `cargo xtask fmt` would be this crate pretending to own something
+//! it adds nothing to. The workflow still runs all four itself, a step apiece — see `ci.yaml` for why.
+//!
+//! **And the four are a task here rather than a script beside the tree**, which they were: a shell
+//! script needs a shell, and the count [`check`] hands the suite is the same question
+//! [`how_many_at_once`] answers for a run somebody starts by hand. Two files each carrying half of
+//! that reasoning and pointing at the other is what this replaced.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -137,15 +144,11 @@ fn main() -> ExitCode {
     let task = args.next();
     let rest: Vec<String> = args.collect();
     match task.as_deref() {
-        Some("clippy") => plain(
-            ["clippy", "--all-targets"],
-            TARGET,
-            ["-D", "warnings"],
-            rest,
-        ),
-        Some("test") => test(rest),
-        Some("build") => plain(["build"], TARGET, [], rest),
-        Some("seam") => seam(rest),
+        Some("clippy") => exit(clippy(rest)),
+        Some("test") => exit(test(rest)),
+        Some("build") => exit(plain(["build"], TARGET, [], rest)),
+        Some("seam") => exit(seam(rest)),
+        Some("check") => exit(check()),
         Some("coverage") => coverage(rest),
         Some("real") => real::real(rest),
         Some(task) => {
@@ -156,25 +159,43 @@ fn main() -> ExitCode {
     }
 }
 
+/// What a task answered, as the process's own answer. The tasks deal in whether they passed so that
+/// [`check`] can put four of them behind `&&`; `ExitCode` is neither comparable nor readable as a
+/// number, so a task answering one is a task nothing else can ask about.
+fn exit(passed: bool) -> ExitCode {
+    if passed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
 fn usage() -> ExitCode {
     let above_the_seam = ABOVE_THE_SEAM.join(" and ");
     let also = ALSO.0;
     eprintln!(
         "usage: cargo xtask <task> [<args>]\n\
          \n\
-         clippy    every target, {TARGET}, warnings denied\n\
-         test      the suite, {TARGET}, on half the threads — and {also} first, which\n\
-         \x20         is where the game built for it has its own tests\n\
+         clippy    every target of every package, for {TARGET} and then for\n\
+         \x20         {also}, warnings denied on both\n\
+         test      the suite, {TARGET}, and {also} first, which is where the game\n\
+         \x20         built for it has its own tests; one test at a time while Steam\n\
+         \x20         is up and half the machine's threads while it is not, which\n\
+         \x20         `-- --test-threads=N` overrules\n\
          build     {TARGET} — `build --release` is what installs\n\
          seam      {above_the_seam} checked for {SEAM_TARGET}, a host with no Windows\n\
          \x20         on it, which is what says nothing above the seam reaches past it\n\
+         check     the four a commit has to pass, in the order ci.yaml runs them:\n\
+         \x20         `cargo fmt --check`, then clippy, seam and the suite at\n\
+         \x20         {GATED_TO} tests at once. Nothing fires it — jj runs no git hooks\n\
          coverage  runs {COVERED}'s tests instrumented and reports what they cover;\n\
          \x20         --missing lists the line ranges nothing ran, which is what a\n\
          \x20         worklist is read off, and --html writes the browsable report\n\
          real      the real game in a copy of the install played to orb-real's cases, one\n\
          \x20         launch each, and every trace checked: `real <copy> [<case>...]`\n\
          \n\
-         `cargo fmt --check` is not a task here: it needs no target.\n\
+         `cargo fmt --check` is not a task of its own: it needs no target, and `check`\n\
+         is the one thing that asks for it.\n\
          \n\
          coverage wants {LLVM_MINGW} naming an llvm-mingw installation, its target being\n\
          {COVERAGE_TARGET}, whose linker is that toolchain's i686-w64-mingw32-clang.\n\
@@ -191,7 +212,7 @@ fn plain<const B: usize, const A: usize>(
     target: &str,
     after: [&str; A],
     args: Vec<String>,
-) -> ExitCode {
+) -> bool {
     let mut command = cargo_command();
     command
         .args(before)
@@ -199,72 +220,165 @@ fn plain<const B: usize, const A: usize>(
         .args(&args)
         .args(if after.is_empty() { &[][..] } else { &["--"] })
         .args(after);
-    if status(command, before[0]) {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    status(command, before[0])
 }
 
-/// The suite, on **half the machine's threads** rather than one per core.
+/// **The other target the suite is run for, and the two packages that have anything there.**
+///
+/// `TARGET` is 32-bit and th06c is a 64-bit build, so its module is gated to `x86_64` and everything it
+/// asserts about that exe — the addresses, the keyboard, the scale each of its bullet states divides a step
+/// by — is asserted by tests nothing was running. `orb-core` carries the game, and `orb-e2e` the tests over a
+/// laid-out one: its modules are gated to the architecture of the game each lays out — see its `lib.rs` —
+/// so the 64-bit run of it is th06c's e2e tests and the 32-bit run th06's and th07's, and neither is the
+/// other's suite twice.
+///
+/// **And it is `orb-core`'s own test modules that made this impossible until now.** Five of them name
+/// `game::th06` or `game::th07` outright, which a 64-bit build has neither of, so the run did not compile
+/// at all; each is gated to `target_arch = "x86"` with a line pointing here.
+const ALSO: (&str, &[&str]) = ("x86_64-pc-windows-gnu", &["orb-core", "orb-e2e"]);
+
+fn test(args: Vec<String>) -> bool {
+    let mut also = cargo_command();
+    also.args(["test", "--target", ALSO.0]);
+    for package in ALSO.1 {
+        also.args(["-p", package]);
+    }
+    // **The caller's own arguments on this run too**, which for a while were on the second only. What that
+    // cost is the thing a filter is for: `cargo xtask test the_cases_of_th06c` ran the one test it names
+    // for the 32-bit target and then all eleven of the 64-bit ones behind it, 181s of a suite somebody had
+    // asked to narrow to one. A package this run does not build answers `0 filtered out` and costs nothing,
+    // which is what a filter naming a 32-bit test does here.
+    also.args(&args);
+    // **Decided once and applied to both runs.** Once, because it is one question about this machine and
+    // asking it twice could answer two different things across a run somebody started Steam inside of. And
+    // both, because for a while the run for the other architecture was started without any count at all:
+    // th06c's e2e tests are that run, so the suite whose launches are the heaviest was the one going at
+    // sixteen threads and thirty-two processes while the other was held to eight.
+    let threads = how_many_at_once(&args);
+    held_to(&mut also, &args, threads);
+    if !status(also, "test") {
+        return false;
+    }
+    let mut command = cargo_command();
+    command.args(["test", "--target", TARGET]).args(&args);
+    held_to(&mut command, &args, threads);
+    status(command, "test")
+}
+
+/// **How many tests a `cargo test` of this suite may run at once: one while Steam is up, and half the
+/// machine's threads while it is not.** `None` where the caller named a number of their own.
 ///
 /// Every e2e test starts a process of its own — see `orb-e2e`'s `in_its_own_process` — and that child runs
 /// the test while the parent waits on it, so a slot costs two processes rather than one thread. The
 /// harness's own default of one per core therefore asks a sixteen-core machine for sixteen launches and
 /// thirty-two processes, which is the machine gone for as long as the run takes.
 ///
-/// **Half rather than fewer, because that is where the measurement puts the knee.** On the sixteen-core host
-/// this was written on, the whole suite takes 47s on sixteen threads, 50s on eight and 73s on four: half the
-/// load for three seconds, and a quarter of it for another twenty-three. The wall clock is set by the slowest
-/// launches — a pacing e2e test runs thousands of simulated frames whatever else is happening — until there
-/// are too few slots to keep them overlapping, which is what four does.
+/// **Steam is the signal because it is what a launch of the real game needs.** th06c is the Steam release
+/// and will not start without the client up — it says `SteamAPI_Init() failed` and exits — so Steam running is a
+/// session of `cargo xtask real` either in flight or about to be, and a session shares the machine with
+/// whatever the suite is doing. Steam closed is a machine nothing is playing on, and then the wall clock is
+/// the only thing left to hold down.
 ///
-/// Half, and never less than one. `cargo xtask test -- --test-threads=N` asks for another number: an
-/// argument already there is left alone, and the harness would read the last one anyway.
+/// **What each costs.** At one, nothing overlaps: the four chains that play a whole game are about a
+/// hundred seconds apiece and the suite is the sum of everything. At half the machine's threads those four
+/// run beside each other and the wall clock is the longest of them — 181s to 83s on th06c's cases and 194s
+/// to 106s on th06's and th07's, measured after they were split into a test per chain.
+///
+/// **Half and not all, for the reason it always was**: a slot is two processes. That number was measured
+/// when the whole suite took 47s on sixteen threads and 50s on eight, and what has moved since is the
+/// weight of a slot rather than the shape of the curve.
+///
+/// **And one is not a count that makes the suite light enough to be ignored.** A run at one test at a time
+/// was killed for low memory all the same, a few minutes after a whole run of it had finished — 543 of the
+/// 32-bit tests in, with no game running and nothing else of the session's going. So what this number
+/// buys is the machine staying usable while a run goes by, and not a run that cannot be killed: the
+/// suite's own weight is the build's output and the test binaries beside it, and a second run on the heels
+/// of the first is the condition to keep clear of. [`GATED_TO`] carries the same finding from the
+/// other side, where eight at a time on the heels of the build was killed twice.
+///
+/// `cargo xtask test -- --test-threads=N` overrules both. An argument already there is left alone, and the
+/// harness would read the last one anyway.
+///
+/// **Which is why the suite is run through this task and not through `cargo test` directly.** The count is
+/// decided here, so a caller has nothing to decide: `cargo xtask test` with no arguments is the whole of
+/// it. A raw `cargo test --target ...` goes around this and lands the caller in picking a number, which is
+/// the judgement this exists to take out of their hands.
 ///
 /// **Said as an argument and not as `RUST_TEST_THREADS`, because on WSL that variable never arrives.** The
 /// tests are Windows binaries and cargo is a Linux one, so every test binary is started through WSL's
 /// interop — and interop passes a Linux process's environment to a Win32 one only for the variables named in
 /// `WSLENV`. `WSLENV` is empty here, so a `RUST_TEST_THREADS` set on this side reaches nothing: measured with
 /// `RUST_TEST_THREADS=4 cmd.exe /c 'echo [%RUST_TEST_THREADS%]'`, which prints the name back unexpanded. The
-/// setting was in this function as an environment variable first and did nothing at all — sixteen threads and
-/// thirty-two processes every run — which is the whole reason this note is here.
-/// **The other target the suite is run for, and the one package that has anything there.**
+/// setting was an environment variable first and did nothing at all — sixteen threads and thirty-two
+/// processes every run — which is the whole reason this note is here.
 ///
-/// `TARGET` is 32-bit and th06c is a 64-bit build, so its module is gated to `x86_64` and everything it
-/// asserts about that exe — the addresses, the keyboard, the scale each of its bullet states divides a step
-/// by — is asserted by tests nothing was running. Only `orb-core` carries a game, so only `orb-core` is run
-/// again: `orb-e2e` lays out th06 and th07, which are this `TARGET`'s, and a second run of it would be the
-/// same suite twice.
-///
-/// **And it is `orb-core`'s own test modules that made this impossible until now.** Five of them name
-/// `game::th06` or `game::th07` outright, which a 64-bit build has neither of, so the run did not compile
-/// at all; each is gated to `target_arch = "x86"` with a line pointing here.
-const ALSO: (&str, &str) = ("x86_64-pc-windows-gnu", "orb-core");
+/// **A function of its own because both of `test`'s runs need it**, and for a while only one had it: this
+/// doc sat above [`ALSO`] with nothing between it and the words about that constant, and the count itself
+/// was inside `test` on the second command alone.
+fn how_many_at_once(args: &[String]) -> Option<usize> {
+    if args.iter().any(|arg| arg.starts_with("--test-threads")) {
+        return None;
+    }
+    // **Said, because the number is the thing that keeps being asked about.** The command echoed by
+    // [`said`] carries it, but not which of the two branches put it there — and a run held to one while
+    // nobody expected it to be is the same puzzle as a run at sixteen while somebody expected one.
+    let (threads, why) = match steam_is_up() {
+        true => (1, "Steam is up, so the machine may be playing"),
+        false => (
+            std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1)),
+            "Steam is not up, so nothing here is playing",
+        ),
+    };
+    println!("xtask: {why}: one cargo test at a time, {threads} test(s) inside it");
+    Some(threads)
+}
 
-fn test(args: Vec<String>) -> ExitCode {
-    let mut also = cargo_command();
-    also.args(["test", "--target", ALSO.0, "-p", ALSO.1]);
-    if !status(also, "test") {
-        return ExitCode::FAILURE;
+/// The count [`how_many_at_once`] decided, put on one `cargo test` — and nothing at all where the caller
+/// named their own.
+fn held_to(command: &mut std::process::Command, args: &[String], threads: Option<usize>) {
+    let Some(threads) = threads else {
+        return;
+    };
+    // The separator only where the caller has not already opened one: cargo takes it once, and a second
+    // `--` would be an argument the harness reads as a filter.
+    if !args.iter().any(|arg| arg == "--") {
+        command.arg("--");
     }
-    let mut command = cargo_command();
-    command.args(["test", "--target", TARGET]).args(&args);
-    if !args.iter().any(|arg| arg.starts_with("--test-threads")) {
-        let threads =
-            std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1));
-        // The separator only where the caller has not already opened one: cargo takes it once, and a second
-        // `--` would be an argument the harness reads as a filter.
-        if !args.iter().any(|arg| arg == "--") {
-            command.arg("--");
-        }
-        command.arg(format!("--test-threads={threads}"));
-    }
-    if status(command, "test") {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    command.arg(format!("--test-threads={threads}"));
+}
+
+/// **Whether Steam is running**, which is what says the machine may be playing a game — see
+/// [`how_many_at_once`], the one reader.
+///
+/// **Asked of `tasklist.exe` and not of a file or a port**, that being what says a process is up on the
+/// Windows side of this machine. The image name is the whole of what is matched, as ASCII bytes: the rest
+/// of that output is in the console's own code page and comes back as mojibake through any decoding, which
+/// is why nothing here reads a column.
+///
+/// **`steam.exe` and not `steamwebhelper.exe`.** The helper is what says the client is up and logged in,
+/// which is what a launch of the game waits for; this is asked one step earlier on purpose — a Steam that
+/// is still coming up is a session about to start, and the answer wanted then is already the careful one.
+///
+/// And `false` where the ask cannot be made at all, which is a machine with no Windows beside it: there is
+/// no game to be playing there, so there is nothing for the count to make room for.
+///
+/// **A signal and no longer a requirement**, which is what `orb.yaml`'s `without_steam` changed: a session
+/// of `cargo xtask real` passes `--autoplay`, so every case of it answers the imports the game reaches
+/// Steam through itself and needs no client up at all — see `Config::without_steam_wanted` and
+/// `orb::steam`. So Steam running still says somebody is about to play, and Steam closed no longer says
+/// nobody is: what would say that outright is a game's own exe in this list, and the count then wants the
+/// name of every game rather than one that is nobody's to start.
+fn steam_is_up() -> bool {
+    let asked = Command::new("tasklist.exe")
+        .args(["/NH", "/FI", "IMAGENAME eq steam.exe"])
+        .output();
+    let Ok(asked) = asked else {
+        return false;
+    };
+    asked
+        .stdout
+        .windows(b"steam.exe".len())
+        .any(|at| at.eq_ignore_ascii_case(b"steam.exe"))
 }
 
 /// [`ABOVE_THE_SEAM`] checked for [`SEAM_TARGET`], which is the boundary asked about rather than
@@ -273,18 +387,75 @@ fn test(args: Vec<String>) -> ExitCode {
 /// A `check` and not a `build`: what is being asked is whether the source names anything the seam does
 /// not carry, and there is nothing to run at the end of it. The two packages in one invocation because
 /// what fails is a name and not a link, so the first error is the answer wherever it is.
-fn seam(args: Vec<String>) -> ExitCode {
+fn seam(args: Vec<String>) -> bool {
     let mut command = cargo_command();
     command
         .arg("check")
         .args(ABOVE_THE_SEAM.iter().flat_map(|package| ["-p", package]))
         .args(["--target", SEAM_TARGET])
         .args(&args);
-    if status(command, "the check above the seam") {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
+    status(command, "the check above the seam")
+}
+
+/// **Every target the suite is run for, linted — not only the one that ships.**
+///
+/// [`ALSO`] is a `cargo test` and so a build, and a build's warnings are nobody's until something denies
+/// them: for a while this task named [`TARGET`] alone, and what accumulated behind that on the 64-bit half
+/// was nine — `needless_range_loop` and `type_complexity` in `game::th06c`, `transmute_undefined_repr`
+/// annotations and `manual_bits` in `orb-e2e`'s fake of it, and four more — none of which the 32-bit lint
+/// could see, `game::th06c` being gated away from it.
+///
+/// The packages for the second run are [`ALSO`]'s, which are the ones that have anything there.
+fn clippy(args: Vec<String>) -> bool {
+    if !plain(
+        ["clippy", "--all-targets"],
+        TARGET,
+        ["-D", "warnings"],
+        args.clone(),
+    ) {
+        return false;
     }
+    let mut also = cargo_command();
+    also.args(["clippy", "--all-targets", "--target", ALSO.0]);
+    for package in ALSO.1 {
+        also.args(["-p", package]);
+    }
+    also.args(&args).args(["--", "-D", "warnings"]);
+    status(also, "clippy")
+}
+
+/// **How many tests the gate runs at once, named here rather than left to [`how_many_at_once`].**
+///
+/// Each e2e test is a process of its own through the interop, and eight of them on the heels of the
+/// build was what had the gate killed for memory twice on a machine with sixteen cores — the suite run
+/// on its own afterwards passed both times.
+///
+/// And named because what [`how_many_at_once`] picks depends on the machine at the moment it is asked:
+/// one test at a time while Steam is up and half the threads while it is not, which is the right
+/// answer for a run somebody starts by hand and the wrong one for a gate. A commit has to pass the
+/// same check whether or not the game happened to be open, and four is the number measured to survive
+/// the build in front of it.
+const GATED_TO: usize = 4;
+
+/// **The four checks a commit has to pass, in the order `ci.yaml` runs them.** Nothing fires this: jj
+/// is this repository's version control and runs no git hooks, so it is asked for by hand before a
+/// commit — `cargo xtask check`.
+///
+/// `cargo fmt --check` and not a `cargo fmt` that fixes it in place: a check that edits the tree
+/// answers a different question from the one it was asked, and leaves the author unsure which version
+/// they read. Seam before the suite because it fails in seconds where the suite takes minutes, and
+/// what it catches is a boundary crossed rather than a test broken.
+///
+/// The first failure stops the rest, so what a run says is the first thing that is wrong and not a
+/// list to read backwards. **`&&` and not a loop over them**: a loop wants its tasks in an array, and
+/// an array of calls is four runs finished before the first is looked at.
+fn check() -> bool {
+    let mut fmt = cargo_command();
+    fmt.args(["fmt", "--check"]);
+    status(fmt, "fmt")
+        && clippy(vec![])
+        && seam(vec![])
+        && test(vec!["--".into(), format!("--test-threads={GATED_TO}")])
 }
 
 fn coverage(args: Vec<String>) -> ExitCode {
@@ -467,7 +638,27 @@ fn linker() -> Option<PathBuf> {
     None
 }
 
+/// **The command said before it is run**, which is the one thing that makes what this file decides
+/// checkable from the outside.
+///
+/// What it is for is the thread count: [`held_to`] adds `--test-threads` to a
+/// `cargo test` nothing echoed, so whether a run was held to one test or going at sixteen was a question
+/// answerable only by reading this file — and it was asked twice, the second time with the suite taking
+/// the machine. A line per command answers it as the run starts.
+///
+/// The program and its arguments and nothing else: the environment a `cargo_command` carries is one
+/// variable saying which commit a build is from, and a line long enough to hold it is one nobody reads.
+fn said(command: &Command) -> String {
+    let mut line = command.get_program().to_string_lossy().into_owned();
+    for argument in command.get_args() {
+        line.push(' ');
+        line.push_str(&argument.to_string_lossy());
+    }
+    line
+}
+
 fn status(mut command: Command, what: &str) -> bool {
+    println!("xtask: {}", said(&command));
     match command.status() {
         Ok(status) if status.success() => true,
         Ok(status) => {

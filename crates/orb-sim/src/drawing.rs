@@ -130,6 +130,80 @@ struct Vertex {
     v: f32,
 }
 
+/// **And the vertex `orb_core::canvas` writes**, for the same reason: what this has to agree with is the
+/// bytes that went into the vertex buffer.
+///
+/// Its position is in *clip space* where the one above is in pixels — the canvas turns the overlay's own
+/// 640x480 into clip space itself rather than paying for a constant buffer — so [`Recording::canvas_drew`]
+/// turns it back, against the viewport the same draw set.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CanvasVertex {
+    x: f32,
+    y: f32,
+    u: f32,
+    v: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+}
+
+/// **What a draw through Direct3D 11 reads**, which is the three things the canvas sets that a quad is made
+/// of: the vertices, the output they are in clip space against, and the texture bound for the pixel shader.
+///
+/// The rest of what it sets — the render target, the blend state, the topology, the layout, both shaders,
+/// the sampler, the rasteriser and the depth-stencil — is read back by nothing and kept by nothing; see
+/// `orb_api::Win`, whose Direct3D 11 list is the calls a record is about.
+#[derive(Default)]
+struct Canvas {
+    /// What the last write of the vertex buffer put in it.
+    vertices: Vec<u8>,
+    /// The output the viewport was last set to, and `(0, 0)` before any draw has set one — which decodes
+    /// nothing, a quad in clip space having no pixels without it.
+    output: (f32, f32),
+    /// The view bound in slot zero, which is the texture the next draw goes through. A view's handle *is*
+    /// its texture's here, so this is a handle [`Recording::pixels_of`] knows.
+    bound: usize,
+    /// **And the whole of the state a draw sets, kept so that it can be read back.**
+    ///
+    /// Kept where it was not before, and that is the change: what a drawing sets it also has to *put
+    /// back* — Direct3D 11 has no state block — so which state the context is in after a frame is a
+    /// question an e2e test asks, and a host that forgot every setter could not answer it. See
+    /// `orb_core::canvas::Saved`, and the launch of the real game whose screen went black because
+    /// nothing was put back at all.
+    state: State,
+}
+
+/// The pieces of context state `orb_core::canvas` sets, as a simulated context holds them.
+///
+/// **One struct so that a save and a restore can be compared whole.** An e2e test's question is whether
+/// the state after a frame is the state before it, and a field-by-field comparison written at the call
+/// site is a comparison that goes stale as the drawing changes.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct State {
+    pub targets: Vec<usize>,
+    pub depth_view: usize,
+    pub blend: usize,
+    pub blend_factor: [f32; 4],
+    pub blend_mask: u32,
+    pub depth_stencil: usize,
+    pub stencil_reference: u32,
+    pub rasterizer: usize,
+    /// Direct3D 11's own, whose fields are floats where a Direct3D 8 viewport's are words — the state put
+    /// back is the state that was read, so this is the type that call answers.
+    pub viewports: Vec<orb_api::d3d11::Viewport>,
+    pub layout: usize,
+    pub vertex_buffer: usize,
+    pub stride: u32,
+    pub offset: u32,
+    pub topology: u32,
+    pub vertex_shader: usize,
+    pub pixel_shader: usize,
+    pub resource_view: usize,
+    pub sampler: usize,
+}
+
 /// A texture the device has handed out: what it is, and what was uploaded into it.
 ///
 /// Boxed, and never taken out of [`Recording::textures`] while the recording lives. A lock hands out the
@@ -153,6 +227,8 @@ pub struct Recording {
     textures: Mutex<HashMap<usize, Box<Held>>>,
     /// The texture bound to stage 0, which the next quad is drawn with.
     bound: Mutex<usize>,
+    /// And the same for a draw through Direct3D 11 — see [`Canvas`].
+    canvas: Mutex<Canvas>,
     /// The next handle to hand out. Well clear of [`DEVICE`], so that a device and a texture can never
     /// be mistaken for one another in a record an e2e test reads.
     next: Mutex<usize>,
@@ -174,6 +250,7 @@ impl Recording {
             drawn: Mutex::new(Drawn::default()),
             textures: Mutex::new(HashMap::new()),
             bound: Mutex::new(0),
+            canvas: Mutex::new(Canvas::default()),
             next: Mutex::new(FIRST_TEXTURE),
         }
     }
@@ -365,7 +442,134 @@ impl Recording {
         };
         self.drawn.lock().unwrap().quads.push(quad);
     }
+
+    // ---- and the same drawing through Direct3D 11 ----------------------------------
+    //
+    // **The quads land in the same record**, which is the whole point of doing it here: the overlay draws
+    // the same rectangles whichever backend it is on, so an e2e test over a game that draws through a
+    // swapchain asks `quads`, `pictured` and `says` exactly as one over a game that draws through a
+    // device. Nothing above this line knows which of the two a `Quad` came from.
+
+    /// A handle for an object this host does not keep the contents of: a device, a context, a render
+    /// target, a shader, a layout, a blend state, a sampler, a back buffer. Out of the same counter the
+    /// textures come out of, so no two of them are alike and none can be mistaken for [`DEVICE`].
+    pub(crate) fn a_d3d11_object(&self) -> usize {
+        let mut next = self.next.lock().unwrap();
+        let handle = *next;
+        *next += 1;
+        handle
+    }
+
+    /// **A texture with `pixels` already in it**, which is how Direct3D 11 takes one: there is no lock and
+    /// no upload, the rows going in with the creation — so this is [`create_texture`](Self::create_texture)
+    /// and the upload in one call, and what [`says`](Self::says) reads afterwards is the same storage.
+    pub(crate) fn create_d3d11_texture(&self, width: u32, height: u32, pixels: &[u32]) -> usize {
+        let texture = self.create_texture(width, height);
+        if let Some(held) = self.textures.lock().unwrap().get_mut(&texture.0) {
+            let take = held.pixels.len().min(pixels.len());
+            held.pixels[..take].copy_from_slice(&pixels[..take]);
+        }
+        texture.0
+    }
+
+    /// What went into the vertex buffer, kept until the draw that reads it.
+    pub(crate) fn canvas_wrote(&self, bytes: &[u8]) {
+        self.canvas.lock().unwrap().vertices = bytes.to_vec();
+    }
+
+    /// The output a vertex's clip space is against — and kept in [`Drawn::viewports`] as well, that being
+    /// what a viewport set through the other backend is kept as.
+    ///
+    /// **The first of them is what the clip space is against**, a drawing of orb's setting exactly one;
+    /// the whole list is kept so that a game's own however many come back as they were.
+    pub(crate) fn canvas_viewports_set(&self, viewports: &[orb_api::d3d11::Viewport]) {
+        let mut canvas = self.canvas.lock().unwrap();
+        canvas.state.viewports = viewports.to_vec();
+        if let Some(first) = viewports.first() {
+            canvas.output = (first.width, first.height);
+        }
+        drop(canvas);
+        // And into the record the other backend's viewports go into, as whole numbers: what a test asks of
+        // that list is which rectangle a frame was drawn to, and a viewport is set in whole pixels.
+        for viewport in viewports {
+            self.viewport_set(Viewport {
+                x: viewport.top_left_x as u32,
+                y: viewport.top_left_y as u32,
+                width: viewport.width as u32,
+                height: viewport.height as u32,
+                min_z: viewport.min_depth,
+                max_z: viewport.max_depth,
+            });
+        }
+    }
+
+    pub(crate) fn canvas_bound(&self, view: usize) {
+        let mut canvas = self.canvas.lock().unwrap();
+        canvas.bound = view;
+        canvas.state.resource_view = view;
+    }
+
+    /// **The state the context is in**, for a getter to answer and an e2e test to compare.
+    pub fn canvas_state(&self) -> State {
+        self.canvas.lock().unwrap().state.clone()
+    }
+
+    /// **And the state a game's own renderer left it in**, which is what an e2e test says before it asks
+    /// whether orb put it back. A laid-out game's renderer draws nothing, so the state it would have left
+    /// is a thing the test declares rather than a thing the fake can produce.
+    pub fn the_context_is_in(&self, state: State) {
+        self.canvas.lock().unwrap().state = state;
+    }
+
+    /// And one piece of it written, which every `set_` of the canvas's goes through.
+    pub(crate) fn canvas_sets(&self, with: impl FnOnce(&mut State)) {
+        with(&mut self.canvas.lock().unwrap().state);
+    }
+
+    /// **One quad, out of the vertices the last write left and the viewport the same draw set.**
+    ///
+    /// The clip space is undone here rather than in the canvas, and the half-pixel shift with it, so that
+    /// what comes back is the rectangle `overlay::Frame` asked for — the same coordinates
+    /// [`drew`](Self::drew) answers for a draw through the device.
+    pub(crate) fn canvas_drew(&self, count: u32) {
+        let canvas = self.canvas.lock().unwrap();
+        if count as usize != CORNERS || canvas.vertices.len() < CORNERS * size_of::<CanvasVertex>()
+        {
+            // Not the four-corner strip the canvas draws. Said rather than decoded as one, for the reason
+            // `drew` gives: a silent misread is an e2e test asserting about a quad nothing drew.
+            return;
+        }
+        let (across, down) = canvas.output;
+        if across <= 0.0 || down <= 0.0 {
+            return;
+        }
+        let corners = unsafe {
+            std::slice::from_raw_parts(canvas.vertices.as_ptr() as *const CanvasVertex, CORNERS)
+        };
+        // Clip space back into pixels, which is the canvas's own arithmetic read the other way: x is the
+        // half of the width either side of the middle, and y the same with its sign turned.
+        let pixels_across = |x: f32| (x + 1.0) / 2.0 * across;
+        let pixels_down = |y: f32| (1.0 - y) / 2.0 * down;
+        let channel = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u32;
+        let (left, top) = (pixels_across(corners[0].x), pixels_down(corners[0].y));
+        let quad = Quad {
+            // The half-pixel shift the canvas applied, undone as it is for the other backend.
+            x: left + 0.5,
+            y: top + 0.5,
+            width: pixels_across(corners[3].x) - left,
+            height: pixels_down(corners[3].y) - top,
+            color: channel(corners[0].a) << 24
+                | channel(corners[0].r) << 16
+                | channel(corners[0].g) << 8
+                | channel(corners[0].b),
+            texture: canvas.bound,
+        };
+        self.drawn.lock().unwrap().quads.push(quad);
+    }
 }
+
+/// How many vertices one quad is, which is the strip's four — `orb_core::canvas`'s own `CORNERS`.
+const CORNERS: usize = 4;
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,12 @@
 name: CI
 
-# What the pre-commit hook runs, on a machine that is not the author's. The four
-# commands and their order are `.husky/pre-commit`'s; a check that holds locally and
-# not here is a check that was passing because of something untracked.
+# What `cargo xtask check` runs, on a machine that is not the author's. The four commands
+# and their order are that task's; a check that holds locally and not here is a check that
+# was passing because of something untracked.
+#
+# A step apiece rather than the task itself, so that which of the four failed and what each
+# cost are read off the run without opening its log. `--test-threads` is the one thing the
+# two do differently: the task names four, and here the runner is the whole machine.
 
 on:
   push:
@@ -11,10 +15,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # husky-rs points git's core.hooksPath at .husky on the first build. There is no
-  # commit to gate here, and a build that edits git's config is a build that has
-  # touched something it was not asked to.
-  NO_HUSKY_HOOKS: 1
 
 # One job, on Windows. orb is a DLL injected into a Windows game and there is no host it will ever
 # run on that is not Windows, so nothing here builds the whole of it for another one — and nothing
@@ -45,9 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 32-bit mingw, which is not what the runner image's own MSYS2 installation
-      # carries: the game is a 32-bit process, so both halves target i686 and the
-      # linker has to be the i686 one.
+      # Both mingw gcc's, neither of which the runner image's own MSYS2 installation
+      # carries. th06 and th07 are 32-bit processes and what ships is built for them, so
+      # the shell is MINGW32 and `.cargo/config.toml` names that linker; th06c is a
+      # 64-bit build and the suite covering it links with the x86_64 one — see `ALSO` in
+      # `crates/xtask/src/main.rs`.
+      #
+      # The 64-bit gcc lands in `/mingw64/bin`, which a MINGW32 shell does not have on
+      # PATH, so the Test step hands its path over rather than this step widening PATH:
+      # two mingw runtimes on one PATH is a 32-bit link finding the wrong one.
       #
       # `path-type: inherit` keeps the Windows PATH inside this shell, which is where
       # rustup puts cargo — without it the toolchain installed below is not reachable
@@ -56,17 +62,18 @@ jobs:
         with:
           msystem: MINGW32
           path-type: inherit
-          install: mingw-w64-i686-gcc
+          install: mingw-w64-i686-gcc mingw-w64-x86_64-gcc
 
       # The channel and the targets are `rust-toolchain.toml`'s. Naming them again here
       # is what installs them before the first cargo call rather than during it. The
-      # second is the one `cargo xtask seam` checks the crates above the seam for, and
-      # it is a std component like any other — which host it names is nothing to a
+      # second is what th06c's own e2e tests run for, that game being a 64-bit build, and
+      # the third is the one `cargo xtask seam` checks the crates above the seam for — a
+      # std component like any other, and which host it names is nothing to a
       # `cargo check`, since there is nothing to link and nothing to run.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          targets: i686-pc-windows-gnu, i686-unknown-linux-gnu
+          targets: i686-pc-windows-gnu, x86_64-pc-windows-gnu, i686-unknown-linux-gnu
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
@@ -74,13 +81,18 @@ jobs:
       - name: Format
         run: cargo fmt --check
 
-      # Every warning and every target, so the tests are covered too. Where a lint is
-      # wrong about this code the answer in the tree is an allow with the reason beside
-      # it, so zero warnings is a state this can be held to.
+      # Every warning and every target, so the tests are covered too — and both of the
+      # targets the suite is run for, the 64-bit half being a build like any other. Where
+      # a lint is wrong about this code the answer in the tree is an allow with the reason
+      # beside it, as narrow as the thing it is wrong about, so zero warnings is a state
+      # this can be held to.
       #
-      # Through `xtask` because the target has to be named and there is no `[build] target`
-      # naming it — see `.cargo/config.toml`. `cargo fmt --check` above needs no target.
+      # Through `xtask` because the targets have to be named and there is no
+      # `[build] target` naming them — see `.cargo/config.toml`. `cargo fmt --check` above
+      # needs no target.
       - name: Clippy
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: /mingw64/bin/x86_64-w64-mingw32-gcc
         run: cargo xtask clippy
 
       # The boundary, asked for rather than remembered. It fails the day somebody writes a
@@ -89,5 +101,16 @@ jobs:
       - name: Seam
         run: cargo xtask seam
 
+      # Both halves of the suite: what ships, and th06c's own e2e tests, which are a
+      # 64-bit build — see `ALSO` in `crates/xtask/src/main.rs`.
+      #
+      # The linker for that half named here rather than in `.cargo/config.toml`, which is
+      # the pattern that file already uses for a toolchain whose location is one machine's
+      # business: `/mingw64/bin` is where MSYS2 puts it and is not on a MINGW32 shell's
+      # PATH, and widening that PATH would leave two mingw runtimes on it for the 32-bit
+      # link to pick the wrong one from. On a host whose mingw provides both under one
+      # prefix — Ubuntu's does — the target's own default finds it and nothing is needed.
       - name: Test
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: /mingw64/bin/x86_64-w64-mingw32-gcc
         run: cargo xtask test

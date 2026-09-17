@@ -1,0 +1,51 @@
+# The run a_run_left_in_its_second_chapter left, offered as the run starts and taken up from where it stopped,
+# then played on into the chapter after. The mode question comes first, the run being started the same way;
+# the resume question comes up as the run is built, which on this game is the frame after the shot select's
+# own decide — see a_run_left_in_its_second_chapter.yaml for the walk.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+# Normal, aimed for by the cursor — see a_run_left_in_its_second_chapter.yaml. The run picked up is the one
+# left at that difficulty, and a pick-up at another would be a run of its own.
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { question: resume }
+  give_up_after: 1800
+- answer: { question: resume, item: 0 }
+  give_up_after: 600
+- play_until: { stage: 1, chapter: 3 }
+  give_up_after: 18000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

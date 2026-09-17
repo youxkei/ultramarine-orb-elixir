@@ -46,6 +46,7 @@
 //!   the game starts untranslated and the line says none is installed where the game is.
 
 pub mod audio;
+pub mod canvas;
 pub mod chapter;
 pub mod crash;
 pub mod dxgi;
@@ -71,6 +72,7 @@ pub mod resume;
 pub mod resume_ui;
 pub mod retry_ui;
 pub mod runtime;
+pub mod sampler;
 pub mod score;
 pub mod shot;
 pub mod snapshot;

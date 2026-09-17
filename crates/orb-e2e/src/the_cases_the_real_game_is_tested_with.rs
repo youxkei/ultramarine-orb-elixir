@@ -209,15 +209,81 @@ fn settings(case: &Case) -> impl FnOnce(&mut orb_config::Config) {
     }
 }
 
+/// **The case each chain starts at**, which is every case that continues nothing — see
+/// `orb_real::chains_of`, which is what makes one, and [`every_chain_has_a_test_of_its_own`], which holds
+/// this list against it so a case added there reaches a test here.
+///
+/// **The same eleven for both games**, these two and th06c sharing `the_cases_of_a_game_orb_rewinds`.
+///
+/// **A test per chain and not one test per game**, which is the whole reason this list exists: the sixteen
+/// cases were one test apiece and a chain has to be played in its own order — a case that continues is
+/// handed the files the one before it left — so all sixteen of each game ran one after another while six of
+/// the run's eight threads sat idle. Measured: these two tests alone took 194s of the 32-bit run, and the
+/// same split of th06c's took its own 181s to 83s. What the wall clock is now is the longest chain, which is
+/// the Normal clear and the Extra that continues it.
+const CHAINS: [&str; 11] = [
+    "a_run_left_in_its_second_chapter",
+    "a_death_answered_by_the_chapter_again",
+    "a_chapter_taken_again_without_a_death",
+    "a_chapter_further_back_taken_again",
+    "the_stage_taken_again_from_its_start",
+    "the_run_given_up_at_the_retry",
+    "a_chapter_of_the_stage_after_the_first",
+    "a_stage_practised_on_its_own",
+    "a_normal_mode_run_nothing_is_kept_of",
+    "a_run_played_to_its_clear",
+    "a_normal_mode_run_played_to_its_clear",
+];
+
+/// The cases of `game`'s chain that starts at `head`.
+///
+/// # Panics
+/// If no chain starts there, which is a chain this file names and `orb-real` does not have.
+fn the_chain_from(game: Game, head: &str) -> Vec<Case> {
+    orb_real::chains_of(game)
+        .into_iter()
+        .find(|chain| chain[0].name == head)
+        .unwrap_or_else(|| panic!("{} has no chain starting at {head}", game.name()))
+}
+
+/// One `#[test]` per chain, each calling the function that plays one of that game's.
+macro_rules! a_test_per_chain {
+    ($plays:ident, $($test:ident => $head:literal,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                $plays($head);
+            }
+        )*
+    };
+}
+
 #[test]
-fn the_cases_of_th06_pass_on_a_laid_out_th06() {
+fn every_chain_has_a_test_of_its_own() {
+    for game in [Game::Th06, Game::Th07] {
+        let heads: Vec<&str> = orb_real::chains_of(game)
+            .iter()
+            .map(|chain| chain[0].name)
+            .collect();
+        assert_eq!(
+            heads,
+            CHAINS,
+            "the chains this file plays are not the chains {}'s cases make",
+            game.name(),
+        );
+    }
+}
+
+fn the_chain_of_th06_passes(head: &str) {
     use crate::fake::th06::{Fake, the_run};
     in_its_own_process(|| {
         let against = real_traces(Game::Th06);
         let mut held = 0;
         let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for case in orb_real::cases_of(Game::Th06) {
+        let chain = the_chain_from(Game::Th06, head);
+        let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
+        for case in chain {
             let name = format!("th06-real-{}", case.name);
             let game = Fake::attach(&name, the_run(), settings(&case));
             // A stage that shoots, which the real one does and the laid-out one does only where asked: a
@@ -262,20 +328,36 @@ fn the_cases_of_th06_pass_on_a_laid_out_th06() {
         );
         assert!(
             against.is_empty() || held > 0,
-            "{against:?} holds no trace of any case of th06",
+            "{against:?} holds no trace of any of {names:?}",
         );
     });
 }
 
-#[test]
-fn the_cases_of_th07_pass_on_a_laid_out_th07() {
+a_test_per_chain!(
+    the_chain_of_th06_passes,
+    a_run_of_th06_left_in_its_second_chapter_and_picked_up => "a_run_left_in_its_second_chapter",
+    a_death_of_th06_answered_by_the_chapter_and_the_replay_kept => "a_death_answered_by_the_chapter_again",
+    a_chapter_of_th06_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
+    a_chapter_of_th06_further_back_taken_again => "a_chapter_further_back_taken_again",
+    the_stage_of_th06_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
+    the_run_of_th06_given_up_at_the_retry => "the_run_given_up_at_the_retry",
+    a_chapter_of_th06s_stage_after_the_first_and_the_run_picked_up_in_it => "a_chapter_of_the_stage_after_the_first",
+    a_stage_of_th06_practised_on_its_own => "a_stage_practised_on_its_own",
+    a_normal_mode_run_of_th06_nothing_is_kept_of => "a_normal_mode_run_nothing_is_kept_of",
+    a_run_of_th06_played_to_its_clear => "a_run_played_to_its_clear",
+    a_normal_mode_run_of_th06_played_to_its_clear_and_the_extra_it_unlocked => "a_normal_mode_run_played_to_its_clear",
+);
+
+fn the_chain_of_th07_passes(head: &str) {
     use crate::fake::th07::Fake;
     in_its_own_process(|| {
         let against = real_traces(Game::Th07);
         let mut held = 0;
         let mut parted: Vec<String> = Vec::new();
         let mut left: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-        for case in orb_real::cases_of(Game::Th07) {
+        let chain = the_chain_from(Game::Th07, head);
+        let names: Vec<&str> = chain.iter().map(|case| case.name).collect();
+        for case in chain {
             let name = format!("th07-real-{}", case.name);
             let game = Fake::attach_configured(
                 Display::agreed(120),
@@ -318,7 +400,22 @@ fn the_cases_of_th07_pass_on_a_laid_out_th07() {
         );
         assert!(
             against.is_empty() || held > 0,
-            "{against:?} holds no trace of any case of th07",
+            "{against:?} holds no trace of any of {names:?}",
         );
     });
 }
+
+a_test_per_chain!(
+    the_chain_of_th07_passes,
+    a_run_of_th07_left_in_its_second_chapter_and_picked_up => "a_run_left_in_its_second_chapter",
+    a_death_of_th07_answered_by_the_chapter_and_the_replay_kept => "a_death_answered_by_the_chapter_again",
+    a_chapter_of_th07_taken_again_without_a_death => "a_chapter_taken_again_without_a_death",
+    a_chapter_of_th07_further_back_taken_again => "a_chapter_further_back_taken_again",
+    the_stage_of_th07_taken_again_from_its_start => "the_stage_taken_again_from_its_start",
+    the_run_of_th07_given_up_at_the_retry => "the_run_given_up_at_the_retry",
+    a_chapter_of_th07s_stage_after_the_first_and_the_run_picked_up_in_it => "a_chapter_of_the_stage_after_the_first",
+    a_stage_of_th07_practised_on_its_own => "a_stage_practised_on_its_own",
+    a_normal_mode_run_of_th07_nothing_is_kept_of => "a_normal_mode_run_nothing_is_kept_of",
+    a_run_of_th07_played_to_its_clear => "a_run_played_to_its_clear",
+    a_normal_mode_run_of_th07_played_to_its_clear_and_the_extra_it_unlocked => "a_normal_mode_run_played_to_its_clear",
+);

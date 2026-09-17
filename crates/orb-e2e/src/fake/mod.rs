@@ -113,7 +113,20 @@
 //! game's own pad read reaches is that entry's replacement, so what nothing drives is the write over the
 //! import table and not what it answers with.
 
+// **The 64-bit build lays out one game and it draws nothing**: th06c has no device orb draws through, so the
+// device, the vtable, the glyphs and the keys an e2e test presses at a question of orb's — everything below
+// that is about drawing or about a person at the keyboard — is reached by no test of that build. The 32-bit
+// build's two games reach all of it, which is the check `dead_code` gives this file; the 64-bit one gets it
+// through them.
+#![cfg_attr(target_arch = "x86_64", allow(dead_code))]
+
+// Each laid-out game is the architecture the real one is, which is the architecture `orb-core` carries its
+// `Game` for — see `../lib.rs`.
+#[cfg(target_arch = "x86")]
 pub mod th06;
+#[cfg(target_arch = "x86_64")]
+pub mod th06c;
+#[cfg(target_arch = "x86")]
 pub mod th07;
 
 use std::cell::{Cell, RefCell};

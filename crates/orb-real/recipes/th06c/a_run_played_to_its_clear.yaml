@@ -1,0 +1,58 @@
+# A run of the rewindable mode played from the title to its clear on Easy, its name typed into the entry the
+# game asks a name at, and the replay orb offers of a run nobody will add to again kept. The walk to the run is
+# a_run_left_in_its_second_chapter's, aimed at Easy instead — the first item — for the five stages it has.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 7, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+# **The whole run in one step, bounded by frames**: the entry the game asks a name into opens while the
+# supervisor's state is still a stage's, after the last boss and the ending, so a step that waited for the run
+# to be over would wait past the entry — and every frame between is one the rules hold the shot on, which is
+# what wrote `AAAAAAAA` into every clear before `name` existed.
+- play_until: { frames: 216000 }
+- name: ORB
+  give_up_after: 3600
+# One press to leave the entry, which lands on the screen's own question about saving a replay — the one orb
+# stands in front of with its own.
+- press: [decide]
+  frames: 6
+  until: { question: keep_replay }
+  give_up_after: 7200
+- answer: { question: keep_replay, item: 0 }
+  give_up_after: 600
+- wait_until: { frames: 300 }
+- quit: true

@@ -207,17 +207,24 @@ fn attach() {
     // through, so a launch of the real game never runs a line of it.
     unsafe { pacing() }.paces_faster(config.pace);
 
+    let patches = game.hooks();
     // **And only where a run of this game can be rewound at all**, which is the whole of what the two
     // installations below are for: what they watch is the memory and the threads a chapter's snapshot has
     // to put back, and a game orb takes no snapshot of has nothing for them to watch. A `return` on the
     // failure is right for a game that does — a launch that would rewind against half a reading is worse
     // than one that does not start — and for th06c it ended the attach before the keyboard read was
     // hooked: that exe is linked against the UCRT, whose `KERNEL32.dll` import list has no `HeapCreate`
-    // in it, so the install cannot find the entry it patches. See `Game::rewinds`.
+    // in it, so the install could not find the entry it patched. Which entries a game's allocator and its
+    // threads go through is the game's to say now — see `Game::rewinds`, `orb_core::game::Memory` and
+    // `orb_core::game::Threads`.
     if config.track_memory && game.rewinds() {
-        match unsafe { memtrack::install(exe) } {
+        let installed = match patches.takes_its_memory {
+            game::Memory::Kernel32Imports => unsafe { memtrack::install(exe) },
+            game::Memory::UcrtImports => unsafe { memtrack::install_ucrt(exe) },
+        };
+        match installed {
             Ok(()) => {
-                log!("memory hooks installed");
+                log!("memory hooks installed over {:?}", patches.takes_its_memory);
                 // **Whether the walk of the process heap answers at all**, which is what says whether
                 // anything orb decides off it means anything: `HeapWalk` refuses a heap with the
                 // low-fragmentation heap on, and the process heap has it on by default. A guard read off
@@ -230,8 +237,12 @@ fn attach() {
             }
             Err(error) => return log!("memory hooks: {error}; orb is doing nothing this run"),
         }
-        match unsafe { threads::install(exe) } {
-            Ok(()) => log!("thread hook installed"),
+        let installed = match patches.makes_its_threads {
+            game::Threads::CreateThread => unsafe { threads::install(exe) },
+            game::Threads::BeginThreadEx => unsafe { threads::install_beginthreadex(exe) },
+        };
+        match installed {
+            Ok(()) => log!("thread hook installed over {:?}", patches.makes_its_threads),
             Err(error) => return log!("thread hook: {error}; orb is doing nothing this run"),
         }
     }
@@ -250,14 +261,13 @@ fn attach() {
         if config.fast_clear {
             orb_core::score::refuse_writes();
         }
-        match unsafe { score::install(exe) } {
+        match unsafe { score::install(exe, patches.opens_its_files) } {
             Ok(()) if config.fast_clear => log!("score: no file is written this run"),
             Ok(()) => log!("score: score.dat is forked while orb is in pointdevice mode"),
             Err(error) => log!("score: {error}; the game will write its own score.dat"),
         }
     }
 
-    let patches = game.hooks();
     // Remembered before the patches are consumed: orb's own frame loop calls the
     // game's chain functions at these addresses, which is what keeps its hooks in
     // the path.
@@ -558,19 +568,24 @@ fn attach() {
             log!("screen: {error}; the window is left as the game makes it");
         }
     }
+    // **Steam taken out of the launch**, for a game sold through it: it needs no client running to start,
+    // puts no playtime on somebody's account, unlocks nothing and hands Steam no save to sync. **Whose run
+    // it is decides where the file says nothing** — a run the machine played is not a run anybody played,
+    // and one somebody is playing is theirs to have counted — which is `Config::without_steam_wanted`, and
+    // what each import is answered with is `steam`.
+    if config.without_steam_wanted() {
+        match unsafe { steam::install(exe) } {
+            Ok(()) => log!("steam: this launch reaches Steam not at all"),
+            Err(error) => log!("steam: {error}; this launch is Steam's own"),
+        }
+    } else {
+        log!("steam: this launch is Steam's own");
+    }
     // **And whoever is playing this run, where a recipe was named.** The harness that plays it is its own
     // crate and this is the one place it is reached from — nothing of orb-core knows how a run is played, it
     // only keeps the slot. A launch nobody asked to play itself installs nothing and reads its keyboard.
     if let Some(recipe) = &config.autoplay {
         unsafe { orb_bot::install(recipe, game) };
-        // **And Steam taken out of the launch**, for a game sold through it: a run the machine played is
-        // not a run anybody played, so it puts no playtime on somebody's account, unlocks nothing and
-        // hands Steam no save to sync — and it needs no client running to start at all. Only where the
-        // launch plays itself; a game somebody is playing is theirs to have counted. See `steam`.
-        match unsafe { steam::install(exe) } {
-            Ok(()) => log!("steam: this launch reaches Steam not at all"),
-            Err(error) => log!("steam: {error}; this launch is Steam's own"),
-        }
         // And the dialog the game puts up before it starts anything, where it puts one up: a recipe's
         // first step cannot be pressed at a game that is still asking which window to make. Only for a
         // launch that plays itself — a person at the keyboard is who the dialog is *for* — which is what

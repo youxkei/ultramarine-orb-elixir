@@ -202,6 +202,12 @@ pub struct Options {
     #[arg(long, require_equals = true, value_name = "DIR", help_heading = FAULT)]
     keep_in: Option<PathBuf>,
 
+    /// answer the imports a game sold through Steam reaches it through, so that the launch needs no
+    /// client running and puts nothing on anybody's account. What a launch playing itself does anyway,
+    /// so this is for one somebody is playing; `without_steam` in `orb.yaml` is the same answer kept
+    #[arg(long, help_heading = FAULT)]
+    without_steam: bool,
+
     /// do not write down what a run pressed, so no chapter can be picked up in a later launch.
     /// Takes the game's input read and the moment a stage's numbers are put in place out of
     /// orb's hands, and leaves pointdevice_resume/ alone
@@ -358,6 +364,12 @@ impl Config {
         // is where this launch *writes*, which is every path derived from the base directory.
         if let Some(dir) = &options.keep_in {
             self.base_dir = dir.clone();
+        }
+        // **Only ever said and never unsaid**, which is the shape every switch here has: what says the
+        // other answer is the file, and what says neither is a launch playing itself — see
+        // `Config::without_steam_wanted`.
+        if options.without_steam {
+            self.without_steam = Some(true);
         }
         if options.no_frame_loop {
             self.own_frame_loop = false;

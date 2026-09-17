@@ -12,9 +12,21 @@
 //!
 //! **And the frame is orb's.** [`Th06c::hooks`] hands over this game's two chain walks and the whole
 //! frame around them, so the pacing, the present and the moment the rules are asked are orb's own — see
-//! [`THE_FRAME`]. What is still not read is what a run is made of past a stage: [`Th06c::rewinds`]
-//! answers false, so there are no chapters, no snapshot to rewind to and no resume, and the methods
-//! below that answer nothing say so one by one.
+//! [`THE_FRAME`]. What a run is made of past a stage is read as well: the supervisor's states, the game
+//! manager's own numbers, the two seams a stage's numbers go in at and the record this game's own
+//! replay restarts a stage from — so [`Th06c::rewinds`] answers true, and a run here has chapters, a
+//! snapshot to rewind to and a file of its own to be picked up out of ([`resume`]). **And what orb draws
+//! over it goes through the game's own Direct3D 11**: there is no Direct3D 8 device here for the overlay
+//! to draw on, so it draws through a canvas over the swapchain this game presents its frames through —
+//! see `crate::canvas` and `Overlay::over_a_swapchain`, and [`Game::draws_through_its_d3d_device`], which
+//! is still false because that is the *device*'s question.
+//!
+//! **And a person can answer one of those screens**, which took a read of its own: this game's keys reach
+//! it through the lookup orb *answers* rather than one it stands in front of, so a press has to be read
+//! back out of the snapshot orb is filling before [`Game::word_in`] can take the decide out of it. Without
+//! that, the question is seen and the press goes to the game's own item —
+//! `the_mode_question_over_th06c`'s last two tests are the pair that press keys the way somebody at the
+//! keyboard does.
 //!
 //! **Neither seam is an address**, which is what makes them hold at all: this exe is built with ASLR on
 //! and every launch measured came up at a different base, and the pointers it calls through are ones it
@@ -33,15 +45,25 @@
 
 use std::ffi::c_void;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
 use orb_api::mem;
 
 use crate::game::{
-    Boundary, Call, Dialog, FrameCalls, Game, Hooks, Lookup, Menu, Pad, PanelTile, Patch, Read,
-    Reading, Rect, RunStart, State, Walks,
+    Boundary, Call, CountedDeath, Dialog, Entered, FileOpen, FrameCalls, Game, Hooks, Lookup,
+    Memory, Menu, Pad, PanelTile, Patch, Read, Reading, Rect, RunStart, State, Threads, Walks,
 };
+use crate::log;
+use crate::score;
 
+pub mod chapters;
+/// Reachable from this crate's own tests and, through the `sim` feature, from the tests of the crates that
+/// drive it — which is where the scenarios live.
+#[cfg(any(test, feature = "sim"))]
+pub mod image;
+pub mod resume;
+pub mod score_file;
 mod sight;
 
 /// Where the exe asks to be loaded, which is what the addresses below are written against.
@@ -59,6 +81,110 @@ static SLIDE: AtomicUsize = AtomicUsize::new(0);
 fn at(address: usize) -> usize {
     address.wrapping_add(SLIDE.load(Ordering::Relaxed))
 }
+
+/// **A call orb makes into this game, as a slot a laid-out game can fill** — the parent module's
+/// `handed_over!` for a game whose addresses go through [`at`].
+///
+/// That macro's slot starts out holding the address itself, which is a constant there; here the address is
+/// the constant plus the slide the loader chose, which no static initialiser can hold. So the slot starts at
+/// nought, nought reads as the game's own function at [`at`] of the constant, and a laid-out game — which is
+/// code the address space cannot hold, the reason the parent macro exists — writes its own function over it.
+/// Outside a build with the simulator in it the slot does not exist and the read is [`at`] of the constant.
+macro_rules! handed_over_at {
+    ($slot:ident, $at:ident, $set:ident, $real:ident) => {
+        #[cfg(any(test, feature = "sim"))]
+        static $slot: AtomicUsize = AtomicUsize::new(0);
+
+        #[cfg(any(test, feature = "sim"))]
+        fn $at() -> usize {
+            match $slot.load(Ordering::Relaxed) {
+                0 => at($real),
+                handed => handed,
+            }
+        }
+
+        #[cfg(not(any(test, feature = "sim")))]
+        fn $at() -> usize {
+            at($real)
+        }
+
+        #[cfg(any(test, feature = "sim"))]
+        fn $set(address: usize) {
+            $slot.store(address, Ordering::Relaxed);
+        }
+    };
+}
+
+// **Every call orb makes into this game's code, one slot apiece.** A laid-out th06c fills them with
+// functions of its own through `image`, the way th06's and th07's fill theirs; a real launch reads each as
+// the game's own address.
+handed_over_at!(
+    RUN_CALC_CHAIN_AT,
+    run_calc_chain,
+    set_run_calc_chain,
+    RUN_CALC_CHAIN
+);
+handed_over_at!(
+    TAKES_AN_ELEMENT_OUT_AT,
+    takes_an_element_out,
+    set_takes_an_element_out,
+    TAKES_AN_ELEMENT_OUT
+);
+handed_over_at!(
+    SETS_THE_VIEWPORT_AT,
+    sets_the_viewport,
+    set_sets_the_viewport,
+    SETS_THE_VIEWPORT
+);
+handed_over_at!(
+    MAKES_THE_MATRIX_AT,
+    makes_the_matrix,
+    set_makes_the_matrix,
+    MAKES_THE_MATRIX
+);
+handed_over_at!(
+    TAKES_THE_MATRIX_AT,
+    takes_the_matrix,
+    set_takes_the_matrix,
+    TAKES_THE_MATRIX
+);
+handed_over_at!(
+    THE_SOUNDS_RATE_AT,
+    the_sounds_rate,
+    set_the_sounds_rate,
+    THE_SOUNDS_RATE
+);
+handed_over_at!(
+    WHERE_THE_MUSIC_IS_AT,
+    where_the_music_is,
+    set_where_the_music_is,
+    WHERE_THE_MUSIC_IS
+);
+handed_over_at!(
+    HOW_LONG_THE_TRACK_IS_AT,
+    how_long_the_track_is,
+    set_how_long_the_track_is,
+    HOW_LONG_THE_TRACK_IS
+);
+handed_over_at!(
+    SEEKS_THE_MUSIC_AT,
+    seeks_the_music,
+    set_seeks_the_music,
+    SEEKS_THE_MUSIC
+);
+handed_over_at!(
+    PUTS_THE_RATE_TOGETHER_AT,
+    puts_the_rate_together,
+    set_puts_the_rate_together,
+    PUTS_THE_RATE_TOGETHER
+);
+handed_over_at!(
+    FINISHES_THE_PICTURE_AT,
+    finishes_the_picture,
+    set_finishes_the_picture,
+    FINISHES_THE_PICTURE
+);
+handed_over_at!(RUN_START_AT, run_start, set_run_start, RUN_START);
 
 /// **Where the game keeps a virtual key in the 256 it plays a run off**, out of its own table — see
 /// [`THE_TABLE_OF_KEYS`], and `Th06c::presses_into_its_own_keys`, which is the one thing that asks.
@@ -121,6 +247,22 @@ const WINDOW_MADE: &str = "CreateWindowExW";
 /// This exe walks `xinput1_4.dll`, `xinput1_3.dll` and `xinput9_1_0.dll` for whichever is there and
 /// keeps the handle at `0x1403f8008`, then asks that module for this by name — see `th06c/asm.md`.
 const PAD_READ: &str = "XInputGetState";
+
+/// **The copy of the score file the game reads once, at startup, and every screen parses**: the pointer to
+/// the block, written at `0x14002c1ed` and read by the parse at `0x14004e5a0`, and its length beside it.
+/// The result screen's deinit builds a new one from what its screens hold, frees this and points here at
+/// its own (`0x140055541`..`0x140055555`) — see `th06c/asm.md`, the score file, and [`score_file`] for
+/// why orb puts one here itself.
+const SCORE_FILE_COPY: usize = 0x1_40b7_7858;
+const SCORE_FILE_COPY_LENGTH: usize = 0x1_40b6_d76c;
+
+/// **The two import table entries the game takes that block through**, `malloc` and `free` of
+/// `api-ms-win-crt-heap-l1-1-0.dll`: `0x14004e58e` and `0x140055525` call the first, `0x140055548` the
+/// second. Read at the moment of the call rather than at the attach, since orb's own memory tracking writes
+/// its routes over them — `Memory::UcrtImports` — and a block the game frees has to come from the heap that
+/// route leads to.
+const MALLOC_IMPORT: usize = 0x1_4028_63f8;
+const FREE_IMPORT: usize = 0x1_4028_63f0;
 
 /// **And the name it makes its renderer through**, which orb answers to take the present — see
 /// [`crate::dxgi`], and `Hooks::makes_its_renderer`.
@@ -322,11 +464,35 @@ const THE_TRACK_LOOPS: usize = 0x1_403a_4ddd;
 /// Where that loop starts and ends, in the same samples the seek is in.
 const THE_LOOP_STARTS: usize = 0x1_403a_4de0;
 const THE_LOOP_ENDS: usize = 0x1_403a_4de8;
+/// **The block all of those are in**, which a restore leaves alone — see [`Game::audio_state`]. From the
+/// track's own number at `0x1403a4dcc`, rounded down to the sixteen, to past the extra walks at
+/// `0x1403a4df0`: the run's own start writes `0x1403a4dc8` to `0x1403a4df0` together at `0x14002cbae`.
+///
+/// **And not the sound player's table after it** — `0x1403a4e00` to `0x1403a4ff0`, which the player's init
+/// at `0x140055f90` fills with `-1`s and reaches from `0x1403a4df4` by index. It was tried: with the block
+/// run out to `0x1403a5000`, a_death_answered_by_the_chapter_again's frames after its retry were as slow as
+/// before (a worst of 150ms in every 600), so the table is not what a restore costs frames by — see
+/// [`THE_RENDERERS_BLOCK`] for what is.
+const THE_AUDIO_STATICS: Range<usize> = 0x1_403a_4dc0..0x1_403a_4e00;
 
 /// **What the frame does after the draw chain and before it leaves**: a `-1` into the renderer's own
 /// field at `0x14090a050`'s `+0x1cb50`, read off `0x14002593b`.
 const THE_RENDERER: usize = 0x1_4090_a050;
 const WHAT_THE_FRAME_LEAVES_IN_IT: usize = 0x1_cb50;
+/// **How big the renderer is**: `0x22c40` bytes off the heap, `mov ecx,0x22c40; call 0x140283d20` at
+/// `0x14002c471`, zeroed and built before its pointer goes into [`THE_RENDERER`] at `0x14002c496`.
+///
+/// **A restore leaves the whole of it alone**, not the pointer to it only — see [`Th06c::live_handles`].
+/// What it holds is the drawing's own side: the pointers to the D3D11 objects, which are the same kind of
+/// thing as the statics in [`THE_RENDERERS_OBJECTS`] and cannot be copied into a snapshot, and the cursors
+/// the game writes its vertices through them by. A chapter put back over either is a chapter describing a
+/// moment the driver has left.
+///
+/// **And it is not what the frame rate after a chapter turned on**, which it was held back on the guess
+/// that it was: the frames after a retry were as slow with the whole block out of the restore as with it
+/// in. What they turned on is [`THE_SOUND_LIBRARYS_BLOCK`]. Nothing has measured a fault from putting this
+/// one back either, so what keeps it here is the reason above and not a session it fixed.
+const THE_RENDERERS_BLOCK: usize = 0x22c40;
 
 /// **And the two calls at the head of the frame's own timing, which are what finish its picture.**
 /// `0x140025990` begins with `0x140058e40` on `0x140b77300` — the thing that puts the frame's own
@@ -341,6 +507,14 @@ const WHAT_THE_FRAME_LEAVES_IN_IT: usize = 0x1_cb50;
 const PUTS_THE_RATE_TOGETHER: usize = 0x1_4005_8e40;
 const WHAT_IT_PUTS_IT_ON: usize = 0x1_40b7_7300;
 const FINISHES_THE_PICTURE: usize = 0x1_4007_3b50;
+
+/// **The game's own run start**, called by the shot select's decide at `0x140035868` and the practice
+/// stage select's at `0x1400361ab` once their screens have written the run's numbers: the lives and the
+/// bombs out of the configuration — `0x302` over the pair where the difficulty is the Extra's, `0x14002cb40`
+/// — the supervisor's state to two, the playback flag at `0x1403a3b48` cleared, the decide's own sound
+/// queued, and the music stopped and its track put to `-1` (`0x14002cbae` on). No arguments; see
+/// `th06c/asm.md`. What orb calls where it writes a run into being — `Th06c::start_a_run`.
+const RUN_START: usize = 0x1_4002_cb10;
 /// **How far into that object [`the_swapchain`] looks for one**, which is as far as the frame itself
 /// reaches into it and a little over: what is being searched is the renderer's own fields, and the
 /// furthest of them anything here names is the one above.
@@ -354,6 +528,39 @@ const THE_RENDERERS_OWN_FIELDS: usize = WHAT_THE_FRAME_LEAVES_IN_IT + 0x100;
 /// a question orb asks the objects themselves — see [`the_swapchain`] — and asking one more costs a
 /// `QueryInterface`. What makes walking past a module handle safe is the vtable check there.
 const THE_RENDERERS_OBJECTS: Range<usize> = 0x1_4084_d1e0..0x1_4084_d268;
+
+/// **The block the sound library keeps its own state in**, which a restore must leave alone: five
+/// `CRITICAL_SECTION`s with the pool each guards after it, and the library's flags and counters past
+/// them. Each lock is the `0x230` bytes its own `InitializeCriticalSection` wrapper at `0x140242850`
+/// zeroes — the section, its name at `+0x28`, the holder's thread id at `+0x22c` — and the five are
+/// initialised together at `0x1400a69f6` onwards: `0x14044db00`, `0x14044e530`, `0x14044dd60`,
+/// `0x14044dfd0`, `0x14044e240`. The pool each guards sits at the lock's own end, which is where
+/// `0x1400a9906` and `0x1400ad089` reach for `0x14044df90` and `0x14044dd30`.
+///
+/// **The bounds are where the references stop.** Every address anything in the exe reaches in
+/// `0x14044d000`–`0x14044f000` lies in `0x14044da34`–`0x14044e828`, and every instruction that reaches one
+/// is at `0x1400a14xx` or past it — the sound library's own code and the runtime helpers at
+/// `0x14024xxxx`. Not one of the game's own functions touches a byte of it, so no part of a run is in
+/// here and the whole of it can be held back.
+///
+/// **And holding it back is what the frame rate after a chapter turned on.** A shot hitting an enemy
+/// queues an effect into the three words at `0x1403a4dd0`; the calc walk hands each to `0x1400a9730` at
+/// `0x1400255d3`, and that takes `0x14044dfd0` at `0x1400a98e4`. On the real game, sampled from a thread
+/// of orb's while the frame's own thread sat in the game's update — see [`crate::sampler`] — 909 of the
+/// 917 samples a_death_answered_by_the_chapter_again gave up were `ntdll!ZwWaitForAlertByThreadId+0x14`,
+/// every one of them under `RtlEnterCriticalSection+0xf2`, under the wrapper at `0x140242926`, under
+/// `0x1400a98e9`, under `0x1400255d3`. So the frame blocked 35ms to 137ms on that one lock, on every hit.
+///
+/// **And only from the retry on**: of the 236 updates that ran over two frames long, the first was the
+/// startup's own and every one of the rest came after `retry chapter 1`. The 600 frames before the retry
+/// had a worst of 50ms; the six windows after it, 99ms, 147ms, 153ms, 148ms, 150ms and 148ms.
+///
+/// **Two narrower answers were tried first and neither was it**: the sound player's effect table
+/// (`0x1403a4e00`–`0x1403a4ff0`, see [`THE_AUDIO_STATICS`]) and the renderer's own block off the heap
+/// (see [`THE_RENDERERS_BLOCK`]), each held back on its own, left the same 150ms worst in every 600
+/// frames. So did the five locks held back without the pools they guard: a live section whose queue was
+/// rewound is a worker with nothing to release it for.
+const THE_SOUND_LIBRARYS_BLOCK: Range<usize> = 0x1_4044_da30..0x1_4044_e830;
 
 /// Whether the search below has been made, so that it is made once a launch rather than once a frame.
 static LOOKED_FOR_A_SWAPCHAIN: AtomicBool = AtomicBool::new(false);
@@ -447,11 +654,15 @@ unsafe extern "win64" fn walks_the_calc_chain(_: *mut c_void) -> i32 {
         let walks = mem::read_committed::<i32>(at(THE_EXTRA_WALKS)).unwrap_or(0);
         unsafe { mem::write::<i32>(at(THE_EXTRA_WALKS), walks.saturating_add(1)) };
     }
-    if let Some(word) = crate::runtime::pressing() {
+    // **The frame's own word, decided and written down by the runtime**: a chapter being played back is
+    // fed its recorded buttons here, a bot's word goes through the hold a question of orb's is raised on,
+    // and either is noted against the frame — see `runtime::the_frames_word`, which is this game's
+    // `get_input`.
+    if let Some(word) = unsafe { crate::runtime::the_frames_word(&Th06c) } {
         unsafe { Th06c.presses_into_its_own_keys(word) };
     }
     let walk: unsafe extern "win64" fn(*mut i32) -> u8 =
-        unsafe { std::mem::transmute(at(RUN_CALC_CHAIN)) };
+        unsafe { std::mem::transmute(run_calc_chain()) };
     let mut leaving_with = 0i32;
     match unsafe { walk(&mut leaving_with) } {
         0 => CARRY_THE_FRAME_ON,
@@ -506,7 +717,7 @@ unsafe extern "win64" fn walks_the_draw_chain(_: *mut c_void) -> i32 {
             let next = mem::read_committed::<usize>(element + chain::NEXT).unwrap_or(0);
             if answered == walked::TAKE_IT_OUT {
                 let out: unsafe extern "win64" fn(usize, usize) =
-                    unsafe { std::mem::transmute(at(TAKES_AN_ELEMENT_OUT)) };
+                    unsafe { std::mem::transmute(takes_an_element_out()) };
                 unsafe { out(0, element) };
                 element = next;
                 continue 'walk;
@@ -550,14 +761,13 @@ unsafe extern "win64" fn tops_up_the_sound(_: usize) {
     if track == -1 || mem::read_committed::<u8>(at(THE_TRACK_IS_PLAYING)) == Some(0) {
         return;
     }
-    let rate: unsafe extern "win64" fn() -> i32 =
-        unsafe { std::mem::transmute(at(THE_SOUNDS_RATE)) };
+    let rate: unsafe extern "win64" fn() -> i32 = unsafe { std::mem::transmute(the_sounds_rate()) };
     let rate = match i64::from(unsafe { rate() }) {
         rate if rate > 0 => rate,
         _ => SAMPLES_A_SECOND,
     };
     let playing: unsafe extern "win64" fn() -> i64 =
-        unsafe { std::mem::transmute(at(WHERE_THE_MUSIC_IS)) };
+        unsafe { std::mem::transmute(where_the_music_is()) };
     let playing = unsafe { playing() };
     if playing < 0 {
         return;
@@ -566,7 +776,7 @@ unsafe extern "win64" fn tops_up_the_sound(_: usize) {
     match mem::read_committed::<u8>(at(THE_TRACK_LOOPS)) {
         Some(0) | None => {
             let length: unsafe extern "win64" fn(i32) -> i64 =
-                unsafe { std::mem::transmute(at(HOW_LONG_THE_TRACK_IS)) };
+                unsafe { std::mem::transmute(how_long_the_track_is()) };
             let length = unsafe { length(track) };
             if length < 0 || seek >= length {
                 return;
@@ -583,7 +793,7 @@ unsafe extern "win64" fn tops_up_the_sound(_: usize) {
         }
     }
     let seeks: unsafe extern "win64" fn(i64, i32) =
-        unsafe { std::mem::transmute(at(SEEKS_THE_MUSIC)) };
+        unsafe { std::mem::transmute(seeks_the_music()) };
     unsafe { seeks(seek, track) };
 }
 
@@ -619,7 +829,16 @@ mod player {
     /// The state a hit can land in, and the only one: `0x14004c6ce` gates the hit on this byte being
     /// nought and `0x14004c734` is what writes [`HIT`] over it.
     pub const NORMAL: u8 = 0;
+    /// The two states nothing can hit the player in and a chapter cannot start in: coming back after a
+    /// death, and the seconds after a bomb or that respawn.
+    pub const SPAWNING: u8 = 1;
     pub const HIT: u8 = 2;
+    pub const INVULNERABLE: u8 = 3;
+    /// **What the game gives a respawn**, and what orb writes under [`INVULNERABLE`] for one update — the
+    /// same `0xf0` th06 1.02h gives its own.
+    pub const INVULNERABLE_FRAMES: i32 = 0xf0;
+    /// **Whether a bomb is going off**, a dword deep in the player's own bomb block.
+    pub const BOMB_IN_USE: usize = 0x97d0;
     /// **The frames a bomb still takes the hit back in**, one off a frame at `0x14004a6ee`, and the frame
     /// it reaches nought is the frame the death is made final — `0x14004a6fd` onwards reads the lives.
     ///
@@ -681,10 +900,16 @@ const THE_PLAYBACK_IS_THE_DEMO: usize = 0x1_403a_3b61;
 /// record the replay list's cursor is on. Read for the log alone — which of the two a playback is, is
 /// [`THE_PLAYBACK_IS_THE_DEMO`]'s answer and not this one's.
 const THE_REPLAY_BEING_PLAYED: usize = 0x1_403a_4bfc;
-/// **The game manager**, a static of `0x11628` bytes whose frame callback is `0x14002cc00`.
-const GAME_MANAGER: usize = 0x1_40b5_c140;
+/// **The front end**, a static of `0x11628` bytes whose frame callback is `0x14002cc00` — the logo, the
+/// title, the difficulty, the character and the shot selects, the practice stage select, the replay
+/// list and the options, one state apiece.
+///
+/// **The front end and not the game manager**, which is what it was first taken for: the run's own
+/// numbers are none of them in it, and what is are the screens a run is chosen on. The game manager is
+/// the static at [`GAME_MANAGER`], whose stage callback `0x140024110` is handed it.
+const FRONT_END: usize = 0x1_40b5_c140;
 
-mod game_manager {
+mod front_end {
     /// The dword `0x14002cc3b` reads and `0x14002cc58` jumps through a table of twenty-one at
     /// `0x140036324` on. Twelve to seventeen are a stage's own six phases, which `0x14002f95d` takes
     /// twelve off and jumps through a second table of six.
@@ -696,7 +921,204 @@ mod game_manager {
     /// their own records, and the decide follows the one at `[+0x11610]` into the next list. Which is
     /// why a recipe aiming with it names the screen too.
     pub const CURSOR: usize = 0x28;
+    /// **How many frames the screen that is up has been up**, which every screen zeroes as it arrives
+    /// (`mov DWORD PTR [rdi+0x9450],esi` at `0x14002d905` and a dozen more) and reads its decide only
+    /// past a count of — see [`TITLE_GRACE_FRAMES`] and [`SHOT_SELECT_GRACE_FRAMES`].
+    pub const SCREEN_FRAMES: usize = 0x9450;
+    /// **The title menu's own state**, which is the second of the twenty-one: its case at `0x14002d419`
+    /// is where the cursor wraps and the items are read.
+    pub const TITLE: i32 = 2;
+    /// **And the shot type select's**, the last screen before a run, whose case at `0x1400352c3` writes
+    /// the shot at `0x140035811` — the byte at `0x1403a33bd` — off the cursor.
+    pub const SHOT_SELECT: i32 = 11;
+    /// How many frames each of the two ignores a decide for on arrival: `cmp DWORD PTR [rdi+0x9450],0x14`
+    /// at `0x14002d524` inside the title's case, and `…,0x1e` at `0x1400353e8` inside the shot select's.
+    pub const TITLE_GRACE_FRAMES: i32 = 0x14;
+    pub const SHOT_SELECT_GRACE_FRAMES: i32 = 0x1e;
+    /// **The title's items, as the cursor counts them** — the same eight th06 1.02h has and in the same
+    /// order, which is what `0x14002d4a2` steps the cursor over the second of where no clear has
+    /// unlocked the Extra: `inc eax; mov [rdi+0x28],eax`.
+    pub const ITEM_START: i32 = 0;
+    pub const ITEM_EXTRA_START: i32 = 1;
+    pub const ITEM_PRACTICE_START: i32 = 2;
+    pub const ITEM_REPLAY: i32 = 3;
+    pub const ITEM_SCORE: i32 = 4;
+    /// **The state the Score item writes**, `mov DWORD PTR [rdi+0x11608],0xa` at `0x14002e8cd`, whose
+    /// case at `0x1400361d4` puts the supervisor into [`super::STATE_SCORE`] once the screen has been up
+    /// sixty frames — which is how the ranking is built, and how orb has the game write its file for a
+    /// run that reached no screen of its own: see `Game::show_ranking`.
+    pub const SCORE: i32 = 10;
+    /// How many frames that state waits before it asks the supervisor: `cmp DWORD PTR [rdi+0x9450],0x3c`
+    /// at `0x1400361d4`.
+    pub const SCORE_ASKS_AFTER: i32 = 0x3c;
 }
+
+/// **The supervisor's state the ranking is shown in**, th06 1.02h's own six: the front end's Score state
+/// writes it at `0x1400361e7`, the supervisor builds the result screen for it, and the screen's own
+/// leaving puts one back at `0x140050ce9` — and its deinit at `0x140054a80` is what writes the score
+/// file. So a run given up, which reaches no screen of its own, has its records written by orb asking
+/// for this screen and taking it down again, the way th06's are.
+const STATE_SCORE: i32 = 6;
+
+/// The result screen's states the ranking is drawn in — every one from the first past its build to the
+/// last before the way out, th06 1.02h's own set, this being its screen with two states added.
+const RANKING_SHOWING: Range<i32> = 1..result_screen::EXIT;
+
+/// Where the front end's state and cursor were before the ranking was asked for, plus one — nought
+/// being none asked — so that they can go back once the front end is up again: see
+/// `Game::restore_menu_cursor`, which has why afterwards and not on the way out.
+static FRONT_END_BEFORE_THE_RANKING: AtomicUsize = AtomicUsize::new(0);
+static CURSOR_BEFORE_THE_RANKING: AtomicUsize = AtomicUsize::new(0);
+
+/// **The game manager**, the static the stage callback at [`GAME_MANAGER_ADDED`] is handed in `rcx` —
+/// `lea rdi,[rip+0x37f411]` at `0x140023f88`, registered as the callback's argument at `0x140023f7a` —
+/// and `0x1980` bytes at least, its last field read being the sub-rank at `+0x197c`. The run's own
+/// numbers are its fields, and the statics named on their own above —
+/// [`LIVES`], [`BOMBS`], [`POWER`], [`STAGE`], [`DIFFICULTY`], [`PLAYER_AREA`] — are fields of it too,
+/// written down by address because they were read before the struct was.
+const GAME_MANAGER: usize = 0x1_403a_33a0;
+
+mod game_manager {
+    /// **The character and the shot**, one byte each: `0x14004d8f7` puts `character * 2 + shot` into the
+    /// replay's header, and the character select writes the first at `0x140035239`, the shot select the
+    /// second at `0x140035811`. `+0x8` before them counts the run's captures (`inc DWORD PTR [0x1403a33a8]`
+    /// at `0x140014bc9`) and `+0x20` after them is the stage — see [`super::STAGE`].
+    pub const CHARACTER: usize = 0x1c;
+    pub const SHOT: usize = 0x1d;
+    /// **The score**, the field the replay's record saves at `0x14004d997` and the capture adds its bonus
+    /// to at `0x140014b4f`. The field before it is what the panel draws, which the update raises to this.
+    pub const GUI_SCORE: usize = 0x7ac;
+    pub const SCORE: usize = 0x7b0;
+    /// **The two menus a run stops for**: the pause menu, and the menu a run out of lives is asked to
+    /// continue from. Bytes, and a frame with either set is a frame nothing of the run moved in. The
+    /// byte after them, `+0x7be`, says the run is *running* and gates the replay's own recording.
+    pub const IS_IN_GAME_MENU: usize = 0x7bc;
+    pub const IS_IN_RETRY_MENU: usize = 0x7bd;
+    pub const IS_IN_PRACTICE: usize = 0x7c0;
+    /// The point items collected, a word: `0x14004dac4` puts the replay record's back here.
+    pub const POINT_ITEMS: usize = 0x7c6;
+    /// **The sixty-four spell card records**, `0x40` bytes each — see [`super::CARD_HISTORY`].
+    pub const CARD_HISTORY: usize = 0x7cc;
+    /// How many times the run was started over from the pause menu, a byte the result screen draws.
+    pub const NUM_RETRIES: usize = 0x17e0;
+    /// The power items counted towards the next step of the score, a byte the replay record restores at
+    /// `0x14004db1a`.
+    pub const POWER_ITEMS: usize = 0x17e1;
+    /// How many extra lives the score has paid for, a byte after the lives and the bombs.
+    pub const EXTRA_LIVES: usize = 0x17f6;
+    /// **The seed the stage started from**, which `0x140024cdc` copies out of the generator as the stage
+    /// begins and the replay's record carries — see [`super::RNG_SEED`], which is the generator itself.
+    pub const RANDOM_SEED: usize = 0x195c;
+    /// **The frames the stage has run**, which the game's own recording counts its entries by.
+    pub const GAME_FRAMES: usize = 0x196c;
+    /// **The rank**, which the enemies read and `0x14002420f` starts at eight; the bounds either side of
+    /// it come out of a table by difficulty at `0x140024cbe`, and the sub-rank counts towards a step.
+    pub const RANK: usize = 0x1970;
+    pub const SUB_RANK: usize = 0x197c;
+}
+
+/// **The supervisor**, the static at `0x140b77300` whose first field is the pointer to the sound object
+/// and whose state machine every screen of the game writes into — see [`supervisor`].
+const SUPERVISOR: usize = 0x1_40b7_7300;
+
+mod supervisor {
+    /// **The state the supervisor is in**, which every screen writes to leave itself: the run's start at
+    /// `0x14002cb50` writes two, the result screen leaving writes one at `0x140050ce9`, an ending's end
+    /// writes seven at `0x140018c45`. The numbers are th06 1.02h's own, this being its supervisor.
+    pub const CUR_STATE: usize = 0x32c;
+    /// **And the state the supervisor last acted on**, the dword before it, which its update writes from
+    /// the one above as its last act — so the two disagreeing is a change asked for and not yet made.
+    pub const LAST_STATE: usize = 0x328;
+    /// How many lives and bombs a run starts with, out of `th06.cfg`'s `+0x10` and `+0x11`: the run's
+    /// start at `0x14002cb1b` copies them over the lives and the bombs, and writes two and three over
+    /// both where the difficulty is the Extra.
+    pub const CONFIG_LIVES: usize = 0x344;
+    pub const CONFIG_BOMBS: usize = 0x345;
+}
+
+/// The supervisor's states, th06 1.02h's numbering — see [`supervisor::CUR_STATE`].
+const STATE_MAINMENU: i32 = 1;
+const STATE_GAMEMANAGER: i32 = 2;
+/// The state a stage moves to the next through, in which the run's chain is cut and the next stage's
+/// registered: `0x140024139` reads it as the stage callback begins to know a stage from a run's start.
+const STATE_GAMEMANAGER_REINIT: i32 = 3;
+const STATE_RESULTSCREEN_FROMGAME: i32 = 7;
+const STATE_ENDING: i32 = 10;
+
+/// **The generator**, one word: every draw in the exe is `xor cx,[0x14090a10c]; sub cx,0x6553; … ; mov
+/// [0x14090a10c],ax`, and the stage callback fills its sixty-four card records from it 2048 draws deep
+/// before the file is parsed over them — see `th06c/asm.md`.
+const RNG_SEED: usize = 0x1_4090_a10c;
+/// And how many draws have been made of it since the stage seeded it: `inc DWORD PTR [0x14090a108]`
+/// beside every draw, cleared at `0x140024cd3` as the stage begins.
+const RNG_COUNT: usize = 0x1_4090_a108;
+
+/// **The replay manager**, a pointer to an object of `0x78` bytes the run makes at `0x14004d0d0` — for a
+/// recording as much as for a playback — and null between runs.
+const REPLAY_MANAGER: usize = 0x1_4090_a100;
+
+mod replay_manager {
+    /// **The frames of the stage the record is at**, which is what its entries are written against:
+    /// cleared at `0x14004d8b0` as a stage's record begins and stepped at `0x14004d7c1` once a frame.
+    pub const FRAME: usize = 0x30;
+}
+
+/// **The panel's own block**, a pointer to a heap object the game manager makes — `0x140025030` writes it
+/// — and the two fields of it a run is read by.
+const GUI_IMPL: usize = 0x1_4090_a0d8;
+
+mod gui_impl {
+    /// **Which line of a conversation is up**, and negative for none: the enemy manager gates the boss's
+    /// life bar on it at `0x140020f72`, and the playback's fast-forward at `0x14004d7d0` on the same.
+    pub const MSG_IDX: usize = 0x23a0;
+}
+
+/// **Whether the panel is drawing a boss**, a byte the enemy that carries the boss flag sets at
+/// `0x1400142c2` and clears as it dies at `0x1400208ba`.
+const BOSS_PRESENT: usize = 0x1_4090_a0e4;
+
+/// **The sixty-four spell card records**, `0x40` bytes each, which the score file's `CATK` records are
+/// parsed into and written out of — see `th06c/asm.md`, whose section 4 has every field.
+const CARD_HISTORY: usize = GAME_MANAGER + game_manager::CARD_HISTORY;
+const CARD_HISTORY_BYTES: usize = CARDS * CARD_BYTES;
+const CARDS: usize = 64;
+const CARD_BYTES: usize = 0x40;
+/// `'CATK'`, which the stage callback writes into every record at `0x14002480b` and the file's writer
+/// looks for at `0x140054e80`.
+const CATK_MAGIC: u32 = u32::from_le_bytes(*b"CATK");
+/// The card's name, copied in as the card starts by the `strcpy` at `0x140014a00`.
+const CATK_NAME: usize = 0x18;
+const CATK_NAME_BYTES: usize = 0x3c - CATK_NAME;
+/// The low byte of the sum of the name's own bytes, compared at `0x140014a40`: a name whose sum is
+/// another's is another card in this slot, and both counts go back to nought.
+const CATK_NAME_SUM: usize = 0x12;
+/// The attempts, a word capped at 9999 at `0x140014a7a`.
+const CATK_ATTEMPTS: usize = 0x3c;
+/// **Which card a boss is on**, the dword the card's own start indexes the records by: `mov r9d,
+/// [0x140b30f58]; shl r9,0x6` at `0x1400149c9`. The enemy manager's, at [`enemy_manager::SPELLCARD_IDX`].
+const CURRENT_CARD: usize = ENEMY_MANAGER + enemy_manager::SPELLCARD_IDX;
+
+/// **The stage callback of the game manager**, `0x140024110`: the numbers a stage starts with go in
+/// here — the rank from a table by difficulty, the seed copied out of the generator at `0x140024cdc` —
+/// and the stage is built out of them at `0x140024ce3`. Answers nought where it built one and `-1`
+/// where it could not. Registered as the game manager's element's own callback and called with the
+/// manager in `rcx`, which is what makes it [`Entered::InEcx`].
+const GAME_MANAGER_ADDED: usize = 0x1_4002_4110;
+/// `mov [rsp+0x18],rbx; mov [rsp+8],rcx; push rbp; push rsi; push rdi; push r12` — fifteen bytes, none of
+/// them rip-relative, where a 64-bit jump needs fourteen.
+const GAME_MANAGER_ADDED_PROLOGUE: &[u8] = &[
+    0x48, 0x89, 0x5c, 0x24, 0x18, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x56, 0x57, 0x41, 0x54,
+];
+
+/// **The stage's own build**, `0x140056ff0`, called once in the exe — at `0x140024ce3`, from the callback
+/// above with the stage in `ecx` — after the seed has been copied and before anything of the stage has
+/// drawn from the generator. Which is the one place a resumed run's seed can go in, and why it is a
+/// seam of its own — see [`Hooks::stage_building`].
+const STAGE_REGISTER_CHAIN: usize = 0x1_4005_6ff0;
+/// `mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi; sub rsp,0x20` — fifteen bytes.
+const STAGE_REGISTER_CHAIN_PROLOGUE: &[u8] = &[
+    0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20,
+];
 
 /// **The calc chain's own head**, the other of the two — see [`THE_DRAW_CHAIN`], and
 /// `th06c/asm.md` for why both are sentinels rather than pointers.
@@ -768,6 +1190,14 @@ mod result_screen {
     /// the typing for anything past that space, and this is what `0x140051fd3` puts the cursor on once
     /// eight characters have been typed.
     pub const THE_END_ITEM: i32 = 0x5f;
+
+    /// **The state the screen asks whether to save a replay in**, which is the one a run of orb's is taken
+    /// past: the question's own case reads the name entry's answer and calls the save at `0x14005283c`.
+    pub const SAVE_REPLAY_QUESTION: i32 = 10;
+    /// **And the state the screen leaves in**, which every way out of it writes and whose case puts the
+    /// supervisor back to the front end at `0x140050ce9`. Written over whatever state the screen is in,
+    /// which is the game's own way out — the one its own 「いいえ」 takes.
+    pub const EXIT: i32 = 17;
 }
 
 /// **The object a job of the calc chain is run on**, found by the callback it registered.
@@ -821,14 +1251,14 @@ unsafe fn say_the_jobs_when_they_change() {
     // A number the set of them makes, so that the walk is compared without keeping the last one: the
     // callbacks added up, each turned by where it sits so that two jobs swapping is a change as well.
     let mut fingerprint = 0usize;
-    for link in 0..CHAIN_LINKS {
+    for (link, job) in jobs.iter_mut().enumerate() {
         if element == 0 {
             break;
         }
         let Some(callback) = mem::read_committed::<usize>(element + chain::CALLBACK) else {
             break;
         };
-        jobs[link] = callback;
+        *job = callback;
         held = link + 1;
         fingerprint = fingerprint.wrapping_add(callback.rotate_left(link as u32 % 64));
         match mem::read_committed::<usize>(element + chain::NEXT) {
@@ -846,6 +1276,26 @@ unsafe fn say_the_jobs_when_they_change() {
         .collect::<Vec<_>>()
         .join(" ");
     crate::detail!("chain: {held} job(s): {said}");
+}
+
+/// **The result screen's state, said whenever it changes** — the same way the chain's jobs are said, and
+/// for the same reader: a recipe walking that screen has nothing else to read which of its eighteen states
+/// (`0x140053538`) a press landed on, and a launch that sat in one for the rest of its bound said nothing
+/// about which.
+///
+/// `-1` is no screen, which is how the line marks the screen going down.
+///
+/// # Safety
+/// Must run on the game's main thread.
+unsafe fn say_the_result_screens_state_when_it_changes() {
+    static WAS: AtomicI32 = AtomicI32::new(-1);
+    let state = match unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) } {
+        Some(screen) => mem::read_committed::<i32>(screen + result_screen::STATE).unwrap_or(-1),
+        None => -1,
+    };
+    if WAS.swap(state, Ordering::Relaxed) != state {
+        crate::detail!("result: the screen a run ends at is in state {state}");
+    }
 }
 
 /// **Whether the calc chain holds a job of its own**, which is what a thing that neither moves nor is
@@ -1022,6 +1472,19 @@ mod enemy_manager {
     pub const BYTES: usize = 0xfd0;
     /// Counted up per live one at `0x14002059d`, into the manager's first dword.
     pub const LIVE: usize = 0x0;
+    /// **The clock the stage's script runs on**, which `0x14001ff02` writes as the timeline steps — the
+    /// one clock a midstage boundary can be written in, since it moves the same way however the run
+    /// goes.
+    pub const TIMELINE_TIME: usize = 0xfdfdc;
+    /// **Whether a spell card is up**, `0x140b30f50`: the capture's branch is gated on it at
+    /// `0x140014a94`.
+    pub const SPELLCARD_IS_ACTIVE: usize = 0xfdff0;
+    /// **And which**, `0x140b30f58`, the index the card's start shifts into the records by.
+    ///
+    /// The bosses themselves are pointers at `+0xfe008` — `mov [rcx+rax*8+0xfe008],r14` at `0x1400142ba`
+    /// puts an enemy there as the script names it one — and are not read: the slot the fight is with is
+    /// found by its flag instead, see `sight::the_boss_the_fights_own_slot`.
+    pub const SPELLCARD_IDX: usize = 0xfdff8;
 }
 
 mod enemy {
@@ -1055,6 +1518,11 @@ mod enemy {
     pub const LIFE: usize = 0x21c;
     pub const MORE_FLAGS: usize = 0xb6;
     pub const PASSES_THROUGH: u8 = 0x8;
+    /// **The frames its attack has run**, the dword the panel's own countdown is worked out from:
+    /// `0x14002001f` takes it off the limit at `+0xbb4` and divides by sixty into `0x14090a0ec`, and
+    /// `0x14002004c` ends the attack where it reaches that limit. Put back to nought as the script moves
+    /// the boss on, which is what marks the next attack.
+    pub const TIMER: usize = 0x4;
 }
 
 /// **The items**, a static of `0x2a160` bytes whose walk is `0x14002a970`.
@@ -1120,18 +1588,145 @@ const NO_MORE_KEYS: u16 = 0xffff;
 /// What a key that is down reads as in that snapshot, which is what `GetKeyboardState` writes: the high
 /// bit of the byte.
 const DOWN: u8 = 0x80;
+/// And what a key that is not reads as in one, which is what [`Game::press_into`] writes for every button
+/// the word does not hold — see there for why they are written rather than left as the host's read left
+/// them.
+const UP: u8 = 0x00;
 
 /// The pad's own packet number, which moves on every state orb hands over — see
 /// [`Game::press_into_pad`].
 static PACKETS: AtomicU32 = AtomicU32::new(1);
 
-/// What the log's own `run:` line last said, so that [`Game::read_state`] says it once each time any of
-/// it changes rather than once a frame: the stage, the difficulty, the scene, the lives and the bombs.
-static SAID: std::sync::Mutex<Option<(i32, i32, i32, i8, i8)>> = std::sync::Mutex::new(None);
+/// What the log's own `run:` line carries: the stage, the difficulty, the scene, the lives and the bombs.
+type Said = (i32, i32, i32, i8, i8);
+
+/// What that line last said, so that [`Game::read_state`] says it once each time any of it changes rather
+/// than once a frame.
+static SAID: std::sync::Mutex<Option<Said>> = std::sync::Mutex::new(None);
 
 /// Whether [`A_REPLAY_IS_PLAYING`] was set the last time [`Game::read_state`] looked, so that a
 /// playback starting and a playback ending are each one line.
 static PLAYING_BACK: AtomicBool = AtomicBool::new(false);
+
+/// **How many hits the run has taken, which is orb's count and not the game's** — see
+/// [`Th06c::read_state`], which moves it, and [`resume::Numbers::deaths`], which is where it is put back
+/// from. This exe keeps no such count of its own: th06 1.02h's `Player::Die` steps a field of the game
+/// manager and nothing in this one's game manager is stepped by a hit.
+static DEATHS: AtomicI32 = AtomicI32::new(0);
+/// Whether the player's state was [`player::HIT`] on the frame before, which is what makes the count above
+/// move once per hit rather than once per frame of one.
+static WAS_HIT: AtomicBool = AtomicBool::new(false);
+
+/// **Which line of a conversation is up**, and negative for none — the panel's own field, behind a pointer
+/// the game manager makes and nulls, so a null is no conversation either.
+///
+/// # Safety
+/// Must run on the game's main thread, with the exe's base already told.
+unsafe fn dialogue_msg_idx() -> i32 {
+    mem::read_committed::<usize>(at(GUI_IMPL))
+        .filter(|panel| *panel != 0)
+        .and_then(|panel| mem::read_committed::<i32>(panel + gui_impl::MSG_IDX))
+        .unwrap_or(-1)
+}
+
+/// The low byte of the sum of a name's own bytes, which is what a record holds beside it at
+/// [`CATK_NAME_SUM`] — the game's own is `movsx` into a 32-bit accumulator at `0x140014a30`, and the two
+/// agree on the one byte either reads.
+fn name_sum(name: &[u8]) -> u8 {
+    name.iter().fold(0, |sum, byte| sum.wrapping_add(*byte))
+}
+
+/// The name inside a record's [`CATK_NAME`] span: the bytes up to the first `0`, or `None` where there is
+/// no `0` in the span at all — which a name the game copied there always has and one the generator left
+/// only has by chance.
+fn name_in(span: &[u8]) -> Option<&[u8]> {
+    let end = span.iter().position(|byte| *byte == 0)?;
+    Some(&span[..end])
+}
+
+/// The record the game keeps for a card, and `None` for a number that is not one of the 64 or a slot
+/// with no record in it at all.
+///
+/// # Safety
+/// Must run on the game's main thread, with the exe's base already told.
+unsafe fn card_record(card: u32) -> Option<usize> {
+    let card = usize::try_from(card).ok()?;
+    if card >= CARDS {
+        return None;
+    }
+    let record = at(CARD_HISTORY) + card * CARD_BYTES;
+    (mem::read_committed::<u32>(record) == Some(CATK_MAGIC)).then_some(record)
+}
+
+/// Whether the game has named the card a record is for, asked the way the game asks it at `0x140014a40`:
+/// the sum the record holds against the name it holds.
+///
+/// # Safety
+/// `record` must be one of [`CARD_HISTORY`]'s.
+unsafe fn named(record: usize) -> bool {
+    let span = mem::read_committed_bytes(record + CATK_NAME, CATK_NAME_BYTES).unwrap_or_default();
+    name_in(&span).is_some_and(|name| {
+        !name.is_empty()
+            && mem::read_committed::<u8>(record + CATK_NAME_SUM) == Some(name_sum(name))
+    })
+}
+
+/// **The line one pass of a stage is held against another's** — see [`Game::reproduction`], and
+/// `th06::Reproduction`, whose fields these are: the two games are one game to the frame, and a line that
+/// reads the same is a line somebody can hold one game's log against the other's by.
+struct Reproduction {
+    /// The replay manager's own count of the stage's frames, or `-1` for a stage still being built.
+    replay_frame: i32,
+    /// The buttons the update acted on, in the ten bits the record keeps.
+    input: u16,
+    player: (f32, f32),
+    /// The top and the height of the box the player is held inside.
+    player_area: (f32, f32),
+    /// How many numbers have come out of the generator since the stage seeded it.
+    randoms: u32,
+    /// The generator itself.
+    seed: u16,
+    /// Items in the air.
+    items: u32,
+    score: u32,
+    extra_lives: i8,
+    rank: i32,
+    sub_rank: i32,
+}
+
+impl std::fmt::Display for Reproduction {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "replay_frame={} input={:#06x} player={:.2},{:.2} area={:.2}+{:.2} randoms={} \
+             rng={:#06x} items={} score={} extras={} rank={} subrank={}",
+            self.replay_frame,
+            self.input,
+            self.player.0,
+            self.player.1,
+            self.player_area.0,
+            self.player_area.1,
+            self.randoms,
+            self.seed,
+            self.items,
+            self.score,
+            self.extra_lives,
+            self.rank,
+            self.sub_rank,
+        )
+    }
+}
+
+/// **The ten bits of the word a run acts on that the game's own record keeps**, `and r10d,0x3ff` at
+/// `0x14004d76f`: the four directions, the shot, the bomb, the focus and the three below them.
+const RUN_INPUT_BITS: u16 = 0x3ff;
+
+/// The stages a run of this game has, the Extra counted — see `sight::STAGES`, which is the same seven.
+const STAGES: i32 = 7;
+/// Nought for Easy up to four for the Extra — see [`DIFFICULTY`].
+const DIFFICULTY_EXTRA: i32 = 4;
+/// Two characters of two shots each, indexed `character * 2 + shot` everywhere the game indexes them.
+const SHOT_COMBINATIONS: i32 = 4;
 
 /// **The file the playback is reading**, off [`THE_REPLAY_BEING_PLAYED`] and cut at the NUL the copy
 /// that wrote it left.
@@ -1218,8 +1813,21 @@ impl Game for Th06c {
             runs_its_frame: None,
             save_replay: None,
             stop_recording: None,
-            stage_begun: None,
-            stage_building: None,
+            // **The two moments a stage's numbers go in at**, which are th06 1.02h's two under other
+            // addresses: the game manager's stage callback, entered with the manager in `rcx` the way
+            // its chain calls every callback, and the stage's own build it calls once the seed is
+            // copied — see [`GAME_MANAGER_ADDED`] and [`STAGE_REGISTER_CHAIN`].
+            stage_begun: Some(Entered::InEcx(Patch {
+                target: at(GAME_MANAGER_ADDED),
+                prologue: GAME_MANAGER_ADDED_PROLOGUE,
+            })),
+            stage_building: Some(Patch {
+                target: at(STAGE_REGISTER_CHAIN),
+                prologue: STAGE_REGISTER_CHAIN_PROLOGUE,
+            }),
+            // **None, and the bracket is up all the same**: the one read this game makes is inline in its
+            // startup, so it is bracketed from the attach to the first settling of the mode instead — see
+            // [`Game::reads_its_file_once_at_startup`] and [`score_file`].
             unlocks_read: None,
             ranking_read: None,
             card_records_read: None,
@@ -1250,14 +1858,25 @@ impl Game for Th06c {
                 name: RENDERER_MADE,
             }),
             frame_in_the_loop: None,
+            // **The universal CRT's, all three.** `objdump -p` on this exe lists `malloc` and `free` from
+            // `api-ms-win-crt-heap-l1-1-0.dll`, `_beginthreadex` from `api-ms-win-crt-runtime-l1-1-0.dll`
+            // and `fopen` from `api-ms-win-crt-stdio-l1-1-0.dll`, and among its `KERNEL32.dll` imports no
+            // `Heap*`, no `VirtualAlloc`, no `CreateThread` and no `CreateFile*` — see `th06c/asm.md`. What
+            // that decides is which entries orb stands in front of, and it is what ended an attach here
+            // before the keyboard was hooked while the installer looked for `HeapCreate`.
+            takes_its_memory: Memory::UcrtImports,
+            makes_its_threads: Threads::BeginThreadEx,
+            opens_its_files: FileOpen::Fopen,
         }
     }
 
-    /// **No**, and not because a run of it could not be: what a chapter needs is a snapshot of the
-    /// address space a run is in, and which of this game's memory that is has not been read. A launch
-    /// here is a launch of the other mode in everything but name.
+    /// **Yes**: the midstage table, the two seams a stage's numbers go in at, the snapshot a chapter
+    /// is — the game's `.data` and the heap orb routes its `malloc` to, see `Memory::UcrtImports` —
+    /// and the retry a death is offered are all here, and [`resume`] is the file a run is picked up
+    /// from. And the questions those raise are drawn, through a canvas over this game's own swapchain —
+    /// what a launch here still cannot do is answer one at a keyboard, see the module doc.
     fn rewinds(&self) -> bool {
-        false
+        true
     }
 
     /// **A word's buttons put into the snapshot the game is about to read**, which is how a bot presses
@@ -1269,14 +1888,46 @@ impl Game for Th06c {
     /// that buffer through the table at `0x1402872e0` the way the keyboard's own would. See
     /// `th06c/asm.md`.
     ///
+    /// **And the keys the word does not hold are written up, not left alone**, which is what makes this
+    /// the whole of what the game reads rather than an addition to it. Two things need that. A word held
+    /// back has the decide taken out of it — see `runtime::held_back` — and a decide left down in the
+    /// snapshot is a press the game acts on after all, which is orb's question up *and* the game's own item
+    /// chosen. And a launch that plays itself is played by its word alone: a key somebody leans on at the
+    /// keyboard would otherwise be added to every word the rules chose. `Th06c::presses_into_its_own_keys`
+    /// has the measurement for what a union of two words does to a run.
+    ///
     /// # Safety
     /// `state` must be the 256 bytes the game's read was given.
     unsafe fn press_into(&self, state: *mut u8, word: u16) {
         for (_, bit, key) in Self::BUTTONS {
-            if word & bit != 0 && usize::from(*key) < KEYS_IN_A_SNAPSHOT {
-                unsafe { state.add(usize::from(*key)).write(DOWN) };
+            if usize::from(*key) < KEYS_IN_A_SNAPSHOT {
+                let held = match word & bit != 0 {
+                    true => DOWN,
+                    false => UP,
+                };
+                unsafe { state.add(usize::from(*key)).write(held) };
             }
         }
+    }
+
+    /// **The word this game's own keys in that snapshot say**, which is [`Game::press_into`] read the other
+    /// way and over the same [`Th06c::BUTTONS`], so the two cannot disagree about which key a button is.
+    ///
+    /// The high bit and not the whole byte: what `GetKeyboardState` puts there is that bit for a key that
+    /// is down and the low bit for one that has been toggled, and a caps lock left on is not a button.
+    ///
+    /// # Safety
+    /// `state` must be the 256 bytes the game's read was given.
+    unsafe fn word_in(&self, state: *const u8) -> Option<u16> {
+        let mut word = 0;
+        for (_, bit, key) in Self::BUTTONS {
+            if usize::from(*key) < KEYS_IN_A_SNAPSHOT
+                && unsafe { state.add(usize::from(*key)).read() } & DOWN != 0
+            {
+                word |= bit;
+            }
+        }
+        Some(word)
     }
 
     /// **A word's keys written straight into the buffer this game plays a run off**, which is what a word
@@ -1381,21 +2032,21 @@ impl Game for Th06c {
     }
 
     /// **Which item of the front end the cursor is on**, and `None` while a stage runs — see
-    /// [`game_manager::CURSOR`], which is one field for whatever list is up.
+    /// [`front_end::CURSOR`], which is one field for whatever list is up.
     unsafe fn front_end_cursor(&self) -> Option<i32> {
         match unsafe { sight::in_a_stage() } {
             true => None,
-            false => mem::read_committed::<i32>(at(GAME_MANAGER + game_manager::CURSOR)),
+            false => mem::read_committed::<i32>(at(FRONT_END + front_end::CURSOR)),
         }
     }
 
-    /// **And which screen that is**, by the game manager's own number for it — see
-    /// [`game_manager::STATE`]. `None` while a stage runs, which is what makes a
+    /// **And which screen that is**, by the front end's own number for it — see
+    /// [`front_end::STATE`]. `None` while a stage runs, which is what makes a
     /// `until: { screen: N, cursor: M }` a list of the front end's and not a stage.
     unsafe fn front_end_screen(&self) -> Option<i32> {
         match unsafe { sight::in_a_stage() } {
             true => None,
-            false => mem::read_committed::<i32>(at(GAME_MANAGER + game_manager::STATE)),
+            false => mem::read_committed::<i32>(at(FRONT_END + front_end::STATE)),
         }
     }
 
@@ -1433,27 +2084,25 @@ impl Game for Th06c {
         word
     }
 
-    // **Almost everything below is unread.** Each of these is an address of this game's own that
-    // `th06c/asm.md` does not carry yet, so what they answer is the answer that costs a launch
-    // nothing: nothing read, nothing written, nothing claimed. A launch here reaches none of the
-    // machinery they are for — [`Th06c::rewinds`] answers false and `Config`'s own defaults turn the
-    // rest off — and the day one of them is read is the day the method beside it stops being a stub.
-    // [`Game::read_state`] and [`Game::replaying`] are the two that have stopped.
-
-    /// **The run's own numbers where they have been read, and nothing where they have not.**
+    /// **The run's own numbers, out of the supervisor, the game manager, the player and the enemies.**
     ///
-    /// `scene` is the game manager's own state — the dword its frame callback jumps through a table of
-    /// twenty-one on — and which of those numbers is which screen is unread, so `playing` is not taken
-    /// from it: what says a stage is running is the stage the run has reached and the byte that holds
-    /// everything, which is what [`sight::what_a_bot_sees`] gates on too and has the same reasoning
-    /// beside it.
+    /// `scene` is the supervisor's state and not the front end's, which is what the `run:` line said
+    /// before this game's run was read: the front end's number is [`Game::front_end_screen`]'s and stays
+    /// what it was through a stage, where the supervisor's says the stage itself — see
+    /// [`supervisor::CUR_STATE`]. `playing` is still [`sight::in_a_stage`]'s, which has the byte that
+    /// holds everything in it and the reasoning beside it.
     ///
-    /// Everything still answering nothing is a reading `th06c/asm.md` lists as not established —
-    /// the script clock, the seed, the deaths, the boss and the card among them.
+    /// **The deaths are orb's own count**, this exe keeping none: `Player::Die`'s count of th06 1.02h is
+    /// no field of this game manager. So the count moves here, on the frame the player's state becomes
+    /// [`player::HIT`], and [`Th06c::where_a_counted_death_stands`] says what became of it — a count
+    /// that started at the hit so that the deathbomb window can be watched the way th06's is.
     unsafe fn read_state(&self) -> State {
         unsafe { say_the_jobs_when_they_change() };
+        unsafe { say_the_result_screens_state_when_it_changes() };
         let scene =
-            mem::read_committed::<i32>(at(GAME_MANAGER + game_manager::STATE)).unwrap_or(-1);
+            mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)).unwrap_or(-1);
+        let wanted =
+            mem::read_committed::<i32>(at(SUPERVISOR + supervisor::LAST_STATE)).unwrap_or(-1);
         // **The game's own number less one**, this game counting stages from one where `State::stage`
         // is counted from nought the way orb counts them everywhere — see `RunStart::stage`.
         let stage = mem::read_committed::<i32>(at(STAGE)).unwrap_or(0) - 1;
@@ -1461,8 +2110,35 @@ impl Game for Th06c {
         // **Wider than `playing`, the way th06's is**: a frame the game holds everything on is a frame
         // of a run, and what reads this is whether a `play_until` is over — see [`sight::in_a_run`].
         let in_run = unsafe { sight::in_a_run() };
+        // **Which of the two playbacks the game is holding**, and whether it is the one nobody asked for.
+        let playback = unsafe { sight::a_replay_is_playing() };
+        let demo = playback && unsafe { sight::the_playback_is_the_demo() };
+        // **And a run of somebody's own**, which is [`sight::in_a_run`] without the replay somebody is
+        // watching: that is a stage being played and not a run orb acts on — no death to offer a retry for,
+        // no chapter to write down and no file of its own.
+        let in_game = in_run && !playback;
         let boss = unsafe { sight::the_boss_the_fights_own_slot() };
         let difficulty = mem::read_committed::<i32>(at(DIFFICULTY)).unwrap_or(-1);
+        let player_state = mem::read_committed::<u8>(at(PLAYER + player::STATE)).unwrap_or(0);
+        // **Counted on the frame the state becomes the hit's and on no other**, a state being held for
+        // frames: the frame before is what says this is the edge. Put back to nought where the run is
+        // over, so that a launch's second run starts its count where the game starts its own.
+        let hit = player_state == player::HIT;
+        // **Counted for a run of somebody's own and not for a playback**, which is the narrower reading's
+        // whole point here: the hits of a replay are the hits of the run it was recorded from.
+        if in_game && hit && !WAS_HIT.swap(hit, Ordering::Relaxed) {
+            DEATHS.fetch_add(1, Ordering::Relaxed);
+        } else if !in_game {
+            WAS_HIT.store(false, Ordering::Relaxed);
+            if scene == STATE_MAINMENU {
+                DEATHS.store(0, Ordering::Relaxed);
+            }
+        } else {
+            WAS_HIT.store(hit, Ordering::Relaxed);
+        }
+        let spellcard_active =
+            mem::read_committed::<i32>(at(ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE))
+                .is_some_and(|active| active != 0);
         // **What run this is, said once each time any of it changes.** Which difficulty a launch played
         // is otherwise in no line of the log and on no part of the screen the panel draws, and a recipe
         // that walks this game's front end by taps cannot say which item it landed on — so the run orb
@@ -1483,8 +2159,6 @@ impl Game for Th06c {
         // nothing about the demo a launch actually meets: a demo started off the logo screen plays
         // through *that* screen's own state — `scene 1` for the whole of it, with the run's own lives
         // and bombs moving underneath — so a reading that waited for `scene 11` said nothing at all.
-        let playback = unsafe { sight::a_replay_is_playing() };
-        let demo = playback && unsafe { sight::the_playback_is_the_demo() };
         if PLAYING_BACK.swap(playback, Ordering::Relaxed) != playback {
             match playback {
                 true => crate::log!(
@@ -1496,7 +2170,7 @@ impl Game for Th06c {
             }
         }
         let said = (
-            playing.then_some(stage + 1).unwrap_or(0),
+            if playing { stage + 1 } else { 0 },
             difficulty,
             scene,
             lives,
@@ -1505,7 +2179,7 @@ impl Game for Th06c {
         let mut last = SAID
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if std::mem::replace(&mut *last, Some(said)) != Some(said) {
+        if last.replace(said) != Some(said) {
             crate::log!(
                 "run: stage {} on difficulty {difficulty}, scene {scene}, {lives} live and \
                  {bombs} bomb(s)",
@@ -1515,32 +2189,44 @@ impl Game for Th06c {
         drop(last);
         State {
             scene,
-            wanted: -1,
+            wanted,
             playing,
             in_run,
-            // **Which is already neither playback**, [`sight::in_a_run`] asking whether one is on: the
-            // attract demo runs in the same scene with the same stage as a run, so a reading that only
-            // asked the scene had no player to offer a retry to and thought it had one.
-            in_game: in_run,
-            // **The job an ending runs as being in the chain**, there being nothing else to ask: see
-            // [`ENDING_UPDATE`], and `runtime`'s own skip, which runs the chain on until this goes out.
-            in_ending: unsafe { the_chain_holds(ENDING_UPDATE) },
+            // **Neither playback**, where `in_run` above is only not the demo: a replay somebody asked to
+            // watch is a stage being played through and no run for orb to act on, which is the reading th07
+            // has of its own and the one a judging pass over this game needs — see [`sight::in_a_run`].
+            in_game,
+            // **The job an ending runs as being in the chain**, or the supervisor's own state for one:
+            // see [`ENDING_UPDATE`], and `runtime`'s own skip, which runs the chain on until this goes
+            // out.
+            in_ending: scene == STATE_ENDING || unsafe { the_chain_holds(ENDING_UPDATE) },
             // **And no script of it read**, which is what th06 1.02h's skip stops at the staff roll by:
             // this game's is unread, so the skip runs the roll out with the rest of it.
             ending_script: None,
             demo,
             replay: playback && !demo,
-            practice: false,
-            paused: false,
-            unsettled: false,
-            bombing: false,
-            in_dialogue: false,
+            practice: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::IS_IN_PRACTICE))
+                .is_some_and(|practice| practice != 0),
+            // The two menus a run stops for, the way th06 1.02h's are read: the byte between them says a
+            // run is *running*.
+            paused: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::IS_IN_GAME_MENU))
+                .is_some_and(|open| open != 0)
+                || mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::IS_IN_RETRY_MENU))
+                    .is_some_and(|open| open != 0),
+            unsettled: hit || player_state == player::SPAWNING,
+            bombing: mem::read_committed::<u32>(at(PLAYER + player::BOMB_IN_USE))
+                .is_some_and(|bombing| bombing != 0),
+            in_dialogue: (unsafe { dialogue_msg_idx() }) >= 0,
             stage,
             difficulty,
-            stage_frames: 0,
-            script_frames: 0,
-            random_seed: 0,
-            deaths: 0,
+            stage_frames: mem::read_committed::<u32>(at(GAME_MANAGER + game_manager::GAME_FRAMES))
+                .unwrap_or(0),
+            script_frames: mem::read_committed::<i32>(at(
+                ENEMY_MANAGER + enemy_manager::TIMELINE_TIME
+            ))
+            .unwrap_or(0),
+            random_seed: mem::read_committed::<u16>(at(RNG_SEED)).unwrap_or(0),
+            deaths: DEATHS.load(Ordering::Relaxed),
             lives: mem::read_committed::<i8>(at(LIVES)).unwrap_or(0),
             bombs: mem::read_committed::<i8>(at(BOMBS)).unwrap_or(0),
             power: mem::read_committed::<u16>(at(POWER)).unwrap_or(0),
@@ -1554,17 +2240,61 @@ impl Game for Th06c {
                         .is_some_and(|in_use| in_use != 0)
                 })
                 .count() as i32,
-            boss_present: boss.is_some(),
+            // **The panel's own byte and the slot both**: the byte is what th06 1.02h is read by and is
+            // set as the script names a boss, where the slot is what [`sight`] steers by. Either says a
+            // fight is on.
+            boss_present: boss.is_some()
+                || mem::read_committed::<u8>(at(BOSS_PRESENT)).is_some_and(|present| present != 0),
             boss_life: boss.and_then(|body| mem::read_committed::<i32>(body + enemy::LIFE)),
-            boss_attack_frames: None,
-            spellcard: None,
+            boss_attack_frames: boss
+                .and_then(|body| mem::read_committed::<i32>(body + enemy::TIMER)),
+            spellcard: spellcard_active
+                .then(|| mem::read_committed::<u32>(at(CURRENT_CARD)))
+                .flatten(),
         }
     }
 
-    /// Unread: the game makes its window through a pointer it looked up, and where it keeps the handle
-    /// that call answers is not in `th06c/asm.md`.
+    /// **This game counts the hit**, the way th06 1.02h does — orb's count moves as the state becomes
+    /// [`player::HIT`] — so what became of it is read off the two fields the game decides it with: the
+    /// state, and the frames a bomb is still taken in at [`player::A_BOMB_STILL_TAKES_IT_BACK`]. A state
+    /// no longer the hit's with the window still open is a death a bomb took back.
+    unsafe fn where_a_counted_death_stands(&self) -> CountedDeath {
+        let state = mem::read_committed::<u8>(at(PLAYER + player::STATE)).unwrap_or(player::NORMAL);
+        let window = mem::read_committed::<i32>(at(PLAYER + player::A_BOMB_STILL_TAKES_IT_BACK))
+            .unwrap_or(0);
+        match state == player::HIT {
+            true if window > 0 => CountedDeath::Open,
+            true => CountedDeath::Taken,
+            false => CountedDeath::Bombed,
+        }
+    }
+
+    /// **One more into the game manager's own count of retries**, the byte the result screen draws and
+    /// the pause menu's 「最初からやり直す」 steps up — see [`game_manager::NUM_RETRIES`].
+    unsafe fn count_a_retry(&self) {
+        let at_ = at(GAME_MANAGER + game_manager::NUM_RETRIES);
+        let standing = mem::read_committed::<u8>(at_).unwrap_or(0);
+        unsafe { mem::write::<u8>(at_, standing.saturating_add(1)) };
+    }
+
+    /// The same index `State::in_dialogue` is read from: this game, like th06 1.02h, has no line of its own
+    /// for handing the screen over, so a line being up and a dialogue running are one thing.
+    unsafe fn a_line_of_dialogue_is_shown(&self) -> bool {
+        (unsafe { dialogue_msg_idx() }) >= 0
+    }
+
+    /// **The window the swapchain presents into**, which is this game's own — see
+    /// `crate::dxgi::the_window`, and nought before a swapchain has been taken.
+    ///
+    /// **Asked of the swapchain and not of the game**, because the game makes its window through a pointer
+    /// it looked up and where it keeps the handle that call answered is not in `th06c/asm.md`. The
+    /// swapchain was built for that window and says so, so there is a reading here without one.
+    ///
+    /// **What it is for is orb's own menus.** `runtime::on_update` polls the keyboard against this handle
+    /// and `input::Keyboard::poll` reads nothing for a null one, so a question of orb's over this game went
+    /// up on a press and could never be answered: the cursor did not move and the decide did nothing.
     unsafe fn window(&self) -> orb_api::Hwnd {
-        orb_api::Hwnd::NULL
+        unsafe { crate::dxgi::the_window() }
     }
 
     /// Unread: what this game draws through is a swapchain it built, and nothing of orb's is in front of
@@ -1573,21 +2303,40 @@ impl Game for Th06c {
         orb_api::Device(0)
     }
 
-    /// **No, and a launch here is a launch with no overlay.** What this game draws through is a D3D11
-    /// renderer of its own, which orb has no device of and draws nothing in — so the frame loop opens no
-    /// scene of orb's around the draw chain, and the questions orb would put over the game, the lives
-    /// row and the picture a `screenshot` step takes have nowhere to be drawn. The frame is still orb's:
-    /// see [`Th06c::hooks`], whose `render` is the whole of this game's own.
+    /// **No, and what follows from that is the scene and not the overlay.** What this game draws through
+    /// is a D3D11 renderer of its own, which orb has no `IDirect3DDevice8` of — so the frame loop opens no
+    /// scene of orb's around the draw chain, sets no render state either side of it, and the picture a
+    /// `screenshot` step takes has nowhere to be read out of.
+    ///
+    /// **The overlay is drawn all the same**, through a canvas over this game's own swapchain rather than
+    /// on a device — see `crate::canvas` and `Overlay::over_a_swapchain`. So the questions orb puts over
+    /// the game are on the screen here; what is not is the mark over the lives, which needs the row the
+    /// game repaints and [`Th06c::draws_lives_row`] answers no to for its own reasons.
+    ///
+    /// The frame is still orb's: see [`Th06c::hooks`], whose `render` is the whole of this game's own.
     fn draws_through_its_d3d_device(&self) -> bool {
         false
     }
 
+    /// Unread: what this game streams its music through is an object of its own behind the pointer at
+    /// [`SUPERVISOR`], and nothing of a DirectSound stream is in it.
     fn music(&self) -> Option<crate::audio::Music> {
         None
     }
 
+    /// **Nothing to wait for**: the line above answers `None` on every frame, and the block the track is
+    /// played out of is in [`Th06c::live_handles`], which a restore leaves where it finds it.
+    fn a_snapshot_waits_for_its_music(&self) -> bool {
+        false
+    }
+
+    /// **Which track is playing**, out of the static the frame's own catch-up reads — see
+    /// [`THE_TRACK_PLAYING`] — and `None` for the `-1` it holds between tracks. What it tells apart is a
+    /// stage's own song from its boss's, which is what tells a midboss from the boss.
     fn music_identity(&self) -> Option<u32> {
-        None
+        mem::read_committed::<i32>(at(THE_TRACK_PLAYING))
+            .filter(|track| *track >= 0)
+            .map(|track| track as u32)
     }
 
     fn audio_thread(&self) -> Option<u32> {
@@ -1600,12 +2349,42 @@ impl Game for Th06c {
         false
     }
 
+    /// **The block of statics the music is played out of**, which a restore leaves alone so that the track
+    /// goes on where it is: which track, whether it plays, whether it loops, the loop's bounds and the extra
+    /// walks — [`THE_TRACK_PLAYING`] to [`THE_EXTRA_WALKS`], one `0x40`-byte block at `0x1403a4dc0`.
     fn audio_state(&self) -> Vec<Range<usize>> {
-        Vec::new()
+        // One block, collected rather than written as a `vec!` of one range: a `vec![a..b]` reads as a range
+        // of numbers to a lint and to a reader alike.
+        std::iter::once(at(THE_AUDIO_STATICS.start)..at(THE_AUDIO_STATICS.end)).collect()
     }
 
+    /// **The renderer's COM objects and the pointer to the renderer itself**, which a restore must not
+    /// rewind: what they name is D3D11's and DXGI's, made in a heap no snapshot copies, and a pointer put
+    /// back names an object released since — see [`THE_RENDERERS_OBJECTS`] and [`THE_RENDERER`]. **And the
+    /// sound library's own block**, whose locks and work queues say where the library's own threads are,
+    /// which no snapshot rewinds with them — see [`THE_SOUND_LIBRARYS_BLOCK`] for what putting it back cost.
+    ///
+    /// **And not the textures the game's own sprites hold**, whose slots have not been read: a chapter is
+    /// inside one stage and the stage's own sprites are loaded as it begins, so nothing between two
+    /// chapters of it releases one. **Which the real cases have now measured**: the sixteen put chapters
+    /// back inside every stage from the first to the Extra — a death's chapter again, a chapter further
+    /// back, a stage from its start, a run picked up mid-stage and an attempt watched — and a pointer put
+    /// back to a texture released since would have faulted on the next draw; none did, over every session
+    /// from real6 on. A release inside a stage, should a later build make one, is what would move those
+    /// slots into this list.
     unsafe fn live_handles(&self) -> Vec<Range<usize>> {
-        Vec::new()
+        let mut live = vec![
+            at(THE_RENDERERS_OBJECTS.start)..at(THE_RENDERERS_OBJECTS.end),
+            at(THE_RENDERER)..at(THE_RENDERER) + size_of::<usize>(),
+        ];
+        // And the renderer itself, a block off the heap the snapshot otherwise copies whole — see
+        // [`THE_RENDERERS_BLOCK`] for what putting it back cost. Nothing where the game has not made it yet.
+        if let Some(renderer) = mem::read_committed::<usize>(at(THE_RENDERER)).filter(|it| *it != 0)
+        {
+            live.push(renderer..renderer + THE_RENDERERS_BLOCK);
+        }
+        live.push(at(THE_SOUND_LIBRARYS_BLOCK.start)..at(THE_SOUND_LIBRARYS_BLOCK.end));
+        live
     }
 
     /// Unread, and what asks is the overlay and the panel: neither is drawn here.
@@ -1685,13 +2464,13 @@ impl Game for Th06c {
         // The two floats on the stack, which is where the fifth and sixth arguments of a `win64` call
         // go: the frame puts them at `[rsp+0x20]` and `[rsp+0x28]` itself.
         let sets: unsafe extern "win64" fn(u32, u32, u32, u32, f32, f32) =
-            unsafe { std::mem::transmute(at(SETS_THE_VIEWPORT)) };
+            unsafe { std::mem::transmute(sets_the_viewport()) };
         unsafe { sets(0, 0, THE_OUTPUT.0, THE_OUTPUT.1, near, far) };
         // **Aligned to sixteen, both of them**: the frame copies the matrix with `movaps`, which faults
         // on a buffer that is not — so a matrix of orb's own goes where one of the game's would.
         let mut into = Aligned([0; A_MATRIX * 2]);
         let makes: unsafe extern "win64" fn(*mut u8) -> *const u8 =
-            unsafe { std::mem::transmute(at(MAKES_THE_MATRIX)) };
+            unsafe { std::mem::transmute(makes_the_matrix()) };
         let made = unsafe { makes(into.0.as_mut_ptr()) };
         if made.is_null() {
             return;
@@ -1699,7 +2478,7 @@ impl Game for Th06c {
         let mut matrix = Aligned([0; A_MATRIX]);
         unsafe { std::ptr::copy_nonoverlapping(made, matrix.0.as_mut_ptr(), A_MATRIX) };
         let takes: unsafe extern "win64" fn(*const u8) =
-            unsafe { std::mem::transmute(at(TAKES_THE_MATRIX)) };
+            unsafe { std::mem::transmute(takes_the_matrix()) };
         unsafe { takes(matrix.0.as_ptr()) };
     }
 
@@ -1723,10 +2502,10 @@ impl Game for Th06c {
             unsafe { mem::write::<i32>(renderer + WHAT_THE_FRAME_LEAVES_IN_IT, -1) };
         }
         let rate: unsafe extern "win64" fn(usize) =
-            unsafe { std::mem::transmute(at(PUTS_THE_RATE_TOGETHER)) };
+            unsafe { std::mem::transmute(puts_the_rate_together()) };
         unsafe { rate(at(WHAT_IT_PUTS_IT_ON)) };
         let finish: unsafe extern "win64" fn() =
-            unsafe { std::mem::transmute(at(FINISHES_THE_PICTURE)) };
+            unsafe { std::mem::transmute(finishes_the_picture()) };
         unsafe { finish() };
     }
 
@@ -1744,14 +2523,33 @@ impl Game for Th06c {
                 function: presents as *const () as usize,
                 this: 0,
             },
+            orbs_own: true,
         }
     }
 
+    /// Unread: which of this game's replay list's writes starts a playback at a stage has not been read,
+    /// and nothing of orb's watches a replay of this game's own.
     unsafe fn jump_to_stage(&self, _stage: i32) -> bool {
         false
     }
 
-    unsafe fn make_invulnerable(&self) {}
+    /// The state and the frames left under it, both, and only from the two states the player can be hit
+    /// in or is already invulnerable in — th06 1.02h's own reasoning, this being its player: spawning and
+    /// dying are left alone, since nothing can hit the player in either and writing over a spawn skips
+    /// what fades the player in.
+    unsafe fn make_invulnerable(&self) {
+        let state = at(PLAYER + player::STATE);
+        let current = mem::read_committed::<u8>(state).unwrap_or(player::NORMAL);
+        if current == player::NORMAL || current == player::INVULNERABLE {
+            unsafe {
+                mem::write::<u8>(state, player::INVULNERABLE);
+                mem::write::<i32>(
+                    at(PLAYER + player::UNTOUCHABLE),
+                    player::INVULNERABLE_FRAMES,
+                );
+            }
+        }
+    }
 
     /// Whether the stage on the screen is a playback — see [`sight::a_replay_is_playing`], and
     /// [`Self::read_state`] for which of the two kinds it is.
@@ -1803,50 +2601,247 @@ impl Game for Th06c {
         true
     }
 
-    unsafe fn show_ranking(&self) {}
+    /// **What the title's Score item writes**, and the frames it waits already spent: the front end's
+    /// state to the one whose case asks the supervisor for the ranking, with the count it asks past —
+    /// see [`front_end::SCORE`]. The state and the cursor before it are kept so that they can go back.
+    unsafe fn show_ranking(&self) {
+        let state = mem::read_committed::<i32>(at(FRONT_END + front_end::STATE)).unwrap_or(0);
+        FRONT_END_BEFORE_THE_RANKING.store(state as usize + 1, Ordering::Relaxed);
+        let cursor = mem::read_committed::<i32>(at(FRONT_END + front_end::CURSOR)).unwrap_or(0);
+        CURSOR_BEFORE_THE_RANKING.store(cursor as usize + 1, Ordering::Relaxed);
+        unsafe {
+            mem::write::<i32>(at(FRONT_END + front_end::STATE), front_end::SCORE);
+            mem::write::<i32>(
+                at(FRONT_END + front_end::SCREEN_FRAMES),
+                front_end::SCORE_ASKS_AFTER,
+            );
+        }
+    }
 
+    /// The scene being the ranking's *and* the screen past its own build — see [`RANKING_SHOWING`].
     unsafe fn showing_ranking(&self) -> bool {
-        false
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)) != Some(STATE_SCORE) {
+            return false;
+        }
+        let Some(screen) = (unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) }) else {
+            return false;
+        };
+        mem::read_committed::<i32>(screen + result_screen::STATE)
+            .is_some_and(|state| RANKING_SHOWING.contains(&state))
     }
 
     unsafe fn ranking_scene(&self) -> bool {
-        false
+        mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)) == Some(STATE_SCORE)
     }
 
-    unsafe fn restore_menu_cursor(&self) {}
+    /// The front end's cursor back where it was, once the front end is up again — see
+    /// `Game::restore_menu_cursor` for why afterwards.
+    unsafe fn restore_menu_cursor(&self) {
+        if let Some(cursor) = CURSOR_BEFORE_THE_RANKING
+            .swap(0, Ordering::Relaxed)
+            .checked_sub(1)
+        {
+            unsafe { mem::write::<i32>(at(FRONT_END + front_end::CURSOR), cursor as i32) };
+        }
+    }
 
     unsafe fn ranking_state(&self) -> String {
-        String::new()
+        let screen = unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) }.unwrap_or(0);
+        format!(
+            "cur={} wanted={} screen={screen:#x} state={}",
+            mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)).unwrap_or(-1),
+            mem::read_committed::<i32>(at(SUPERVISOR + supervisor::LAST_STATE)).unwrap_or(-1),
+            match screen {
+                0 => -1,
+                screen => mem::read_committed::<i32>(screen + result_screen::STATE).unwrap_or(-1),
+            },
+        )
     }
 
-    unsafe fn leave_ranking(&self) {}
+    /// The screen's own way out written over the ranking, where one is up — th06's reasoning, this being
+    /// its screen reached two ways: written unconditionally it sent a finished run's own screen away.
+    /// And the front end's state back to the title, the way th06's is put back, before it is the thing
+    /// acting on orb's request again.
+    unsafe fn leave_ranking(&self) {
+        if unsafe { self.showing_ranking() }
+            && let Some(screen) = unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) }
+        {
+            unsafe { mem::write::<i32>(screen + result_screen::STATE, result_screen::EXIT) };
+        }
+        if FRONT_END_BEFORE_THE_RANKING.swap(0, Ordering::Relaxed) != 0 {
+            unsafe { mem::write::<i32>(at(FRONT_END + front_end::STATE), front_end::TITLE) };
+        }
+    }
 
+    /// **One more attempt at the card that is up, in the game's own record of it** — th06 1.02h's
+    /// reasoning, this being its records: only where a card is up at all, since [`CURRENT_CARD`] holds the
+    /// last card a boss was on and nothing clears it; and only against a record the game has named, the
+    /// bytes of one it has not being the generator's.
     unsafe fn count_card_attempt(&self) -> Option<u16> {
-        None
+        if mem::read_committed::<i32>(at(ENEMY_MANAGER + enemy_manager::SPELLCARD_IS_ACTIVE))
+            .unwrap_or(0)
+            == 0
+        {
+            log!("score: no spell card is up; no attempt counted");
+            return None;
+        }
+        let card = mem::read_committed::<u32>(at(CURRENT_CARD)).unwrap_or(u32::MAX);
+        let record = unsafe { card_record(card) }?;
+        if !unsafe { named(record) } {
+            log!("score: card {card} is not one the game has named; no attempt counted");
+            return None;
+        }
+        let attempts = mem::read_committed::<u16>(record + CATK_ATTEMPTS)
+            .unwrap_or(0)
+            .saturating_add(1);
+        unsafe { mem::write::<u16>(record + CATK_ATTEMPTS, attempts) };
+        Some(attempts)
     }
 
+    /// Nothing: what bakes a card's name onto its plate here is a D3D11 draw of the game's own that has not
+    /// been read, so a chapter put back under a later card's plate keeps that plate until the next card.
     unsafe fn redraw_card_name(&self) {}
 
     unsafe fn captures(&self) -> Vec<u8> {
-        Vec::new()
+        mem::read_committed_bytes(at(CARD_HISTORY), CARD_HISTORY_BYTES).unwrap_or_default()
     }
 
-    unsafe fn set_captures(&self, _saved: &[u8]) {}
+    unsafe fn set_captures(&self, saved: &[u8]) {
+        if saved.len() != CARD_HISTORY_BYTES {
+            return log!(
+                "score: {} bytes of captures is not this build's {CARD_HISTORY_BYTES}; left alone",
+                saved.len()
+            );
+        }
+        unsafe { mem::write_bytes(at(CARD_HISTORY), saved) };
+    }
 
-    unsafe fn set_captures_keeping_names(&self, _saved: &[u8]) {}
+    /// The name and the sum beside it together, never one without the other — see th06's, whose records
+    /// these are the shape of.
+    unsafe fn set_captures_keeping_names(&self, saved: &[u8]) {
+        let mut going_back = saved.to_vec();
+        for (card, record) in going_back
+            .as_chunks_mut::<CARD_BYTES>()
+            .0
+            .iter_mut()
+            .enumerate()
+        {
+            let standing = at(CARD_HISTORY) + card * CARD_BYTES;
+            let name = mem::read_committed_bytes(standing + CATK_NAME, CATK_NAME_BYTES)
+                .unwrap_or_default();
+            if name.len() == CATK_NAME_BYTES {
+                record[CATK_NAME..CATK_NAME + CATK_NAME_BYTES].copy_from_slice(&name);
+            }
+            if let Some(sum) = mem::read_committed::<u8>(standing + CATK_NAME_SUM) {
+                record[CATK_NAME_SUM] = sum;
+            }
+        }
+        unsafe { self.set_captures(&going_back) };
+    }
 
+    /// **Nothing, because this game's own parse already leaves a run's records alone where they matter.**
+    /// The read this would go in front of is the result screen's parse of the copy at `0x14005494d`, which
+    /// lays the file's `CATK` records over the array a session counts into — and the screen's init skips
+    /// it for the two states a run of its own arrives in, nine and seventeen (`0x14005492d` and
+    /// `0x140054936`), so a run that finished keeps what it counted. The one build of that screen where the
+    /// parse does run over a session's records is the ranking orb asks for after a run given up, and there
+    /// the runtime takes the records before asking and puts them back once the screen is up — see
+    /// `commit_records`. A bracket over the init at `0x140054470` (fifteen bytes of prologue, none of them
+    /// rip-relative) would clear what the runtime is about to put back anyway, so `Hooks::ranking_read` is
+    /// `None` here rather than a seam that changes nothing.
     unsafe fn forget_captures(&self, _screen: *mut c_void) {}
 
-    unsafe fn read_what_the_modes_file_records(&self) {}
-
-    /// Unread: which item this game's title menu is on is a field nothing here has found, so orb asks
-    /// nothing over it — its questions are the one thing a launch here could not answer.
-    unsafe fn menu_pointed_at(&self) -> Option<Menu> {
-        None
+    /// **The copy every screen parses, put together again out of both files**: the records of runs out of the
+    /// mode's own, the `CLRD` records the title lights its items from out of the game's — [`score_file`] has
+    /// why it is a copy rather than a read. Installed the way the result screen installs its own: a block
+    /// off the game's `malloc`, the block there before freed through its `free`, and the pointer and the
+    /// length written where the parse reads them.
+    ///
+    /// Both files are asked for by their own names, relative — which is how the game asks for its own at
+    /// `0x1402c8c18`, so each resolves where the game's open would.
+    ///
+    /// A `malloc` that answers nought leaves the copy as it was, said in the log: a parse of what was there is
+    /// a screen showing the other mode's records, where a parse of nothing would be a first launch.
+    unsafe fn read_what_the_modes_file_records(&self) {
+        let own = orb_api::fs::read(Path::new(score::THEIRS_NAME)).ok();
+        let modes_name = score::the_file_now_opened();
+        let modes = orb_api::fs::read(Path::new(modes_name)).ok();
+        let copy = score_file::the_copy_the_mode_reads(own.as_deref(), modes.as_deref());
+        let malloc: unsafe extern "win64" fn(usize) -> usize =
+            unsafe { std::mem::transmute(mem::read::<usize>(at(MALLOC_IMPORT))) };
+        let free: unsafe extern "win64" fn(usize) =
+            unsafe { std::mem::transmute(mem::read::<usize>(at(FREE_IMPORT))) };
+        let block = unsafe { malloc(copy.len()) };
+        if block == 0 {
+            log!(
+                "score: the game's malloc answered nothing for {} bytes; its copy of the file stands",
+                copy.len()
+            );
+            return;
+        }
+        unsafe { mem::write_bytes(block, &copy) };
+        let before = unsafe { mem::read::<usize>(at(SCORE_FILE_COPY)) };
+        if before != 0 {
+            unsafe { free(before) };
+        }
+        unsafe { mem::write::<usize>(at(SCORE_FILE_COPY), block) };
+        unsafe {
+            mem::write::<i32>(
+                at(SCORE_FILE_COPY_LENGTH),
+                i32::try_from(copy.len()).expect("a score file of a few kilobytes"),
+            )
+        };
+        log!(
+            "score: the copy the game parses is {modes_name}'s runs under {}'s unlocks, {} bytes",
+            score::THEIRS_NAME,
+            copy.len()
+        );
     }
 
+    /// **Yes**: its one read is at `0x14002c158`, inline in its startup, and the front end's unlocks come out
+    /// of it — see [`score_file`], and `Hooks::unlocks_read`, which is `None` here because there is no
+    /// callback to write a jump over.
+    fn reads_its_file_once_at_startup(&self) -> bool {
+        true
+    }
+
+    /// The item under the title menu's cursor, and only while the front end is what the supervisor is
+    /// running and has been since before this frame — both of its states, for the reason th06's gives: the
+    /// frame a run leaves for the front end ends with the one already saying front end and the front end not
+    /// yet rebuilt.
+    unsafe fn menu_pointed_at(&self) -> Option<Menu> {
+        if !unsafe { self.front_end_settled_on(front_end::TITLE) } {
+            return None;
+        }
+        match mem::read_committed::<i32>(at(FRONT_END + front_end::CURSOR))? {
+            front_end::ITEM_START
+            | front_end::ITEM_EXTRA_START
+            | front_end::ITEM_PRACTICE_START => Some(Menu::Run),
+            front_end::ITEM_REPLAY => Some(Menu::Replays),
+            front_end::ITEM_SCORE => Some(Menu::Scores),
+            _ => None,
+        }
+    }
+
+    /// Whether the screen up would act on a decide on the read after this one: the two screens orb asks
+    /// anything over each ignore their decide for their first frames — see [`front_end::TITLE_GRACE_FRAMES`]
+    /// — and a press held back over those and handed over afterwards is a press the game had thrown away.
     unsafe fn menu_takes_a_press(&self) -> bool {
-        false
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            != Some(STATE_MAINMENU)
+        {
+            return false;
+        }
+        let grace = match mem::read_committed::<i32>(at(FRONT_END + front_end::STATE)) {
+            Some(front_end::TITLE) => front_end::TITLE_GRACE_FRAMES,
+            Some(front_end::SHOT_SELECT) => front_end::SHOT_SELECT_GRACE_FRAMES,
+            _ => return false,
+        };
+        let frames =
+            mem::read_committed::<i32>(at(FRONT_END + front_end::SCREEN_FRAMES)).unwrap_or(0);
+        // The read after this one is a frame on, so a count one short of the grace is a press the next
+        // read takes.
+        frames >= grace - 1
     }
 
     unsafe fn pad(&self, _pad: Option<Reading>) -> Pad {
@@ -1859,102 +2854,499 @@ impl Game for Th06c {
 
     unsafe fn add_pad_buttons(&self, _into: *mut c_void, _pad: Option<Reading>) {}
 
+    /// **What the pause menu's own quit writes**: the two menu flags cleared and the supervisor put back to
+    /// the front end, whose update then cuts the run's chain and registers the front end — th06 1.02h's
+    /// own way out, this being its supervisor. The flags are written although neither should be set, for
+    /// the reason th06's gives: a stale retry flag runs the retry menu's update on the title.
     unsafe fn leave_run(&self) -> bool {
-        false
+        let scene =
+            mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)).unwrap_or(-1);
+        if scene != STATE_GAMEMANAGER && scene != STATE_GAMEMANAGER_REINIT {
+            return false;
+        }
+        unsafe {
+            mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_GAME_MENU), 0);
+            mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_RETRY_MENU), 0);
+            mem::write::<i32>(at(SUPERVISOR + supervisor::CUR_STATE), STATE_MAINMENU);
+        }
+        true
     }
 
-    unsafe fn swallow_input(&self) {}
+    /// Every button into the word the run acts on, so that the edge every screen reads — this word
+    /// against the frame before's — finds nothing on the frame the game carries on into. The supervisor's
+    /// update copies this word into the frame before's as its first act and reads the keyboard over it,
+    /// so what is genuinely held still reads as held and only the edge is gone.
+    unsafe fn swallow_input(&self) {
+        unsafe { mem::write::<u32>(at(INPUT_THE_RUN_ACTS_ON), u32::MAX) };
+    }
 
+    /// The screen's state written to its own way out, where the state is the question about saving a
+    /// replay — see [`result_screen::SAVE_REPLAY_QUESTION`] — and nothing on any other frame.
     unsafe fn skip_replay_prompt(&self) -> bool {
-        false
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            != Some(STATE_RESULTSCREEN_FROMGAME)
+        {
+            return false;
+        }
+        let Some(screen) = (unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) }) else {
+            return false;
+        };
+        let state = screen + result_screen::STATE;
+        if mem::read_committed::<i32>(state) != Some(result_screen::SAVE_REPLAY_QUESTION) {
+            return false;
+        }
+        unsafe { mem::write::<i32>(state, result_screen::EXIT) };
+        true
     }
 
+    /// The same write over whatever state the screen is in, [`result_screen::EXIT`] being the game's own way
+    /// out of it — the name entry included, which is the one a played run starts in.
     unsafe fn leave_the_screen_a_run_ends_at(&self) -> bool {
-        false
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            != Some(STATE_RESULTSCREEN_FROMGAME)
+        {
+            return false;
+        }
+        let Some(screen) = (unsafe { what_a_job_runs_on(RESULT_SCREEN_UPDATE) }) else {
+            return false;
+        };
+        let state = screen + result_screen::STATE;
+        if mem::read_committed::<i32>(state) == Some(result_screen::EXIT) {
+            return false;
+        }
+        unsafe { mem::write::<i32>(state, result_screen::EXIT) };
+        true
     }
 
+    /// The supervisor's state alone: whichever state the screen is in, it is up while the supervisor runs
+    /// it, and what takes it down is the screen's own leaving putting the state back.
     unsafe fn the_screen_a_run_ends_at_is_up(&self) -> bool {
-        false
+        mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            == Some(STATE_RESULTSCREEN_FROMGAME)
     }
 
-    /// Unread, and what asks is the resume: no frame of a stage is counted here, so a step that waits
-    /// for one waits for ever and ends at its own bound.
+    /// The reinit state counts too, the way th06's does: a stage move is where the frame counter is about
+    /// to be put back to nothing, and the frames either side of it belong to the stage whose counter this
+    /// still is.
     unsafe fn stage_frame(&self) -> Option<u32> {
-        None
+        let scene = mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))?;
+        (scene == STATE_GAMEMANAGER || scene == STATE_GAMEMANAGER_REINIT)
+            .then(|| mem::read_committed::<u32>(at(GAME_MANAGER + game_manager::GAME_FRAMES)))
+            .flatten()
     }
 
+    /// The generator itself — see [`RNG_SEED`] — which is the same word [`State::random_seed`] reads.
     unsafe fn generator(&self) -> u16 {
-        0
+        mem::read_committed::<u16>(at(RNG_SEED)).unwrap_or(0)
     }
 
     unsafe fn run_start(&self) -> RunStart {
         RunStart {
-            difficulty: -1,
-            character: -1,
-            shot_type: -1,
-            practice: false,
-            stage: -1,
+            difficulty: mem::read_committed::<i32>(at(DIFFICULTY)).unwrap_or(-1),
+            character: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::CHARACTER))
+                .map_or(-1, i32::from),
+            shot_type: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::SHOT))
+                .map_or(-1, i32::from),
+            practice: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::IS_IN_PRACTICE))
+                .is_some_and(|practice| practice != 0),
+            // Counted from one while a stage runs — see [`STAGE`] — and orb counts from nought.
+            stage: mem::read_committed::<i32>(at(STAGE)).unwrap_or(0) - 1,
         }
     }
 
+    /// **On the shot type select, with the difficulty and the character already written by the two
+    /// screens before it** and the shot being the item under the cursor — see [`front_end::SHOT_SELECT`].
+    /// `None` for a practice run, whose stage is not chosen until afterwards.
     unsafe fn run_pointed_at(&self) -> Option<RunStart> {
-        None
+        if !unsafe { self.front_end_settled_on(front_end::SHOT_SELECT) } {
+            return None;
+        }
+        if mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::IS_IN_PRACTICE))? != 0 {
+            return None;
+        }
+        Some(RunStart {
+            difficulty: mem::read_committed::<i32>(at(DIFFICULTY))?,
+            character: mem::read_committed::<u8>(at(GAME_MANAGER + game_manager::CHARACTER))?
+                .into(),
+            shot_type: mem::read_committed::<i32>(at(FRONT_END + front_end::CURSOR))?,
+            practice: false,
+            // A full run's chapter can be in any of them, and which one is what the mark says rather
+            // than part of naming it.
+            stage: 0,
+        })
     }
 
-    fn run_slot(&self, _run: &RunStart) -> Option<String> {
-        None
+    /// The five difficulties and the four shots, named as th06 1.02h's are — the two games being one game
+    /// to a player, a file of one reads as a run of the same shot in the other's log. A practice run has
+    /// none, for th06's reason: nothing to name is nothing to write, offer or mark.
+    fn run_slot(&self, run: &RunStart) -> Option<String> {
+        if run.practice {
+            return None;
+        }
+        const DIFFICULTIES: [&str; 5] = ["easy", "normal", "hard", "lunatic", "extra"];
+        const SHOTS: [&str; 4] = ["reimu-a", "reimu-b", "marisa-a", "marisa-b"];
+        let difficulty = usize::try_from(run.difficulty)
+            .ok()
+            .and_then(|at| DIFFICULTIES.get(at));
+        let shot = usize::try_from(run.character * 2 + run.shot_type)
+            .ok()
+            .and_then(|at| SHOTS.get(at));
+        Some(match (difficulty, shot) {
+            (Some(difficulty), Some(shot)) => format!("{difficulty}-{shot}"),
+            _ => format!(
+                "difficulty{}-character{}-shot{}",
+                run.difficulty, run.character, run.shot_type
+            ),
+        })
     }
 
-    fn encode_resume(&self, _saved: &crate::resume::Kept) -> Vec<u8> {
-        Vec::new()
+    fn encode_resume(&self, saved: &crate::resume::Kept) -> Vec<u8> {
+        resume::encode(saved)
     }
 
-    fn decode_resume(&self, _bytes: &[u8]) -> Option<crate::resume::Kept> {
-        None
+    fn decode_resume(&self, bytes: &[u8]) -> Option<crate::resume::Kept> {
+        resume::decode(bytes)
     }
 
+    /// The eight fields this game's own stage record carries and the two orb keeps beside them — see
+    /// [`resume::Numbers`], and [`Th06c::numbers`] for where each is read.
     unsafe fn run_state(&self) -> Vec<u8> {
-        Vec::new()
+        resume::encode_state(&unsafe { self.numbers() })
     }
 
-    unsafe fn set_run_state(&self, _state: &[u8]) {}
-
-    unsafe fn seed_the_stage(&self, _state: &[u8]) {}
-
-    fn say_run_state(&self, _state: &[u8]) -> String {
-        String::new()
+    unsafe fn set_run_state(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the numbers put back are not a run of this game's");
+        };
+        unsafe { self.put_the_numbers_back(&state) };
     }
 
+    unsafe fn seed_the_stage(&self, state: &[u8]) {
+        let Some(state) = resume::decode_state(state) else {
+            return log!("resume: the seed put back is not a run of this game's");
+        };
+        unsafe { self.seed(state.seed) };
+    }
+
+    /// Every field of them, out of the struct, with the seed said again in front as the `0x1a2b` every other
+    /// line writes it as.
+    fn say_run_state(&self, state: &[u8]) -> String {
+        match resume::decode_state(state) {
+            Some(state) => format!("seed={:#06x} {state:?}", state.seed),
+            None => "numbers of another game's run".to_owned(),
+        }
+    }
+
+    /// The supervisor's state already the game manager while the state it last acted on is still the front
+    /// end, which is the one frame between the two — th06 1.02h's own shape, see `Th06::run_chosen`. The
+    /// demo and a replay are refused rather than left to the caller, both asking for a run the same way.
     unsafe fn run_chosen(&self) -> bool {
-        false
+        mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            == Some(STATE_GAMEMANAGER)
+            && mem::read_committed::<i32>(at(SUPERVISOR + supervisor::LAST_STATE))
+                == Some(STATE_MAINMENU)
+            && mem::read_committed::<u8>(at(A_REPLAY_IS_PLAYING)) == Some(0)
+            && mem::read_committed::<u8>(at(THE_PLAYBACK_IS_THE_DEMO)) == Some(0)
     }
 
-    unsafe fn start_stage(&self, _stage: i32) -> bool {
-        false
+    /// The stage as the menu counts it: the stage callback raises the number by one, so it is handed the
+    /// stage before the one meant — which is what the character select writes too. Checked against the
+    /// seven the game has, the number coming out of a file beside the game.
+    unsafe fn start_stage(&self, stage: i32) -> bool {
+        if !(0..STAGES).contains(&stage) {
+            log!("resume: there is no stage {}", stage + 1);
+            return false;
+        }
+        unsafe { mem::write::<i32>(at(STAGE), stage) };
+        true
     }
 
-    unsafe fn start_a_run(&self, _run: &RunStart) -> bool {
-        false
+    /// **What the item that starts a run leaves behind**: the run's three numbers and the stage written
+    /// where the front end's own screens write them, and then the game's own run start called — [`RUN_START`],
+    /// which is what both of those screens call once their numbers are in.
+    ///
+    /// **Called rather than copied**, which is what this once did: the lives, the bombs, the playback flag and
+    /// the supervisor's state written from here, and the music left as the title had it. A watched attempt's
+    /// run started that way died before its stage had drawn — 128 frames of its playback with the generator
+    /// on its seed and the player where it spawns, and the process gone with no line after — where a run
+    /// the shot select started played through; the one thing between the two was what that routine does and
+    /// this did not, the track stopped and put to `-1`.
+    unsafe fn start_a_run(&self, run: &RunStart) -> bool {
+        if !(0..STAGES).contains(&run.stage) {
+            log!("replay: there is no stage {}", run.stage + 1);
+            return false;
+        }
+        if !(0..=DIFFICULTY_EXTRA).contains(&run.difficulty) {
+            log!("replay: there is no difficulty {}", run.difficulty);
+            return false;
+        }
+        if !(0..SHOT_COMBINATIONS).contains(&(run.character * 2 + run.shot_type)) {
+            log!(
+                "replay: there is no character {} shot {}",
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(at(DIFFICULTY), run.difficulty);
+            mem::write::<u8>(
+                at(GAME_MANAGER + game_manager::CHARACTER),
+                run.character as u8,
+            );
+            mem::write::<u8>(at(GAME_MANAGER + game_manager::SHOT), run.shot_type as u8);
+            mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_PRACTICE), 0);
+            // The demo's own flag is not the run start's to clear — the logo's hand-over sets it and the
+            // demo's end clears it — and a run written into being from the title has the demo behind it.
+            mem::write::<u8>(at(THE_PLAYBACK_IS_THE_DEMO), 0);
+            mem::write::<i32>(at(STAGE), run.stage);
+        }
+        let start: unsafe extern "win64" fn() -> i32 = unsafe { std::mem::transmute(run_start()) };
+        unsafe { start() };
+        true
+    }
+
+    /// **The run asked for through the shot select's own decide**, the way th06's is: the difficulty and the
+    /// character written where the two selects before it write them, the front end put on the shot select
+    /// with its cursor on the shot and its frames past the `0x1e` it ignores a decide for, and the press the
+    /// caller hands over next is the one `0x14003583d` reads — which writes the shot off the cursor, the
+    /// stage for a full run, and calls [`RUN_START`].
+    ///
+    /// **Rather than a run written into being from the replay list**, which [`Th06c::start_a_run`] is: an
+    /// attempt watched from a run started that way died 128 frames into its playback, the process gone with
+    /// no line after it, twice over — with the run start copied and with it called — and a run the item
+    /// started played through. The trait's doc has th06 dying the same way at the same frame.
+    unsafe fn front_end_starts_a_run(&self, run: &RunStart) -> bool {
+        if !(0..=DIFFICULTY_EXTRA).contains(&run.difficulty)
+            || !(0..SHOT_COMBINATIONS).contains(&(run.character * 2 + run.shot_type))
+        {
+            log!(
+                "replay: there is no difficulty {} character {} shot {}",
+                run.difficulty,
+                run.character,
+                run.shot_type
+            );
+            return false;
+        }
+        if mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            != Some(STATE_MAINMENU)
+        {
+            log!("replay: the front end is not what is running; no run is asked of it");
+            return false;
+        }
+        unsafe {
+            mem::write::<i32>(at(DIFFICULTY), run.difficulty);
+            mem::write::<u8>(
+                at(GAME_MANAGER + game_manager::CHARACTER),
+                run.character as u8,
+            );
+            mem::write::<u8>(at(GAME_MANAGER + game_manager::IS_IN_PRACTICE), 0);
+            mem::write::<u8>(at(THE_PLAYBACK_IS_THE_DEMO), 0);
+            mem::write::<i32>(at(FRONT_END + front_end::CURSOR), run.shot_type);
+            mem::write::<i32>(at(FRONT_END + front_end::STATE), front_end::SHOT_SELECT);
+            mem::write::<i32>(
+                at(FRONT_END + front_end::SCREEN_FRAMES),
+                front_end::SHOT_SELECT_GRACE_FRAMES,
+            );
+        }
+        true
     }
 
     unsafe fn run_finished(&self) -> bool {
-        false
+        mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE))
+            == Some(STATE_RESULTSCREEN_FROMGAME)
     }
 
     unsafe fn reproduction(&self) -> String {
-        String::new()
+        unsafe { self.reproduced() }.to_string()
     }
 
+    /// **The bullet manager's own array, folded three ways**: which slots are in use and in which state,
+    /// where each of them is, and what each moves by.
+    ///
+    /// **Three folds and not one**, because what a parting wants said is which of the three parted: two
+    /// passes whose slots agree and whose positions do not have moved the same bullets differently, and two
+    /// whose slots disagree have fired or dropped a different bullet — and one number over all of it says
+    /// only that something did.
+    ///
+    /// **The state, the position and the step of a slot, and nothing else of its `0x5d0` bytes**, for
+    /// th07's reason spelled out in its own fold: a slot holds a sprite with clocks of its own that a
+    /// playback never draws, so a fold over the whole slot reports a parting on every frame. These three
+    /// are what the game's own update at `0x14000d8c0` reads and writes, and they are what the rules are
+    /// handed — see [`bullet_manager`].
+    ///
+    /// **Which a parting asked for.** A pick-up of a th06c run agreed with the run on every field of
+    /// [`Th06c::reproduction`] — `player`, `input`, `randoms` and `rng` to the digit — and reported
+    /// `the player was hit at frame 185` all the same, of a record whose chapters were written with
+    /// `deaths: 0`. Where the bullets are is the one thing about a hit that no field of that line looks at.
+    unsafe fn the_worlds_fingerprint(&self) -> Option<String> {
+        // The fold every other one in this tree is: multiply by a prime and add, which two arrays
+        // differing anywhere differ under.
+        let eat = |fold: &mut u32, bits: u32| *fold = fold.wrapping_mul(31).wrapping_add(bits);
+        let (mut states, mut places, mut steps) = (0u32, 0u32, 0u32);
+        let mut live = 0usize;
+        for slot in 0..bullet_manager::SLOTS {
+            let bullet =
+                at(BULLET_MANAGER) + bullet_manager::BULLETS + slot * bullet_manager::BYTES;
+            let state = unsafe { mem::read::<u16>(bullet + bullet_manager::STATE) };
+            // The state of every slot, in use or not: a slot going out is a thing two passes can differ
+            // about on its own — the walk's own gate at `0x14000d9f0` reads nought as a slot holding
+            // nothing.
+            eat(&mut states, u32::from(state));
+            if state == 0 {
+                continue;
+            }
+            live += 1;
+            for (fold, of) in [
+                (&mut places, bullet_manager::POSITION),
+                (&mut steps, bullet_manager::STEP),
+            ] {
+                for axis in 0..2 {
+                    let word = unsafe { mem::read::<f32>(bullet + of + axis * size_of::<f32>()) };
+                    eat(fold, word.to_bits());
+                }
+            }
+        }
+        Some(format!(
+            "bullets={live} states={states:08x} places={places:08x} steps={steps:08x}"
+        ))
+    }
+
+    /// The replay manager's own frame count being nothing yet — the manager is made as the stage's
+    /// numbers go in and its count cleared as the record begins.
     unsafe fn mid_build(&self) -> bool {
-        false
+        unsafe { self.reproduced() }.replay_frame < 0
     }
 
     fn midstage_table(&self) -> &'static [&'static [Boundary]] {
-        &[]
+        &chapters::MIDSTAGE
     }
 
+    /// The Extra, and nothing after it: this game's stage switch ends there too.
     fn stages_past_the_numbered(&self) -> &'static [&'static str] {
-        &[]
+        &["extra"]
+    }
+}
+
+impl Th06c {
+    /// Whether the front end is what the supervisor is running, has been since before this frame, and is
+    /// on `screen` — see [`Th06c::menu_pointed_at`] for why both of the supervisor's states are asked.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the exe's base already told.
+    unsafe fn front_end_settled_on(&self, screen: i32) -> bool {
+        mem::read_committed::<i32>(at(SUPERVISOR + supervisor::CUR_STATE)) == Some(STATE_MAINMENU)
+            && mem::read_committed::<i32>(at(SUPERVISOR + supervisor::LAST_STATE))
+                == Some(STATE_MAINMENU)
+            && mem::read_committed::<i32>(at(FRONT_END + front_end::STATE)) == Some(screen)
+    }
+
+    /// **The numbers a stage starts with, read where the game's own record reads them** — `0x14004d9d2`
+    /// onwards, out of the same statics: the score, the seed the stage was seeded with, the point items,
+    /// the power, the lives, the bombs, the rank and the power items — and orb's own two beside them.
+    ///
+    /// The seed out of the game manager's copy and not the generator, for th06's reason: the copy is what
+    /// the stage started from once the stage has drawn from the generator.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a run in progress.
+    unsafe fn numbers(&self) -> resume::Numbers {
+        let manager = at(GAME_MANAGER);
+        resume::Numbers {
+            score: mem::read_committed::<u32>(manager + game_manager::SCORE).unwrap_or(0),
+            seed: mem::read_committed::<u16>(manager + game_manager::RANDOM_SEED).unwrap_or(0),
+            point_items: mem::read_committed::<u16>(manager + game_manager::POINT_ITEMS)
+                .unwrap_or(0),
+            power: mem::read_committed::<u16>(at(POWER)).unwrap_or(0),
+            lives: mem::read_committed::<i8>(at(LIVES)).unwrap_or(0),
+            bombs: mem::read_committed::<i8>(at(BOMBS)).unwrap_or(0),
+            rank: mem::read_committed::<i32>(manager + game_manager::RANK).unwrap_or(0),
+            power_items: mem::read_committed::<i8>(manager + game_manager::POWER_ITEMS)
+                .unwrap_or(0),
+            extra_lives: mem::read_committed::<i8>(manager + game_manager::EXTRA_LIVES)
+                .unwrap_or(0),
+            deaths: DEATHS.load(Ordering::Relaxed),
+        }
+    }
+
+    /// **And back, field for field, the way the playback's own init puts them at `0x14004da9a`
+    /// onwards** — all but the seed, which is [`Th06c::seed`]'s and has to be earlier. The score into both
+    /// of the game's two, the one the panel draws and the one the run counts, since the stage's first
+    /// update raises the second to the first.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with a stage built and not yet updated.
+    unsafe fn put_the_numbers_back(&self, numbers: &resume::Numbers) {
+        let manager = at(GAME_MANAGER);
+        unsafe {
+            mem::write::<u32>(manager + game_manager::GUI_SCORE, numbers.score);
+            mem::write::<u32>(manager + game_manager::SCORE, numbers.score);
+            mem::write::<u16>(manager + game_manager::POINT_ITEMS, numbers.point_items);
+            mem::write::<u16>(at(POWER), numbers.power);
+            mem::write::<i8>(at(LIVES), numbers.lives);
+            mem::write::<i8>(at(BOMBS), numbers.bombs);
+            mem::write::<i32>(manager + game_manager::RANK, numbers.rank);
+            mem::write::<i8>(manager + game_manager::POWER_ITEMS, numbers.power_items);
+            mem::write::<i8>(manager + game_manager::EXTRA_LIVES, numbers.extra_lives);
+        }
+        DEATHS.store(numbers.deaths, Ordering::Relaxed);
+    }
+
+    /// **The generator and the game manager's copy of it both, and the count of draws back to nought** — the
+    /// three writes the playback's own init makes at `0x14004dad0` and `0x14004dad7`, made here before the
+    /// stage is built out of them.
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, from the hook over [`Hooks::stage_building`], before the original.
+    unsafe fn seed(&self, seed: u16) {
+        unsafe {
+            mem::write::<u16>(at(RNG_SEED), seed);
+            mem::write::<u16>(at(GAME_MANAGER + game_manager::RANDOM_SEED), seed);
+            mem::write::<u32>(at(RNG_COUNT), 0);
+        }
+    }
+
+    /// The line one pass is held against another's — see [`Reproduction`].
+    ///
+    /// # Safety
+    /// Must run on the game's main thread, with the exe's base already told.
+    unsafe fn reproduced(&self) -> Reproduction {
+        let manager = at(GAME_MANAGER);
+        let replay_frame = mem::read_committed::<usize>(at(REPLAY_MANAGER))
+            .filter(|replay| *replay != 0)
+            .and_then(|replay| mem::read_committed::<i32>(replay + replay_manager::FRAME))
+            .unwrap_or(-1);
+        let player = at(PLAYER) + player::POSITION;
+        let area = at(PLAYER_AREA);
+        let items = (0..item::SLOTS)
+            .filter(|slot| {
+                mem::read_committed::<u8>(
+                    at(ITEM_MANAGER) + item::ITEMS + slot * item::BYTES + item::ALIVE,
+                )
+                .is_some_and(|alive| alive != 0)
+            })
+            .count() as u32;
+        Reproduction {
+            replay_frame,
+            input: (mem::read_committed::<u32>(at(INPUT_THE_RUN_ACTS_ON)).unwrap_or(0) as u16)
+                & RUN_INPUT_BITS,
+            player: (
+                mem::read_committed::<f32>(player).unwrap_or(0.0),
+                mem::read_committed::<f32>(player + size_of::<f32>()).unwrap_or(0.0),
+            ),
+            player_area: (
+                mem::read_committed::<f32>(area + size_of::<f32>()).unwrap_or(0.0),
+                mem::read_committed::<f32>(area + 3 * size_of::<f32>()).unwrap_or(0.0),
+            ),
+            randoms: mem::read_committed::<u32>(at(RNG_COUNT)).unwrap_or(0),
+            seed: mem::read_committed::<u16>(at(RNG_SEED)).unwrap_or(0),
+            items,
+            score: mem::read_committed::<u32>(manager + game_manager::GUI_SCORE).unwrap_or(0),
+            extra_lives: mem::read_committed::<i8>(manager + game_manager::EXTRA_LIVES)
+                .unwrap_or(0),
+            rank: mem::read_committed::<i32>(manager + game_manager::RANK).unwrap_or(0),
+            sub_rank: mem::read_committed::<i32>(manager + game_manager::SUB_RANK).unwrap_or(0),
+        }
     }
 }
 

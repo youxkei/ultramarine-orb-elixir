@@ -1,0 +1,56 @@
+# A stage practised on its own — the title's third item, Practice Start — in the rewindable mode: a run with
+# chapters and a retry like any other, and one nothing is kept of afterwards, a practice run having no slot to
+# be kept in. The walk off the logo is a_run_left_in_its_second_chapter's; the item is aimed at by the cursor.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [down]
+  frames: 6
+  until: { screen: 2, cursor: 2 }
+  give_up_after: 900
+- wait_until: { frames: 30 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+# The shot select, and the stage select after it, which comes up on stage 1: pressed at until the stage is up,
+# a press swallowed by a screen's first frames being pressed again.
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 3600
+- play_until: { frames: 600 }
+- start_over: true
+- answer: { question: retry, item: 0 }
+  give_up_after: 600
+- play_until: { frames: 600 }
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

@@ -278,6 +278,14 @@ unsafe extern "system" fn presents_nothing(swapchain: usize, interval: u32, flag
     // — so the call is made where the game makes it and orb's loop is what reaches it, that chain being
     // orb's own walk. See `present`, which then has nothing left to do.
     PRESENTED_THIS_FRAME.store(true, Ordering::Relaxed);
+    // **And what orb draws over the frame, here and nowhere earlier.** The back buffer holds the finished
+    // picture exactly once a frame, and this is that moment: the draw chain is walked, the renderer has
+    // composited, and the surface has not yet been handed over. See
+    // `crate::runtime::the_overlay_over_a_swapchain`, and what drawing it earlier cost — th06c's
+    // `Game::end_drawing` is the composite *and* the hand-over, so a quad drawn before it was a quad the
+    // composite wrote over. The log said the mode question was up and the screen showed the title with
+    // nothing on it.
+    unsafe { crate::runtime::the_overlay_over_a_swapchain() };
     unsafe { the_original_present(swapchain, the_interval(interval), flags) }
 }
 
@@ -364,6 +372,67 @@ static HANDS_OVER_WITHOUT_WAITING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Says whether a frame is to be handed over without waiting — see [`HANDS_OVER_WITHOUT_WAITING`].
+/// **The swapchain this launch presents through**, and nought for a game that makes none — see
+/// [`take`], which is what puts one here.
+///
+/// What asks is the drawing: a game whose frames go through one of these is a game orb draws over with
+/// `crate::canvas` rather than with the D3D8 overlay, and the canvas is made out of this.
+pub fn the_swapchain() -> usize {
+    SWAPCHAIN.load(Ordering::Relaxed)
+}
+
+/// `IDXGISwapChain::GetDesc`, after [`PRESENT`] and `IDXGISwapChain`'s own `GetBuffer`,
+/// `SetFullscreenState` and `GetFullscreenState`.
+const GET_DESC: usize = 12;
+
+/// **Where `DXGI_SWAP_CHAIN_DESC` keeps the window the swapchain presents into**, in bytes from its start:
+/// `DXGI_MODE_DESC`'s two sizes, its refresh rate's two, its format, its scanline order and its scaling
+/// come to 28; `DXGI_SAMPLE_DESC`'s two make 36; the buffer's usage and count make 44; and the `HWND`
+/// after them is eight-aligned, so it starts here.
+const OUTPUT_WINDOW: usize = 48;
+
+/// How many bytes the whole of that description is: the window, the windowed flag, the swap effect and the
+/// flags after it, with the struct's own eight-byte alignment at the end.
+const A_DESCRIPTION: usize = 72;
+
+/// **The window this launch's swapchain presents into**, asked of the swapchain itself.
+///
+/// **Which is the window a game that makes one plays in**, and the reading a game with no field of its own
+/// for the handle has: th06c looks its window creation up and where it keeps what that answered is not in
+/// its `asm.md`, so `Th06c::window` answers out of here instead. What the handle is for is orb's own menus
+/// — `runtime::on_update` polls the keyboard against it, and `input::Keyboard::poll` reads nothing at all
+/// for a null one, so a question of orb's over such a game went up and could never be answered.
+///
+/// Asked every time rather than kept: a swapchain outlives the window it was made for only by being
+/// released, and what a stale handle would cost is orb's menus reading a keyboard the player is not at.
+///
+/// `NULL` where no swapchain was taken, where the slot is empty, or where the ask fails.
+///
+/// # Safety
+/// Must run on the game's own thread, with the swapchain live.
+pub unsafe fn the_window() -> orb_api::Hwnd {
+    let swapchain = SWAPCHAIN.load(Ordering::Relaxed);
+    if swapchain == 0 {
+        return orb_api::Hwnd::NULL;
+    }
+    let Some(vtable) = mem::read_committed::<usize>(swapchain).filter(|vtable| *vtable != 0) else {
+        return orb_api::Hwnd::NULL;
+    };
+    let describes = mem::read_committed::<usize>(vtable + GET_DESC * size_of::<usize>());
+    let Some(describes) = describes.filter(|describes| *describes != 0) else {
+        return orb_api::Hwnd::NULL;
+    };
+    let describes: unsafe extern "system" fn(usize, *mut u8) -> i32 =
+        unsafe { std::mem::transmute(describes) };
+    let mut description = [0u8; A_DESCRIPTION];
+    if unsafe { describes(swapchain, description.as_mut_ptr()) } < 0 {
+        return orb_api::Hwnd::NULL;
+    }
+    let mut handle = [0u8; size_of::<usize>()];
+    handle.copy_from_slice(&description[OUTPUT_WINDOW..OUTPUT_WINDOW + size_of::<usize>()]);
+    orb_api::Hwnd(usize::from_le_bytes(handle))
+}
+
 pub fn hands_over_without_waiting(without: bool) {
     HANDS_OVER_WITHOUT_WAITING.store(without, Ordering::Relaxed);
 }

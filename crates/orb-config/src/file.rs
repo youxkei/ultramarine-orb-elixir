@@ -25,11 +25,13 @@
 //! set; a launch's arguments hold what is different every time it is run; and the mode a run is in is asked
 //! inside the game, where the run is started.
 //!
-//! `orb.yaml`'s keys are `screen`, `language`, `thcrap`, `skip_ending`, `always_draw`, `boundary_flash`,
-//! `hide_mouse`, `dpad_moves`, `save_replays`, `player_name` and `ask_at_startup`. YAML read with serde;
-//! every one but `screen`, `language`, `thcrap` and `player_name` is a switch written `true` or `false`,
+//! `orb.yaml`'s keys are `screen`, `language`, `thcrap`, `without_steam`, `skip_ending`, `always_draw`,
+//! `boundary_flash`, `hide_mouse`, `dpad_moves`, `save_replays`, `player_name` and `ask_at_startup`. YAML
+//! read with serde; every one but `screen`, `language`, `thcrap`, `without_steam` and `player_name` is a
+//! switch written `true` or `false`,
 //! `screen` is written `fullscreen` or a size like `1280x720`, `language` is written `japanese`, `english`
-//! or `auto`, `thcrap` is a switch that takes `auto` as well — the two whose answer the machine can give —
+//! or `auto`, `thcrap` and `without_steam` are switches that take `auto` as well — the three whose answer
+//! something other than the file gives —
 //! and `player_name` is the name orb read out of the game's own name entry, written back double-quoted so
 //! that a name that is a number, a switch's own word or a line with a colon in it comes back as itself.
 //! `deny_unknown_fields`, so a key nobody reads is an error naming it — including one that used to be a
@@ -86,6 +88,8 @@ pub(crate) struct File {
     pub language: Option<Language>,
     #[serde(deserialize_with = "switch_or_auto")]
     pub thcrap: Option<bool>,
+    #[serde(deserialize_with = "switch_or_auto")]
+    pub without_steam: Option<bool>,
     pub always_draw: bool,
     pub boundary_flash: bool,
     pub skip_ending: bool,
@@ -110,6 +114,7 @@ impl Default for File {
             screen: Screen::Fullscreen,
             language: None,
             thcrap: None,
+            without_steam: None,
             always_draw: true,
             boundary_flash: true,
             skip_ending: true,
@@ -177,6 +182,7 @@ pub(crate) fn text(file: &File) -> String {
 screen: {screen}
 language: {language}
 thcrap: {thcrap}
+without_steam: {without_steam}
 skip_ending: {skip_ending}
 always_draw: {always_draw}
 boundary_flash: {boundary_flash}
@@ -188,6 +194,10 @@ ask_at_startup: {ask_at_startup}
 ",
         screen = file.screen,
         thcrap = match file.thcrap {
+            None => AUTO.to_owned(),
+            Some(switch) => switch.to_string(),
+        },
+        without_steam = match file.without_steam {
             None => AUTO.to_owned(),
             Some(switch) => switch.to_string(),
         },

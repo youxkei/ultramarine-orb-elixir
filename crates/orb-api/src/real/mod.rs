@@ -6,6 +6,7 @@
 
 pub mod clock;
 pub mod codepage;
+pub mod d3d11;
 pub mod d3d8;
 pub mod display;
 pub mod dsound;

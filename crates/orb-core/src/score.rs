@@ -312,6 +312,9 @@ use crate::log;
 /// Terminated, because one open of it is orb's own — see [`asked_for`] — and `CreateFileA` takes a
 /// terminated string.
 const THEIRS: &CStr = c"score.dat";
+/// The same name as text, for a game that reads the file itself rather than asking the game's open for
+/// it — `Game::read_what_the_modes_file_records` of a game whose one read is at startup.
+pub const THEIRS_NAME: &str = "score.dat";
 /// orb's, beside it and named for the mode whose runs are in it, so that a directory listing
 /// says which is which.
 ///
@@ -630,6 +633,76 @@ pub unsafe extern "system" fn create_file_a(
     }
 }
 
+/// The game's own `fopen`, for a game whose opens are the universal CRT's — see
+/// `crate::game::FileOpen::Fopen`.
+static FOPEN: AtomicUsize = AtomicUsize::new(0);
+
+/// `fopen(path, mode)`, answering a `FILE*` and null where it opened nothing.
+pub type Fopen = unsafe extern "C" fn(*const u8, *const u8) -> *mut c_void;
+
+/// Says which function [`fopen`] calls through — the same answer [`install_over`] is, for the other
+/// import.
+///
+/// # Safety
+/// `original` must be the game's own `fopen` and outlive the last open it makes.
+pub unsafe fn install_over_fopen(original: Fopen) {
+    FOPEN.store(original as usize, Ordering::Relaxed);
+}
+
+/// **The same fork over `fopen`**, for a game that opens its score file through the universal CRT.
+///
+/// **The mode string stands in for the access mask.** What [`create_file_a`] reads `GENERIC_WRITE` off is
+/// its access argument; `fopen` says the same thing in its mode — `w`, `a` or a `+` is an open that writes
+/// and `r` alone is one that reads — so the mode is read into the mask the rest of this file decides on, and
+/// nothing below the decision is written twice. A refused open answers null, which is what the CRT answers
+/// for a file it could not open and what a game reads as a first launch.
+///
+/// # Safety
+/// The arguments are `fopen`'s own, and an [`install_over_fopen`] must have run first — without one the
+/// original this calls through is null.
+pub unsafe extern "C" fn fopen(name: *const u8, mode: *const u8) -> *mut c_void {
+    let original: Fopen = unsafe { std::mem::transmute(FOPEN.load(Ordering::Relaxed)) };
+    let Some(path) = (unsafe { given(name) }) else {
+        return unsafe { original(name, mode) };
+    };
+    let Some(directory) = theirs(path) else {
+        return unsafe { original(name, mode) };
+    };
+    let access = match unsafe { given(mode) } {
+        Some(mode) if mode.iter().any(|byte| matches!(byte, b'w' | b'a' | b'+')) => GENERIC_WRITE,
+        _ => GENERIC_READ,
+    };
+    if refused(access) {
+        log!(
+            "score: nothing written, {}",
+            if WATCHED.load(Ordering::Relaxed) {
+                "this run is one an attempt is being watched in"
+            } else {
+                "this run had nothing able to hit the player"
+            },
+        );
+        return std::ptr::null_mut();
+    }
+    if !redirected() {
+        log!(
+            "score: {} opened as the game's own, {}",
+            text(path),
+            asked(access)
+        );
+        return unsafe { original(name, mode) };
+    }
+    let ours = forked(directory);
+    log!(
+        "score: {} opened in place of the game's own, {}",
+        text(&ours),
+        asked(access)
+    );
+    unsafe { original(ours.as_ptr(), mode) }
+}
+
+/// `GENERIC_READ`, the other of the two the game asks with — what an `fopen` for reading is read as.
+const GENERIC_READ: u32 = 0x8000_0000;
+
 /// The path the game gave, as its own bytes without the terminator, and `None` for a null
 /// pointer or a string with no terminator inside [`LIMIT`].
 ///
@@ -656,12 +729,9 @@ unsafe fn given(name: *const u8) -> Option<&'static [u8]> {
 #[cfg(test)]
 mod tests {
     use super::{
-        GENERIC_WRITE, fork, forked, reading_unlocks, redirected, refuse_writes, refused, text,
-        theirs,
+        GENERIC_READ, GENERIC_WRITE, fork, forked, reading_unlocks, redirected, refuse_writes,
+        refused, text, theirs,
     };
-
-    /// `GENERIC_READ`, the other of the two the game asks with.
-    const GENERIC_READ: u32 = 0x8000_0000;
 
     /// Pointdevice mode sends the whole file to orb's — the ranking, and the spell cards a run has
     /// captured beside it — except the one read the front end's unlocks come out of, which is the

@@ -16,9 +16,9 @@
 //! honest before it costs six minutes of the real game: a step that never reaches its point, or a check that
 //! asks for something no launch shows, fails there first.
 //!
-//! **Except th06c's, which has no laid-out game to be played against.** That test has one function per game
-//! and each names the game it has an `Image` for; laying a third one out is a game's worth of memory written
-//! by hand. So what a wrong step in a th06c case costs is a launch of the real thing.
+//! **Except th06nc's, which has no laid-out game to be played against.** That test has one function per game
+//! and each names the game it has an `Image` for; laying that one out is a game's worth of memory written by
+//! hand. So what a wrong step in a th06nc case costs is a launch of the real thing.
 //!
 //! **One case can carry on from the one before it.** A pick-up needs a run left unfinished, and the launch
 //! that leaves one is a case of its own; [`Case::continues`] says the two share the directory orb keeps its
@@ -42,12 +42,13 @@ use orb_core::trace::Record;
 pub enum Game {
     Th06,
     Th07,
-    /// **And the Steam release of 東方紅魔郷, whose cases are its own** — see [`cases_of`], and
-    /// `orb_core::game::th06c` for how much of it is read: no chapters, no snapshot and no resume, so the
-    /// cases the other two have about picking a run up have nothing here to be about.
+    /// **And 「東方紅魔郷: Classic」, the Steam release of 東方紅魔郷**, a 64-bit game with the same sixteen cases as the two above:
+    /// `orb_core::game::th06c` rewinds, so a run of it is picked up, a chapter of it taken again and its
+    /// score file forked the way theirs are. Its front end is walked by its own screen numbers — see its
+    /// recipes.
     Th06c,
     /// **And the other Steam release, 「東方紅魔郷: New Classic」**, on th06c's engine with every address its
-    /// own — see `orb_core::game::th06nc`. Its cases are its own list too, for the reason th06c's are.
+    /// own — see `orb_core::game::th06nc`, which rewinds nothing. Its cases are its own list.
     Th06nc,
 }
 
@@ -155,6 +156,30 @@ impl Case {
     pub fn after_a_clear(&self) -> bool {
         self.name == "the_extra_a_cleared_run_unlocked"
     }
+
+    /// **How many updates a frame this case is played at**, which is four for a case that plays a whole game
+    /// and the game's own one for every other.
+    ///
+    /// **Read off the bound it already declares** rather than said twice: [`A_WHOLE_GAME`] is the case that
+    /// plays every stage with every death retried, and those are the ones a fast-forward is for. A new case
+    /// of that size declares that bound to be given the time, and is given the speed with it.
+    ///
+    /// **And one is the answer for the rest because the trace holds a record a frame.** At four updates a
+    /// frame a chapter reached and the run left inside the same frame's four are one record, so the check
+    /// reads a case as never having reached its chapter: five of th06c's sixteen came back that way at four
+    /// and passed at one. Which is why this is not simply four everywhere, and why `--speed=N` on the
+    /// command line — a sweep, one speed for every launch — is a thing somebody asks for and not the
+    /// default.
+    ///
+    /// A whole game at the game's own speed is half an hour of wall clock and the two of them together are
+    /// most of a session: measured, `a_normal_mode_run_played_to_its_clear` took 1,739s at one and 459s at
+    /// four, and `a_run_played_to_its_clear` 511s at four.
+    pub fn speed(&self) -> u32 {
+        match self.within == A_WHOLE_GAME {
+            true => 4,
+            false => 1,
+        }
+    }
 }
 
 /// Every case, in the order they are played: a case that continues comes straight after the one it
@@ -167,17 +192,37 @@ pub fn cases() -> Vec<Case> {
     all
 }
 
+/// **The cases of one game in chains**: each chain a case that continues nothing, followed by every case
+/// after it that continues — see [`Case::continues`], which is the field that makes one.
+///
+/// **A chain is the unit a session or a test can play on its own**, which is why this exists: the cases in
+/// one have to be played in their own order, a case that continues being handed the files the one before it
+/// left, and two different chains share nothing at all. So an `orb-e2e` test per chain plays the eleven of
+/// them at once where one test for all sixteen played them one after another — 181s of a 181s run was that
+/// one test.
+pub fn chains_of(game: Game) -> Vec<Vec<Case>> {
+    let mut chains: Vec<Vec<Case>> = Vec::new();
+    for case in cases_of(game) {
+        match (case.continues, chains.last_mut()) {
+            (true, Some(chain)) => chain.push(case),
+            // A case that continues with nothing before it is a list whose first says it continues, which
+            // is a chain of its own rather than a case dropped.
+            _ => chains.push(vec![case]),
+        }
+    }
+    chains
+}
+
 /// The cases of one game, in order.
 ///
-/// **th06c's are its own list and not the same one.** What the sixteen below are about is a run picked up,
+/// **th06nc's are its own list and not the same one.** What the sixteen below are about is a run picked up,
 /// a chapter taken again, a replay watched and a mode forked — every one of them standing on a snapshot of
-/// the game's memory and a score file orb forks, and th06c has neither read: `Th06c::rewinds` answers false
-/// and `Config`'s defaults turn the rest off. So a list shared with the other two would be fifteen cases
-/// asking a game to do what it has no reading for.
+/// the game's memory and a score file orb forks, and th06nc has neither read: `Th06nc::rewinds` answers
+/// false and `Config`'s defaults turn the rest off. So a list shared with the other three would be fifteen
+/// cases asking a game to do what it has no reading for.
 pub fn cases_of(game: Game) -> Vec<Case> {
     match game {
-        Game::Th06 | Game::Th07 => the_cases_of_a_game_orb_rewinds(game),
-        Game::Th06c => the_cases_of_th06c(),
+        Game::Th06 | Game::Th07 | Game::Th06c => the_cases_of_a_game_orb_rewinds(game),
         Game::Th06nc => the_cases_of_th06nc(),
     }
 }
@@ -215,39 +260,17 @@ fn the_cases_of_th06nc() -> Vec<Case> {
     ]
 }
 
-/// **The one case th06c has**: a run played out by the rules and registered under a name.
-///
-/// **Which is the whole of what it can be asked**, and each half of it is a reading of its own — the run
-/// ends where the run ends because `Game::replaying` tells its attract demo from a run, and the name is
-/// written because its own entry has been read. Both are `orb-core`'s `game/th06c/asm.md`'s.
-///
-/// **And no laid-out th06c plays it first.** `orb-e2e`'s `the_cases_the_real_game_is_tested_with` has a test
-/// per game and names the two it has an `Image` for; this game has none, so what a wrong step here costs is
-/// a launch of the real thing rather than a case of the suite. Building one is a game's worth of memory laid
-/// out by hand and is not what this case is waiting for.
-fn the_cases_of_th06c() -> Vec<Case> {
-    vec![Case {
-        game: Game::Th06c,
-        name: "a_run_played_to_its_clear_and_named",
-        recipe: include_str!("../recipes/th06c/a_run_played_to_its_clear_and_named.yaml"),
-        continues: false,
-        within: A_WHOLE_GAME,
-        check: checks::a_run_played_to_its_clear_and_named,
-    }]
-}
-
-/// The cases of a game orb rewinds, which is th06 and th07 — see [`cases_of`].
+/// The cases of a game orb rewinds, which is th06, th07 and th06c — see [`cases_of`].
 fn the_cases_of_a_game_orb_rewinds(game: Game) -> Vec<Case> {
     macro_rules! recipe {
         ($game:expr, $name:literal) => {
             match $game {
                 Game::Th06 => include_str!(concat!("../recipes/th06/", $name, ".yaml")),
                 Game::Th07 => include_str!(concat!("../recipes/th07/", $name, ".yaml")),
+                Game::Th06c => include_str!(concat!("../recipes/th06c/", $name, ".yaml")),
                 // Not reachable: [`cases_of`] is what chooses between the two lists, and this one is the
                 // other branch of that choice.
-                Game::Th06c | Game::Th06nc => {
-                    unreachable!("th06c and th06nc have their own cases")
-                }
+                Game::Th06nc => unreachable!("th06nc has its own cases"),
             }
         };
     }
@@ -657,52 +680,6 @@ pub mod checks {
     /// `DIFFICULTY_EXTRA`, and the fifth of the six th07 keeps a record per. What reads it is the case that
     /// starts the Extra, the item being what writes it rather than a select.
     const EXTRA: i32 = 4;
-
-    /// **th06c's one case: a run was started, played out by the rules, and registered under a name.**
-    ///
-    /// **No mode question and no chapter to wait for**, which is what makes this its own check rather than
-    /// `a_run_played_to_its_clear`: `Th06c::rewinds` answers false, so nothing offers a mode, and nothing
-    /// has read this game's chapters — the trace's `stage` moves and its `chapter` does not.
-    ///
-    /// **And the name is the whole of the second half.** The entry opens while the state is still a stage's,
-    /// after the last boss and its ending, so a `play` step that had waited for the run to be *over* would
-    /// have run past it — and the frames in between are ones the rules are asked for a word on, whose held
-    /// shot writes the entry's first character eight times. So the line this looks for says two things at
-    /// once: the step ended at the entry, and what was written there was the name and not `AAAAAAAA`.
-    ///
-    /// **What it does not ask is how well the rules played.** A run of this game is twenty-eight minutes of
-    /// Flandre's own patterns and a dozen of Remilia's, and a case that failed on a hit would be a case that
-    /// fails on the day the boss aims differently. What a run's hits are read against is a launch and the
-    /// dumps beside them, not this.
-    pub fn a_run_played_to_its_clear_and_named(trace: &Trace) -> Result<(), String> {
-        let started = trace.in_run_from(0).ok_or("no run was ever started")?;
-        trace
-            .line_from(started, "types ORB into the name the game asks for")
-            .ok_or(
-                "the name was never written, so the run reached no entry to write it into — either it \
-                 was not played out or the entry is not where it was read to be",
-            )?;
-        // **And the run's own end is not asked for**, which is what this check was wrong about first: the
-        // step above ends at the *entry* and the recipe closes the game a few hundred frames later, so the
-        // line orb writes when a run ends — `score: a run ended` — is past the launch, and a launch that
-        // reached the entry failed on it.
-        //
-        // **The entry is the proof anyway.** th06c asks for a name at the end of a run it played out and
-        // nowhere else: `0x14004fd59` puts the screen into the state that asks only where `[0x1403a3b60]` is
-        // clear, and the state runs after the last boss and after the ending. So a name written there says
-        // the run started, was played to its end, and its ending ran.
-        //
-        // **And the attract demo was not read as a run**, which is the other reading this case stands on: a
-        // playback of this game's own is a stage with a run's own numbers in a run's own statics, and the
-        // launch walks past one on its way in. See `game::th06c::A_REPLAY_IS_PLAYING`.
-        expect(
-            trace
-                .line_from(0, "run: the demo is playing back")
-                .is_none()
-                || trace.line_from(0, "run: the playback is over").is_some(),
-            || "a playback started and the log never said it was over".to_owned(),
-        )
-    }
 
     /// **The mode question stood, was answered for the rewindable mode, a run was started and played into its
     /// second chapter, and then left for the title** — which is what leaves a run for the next case to pick up.

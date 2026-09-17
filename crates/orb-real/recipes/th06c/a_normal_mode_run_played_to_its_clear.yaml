@@ -1,0 +1,60 @@
+# A run of the other mode played from the title to its clear on Normal, which is the one thing that unlocks
+# the Extra: a pointdevice run's records go to the mode's own file and the front end lights its items from the
+# game's own. The walk to the run is a_run_left_in_its_second_chapter's with the mode question answered for the
+# normal mode.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 1 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { frames: 240 }
+# The whole run in one step, bounded by frames — see a_run_played_to_its_clear.yaml, which has why the entry
+# and not the run's end is what it has to end at.
+- play_until: { frames: 216000 }
+- name: ORB
+  give_up_after: 3600
+# **Three decides stand between the name and the title, so the decide is tapped until the title is up** — the
+# way th06's own recipe walks the same screens. The name's decide opens the stats (the screen's state 15),
+# which takes a decide of its own once it has been up ninety frames (`0x14005349f`) and fades for thirty more
+# (state 16, `0x14005346a`) into the question about saving a replay (state 10), which takes a decide once up
+# eighty frames (`0x140053264`) — on いいえ, its cursor coming up off nought, so that decide is the way out
+# (`0x1400532f9`, to state 2 and the exit). A launch that pressed decide exactly twice here sat in that question
+# for the rest of its bound with nothing written; one that tapped the bomb there sat the same way, the bomb
+# being read by none of the three. Tapped rather than counted because the fades' lengths are the game's.
+- press: [decide]
+  frames: 6
+  until: { screen: 2 }
+  give_up_after: 3600
+- wait_until: { frames: 300 }
+- quit: true

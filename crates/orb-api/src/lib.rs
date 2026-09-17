@@ -92,6 +92,7 @@ use std::path::{Path, PathBuf};
 
 pub mod clock;
 pub mod codepage;
+pub mod d3d11;
 pub mod d3d8;
 pub mod display;
 pub mod dsound;
@@ -530,6 +531,10 @@ pub trait Win: Send + Sync + 'static {
     /// Whether a module is loaded into this process at all — asked apart from
     /// [`proc_address`](Win::proc_address) because the log tells the two failures apart.
     fn module_loaded(&self, module: &str) -> bool;
+    /// **A module brought into the process, and whether it is there afterwards** — see
+    /// [`crate::module::brings_in`], which is what a library orb needs and the game has not opened goes
+    /// through.
+    fn module_brings_in(&self, module: &str) -> bool;
     // --- windows ---------------------------------------------------------------
 
     /// `GetForegroundWindow`. The pacing asks it because counting refreshes against a window that
@@ -794,6 +799,94 @@ pub trait Win: Send + Sync + 'static {
     fn lock_surface(&self, surface: Surface, flags: u32) -> Option<Locked>;
     fn unlock_surface(&self, surface: Surface);
     fn release_surface(&self, surface: Surface);
+
+    // --- Direct3D 11, which is what a game presenting through a swapchain draws with ---
+    //
+    // **The calls a record is about and not all of [`crate::d3d11`]'s.** The state a quad is drawn under —
+    // the render target, the blend state, the topology, the layout, the vertex buffer, the two shaders,
+    // the sampler, the rasteriser and the depth-stencil — is set by `orb_core::canvas` on every quad and
+    // read back by nothing, so a simulated host that kept it would be keeping what no question asks. What
+    // it does have to answer is which objects it handed out, what went into a texture, which view is
+    // bound, what the vertices say and that a draw happened, because those are the quad an e2e test reads.
+    fn d3d11_device_of(&self, swapchain: usize) -> Option<d3d11::Device>;
+    fn d3d11_immediate_context(&self, device: d3d11::Device) -> Option<d3d11::Context>;
+    fn d3d11_back_buffer(&self, swapchain: usize) -> Option<d3d11::Texture>;
+    fn d3d11_render_target(
+        &self,
+        device: d3d11::Device,
+        texture: d3d11::Texture,
+    ) -> Option<d3d11::Target>;
+    fn d3d11_compile(&self, source: &str, entry: &str, profile: &str) -> Result<Vec<u8>, String>;
+    fn d3d11_vertex_shader(
+        &self,
+        device: d3d11::Device,
+        bytecode: &[u8],
+    ) -> Option<d3d11::VertexShader>;
+    fn d3d11_pixel_shader(
+        &self,
+        device: d3d11::Device,
+        bytecode: &[u8],
+    ) -> Option<d3d11::PixelShader>;
+    fn d3d11_input_layout(
+        &self,
+        device: d3d11::Device,
+        elements: &[d3d11::InputElementDesc],
+        bytecode: &[u8],
+    ) -> Option<d3d11::Layout>;
+    fn d3d11_buffer(
+        &self,
+        device: d3d11::Device,
+        desc: d3d11::BufferDesc,
+        bytes: Option<&[u8]>,
+    ) -> Option<d3d11::Buffer>;
+    fn d3d11_texture(
+        &self,
+        device: d3d11::Device,
+        desc: d3d11::Texture2dDesc,
+        pixels: &[u32],
+    ) -> Option<d3d11::Texture>;
+    fn d3d11_resource_view(
+        &self,
+        device: d3d11::Device,
+        texture: d3d11::Texture,
+    ) -> Option<d3d11::ResourceView>;
+    fn d3d11_blend_state(
+        &self,
+        device: d3d11::Device,
+        desc: d3d11::BlendDesc,
+    ) -> Option<d3d11::Blend>;
+    fn d3d11_sampler_state(
+        &self,
+        device: d3d11::Device,
+        desc: d3d11::SamplerDesc,
+    ) -> Option<d3d11::Sampler>;
+    fn d3d11_write(&self, context: d3d11::Context, buffer: d3d11::Buffer, bytes: &[u8]) -> bool;
+    fn d3d11_set_viewports(&self, context: d3d11::Context, viewports: &[d3d11::Viewport]);
+    /// **One of the ten state-setting calls, as it was given** — see [`d3d11::Set`], which has why they
+    /// are kept and why one method takes all ten.
+    fn d3d11_sets(&self, context: d3d11::Context, what: d3d11::Set);
+    // **And the twelve reads that put the game's own state back**, which a simulated host answers so that
+    // an e2e test can say a drawing put back what it changed — see `orb_core::canvas::Saved`, and
+    // `orb_sim::Recording`, which hands back whatever its own setters were last given.
+    fn d3d11_render_targets(
+        &self,
+        context: d3d11::Context,
+        most: usize,
+    ) -> (Vec<d3d11::Target>, d3d11::DepthView);
+    fn d3d11_blend_state_set(&self, context: d3d11::Context) -> (d3d11::Blend, [f32; 4], u32);
+    fn d3d11_depth_stencil_set(&self, context: d3d11::Context) -> (d3d11::DepthStencil, u32);
+    fn d3d11_rasterizer_set(&self, context: d3d11::Context) -> d3d11::Rasterizer;
+    fn d3d11_viewports_set(&self, context: d3d11::Context, most: usize) -> Vec<d3d11::Viewport>;
+    fn d3d11_input_layout_set(&self, context: d3d11::Context) -> d3d11::Layout;
+    fn d3d11_vertex_buffer_set(&self, context: d3d11::Context) -> (d3d11::Buffer, u32, u32);
+    fn d3d11_topology_set(&self, context: d3d11::Context) -> u32;
+    fn d3d11_vertex_shader_set(&self, context: d3d11::Context) -> d3d11::VertexShader;
+    fn d3d11_pixel_shader_set(&self, context: d3d11::Context) -> d3d11::PixelShader;
+    fn d3d11_resource_view_set(&self, context: d3d11::Context) -> d3d11::ResourceView;
+    fn d3d11_sampler_set(&self, context: d3d11::Context) -> d3d11::Sampler;
+    fn d3d11_set_resource_view(&self, context: d3d11::Context, view: d3d11::ResourceView);
+    fn d3d11_draw(&self, context: d3d11::Context, vertices: u32, first: u32);
+    fn d3d11_release(&self, object: d3d11::Object) -> u32;
 
     // --- the buffer the game's music is played out of ----------------------------
     //

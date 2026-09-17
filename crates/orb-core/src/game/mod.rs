@@ -394,6 +394,20 @@ pub struct FrameCalls {
     /// The game's own present, which also handles a lost device and its own screenshot key. Runs on
     /// the game's main thread with the frame drawn.
     pub present: Call,
+    /// **Whether these two are functions of orb's own rather than the game's.**
+    ///
+    /// True for a game whose frame has neither as a function to call — th06c's sound catch-up is inline
+    /// in the frame orb replaced and its present is inside one of the draw chain's jobs — so what the two
+    /// above name is code in orb and not an address in the exe.
+    ///
+    /// **What reads it is `runtime::attach_to`**, which is the laid-out game's way in. A game's *own* two
+    /// have nothing to be called on there: a laid-out game is an address space and not code, so a call to
+    /// an exe address would jump into memory nothing has mapped, and what a test hands over in
+    /// `Originals` stands in for them. Where they are orb's they are the same code in a test as in a run,
+    /// and standing anything in for them is the divergence — a launch of th06c whose present was a test's
+    /// own never reaches `look_for_the_swapchain`, so orb has no swapchain, no canvas and no overlay,
+    /// which is a whole screen of orb's that no e2e test could see.
+    pub orbs_own: bool,
 }
 
 pub struct Hooks {
@@ -401,7 +415,8 @@ pub struct Hooks {
     ///
     /// `None` for a game whose frame orb has not been read far enough into to stand in: a launch there
     /// gets no frame loop of orb's own and no chapters, and what it does get is whatever hooks below
-    /// are named — see [`th06c`], which is read as far as its keys and no further.
+    /// are named. And `None` for a game whose two walks are handed over instead — see [`Hooks::walks`],
+    /// and [`th06c`], whose frame is orb's that way.
     pub update: Option<Patch>,
     /// Called inside the scene the game draws into, the only place an overlay
     /// may draw. `None` on the same terms as [`Hooks::update`].
@@ -589,6 +604,61 @@ pub struct Hooks {
     /// orb stands in that stretch with — see [`FrameInTheLoop`]. `None` for a game whose frame is a
     /// function [`Hooks::render`] can stand in, which is every other game.
     pub frame_in_the_loop: Option<FrameInTheLoop>,
+    /// **How the game takes its memory from the OS**, which is where a chapter's snapshot learns what a
+    /// run is a copy of — see [`Memory`], and `orb::memtrack`, which stands in front of the imports named.
+    pub takes_its_memory: Memory,
+    /// **And how it makes its threads**, which are the ones a restore stops while it copies — see
+    /// [`Threads`], and `orb::threads`.
+    pub makes_its_threads: Threads,
+    /// **And how it opens a file**, which is the import the score file's fork stands in front of — see
+    /// [`FileOpen`], and `orb::score`.
+    pub opens_its_files: FileOpen,
+}
+
+/// **The imports a game's own allocator reaches the OS through**, which is what says where a run's memory is.
+///
+/// A snapshot is a copy of every region the game owns and a restore writes them all back, the allocator's own
+/// bookkeeping included — which is what keeps every pointer in them valid. So what has to be known is which
+/// heap the game's `malloc` lands in, and that is a fact about the CRT the exe was linked against.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Memory {
+    /// `HeapCreate`, `HeapAlloc`, `HeapReAlloc`, `HeapFree`, `VirtualAlloc` and `VirtualFree` in the exe's
+    /// own `KERNEL32.dll` imports: a CRT linked statically, whose `malloc` goes to a heap it made for itself
+    /// and nothing else allocates from. th06 1.02h and th07 are built this way, and the hooks over those six
+    /// entries notice the heap and the reservations as the game takes them.
+    Kernel32Imports,
+    /// `malloc` and `free` out of `api-ms-win-crt-heap-l1-1-0.dll`: the universal CRT, whose `malloc` is the
+    /// *process* heap — the one D3D11, DXGI, Steam and every other module in the process allocate from too,
+    /// so a copy of it is a copy of theirs and a restore of it rewinds them. So orb stands in front of the two
+    /// imports and routes them to a heap it made for the game alone; every `new` in the exe reaches `malloc`
+    /// through the exe's own `operator new`, which is what makes the two imports the whole of it. th06c and
+    /// th06nc are built this way — neither imports a `Heap*` or `VirtualAlloc` at all.
+    UcrtImports,
+}
+
+/// **The import a game makes its threads through**, which is how orb learns which threads are the game's own:
+/// those are stopped while a chapter's memory is copied, and the graphics driver's and the sound mixer's are
+/// not — see `orb::threads`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Threads {
+    /// `CreateThread` in the exe's `KERNEL32.dll` imports, which is th06 1.02h's and th07's.
+    CreateThread,
+    /// `_beginthreadex` out of `api-ms-win-crt-runtime-l1-1-0.dll`, which is what a UCRT build's threads go
+    /// through and the only thread call th06c and th06nc import.
+    BeginThreadEx,
+}
+
+/// **The import a game opens a file through**, which is where the score file is sent to the mode's own — see
+/// `crate::score`, and `orb::score`, which writes over the entry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FileOpen {
+    /// `CreateFileA` in the exe's `KERNEL32.dll` imports, which both of th06 1.02h's paths to the file end
+    /// at, and th07's.
+    CreateFileA,
+    /// `fopen` out of `api-ms-win-crt-stdio-l1-1-0.dll`, which is every file th06c and th06nc open — the
+    /// score file, the replays and the data archives alike. The UCRT's own `CreateFileW` under it is in
+    /// `ucrtbase.dll`'s imports and not the exe's, so the exe's entry is the one orb can reach.
+    Fopen,
 }
 
 /// **A frame inline in the game's own loop**, which is th06nc's: `main` calls the calc chain's walk,
@@ -1096,6 +1166,24 @@ pub trait Game {
     /// The music stream, if one is playing and its objects look intact.
     fn music(&self) -> Option<Music>;
 
+    /// **Whether a snapshot of this game is worth waiting for the music to come up for**, which is what
+    /// `chapter`'s own `MUSIC_WAIT_FRAMES` is the bound on: a stage's start is snapshotted as soon as
+    /// [`Game::music`] answers one, and on that bound if it never does.
+    ///
+    /// `true` for a game whose music a snapshot carries and a restore puts back. What the wait buys there is
+    /// in that constant's own doc: a snapshot taken between tracks rewinds the streaming bookkeeping onto a
+    /// buffer that has moved on, and the track then plays a fraction of a second over and over.
+    ///
+    /// `false` for a game whose music orb neither reads nor puts back, which has nothing for the wait to be
+    /// about — and waiting it out costs that game the first 249 frames of every stage. Measured on th06c,
+    /// whose [`Game::music`] answers `None` on every frame: the stage's own start was snapshotted at frame
+    /// 249 rather than 9, a run hit at frame 185 had no chapter to be retried from, and the run carried on
+    /// past a death that Pointdevice mode exists to take back — writing chapters whose path holds it, which
+    /// a playback cannot put back because the frames a respawn holds everything on are frames of no stage.
+    fn a_snapshot_waits_for_its_music(&self) -> bool {
+        true
+    }
+
     /// Identifies the track playing, changing when the game switches tracks. Used to tell a
     /// stage's own music from a boss's, which is what tells a midboss from the boss a stage
     /// ends with: a stage's data names two songs and the game plays the second for that
@@ -1240,6 +1328,11 @@ pub trait Game {
     /// objects — which a snapshot cannot copy and a restore therefore must not rewind. Put
     /// back, a handle names something released long ago, and the next release of it is a
     /// use-after-free inside the game.
+    ///
+    /// **And memory whose meaning is a thread's and not the run's**, for the same reason and with the
+    /// same answer: a lock says which thread holds it and a work queue where a worker has got to, and a
+    /// restore rewinds neither the threads nor what they are doing. Put back, they describe a moment the
+    /// rest of the process has left — see `Th06c::live_handles`, where that cost a frame 130ms.
     ///
     /// # Safety
     /// Must run on the game's main thread, with the game past initialisation.
@@ -1579,6 +1672,21 @@ pub trait Game {
         false
     }
 
+    /// Whether the game reads its score file once, at startup, and never again — so that the one read is the
+    /// front end's read of its unlocks and there is no callback for [`Hooks::unlocks_read`] to bracket.
+    ///
+    /// **`true` keeps the bracket up from the attach until the mode is first settled**: every open of the file
+    /// until then lands in the game's own, which is where the unlocks the title lights its items from belong,
+    /// and the mode's own records are read over it at that first settling and every one after —
+    /// [`Game::read_what_the_modes_file_records`], which for such a game is the whole of the fork's second
+    /// half. th06c is the game this is `true` for: its read at `0x14002c158` is inline in its startup and not a
+    /// function a jump could be written over.
+    ///
+    /// `false` for a game that opens the file at every screen that wants it, whose bracket is the callback's.
+    fn reads_its_file_once_at_startup(&self) -> bool {
+        false
+    }
+
     /// Whether the read of the score file now running is one a write follows, `screen` being the object that
     /// read is made on.
     ///
@@ -1774,6 +1882,24 @@ pub trait Game {
     /// # Safety
     /// `state` must be the 256 bytes the game's own read was given.
     unsafe fn press_into(&self, state: *mut u8, word: u16);
+
+    /// **And the word a person's own keys in that snapshot say**, which is [`Game::press_into`] read the
+    /// other way.
+    ///
+    /// **What asks is the holding back of a press**, and it is the one thing that makes a question of orb's
+    /// answerable at a keyboard: `runtime::held_back` takes a word and takes the decide out of it, and for a
+    /// game whose keys orb *answers* rather than reads there is no word until this makes one — a press then
+    /// reaches the game's own item and orb never sees it. See [`crate::runtime::keyboard_state`].
+    ///
+    /// `None` for a game that hands orb a word and takes one back: th06 and th07 read their own keys and
+    /// orb stands in front of that read, so the word reaches the holding there and there is nothing here to
+    /// do.
+    ///
+    /// # Safety
+    /// `state` must be the 256 bytes the game's own read was given.
+    unsafe fn word_in(&self, _state: *const u8) -> Option<u16> {
+        None
+    }
 
     /// **A word's buttons put into the pad state orb answers a game's own pad read with**, for a game
     /// whose input orb reaches that way — see [`Hooks::reads_a_pad`].

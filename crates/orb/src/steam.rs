@@ -1,5 +1,8 @@
-//! The writes over the exe's imports of `steam_api64.dll`, so that a launch nobody is watching reaches
-//! Steam not at all.
+//! The writes over the exe's imports of `steam_api64.dll`, so that a launch asked for it reaches Steam
+//! not at all.
+//!
+//! **Which launches those are is `Config::without_steam_wanted`**: what `without_steam` in `orb.yaml` or
+//! `--without-steam` says, and otherwise whether the launch plays itself.
 //!
 //! **What it is for is somebody's account.** A run the machine plays is not a run they played, and a
 //! session that starts the game a hundred times would put a hundred launches of playtime on it, unlock
@@ -12,11 +15,26 @@
 //! anything but nought — measured, its own `log.txt` ending at the 122 bytes of its header. Answered
 //! here, the game goes on to its own startup dialog with nothing running beside it.
 //!
-//! **Two of the nine are answered and the rest are left alone.** What the game asks that DLL for is
-//! `SteamUtils`, `STEAMUSERSTATS_INTERFACE_VERSION013` and `STEAMAPPS_INTERFACE_VERSION...`, each
-//! through `SteamInternal_FindOrCreateUserInterface` at `0x140048790` onwards — and with no client
-//! there those answer nothing of their own accord. There is no `ISteamRemoteStorage` among them, so the
-//! save file is not this API's business either way.
+//! **All nine imports are answered**, the four the game cannot run without first. What it asks that DLL
+//! for is four interfaces, each through a getter of its own reaching
+//! `SteamInternal_FindOrCreateUserInterface`: `SteamUtils010` at `0x140048790`,
+//! `STEAMUSERSTATS_INTERFACE_VERSION013` at `0x1400487c0`, `STEAMAPPS_INTERFACE_VERSION009` at
+//! `0x1400487f0` and `SteamInput006` at `0x140048820`. There is no `ISteamRemoteStorage` among them, so
+//! the save file is not this API's business either way.
+//!
+//! **And seven slots of those four are called**, which is what says a vtable of noughts is an answer and
+//! not a hope. Each name was read off the DLL that ships beside the exe — see `th06c/asm.md`, which has
+//! the two commands it takes:
+//!
+//! | interface | slot | method | what the game does with the answer |
+//! | --- | --- | --- | --- |
+//! | Utils | `+0x110` | `IsSteamRunningOnSteamDeck` | nought is a desktop, which is what this is |
+//! | UserStats | `+0x48` | `StoreStats` | nought is "not stored", and there is nothing to store to; the site is in the frame loop behind a flag the answer would clear, so it is asked again every frame and costs a call into this module |
+//! | Apps | `+0x20` | `GetCurrentGameLanguage` | a string the game compares, which is why [`LANGUAGE`] is the one slot that answers something |
+//! | Input | `+0x00` | `Init` | nought, and the game ignores it |
+//! | Input | `+0x08` | `Shutdown` | the same |
+//! | Input | `+0x30` | `GetConnectedControllers` | nought is no Steam Input controller, and the game passes over the rest of that path |
+//! | Input | `+0x128` | `GetInputTypeForHandle` | out of reach behind the line above, no handle having been answered |
 //!
 //! Everything these decide is a constant, so there is nothing above the seam for them to decide with.
 
@@ -66,12 +84,19 @@ unsafe extern "system" fn unregister_callback(_callback: *mut c_void) {}
 /// A bound rather than a count of anything: what the game calls on one of these is whatever slot its
 /// own header had, and the real interfaces are tens of methods long. Every one of them answers nought —
 /// see [`nothing_at_all`] — so the only cost of a slot nobody calls is eight bytes.
+///
+/// **The furthest one this game reaches is 37**, `ISteamInput::GetInputTypeForHandle` at `+0x128`, and
+/// the table in this module's own doc is every slot it calls — so a hundred and twenty-eight is three
+/// times what has been measured and the room is what an interface version nobody has read yet would
+/// need. `tests::CALLED` is that table as indices, held against this.
 const SLOTS: usize = 128;
 
 /// **Which slot the game's own language comes out of**: `ISteamApps::GetCurrentGameLanguage`, called as
 /// `[vtable+0x20]` at `0x14004899f` and its answer compared against `japanese`, `schinese` and the rest
 /// at `0x1402c82c8` onwards. An interface that answered nought there is a null string the game compares,
 /// which is a fault rather than a language.
+///
+/// **A slot index and not the offset**, which is what the table above carries: `0x20 / 8`.
 const LANGUAGE: usize = 4;
 
 /// And what it answers, which is this build's own: the strings it is held against are Steam's own names
@@ -204,4 +229,69 @@ pub unsafe fn install(module: usize) -> Result<(), hook::Error> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LANGUAGE, SLOTS, context_init};
+
+    /// **The slots this game is measured to call, as indices** — the table in this module's own doc, by
+    /// the offsets it names: `0x110`, `0x48`, `0x20`, `0x00`, `0x08`, `0x30` and `0x128`.
+    ///
+    /// Here rather than beside [`SLOTS`] because nothing but a test reads it: what the interface answers
+    /// a slot with does not depend on which slot it is — every one but the language's is nought — so the
+    /// reading is a claim to hold that bound against and not a table the code walks.
+    const CALLED: [usize; 7] = [34, 9, LANGUAGE, 0, 1, 6, 37];
+
+    /// **Every slot this game calls is one the interface orb hands over has.**
+    ///
+    /// A test rather than a `const` assert, so that a failure names the slot: what it is about is the
+    /// reading in this module's own doc, and a version of an interface that reached further than
+    /// [`SLOTS`] would be a call off the end of a `Box` orb leaked.
+    #[test]
+    fn every_slot_the_game_calls_is_one_the_interface_has() {
+        for slot in CALLED {
+            assert!(
+                slot < SLOTS,
+                "slot {slot} is past the {SLOTS} the interface has",
+            );
+        }
+    }
+
+    /// And the one that answers something is the language's, which is the only slot whose nought would
+    /// be a fault rather than an answer.
+    #[test]
+    fn the_language_is_the_only_slot_answered_with_anything() {
+        assert!(CALLED.contains(&LANGUAGE));
+        assert_eq!(LANGUAGE, 0x20 / 8, "the language is not the slot read");
+    }
+
+    /// **The context is filled once and its own slot is what comes back**, which is what the game's two
+    /// instructions after the call walk: `mov rcx,[rax]` and then the vtable out of that.
+    ///
+    /// The fill is a function of this test's own rather than the game's accessor: what is under test is
+    /// the SDK's own shape — `{ fill, counter, context }` — and that orb answers the third word's
+    /// address, which is the whole of why this is answered rather than called through.
+    #[test]
+    fn the_context_is_filled_once_and_answered_as_its_own_slot() {
+        static FILLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        const INTERFACE: usize = 0x1234_5678;
+
+        unsafe extern "system" fn fill(context: *mut usize) {
+            FILLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            unsafe { context.write(INTERFACE) };
+        }
+
+        let mut block = [fill as *const () as usize, 0, 0];
+        let answered = unsafe { context_init(block.as_mut_ptr()) };
+        assert_eq!(answered, unsafe { block.as_mut_ptr().add(2) });
+        assert_eq!(unsafe { answered.read() }, INTERFACE);
+        assert_eq!(FILLS.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        // And again, which is what every frame of the game does: the counter beside the fill is what
+        // says it has been made, so the second call is the same address and no second fill.
+        let again = unsafe { context_init(block.as_mut_ptr()) };
+        assert_eq!(again, answered);
+        assert_eq!(FILLS.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
 }

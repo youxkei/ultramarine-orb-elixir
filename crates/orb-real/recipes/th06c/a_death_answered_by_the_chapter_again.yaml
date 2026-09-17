@@ -1,0 +1,55 @@
+# A run whose first attempt at every chapter is hit on purpose and whose second is played clean, so that the
+# retry question comes up and is answered by the rules with the chapter again — the whole content of the mode,
+# which a run that dodges everything never reaches. The walk to the run is a_run_left_in_its_second_chapter's.
+- wait_until: { screen: 1 }
+  give_up_after: 7200
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 2 }
+  give_up_after: 36000
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+  until: { question: mode }
+  give_up_after: 1800
+- answer: { question: mode, item: 0 }
+  give_up_after: 300
+- wait_until: { screen: 7 }
+  give_up_after: 1800
+- press: [down]
+  frames: 6
+  until: { screen: 7, cursor: 1 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 9 }
+  give_up_after: 1800
+- press: [up]
+  frames: 6
+  until: { screen: 9, cursor: 0 }
+  give_up_after: 900
+- wait_until: { frames: 60 }
+- press: [decide]
+  frames: 6
+- wait_until: { screen: 11 }
+  give_up_after: 1800
+- wait_until: { frames: 120 }
+- press: [decide]
+  frames: 6
+  until: { stage: 1, chapter: 1 }
+  give_up_after: 1800
+- take_hits: { chance: 1.0, times_each_retry: 0.0, gives_up: 0.0 }
+# **A window of frames for the one death this case is about**, and not a chapter: which chapter the death
+# falls in is a thing of how well the rules play and of where the stage's own bullets are, and th06's case has
+# why a chapter bound ended on the wrong side of the death. The question itself cannot be waited for, the
+# rules answering the offer the frame it comes up.
+- play_until: { frames: 400 }
+# And then a chapter past the one it died in, with no chance of being hit on the way: what the death has to be
+# answered by is the chapter again and the run carrying on out of it.
+- take_hits: { chance: 0.0, times_each_retry: 0.0, gives_up: 0.0 }
+- play_until: { stage: 1, chapter: 4 }
+  give_up_after: 36000
+- leave: true
+- wait_until: { frames: 300 }
+- quit: true

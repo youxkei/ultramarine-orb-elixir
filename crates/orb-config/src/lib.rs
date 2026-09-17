@@ -237,6 +237,22 @@ pub struct Config {
     /// what the settings dialog has to show as chosen — and write back — is the answer, and whether
     /// there was one.
     pub thcrap: Option<bool>,
+    /// **Take Steam out of the launch**, for a game sold through it, and `None` for the answer the
+    /// launch itself gives — see [`Config::without_steam_wanted`].
+    ///
+    /// On, the imports the game reaches Steam through are answered by orb instead: it needs no client
+    /// running to start, puts no playtime on anybody's account, unlocks nothing and hands Steam no save
+    /// to sync. Off leaves every one of them the game's own. What each is answered with is `orb::steam`.
+    ///
+    /// **`None` is the useful answer and the default**, because what it depends on is whose run this is:
+    /// a run the machine plays is not a run anybody played, so a launch playing itself takes Steam out,
+    /// and a launch somebody is playing is theirs to have counted. Saying it by name is for the launch
+    /// that is neither of those — somebody who wants to play this game with no client up.
+    ///
+    /// Kept as the file said it rather than answered here, for the same reason [`Config::thcrap`] is:
+    /// what the settings dialog has to show as chosen — and write back — is the answer, and whether
+    /// there was one.
+    pub without_steam: Option<bool>,
     /// Which language orb writes its own screens in, and `None` for the machine's own — which is what
     /// the file says by default and what the settings dialog offers first.
     ///
@@ -543,6 +559,7 @@ impl Config {
             screen: file.screen,
             language: file.language,
             thcrap: file.thcrap,
+            without_steam: file.without_steam,
             ask_at_startup: file.ask_at_startup,
             log_level: LogLevel::Normal,
             pacing_log: true,
@@ -570,6 +587,18 @@ impl Config {
         self.thcrap.unwrap_or(language != Language::Japanese)
     }
 
+    /// Whether Steam is taken out of this launch: what [`Config::without_steam`] says where the file or
+    /// a launch's own argument answered it, and otherwise whether this launch plays itself.
+    ///
+    /// **Which is whose run it is deciding.** A run played to a recipe is the machine's and not
+    /// anybody's, so it puts no playtime on an account, unlocks nothing and syncs nothing — and it
+    /// needs no client up to start, which is what makes a session of `cargo xtask real` possible with
+    /// Steam closed. A run somebody is playing is theirs to have counted, so that one is left as Steam's
+    /// own unless they ask.
+    pub fn without_steam_wanted(&self) -> bool {
+        self.without_steam.unwrap_or(self.autoplay.is_some())
+    }
+
     /// Writes the keys of `orb.yaml` back, which is what the launcher does with the answers to
     /// the settings it asked for.
     ///
@@ -580,6 +609,7 @@ impl Config {
             screen: self.screen,
             language: self.language,
             thcrap: self.thcrap,
+            without_steam: self.without_steam,
             always_draw: self.always_draw,
             boundary_flash: self.boundary_flash,
             skip_ending: self.skip_ending,
@@ -834,6 +864,40 @@ mod tests {
         let config = parse("");
         config.save(&path).unwrap();
         assert_eq!(Config::load(&path).unwrap().thcrap, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Steam is taken out of a launch by name, or left to whose run it is — a launch playing itself
+    /// being the machine's and not anybody's, and one somebody is playing being theirs to have counted.
+    #[test]
+    fn steam_is_taken_out_by_name_or_by_whose_run_it_is() {
+        assert_eq!(parse("without_steam: true\n").without_steam, Some(true));
+        assert_eq!(parse("without_steam: false\n").without_steam, Some(false));
+        assert_eq!(parse("without_steam: auto\n").without_steam, None);
+        assert_eq!(parse("").without_steam, None);
+
+        // Answered by name, and a recipe does not come into it either way.
+        for recipe in [None, Some(PathBuf::from("run.yaml"))] {
+            let mut config = parse("without_steam: true\n");
+            config.autoplay = recipe.clone().map(|_| String::new());
+            assert!(config.without_steam_wanted());
+            let mut config = parse("without_steam: false\n");
+            config.autoplay = recipe.map(|_| String::new());
+            assert!(!config.without_steam_wanted());
+        }
+        // Left to the launch, and this is the whole of the rule: a run played to a recipe is nobody's.
+        assert!(!parse("").without_steam_wanted());
+        let mut playing_itself = parse("");
+        playing_itself.autoplay = Some(String::new());
+        assert!(playing_itself.without_steam_wanted());
+
+        // And `auto` is written back as `auto`, so a file that follows the launch goes on following it.
+        let dir = std::env::temp_dir().join(format!("orb-config-steam-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(super::FILE_NAME);
+        let config = parse("");
+        config.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap().without_steam, None);
         std::fs::remove_dir_all(&dir).ok();
     }
 
